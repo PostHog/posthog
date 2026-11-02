@@ -177,8 +177,8 @@ function splitChangedNote(finding: ExperimentHealthFindingApi): string {
     const { evidence } = finding
     if (finding.subcode === 'not_checked') {
         return evidence.change_count == null
-            ? `Not checked: ${evidence.reason}.`
-            : `Not checked: ${evidence.reason}. ${evidence.change_count} changes since launch, from ${evidence.from} to ${evidence.to}.`
+            ? `Not checked: ${finding.reason}.`
+            : `Not checked: ${finding.reason}. ${evidence.change_count} changes since launch, from ${evidence.from} to ${evidence.to}.`
     }
     return `${evidence.change_count} counted changes, from ${evidence.from} to ${evidence.to}. ${exposedBeforeFirst(finding)}`
 }
@@ -187,7 +187,7 @@ function bucketingChangedNote(finding: ExperimentHealthFindingApi): string {
     const { evidence } = finding
     const changed = `${evidence.change_count} saves changed ${evidence.changed_settings}.`
     return finding.subcode === 'not_checked'
-        ? `Not checked: ${evidence.reason}. ${changed}`
+        ? `Not checked: ${finding.reason}. ${changed}`
         : `${changed} ${exposedBeforeFirst(finding)}`
 }
 
@@ -195,13 +195,13 @@ function conditionsChangedNote(finding: ExperimentHealthFindingApi): string {
     const { evidence } = finding
     const changed = `${evidence.change_count} changes, from ${evidence.conditions_before} to ${evidence.conditions_after} conditions.`
     if (finding.subcode === 'not_checked') {
-        return `Not checked: ${evidence.reason}. ${changed}`
+        return `Not checked: ${finding.reason}. ${changed}`
     }
     const pinnedShare = share(evidence.pinned_share)
     const removedOverride = pinnedShare
         ? `Removed override share ${pinnedShare}.`
-        : typeof evidence.reason === 'string'
-          ? `Removed override share unknown: ${evidence.reason}.`
+        : finding.reason
+          ? `Removed override share unknown: ${finding.reason}.`
           : null
     return [changed, exposedBeforeFirst(finding), removedOverride].filter(Boolean).join(' ')
 }
@@ -220,8 +220,8 @@ function forcedVariantNote(finding: ExperimentHealthFindingApi): string {
     if (remoteShare) {
         parts.push(`${remoteShare} of calls evaluated by the flag service.`)
     }
-    if (typeof evidence.reason === 'string') {
-        parts.push(`Share unknown: ${evidence.reason}.`)
+    if (finding.reason) {
+        parts.push(`Share unknown: ${finding.reason}.`)
     }
     return parts.join(' ')
 }
@@ -353,6 +353,11 @@ function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
     return [
         exposureCheck('zero_exposures', ['experiment', 'flag', 'exposures'], null),
         exposureCheck(
+            'test_account_filter_removes_exposures',
+            ['experiment', 'exposures', 'project'],
+            'The finding needs 100 or more users or groups exposed without the test account filter, and 10% or less of them kept. It runs from 24 hours after launch while fewer than 1,000 are counted.'
+        ),
+        exposureCheck(
             'srm',
             ['exposures', 'flag'],
             'The finding needs p < 0.001. After a split change it tests the users first exposed after the day of the change. It reads the flag history only for a reader who can view the flag.'
@@ -383,6 +388,7 @@ export function buildHealthDebugChecks(input: HealthDebugInput): HealthDebugChec
         serverOnlyCheck(input, 'exposure_criteria_cannot_match', exposureCriteriaNote, ['experiment', 'project']),
         exposureFiltersCheck(input),
         serverOnlyCheck(input, 'early_significance', null, ['experiment', 'metrics']),
+        serverOnlyCheck(input, 'metrics_not_matured', null, ['experiment', 'metrics']),
         ...exposureChecks(input),
     ]
 }

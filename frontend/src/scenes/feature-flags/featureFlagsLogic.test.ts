@@ -505,6 +505,68 @@ describe('the feature flags logic', () => {
         expect(router.values.location.pathname).toEqual('/project/997/experiments/1')
     })
 
+    describe('list request timing', () => {
+        let listGet: jest.SpyInstance
+
+        const listRequests = (): string[] =>
+            listGet.mock.calls.map(([url]) => String(url)).filter((url) => url.includes('/feature_flags/?'))
+
+        beforeEach(() => {
+            logic.unmount()
+            jest.useFakeTimers()
+            listGet = jest.spyOn(api, 'get').mockResolvedValue({ results: [], count: 0 })
+        })
+
+        afterEach(() => {
+            listGet.mockRestore()
+            jest.useRealTimers()
+        })
+
+        it.each<[string, Record<string, string>]>([
+            ['a bare URL', {}],
+            ['a search in the URL', { search: 'checkout' }],
+            ['a status filter in the URL', { active: 'true' }],
+        ])('sends one list request at once when the page opens on %s', async (_, searchParams) => {
+            router.actions.push(urls.featureFlags(), searchParams)
+            logic = featureFlagsLogic()
+            logic.mount()
+
+            expect(listRequests()).toHaveLength(1)
+
+            await jest.advanceTimersByTimeAsync(1000)
+            expect(listRequests()).toHaveLength(1)
+        })
+
+        it('waits for typing in the search box to pause, then sends one request', async () => {
+            logic = featureFlagsLogic()
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(1000)
+            listGet.mockClear()
+
+            logic.actions.setFeatureFlagsFilters({ search: 'chec', page: 1 })
+            await jest.advanceTimersByTimeAsync(100)
+            logic.actions.setFeatureFlagsFilters({ search: 'checkout', page: 1 })
+            await jest.advanceTimersByTimeAsync(299)
+            expect(listRequests()).toHaveLength(0)
+
+            await jest.advanceTimersByTimeAsync(1)
+            expect(listRequests()).toEqual([expect.stringContaining('search=checkout')])
+        })
+
+        it('sends one request with the destination filters when the URL moves from another tab to the overview', async () => {
+            router.actions.push(urls.featureFlags(), { tab: 'history' })
+            logic = featureFlagsLogic()
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(1000)
+            listGet.mockClear()
+
+            router.actions.push(urls.featureFlags(), { tab: 'overview', search: 'checkout' })
+            await jest.advanceTimersByTimeAsync(1000)
+
+            expect(listRequests()).toEqual([expect.stringContaining('search=checkout')])
+        })
+    })
+
     describe('activity deep-link', () => {
         it('preserves the activity deep-link param when staying on the history tab', async () => {
             router.actions.push(urls.featureFlags(), { tab: 'history', activity: 'some-uuid' })

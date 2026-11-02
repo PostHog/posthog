@@ -807,7 +807,7 @@ def calculate_cohort_from_list(
             return
 
         # An import that fails without a row of its own resolves `last_error_message` to whichever
-        # older population failed, because that lookup takes the newest errored row over the
+        # older population failed, because that lookup takes the newest finished history row over the
         # cohort's whole life. Recording the attempt also keeps imports in the calculation history
         # beside the query and filter population paths.
         history = CohortCalculationHistory.objects.create(
@@ -954,7 +954,7 @@ def _populate_static_cohort(
         cohort.refresh_from_db()
 
         # A history record is the only way a population failure reaches the user: the cohort API
-        # reads `last_error_message` from the newest history row that carries an error. Without one,
+        # reads `last_error_message` from the newest finished history row. Without one,
         # a population that died on a ClickHouse limit is indistinguishable from a cohort that
         # matched nobody.
         history = CohortCalculationHistory.objects.create(

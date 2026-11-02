@@ -5,7 +5,7 @@ import { subscriptions } from 'kea-subscriptions'
 
 import type { DisplayableEntity } from 'lib/components/EntityFilterInfo'
 import { getElk } from 'lib/elk'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 
 import type { FunnelsQuery, PathsLink } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'

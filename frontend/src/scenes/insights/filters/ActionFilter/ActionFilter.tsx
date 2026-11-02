@@ -16,11 +16,11 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopoverProps } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { DISPLAY_TYPES_TO_CATEGORIES as DISPLAY_TYPES_TO_CATEGORY } from 'lib/constants'
+import { isTrendsFilter } from 'lib/insights/sharedUtils'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { verticalSortableListCollisionDetection } from 'lib/sortable'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { RenameModal } from 'scenes/insights/filters/ActionFilter/RenameModal'
-import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 import { ChartDisplayCategory, ChartDisplayType, FilterType, InsightType, PropertyOperator } from '~/types'
 

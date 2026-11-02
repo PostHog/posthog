@@ -54,7 +54,7 @@ class TicketTailorSource(ResumableSource[TicketTailorSourceConfig, TicketTailorR
             name=ExternalDataSourceType.TICKETTAILOR,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Ticket Tailor",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Ticket Tailor API key to pull your event ticketing data into the PostHog Data warehouse.
 
 You can create an API key under **Settings → API** in your [Ticket Tailor](https://www.tickettailor.com) box office. API keys are scoped to a single box office — connect one source per box office you want to sync.

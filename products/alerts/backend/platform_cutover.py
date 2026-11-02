@@ -185,7 +185,7 @@ def hand_over(alert: AlertConfiguration, at: datetime) -> bool:
     """
     upsert = platform_upsert_of(alert)
     assert upsert is not None
-    savepoint = transaction.savepoint()
+    savepoint = transaction.savepoint_create()
     upsert_configuration(upsert)
     taken = take_ownership(
         PlatformOwnershipHandover(
