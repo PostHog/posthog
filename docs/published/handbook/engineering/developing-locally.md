@@ -194,21 +194,6 @@ If `bin/start` sees any `op://` reference in `.env.local`, it re-execs itself un
 
 If the `op` CLI isn't installed, `op://` lines are skipped (rather than sourced as literal `op://...` strings that break downstream services with cryptic errors). Services that need those secrets will fail with their own "missing key" errors — install `1password-cli` or replace the refs with literal values.
 
-### Demo data for the usual test account
-
-After the local services are ready and Postgres migrations have completed, generate demo data from the repository root:
-
-```bash
-python manage.py generate_demo_data
-```
-
-This creates the `test@posthog.com` account with password `12345678` and a Hedgebox demo project.
-In local development (`DEBUG` on, no cloud deployment), the project also gets pinned dashboards and insights, recent exceptions, a few Inbox reports that name that user as a reviewer, and one completed Chat conversation, so the mobile and desktop apps have something to show.
-If the account already exists, add `--reuse-existing-account` to generate data into its current project instead of creating `test+1@posthog.com`.
-To add only Inbox reports and their task runs to another existing project, run `python manage.py seed_inbox_data --team-id <project-id> --user-id <user-id>`.
-Sign-in from the desktop and mobile apps uses local OAuth, which needs `OIDC_RSA_PRIVATE_KEY` in your development environment.
-`bin/migrate` already registers the app callbacks with `setup_tasks_oauth`.
-
 ### Running in detached mode
 
 By default, `hogli start` runs interactively with a terminal UI (phrocs) that displays logs from all processes. If you prefer to run the dev stack in the background without an attached terminal, use detached mode:
