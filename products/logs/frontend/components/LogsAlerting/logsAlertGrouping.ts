@@ -75,16 +75,27 @@ export function isRegroup(alert: LogsAlertConfigurationApi | null, groupBy: Logs
     return alert !== null && groupByOf(alert.grouping) !== groupBy
 }
 
+/** The team's logs alerts as the alert list loaded them. A created-by filter on the list hides some of them. */
+export interface LoadedTeamAlerts {
+    alerts: LogsAlertConfigurationApi[]
+    complete: boolean
+}
+
 /**
- * Only an alert the alerts platform evaluates can group. A new alert goes to the platform once the
- * team has any logs alert there, which mirrors the backend's cutover check.
+ * Only an alert the alerts platform evaluates can group. A new alert goes to the platform when the
+ * platform owns another of the team's alerts, or when the team has no other alert, which mirrors the
+ * backend's cutover check. Until the team's alerts load, an empty list says nothing, so a new alert
+ * can't group yet.
  */
-export function canGroupAlert(
-    alert: LogsAlertConfigurationApi | null,
-    teamAlerts: LogsAlertConfigurationApi[]
-): boolean {
+export function canGroupAlert(alert: LogsAlertConfigurationApi | null, teamAlerts: LoadedTeamAlerts | null): boolean {
     if (!alert) {
-        return teamAlerts.some((candidate) => candidate.platform_owned)
+        if (!teamAlerts) {
+            return false
+        }
+        return (
+            teamAlerts.alerts.some((candidate) => candidate.platform_owned) ||
+            (teamAlerts.complete && teamAlerts.alerts.length === 0)
+        )
     }
     return alert.platform_owned || alert.grouping?.mode === GroupingModeEnumApi.ByResultLabels
 }

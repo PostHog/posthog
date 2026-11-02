@@ -123,6 +123,8 @@ export function buildFormDefaults(alert: LogsAlertConfigurationApi | null): Logs
 export interface logsAlertFormLogicValues {
     pendingNotifications: PendingLogsAlertNotification[] // logsAlertNotificationLogic
     alerts: LogsAlertConfigurationApi[] // logsAlertingLogic
+    alertsLoaded: boolean // logsAlertingLogic
+    createdByFilter: string | null // logsAlertingLogic
     currentTeamId: number | null // teamLogic
     alertForm: LogsAlertFormType
     alertFormAllErrors: Record<string, any>
@@ -260,7 +262,7 @@ export interface logsAlertFormLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         isEditing: (arg: any) => boolean
-        canGroup: (arg: any, alerts: LogsAlertConfigurationApi[]) => boolean
+        canGroup: (arg: any, alerts: LogsAlertConfigurationApi[], alertsLoaded: any, createdByFilter: any) => boolean
         regroupConfirmation: (arg: any) => string
         needsRegroupConfirmation: (arg: any, canGroup: boolean, alertForm: LogsAlertFormType) => boolean
         simulationDisabledReason: (canGroup: boolean, alertForm: LogsAlertFormType) => string | undefined
@@ -284,7 +286,7 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
             teamLogic,
             ['currentTeamId'],
             logsAlertingLogic,
-            ['alerts'],
+            ['alerts', 'alertsLoaded', 'createdByFilter'],
             logsAlertNotificationLogic({ alertId: alert?.id }),
             ['pendingNotifications'],
         ],
@@ -395,9 +397,13 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
     selectors({
         isEditing: [() => [(_, props) => props.alert], (alert: LogsAlertConfigurationApi | null) => alert !== null],
         canGroup: [
-            (s) => [(_, props) => props.alert, s.alerts],
-            (alert: LogsAlertConfigurationApi | null, alerts: LogsAlertConfigurationApi[]): boolean =>
-                canGroupAlert(alert, alerts),
+            (s) => [(_, props) => props.alert, s.alerts, s.alertsLoaded, s.createdByFilter],
+            (
+                alert: LogsAlertConfigurationApi | null,
+                alerts: LogsAlertConfigurationApi[],
+                alertsLoaded: boolean,
+                createdByFilter: string | null
+            ): boolean => canGroupAlert(alert, alertsLoaded ? { alerts, complete: createdByFilter === null } : null),
         ],
         regroupConfirmation: [
             () => [(_, props) => props.alert],
