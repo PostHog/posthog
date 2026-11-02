@@ -82,6 +82,9 @@ const BLOCKED_EVENT_WINDOW_SECONDS = 3600
 // The send is already decided when this runs, and the worker's batch waits for it, so a stalled
 // store must not hold the invocation open.
 const EVENT_CAPTURE_TIMEOUT_MS = 1000
+// A capture that outlives its deadline keeps its Redis connection or pending acquisition, so while the
+// store stalls only this many may wait at once; the rest are dropped.
+const MAX_PENDING_EVENT_CAPTURES = 10
 
 function htmlBody(document: DefaultTreeAdapterMap['document']): DefaultTreeAdapterMap['element'] | undefined {
     const root = document.childNodes.find(defaultTreeAdapter.isElementNode)
@@ -118,6 +121,8 @@ function scanDeclarations(style: string): string[] {
             if (end === -1) {
                 return declarations
             }
+            // A comment separates tokens, so it becomes a space: dropping it could join a slash and a star.
+            current += ' '
             index = end + 1
         } else if (char === ';' && !closers.length) {
             declarations.push(current)
@@ -214,6 +219,7 @@ function appendHtmlFooter(html: string, footer: string, preheader?: string): str
 
 export class SandboxEmailSender {
     public readonly canSend: boolean
+    private pendingEventCaptures = 0
 
     constructor(
         public readonly config: SandboxEmailSenderConfig,
@@ -325,6 +331,17 @@ export class SandboxEmailSender {
         properties: Record<string, string | number | boolean>,
         shouldCapture: () => Promise<boolean> = () => Promise.resolve(true)
     ): Promise<void> {
+        if (this.pendingEventCaptures >= MAX_PENDING_EVENT_CAPTURES) {
+            logger.warn('Dropped a sandbox email event: too many captures are waiting on the event store', {
+                teamId,
+                event,
+            })
+            return
+        }
+        this.pendingEventCaptures++
+        const capture = this.captureEventNow(teamId, event, properties, shouldCapture).finally(() => {
+            this.pendingEventCaptures--
+        })
         let timer: NodeJS.Timeout | undefined
         const deadline = new Promise<void>((resolve) => {
             timer = setTimeout(() => {
@@ -336,7 +353,7 @@ export class SandboxEmailSender {
             }, EVENT_CAPTURE_TIMEOUT_MS)
         })
         try {
-            await Promise.race([this.captureEventNow(teamId, event, properties, shouldCapture), deadline])
+            await Promise.race([capture, deadline])
         } finally {
             clearTimeout(timer)
         }
