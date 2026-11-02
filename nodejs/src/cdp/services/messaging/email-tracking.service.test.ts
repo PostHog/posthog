@@ -219,7 +219,9 @@ describe('EmailTrackingService', () => {
 
                 expect(codes).toHaveLength(2) // one redirect, one pixel
                 for (const code of codes) {
-                    expect(signer.parse(code)?.distinctId).toBe(distinctId)
+                    const parsed = signer.parse(code)
+                    expect(parsed).toBeTruthy()
+                    expect(parsed?.distinctId).toBe(distinctId)
                 }
             }
         )
