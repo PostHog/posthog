@@ -55,7 +55,9 @@ async function depotUsageSpend(startAt, endAt) {
         signal: AbortSignal.timeout(60_000),
     }).catch(() => null)
     if (!res?.ok) {
-        throw new Error(`Depot GetUsage failed${res ? ` with ${res.status}` : ''}`)
+        throw Object.assign(new Error(`Depot GetUsage failed${res ? ` with ${res.status}` : ''}`), {
+            retryable: !res || res.status >= 500 || res.status === 429,
+        })
     }
     const usage = await res.json().catch(() => null)
     const jobs = usage?.githubActionsJobs ?? []
@@ -77,10 +79,9 @@ async function depotUsageSpend(startAt, endAt) {
 }
 
 async function depotCiSpend(startAt, endAt) {
-    const usage = await apiWithRetry('depot_ci_usage', {
-        date_from: startAt.toISOString(),
-        date_to: endAt.toISOString(),
-    })
+    const usage = await withRetry(() =>
+        api('depot_ci_usage', { date_from: startAt.toISOString(), date_to: endAt.toISOString() })
+    )
     if (!Array.isArray(usage) || usage.some((repo) => !Number.isFinite(repo?.estimated_cost_usd))) {
         throw new Error('depot_ci_usage returned invalid usage')
     }
@@ -97,7 +98,10 @@ function isThisRepository(name) {
 }
 
 async function spend(startAt, endAt) {
-    const [usage, ci] = await Promise.all([depotUsageSpend(startAt, endAt), depotCiSpend(startAt, endAt)])
+    const [usage, ci] = await Promise.all([
+        withRetry(() => depotUsageSpend(startAt, endAt)),
+        depotCiSpend(startAt, endAt),
+    ])
     return { ...usage, ...ci, total: usage.runners + ci.depotCi + usage.containerBuilds }
 }
 
@@ -201,11 +205,12 @@ async function api(action, params) {
 const RETRY_ATTEMPTS = 3
 const RETRY_DELAY_MS = 30_000
 
-// A busy ClickHouse cluster can push one attempt past the API gateway's timeout.
-async function apiWithRetry(action, params) {
+// A busy ClickHouse cluster can push one attempt past the API gateway's timeout, and Depot's API
+// returns an occasional 503.
+async function withRetry(call) {
     for (let attempt = 1; ; attempt++) {
         try {
-            return await api(action, params)
+            return await call()
         } catch (err) {
             if (err.retryable === false || attempt >= RETRY_ATTEMPTS) {
                 throw err
@@ -376,13 +381,15 @@ export async function main() {
     const weekStart = new Date(weekEnd.getTime() - WEEK_MS)
     const [overview, weeks] = await Promise.all([
         // Every figure carries its value for the 7 days before date_from, so one call covers both weeks.
-        apiWithRetry('repo_overview', {
-            date_from: weekStart.toISOString(),
-            date_to: weekEnd.toISOString(),
-            include_series: 'false',
-            source_id: SOURCE_ID,
-            repo: GITHUB_REPOSITORY,
-        }),
+        withRetry(() =>
+            api('repo_overview', {
+                date_from: weekStart.toISOString(),
+                date_to: weekEnd.toISOString(),
+                include_series: 'false',
+                source_id: SOURCE_ID,
+                repo: GITHUB_REPOSITORY,
+            })
+        ),
         readSpend(weekStart, weekEnd),
     ])
     const rows = tableRows(overview, weeks)

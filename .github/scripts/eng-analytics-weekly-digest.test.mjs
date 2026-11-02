@@ -55,7 +55,7 @@ const DEPOT_CI_USAGE = {
 let importCount = 0
 
 async function runDigest(t, { env = {}, depotUsage = DEPOT_USAGE, depotCiUsage = DEPOT_CI_USAGE } = {}) {
-    t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-10-05T13:00:00Z') })
+    t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: new Date('2026-10-05T13:00:00Z') })
     const settings = { ...ENV, ...env }
     const previousEnv = Object.fromEntries(Object.keys(settings).map((key) => [key, process.env[key]]))
     Object.assign(process.env, settings)
@@ -76,7 +76,8 @@ async function runDigest(t, { env = {}, depotUsage = DEPOT_USAGE, depotCiUsage =
             return Response.json(OVERVIEW)
         }
         if (href.startsWith('https://api.depot.dev/')) {
-            const usage = depotUsage[JSON.parse(options.body).startAt]
+            const answer = depotUsage[JSON.parse(options.body).startAt]
+            const usage = Array.isArray(answer) ? answer.shift() : answer
             if (usage instanceof Error) {
                 throw usage
             }
@@ -88,7 +89,15 @@ async function runDigest(t, { env = {}, depotUsage = DEPOT_USAGE, depotCiUsage =
     })
     try {
         const { main } = await import(`./eng-analytics-weekly-digest.mjs?test=${++importCount}`)
-        await main()
+        let settled = false
+        const run = main().finally(() => {
+            settled = true
+        })
+        while (!settled) {
+            await new Promise((resolve) => setImmediate(resolve))
+            t.mock.timers.tick(30_000)
+        }
+        await run
         return { blocks, logs, requests }
     } finally {
         for (const [key, value] of Object.entries(previousEnv)) {
@@ -106,29 +115,37 @@ function tableText(blocks) {
 }
 
 describe('weekly engineering analytics digest', () => {
-    it('reports Depot spend for complete UTC weeks and the contract', async (t) => {
-        const { blocks, requests } = await runDigest(t)
-        const overviewUrl = new URL(requests.find((request) => request.url.includes('/repo_overview/')).url)
-        assert.equal(overviewUrl.searchParams.get('date_from'), WEEK)
-        assert.equal(overviewUrl.searchParams.get('date_to'), '2026-10-05T00:00:00.000Z')
-        assert.equal(overviewUrl.searchParams.get('repo'), 'PostHog/posthog')
-        assert.match(blocks[0].text.text, /2026-09-28 to 2026-10-04 UTC/)
-        assert.deepEqual(tableText(blocks), [
-            ['Depot spend', '$2,100', '$900', '+133.3%'],
-            ['└ runners', '$600', '$200', '+200.0%'],
-            ['└ Depot CI', '$1,100', '$500', '+120.0%'],
-            ['└ container builds', '$400', '$200', '+100.0%'],
-            ['$ / merged PR', '$14', '$10', '+40.0%'],
-            ['merged PRs', '100', '70', '+42.9%'],
-            ['ready→merge median', '1h', '2h', '-50.0%'],
-        ])
-        assert.equal(blocks[2].text.text, 'Depot CI counts posthog/posthog, posthog/posthog-private.')
-        assert.match(blocks[3].text.text, /\$50,000 of \$60,000 used through 2026-10-04/)
-        assert.match(
-            blocks[3].text.text,
-            /runs out around 2026-11-07, 55 days before the contract ends on 2027-01-01\.$/
-        )
-    })
+    for (const [name, override] of [
+        ['', {}],
+        [
+            ' after a transient Depot failure',
+            { depotUsage: { ...DEPOT_USAGE, [WEEK]: [new Response('', { status: 503 }), DEPOT_USAGE[WEEK]] } },
+        ],
+    ]) {
+        it(`reports Depot spend for complete UTC weeks and the contract${name}`, async (t) => {
+            const { blocks, requests } = await runDigest(t, override)
+            const overviewUrl = new URL(requests.find((request) => request.url.includes('/repo_overview/')).url)
+            assert.equal(overviewUrl.searchParams.get('date_from'), WEEK)
+            assert.equal(overviewUrl.searchParams.get('date_to'), '2026-10-05T00:00:00.000Z')
+            assert.equal(overviewUrl.searchParams.get('repo'), 'PostHog/posthog')
+            assert.match(blocks[0].text.text, /2026-09-28 to 2026-10-04 UTC/)
+            assert.deepEqual(tableText(blocks), [
+                ['Depot spend', '$2,100', '$900', '+133.3%'],
+                ['└ runners', '$600', '$200', '+200.0%'],
+                ['└ Depot CI', '$1,100', '$500', '+120.0%'],
+                ['└ container builds', '$400', '$200', '+100.0%'],
+                ['$ / merged PR', '$14', '$10', '+40.0%'],
+                ['merged PRs', '100', '70', '+42.9%'],
+                ['ready→merge median', '1h', '2h', '-50.0%'],
+            ])
+            assert.equal(blocks[2].text.text, 'Depot CI counts posthog/posthog, posthog/posthog-private.')
+            assert.match(blocks[3].text.text, /\$50,000 of \$60,000 used through 2026-10-04/)
+            assert.match(
+                blocks[3].text.text,
+                /runs out around 2026-11-07, 55 days before the contract ends on 2027-01-01\.$/
+            )
+        })
+    }
 
     for (const [name, allowance, expected] of [
         ['a used-up contract', '50000', /The contract is used up\.$/],
