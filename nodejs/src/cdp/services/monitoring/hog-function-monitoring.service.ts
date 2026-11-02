@@ -69,6 +69,15 @@ export const isHogFlowResult = (
     return 'hogFlow' in result.invocation
 }
 
+/**
+ * Billing rows reach this service from two paths that disagree on `metric_kind`. A hog function
+ * invocation sends `billing`, and a workflow step sends the kind of the step it billed for, which is
+ * `fetch`, `email`, `sms` or `push`. The name is what both paths agree on, so it decides the routing.
+ */
+function isBillingMetric(metric: MinimalAppMetric): boolean {
+    return metric.metric_name === 'billable_invocation' || metric.metric_kind === 'billing'
+}
+
 export class HogFunctionMonitoringService {
     queuedLogMessages: LogEntrySerialized[] = []
 
@@ -138,7 +147,7 @@ export class HogFunctionMonitoringService {
     queueAppMetric(metric: MinimalAppMetric, source: MetricLogSource) {
         counterHogFunctionMetric.labels(metric.metric_kind, metric.metric_name).inc(metric.count)
 
-        const aggregator = metric.metric_kind === 'billing' ? this.billingMetricsAggregator : this.appMetricsAggregator
+        const aggregator = isBillingMetric(metric) ? this.billingMetricsAggregator : this.appMetricsAggregator
 
         aggregator.queue({
             team_id: metric.team_id,

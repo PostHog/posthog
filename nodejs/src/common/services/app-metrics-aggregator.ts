@@ -80,6 +80,7 @@ export class AppMetricsAggregator {
     private readonly minFlushIntervalMs: number
     private lastFlushAt = Date.now()
     private drainTimer: NodeJS.Timeout | null = null
+    private drainInFlight: Promise<void> | null = null
 
     constructor(
         private readonly outputs: IngestionOutputs<AppMetricsOutput>,
@@ -90,10 +91,20 @@ export class AppMetricsAggregator {
             // A caller only flushes while it has work. Without this, the rows a quiet pod still holds
             // wait for its next batch, which may be far longer than the interval, or never come.
             this.drainTimer = setInterval(() => {
-                void this.flush().catch(() => {
-                    // flush() reports its own failures through the caller. A rejection here has no
-                    // caller, and an unhandled one would take the process down.
-                })
+                // One drain at a time. When a produce takes longer than the interval, starting
+                // another would queue a second batch behind the first and hold both in memory,
+                // outside the row cap. Skipping lets the rows collect for the next tick instead.
+                if (this.drainInFlight) {
+                    return
+                }
+                this.drainInFlight = this.flush()
+                    .catch(() => {
+                        // flush() reports its own failures through the caller. A rejection here has
+                        // no caller, and an unhandled one would take the process down.
+                    })
+                    .finally(() => {
+                        this.drainInFlight = null
+                    })
             }, this.minFlushIntervalMs)
             // The timer must not be the reason the process stays alive.
             this.drainTimer.unref()

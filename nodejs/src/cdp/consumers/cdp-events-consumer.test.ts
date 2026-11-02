@@ -71,9 +71,6 @@ describe('CdpEventsConsumer', () => {
 
     beforeEach(async () => {
         hub = await createHub()
-        // These tests read app metric rows straight after a batch, so the rows must not sit in the
-        // aggregator's flush window.
-        hub.CDP_APP_METRICS_FLUSH_INTERVAL_MS = 0
         const fixture = await createTestTeamFixture(hub.postgres)
         team = fixture.team
         await updateOrganizationAvailableFeatures(hub.postgres, fixture.organizationId, [
@@ -939,9 +936,6 @@ describe('hog flow processing', () => {
 
     beforeEach(async () => {
         hub = await createHub()
-        // These tests read app metric rows straight after a batch, so the rows must not sit in the
-        // aggregator's flush window.
-        hub.CDP_APP_METRICS_FLUSH_INTERVAL_MS = 0
         const fixture = await createTestTeamFixture(hub.postgres)
         team = fixture.team
         await updateOrganizationAvailableFeatures(hub.postgres, fixture.organizationId, [

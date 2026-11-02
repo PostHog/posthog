@@ -127,15 +127,21 @@ describe('HogFunctionMonitoringService', () => {
             )
         }
 
-        it('produces a billing row on the flush that queued it, and holds the rest', async () => {
-            const windowed = makeService({ appMetricsFlushIntervalMs: 600_000 })
-            windowed.queueAppMetric(metric({ metric_kind: 'billing', metric_name: 'billable_invocation' }), 'hog_flow')
-            windowed.queueAppMetric(metric({ metric_kind: 'other', metric_name: 'filtered' }), 'hog_flow')
+        // A hog function bills under the `billing` kind; a workflow step bills under the kind of the
+        // step it billed for. Routing on the kind alone put every workflow billable invocation in
+        // the window, where a pod that exits uncleanly loses it and the invocation is never billed.
+        it.each<MinimalAppMetric['metric_kind']>(['billing', 'fetch', 'email', 'sms', 'push'])(
+            'produces a %s billable_invocation on the flush that queued it, and holds the rest',
+            async (metric_kind) => {
+                const windowed = makeService({ appMetricsFlushIntervalMs: 600_000 })
+                windowed.queueAppMetric(metric({ metric_kind, metric_name: 'billable_invocation' }), 'hog_flow')
+                windowed.queueAppMetric(metric({ metric_kind: 'other', metric_name: 'filtered' }), 'hog_flow')
 
-            await windowed.flush()
+                await windowed.flush()
 
-            expect(producedRows()).toEqual([expect.objectContaining({ metric_name: 'billable_invocation' })])
-        })
+                expect(producedRows()).toEqual([expect.objectContaining({ metric_name: 'billable_invocation' })])
+            }
+        )
 
         it('produces what the window still holds when the service stops', async () => {
             const windowed = makeService({ appMetricsFlushIntervalMs: 600_000 })

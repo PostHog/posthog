@@ -282,7 +282,9 @@ export type CdpConfig = ClickhouseConfig & {
 export function getDefaultCdpConfig(): CdpConfig {
     return {
         ...getDefaultClickhouseConfig(),
-        CDP_APP_METRICS_FLUSH_INTERVAL_MS: 10000,
+        // Tests read metric rows straight after a batch, and the window exists to delay them. The
+        // window's own behavior is covered by the AppMetricsAggregator unit tests.
+        CDP_APP_METRICS_FLUSH_INTERVAL_MS: isTestEnv() ? 0 : 10000,
         CDP_WATCHER_COST_ERROR: 100,
         CDP_WATCHER_HOG_COST_TIMING: 100,
         CDP_WATCHER_HOG_COST_TIMING_LOWER_MS: 50,
