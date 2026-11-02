@@ -45,6 +45,7 @@ import { collapseToolsPanelCustomJs } from './custom-tools/collapseToolsPanel'
 import { linkDialogFocusCustomJs } from './custom-tools/linkDialogFocus'
 import { previewLinkTargetCustomJs } from './custom-tools/previewLinkTarget'
 import { unsubscribeLinkToolCustomJs } from './custom-tools/unsubscribeLinkTool'
+import { withInertLinks } from './emailPreviewHtml'
 import { EmailSenderSummary } from './EmailSenderSummary'
 import { EMAIL_TYPE_SUPPORTED_FIELDS, EmailTemplaterLogicProps, emailTemplaterLogic } from './emailTemplaterLogic'
 import { EmailFieldErrors, EmailTemplateFrom, MAX_WORKFLOW_EMAIL_SENDERS } from './types'
@@ -824,10 +825,6 @@ function NativeEmailTemplaterForm({
             </Form>
         </>
     )
-}
-
-function withInertLinks(html: string | undefined): string | undefined {
-    return html ? `${html}<style>a,area{pointer-events:none!important}</style>` : html
 }
 
 function EmailContentPreview({ buttonsAt }: { buttonsAt: 'bottom' | 'center' }): JSX.Element {
