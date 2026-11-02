@@ -407,23 +407,21 @@ TRANSACTIONAL_EMAIL_API_FLAG = "workflows-transactional-email-api"
 EMAIL_FROM_CODE_FLAG = "workflows-email-from-code"
 
 
+DISTINCT_ID_HELP_TEXT = (
+    "Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, "
+    "bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. "
+    "The template can't read the person's properties, so pass everything it needs in `message_data`."
+)
+
+
 class TransactionalEmailIdentifiersSerializer(serializers.Serializer):
     distinct_id = serializers.CharField(
-        required=False,
-        allow_null=True,
-        allow_blank=True,
-        max_length=400,
-        help_text="Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, "
-        "clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email "
-        "address. The template can't read the person's properties, so pass everything it needs in `message_data`.",
+        required=False, allow_null=True, allow_blank=True, max_length=400, help_text=DISTINCT_ID_HELP_TEXT
     )
 
 
-class SendTransactionalEmailSerializer(serializers.Serializer):
+class TransactionalEmailMessageSerializer(serializers.Serializer):
     to = serializers.EmailField(help_text="Email address of the recipient.")
-    identifiers = TransactionalEmailIdentifiersSerializer(
-        required=False, help_text="Who the email is for, used to attribute engagement events."
-    )
     message_data = serializers.DictField(
         child=serializers.JSONField(allow_null=True),
         required=False,
@@ -433,19 +431,20 @@ class SendTransactionalEmailSerializer(serializers.Serializer):
     )
 
 
-class SendEmailTemplateSerializer(serializers.Serializer):
-    id = serializers.UUIDField(
-        help_text="ID of the email template to send. The template must be made transactional first."
+class SendTransactionalEmailSerializer(TransactionalEmailMessageSerializer):
+    identifiers = TransactionalEmailIdentifiersSerializer(
+        required=False, help_text="Who the email is for, used to attribute engagement events."
     )
 
 
 CODE_SEND_FIELDS = ("template_key", "subject", "html", "text", "from", "reply_to", "capture_engagement")
 
 
-class SendEmailSerializer(SendTransactionalEmailSerializer):
-    template = SendEmailTemplateSerializer(
+class SendEmailSerializer(TransactionalEmailMessageSerializer):
+    template_id = serializers.UUIDField(
         required=False,
-        help_text="The transactional email template to send. Send either `template` or `template_key`.",
+        help_text="ID of the email template to send. The template must be made transactional first. Send either "
+        "`template_id` or `template_key`.",
     )
     template_key = serializers.RegexField(
         r"^[a-zA-Z0-9_-]+$",
@@ -456,11 +455,7 @@ class SendEmailSerializer(SendTransactionalEmailSerializer):
         "and `html` or `text`. PostHog sends the content as is and never stores it as a template.",
     )
     distinct_id = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        max_length=400,
-        help_text="Distinct ID of the recipient's person. The send and its engagement events are recorded against "
-        "that person. Defaults to `identifiers.distinct_id`, then to the recipient's email address.",
+        required=False, allow_null=True, allow_blank=True, max_length=400, help_text=DISTINCT_ID_HELP_TEXT
     )
     subject = serializers.CharField(
         required=False, trim_whitespace=False, help_text="Subject of the email your code rendered."
@@ -494,6 +489,17 @@ class SendEmailSerializer(SendTransactionalEmailSerializer):
         "engagement capture off captures nothing, whatever the send says.",
     )
 
+    def to_internal_value(self, data: Any) -> Any:
+        # posthog-node 5.61.0 and posthog 7.81.0 send `template.id` and `identifiers.distinct_id`, so that shape
+        # stays accepted. It is left out of the schema so that new callers use the flat fields.
+        if isinstance(data, Mapping):
+            template, identifiers = data.get("template"), data.get("identifiers")
+            if "template_id" not in data and isinstance(template, Mapping):
+                data = {**data, "template_id": template.get("id")}
+            if "distinct_id" not in data and isinstance(identifiers, Mapping):
+                data = {**data, "distinct_id": identifiers.get("distinct_id")}
+        return super().to_internal_value(data)
+
     def get_fields(self) -> dict[str, serializers.Field]:
         fields = super().get_fields()
         fields["from"] = fields.pop("from_address")
@@ -507,9 +513,9 @@ class SendEmailSerializer(SendTransactionalEmailSerializer):
 
     def validate(self, data: dict[str, Any]) -> dict[str, Any]:
         sent = set(self.initial_data) if isinstance(self.initial_data, Mapping) else set()
-        if ("template" in data) == ("template_key" in data):
-            raise serializers.ValidationError({"template": "Send either `template` or `template_key`."})
-        if "template" in data:
+        if ("template_id" in data) == ("template_key" in data):
+            raise serializers.ValidationError({"template_id": "Send either `template_id` or `template_key`."})
+        if "template_id" in data:
             if code_field := next((field for field in CODE_SEND_FIELDS if field in sent), None):
                 raise serializers.ValidationError({code_field: "Only a send with `template_key` takes this field."})
             return data
@@ -1116,7 +1122,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
         responses=SEND_RESPONSES,
         summary="Send a transactional email",
         description=(
-            "Send one transactional email to one recipient. Name a template made transactional in `template.id`, "
+            "Send one transactional email to one recipient. Name a template made transactional in `template_id`, "
             "and `message_data` fills its `{{ variables.* }}` placeholders. Or send content your code rendered with "
             "a `template_key`, a `subject` and `html` or `text`: PostHog sends it as is, and its metrics and run "
             "history group under the key. Transactional emails skip opt-outs and frequency caps. Send an "
@@ -1133,7 +1139,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             self._require_transactional_email_flag()
         with transactional_email_stage("template_lookup"):
             try:
-                template = get_template(self.team_id, request.validated_data["template"]["id"])
+                template = get_template(self.team_id, request.validated_data["template_id"])
             except MessageTemplateMissing:
                 raise NotFound()
             self.check_object_permissions(request, template)

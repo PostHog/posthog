@@ -33,6 +33,8 @@ export interface DerivedSeriesOptions {
     /** Map of comparison series key → its primary series key. Comparison series render
      *  at reduced opacity so they read as subordinate to their primary. */
     comparisonOf?: Record<string, string>
+    /** Each data index's x position for trend lines, such as its time. Defaults to the index. */
+    xs?: number[]
 }
 
 /** Builds CI bands, moving averages, and trend lines from `source` and merges them
@@ -41,7 +43,7 @@ export interface DerivedSeriesOptions {
  *  dimming runs as a final pass. Returns the original `source` reference when no
  *  derived-series options are set. */
 export function useDerivedSeries<Meta>(source: Series<Meta>[], options: DerivedSeriesOptions): Series<Meta>[] {
-    const { confidenceIntervals, movingAverage, trendLines, comparisonOf } = options
+    const { confidenceIntervals, movingAverage, trendLines, comparisonOf, xs } = options
     // Reduce each config to a primitive signature so callers passing inline configs
     // (`config={{ trendLines: [...] }}`) don't reallocate the dep refs on every render
     // and miss the cache. CI's lower/upper data arrays aren't included — we assume the
@@ -120,6 +122,7 @@ export function useDerivedSeries<Meta>(source: Series<Meta>[], options: DerivedS
                     kind: tl.kind,
                     label: tl.label,
                     fitUpTo: tl.fitUpTo,
+                    xs,
                     excluded: found.visibility?.excluded,
                 })
             )
@@ -129,7 +132,7 @@ export function useDerivedSeries<Meta>(source: Series<Meta>[], options: DerivedS
         // The signatures above stand in for the four reference-typed config inputs; the
         // raw refs are intentionally absent so inline-config callers don't bust the cache.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [source, ciSignature, maSignature, tlSignature, cmpSignature])
+    }, [source, ciSignature, maSignature, tlSignature, cmpSignature, xs])
 }
 
 /** Trend-line series for charts that render trends as an SVG overlay ({@link TrendLineOverlay})
