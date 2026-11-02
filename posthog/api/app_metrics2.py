@@ -51,6 +51,19 @@ class AppMetricsTotalsResponseSerializer(DataclassSerializer):
         dataclass = AppMetricsTotalsResponse
 
 
+# Each requested name or kind becomes a series with one value per label, so the count must stay small.
+MAX_REQUESTED_BREAKDOWN_VALUES = 50
+
+
+def _split_requested_values(value: str) -> list[str]:
+    values = list(dict.fromkeys(part.strip() for part in value.split(",") if part.strip()))
+    if len(values) > MAX_REQUESTED_BREAKDOWN_VALUES:
+        raise serializers.ValidationError(
+            f"Request at most {MAX_REQUESTED_BREAKDOWN_VALUES} distinct values, got {len(values)}."
+        )
+    return values
+
+
 class AppMetricsRequestSerializer(serializers.Serializer):
     after = serializers.CharField(
         required=False,
@@ -73,11 +86,11 @@ class AppMetricsRequestSerializer(serializers.Serializer):
     )
     name = serializers.CharField(
         required=False,
-        help_text="Comma-separated metric names to filter by. With breakdown_by=name, each named metric is returned, as zeros when it has no rows.",
+        help_text="Comma-separated metric names to filter by, up to 50. With breakdown_by=name, each named metric is returned, as zeros when it has no rows.",
     )
     kind = serializers.CharField(
         required=False,
-        help_text="Comma-separated metric kinds to filter by, e.g. 'success,failure'. With breakdown_by=kind, each named kind is returned, as zeros when it has no rows.",
+        help_text="Comma-separated metric kinds to filter by, up to 50, e.g. 'success,failure'. With breakdown_by=kind, each named kind is returned, as zeros when it has no rows.",
     )
     breakdown_by = serializers.ChoiceField(
         choices=["name", "kind"],
@@ -85,6 +98,12 @@ class AppMetricsRequestSerializer(serializers.Serializer):
         default="kind",
         help_text="Group the series by metric 'name' or 'kind'. Defaults to 'kind'.",
     )
+
+    def validate_name(self, value: str) -> list[str]:
+        return _split_requested_values(value)
+
+    def validate_kind(self, value: str) -> list[str]:
+        return _split_requested_values(value)
 
 
 def _requested_breakdown_values(breakdown_by: str, name: list[str], kind: list[str]) -> list[str]:
@@ -515,8 +534,8 @@ class AppMetricsMixin(viewsets.GenericViewSet):
             after=after_date,
             before=before_date,
             breakdown_by=params.get("breakdown_by"),
-            name=params["name"].split(",") if params.get("name") else None,
-            kind=params["kind"].split(",") if params.get("kind") else None,
+            name=params.get("name") or None,
+            kind=params.get("kind") or None,
         )
 
         serializer = AppMetricResponseSerializer(instance=data)
@@ -557,8 +576,8 @@ class AppMetricsMixin(viewsets.GenericViewSet):
             after=after_date,
             before=before_date,
             breakdown_by=params.get("breakdown_by"),
-            name=params["name"].split(",") if params.get("name") else None,
-            kind=params["kind"].split(",") if params.get("kind") else None,
+            name=params.get("name") or None,
+            kind=params.get("kind") or None,
         )
 
         serializer = AppMetricsTotalsResponseSerializer(instance=data)

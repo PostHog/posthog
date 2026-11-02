@@ -2,12 +2,19 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from posthog.test.base import BaseTest, ClickhouseTestMixin
+from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from rest_framework import status
 
-from posthog.api.app_metrics2 import fetch_app_metric_totals, fetch_app_metrics_trends
+from posthog.api.app_metrics2 import AppMetricsRequestSerializer, fetch_app_metric_totals, fetch_app_metrics_trends
 from posthog.test.fixtures import create_app_metric2
+
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+
+DISTINCT_51 = ",".join(f"metric_{i}" for i in range(51))
 
 
 class TestAppMetrics2Timezone(ClickhouseTestMixin, BaseTest):
@@ -127,3 +134,39 @@ class TestAppMetrics2Timezone(ClickhouseTestMixin, BaseTest):
 
         assert [(series.name, series.values) for series in trends.series] == [("success", expected)]
         assert totals.totals == {"success": sum(expected)}
+
+
+class TestAppMetricsRequestSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("name_at_limit", "name", ",".join(f"m{i}" for i in range(50)), [f"m{i}" for i in range(50)]),
+            ("kind_duplicates_and_blanks", "kind", " success, failure,,success ," * 40, ["success", "failure"]),
+            ("name_over_limit", "name", DISTINCT_51, None),
+            ("kind_over_limit", "kind", DISTINCT_51, None),
+        ]
+    )
+    def test_requested_values_are_deduped_and_capped(
+        self, _name: str, field: str, raw: str, expected: list[str] | None
+    ) -> None:
+        serializer = AppMetricsRequestSerializer(data={field: raw})
+
+        if expected is None:
+            assert not serializer.is_valid()
+            assert field in serializer.errors
+        else:
+            assert serializer.is_valid(), serializer.errors
+            assert serializer.validated_data[field] == expected
+
+
+class TestAppMetricsEndpointLimits(APIBaseTest):
+    @parameterized.expand([("metrics/",), ("metrics/totals/",)])
+    def test_too_many_requested_names_is_a_400(self, path: str) -> None:
+        hog_function = HogFunction.objects.create(team=self.team, name="destination", type="destination", hog="")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/hog_functions/{hog_function.id}/{path}",
+            {"name": DISTINCT_51, "breakdown_by": "name", "interval": "hour"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "name"
