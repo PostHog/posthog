@@ -130,59 +130,6 @@ const workflowsListEmailTemplates = (): ToolBase<
     },
 })
 
-const WorkflowsSendEmailSchema = () => {
-    const MessagingSendEmailCreateBody = orvalSchemas.MessagingSendEmailCreateBody()
-    return MessagingSendEmailCreateBody.extend({
-        template_key: MessagingSendEmailCreateBody.shape['template_key'].nonoptional(),
-        subject: MessagingSendEmailCreateBody.shape['subject'].nonoptional(),
-        distinct_id: MessagingSendEmailCreateBody.shape['distinct_id'].describe(
-            "Distinct ID of the recipient's person. The send and its engagement events are recorded against that person. Defaults to the recipient's email address."
-        ),
-    })
-}
-
-const workflowsSendEmail = (): ToolBase<ReturnType<typeof WorkflowsSendEmailSchema>, unknown> => ({
-    name: 'workflows-send-email',
-    schema: WorkflowsSendEmailSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsSendEmailSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.to !== undefined) {
-            body['to'] = params.to
-        }
-        if (params.template_key !== undefined) {
-            body['template_key'] = params.template_key
-        }
-        if (params.distinct_id !== undefined) {
-            body['distinct_id'] = params.distinct_id
-        }
-        if (params.subject !== undefined) {
-            body['subject'] = params.subject
-        }
-        if (params.html !== undefined) {
-            body['html'] = params.html
-        }
-        if (params.text !== undefined) {
-            body['text'] = params.text
-        }
-        if (params.reply_to !== undefined) {
-            body['reply_to'] = params.reply_to
-        }
-        if (params.capture_engagement !== undefined) {
-            body['capture_engagement'] = params.capture_engagement
-        }
-        if (params.from !== undefined) {
-            body['from'] = params.from
-        }
-        const result = await context.api.request<unknown>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging/send/email/`,
-            body,
-        })
-        return result
-    },
-})
-
 const WorkflowsMakeEmailTemplateTransactionalSchema = () => {
     const MessagingTemplatesMakeTransactionalCreateBody = orvalSchemas.MessagingTemplatesMakeTransactionalCreateBody()
     const MessagingTemplatesMakeTransactionalCreateParams =
@@ -284,6 +231,59 @@ const workflowsPatchEmailTemplate = (): ToolBase<
         })
         const filtered = omitResponseFields(result, ['content', 'created_by', 'draft_content']) as typeof result
         return await withPostHogUrl(context, filtered, `/workflows/library/templates/${filtered.id}`)
+    },
+})
+
+const WorkflowsSendEmailSchema = () => {
+    const MessagingSendEmailCreateBody = orvalSchemas.MessagingSendEmailCreateBody()
+    return MessagingSendEmailCreateBody.extend({
+        template_key: MessagingSendEmailCreateBody.shape['template_key'].nonoptional(),
+        subject: MessagingSendEmailCreateBody.shape['subject'].nonoptional(),
+        distinct_id: MessagingSendEmailCreateBody.shape['distinct_id'].describe(
+            "Distinct ID of the recipient's person. The send and its engagement events are recorded against that person. Defaults to the recipient's email address."
+        ),
+    })
+}
+
+const workflowsSendEmail = (): ToolBase<ReturnType<typeof WorkflowsSendEmailSchema>, unknown> => ({
+    name: 'workflows-send-email',
+    schema: WorkflowsSendEmailSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsSendEmailSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.to !== undefined) {
+            body['to'] = params.to
+        }
+        if (params.template_key !== undefined) {
+            body['template_key'] = params.template_key
+        }
+        if (params.distinct_id !== undefined) {
+            body['distinct_id'] = params.distinct_id
+        }
+        if (params.subject !== undefined) {
+            body['subject'] = params.subject
+        }
+        if (params.html !== undefined) {
+            body['html'] = params.html
+        }
+        if (params.text !== undefined) {
+            body['text'] = params.text
+        }
+        if (params.reply_to !== undefined) {
+            body['reply_to'] = params.reply_to
+        }
+        if (params.capture_engagement !== undefined) {
+            body['capture_engagement'] = params.capture_engagement
+        }
+        if (params.from !== undefined) {
+            body['from'] = params.from
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging/send/email/`,
+            body,
+        })
+        return result
     },
 })
 
@@ -416,10 +416,10 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-create-email-template': workflowsCreateEmailTemplate,
     'workflows-get-email-template': workflowsGetEmailTemplate,
     'workflows-list-email-templates': workflowsListEmailTemplates,
-    'workflows-send-email': workflowsSendEmail,
     'workflows-make-email-template-transactional-prepare': workflowsMakeEmailTemplateTransactionalPrepare,
     'workflows-make-email-template-transactional-execute': workflowsMakeEmailTemplateTransactionalExecute,
     'workflows-patch-email-template': workflowsPatchEmailTemplate,
+    'workflows-send-email': workflowsSendEmail,
     'workflows-show-email-template': workflowsShowEmailTemplate,
     'workflows-upload-email-template': workflowsUploadEmailTemplate,
     'workflows-update-email-template': workflowsUpdateEmailTemplate,
