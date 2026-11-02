@@ -1,1 +1,1 @@
-0188_reset_trunkio_v2_failing_tests
+0192_repin_loop_returns_api_version

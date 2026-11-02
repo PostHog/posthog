@@ -8,7 +8,10 @@ event exists) stay with the callers.
 """
 
 from collections.abc import Collection
+from datetime import datetime
 from typing import Any
+
+from django.db.models import QuerySet
 
 import pydantic
 import structlog
@@ -180,6 +183,28 @@ def validate_saved_metric_link_overrides(metadata: dict, *, error_prefix: str) -
         raise ValidationError(f"{error_prefix}{_pydantic_error_message(e)}")
 
 
+def metric_nodes(metric: dict) -> list[dict]:
+    """The event, action and warehouse nodes that a stored metric definition reads."""
+    nodes: list[dict] = []
+    metric_type = metric.get("metric_type")
+    if metric_type == "mean":
+        if source := metric.get("source"):
+            nodes.append(source)
+    elif metric_type == "funnel":
+        nodes.extend(metric.get("series") or [])
+    elif metric_type == "ratio":
+        if num := metric.get("numerator"):
+            nodes.append(num)
+        if den := metric.get("denominator"):
+            nodes.append(den)
+    elif metric_type == "retention":
+        if se := metric.get("start_event"):
+            nodes.append(se)
+        if ce := metric.get("completion_event"):
+            nodes.append(ce)
+    return nodes
+
+
 def extract_entity_nodes(metrics: list[dict] | None) -> tuple[set[str], set[int]]:
     """Extract event names and action IDs from all EventsNode/ActionsNode refs in metrics."""
     event_names: set[str] = set()
@@ -188,23 +213,7 @@ def extract_entity_nodes(metrics: list[dict] | None) -> tuple[set[str], set[int]
         return event_names, action_ids
 
     for metric in metrics:
-        nodes: list[dict] = []
-        metric_type = metric.get("metric_type")
-        if metric_type == "mean":
-            if source := metric.get("source"):
-                nodes.append(source)
-        elif metric_type == "funnel":
-            nodes.extend(metric.get("series") or [])
-        elif metric_type == "ratio":
-            if num := metric.get("numerator"):
-                nodes.append(num)
-            if den := metric.get("denominator"):
-                nodes.append(den)
-        elif metric_type == "retention":
-            if se := metric.get("start_event"):
-                nodes.append(se)
-            if ce := metric.get("completion_event"):
-                nodes.append(ce)
+        nodes = metric_nodes(metric)
 
         for node in nodes:
             kind = node.get("kind")
@@ -243,16 +252,29 @@ def defined_event_names(project_id: int, event_names: Collection[str], *, seen_o
     """
     if not event_names:
         return set()
+    definitions = _event_definitions(project_id, event_names)
+    if seen_only:
+        definitions = definitions.filter(last_seen_at__isnull=False)
+    return set(definitions.values_list("name", flat=True))
+
+
+def event_last_seen(project_id: int, event_names: Collection[str]) -> dict[str, datetime]:
+    """When ingestion last saw each of `event_names` in the project, in the scope of `defined_event_names`. A name
+    without a definition, or with one that ingestion hasn't seen, is absent."""
+    if not event_names:
+        return {}
+    definitions = _event_definitions(project_id, event_names).values_list("name", "last_seen_at")
+    return {name: last_seen for name, last_seen in definitions if last_seen is not None}
+
+
+def _event_definitions(project_id: int, event_names: Collection[str]) -> QuerySet[EventDefinition]:
     # `COALESCE(project_id, team_id)` falls back to `team_id` (not the caller's team id) on purpose: legacy
     # EventDefinitions (project_id IS NULL) belong to the *primary* team, and primary_team.id == project.id by
     # convention. This mirrors the picker SQL in posthog/api/event_definition.py so sibling teams can validate
     # against legacy primary-team events the picker shows.
-    definitions = EventDefinition.objects.alias(effective_project_id=effective_project_id_expr()).filter(
+    return EventDefinition.objects.alias(effective_project_id=effective_project_id_expr()).filter(
         effective_project_id=project_id, name__in=event_names
     )
-    if seen_only:
-        definitions = definitions.filter(last_seen_at__isnull=False)
-    return set(definitions.values_list("name", flat=True))
 
 
 def validate_metric_action_ids(

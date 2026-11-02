@@ -28,6 +28,7 @@ describe('highlightPicksStaleLogic', () => {
                         200,
                         { free_monthly_credits: 2500, credits_used: 0, credit_limit: null },
                     ],
+                    '/api/environments/:team/session_recordings/': () => [200, { results: [{ id: 'r1' }] }],
                 },
                 post: {
                     '/api/projects/:team/vision/scanners/:id/backfills/estimate/': () => [

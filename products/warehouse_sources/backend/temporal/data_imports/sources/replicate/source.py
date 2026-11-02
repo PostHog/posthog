@@ -110,6 +110,8 @@ You can create an API token in your [Replicate account settings](https://replica
                 )
             if endpoint == "models":
                 return "The full public Replicate model catalog, not only your own models. Off by default."
+            if endpoint == "model_versions":
+                return "Versions of the models your deployments and trainings use, including fine-tuned destination models."
             return None
 
         def _build_schema(endpoint: str) -> SourceSchema:
