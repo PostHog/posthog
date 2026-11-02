@@ -1,14 +1,18 @@
 import type {
     TraceEvaluationResultOutcomeEnumApi,
+    TraceFeedbackScoreApi,
+    TraceFeedbackTextApi,
     TraceNodeApi,
     TraceNodeDetailApi,
     TraceNodeEvaluationRollupOutcomeEnumApi,
     TraceSummaryContentApi,
+    TraceSurveyResponseApi,
+    TraceUnansweredSurveyApi,
 } from '../../generated/api.schemas'
 
 export type TraceNodeKind = TraceNodeApi['kind']
 
-export type TraceMode = 'spans' | 'thread' | 'timeline' | 'summary'
+export type TraceMode = 'spans' | 'thread' | 'timeline' | 'summary' | 'feedback'
 
 export type TraceViewChoice = 'new' | 'legacy'
 
@@ -124,6 +128,18 @@ export interface LabeledLink {
     href: string
 }
 
+export interface GitPullRequestLink {
+    number: number
+    title: string | null
+    href: string
+}
+
+export type TraceSearchStatus = 'idle' | 'loading' | 'ready' | 'error'
+
+export type TraceSearchFailure = 'too_slow' | 'failed'
+
+export type MatchDirection = 'next' | 'previous'
+
 export type SummaryItemKind = 'bullet' | 'note'
 
 /** Why a summary request failed. `throttled` means the user reached their summary limit. */
@@ -138,3 +154,49 @@ export type SummaryModeState =
     | { status: 'ready'; summary: TraceSummaryContentApi }
     | { status: 'failed'; message: string; retryable: boolean }
     | { status: 'error' }
+
+/** Where a person opened the Feedback mode from, other than its tab. */
+export type FeedbackEntry = 'chip' | 'step'
+
+export interface FeedbackStep {
+    id: string
+    name: string
+}
+
+/**
+ * `step` is null for feedback on the whole trace, and for a step the tree does not hold. `focused` marks the entries
+ * of the step the Feedback mode was opened from.
+ */
+export interface FeedbackPlacement {
+    step: FeedbackStep | null
+    focused: boolean
+}
+
+export type FeedbackScoreRow = TraceFeedbackScoreApi & FeedbackPlacement
+
+/** Survey responses link to the whole trace, so their `step` is always null. */
+export type FeedbackResponseItem = (TraceFeedbackTextApi | TraceSurveyResponseApi) & FeedbackPlacement
+
+export type SurveyAnswer = TraceSurveyResponseApi['answers'][number]
+
+export type FeedbackModeState =
+    | { status: 'loading' }
+    | { status: 'error' }
+    | {
+          status: 'ready'
+          scores: FeedbackScoreRow[]
+          responses: FeedbackResponseItem[]
+          unanswered: TraceUnansweredSurveyApi[]
+          surveysFailed: boolean
+      }
+
+export interface FeedbackChipData {
+    total: number
+    thumbsUp: number
+    thumbsDown: number
+}
+
+export interface StepFeedback {
+    scores: TraceFeedbackScoreApi[]
+    responseCount: number
+}

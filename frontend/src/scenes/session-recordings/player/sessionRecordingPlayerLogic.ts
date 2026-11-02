@@ -38,15 +38,14 @@ import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { findLastIndex } from 'lib/utils/arrays'
 import { downloadFile } from 'lib/utils/dom'
 import { clamp } from 'lib/utils/numbers'
 import { objectsEqual } from 'lib/utils/objects'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
-import { MAX_SIDE_PANEL_ID } from 'scenes/max/components/PhaiSidePanelChat'
-import { PhaiViewMode, maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { debugReplayChatLogic } from 'scenes/session-recordings/player/player-meta/debugReplayChatLogic'
@@ -64,6 +63,10 @@ import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sess
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { MAX_SIDE_PANEL_ID, type PhaiViewMode } from '~/layout/ai/aiPanelIds'
+import { AttachedContextItem } from '~/layout/ai/attachedContext'
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
+import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import {
     AvailableFeature,
@@ -74,13 +77,7 @@ import {
     SidePanelTab,
 } from '~/types'
 
-import {
-    ATTACHMENT_MAX_SIZE_BYTES,
-    attachedContextLogic,
-    composerAttachmentsLogic,
-    runnerPanelLogic,
-} from 'products/posthog_ai/frontend/api/logics'
-import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
+import { ATTACHMENT_MAX_SIZE_BYTES, composerAttachmentsLogic } from 'products/posthog_ai/frontend/api/logics'
 import {
     MAX_REPLAY_IFRAME_HTML_CHARS,
     ReplayIframeData,
@@ -772,6 +769,7 @@ export interface sessionRecordingPlayerLogicValues {
         url: string
     }[] // sessionRecordingDataCoordinatorLogic
     allSourcesLoaded: boolean // snapshotDataLogic
+    isLoadingSnapshots: boolean // snapshotDataLogic
     isSnapshotUnauthorized: boolean // snapshotDataLogic
     replayProxyToken: string | null // snapshotDataLogic
     snapshotSources: SessionRecordingSnapshotSource[] | null // snapshotDataLogic
@@ -1469,14 +1467,18 @@ function encodeRecording(recording: ExportedSessionRecordingFileV2): string[] {
 }
 
 async function loadAllSnapshots(
-    values: Pick<sessionRecordingPlayerLogicValues, 'sessionPlayerData'>,
+    values: Pick<sessionRecordingPlayerLogicValues, 'sessionPlayerData' | 'isLoadingSnapshots'>,
     actions: { loadAllSources: () => void; loadNextSnapshotSource: () => void }
 ): Promise<void> {
     actions.loadAllSources()
 
     const delayTime = 1000
     const maxStallIterations = 15
+    // One request fetches a whole batch of sources, so a slow request adds no snapshots for a long time.
+    // A request in flight gets this higher limit, which still stops the export when a request never answers.
+    const maxLoadingStallIterations = 120
     let stallCount = 0
+    let loadingStallCount = 0
     let lastSnapshotCount = 0
     while (!values.sessionPlayerData.fullyLoaded) {
         const currentCount = values.sessionPlayerData.snapshotsByWindowId
@@ -1484,11 +1486,14 @@ async function loadAllSnapshots(
             : 0
         if (currentCount > lastSnapshotCount) {
             stallCount = 0
+            loadingStallCount = 0
             lastSnapshotCount = currentCount
+        } else if (values.isLoadingSnapshots) {
+            loadingStallCount++
         } else {
             stallCount++
         }
-        if (stallCount >= maxStallIterations) {
+        if (stallCount >= maxStallIterations || loadingStallCount >= maxLoadingStallIterations) {
             throw new Error('Timeout waiting for recording to load')
         }
         actions.loadNextSnapshotSource()
@@ -1516,6 +1521,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'allSourcesLoaded',
                 'storeVersion',
                 'isSnapshotUnauthorized',
+                'isLoadingSnapshots',
             ],
             sessionRecordingDataCoordinatorLogic(props),
             [

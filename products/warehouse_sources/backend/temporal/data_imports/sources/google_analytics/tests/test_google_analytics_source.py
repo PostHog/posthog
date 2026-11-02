@@ -4,7 +4,7 @@ from unittest import mock
 import requests
 from google.auth.exceptions import RefreshError
 
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationNotFound
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleanalytics import (
@@ -227,10 +227,10 @@ def test_validate_credentials_hides_unexpected_metadata_failure_detail():
 
 def test_validate_credentials_handles_missing_integration():
     # A deleted/disconnected OAuth row makes `google_analytics_session` raise the typed
-    # `Integration.DoesNotExist`; surface a reconnect message instead of the raw ORM error.
+    # `IntegrationNotFound`; surface a reconnect message instead of the raw ORM error.
     with mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.google_analytics_session",
-        side_effect=Integration.DoesNotExist(),
+        side_effect=IntegrationNotFound(),
     ):
         ok, message = GoogleAnalyticsSource().validate_credentials(_config(), team_id=1)
 

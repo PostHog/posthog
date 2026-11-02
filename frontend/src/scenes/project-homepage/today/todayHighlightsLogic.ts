@@ -6,7 +6,6 @@ import { v4 as uuidv4 } from 'uuid'
 import { toast } from '@posthog/quill'
 
 import { ApiError } from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { todayHighlightsRetrieve } from 'products/today/frontend/generated/api'
@@ -504,7 +503,6 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                 kind: pulseKind(metric.key),
                 reason: metric.reason,
                 position,
-                pulse_ranking: posthog.getFeatureFlag(FEATURE_FLAGS.TODAY_PULSE_RANKING) ?? null,
             })
             toast.success({
                 title: 'Hidden from Today',
@@ -559,7 +557,6 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                 kind: pulseKind(metric.key),
                 reason: metric.reason,
                 position,
-                pulse_ranking: posthog.getFeatureFlag(FEATURE_FLAGS.TODAY_PULSE_RANKING) ?? null,
             })
         },
         pulseMetricPreviewed: ({ metric, position }) => {
@@ -572,7 +569,6 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                 kind: pulseKind(metric.key),
                 reason: metric.reason,
                 position,
-                pulse_ranking: posthog.getFeatureFlag(FEATURE_FLAGS.TODAY_PULSE_RANKING) ?? null,
             })
         },
         loadHighlightsSuccess: ({ highlights }) => {
@@ -605,7 +601,6 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                 pulse_count: values.pulseTiles.length,
                 pulse_candidate_count: highlights.pulse.length,
                 pulse_reasons: values.pulseTiles.map((metric) => metric.reason),
-                pulse_ranking: posthog.getFeatureFlag(FEATURE_FLAGS.TODAY_PULSE_RANKING) ?? null,
             })
         },
     })),

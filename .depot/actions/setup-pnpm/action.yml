@@ -69,6 +69,9 @@ runs:
         - name: Restore Node tool cache
           id: node-toolcache
           if: steps.node-version.outputs.version != ''
+          # GitHub Actions rejects timeout-minutes in a composite step, so only this mirror bounds the restore.
+          timeout-minutes: 2
+          continue-on-error: true
           uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
           with:
               path: ${{ runner.tool_cache }}/node/${{ steps.node-version.outputs.version }}

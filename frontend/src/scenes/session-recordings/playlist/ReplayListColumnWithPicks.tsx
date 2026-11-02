@@ -10,9 +10,11 @@ import { ReplayListColumn } from './ReplayListColumn'
 export function ReplayListColumnWithPicks({
     logicKey,
     recordingsList,
+    collections,
 }: {
     logicKey: string
     recordingsList: ReactNode
+    collections?: boolean
 }): JSX.Element {
     const picksLogic = useMountedLogic(highlightPicksLogic)
     const { effectiveListMode, unwatchedCount } = useValues(picksLogic)
@@ -23,6 +25,7 @@ export function ReplayListColumnWithPicks({
         <ReplayListColumn
             logicKey={logicKey}
             recordingsList={recordingsList}
+            collections={collections}
             picksList={<HighlightPicksList />}
             picksMode={effectiveListMode}
             unwatchedPicksCount={unwatchedCount}

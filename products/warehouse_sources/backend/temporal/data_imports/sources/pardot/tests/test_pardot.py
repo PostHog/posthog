@@ -144,6 +144,9 @@ class TestBuildQueryParams:
             ("prospect_accounts", "createdAt"),
             # The requested field isn't one this endpoint advertises.
             ("prospects", "lastActivityAt"),
+            # Form handlers filter on createdAt but have no updatedAt, so a createdAt
+            # watermark would never pick up edits.
+            ("form_handlers", "createdAt"),
         ],
     )
     def test_unsupported_cursor_falls_back_to_the_default_sort(self, endpoint: str, incremental_field: str) -> None:
@@ -173,6 +176,11 @@ class TestFieldLists:
             # Email bodies aren't queryable and 400 the same way.
             ("emails", "htmlMessage"),
             ("emails", "textMessage"),
+            ("email_templates", "htmlMessage"),
+            ("email_templates", "textMessage"),
+            ("landing_pages", "content"),
+            ("landing_pages", "regionContent"),
+            ("landing_pages", "layoutCss"),
         ],
     )
     def test_does_not_request_write_only_fields(self, endpoint: str, write_only_field: str) -> None:

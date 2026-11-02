@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
+from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 
@@ -22,7 +23,7 @@ import requests
 import structlog
 import posthoganalytics
 from clickhouse_driver.errors import ServerException
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_serializer
 from openai.types.chat import (
     ChatCompletionAssistantMessageParam,
     ChatCompletionMessageParam,
@@ -242,18 +243,15 @@ def _get_session_ids_from_comment_search(
     if not comment_filter:
         return None
 
-    base_query = Comment.objects.filter(
-        team=team,
-        # TODO: discussions created `Replay` and comments create `recording`
-        # TODO: that's an unnecessary distinction but we'll ignore it for now
-        scope__in=["recording"],
-    ).exclude(deleted=True)
+    base_query = Comment.objects.filter(team=team, scope="Replay").exclude(deleted=True)
 
     operator = comment_filter.operator
     value = comment_filter.value
 
     if operator == PropertyOperator.IS_SET:
-        base_query = base_query.filter(content__isnull=False).exclude(content="")
+        # some replay comments keep their text only in rich_content
+        has_text = Q(content__isnull=False) & ~Q(content="")
+        base_query = base_query.filter(has_text | Q(rich_content__isnull=False))
     elif operator == PropertyOperator.EXACT:
         # do the check here to help mypy
         if value is None or value == "":
@@ -625,6 +623,18 @@ class SessionRecordingConsoleLogsResponseSerializer(serializers.Serializer):
     )
 
 
+@extend_schema_serializer(many=False)
+class SessionRecordingListResponseSerializer(serializers.Serializer):
+    results = SessionRecordingSerializer(many=True, help_text="Recordings on this page.")
+    has_next = serializers.BooleanField(help_text="Whether more recordings match the query after this page.")
+    version = serializers.IntegerField(help_text="Version of the listing response format.")
+    next_cursor = serializers.CharField(
+        required=False,
+        help_text="Cursor for the next page. Send it back as `after` to load the next page. "
+        "Absent when the query does not page by cursor or there is no next page.",
+    )
+
+
 @frozen
 class RecordingsListingResult:
     recordings: list[SessionRecording]
@@ -986,6 +996,7 @@ class SessionRecordingViewSet(
             return [*super().get_throttles(), ListingBurstRateThrottle(), ListingSustainedRateThrottle()]
         return super().get_throttles()
 
+    @extend_schema(responses={200: SessionRecordingListResponseSerializer(many=False)})
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
         user_distinct_id = cast(User, request.user).distinct_id

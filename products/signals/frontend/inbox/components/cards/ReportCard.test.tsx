@@ -224,14 +224,10 @@ describe('ReportCard', () => {
     })
 
     it.each([
-        ['hides', 'a report without a pull request', null, 'control', false],
-        ['shows', 'a pull request in the control variant', 'https://github.com/example/repo/pull/123', 'control', true],
-        ['hides', 'a pull request in the test variant', 'https://github.com/example/repo/pull/123', 'test', false],
-    ])('%s a conventional commit tag for %s', (_verb, _name, implementationPrUrl, titleVariant, showsTag) => {
+        ['a report without a pull request', null],
+        ['a pull request', 'https://github.com/example/repo/pull/123'],
+    ])('shows a plain title without a conventional commit tag for %s', (_name, implementationPrUrl) => {
         cleanup()
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.SIGNALS_PLAIN_REPORT_TITLES]: titleVariant,
-        })
         render(
             <ReportCard
                 report={makeReport('r-2', {
@@ -242,7 +238,7 @@ describe('ReportCard', () => {
         )
 
         expect(screen.getByText('Example report title')).toBeInTheDocument()
-        expect(screen.queryByText('note(example)') !== null).toBe(showsTag)
+        expect(screen.queryByText('note(example)')).not.toBeInTheDocument()
     })
 
     test.each([
@@ -286,6 +282,11 @@ describe('ReportCard', () => {
             action: 'unassign',
             hold: () => jest.spyOn(api, 'delete').mockReturnValue(new Promise<never>(() => {})),
             start: () => logic.actions.bulkUnassignMe(['r-1']),
+        },
+        {
+            action: 'claim',
+            hold: () => jest.spyOn(api, 'create').mockReturnValue(new Promise<never>(() => {})),
+            start: () => logic.actions.bulkClaim(['r-1']),
         },
     ])('locks the selection while a bulk $action is running', ({ hold, start }) => {
         const pending = hold()

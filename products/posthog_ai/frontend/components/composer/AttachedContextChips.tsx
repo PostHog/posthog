@@ -7,9 +7,10 @@ import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { EmailPreviewThumbnail } from 'lib/components/EmailPreviewThumbnail/EmailPreviewThumbnail'
 import { IconAction, IconEvent } from 'lib/lemon-ui/icons'
 
-import { attachedContextLogic } from '../../logics/attachedContextLogic'
+import { type AttachedContextItem, attachedContextItemKey } from '~/layout/ai/attachedContext'
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
+
 import { contextPickerLogic } from '../../logics/contextPickerLogic'
-import { type AttachedContextItem, attachedContextItemKey } from '../../types/contextTypes'
 
 function iconForType(type: string): JSX.Element {
     switch (type) {

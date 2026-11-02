@@ -1,15 +1,18 @@
-import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_USER } from 'lib/api.mock'
+import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
-import type { Meta, StoryObj } from '@storybook/react'
+import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
+import { useActions } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
 import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
 import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -21,6 +24,7 @@ import { StartupProgramLabel } from '~/types'
 import { expect } from 'storybook/test'
 
 import { LONG, LONG_INACTIVE, summary as timelineSummary } from '../__mocks__/recordingTimelineObservations'
+import scoutTemplates from '../__mocks__/scoutTemplates.json'
 import type {
     BackfillEstimateResponseApi,
     DraftScannerResponseApi,
@@ -173,6 +177,7 @@ const quota: VisionQuotaApi = {
     exhausted: false,
     projected_monthly_credits: 5200,
     scanners_monthly_credits: 5200,
+    scanners_period_credits: 3467,
     backfills_committed_credits: 0,
     free_monthly_credits: 2500,
     credits_settled: 2400,
@@ -636,7 +641,7 @@ const trendDays = [
 const observationsTrend = {
     results: [
         {
-            action: { id: '$recording_observed', type: 'events', order: 0, name: '$recording_observed' },
+            order: 0,
             label: 'Observations',
             count: 142,
             data: [8, 11, 9, 14, 10, 12, 7, 13, 9, 11, 10, 8, 12, 8],
@@ -1020,6 +1025,15 @@ const meta: Meta = {
                         : params.id === monitorOverviewScanner.id
                           ? monitorOverviewScanner
                           : summarizerScanner,
+                // Rendered by the backend's templates; only the root cause body is full, since only its form is shown.
+                '/api/projects/:team_id/vision/scanners/:scannerId/scouts/templates/': ({ params }) =>
+                    (params.scannerId === summarizerScanner.id
+                        ? scoutTemplates.summarizer
+                        : scoutTemplates.monitor
+                    ).map((template) => ({
+                        ...template,
+                        body: template.body.replaceAll('SCANNER_ID', String(params.scannerId)),
+                    })),
                 '/api/projects/:team_id/vision/scanners/:id/self_driving_stats/': noSelfDrivingStats,
                 '/api/projects/:team_id/vision/scanners/:id/observations/': observations,
                 '/api/projects/:team_id/vision/scanners/:id/observations/stats/': ({ params }) =>
@@ -1099,6 +1113,19 @@ export default meta
 
 export const ScannersList: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision()}?tab=scanners` },
+}
+
+export const ScannersListReplayOff: StoryObj = {
+    parameters: { pageUrl: `${urls.replayVision()}?tab=scanners` },
+    decorators: [
+        (Story) => {
+            const { loadCurrentTeamSuccess } = useActions(teamLogic)
+            useDelayedOnMountEffect(() => {
+                loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, session_recording_opt_in: false })
+            })
+            return <Story />
+        },
+    ],
 }
 
 // A project that has never created a scanner: the surface of the empty-state experiment.
@@ -1251,9 +1278,31 @@ export const HomeHighlightFeed: StoryObj = {
                                         confidence: 0.8,
                                         title: 'Plan limit blocked an export',
                                         summary: 'The export stopped at the plan limit and the user opened billing.',
+                                        chapters: [
+                                            { kind: 'activity', start_ms: 0, end_ms: 42000, title: 'Built a report' },
+                                            {
+                                                kind: 'activity',
+                                                start_ms: 42000,
+                                                end_ms: 97000,
+                                                title: 'Hit the plan limit',
+                                            },
+                                            {
+                                                kind: 'activity',
+                                                start_ms: 97000,
+                                                end_ms: 130000,
+                                                title: 'Opened billing',
+                                            },
+                                        ],
                                     },
                                     signals_count: 0,
                                 },
+                                media: [0, 1, 2].map((position) => ({
+                                    id: `00000000-0000-0000-0000-0000000000c${position}`,
+                                    kind: 'chapter',
+                                    position,
+                                    asset_id: 4100 + position,
+                                    video_start_ms: position * 40000,
+                                })),
                                 viewed: true,
                             }),
                             reason: { kind: 'embedding_pick', watch_category: 'revenue', similar_count: 0 },
@@ -1299,19 +1348,35 @@ export const MonitorOverview: StoryObj = {
     decorators: [overviewDecorator(monitorOverviewScanner, monitorOverviewStats, activeSelfDrivingStats)],
 }
 
-// A scanner with legacy experiment targeting points its owner to an experiment scanner.
-export const MonitorOverviewLegacyTargeting: StoryObj = {
-    parameters: {
-        pageUrl: urls.replayVision(monitorOverviewScanner.id),
-        featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
-    },
-    decorators: [overviewDecorator(monitorOverviewScanner, monitorOverviewStats, activeSelfDrivingStats)],
-}
-
 // Expensive filters stretch the sweep to its hourly ceiling, so the status strip reports it as throttled.
 export const ScannerStatusThrottled: StoryObj = {
     parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
     decorators: [overviewDecorator({ ...summarizerScanner, sweep_throttle_factor: 12 }, summarizerStats)],
+}
+
+export const ScannerCreatorLostAccess: StoryObj = {
+    parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
+    decorators: [
+        overviewDecorator(
+            { ...summarizerScanner, enabled: false, unrunnable_reason: 'creator_lost_access' },
+            summarizerStats
+        ),
+    ],
+}
+
+export const ScannerNoRecordings: StoryObj = {
+    parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
+    decorators: [
+        overviewDecorator(summarizerScanner, summarizerStats),
+        mswDecorator({
+            get: { '/api/environments/:team_id/session_recordings/': { results: [], has_next: false } },
+        }),
+    ],
+}
+
+export const ScannerTurnedOff: StoryObj = {
+    parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
+    decorators: [overviewDecorator({ ...summarizerScanner, enabled: false }, summarizerStats)],
 }
 
 // Once a scanner has enough observations, the overview offers a dashboard for it.
@@ -1885,6 +1950,14 @@ export const ScannerEditorBudget: StoryObj = {
     parameters: { pageUrl: urls.replayVisionScannerBudget(summarizerScanner.id) },
 }
 
+// The recordings-first experiment arm only applies while creating, so this story starts a new scanner.
+export const ScannerEditorTriggersRecordingsFirst: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerTriggers('new'),
+        featureFlags: { [FEATURE_FLAGS.VISION_SCANNER_WIZARD_RECORDINGS_FIRST]: 'test' },
+    },
+}
+
 export const ObservationDetail: StoryObj = {
     parameters: { pageUrl: urls.replayVisionObservation(observationDetail.id) },
 }
@@ -1984,7 +2057,7 @@ export const StartupProgramCap: StoryObj = {
     ],
 }
 
-// The goal step: a typed goal and budget on the left, one-click starting points on the right.
+// The goal step: one goal box with starters that fill it, a budget, and a single draft button.
 export const ScannerEditorGoalFlow: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionScannerGoal('new'),
@@ -2012,6 +2085,7 @@ const goalDraft: DraftScannerResponseApi = {
             },
         ],
     },
+    query_additions: null,
     sampling_mode: 'comprehensive',
     sampling_rate: 0.25,
     model: 'gemini-3-flash-preview',
@@ -2022,7 +2096,53 @@ const goalDraft: DraftScannerResponseApi = {
 
 // The landing step after a goal draft: the whole config ordered by comprehension, each section
 // deep-linking into the wizard step that edits it. Seeded through the same action the loader fires.
+const seedGoalOverviewDraft: Decorator = (StoryFn) => {
+    const logic = replayScannerLogic({ id: 'new' })
+    logic.mount()
+    // The success listener's stale-navigation guard sees the overview URL and skips its own
+    // reset + redirect, so only the goalDraft reducer applies; the form is seeded by hand.
+    logic.actions.draftScannerFromGoalSuccess(goalDraft)
+    logic.actions.setScannerValues({
+        name: goalDraft.name,
+        description: goalDraft.description,
+        scanner_type: goalDraft.scanner_type as ScannerType,
+        scanner_config: goalDraft.scanner_config as ScannerConfig,
+        query: goalDraft.query as RecordingsQuery,
+        sampling_mode: goalDraft.sampling_mode as SamplingMode,
+        sampling_rate: goalDraft.sampling_rate ?? 1,
+    })
+    return <StoryFn />
+}
+
 export const ScannerEditorGoalOverview: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerOverview('new'),
+    },
+    decorators: [seedGoalOverviewDraft],
+}
+
+// The recordings-first experiment arm reviews the eligible recordings before the prompt.
+export const ScannerEditorGoalOverviewRecordingsFirst: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerOverview('new'),
+        featureFlags: { [FEATURE_FLAGS.VISION_SCANNER_WIZARD_RECORDINGS_FIRST]: 'test' },
+    },
+    decorators: [seedGoalOverviewDraft],
+}
+
+const addedBillingEvent = { id: 'billing_limit_set', name: 'billing_limit_set', type: 'events', order: 0 }
+
+const goalDraftFromReplayFilters: DraftScannerResponseApi = {
+    ...goalDraft,
+    query: {
+        kind: 'RecordingsQuery',
+        properties: [{ type: 'recording', key: 'visited_page', value: ['/checkout'], operator: 'icontains' }],
+        events: [addedBillingEvent],
+    },
+    query_additions: { kind: 'RecordingsQuery', events: [addedBillingEvent] },
+}
+
+export const ScannerEditorGoalOverviewFromReplayFilters: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionScannerOverview('new'),
     },
@@ -2030,17 +2150,15 @@ export const ScannerEditorGoalOverview: StoryObj = {
         (StoryFn) => {
             const logic = replayScannerLogic({ id: 'new' })
             logic.mount()
-            // The success listener's stale-navigation guard sees the overview URL and skips its own
-            // reset + redirect, so only the goalDraft reducer applies; the form is seeded by hand.
-            logic.actions.draftScannerFromGoalSuccess(goalDraft)
+            logic.actions.draftScannerFromGoalSuccess(goalDraftFromReplayFilters)
             logic.actions.setScannerValues({
-                name: goalDraft.name,
-                description: goalDraft.description,
-                scanner_type: goalDraft.scanner_type as ScannerType,
-                scanner_config: goalDraft.scanner_config as ScannerConfig,
-                query: goalDraft.query as RecordingsQuery,
-                sampling_mode: goalDraft.sampling_mode as SamplingMode,
-                sampling_rate: goalDraft.sampling_rate ?? 1,
+                name: goalDraftFromReplayFilters.name,
+                description: goalDraftFromReplayFilters.description,
+                scanner_type: goalDraftFromReplayFilters.scanner_type as ScannerType,
+                scanner_config: goalDraftFromReplayFilters.scanner_config as ScannerConfig,
+                query: goalDraftFromReplayFilters.query as RecordingsQuery,
+                sampling_mode: goalDraftFromReplayFilters.sampling_mode as SamplingMode,
+                sampling_rate: goalDraftFromReplayFilters.sampling_rate ?? 1,
             })
             return <StoryFn />
         },
@@ -2308,21 +2426,19 @@ export const ScannerEditorGoalFlowBudget: StoryObj = {
     ],
 }
 
-// "Track an experiment" opened and an experiment picked: the starter lists running experiments and drafts an
-// experiment scanner on the one picked.
+// An experiment picked from the "Track an experiment" chip: the pick fills the goal box, links the experiment
+// to the draft, and the chip shows its name.
 export const ScannerEditorGoalFlowExperimentPicker: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionScannerGoal('new'),
     },
     play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByText('Track an experiment'))
-        const picker = await waitFor(() => {
-            const button = canvasElement.querySelector('[data-attr="vision-goal-starter-experiment-picker"]')
+        const chip = await waitFor(() => {
+            const button = canvasElement.querySelector('[data-attr="vision-goal-starter-experiment"]')
             expect(button).not.toHaveClass('LemonButton--loading')
             return button as HTMLElement
         })
-        await userEvent.click(picker)
+        await userEvent.click(chip)
         await userEvent.click(await within(document.body).findByText('AI creation flow'))
     },
 }

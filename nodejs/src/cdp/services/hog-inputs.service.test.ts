@@ -393,6 +393,38 @@ describe('Hog Inputs', () => {
         })
 
         it.each([
+            ['integration', "The integration for input 'connection' no longer exists."],
+            ['integration_multi', null],
+        ])("treats another team's warehouse row like a missing row for an %s input", async (type, message) => {
+            const otherTeam = (await createTestTeamFixture(hub.postgres)).team
+            const foreignId = 100000000 + otherTeam.id
+            const missingId = foreignId + 1
+            await insertIntegration(hub.postgres, otherTeam.id, {
+                id: foreignId,
+                kind: 'postgresql' as any,
+                config: { warehouse_source_type: 'Postgres', host: 'db.example.com' },
+                sensitive_config: { password: hub.encryptedFields.encrypt('secret-password') },
+            })
+            const run = async (id: number): Promise<any> => {
+                hogFunction.inputs = { connection: { value: type === 'integration' ? id : [integrationId1, id] } }
+                hogFunction.inputs_schema = [{ key: 'connection', type: type as any, required: true }]
+                return hogInputsService.buildInputs(hogFunction, globals).catch((e) => e)
+            }
+
+            const foreign = await run(foreignId)
+            const missing = await run(missingId)
+
+            if (message) {
+                expect(missing.message).toContain(message)
+                expect(foreign.message).toBe(missing.message)
+            } else {
+                expect(missing).not.toBeInstanceOf(Error)
+                expect(foreign).toEqual(missing)
+            }
+            expect(foreign.message ?? '').not.toContain("can't be used as a function input")
+        })
+
+        it.each([
             ['no marker', { team: 'foobar' }],
             ['a null config', null],
         ])('loads an integration with %s', async (_name, config) => {

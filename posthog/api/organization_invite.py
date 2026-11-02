@@ -21,6 +21,7 @@ from posthog.email import is_email_available
 from posthog.event_usage import report_bulk_invited, report_team_member_invited
 from posthog.helpers.email_utils import (
     EmailNormalizer,
+    reject_lookalike_email_characters,
     reject_plus_addressed_email,
     validate_display_name,
     validate_message_body,
@@ -173,6 +174,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             "target_email",
             "first_name",
             "emailing_attempt_made",
+            "email_suppressed",
             "level",
             "is_expired",
             "created_by",
@@ -186,6 +188,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "emailing_attempt_made",
+            "email_suppressed",
             "created_at",
             "updated_at",
         ]
@@ -194,6 +197,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
     def validate_target_email(self, email: str):
         email = EmailNormalizer.normalize(email)
         reject_plus_addressed_email(email)
+        reject_lookalike_email_characters(email)
         validate_invite_target_email_domain(self.context["get_organization"](), email)
         # Validation runs for every bulk row before any row saves, so one existing member
         # rejects the batch without a partial set of sent invites.
@@ -351,7 +355,8 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         if is_email_available(with_absolute_urls=True) and send_email:
             invite.emailing_attempt_made = True
             send_invite(invite_id=invite.id)
-            invite.save()
+            # A full-row save would overwrite `email_suppressed` if the suppression check that `send_invite` queues finished first.
+            invite.save(update_fields=["emailing_attempt_made", "updated_at"])
 
         report_team_member_invited(
             self.context["request"].user,
@@ -394,6 +399,7 @@ class OrganizationInviteDelegateSerializer(serializers.Serializer):
     def validate_target_email(self, email: str) -> str:
         email = EmailNormalizer.normalize(email)
         reject_plus_addressed_email(email)
+        reject_lookalike_email_characters(email)
         return email
 
     def validate_message(self, value: str | None) -> str | None:

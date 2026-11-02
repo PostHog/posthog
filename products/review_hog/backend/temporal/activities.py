@@ -30,7 +30,8 @@ from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.integrations import IntegrationManager
+from posthog.models.integration import GitHubIntegration
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
@@ -40,16 +41,11 @@ from products.review_hog.backend.app_identity import posthog_app_login
 from products.review_hog.backend.automatic_reviews import automatic_flash_allowed, observe_dispatch
 from products.review_hog.backend.facade.enums import ReviewRequestRefusal
 from products.review_hog.backend.facade.finished_review_hooks import FinishedReview, get_finished_review_hooks
-from products.review_hog.backend.label_reviews import (
-    comment_commands_enabled,
-    draft_review_notice,
-    first_review_note,
-    label_commands_hint,
-)
 from products.review_hog.backend.models import ReviewProjectSettings, ReviewReport, ReviewUserSettings
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
 from products.review_hog.backend.preferences import ReviewPreferences
-from products.review_hog.backend.pull_request_events import REVIEW_LABEL, has_skip_agent_review_label
+from products.review_hog.backend.pull_request_events import has_skip_agent_review_label
+from products.review_hog.backend.review_notes import comment_commands_enabled, draft_review_notice, first_review_note
 from products.review_hog.backend.review_request_rules import ResolutionGate, full_review_published
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import (
@@ -139,13 +135,11 @@ from products.review_hog.backend.reviewer.progress import (
     turn_markers,
 )
 from products.review_hog.backend.reviewer.push_gate import (
-    SYSTEM_ONE_SKIP_BELOW,
     PRChange,
     PushGate,
     PushGateDecision,
     apply_draft_rule,
     apply_follow_up_value_rules,
-    apply_next_push_rule,
     apply_throttle,
     apply_zero_change_rule,
     plan_delta_review,
@@ -241,12 +235,16 @@ from products.review_hog.backend.temporal.types import (
     TRIGGER_AUTOMATIC,
     TRIGGER_LABEL,
     TRIGGER_MANUAL,
+    TRIGGER_STAMPHOG,
 )
-from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import CodeReview, CodeReviewCounts
-from products.signals.backend.enums import ReportPriority
-from products.signals.backend.models import SignalReport, SignalReportArtefact
-from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
+from products.signals.backend.facade.report_artefacts import (
+    CodeReview,
+    CodeReviewCounts,
+    append_code_review,
+    report_exists,
+)
+from products.signals.backend.facade.report_reviewers import org_user_ids_by_github_login
+from products.signals.backend.facade.taxonomy import ArtefactAttribution, ReportPriority
 from products.stamphog.backend.facade.tasks import request_rereview_after_external_review
 from products.tasks.backend.facade.agents import AgentTurnFailed
 from products.tasks.backend.facade.contracts import SessionFile
@@ -374,9 +372,6 @@ class ResolveActingUserResult:
     acting_user_id: int | None
     # The acting user's preferences, snapshotted here so mid-run edits don't flip gates between
     # stages. Defaults match the code defaults (and cover payloads serialized before these existed).
-    # `review_labeled_prs` is always True: no setting turns the label trigger off. The field stays,
-    # because recorded workflow histories carry it and their replay still reads it.
-    review_labeled_prs: bool = True
     urgency_threshold: str = IssuePriority.CONSIDER.value
     review_inbox_prs: bool = False
     # Which chain link resolved: "author" | "default" | "override" (observability + tests).
@@ -781,7 +776,7 @@ async def _refresh_status_comment(
 
 
 def _github_integration_exists(team_id: int) -> bool:
-    return Integration.objects.filter(team_id=team_id, kind="github").exists()
+    return IntegrationManager.github.oauth.exists(team_id)
 
 
 def _installation_auth(team_id: int, repository: str) -> tuple[str, str | None]:
@@ -806,7 +801,7 @@ def _installation_for(team_id: int, repository: str) -> GitHubIntegration:
     """The team's GitHub App installation that can access `repository` — a live API probe.
 
     Callers that make many writes in one run should select once and re-mint tokens from the
-    returned integration row (`GitHubIntegration(Integration.objects.get(...)).get_access_token()`)
+    returned integration row (`GitHubIntegration(IntegrationManager.github.oauth.get(...)).get_access_token()`)
     instead of re-probing per write: the probe answers *which* installation, not *may we write* —
     GitHub enforces access server-side on every call anyway.
     """
@@ -1009,9 +1004,7 @@ async def fetch_pr_data_activity(input: FetchPRDataInput) -> ReviewMeta:
 def _login_to_user_id(team_id: int, login: str | None) -> int | None:
     if not login:
         return None
-    matches = resolve_org_github_login_to_users(team_id, [login])
-    user = matches.get(login.strip().lower())
-    return user.id if user is not None else None
+    return org_user_ids_by_github_login(team_id=team_id, github_logins=[login]).get(login.strip().lower())
 
 
 def _automatic_review_allowed(input: ResolveActingUserInput, acting_user_id: int | None) -> bool:
@@ -1070,9 +1063,9 @@ def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResu
         acting_user_id, resolved_from = input.override_user_id, "override"
     else:
         acting_user_id, resolved_from = owner.user_id, "author"
-        # Label-trigger fallback: someone explicitly asked for this review, so borrow the run user
-        # the trigger already resolved. Other triggers keep the owner-only contract and skip.
-        if acting_user_id is None and input.trigger_source == TRIGGER_LABEL:
+        # Stamphog-handoff fallback: the review was explicitly asked for, so borrow the run user the
+        # trigger already resolved. Other triggers keep the owner-only contract and skip.
+        if acting_user_id is None and input.trigger_source in (TRIGGER_STAMPHOG, TRIGGER_LABEL):
             acting_user_id, resolved_from = input.default_user_id, "default"
     automatic_allowed = input.trigger_source == TRIGGER_AUTOMATIC and _automatic_review_allowed(input, acting_user_id)
     flash_after_full = _flash_after_full(input)
@@ -1106,7 +1099,6 @@ def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResu
     resolution = ResolutionGate(owner_user_id=owner.user_id, owner_opted_in=owner_preferences.resolve_comments)
     return ResolveActingUserResult(
         acting_user_id=acting_user_id,
-        review_labeled_prs=True,
         # .value unwraps the TextChoices member, because the payload must hold the plain value.
         urgency_threshold=preferences.urgency_threshold.value,
         review_inbox_prs=preferences.review_inbox_prs,
@@ -2182,20 +2174,16 @@ async def build_body_activity(input: BuildBodyInput) -> None:
 def _publish(input: PublishInput) -> PublishResult:
     token, installation_id = _installation_auth(input.team_id, f"{input.owner}/{input.repo}")
     commands_on = comment_commands_enabled(input.team_id)
-    footer = ""
-    if input.trigger_source == TRIGGER_LABEL and commands_on:
-        footer = label_commands_hint(input.review_mode)
-    # Only an automatic turn can promise the review on ready: a label or UI review runs for authors
+    # Only an automatic turn can promise the review on ready: a comment or UI review runs for authors
     # without automatic reviews too. Only an automatic turn is held to the finding budget, too.
     draft_notice = ""
     comment_commands_on = False
     if input.trigger_source == TRIGGER_AUTOMATIC:
         comment_commands_on = commands_on
         draft_notice = draft_review_notice(comment_commands_on)
-    # The label footer already names the Deep command.
     intro_note = first_review_note(
         report_deep_link(input.team_id, input.report_id),
-        deep_command=commands_on and input.review_mode == REVIEW_MODE_FLASH and not footer,
+        deep_command=commands_on and input.review_mode == REVIEW_MODE_FLASH,
     )
     outcome = publish_persisted_review(
         team_id=input.team_id,
@@ -2210,7 +2198,6 @@ def _publish(input: PublishInput) -> PublishResult:
         installation_id=installation_id,
         review_mode=input.review_mode,
         capped_lens_parts=input.capped_lens_parts,
-        footer=footer,
         draft_notice=draft_notice,
         first_review_note=intro_note,
         answers_request=input.trigger_source in REQUESTED_TRIGGERS,
@@ -2245,12 +2232,15 @@ async def publish_review_activity(input: PublishInput) -> PublishResult:
         raise _wait_for_github_reset(error) from error
 
 
+_LEGACY_REVIEW_LABEL = "posthog-review"
+
+
 def _remove_trigger_label(input: RemoveTriggerLabelInput) -> None:
     token, installation_id = _installation_auth(input.team_id, f"{input.owner}/{input.repo}")
     try:
         github_api_request(
             "DELETE",
-            f"/repos/{input.owner}/{input.repo}/issues/{input.pr_number}/labels/{REVIEW_LABEL}",
+            f"/repos/{input.owner}/{input.repo}/issues/{input.pr_number}/labels/{_LEGACY_REVIEW_LABEL}",
             token=token,
             endpoint="/repos/{owner}/{repo}/issues/{issue_number}/labels/{name}",
             installation_id=installation_id,
@@ -2264,7 +2254,7 @@ def _remove_trigger_label(input: RemoveTriggerLabelInput) -> None:
 @scoped_temporal()
 @close_db_connections
 async def remove_trigger_label_activity(input: RemoveTriggerLabelInput) -> None:
-    """Remove the review label that started a label-triggered review, if it is still present."""
+    """Remove the review label of a label run started before the label trigger was removed."""
     await database_sync_to_async(_remove_trigger_label, thread_sensitive=False)(input)
 
 
@@ -2439,15 +2429,9 @@ def _track_push_gate_decided(input: GatePushInput, decision: PushGateDecision, d
             "skipped": decision.skip,
             "would_skip": decision.would_skip,
             "reason": decision.reason,
-            "system_one_probability": decision.probability,
-            "system_one_model": decision.model,
-            "system_one_skip_below": SYSTEM_ONE_SKIP_BELOW,
             "own_commits": decision.own_commits,
             "own_code_lines": decision.own_code_lines,
-            "net_code_lines": decision.net_code_lines,
-            "small_change_deferrals": decision.small_change_deferrals,
             "pr_draft": draft,
-            "next_push_probability": decision.next_push_probability,
             "reviewable_lines": decision.reviewable_lines,
             "previous_findings": decision.previous_findings,
             "pr_changed_lines": decision.pr_changed_lines,
@@ -2500,21 +2484,17 @@ def _head_already_finalized(input: GatePushInput) -> bool:
 def _gate_push(input: GatePushInput) -> PushGateDecision:
     current = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
     draft = _pr_draft(current)
-    gate: PushGate | None = None
     snapshot: PRSnapshotArtefact | None = None
     change: PRChange | None = None
     if current is None:
         decision = PushGateDecision(skip=False, would_skip=False, reason="snapshot_unavailable")
     else:
         token, installation_id = _installation_auth(input.team_id, input.repository)
-        gate = PushGate(
-            team_id=input.team_id, repository=input.repository, token=token, installation_id=installation_id
-        )
+        gate = PushGate(repository=input.repository, token=token, installation_id=installation_id)
         push_decision = gate.decide(
             previous_head_sha=input.previous_head_sha,
             head_sha=input.head_sha,
             base_branch=current.pr_metadata.base_branch,
-            pr_number=current.pr_metadata.number,
         )
         decision = apply_draft_rule(push_decision, draft=bool(draft))
         # Every turn fetches the PR before the gate and the snapshot load is latest-wins, so a PR marked
@@ -2527,7 +2507,7 @@ def _gate_push(input: GatePushInput) -> PushGateDecision:
             draft = False
             decision = push_decision
         # A retry of a finalized turn has a run_index one higher than the turn it retries, and its own
-        # findings count as the previous turn's, so rules 8 to 10 would drop findings nobody saw yet.
+        # findings count as the previous turn's, so rules 5 to 7 would drop findings nobody saw yet.
         if not _head_already_finalized(input):
             decision = apply_follow_up_value_rules(
                 decision,
@@ -2550,20 +2530,8 @@ def _gate_push(input: GatePushInput) -> PushGateDecision:
         if snapshot is not None and earlier is not None:
             change = PRChange.between(earlier, snapshot)
         decision = apply_zero_change_rule(decision, change=change, enabled=input.zero_change_skip)
-        if not draft:
-            # The offline fit counted only automatic follow-ups. No turn stores its trigger, so this
-            # count is the completed turns after the first review, which also includes label, UI,
-            # and other human turns.
-            decision = apply_next_push_rule(
-                decision,
-                follow_up=input.run_index - 1,
-                pr_lines=current.pr_metadata.additions + current.pr_metadata.deletions,
-            )
     decision = apply_throttle(decision, report_id=input.report_id, head_sha=input.head_sha)
-    if gate is not None and current is not None:
-        decision = gate.record_small_change_streak(
-            decision, pr_number=current.pr_metadata.number, head_sha=input.head_sha
-        )
+    if current is not None:
         decision = plan_delta_review(
             decision,
             run_index=input.run_index,
@@ -2959,7 +2927,7 @@ def _append_code_review_artefact(input: AppendCodeReviewArtefactInput) -> None:
         return
     # The signals report may be gone by now (deleted/reingested) — the review must not fail over its
     # own receipt, and the plain-UUID provenance on the ReviewReport row keeps the durable link.
-    if not SignalReport.objects.filter(team_id=input.team_id, id=input.signal_report_id).exists():
+    if not report_exists(team_id=input.team_id, report_id=input.signal_report_id):
         logger.warning("Signal report %s missing; skipping the code_review artefact", input.signal_report_id)
         return
     counts = CodeReviewCounts()
@@ -2981,7 +2949,7 @@ def _append_code_review_artefact(input: AppendCodeReviewArtefactInput) -> None:
         outcome=input.outcome,
         counts=counts,
     )
-    SignalReportArtefact.add_log(
+    append_code_review(
         team_id=input.team_id,
         report_id=input.signal_report_id,
         content=content,

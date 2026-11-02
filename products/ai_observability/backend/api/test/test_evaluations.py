@@ -1,5 +1,6 @@
 import json
 from datetime import timedelta
+from typing import Any
 from uuid import UUID, uuid4
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
@@ -136,17 +137,19 @@ class TestModelConfigurationSerializer(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("llm", {}, {"judge_method": "llm"}),
-            ("decision", {}, {"judge_method": "decision"}),
-            ("llm", {"judge_method": None}, {}),
-            ("decision", {"judge_method": "llm"}, {"judge_method": "llm"}),
-            (None, {}, {}),
+            ({"judge_method": "llm"}, {}, {"judge_method": "llm"}),
+            ({"judge_method": "decision"}, {}, {"judge_method": "decision"}),
+            ({"judge_method": "llm"}, {"judge_method": None}, {}),
+            ({"judge_method": "decision"}, {"judge_method": "llm"}, {"judge_method": "llm"}),
+            ({}, {}, {}),
+            ({"include_media": False}, {}, {"include_media": False}),
+            ({"include_media": False}, {"include_media": True}, {"include_media": True}),
         ]
     )
-    def test_prompt_patch_preserves_method_unless_explicitly_changed(
-        self, method: str | None, patch_config: dict[str, object], expected_method: dict[str, str]
+    def test_prompt_patch_preserves_saved_choices_unless_explicitly_changed(
+        self, saved: dict[str, object], patch_config: dict[str, object], expected_method: dict[str, object]
     ) -> None:
-        stored_config = {"prompt": "Check the response.", **({"judge_method": method} if method else {})}
+        stored_config = {"prompt": "Check the response.", **saved}
         evaluation = Evaluation(
             evaluation_type="llm_judge",
             evaluation_config=stored_config.copy(),
@@ -174,11 +177,53 @@ class TestModelConfigurationSerializer(SimpleTestCase):
         )
         self.assertEqual(evaluation.evaluation_config, stored_config)
 
+    @parameterized.expand(
+        [
+            ("prompt_patch_keeps_level", {}, {"reasoning_level": "high"}),
+            ("explicit_null_clears_level", {"evaluation_config": {"reasoning_level": None}}, {}),
+            ("level_change", {"evaluation_config": {"reasoning_level": "minimal"}}, {"reasoning_level": "minimal"}),
+            (
+                "unsupported_model_rejected",
+                {"model_configuration": {"provider": "gemini", "model": "gemini-2.5-flash"}},
+                None,
+            ),
+            (
+                "openai_reasoning_model_accepted",
+                {"model_configuration": {"provider": "openai", "model": "gpt-5-mini"}},
+                {"reasoning_level": "high"},
+            ),
+        ]
+    )
+    def test_reasoning_level_patch(
+        self, _name: str, patch_data: dict[str, Any], expected_level: dict[str, str] | None
+    ) -> None:
+        evaluation = Evaluation(
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Check the response.", "reasoning_level": "high"},
+            output_type="boolean",
+            output_config={},
+            model_configuration=LLMModelConfiguration(provider="anthropic", model="claude-haiku-5-5"),
+        )
+        data = {**patch_data}
+        data["evaluation_config"] = {"prompt": "Check clarity.", **patch_data.get("evaluation_config", {})}
+        serializer = EvaluationSerializer(
+            instance=evaluation, data=data, partial=True, context={"get_team": lambda: Mock(id=1)}
+        )
+        # Avoid key resolution: this test checks the configuration boundary.
+        with patch.object(serializer, "_validate_re_enable"), patch.object(serializer, "_validate_can_run"):
+            valid = serializer.is_valid()
+        if expected_level is None:
+            self.assertFalse(valid)
+            self.assertIn("evaluation_config", serializer.errors)
+            return
+        self.assertTrue(valid, serializer.errors)
+        self.assertEqual(serializer.validated_data["evaluation_config"], {"prompt": "Check clarity.", **expected_level})
+
     @parameterized.expand([("llm",), ("decision",)])
     def test_switch_to_sentiment_ignores_stored_judge_method(self, method: str) -> None:
         evaluation = Evaluation(
             evaluation_type="llm_judge",
-            evaluation_config={"prompt": "Check the response.", "judge_method": method},
+            evaluation_config={"prompt": "Check the response.", "judge_method": method, "reasoning_level": "high"},
             output_type="boolean",
             output_config={},
             model_configuration=LLMModelConfiguration(provider="openrouter", model="example/model"),

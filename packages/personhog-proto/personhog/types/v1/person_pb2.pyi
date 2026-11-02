@@ -453,6 +453,26 @@ class UpdatePersonPropertiesResponse(_message.Message):
     updated: bool
     def __init__(self, person: _Optional[_Union[Person, _Mapping]] = ..., updated: bool = ...) -> None: ...
 
+class RaisePersonVersionRequest(_message.Message):
+    __slots__ = ("team_id", "person_id", "min_version")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    PERSON_ID_FIELD_NUMBER: _ClassVar[int]
+    MIN_VERSION_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    person_id: int
+    min_version: int
+    def __init__(
+        self, team_id: _Optional[int] = ..., person_id: _Optional[int] = ..., min_version: _Optional[int] = ...
+    ) -> None: ...
+
+class RaisePersonVersionResponse(_message.Message):
+    __slots__ = ("person", "raised")
+    PERSON_FIELD_NUMBER: _ClassVar[int]
+    RAISED_FIELD_NUMBER: _ClassVar[int]
+    person: Person
+    raised: bool
+    def __init__(self, person: _Optional[_Union[Person, _Mapping]] = ..., raised: bool = ...) -> None: ...
+
 class DeletePersonsRequest(_message.Message):
     __slots__ = ("team_id", "person_uuids", "mode")
     TEAM_ID_FIELD_NUMBER: _ClassVar[int]
@@ -847,7 +867,16 @@ class FencedPersonSeal(_message.Message):
     ) -> None: ...
 
 class ReleaseFenceRequest(_message.Message):
-    __slots__ = ("team_id", "person_id", "person_uuid", "op_id", "outcome", "sealed_version", "created_at")
+    __slots__ = (
+        "team_id",
+        "person_id",
+        "person_uuid",
+        "op_id",
+        "outcome",
+        "sealed_version",
+        "created_at",
+        "tombstone_version",
+    )
     TEAM_ID_FIELD_NUMBER: _ClassVar[int]
     PERSON_ID_FIELD_NUMBER: _ClassVar[int]
     PERSON_UUID_FIELD_NUMBER: _ClassVar[int]
@@ -855,6 +884,7 @@ class ReleaseFenceRequest(_message.Message):
     OUTCOME_FIELD_NUMBER: _ClassVar[int]
     SEALED_VERSION_FIELD_NUMBER: _ClassVar[int]
     CREATED_AT_FIELD_NUMBER: _ClassVar[int]
+    TOMBSTONE_VERSION_FIELD_NUMBER: _ClassVar[int]
     team_id: int
     person_id: int
     person_uuid: str
@@ -862,6 +892,7 @@ class ReleaseFenceRequest(_message.Message):
     outcome: ReleaseOutcome
     sealed_version: int
     created_at: int
+    tombstone_version: int
     def __init__(
         self,
         team_id: _Optional[int] = ...,
@@ -871,6 +902,7 @@ class ReleaseFenceRequest(_message.Message):
         outcome: _Optional[_Union[ReleaseOutcome, str]] = ...,
         sealed_version: _Optional[int] = ...,
         created_at: _Optional[int] = ...,
+        tombstone_version: _Optional[int] = ...,
     ) -> None: ...
 
 class ReleaseFenceResponse(_message.Message):
@@ -896,21 +928,24 @@ class ReleaseFencesRequest(_message.Message):
     ) -> None: ...
 
 class ReleaseFenceItem(_message.Message):
-    __slots__ = ("person_id", "person_uuid", "sealed_version", "created_at")
+    __slots__ = ("person_id", "person_uuid", "sealed_version", "created_at", "tombstone_version")
     PERSON_ID_FIELD_NUMBER: _ClassVar[int]
     PERSON_UUID_FIELD_NUMBER: _ClassVar[int]
     SEALED_VERSION_FIELD_NUMBER: _ClassVar[int]
     CREATED_AT_FIELD_NUMBER: _ClassVar[int]
+    TOMBSTONE_VERSION_FIELD_NUMBER: _ClassVar[int]
     person_id: int
     person_uuid: str
     sealed_version: int
     created_at: int
+    tombstone_version: int
     def __init__(
         self,
         person_id: _Optional[int] = ...,
         person_uuid: _Optional[str] = ...,
         sealed_version: _Optional[int] = ...,
         created_at: _Optional[int] = ...,
+        tombstone_version: _Optional[int] = ...,
     ) -> None: ...
 
 class ReleaseFencesResponse(_message.Message):

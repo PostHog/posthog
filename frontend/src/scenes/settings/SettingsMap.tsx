@@ -58,6 +58,7 @@ import { GithubReposSetting } from 'products/business_knowledge/frontend/scenes/
 import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/scenes/settings/LearnFromSupportSetting'
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
+import { MacrosSection } from 'products/conversations/frontend/scenes/settings/MacrosSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
 import { ZendeskImportSection } from 'products/conversations/frontend/scenes/settings/ZendeskImportSection'
 import { CustomerAnalyticsNotifications } from 'products/customer_analytics/frontend/components/TaskDigest/CustomerAnalyticsNotifications'
@@ -78,6 +79,8 @@ import { FeatureFlagRequestBlocklist } from 'products/feature_flags/frontend/Fea
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
 import { LogsMetricRulesSection } from 'products/logs/frontend/components/LogsMetricRules/LogsMetricRulesSection'
 import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
+import { OrganizationEventsRetentionSetting } from 'products/product_analytics/frontend/settings/OrganizationEventsRetentionSetting'
+import { ProjectEventsRetentionSetting } from 'products/product_analytics/frontend/settings/ProjectEventsRetentionSetting'
 import { TracingRetentionSettingsBlock } from 'products/tracing/frontend/components/TracingRetention/TracingRetentionSettings'
 import { HeatmapCaptureSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapCaptureSettings'
 import { HeatmapScreenshotCookieSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapScreenshotCookieSettings'
@@ -186,6 +189,7 @@ import { OrganizationDesktopBetaTerms } from './organization/OrgDesktopBetaTerms
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrgIPAnonymizationDefault } from './organization/OrgIPAnonymizationDefault'
 import { OrganizationVariables } from './organization/OrgVariables'
+import { SSFSetting } from './organization/SSFSetting'
 import { EnforceVerifiedDomains } from './organization/VerifiedDomains/EnforceVerifiedDomains'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
@@ -1408,6 +1412,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['url', 'regex', 'normalize', 'path analysis'],
             },
             {
+                id: 'project-events-retention',
+                title: 'Events retention',
+                component: <ProjectEventsRetentionSetting />,
+                keywords: ['events', 'retention', 'deletion', 'delete', 'months', 'compliance'],
+            },
+            {
                 id: 'human-friendly-comparison-periods',
                 title: 'Human friendly comparison periods',
                 description:
@@ -1651,6 +1661,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 flag: 'PRODUCT_SUPPORT_IMPORT_TICKETS',
                 allowForTeam: (t) => !!t?.conversations_enabled,
                 keywords: ['import', 'zendesk', 'migrate', 'ticket', 'support', 'conversation'],
+            },
+            {
+                id: 'conversations-macros',
+                title: 'Macros',
+                description: 'Save replies you send often and insert them from a ticket.',
+                component: <MacrosSection />,
+                flag: 'PRODUCT_SUPPORT_MACROS',
+                allowForTeam: (t) => !!t?.conversations_enabled,
+                keywords: ['macro', 'canned', 'reply', 'shortcut', 'template', 'support', 'conversation'],
             },
             {
                 id: 'conversations-ai',
@@ -1936,7 +1955,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                         attrPrefix="workflows-task"
                     />
                 ),
-                flag: 'WORKFLOW_AI_TASK_ACTION',
                 keywords: ['workflows', 'ai', 'task', 'agent', 'limit', 'rate', 'cap', 'daily', 'spend', 'pause'],
             },
             {
@@ -2335,6 +2353,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['ip', 'anonymize', 'gdpr', 'privacy', 'geolocation'],
             },
             {
+                id: 'organization-events-retention',
+                title: 'Events retention',
+                component: <OrganizationEventsRetentionSetting />,
+                keywords: ['events', 'retention', 'deletion', 'delete', 'months', 'compliance'],
+            },
+            {
                 id: 'organization-member-notice',
                 title: 'Member notice',
                 description:
@@ -2585,6 +2609,20 @@ export const SETTINGS_MAP: SettingSection[] = [
                     "See which members' personal API keys can reach this organization or its projects, who owns them, and the scopes they grant.",
                 component: <OrganizationPersonalAPIKeys />,
                 keywords: ['api key', 'personal', 'token', 'access', 'audit'],
+            },
+        ],
+    },
+    {
+        level: 'organization',
+        id: 'organization-ssf',
+        hideSelfHost: true,
+        title: 'SSF',
+        settings: [
+            {
+                id: 'organization-ssf',
+                title: 'Shared Signals Framework (SSF)',
+                component: <SSFSetting />,
+                keywords: ['ssf', 'shared signals framework', 'security', 'signals', 'closed beta'],
             },
         ],
     },
