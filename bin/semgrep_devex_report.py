@@ -20,9 +20,9 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-# The severity filter semgrep applies to the informational pass. Severity is ordered, so the
-# filter selects this severity and every higher one.
-BACKLOG_SEVERITIES = frozenset({"WARNING", "ERROR"})
+# The informational pass lists the backlog of the WARNING rules. An ERROR finding is either
+# blocking, or under an excluded prefix where it is knowingly accepted, so it stays out.
+BACKLOG_SEVERITIES = frozenset({"WARNING"})
 
 
 def load_report(path: Path) -> dict[str, Any]:

@@ -46,7 +46,7 @@ class TestSemgrepDevexReport(unittest.TestCase):
         with redirect_stdout(io.StringIO()):
             self.assertEqual(check_errors(report(results), excluded), expected)
 
-    def test_print_backlog_leaves_the_info_rule_out(self) -> None:
+    def test_print_backlog_lists_only_the_warning_rules(self) -> None:
         found = report(
             [
                 result("warn", "posthog/a.py", "WARNING"),
@@ -60,7 +60,9 @@ class TestSemgrepDevexReport(unittest.TestCase):
             self.assertEqual(print_backlog(found), 0)
         printed = output.getvalue()
         self.assertIn("posthog/a.py:1", printed)
-        self.assertIn("posthog/b.py:1", printed)
+        # An ERROR finding either blocks in the next step, or sits under an excluded prefix where it
+        # is accepted; the informational listing does not repeat it.
+        self.assertNotIn("posthog/b.py:1", printed)
         self.assertNotIn("integration-model-through-sdk", printed)
 
     @parameterized.expand(
@@ -107,7 +109,7 @@ class TestSemgrepDevexReport(unittest.TestCase):
     def test_main_backlog_reads_the_report_file(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             findings = Path(directory) / "findings.json"
-            findings.write_text(json.dumps(report([result("bad", "posthog/a.py", "ERROR")])))
+            findings.write_text(json.dumps(report([result("warn", "posthog/a.py", "WARNING")])))
             output = io.StringIO()
             with redirect_stdout(output):
                 self.assertEqual(main(["backlog", "--findings", str(findings)]), 0)
