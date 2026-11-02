@@ -1,5 +1,6 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import { KMSClient } from '@aws-sdk/client-kms'
+import { S3Client } from '@aws-sdk/client-s3'
 import { NodeHttpHandler } from '@smithy/node-http-handler'
 import { LibrdKafkaError } from 'node-rdkafka'
 
@@ -49,6 +50,7 @@ import {
     createV4ImageFetchOutputs,
     createV4ImageFetchProducerRegistry,
 } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/producer'
+import { PublicFontCache } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/public-font-cache'
 import { RawImageStore } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/raw-image-store'
 import { TeamMonthResponseUrlBinder } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/response-url-binding'
 import { RetryDelayConsumer } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/retry-delay-consumer'
@@ -142,6 +144,8 @@ export function buildFetchRunner(
     topHogMetrics: ImageFetchTopHogMetrics,
     imageSink: RefreshingImageSink,
     keys: Pick<TeamMonthKeys, 'get'>,
+    s3: Pick<S3Client, 'send'>,
+    imagesBucket: string,
     hostLimits: HostLimits = imageFetchHostLimits(config)
 ): FetchRunner {
     const webBotAuthSigner = createWebBotAuthRequestSigner(config.AI_RESEARCH_V4_IMAGE_FETCH_WEB_BOT_AUTH_PRIVATE_KEYS)
@@ -164,14 +168,18 @@ export function buildFetchRunner(
     return new FetchRunner(
         // The recorder sends one job per team for the same URL and month, so one fetch serves them all.
         new SharedImageFetcher(
-            new HttpImageFetcher(
-                {
-                    maxUrlLength: MAX_REDIRECT_URL_LENGTH,
-                    // The crate's rule, so a redirect target meets the check the collector already applied
-                    // to the first candidate rather than a second answer to the same question.
-                    isPublicHost: (host) => getUrlPolicy().isPublicHost(host),
-                },
-                webBotAuthSigner
+            new PublicFontCache(
+                new HttpImageFetcher(
+                    {
+                        maxUrlLength: MAX_REDIRECT_URL_LENGTH,
+                        // The crate's rule, so a redirect target meets the check the collector already applied
+                        // to the first candidate rather than a second answer to the same question.
+                        isPublicHost: (host) => getUrlPolicy().isPublicHost(host),
+                    },
+                    webBotAuthSigner
+                ),
+                s3,
+                imagesBucket
             )
         ),
         budget,
@@ -380,7 +388,15 @@ export class AiResearchV4ImageFetchServer extends AiResearchV4ConsumerServer {
             ? new KafkaFrontierDeadLetterSink(producer, deadLetterTopic, BLOCKED_IMAGE_FETCH_DEAD_LETTER_TOPICS)
             : null
 
-        const fetchRunner = buildFetchRunner(this.config, publisher, topHogMetrics, imageSink, keys)
+        const fetchRunner = buildFetchRunner(
+            this.config,
+            publisher,
+            topHogMetrics,
+            imageSink,
+            keys,
+            s3,
+            AI_RESEARCH_V4_IMAGES_BUCKET
+        )
         const fetchConsumer = new UrlFetchConsumer(
             crawlHistory,
             publisher,

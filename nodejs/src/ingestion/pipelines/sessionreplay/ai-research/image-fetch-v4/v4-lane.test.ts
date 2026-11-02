@@ -164,7 +164,7 @@ function lane(
     }
     const store = new RawImageStore(keys, s3 as any, 'images-v4', 10)
     const topHog = new ImageFetchTopHogMetrics(createRecordingTopHog().registry)
-    const runner = buildFetchRunner(config, publisher, topHog, store, keys)
+    const runner = buildFetchRunner(config, publisher, topHog, store, keys, s3 as any, 'images-v4')
     const admission = new V4JobAdmission(keys, keyBudgetMs)
     const deadLetters = { park: jest.fn(() => Promise.resolve()) }
     const history = new MemoryCrawlHistory()

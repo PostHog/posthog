@@ -677,7 +677,7 @@ The fetcher keeps a crawl history per URL reference, so per team and month, in i
 - The history holds no URL in plaintext. It binds the stored validators to an HMAC of the response URL under the team month URL key, and sends them only when the job's URL has the same HMAC.
 
 A URL is therefore fetched from its origin about once per team and month, as v3 fetches it about once in 30 days.
-Unlike v3, the history is per team: a sealed image is readable only with its team's key, so two teams that refer to one URL each fetch it.
+Unlike v3, the history is per team: a sealed image is readable only with its team's key, so two teams that refer to one URL each fetch it. A font file from `fonts.gstatic.com` is the exception, as "Web fonts" below says.
 The recorder sends a job for each referenced URL at least once per day, so the fetcher sees a reference in every 7-day refresh interval.
 The fetcher drops a job whose team month row is missing, expired or deleted.
 
@@ -706,5 +706,12 @@ The recorder reads the `src` URLs of `@font-face` rules in `<style>` text, `_css
 - Font URLs have their own budget per block: 4,096 URLs and 256 KiB. Font URLs never count toward the image URL limits above. Past the font budget, the recorder still names every other URL it reads. It replaces each remote URL in an `@font-face` `src` that it did not name with `fonturl:v4:declined:unchecked`, and leaves links and text as they are. It counts these as `url_fallbacks_total{reason="too_many_font_urls"|"too_many_font_url_bytes"}`.
 
 The fetcher reads the asset from the reference prefix. For a font it sends `Accept: font/woff2, font/woff, font/ttf, font/otf, */*;q=0.1`. It takes a response whose media type is a `font/*` type, a legacy font type such as `application/x-font-woff`, or `application/octet-stream`, because many servers label fonts with a generic type. The decoded bytes must start with a WOFF2, WOFF, OpenType, TrueType or font collection signature. It stores the font as fetched under `fonts/url/`, sealed under the team month key with `kind: "font-url"`.
+
+Google serves each font file on `fonts.gstatic.com` at a versioned path whose bytes never change, so the fetcher sends Google one request per file for all teams:
+
+- After the first fetch of such a file, the fetcher keeps one unsealed copy at `fonts/url/public/{sha256 of the URL}`. The bytes are public, so the copy belongs to no team.
+- A later job for the URL, from any team or month, reads the copy instead of sending a request. It seals its own copy under its team month key, as before.
+- The robots.txt and tdmrep checks still run for each job. A job under a TDM reservation, a redirected response and a body that is not a font never use the copy.
+- When the copy expires, the next job fetches the file again. The fetcher counts these as `ai_research_v4_image_fetch_public_font_copies_total{outcome}`.
 
 An older fetcher sends a whole record to its dead letter topic when one job in it has a `fonturl` reference. Records never mix the two kinds of job, so while a recorder runs ahead of the fetcher, only font jobs are lost. The fetcher's role must also be allowed to write `fonts/url/` (`v4-staging.hcl` in posthog-cloud-infra). Until then, each font write fails and the fetcher tries the job again after a minute.
