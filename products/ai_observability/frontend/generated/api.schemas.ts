@@ -5846,6 +5846,7 @@ export type DatasetItemsListParams = {
     dataset: string
     /**
      * Number of results to return per page.
+     * @maximum 25
      */
     limit?: number
     /**
@@ -5905,6 +5906,7 @@ export type DatasetItemsPartialUpdateBody = {
 export type DatasetItemsVersionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**
@@ -5926,6 +5928,7 @@ export type DatasetsListParams = {
     id__in?: string[]
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**
@@ -5971,6 +5974,7 @@ export const DatasetsListTagMatch = {
 export type DatasetsRevisionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**
