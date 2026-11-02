@@ -680,6 +680,10 @@ class OAuthValidator(OAuth2Validator):
         assertion = self._resolve_request_assertion(request)
         if assertion is None:
             return False
+        # oauthlib's device grant authenticates a confidential client twice per request. The first
+        # check spends the assertion's jti, so a second verification would reject it as a replay.
+        if getattr(request, "verified_client_assertion", None) == assertion.client_assertion:
+            return True
 
         app = self._load_application(assertion.client_id, request)
         # jwks_uri alone gates this, not client_type: a public CIMD client may publish keys
@@ -702,6 +706,7 @@ class OAuthValidator(OAuth2Validator):
             return False
 
         request.client = app
+        request.verified_client_assertion = assertion.client_assertion
         return True
 
     # PostHog deliberately does NOT support OIDC silent authentication (`prompt=none`). Every

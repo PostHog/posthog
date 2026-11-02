@@ -22,6 +22,7 @@ from two_factor.utils import default_device
 from posthog.cloud_utils import is_dev_mode
 from posthog.email import is_email_available, is_http_email_service_available
 from posthog.helpers.email_utils import ESPSuppressionReason, check_esp_suppression
+from posthog.models.organization import Organization
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.redis import get_client
@@ -141,13 +142,17 @@ def enforce_two_factor(request, user):
         raise PermissionDenied(detail="2FA verification required", code="two_factor_verification_required")
 
 
-def missing_two_factor_step(request: HttpRequest, user: User) -> Literal["setup", "verification"] | None:
+def missing_two_factor_step(
+    request: HttpRequest, user: User, organization: Organization | None = None
+) -> Literal["setup", "verification"] | None:
+    """`organization` defaults to the user's current organization. Pass another one to check its policy,
+    such as the organization of a project the user grants access to."""
     # We currently don't enforce 2FA for any SSO-authenticated users, as we depend on the SSO provider to handle 2FA
     # TODO: This will soon be made configurable
     if is_sso_authentication_backend(request):
         return None
 
-    organization = getattr(user, "organization", None)
+    organization = organization or getattr(user, "organization", None)
     if not organization or not organization.enforce_2fa:
         return None
 
