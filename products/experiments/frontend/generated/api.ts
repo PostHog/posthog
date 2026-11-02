@@ -769,7 +769,13 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * wrote for users), and `calculated_at` is when the calculation finished. It is a
  * warning when a primary metric fails for a kind that a change fixes (`query_limit`,
  * `settings`, `experiment_too_old`), also after the end, because the calculation after the fix
- * reads the events up to the end. It is info otherwise.
+ * reads the events up to the end. It is info otherwise. When the first failure reached the
+ * read, memory or time limit, `reason` names the cause that the calculation shows: `metric`
+ * when another metric of the same calculation completed the same read of the exposures, or
+ * `exposure_criteria` when every metric reached a limit and an exposure or test account filter
+ * makes each query read all the properties of an event, person or group. `evidence.properties`
+ * then names the filters. A query that read precomputed exposures doesn't apply those filters,
+ * so it can't get `exposure_criteria`. It is null otherwise.
  *
  * The severity of the `some_conditions_pinned` finding follows the largest share that the
  * users of the pinned release conditions make up among the users who got one variant from
@@ -812,6 +818,10 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * sample is below the one the running time estimate plans for the minimum detectable
  * effect. It reads the metric's current stored result, the one the results page shows
  * after its last calculation, and the running time calculator's formula.
+ *
+ * A running experiment with `only_count_matured_users` on gets the info
+ * `metrics_not_matured` while it is younger than the conversion or retention window of
+ * every primary metric, because no user can count for those metrics until a window passes.
  */
 export const experimentsHealthRetrieve = async (
     projectId: string,

@@ -2636,7 +2636,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             self._boot_milestones_before_ready.append((event_name, now))
         task = asyncio.create_task(self._track_boot_milestone(event_name, properties))
         self._boot_telemetry_tasks.append(task)
-        task.add_done_callback(self._boot_telemetry_tasks.remove)
 
     def _record_boot_milestone_sample(self, event_name: str, since_agent_ready_ms: int) -> None:
         record_agent_boot_milestone_ms(
@@ -2685,7 +2684,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
     async def _flush_boot_telemetry_tasks(self) -> None:
         while self._boot_telemetry_tasks:
-            await asyncio.gather(*tuple(self._boot_telemetry_tasks))
+            pending = [task for task in self._boot_telemetry_tasks if not task.done()]
+            self._boot_telemetry_tasks.clear()
+            if pending:
+                await asyncio.gather(*pending)
 
     async def _report_sandbox_deadline_outcome(self, *, outcome: str, reason: str | None, duration: timedelta) -> None:
         """Report how a sandbox deadline resolved, for the rollout's metrics.
