@@ -1,6 +1,7 @@
 from datetime import UTC, date, datetime, time, timedelta
 from uuid import UUID
 
+from django.db.models import Q
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 
@@ -47,11 +48,12 @@ def enqueue_signals_rated_usage(day: str | None = None) -> None:
     org_days = (
         SignalSpend.objects.unscoped()
         .filter(
+            Q(team__organization__usage__signals_spend_credits__has_key="billing_start_date")
+            | Q(team__organization__usage__signals_spend_credits__has_key="billing_cutover_date"),
             finalized_at__gte=begin,
             finalized_at__lt=end,
             billing_exempt=False,
             spend__gt=0,
-            team__organization__usage__signals_spend_credits__has_key="billing_start_date",
         )
         .annotate(day=TruncDate("finalized_at", tzinfo=UTC))
         .values_list("team__organization_id", "day")

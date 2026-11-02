@@ -137,6 +137,21 @@ class TestSignalsRatedUsage(BaseTest):
             enqueue_signals_rated_usage.run(day=date(2026, 6, 10).isoformat())
         enqueue.assert_called_once_with(str(self.organization.id), "2026-06-10")
 
+    def test_sweep_delivers_unsnapshotted_usage_after_an_undated_default_plan(self) -> None:
+        self._spend("25")
+        self.organization.usage = {
+            "signals_spend_credits": {"billing_cutover_date": "2026-06-10", "usage": 0, "limit": 0}
+        }
+        self.organization.save(update_fields=["usage"])
+        with patch("products.signals.backend.rated_usage_tasks.report_signals_rated_usage.delay") as enqueue:
+            enqueue_signals_rated_usage.run()
+        enqueue.assert_called_once_with(str(self.organization.id), "2026-06-10")
+        with patch("ee.billing.billing_manager.http_session.post") as post:
+            post.return_value = MagicMock(status_code=200, json=lambda: {"results": ["created"]})
+            report_signals_rated_usage.run(*enqueue.call_args.args)
+        post.assert_called_once()
+        assert post.call_args.kwargs["json"]["items"][0]["cents"] > 0
+
     @parameterized.expand([("successful_delivery", False), ("lost_acknowledgment", True)])
     @patch("ee.billing.billing_manager.http_session.post")
     def test_project_move_does_not_change_the_customer_on_replay(

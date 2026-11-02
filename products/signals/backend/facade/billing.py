@@ -1,18 +1,54 @@
+"""Signals credit usage, for the usage report and the quota checks in core."""
+
+import uuid
 from collections.abc import Collection
 from datetime import datetime
-from uuid import UUID
 
-from products.signals.backend import spend_billing
+from posthog.dataclasses import frozen
+
+from products.signals.backend import billing, spend_billing
 
 
-def get_signals_spend_billing_credits_by_team(
+@frozen
+class TeamSignalsCredits:
+    team_id: int
+    credits: int
+
+
+def signals_billing_credits_by_team(
     begin: datetime,
     end: datetime,
-    organization_id: str | UUID | None = None,
-    organization_ids: Collection[str | UUID] | None = None,
-) -> list[tuple[int, int]]:  # nosemgrep: tuple-return-prefer-dataclass — usage-counter contract
-    return spend_billing.get_signals_spend_billing_credits_by_team(begin, end, organization_id, organization_ids)
+    *,
+    organization_id: str | uuid.UUID | None = None,
+    organization_ids: Collection[str | uuid.UUID] | None = None,
+) -> list[TeamSignalsCredits]:
+    """Billable signals credits in ``[begin, end)`` for each team with non-zero usage.
+
+    Covers every organization unless ``organization_id`` or ``organization_ids`` narrows the scan.
+    """
+    rows = billing.get_signals_billing_credits_by_team(
+        begin, end, organization_id=organization_id, organization_ids=organization_ids
+    )
+    return [TeamSignalsCredits(team_id=team_id, credits=credits) for team_id, credits in rows]
 
 
-def task_run_uses_usage_billing(*, team_id: int, organization_id: UUID, run_id: UUID) -> bool:
+def credited_refund_credits_for_org(organization_id: str | uuid.UUID, begin: datetime, end: datetime) -> int:
+    """Credits that credited-path refunds returned for the org's pull request runs created in ``[begin, end)``."""
+    return billing.credited_refund_credits_for_org(organization_id, begin, end)
+
+
+def signals_spend_billing_credits_by_team(
+    begin: datetime,
+    end: datetime,
+    *,
+    organization_id: str | uuid.UUID | None = None,
+    organization_ids: Collection[str | uuid.UUID] | None = None,
+) -> list[TeamSignalsCredits]:
+    rows = spend_billing.get_signals_spend_billing_credits_by_team(
+        begin, end, organization_id=organization_id, organization_ids=organization_ids
+    )
+    return [TeamSignalsCredits(team_id=team_id, credits=credits) for team_id, credits in rows]
+
+
+def task_run_uses_usage_billing(*, team_id: int, organization_id: uuid.UUID, run_id: uuid.UUID) -> bool:
     return spend_billing.task_run_uses_usage_billing(team_id=team_id, organization_id=organization_id, run_id=run_id)
