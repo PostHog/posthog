@@ -241,17 +241,14 @@ describe('AI subscription display options', () => {
         ['insight', undefined],
         ['dashboard', undefined],
         ['ai_prompt', false],
-    ] as const)('a %s subscription keeps AI display options only for AI reports', (resourceType, expected) => {
+    ] as const)('a %s subscription sends include_images as %s', (resourceType, expected) => {
         const subscription = {
             resource_type: resourceType,
             target_type: 'email',
-            delivery_config: { include_images: false, charts_in_thread: true },
+            delivery_config: { include_images: false },
         } as SubscriptionType
 
         expect(coerceDeliveryConfigForScope(subscription, [])?.include_images).toBe(expected)
-        expect(coerceDeliveryConfigForScope(subscription, [])?.charts_in_thread).toBe(
-            resourceType === 'ai_prompt' ? true : undefined
-        )
     })
 
     it('keeps the other delivery options when it drops the AI ones', () => {
@@ -300,10 +297,10 @@ describe('Slack gallery delivery config', () => {
             false,
         ],
         [
-            'removes the flag for a prompt subscription',
+            'keeps the flag for a prompt subscription without files:write',
             subscription({ resource_type: 'ai_prompt' }),
-            [slackIntegration(7, 'files:write')],
-            false,
+            [slackIntegration(7, 'chat:write')],
+            true,
         ],
         ['removes the flag when the loaded integration is missing', subscription({}), [], false],
         ['preserves the flag while integrations are unresolved', subscription({}), null, true],

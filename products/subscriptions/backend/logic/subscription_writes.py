@@ -74,7 +74,7 @@ from .visibility import blocked_target_ids, require_viewer_access, viewable_quer
 
 MAX_AI_SUBSCRIPTION_CONTEXTS: int = int(SubscriptionAIContextLimit.model_fields["root"].default)
 AI_DELIVERY_DISPLAY_FIELDS = frozenset(
-    {"include_images", "charts_in_thread", "include_feedback", "include_manage_link", "include_posthog_hint"}
+    {"include_images", "include_feedback", "include_manage_link", "include_posthog_hint"}
 )
 
 # The write fields whose model attribute has a different name. Every other field keeps its name.
@@ -379,14 +379,7 @@ class _SubscriptionWrite:
             if "delivery_config" in attrs
             else (self.instance.delivery_config if self.instance else None)
         ) or {}
-        # A prompt report never reads the gallery option, so only the value a request sends can be
-        # wrong. An insight or dashboard report does read it, so the stored value still decides: a
-        # target or permission change would break the next delivery.
-        gallery_enabled = (
-            submitted_delivery_config
-            if resource_type == Subscription.ResourceType.AI_PROMPT
-            else effective_delivery_config
-        ).get("post_all_insights_in_main_message")
+        gallery_enabled = effective_delivery_config.get("post_all_insights_in_main_message")
         if resource_type != Subscription.ResourceType.AI_PROMPT:
             unsupported = sorted(AI_DELIVERY_DISPLAY_FIELDS & submitted_delivery_config.keys())
             if unsupported:
@@ -400,18 +393,6 @@ class _SubscriptionWrite:
                         ]
                     }
                 )
-        elif gallery_enabled:
-            # The prompt Slack renderer already posts every chart in the main message and never reads this option.
-            raise SubscriptionRequestInvalidError(
-                {
-                    "delivery_config": [
-                        "post_all_insights_in_main_message only applies to insight and dashboard "
-                        f"subscriptions. This subscription has resource_type '{resource_type}', so "
-                        "remove it from delivery_config. A prompt report already posts all its chart "
-                        "images in the main message."
-                    ]
-                }
-            )
 
         # Reject re-enables of subscriptions whose delivery prerequisite is still
         # permanently broken — otherwise the next delivery would just auto-disable
@@ -475,7 +456,12 @@ class _SubscriptionWrite:
                 raise SubscriptionRequestInvalidError(
                     {"integration_id": ["This integration does not exist or does not belong to your team."]}
                 )
-            if gallery_enabled and SlackIntegration(integration).missing_scopes({"files:write"}):
+            # A prompt report links its chart images instead of uploading them, so it needs no file upload permission.
+            if (
+                gallery_enabled
+                and resource_type != Subscription.ResourceType.AI_PROMPT
+                and SlackIntegration(integration).missing_scopes({"files:write"})
+            ):
                 raise SubscriptionRequestInvalidError(
                     {
                         "delivery_config": [

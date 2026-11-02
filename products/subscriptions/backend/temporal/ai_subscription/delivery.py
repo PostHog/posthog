@@ -584,11 +584,8 @@ def send_email_ai_subscription_credit_limited(
     message.send(send_async=False)
 
 
-def _slack_charts_in_thread(subscription: Subscription) -> bool:
-    # Opt-in, unlike the include_* display options: `includes_delivery_part` treats a missing key as
-    # true, which would move the charts of every existing AI report into the thread.
-    config = subscription.delivery_config if isinstance(subscription.delivery_config, dict) else {}
-    return bool(config.get("charts_in_thread", False))
+def _slack_charts_in_main_message(subscription: Subscription) -> bool:
+    return bool(subscription.delivery_config.get("post_all_insights_in_main_message", False))
 
 
 def _build_ai_slack_message(
@@ -627,7 +624,7 @@ def _build_ai_slack_message(
         if chart.get("title"):
             image_block["title"] = {"type": "plain_text", "text": caption[:SLACK_IMAGE_TITLE_LIMIT]}
         chart_blocks.append(image_block)
-    charts_in_thread = bool(chart_blocks) and _slack_charts_in_thread(subscription)
+    charts_in_thread = bool(chart_blocks) and not _slack_charts_in_main_message(subscription)
     if not charts_in_thread:
         blocks.extend(chart_blocks)
     if len(sections) > 1 or charts_in_thread:
@@ -727,7 +724,7 @@ async def send_slack_ai_subscription_report(
         # Threaded charts are not in the main message, so dropping them cannot fix a rejected main message.
         if (
             not effective_charts
-            or _slack_charts_in_thread(subscription)
+            or not _slack_charts_in_main_message(subscription)
             or exc.response.get("error") != "invalid_blocks"
         ):
             raise

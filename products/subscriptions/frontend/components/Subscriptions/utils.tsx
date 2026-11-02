@@ -312,13 +312,12 @@ function dropAiDisplayConfigForNonAi(subscription: SubscriptionType): Subscripti
     if (subscription.resource_type === SubscriptionResourceTypes.AiPrompt || !deliveryConfig) {
         return deliveryConfig
     }
-    const aiOnlyFields = [...AI_DISPLAY_CONFIG_FIELDS, 'charts_in_thread'] as const
-    if (!aiOnlyFields.some((field) => field in deliveryConfig)) {
+    if (!AI_DISPLAY_CONFIG_FIELDS.some((field) => field in deliveryConfig)) {
         return deliveryConfig
     }
 
     const remaining = { ...deliveryConfig }
-    for (const field of aiOnlyFields) {
+    for (const field of AI_DISPLAY_CONFIG_FIELDS) {
         delete remaining[field]
     }
     return remaining
@@ -332,13 +331,11 @@ export function coerceDeliveryConfigForScope(
     if (!deliveryConfig?.post_all_insights_in_main_message) {
         return deliveryConfig
     }
-    if (subscription.resource_type === SubscriptionResourceTypes.AiPrompt) {
-        return { ...deliveryConfig, post_all_insights_in_main_message: false }
-    }
     if (subscription.target_type !== 'slack') {
         return { ...deliveryConfig, post_all_insights_in_main_message: false }
     }
-    if (integrations == null) {
+    // A prompt report links its chart images instead of uploading them, so it needs no file upload permission.
+    if (subscription.resource_type === SubscriptionResourceTypes.AiPrompt || integrations == null) {
         return deliveryConfig
     }
 

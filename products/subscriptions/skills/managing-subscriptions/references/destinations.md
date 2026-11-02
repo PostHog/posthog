@@ -37,6 +37,11 @@ Set the option to `true` to send all images in the main message.
 This option requires the Slack `files:write` permission.
 It does not apply to email or Teams.
 
+For AI prompt reports, the same option controls where the chart images go in Slack.
+With the default `false`, the main message holds the summary and the charts go in the first thread reply.
+Set it to `true` to post the charts in the main message.
+AI prompt reports do not need the `files:write` permission for this option.
+
 ## Microsoft Teams
 
 1. Ask the user to add the Workflows app to the target channel.

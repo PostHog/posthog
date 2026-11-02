@@ -296,24 +296,28 @@ export function AiPromptFields({
                                             })}
                                             {targetType === 'slack' && (
                                                 <LemonSwitch
-                                                    checked={deliveryConfig?.charts_in_thread ?? false}
+                                                    checked={Boolean(deliveryConfig?.post_all_insights_in_main_message)}
                                                     onChange={(enabled) =>
-                                                        onChange({ ...deliveryConfig, charts_in_thread: enabled })
+                                                        onChange({
+                                                            ...deliveryConfig,
+                                                            post_all_insights_in_main_message: enabled,
+                                                        })
                                                     }
                                                     disabledReason={
-                                                        deliveryConfig?.include_images === false
-                                                            ? 'Turn on chart images to post charts in a thread.'
-                                                            : undefined
+                                                        getAiSubscriptionDisplayOptionState(deliveryConfig, 'images')
+                                                            ? undefined
+                                                            : 'Turn on chart images to choose where charts go.'
                                                     }
                                                     bordered
                                                     fullWidth
-                                                    data-attr="ai-subscription-charts-in-thread"
+                                                    data-attr="ai-subscription-post-all-insights-in-main-message"
                                                     label={
                                                         <div className="flex flex-col gap-1 py-1">
-                                                            <div className="leading-tight">Post charts in thread</div>
+                                                            <div className="leading-tight">
+                                                                Post all charts in the main message
+                                                            </div>
                                                             <div className="text-xs text-secondary font-normal leading-tight">
-                                                                Keep the report in the main Slack message and post chart
-                                                                images in the first thread reply.
+                                                                When off, charts go in the first thread reply.
                                                             </div>
                                                         </div>
                                                     }

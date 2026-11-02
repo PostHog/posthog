@@ -208,11 +208,13 @@ class DeliveryConfigSerializer(serializers.Serializer):
         required=False,
         default=False,
         help_text=(
-            "Slack insight and dashboard subscriptions only: when true, upload all insight images "
-            "together in the main Slack message instead of posting the first image in the main "
-            "message and the rest as threaded replies. Defaults to false. The request is rejected "
-            "when target_type is not 'slack', when the subscription sets prompt instead of insight "
-            "or dashboard, or when the Slack integration does not hold the files:write permission. "
+            "Slack subscriptions only. Insight and dashboard subscriptions: when true, upload all insight "
+            "images together in the main Slack message instead of posting the first image in the main "
+            "message and the rest as threaded replies. Prompt subscriptions: when true, post the chart "
+            "images in the main message with the summary; when false, post them in the first thread "
+            "reply. Defaults to false. The request is rejected when target_type is not 'slack', or when "
+            "an insight or dashboard subscription's Slack integration does not hold the files:write "
+            "permission. "
             "Omit it unless the user asks for one combined message."
         ),
     )
@@ -220,12 +222,6 @@ class DeliveryConfigSerializer(serializers.Serializer):
         required=False,
         help_text="Prompt subscriptions only: include generated chart images. Defaults to true when omitted. "
         + _AI_DISPLAY_FIELD_SCOPE_NOTE,
-    )
-    charts_in_thread = serializers.BooleanField(
-        required=False,
-        help_text="Prompt subscriptions only: post the generated charts as a reply in the Slack thread "
-        "instead of in the main message, so the main message holds only the report summary. Defaults to "
-        "false when omitted. Email and Microsoft Teams reports ignore it. " + _AI_DISPLAY_FIELD_SCOPE_NOTE,
     )
     include_feedback = serializers.BooleanField(
         required=False,
