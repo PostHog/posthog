@@ -24,6 +24,9 @@ from .records import (
     REQUEST_STATE_KEY,
     SECTION_STATE_KEY,
     WriterPullRequest,
+    is_publication_claim_live,
+    publication_claim,
+    publication_claim_owner,
     pull_request_json,
     request_json,
 )
@@ -180,28 +183,34 @@ def open_or_join_pull_request(task_run_id: UUID, *, team_id: int) -> str | None:
     if not claim_publication(run.task_id, team_id, task_run_id):
         return None
     try:
-        pull_request_url = publish_claimed_pull_request(run.task_id, team_id, task_run_id, writer, head_branch)
+        return publish_claimed_pull_request(run.task_id, team_id, task_run_id, writer, head_branch)
     except Exception:
         record_pull_request_failure(run.task_id, team_id, "github_request_failed")
-        release_publication_claim(run.task_id, team_id, task_run_id)
         raise
-    if pull_request_url is None:
-        release_publication_claim(run.task_id, team_id, task_run_id)
-    return pull_request_url
+
+
+def settle_publication(task_run_id: UUID, *, team_id: int, has_failed: bool) -> None:
+    run = tasks_facade.get_task_run(task_run_id, team_id)
+    if run is None:
+        return
+    if has_failed:
+        record_pull_request_failure(run.task_id, team_id, "publish_failed")
+    release_publication_claim(run.task_id, team_id, task_run_id)
 
 
 def claim_publication(task_id: UUID, team_id: int, task_run_id: UUID) -> bool:
     def claim(current: object) -> tuple[object, bool]:
-        if current is not None:
+        is_held_by_another_run = publication_claim_owner(current) != str(task_run_id)
+        if is_held_by_another_run and is_publication_claim_live(current):
             return current, False
-        return str(task_run_id), True
+        return publication_claim(task_run_id), True
 
     return bool(tasks_facade.update_task_state_entry(task_id, team_id, PUBLICATION_CLAIM_STATE_KEY, claim))
 
 
 def release_publication_claim(task_id: UUID, team_id: int, task_run_id: UUID) -> None:
     def release(current: object) -> tuple[object, None]:
-        if current != str(task_run_id):
+        if publication_claim_owner(current) != str(task_run_id):
             return current, None
         return None, None
 

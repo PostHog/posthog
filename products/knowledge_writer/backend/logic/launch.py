@@ -11,7 +11,7 @@ from products.tasks.backend.facade import api as tasks_facade
 from ..adapters.registry import REGISTRY
 from ..facade.contracts import DocsRequest
 from ..settings import WriterSettings
-from .caps import claim_section
+from .caps import WriterRerunTaken, claim_section
 from .records import (
     JOIN_STATE_KEY,
     REQUEST_STATE_KEY,
@@ -91,6 +91,7 @@ def start_writer(
         if routing.section:
             claim_section(writer, routing.section)
         if rerun_task_id is not None:
+            claim_rerun(rerun_task_id, team.id, state_entries[REQUEST_STATE_KEY])
             rerun_id = create_writer_rerun(rerun_task_id, description, branch, team=team, writer=writer)
         task_id = rerun_task_id or create_writer_task(
             request, description, branch, team=team, writer=writer, start_workflow=start_workflow
@@ -100,6 +101,13 @@ def start_writer(
     if rerun_id is not None and start_workflow:
         dispatch_rerun(task_id, rerun_id, team=team, writer=writer)
     return task_id
+
+
+def claim_rerun(task_id: UUID, team_id: int, request_entry: object) -> None:
+    tasks_facade.update_task_state_entry(task_id, team_id, REQUEST_STATE_KEY, replace_entry_with(request_entry))
+    latest_run = tasks_facade.get_latest_run_by_task([task_id]).get(str(task_id))
+    if latest_run is None or latest_run.status != tasks_facade.TaskRunStatus.FAILED:
+        raise WriterRerunTaken(str(task_id))
 
 
 def create_writer_task(

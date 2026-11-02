@@ -3,7 +3,10 @@ import dataclasses
 from collections.abc import Callable
 
 import pytest
+import time_machine
 from unittest.mock import MagicMock, patch
+
+from django.utils import timezone
 
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.instance_setting import override_instance_config
@@ -20,13 +23,18 @@ from products.knowledge_writer.backend.logic.pull_requests import (
     open_or_join_pull_request,
     section_label,
     section_marker,
+    settle_publication,
 )
 from products.knowledge_writer.backend.logic.records import (
+    PUBLICATION_CLAIM_STATE_KEY,
+    PUBLICATION_LEASE,
     PULL_REQUEST_FAILURE_STATE_KEY,
     PULL_REQUEST_STATE_KEY,
     REQUEST_STATE_KEY,
+    publication_claim,
 )
 from products.knowledge_writer.backend.logic.routing import docs_section
+from products.knowledge_writer.backend.settings import writer_settings
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.models import Task, TaskRun
 
@@ -128,7 +136,9 @@ def _run_publish_workflow_inline(task_run_id, *, team_id: int) -> None:
     try:
         open_or_join_pull_request(task_run_id, team_id=team_id)
     except Exception:
+        settle_publication(task_run_id, team_id=team_id, has_failed=True)
         return
+    settle_publication(task_run_id, team_id=team_id, has_failed=False)
 
 
 def _finish_run(task_id, django_capture_on_commit_callbacks) -> None:
@@ -320,6 +330,61 @@ def test_a_finished_writer_run_that_cannot_start_its_publish_workflow_records_wh
 
 
 @pytest.mark.django_db
+def test_a_section_stays_busy_after_its_run_finishes_until_its_publication_settles(
+    team, writer_env, django_capture_on_commit_callbacks, monkeypatch
+) -> None:
+    monkeypatch.setattr(KNOWLEDGE_WRITER_ENABLED, lambda team_id: True)
+    monkeypatch.setattr(START_PUBLISH, lambda task_run_id, *, team_id: None)
+    with (
+        patch(FLAG_CHECK, return_value=True),
+        patch(LIST_PULL_REQUESTS, side_effect=_open_on_github()),
+        patch(START_WORKFLOW),
+    ):
+        started = intake.submit(_verdict(suggested_page_urls=(SECTION_PAGE,)), team_id=team.id)
+        assert started.task_id is not None
+        _finish_run(started.task_id, django_capture_on_commit_callbacks)
+        while_publishing = intake.submit(_verdict(456, suggested_page_urls=(SECTION_PAGE,)), team_id=team.id)
+        with time_machine.travel(timezone.now() + PUBLICATION_LEASE, tick=False):
+            busy_after_lease = caps.in_flight_writer_runs(writer_settings()).busy_sections
+        settle_publication(TaskRun.objects.get(task_id=started.task_id).id, team_id=team.id, has_failed=True)
+        after_settling = intake.submit(_verdict(456, suggested_page_urls=(SECTION_PAGE,)), team_id=team.id)
+
+    assert while_publishing.status == "section_busy"
+    assert busy_after_lease == frozenset()
+    assert after_settling.status == "started"
+
+
+@pytest.mark.django_db
+def test_a_publish_retry_reclaims_the_claim_its_crashed_attempt_left_and_opens_the_pull_request(
+    team, writer_env, django_capture_on_commit_callbacks, monkeypatch
+) -> None:
+    monkeypatch.setattr(KNOWLEDGE_WRITER_ENABLED, lambda team_id: True)
+    monkeypatch.setattr(START_PUBLISH, lambda task_run_id, *, team_id: None)
+    with (
+        patch(FLAG_CHECK, return_value=True),
+        patch(LIST_PULL_REQUESTS, side_effect=_open_on_github()),
+        patch(START_WORKFLOW),
+    ):
+        started = intake.submit(_verdict(suggested_page_urls=(SECTION_PAGE,)), team_id=team.id)
+    assert started.task_id is not None
+    _finish_run(started.task_id, django_capture_on_commit_callbacks)
+    run = TaskRun.objects.get(task_id=started.task_id)
+    tasks_facade.update_task_state_entry(
+        started.task_id, team.id, PUBLICATION_CLAIM_STATE_KEY, lambda current: (publication_claim(run.id), None)
+    )
+    opened = {"success": True, "pr_url": "https://github.com/PostHog/posthog.com/pull/9", "pr_number": 9}
+    with (
+        patch(LIST_PULL_REQUESTS, side_effect=_open_on_github()),
+        patch(CREATE_PULL_REQUEST, return_value=opened) as create_pull_request,
+        patch(f"{GITHUB}.add_pull_request_labels", return_value={"success": True}),
+    ):
+        pull_request_url = open_or_join_pull_request(run.id, team_id=team.id)
+
+    create_pull_request.assert_called_once()
+    assert pull_request_url == opened["pr_url"]
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     "github_responses, handed_pages, withheld_pages",
     [
@@ -477,3 +542,25 @@ def test_a_rerun_counts_toward_the_daily_run_cap(team, writer_env, monkeypatch) 
         next_request = intake.submit(_verdict(pull_request_number=456), team_id=team.id)
 
     assert (started.status, rerun.status, next_request.status) == ("started", "started", "capped")
+
+
+@pytest.mark.django_db
+def test_two_requests_that_both_saw_the_failed_run_start_one_rerun(team, writer_env) -> None:
+    verdict = _verdict()
+    assert verdict.request is not None
+
+    with (
+        patch(FLAG_CHECK, return_value=True),
+        patch(LIST_PULL_REQUESTS, side_effect=_open_on_github()),
+        patch(START_WORKFLOW),
+    ):
+        started = intake.submit(verdict, team_id=team.id)
+        assert started.task_id is not None
+        TaskRun.objects.filter(task_id=started.task_id).update(status=TaskRun.Status.FAILED)
+        task_seen_failed = tasks_facade.get_task_by_origin_key(team.id, verdict.request.dedupe_id)
+        with patch.object(intake.tasks_facade, "get_task_by_origin_key", return_value=task_seen_failed):
+            first = intake.submit(verdict, team_id=team.id)
+            second = intake.submit(verdict, team_id=team.id)
+
+    assert (first.status, second.status) == ("started", "duplicate")
+    assert TaskRun.objects.filter(task_id=started.task_id).count() == 2
