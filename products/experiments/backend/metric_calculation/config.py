@@ -15,11 +15,12 @@ The settings factories reset a value that the calculation ignores to its default
 CUPED, and the sequential tuning parameter without sequential testing. So such a value does not split equal
 configs.
 
-The calculation key (version 2) hashes the metric and an explicit field list of each setting that equality
+Two key versions exist. Key version 2 hashes the metric and an explicit field list of each setting that equality
 compares, with numbers normalized. So equal configs have equal keys, and so do settings that differ only by float
 noise. Key version 1 (`legacy_key`) hashes only part of a config: the metric, the start date, the stats method,
-the exposure criteria as stored, maturity and the excluded variants. Historical results keep their version 1 key
-for display, with unknown configuration provenance. New results also store it as their display key.
+the exposure criteria as stored, maturity and the excluded variants. `calculation_key` returns the key of the
+settings' `key_version`, which `resolve_calculation_key_version` decides. Readers understand both versions, and
+results also store the version 1 key as their display key. Stored results keep the key they were written with.
 """
 
 import json
@@ -34,6 +35,7 @@ from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
 import pydantic
+import posthoganalytics
 
 from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentWarehouseNativeExposureConfig
 
@@ -81,10 +83,13 @@ if TYPE_CHECKING:
 
 SPEC_VERSION = 1
 
+CALCULATION_KEY_V2_FLAG = "experiment-calculation-key-v2"
+
 # The version of the calculation key, hashed into the key itself. A change that makes the engine compute a
 # different result for an existing config bumps it, so that results computed before the change stop counting
 # for reuse.
 CALCULATION_KEY_VERSION = 2
+KEY_VERSIONS = (1, CALCULATION_KEY_VERSION)
 
 # Significant digits that a float keeps in the calculation key. Stored settings carry float noise, for
 # example `1 - 0.95` is stored as 0.050000000000000044, and the noise must not split equal settings into
@@ -248,6 +253,27 @@ def _cuped_key_input(cuped: CupedQueryConfig) -> dict[str, Any]:
     return {"enabled": cuped.enabled, "lookback_days": cuped.lookback_days}
 
 
+def resolve_calculation_key_version(team: "Team") -> int:
+    """The calculation key version that a new operation of this team uses. It is the only activation decision:
+    queued work carries the version in its key, so a worker never calls this.
+
+    The team gets version 2 when the `experiment-calculation-key-v2` flag is on for it. The flag is evaluated
+    locally, because the experiment read path calls this. An inconclusive or failed evaluation gives version 1.
+    """
+    try:
+        enabled = posthoganalytics.feature_enabled(
+            CALCULATION_KEY_V2_FLAG,
+            str(team.id),
+            groups={"project": str(team.id)},
+            group_properties={"project": {"id": str(team.id)}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        return 1
+    return CALCULATION_KEY_VERSION if enabled is True else 1
+
+
 @frozen
 class ExperimentCalculationSettings:
     """What every metric calculation of an experiment reads outside the metric definition, with the
@@ -279,6 +305,12 @@ class ExperimentCalculationSettings:
     # The exposure criteria as stored. Key version 1 hashes this form, so settings that resolve to the
     # same `exposure` can still have different keys when their stored JSON differs.
     stored_exposure_criteria: dict[str, Any] | None = field(compare=False)
+    # The version of `MetricCalculationConfig.calculation_key`. Workers take it from the key of their queued work, so
+    # one operation never mixes versions.
+    key_version: int = 1
+
+    def with_key_version(self, key_version: int) -> "ExperimentCalculationSettings":
+        return dataclasses.replace(self, key_version=key_version)
 
     @property
     def stats_method(self) -> StatsMethod:
@@ -296,12 +328,14 @@ class ExperimentCalculationSettings:
         only_count_matured_users: bool | None,
         excluded_variants: list[str] | None,
         team_config: TeamExperimentsConfig | None = None,
+        key_version: int | None = None,
     ) -> "ExperimentCalculationSettings":
         """Settings from explicit values, for a caller that holds a configuration that is not saved yet.
 
         Stored configuration never makes this raise, because the experiment read and write paths build
         settings to stamp the metric keys. A configuration the query runner rejects still resolves.
-        Without `team_config`, this reads the team's experiment settings with one query.
+        Without `team_config`, this reads the team's experiment settings with one query. Without `key_version`,
+        `resolve_calculation_key_version` decides it.
         """
         config = team_config or team_experiments_configs([team.id])[team.id]
         stats_config = stats_config if isinstance(stats_config, dict) else None
@@ -346,11 +380,16 @@ class ExperimentCalculationSettings:
             only_count_matured_users=bool(only_count_matured_users),
             timezone=team.timezone,
             stored_exposure_criteria=deepcopy(exposure_criteria),
+            key_version=key_version if key_version is not None else resolve_calculation_key_version(team),
         )
 
     @classmethod
     def from_experiment(
-        cls, experiment: Experiment, *, team_config: TeamExperimentsConfig | None = None
+        cls,
+        experiment: Experiment,
+        *,
+        team_config: TeamExperimentsConfig | None = None,
+        key_version: int | None = None,
     ) -> "ExperimentCalculationSettings":
         """Settings from the current fields of the experiment, which does not need to be saved. A caller that
         builds the configs of several experiments of one team passes the team's config to read it once."""
@@ -363,6 +402,7 @@ class ExperimentCalculationSettings:
             only_count_matured_users=experiment.only_count_matured_users,
             excluded_variants=experiment.excluded_variants,
             team_config=team_config,
+            key_version=key_version,
         )
 
     def build_metric_config(
@@ -401,14 +441,32 @@ class MetricCalculationConfig:
     settings: ExperimentCalculationSettings
 
     def calculation_key(self) -> str:
-        """The key that files and finds the results of this config, a SHA-256 hex digest (key version 2).
+        """The key that files and finds the results of this config, a SHA-256 hex digest, in the version of
+        `settings.key_version`. Result rows in ExperimentMetricResult and the stored `fingerprint` of each inline
+        metric hold it."""
+        return self.key_for_version(self.settings.key_version)
 
-        It hashes the metric and each settings field that equality compares, except the team, together
-        with CALCULATION_KEY_VERSION. Nested settings enter through explicit field lists. The time zone enters
-        for every metric type, because date property filters, the CUPED lookback and retention windows all read
-        it. Result rows in ExperimentMetricResult and the stored `fingerprint` of each inline metric hold this key. A change to the
-        hashed payload makes every stored result unreachable for reuse, so it goes with a bump of
-        CALCULATION_KEY_VERSION.
+    def key_for_version(self, key_version: int) -> str:
+        if key_version == 1:
+            return self.legacy_key()
+        if key_version == CALCULATION_KEY_VERSION:
+            return self._key_v2()
+        raise ValueError(f"Unknown calculation key version {key_version}")
+
+    def key_version_of(self, key: str) -> int | None:
+        """The key version in which this config gives `key`, or None when no version does, for example because the
+        configuration changed after the key was computed."""
+        return next((version for version in reversed(KEY_VERSIONS) if self.key_for_version(version) == key), None)
+
+    def with_key_version(self, key_version: int) -> "MetricCalculationConfig":
+        return dataclasses.replace(self, settings=self.settings.with_key_version(key_version))
+
+    def _key_v2(self) -> str:
+        """Key version 2. It hashes the metric and each settings field that equality compares, except the team and
+        the key version, together with CALCULATION_KEY_VERSION. Nested settings enter through explicit field lists.
+        The time zone enters for every metric type, because date property filters, the CUPED lookback and retention
+        windows all read it. A change to the hashed payload makes every stored result unreachable for reuse, so it
+        goes with a bump of CALCULATION_KEY_VERSION.
         """
         settings = self.settings
         payload: dict[str, Any] = {
@@ -430,9 +488,9 @@ class MetricCalculationConfig:
         return _sha256(payload)
 
     def legacy_key(self) -> str:
-        """Key version 1, which rows written before key version 2 carry until their conversion. It hashes only inputs
-        that the experiment owns, so it also serves as the display key that keeps chart history across a team
-        setting change."""
+        """Key version 1, byte-identical to the key that rows written before key version 2 carry. Those rows keep it.
+        It hashes only inputs that the experiment owns, so it also serves as the display key that keeps chart history
+        across a team setting change. A change to its payload makes every historical result unreachable."""
         settings = self.settings
         start_date = settings.start_date
         payload: dict[str, Any] = {
@@ -485,21 +543,30 @@ def build_primary_calculation_configs(
     return sorted(primary, key=lambda calculation_config: rank(calculation_config.metric_id))
 
 
-def get_metric_calculation_config(experiment: Experiment, metric_uuid: str) -> MetricCalculationConfig | None:
+def get_metric_calculation_config(
+    experiment: Experiment,
+    metric_uuid: str,
+    *,
+    team_config: TeamExperimentsConfig | None = None,
+    key_version: int | None = None,
+) -> MetricCalculationConfig | None:
     """The config that `build_calculation_configs` builds for one metric, or None when the experiment
-    calculates no metric with this uuid."""
+    calculates no metric with this uuid. `team_config` and `key_version` are as for
+    `ExperimentCalculationSettings.from_experiment`."""
     metric = next((metric for metric in get_metrics_for_calculation(experiment) if metric.uuid == metric_uuid), None)
     if metric is None:
         return None
-    settings = ExperimentCalculationSettings.from_experiment(experiment)
+    settings = ExperimentCalculationSettings.from_experiment(
+        experiment, team_config=team_config, key_version=key_version
+    )
     return settings.build_metric_config(metric_id=metric.uuid, role=metric.role, definition=metric.definition)
 
 
 def find_calculation_config_by_key(
     experiment: Experiment, metric_uuid: str, calculation_key: str
 ) -> MetricCalculationConfig | None:
-    """The calculation config of the experiment's metric with this uuid whose calculation key is `calculation_key`,
-    under the current configuration of the experiment.
+    """The calculation config of the experiment's metric with this uuid whose calculation key is `calculation_key`
+    in some key version, under the current configuration of the experiment, at that key version.
 
     Unlike `get_metric_calculation_config`, this keys an inline and a saved metric that share a uuid each by its
     own definition, the same way `metric_calculation_keys` does. None when no metric with this uuid has this key,
@@ -513,8 +580,9 @@ def find_calculation_config_by_key(
         calculation_config = settings.build_metric_config(
             metric_id=metric.uuid, role=metric.role, definition=metric.definition
         )
-        if calculation_config.calculation_key() == calculation_key:
-            return calculation_config
+        key_version = calculation_config.key_version_of(calculation_key)
+        if key_version is not None:
+            return calculation_config.with_key_version(key_version)
     return None
 
 

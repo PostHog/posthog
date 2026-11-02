@@ -158,8 +158,21 @@ class TestBackfillExperimentTimeseries(BaseTest):
         assert recalculation_request.status == ExperimentTimeseriesRecalculation.Status.COMPLETED
         assert recalculation_request.last_successful_date == datetime.date(2024, 10, 27)
 
-    @parameterized.expand([("before_start",), ("before_query",), ("between_days",), ("superseded_during_query",)])
-    def test_settings_drift_and_supersession_do_not_write_mislabeled_results(self, moment: str) -> None:
+    @parameterized.expand(
+        [
+            ("before_start", 1),
+            ("before_query", 1),
+            ("between_days", 1),
+            ("superseded_during_query", 1),
+            ("superseded_then_query_fails", 1),
+            ("between_days", 2),
+            ("unchanged", 2),
+        ]
+    )
+    def test_settings_drift_and_supersession_do_not_write_mislabeled_results(
+        self, moment: str, key_version: int
+    ) -> None:
+        # A version 2 request runs on a worker whose new operations use version 1. It keeps its own key version.
         metric = {"uuid": "m1", "metric_type": "mean", "source": {"kind": "EventsNode", "event": "$pageview"}}
         flag = FeatureFlag.objects.create(team=self.team, key="drift-flag", created_by=self.user)
         experiment = Experiment.objects.create(
@@ -171,8 +184,9 @@ class TestBackfillExperimentTimeseries(BaseTest):
         )
         config = get_metric_calculation_config(experiment, "m1")
         assert config is not None
+        key = config.key_for_version(key_version)
         request = ExperimentTimeseriesRecalculation.objects.create(
-            team=self.team, experiment=experiment, metric=metric, fingerprint=config.calculation_key()
+            team=self.team, experiment=experiment, metric=metric, fingerprint=key
         )
         result = ExperimentQueryResponse(
             baseline=ExperimentStatsBaseValidated(key="control", number_of_samples=100, sum=1000, sum_squares=10000),
@@ -180,14 +194,17 @@ class TestBackfillExperimentTimeseries(BaseTest):
         )
 
         def change_settings() -> None:
-            experiment.stats_config = {"cuped": {"enabled": True}}
+            # Both key versions hash the stats method.
+            experiment.stats_config = {"method": "frequentist"}
             experiment.save()
 
         def calculate() -> ExperimentQueryResponse:
             if moment == "between_days":
                 change_settings()
-            if moment == "superseded_during_query":
+            if moment.startswith("superseded"):
                 ExperimentTimeseriesRecalculation.objects.filter(id=request.id).update(status="canceled")
+            if moment == "superseded_then_query_fails":
+                raise RuntimeError("query failed")
             return result
 
         def runner(**kwargs):
@@ -201,12 +218,20 @@ class TestBackfillExperimentTimeseries(BaseTest):
         if moment == "before_start":
             change_settings()
         with patch("products.experiments.backend.timeseries_backfill.ExperimentQueryRunner", side_effect=runner):
-            output = backfill_experiment_timeseries(str(request.id))
+            if moment == "superseded_then_query_fails":
+                with pytest.raises(RuntimeError):
+                    backfill_experiment_timeseries(str(request.id))
+                output = {"days_processed": 0}
+            else:
+                output = backfill_experiment_timeseries(str(request.id))
+            # A Temporal retry of the activity must not start a canceled request again.
+            retried = backfill_experiment_timeseries(str(request.id)) if moment != "unchanged" else None
         request.refresh_from_db()
-        assert request.status == "canceled"
-        assert output["days_processed"] == (1 if moment == "between_days" else 0)
+        assert request.status == ("completed" if moment == "unchanged" else "canceled")
+        if retried is not None:
+            assert retried["days_processed"] == 0
+        written_days = {"between_days": 1, "unchanged": 3}.get(moment, 0)
+        assert output["days_processed"] == written_days
         rows = ExperimentMetricResult.objects.filter(experiment=experiment)
-        assert rows.count() == (1 if moment == "between_days" else 0)
-        if moment == "between_days":
-            assert rows.get().fingerprint == config.calculation_key()
-            assert rows.get().display_key == config.legacy_key()
+        assert rows.count() == written_days
+        assert {(row.fingerprint, row.display_key) for row in rows} <= {(key, config.legacy_key())}

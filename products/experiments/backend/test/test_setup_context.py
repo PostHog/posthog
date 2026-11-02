@@ -80,10 +80,10 @@ def _retention_metric(uuid: str, start_event: str = "signup", completion_event: 
     }
 
 
-def _key(experiment: Experiment, metric_uuid: str, *, legacy: bool = False) -> str:
+def _key(experiment: Experiment, metric_uuid: str, *, other_version: bool = False) -> str:
     calculation_config = get_metric_calculation_config(experiment, metric_uuid)
     assert calculation_config is not None
-    return calculation_config.legacy_key() if legacy else calculation_config.calculation_key()
+    return calculation_config.key_for_version(2) if other_version else calculation_config.calculation_key()
 
 
 def _payload_of_each_section() -> dict[str, Any]:
@@ -888,8 +888,8 @@ class TestPostgresSections(APIBaseTest):
     @parameterized.expand(
         [
             ("start_date_edited_after_the_result", "current", {"days": 12}, False),
-            # A result stored before calculation key version 2 still describes the experiment.
-            ("result_from_before_key_version_2", "version_1", None, True),
+            # A result under the other key version still describes the experiment.
+            ("result_under_the_other_key_version", "other_version", None, True),
             ("result_under_the_current_key", "current", None, True),
         ]
     )
@@ -903,7 +903,7 @@ class TestPostgresSections(APIBaseTest):
         ExperimentMetricResult.objects.create(
             experiment=experiment,
             metric_uuid="inline-primary",
-            fingerprint=_key(experiment, "inline-primary", legacy=key_family == "version_1"),
+            fingerprint=_key(experiment, "inline-primary", other_version=key_family == "other_version"),
             query_from=now - timedelta(days=10),
             query_to=now,
             status=ExperimentMetricResult.Status.COMPLETED,

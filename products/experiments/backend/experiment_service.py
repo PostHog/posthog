@@ -3912,10 +3912,12 @@ class ExperimentService:
         """
         changed_fields = get_changed_fields_local(before_update, experiment) if before_update is not None else []
         if before_update is not None:
+            # A restamp of the fingerprints alone, for example after the calculation key version changes, is no
+            # metric change.
             for field_name in ("metrics", "metrics_secondary"):
-                before = [_metric_merge_view(metric) for metric in (getattr(before_update, field_name) or [])]
-                after = [_metric_merge_view(metric) for metric in (getattr(experiment, field_name) or [])]
-                if before == after:
+                if _metric_list_view(getattr(before_update, field_name)) == _metric_list_view(
+                    getattr(experiment, field_name)
+                ):
                     changed_fields = [name for name in changed_fields if name != field_name]
         # Check if saved_metric assignment has changed
         if before_saved_metrics != self._saved_metric_signature(experiment):
@@ -4687,6 +4689,13 @@ class ExperimentService:
         with transaction.atomic():
             # Serialize supersession with each backfill's status check and result write.
             Experiment.objects.select_for_update(no_key=True).filter(id=experiment.id, team=self.team).exists()
+            # A failed backfill can still start again on a Temporal retry. The active or new backfill replaces it, so
+            # a retry must not run beside it or recompute the days again.
+            ExperimentTimeseriesRecalculation.objects.filter(
+                experiment=experiment,
+                metric__uuid=calculation_config.metric_id,
+                status=ExperimentTimeseriesRecalculation.Status.FAILED,
+            ).update(status=ExperimentTimeseriesRecalculation.Status.CANCELED)
             existing_recalculation = self._active_timeseries_backfill(experiment, calculation_config.metric_id)
 
             if existing_recalculation and existing_recalculation.fingerprint != fingerprint:
