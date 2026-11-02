@@ -56,6 +56,7 @@ from products.posthog_ai.backend.context_wrapper import ALLOWED_TYPES as ALLOWED
 from products.posthog_ai.backend.message_routing import SandboxSession
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.access import get_posthog_ai_access_decision
 from products.tasks.backend.facade.contracts import TaskDetailDTO
 from products.tasks.backend.facade.run_config import INITIAL_PERMISSION_MODE_CHOICES
 
@@ -66,7 +67,6 @@ from ee.hogai.core.executor import AgentExecutor
 from ee.hogai.queue import ConversationQueueMessage, ConversationQueueStore, QueueFullError, build_queue_message
 from ee.hogai.stream.redis_stream import get_conversation_stream_key
 from ee.hogai.utils.aio import async_to_sync
-from ee.hogai.utils.feature_flags import has_sandbox_mode_feature_flag
 from ee.hogai.utils.sse import AssistantSSESerializer
 from ee.hogai.utils.types import PartialAssistantState
 
@@ -735,6 +735,10 @@ class ConversationViewSet(
             raise QuotaLimitExceeded(
                 "Your organization reached its AI credit usage limit. Increase the limits in Billing settings, or ask an org admin to do so."
             )
+        # Checked before the lookup, so a caller outside PostHog AI 2.0 can neither start nor continue
+        # a sandbox conversation.
+        if not get_posthog_ai_access_decision(cast(User, request.user), self.team.organization).allowed:
+            raise exceptions.ValidationError("This conversation is not on the sandbox runtime.")
         serializer = SandboxOpenSerializer(data=request.data, context=self.get_serializer_context())
         serializer.is_valid(raise_exception=True)
 
@@ -761,8 +765,8 @@ class ConversationViewSet(
 
         `open` is create-or-resume: a brand-new conversation (first warm or first message) has no row
         yet, so a plain `get_object()` would 404. A brand-new row is only born on the sandbox runtime,
-        and only for a sandbox-eligible caller — otherwise we'd persist an orphaned LangGraph row that
-        `open` immediately rejects. Returns whether the row was created this request so the caller can
+        and `open` checks PostHog AI 2.0 access first, so a caller outside it can't spam orphaned rows by
+        POSTing random ids. Returns whether the row was created this request so the caller can
         drop it again if nothing ends up being provisioned.
 
         `bind_task` (already validated for team + visibility by `SandboxOpenSerializer`) binds the new
@@ -775,10 +779,6 @@ class ConversationViewSet(
             # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get (user+team checked below)
             conversation = Conversation.objects.get(id=conversation_id)
         except Conversation.DoesNotExist:
-            # Gate first-use creation on eligibility so a non-sandbox caller can't spam orphaned rows
-            # by POSTing `open` with random ids — `open` would create then reject each one otherwise.
-            if not has_sandbox_mode_feature_flag(self.team, user):
-                raise exceptions.ValidationError("This conversation is not on the sandbox runtime.")
             conversation = Conversation.objects.create(
                 user=user,
                 team=self.team,
