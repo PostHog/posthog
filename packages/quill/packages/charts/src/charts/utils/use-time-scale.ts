@@ -23,22 +23,21 @@ export function useTimeScale(
         if (!enabled) {
             return undefined
         }
-        const parse = (label: string): number => parseDateInTimezone(label, timezone).valueOf()
+        // The shared parse cache clears past 5,000 labels, so a long series would re-parse on every draw.
+        const epochs = new Map(labels.map((label) => [label, parseDateInTimezone(label, timezone).valueOf()]))
+        const parse = (label: string): number => epochs.get(label) ?? parseDateInTimezone(label, timezone).valueOf()
         const domain: [number, number] =
-            domainFrom != null && domainTo != null ? [domainFrom, domainTo] : labelTimeExtent(labels, parse)
+            domainFrom != null && domainTo != null ? [domainFrom, domainTo] : timeExtent(epochs.values())
         const tickInterval = interval ?? inferTimeInterval(labels, timezone) ?? 'day'
-        return {
-            timeScale: { parse, domain },
-            tickLabels: buildTimeTickLabels(domain[0], domain[1], tickInterval, timezone),
-        }
+        const grid = buildTimeTickLabels(domain[0], domain[1], tickInterval, timezone)
+        return { timeScale: { parse, domain }, tickLabels: grid.length > 0 ? grid : labels }
     }, [enabled, labels, timezone, interval, domainFrom, domainTo])
 }
 
-function labelTimeExtent(labels: string[], parse: (label: string) => number): [number, number] {
+function timeExtent(times: Iterable<number>): [number, number] {
     let from = Infinity
     let to = -Infinity
-    for (const label of labels) {
-        const t = parse(label)
+    for (const t of times) {
         if (isFinite(t)) {
             from = Math.min(from, t)
             to = Math.max(to, t)

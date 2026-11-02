@@ -85,16 +85,29 @@ describe('TimeSeriesLineChart', () => {
             expect(fractions).toEqual(expectedFractions)
         })
 
-        it('labels a tick grid that covers hours with no data', () => {
+        it.each([
+            [
+                'labels a tick grid that covers hours with no data',
+                TIME_LABELS,
+                'hour' as const,
+                ['00:00', '01:00', '02:00', '03:00', '04:00'],
+            ],
+            [
+                'falls back to the data labels when no grid tick fits',
+                ['2026-03-01T00:00:10Z', '2026-03-01T00:00:40Z'],
+                undefined,
+                ['00:00', '00:00'],
+            ],
+        ])('%s', (_, labels, interval, expected) => {
             const { chart } = renderChart(
                 <TimeSeriesLineChart
                     series={SERIES}
-                    labels={TIME_LABELS}
+                    labels={labels}
                     theme={THEME}
-                    config={{ xScale: 'time', xAxis: { timezone: 'UTC', interval: 'hour' } }}
+                    config={{ xScale: 'time', xAxis: { timezone: 'UTC', interval } }}
                 />
             )
-            expect(chart.xTicks()).toEqual(['00:00', '01:00', '02:00', '03:00', '04:00'])
+            expect(chart.xTicks()).toEqual(expected)
         })
     })
 
