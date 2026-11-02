@@ -62,6 +62,16 @@ class NetworkAccess(StrEnum):
     CUSTOM = "custom"
 
 
+class ContractCheck(StrEnum):
+    PUBLIC_OPTIONS = "public_options"
+    RUNTIMES = "runtimes"
+    SANDBOX_TEMPLATES = "sandbox_templates"
+    MCP_SCOPES = "mcp_scopes"
+    GITHUB_ACCESS = "github_access"
+    IDLE_MINUTES = "idle_minutes"
+    DRIVE = "drive"
+
+
 class SourceKind(StrEnum):
     SIGNAL_REPORT = "signal_report"
     HOG_FLOW = "hog_flow"
@@ -217,6 +227,8 @@ class TaskProfile:
     # True lets a running wake finish when the organization runs out of credit. False stops the
     # wake and snapshots the task.
     finish_in_flight: bool
+
+    enforced_checks: frozenset[ContractCheck] = frozenset()
 
 
 @frozen
