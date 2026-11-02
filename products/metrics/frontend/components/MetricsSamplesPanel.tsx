@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { Fragment, useEffect, useRef, useState } from 'react'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton, LemonTable, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -17,14 +17,20 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { LogRowScrollButtons } from 'products/logs/frontend/components/VirtualizedLogsList/LogRowScrollButtons'
 import { useOpenTraceDialog } from 'products/tracing/frontend/components/TraceDialog/useOpenTraceDialog'
 
-import { type MetricsSeriesRow, type MetricsPanelTab, metricsSamplesLogic } from './metricsSamplesLogic'
+import {
+    type MetricsPanelTab,
+    type MetricsSampleRow,
+    type MetricsSeriesRow,
+    metricsSamplesLogic,
+} from './metricsSamplesLogic'
 import { metricsUsageTrackingLogic } from './metricsUsageTrackingLogic'
 import { metricsViewerLogic } from './metricsViewerLogic'
 import { SampleAttributes } from './SampleAttributes'
 
 function SamplesTab(): JSX.Element {
     const { samples, samplesLoading } = useValues(metricsSamplesLogic)
-    const { hasMetricName } = useValues(metricsViewerLogic)
+    const { hasMetricName, namedClauses } = useValues(metricsViewerLogic)
+    const multipleSeries = namedClauses.length > 1
     const { timezone } = useValues(teamLogic)
     const { sampleRowExpanded, tracePivotClicked } = useActions(metricsUsageTrackingLogic)
     const openTraceDialog = useOpenTraceDialog()
@@ -41,7 +47,9 @@ function SamplesTab(): JSX.Element {
             rowKey={(sample, rowIndex) => `${rowIndex}-${sample.timestamp}-${sample.trace_id}`}
             emptyState={
                 hasMetricName
-                    ? 'No emissions for this metric in the selected range.'
+                    ? multipleSeries
+                        ? 'No emissions for these metrics in the selected range.'
+                        : 'No emissions for this metric in the selected range.'
                     : 'Pick a metric to see its raw emissions.'
             }
             expandable={{
@@ -49,6 +57,19 @@ function SamplesTab(): JSX.Element {
                 onRowExpand: (sample) => sampleRowExpanded(sample),
             }}
             columns={[
+                ...(multipleSeries
+                    ? [
+                          {
+                              title: 'Series',
+                              key: 'series',
+                              render: (_: unknown, sample: MetricsSampleRow) => (
+                                  <Tooltip title={sample.metric_name}>
+                                      <span className="font-mono">{sample.clauses.join(', ')}</span>
+                                  </Tooltip>
+                              ),
+                          },
+                      ]
+                    : []),
                 {
                     title: 'Timestamp',
                     key: 'timestamp',
@@ -299,8 +320,6 @@ function SeriesTab(): JSX.Element {
 export function MetricsSamplesPanel(): JSX.Element {
     const { activeTab } = useValues(metricsSamplesLogic)
     const { setActiveTab } = useActions(metricsSamplesLogic)
-    const { viewerClauses, activeClauseIndex } = useValues(metricsViewerLogic)
-    const { setActiveClauseIndex } = useActions(metricsViewerLogic)
     const metricsViewerDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Metrics,
         AccessControlLevel.Viewer
@@ -308,28 +327,6 @@ export function MetricsSamplesPanel(): JSX.Element {
 
     return (
         <div className="border rounded p-2 overflow-y-auto bg-surface-primary flex-1 min-h-0">
-            {/* Samples and the anomaly badge describe one series at a time; with several
-                clauses this picks which one they follow. The Series tab always covers all series. */}
-            {viewerClauses.length > 1 && (
-                <div className="flex flex-wrap items-center gap-2 pb-1">
-                    <span className="text-xs text-secondary">Samples follow series</span>
-                    <LemonSegmentedButton
-                        size="xsmall"
-                        value={activeClauseIndex}
-                        onChange={(index) => {
-                            if (!metricsViewerDisabledReason) {
-                                setActiveClauseIndex(index)
-                            }
-                        }}
-                        options={viewerClauses.map((clause, index) => ({
-                            value: index,
-                            label: clause.name,
-                            tooltip: clause.metricName.trim() || 'No metric picked',
-                        }))}
-                        data-attr="metrics-samples-panel-series-picker"
-                    />
-                </div>
-            )}
             <LemonTabs<MetricsPanelTab>
                 size="small"
                 activeKey={activeTab}

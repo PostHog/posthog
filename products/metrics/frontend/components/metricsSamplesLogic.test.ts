@@ -108,7 +108,7 @@ describe('metricsSamplesLogic', () => {
         const [, request] = mockSamplesCreate.mock.calls[0]
         expect(request.query.metricName).toBe('demo_checkout_duration_ms')
         expect(request.query.dateFrom).toMatch(/^\d{4}-\d{2}-\d{2}T/)
-        expect(logic.values.samples).toEqual([SAMPLE])
+        expect(logic.values.samples).toEqual([{ ...SAMPLE, clauses: ['a'] }])
     })
 
     // Regression: firing the request with an empty metric name spams 400s on the
@@ -155,6 +155,32 @@ describe('metricsSamplesLogic', () => {
         metricsViewerLogic.actions.setMetricName('demo_checkout_duration_ms')
         await expectLogic(logic).delay(10)
         expect(mockSamplesCreate).toHaveBeenCalledTimes(2)
+    })
+
+    // Regression: with several series the panel listed only the focused clause's emissions,
+    // so the samples and the chart's exemplar dots did not match what the chart draws.
+    it('merges the emissions of every series, newest first', async () => {
+        const otherSample = {
+            ...SAMPLE,
+            metric_name: 'demo_checkout_errors_total',
+            timestamp: '2026-07-09T05:50:00+00:00',
+        }
+        mockSamplesCreate.mockImplementation(async (_, { query }) => ({
+            results: query.metricName === 'demo_checkout_errors_total' ? [otherSample] : [SAMPLE],
+        }))
+        metricsViewerLogic.actions.setMetricName('demo_checkout_duration_ms')
+        metricsViewerLogic.actions.addClause()
+        metricsViewerLogic.actions.setMetricName('demo_checkout_errors_total')
+        metricsViewerLogic.actions.duplicateClause(1)
+
+        logic.actions.setActiveTab('samples')
+        await expectLogic(logic).toDispatchActions(['loadSamplesSuccess'])
+
+        expect(mockSamplesCreate).toHaveBeenCalledTimes(2)
+        expect(logic.values.samples).toEqual([
+            { ...otherSample, clauses: ['b', 'c'] },
+            { ...SAMPLE, clauses: ['a'] },
+        ])
     })
 
     // Regression: the panel listing emissions the chart above it excludes, because
