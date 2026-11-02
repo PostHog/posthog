@@ -1,16 +1,56 @@
+use std::str::FromStr;
 use std::time::Duration;
 
 use common_kafka::config::KafkaConfig;
 use envconfig::Envconfig;
 
+/// Where the writer puts properties; the rest of the row always goes to Postgres.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PropertyStorageMode {
+    Postgres,
+    Dual,
+    Slatedb,
+}
+
+impl PropertyStorageMode {
+    pub fn writes_slatedb(self) -> bool {
+        self != PropertyStorageMode::Postgres
+    }
+
+    pub fn writes_postgres_properties(self) -> bool {
+        self != PropertyStorageMode::Slatedb
+    }
+}
+
+impl FromStr for PropertyStorageMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "postgres" => Ok(PropertyStorageMode::Postgres),
+            "dual" => Ok(PropertyStorageMode::Dual),
+            "slatedb" => Ok(PropertyStorageMode::Slatedb),
+            other => Err(format!(
+                "unknown property storage mode {other:?}; use postgres, dual or slatedb"
+            )),
+        }
+    }
+}
+
 #[derive(Envconfig, Clone)]
 pub struct Config {
+    #[envconfig(default = "postgres")]
+    pub property_storage_mode: PropertyStorageMode,
+
     // ── Kafka ────────────────────────────────────────────────────
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
 
     #[envconfig(default = "personhog-writer")]
     pub kafka_consumer_group: String,
+
+    #[envconfig(nested = true)]
+    pub property_store: personhog_property_store::PropertyStoreConfig,
 
     // ── Postgres ─────────────────────────────────────────────────
     pub database_url: String,

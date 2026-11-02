@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use common_kafka::config::KafkaConfig;
@@ -12,6 +12,7 @@ use rdkafka::error::KafkaError;
 use rdkafka::message::BorrowedMessage;
 use rdkafka::types::RDKafkaErrorCode;
 use rdkafka::{ClientConfig, ClientContext, TopicPartitionList};
+use tokio::sync::mpsc;
 
 /// The changelog partition a row arrived on; a resubscribe changes the topic and
 /// keeps the numbers, so offsets, assignments and revocations carry both.
@@ -47,11 +48,25 @@ fn group_client_config(kafka: &KafkaConfig, consumer_group: &str) -> ClientConfi
     client_config
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OwnershipEvent {
+    Assigned(Source, u64),
+    Revoked(Source, u64),
+}
+
+/// A fresh generation per assignment lets work tell a partition that moved and came back.
+struct Ownership {
+    next: AtomicU64,
+    current: Mutex<HashMap<Source, u64>>,
+    events: mpsc::UnboundedSender<OwnershipEvent>,
+}
+
 /// Records the partitions each rebalance takes away, so the consume loop can
 /// drop their buffered rows before the new owner starts reading them.
 struct RebalanceContext {
     revoked: Arc<Mutex<Vec<Source>>>,
     joined: Arc<AtomicBool>,
+    ownership: Arc<Ownership>,
 }
 
 impl ClientContext for RebalanceContext {
@@ -69,17 +84,46 @@ impl ClientContext for RebalanceContext {
 impl ConsumerContext for RebalanceContext {
     fn pre_rebalance(&self, _base_consumer: &BaseConsumer<Self>, rebalance: &Rebalance<'_>) {
         match rebalance {
-            Rebalance::Assign(_) => self.joined.store(true, Ordering::SeqCst),
+            Rebalance::Assign(partitions) => {
+                self.joined.store(true, Ordering::SeqCst);
+                let mut current = self.ownership.current.lock().unwrap();
+                for source in sources(partitions) {
+                    let generation = self.ownership.next.fetch_add(1, Ordering::SeqCst) + 1;
+                    current.insert(source.clone(), generation);
+                    self.ownership
+                        .events
+                        .send(OwnershipEvent::Assigned(source, generation))
+                        .ok();
+                }
+            }
             Rebalance::Revoke(partitions) => {
-                let mut revoked = self.revoked.lock().unwrap();
-                revoked.extend(partitions.elements().iter().map(|e| Source {
-                    topic: Arc::from(e.topic()),
-                    partition: e.partition(),
-                }));
+                let revoked_sources = sources(partitions);
+                let mut current = self.ownership.current.lock().unwrap();
+                for source in &revoked_sources {
+                    if let Some(generation) = current.remove(source) {
+                        self.ownership
+                            .events
+                            .send(OwnershipEvent::Revoked(source.clone(), generation))
+                            .ok();
+                    }
+                }
+                drop(current);
+                self.revoked.lock().unwrap().extend(revoked_sources);
             }
             Rebalance::Error(_) => {}
         }
     }
+}
+
+fn sources(partitions: &TopicPartitionList) -> Vec<Source> {
+    partitions
+        .elements()
+        .iter()
+        .map(|e| Source {
+            topic: Arc::from(e.topic()),
+            partition: e.partition(),
+        })
+        .collect()
 }
 
 /// Wraps a Kafka StreamConsumer with its topic, providing a clean
@@ -91,6 +135,8 @@ pub struct PersonConsumer {
     draining: AtomicBool,
     revoked: Arc<Mutex<Vec<Source>>>,
     joined: Arc<AtomicBool>,
+    ownership: Arc<Ownership>,
+    ownership_events: Mutex<Option<mpsc::UnboundedReceiver<OwnershipEvent>>>,
 }
 
 impl PersonConsumer {
@@ -144,10 +190,17 @@ impl PersonConsumer {
     pub fn new(config: &ClientConfig, topic: String) -> Result<Self, rdkafka::error::KafkaError> {
         let revoked = Arc::new(Mutex::new(Vec::new()));
         let joined = Arc::new(AtomicBool::new(false));
+        let (events, ownership_events) = mpsc::unbounded_channel();
+        let ownership = Arc::new(Ownership {
+            next: AtomicU64::new(0),
+            current: Mutex::new(HashMap::new()),
+            events,
+        });
         let consumer: StreamConsumer<RebalanceContext> =
             config.create_with_context(RebalanceContext {
                 revoked: Arc::clone(&revoked),
                 joined: Arc::clone(&joined),
+                ownership: Arc::clone(&ownership),
             })?;
         consumer.subscribe(&[&topic])?;
         Ok(Self {
@@ -156,6 +209,8 @@ impl PersonConsumer {
             draining: AtomicBool::new(false),
             revoked,
             joined,
+            ownership,
+            ownership_events: Mutex::new(Some(ownership_events)),
         })
     }
 
@@ -176,6 +231,32 @@ impl PersonConsumer {
 
     pub async fn recv(&self) -> Result<BorrowedMessage<'_>, rdkafka::error::KafkaError> {
         self.consumer.recv().await
+    }
+
+    pub fn take_ownership_events(&self) -> Option<mpsc::UnboundedReceiver<OwnershipEvent>> {
+        self.ownership_events.lock().unwrap().take()
+    }
+
+    pub fn generation(&self, source: &Source) -> Option<u64> {
+        self.ownership.current.lock().unwrap().get(source).copied()
+    }
+
+    /// Blocking metadata lookup; call off the async runtime.
+    pub fn partition_count(
+        &self,
+        topic: &str,
+        timeout: std::time::Duration,
+    ) -> Result<u32, rdkafka::error::KafkaError> {
+        let metadata = self.consumer.fetch_metadata(Some(topic), timeout)?;
+        metadata
+            .topics()
+            .iter()
+            .find(|t| t.name() == topic)
+            .map(|t| t.partitions().len() as u32)
+            .filter(|&count| count > 0)
+            .ok_or(rdkafka::error::KafkaError::MetadataFetch(
+                RDKafkaErrorCode::UnknownTopicOrPartition,
+            ))
     }
 
     pub fn take_revoked(&self) -> Vec<Source> {

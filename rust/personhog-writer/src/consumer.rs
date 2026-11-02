@@ -21,6 +21,7 @@ pub struct FlushBatch {
     /// Timestamp of the oldest Kafka message in this batch (millis since epoch).
     /// Used to compute end-to-end latency from ingestion to PG commit.
     pub oldest_message_ts_ms: Option<i64>,
+    pub generations: HashMap<Source, u64>,
 }
 
 /// Their offsets were never committed, so the new owner re-reads these rows;
@@ -278,10 +279,17 @@ impl ConsumerTask {
         let total: usize = self.lanes.iter().map(|l| l.buffer.len()).sum();
         gauge!("personhog_writer_buffer_size").set(total as f64);
 
+        // Revokes were applied above, so every row left belongs to the current assignment.
+        let generations = batch
+            .offsets
+            .keys()
+            .filter_map(|source| Some((source.clone(), self.consumer.generation(source)?)))
+            .collect();
         Some(FlushBatch {
             persons: batch.persons,
             offsets: batch.offsets,
             oldest_message_ts_ms: batch.oldest_message_ts_ms,
+            generations,
         })
     }
 

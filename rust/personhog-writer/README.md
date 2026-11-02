@@ -125,6 +125,9 @@ When the writer is slow (PG latency, pool saturation), size-triggered flushes st
 | `personhog_writer_e2e_latency_seconds` | histogram | End-to-end latency from Kafka message creation to PG commit |
 | `personhog_writer_buffer_size` | gauge | Current buffer entries |
 | `personhog_writer_partition_offset{partition}` | gauge | Current offset per partition |
+| `personhog_writer_property_partitions_lost_total{reason}` | counter | Partitions whose offsets were left uncommitted because SlateDB could not take their rows here (reason: `ownership_lost`, or `unassigned` when the partition had no assignment on this pod) |
+| `personhog_writer_property_fenced_retries_total` | counter | Property-store writes retried after another writer fenced shards this pod still owns |
+| `personhog_writer_property_not_ready_total` | counter | Property-store writes retried while their shards were still opening |
 
 Consumer lag per partition is monitored externally via KMinion (`kminion_kafka_consumer_group_topic_lag`).
 
@@ -136,10 +139,11 @@ Consumer lag per partition is monitored externally via KMinion (`kminion_kafka_c
 | `KAFKA_TLS` | `false` | Enable TLS for Kafka |
 | `KAFKA_CLIENT_ID` | (empty) | Pod name for static group membership |
 | `KAFKA_CLIENT_RACK` | (empty) | Rack ID for rack-aware consumption |
+| `PROPERTY_STORAGE_MODE` | `postgres` | Where properties go. `postgres`: Postgres only. `dual`: Postgres and SlateDB (`PROPERTY_STORE_*`). `slatedb`: SlateDB only; Postgres keeps the identity columns, new rows get empty properties, and updates leave the properties columns alone. Offsets commit once every store in the mode has the batch |
 | `KAFKA_CONSUMER_GROUP` | `personhog-writer` | Consumer group ID |
 | `ETCD_ENDPOINTS` | `http://localhost:2379` | etcd endpoints; the topic comes from `config/changelog` |
 | `ETCD_PREFIX` | `/personhog/` | etcd key prefix |
-| `DATABASE_URL` | (required) | Postgres connection string |
+| `DATABASE_URL` | (required in `postgres` mode) | Postgres connection string |
 | `PG_MAX_CONNECTIONS` | `20` | Connection pool size |
 | `PG_TARGET_TABLE` | `personhog_person_tmp` | Target table (`posthog_person` for production cutover) |
 | `FLUSH_INTERVAL_MS` | `30000` | Timer-based flush interval (longer = better dedup, higher latency) |

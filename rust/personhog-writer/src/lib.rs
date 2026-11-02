@@ -4,5 +4,6 @@ pub mod consumer;
 pub mod error;
 pub mod kafka;
 pub mod pg;
+pub mod property_ownership;
 pub mod store;
 pub mod writer;

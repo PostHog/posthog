@@ -85,6 +85,67 @@ async fn writer_upserts_person_to_pg() {
 }
 
 #[tokio::test]
+async fn a_writer_without_properties_keeps_only_the_identity_columns_current() {
+    let pool = create_test_pool().await;
+    let team_id: i32 = unique_team_id();
+    let with_properties = PersonWriteStore::new(
+        PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
+        common::test_store_config(),
+        common::test_permits(),
+    );
+    let without_properties = PersonWriteStore::new(
+        PgStore::without_properties(pool.clone(), TARGET_TABLE.to_string()),
+        common::test_store_config(),
+        common::test_permits(),
+    );
+    let fetch = |id: i64| {
+        let pool = pool.clone();
+        async move {
+            let row: (i64, bool, serde_json::Value) = sqlx::query_as(
+                "SELECT version, is_identified, properties \
+                 FROM personhog_person_tmp WHERE team_id = $1 AND id = $2",
+            )
+            .bind(team_id)
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            row
+        }
+    };
+    let identified = |id, version| Person {
+        is_identified: true,
+        properties: br#"{"plan":"paid"}"#.to_vec(),
+        ..make_person(team_id as i64, id, version)
+    };
+    assert!(matches!(
+        with_properties
+            .upsert_batch(vec![make_person(team_id as i64, 1, 1)])
+            .await,
+        BatchOutcome::Success
+    ));
+
+    assert!(matches!(
+        without_properties
+            .upsert_batch(vec![identified(1, 2), identified(2, 1)])
+            .await,
+        BatchOutcome::Success
+    ));
+
+    assert_eq!(
+        fetch(1).await,
+        (2, true, serde_json::json!({"email": "test@example.com"})),
+        "an update leaves the properties it found"
+    );
+    assert_eq!(
+        fetch(2).await,
+        (1, true, serde_json::json!({})),
+        "a new row starts with empty properties"
+    );
+    cleanup_team(&pool, team_id).await;
+}
+
+#[tokio::test]
 async fn writer_projects_death_documents_as_tombstones() {
     let pool = create_test_pool().await;
     let team_id: i32 = unique_team_id();
@@ -1235,6 +1296,7 @@ async fn writer_processes_batch_from_channel() {
         persons: rows(vec![person]),
         offsets: HashMap::new(),
         oldest_message_ts_ms: None,
+        generations: HashMap::new(),
     };
     flush_tx.send(batch).await.unwrap();
 
@@ -1347,6 +1409,7 @@ async fn writer_crashes_after_exhausting_transient_retries() {
         persons: rows(vec![make_person(99_040, 1, 1)]),
         offsets: HashMap::new(),
         oldest_message_ts_ms: None,
+        generations: HashMap::new(),
     };
     flush_tx.send(batch).await.unwrap();
 
@@ -1400,6 +1463,7 @@ async fn writer_recovers_on_transient_retry() {
         persons: rows(vec![make_person(99_041, 1, 1)]),
         offsets: HashMap::new(),
         oldest_message_ts_ms: None,
+        generations: HashMap::new(),
     };
     flush_tx.send(batch).await.unwrap();
 
@@ -1409,6 +1473,7 @@ async fn writer_recovers_on_transient_retry() {
         persons: rows(vec![make_person(99_041, 2, 1)]),
         offsets: HashMap::new(),
         oldest_message_ts_ms: None,
+        generations: HashMap::new(),
     };
     assert!(
         flush_tx.send(batch2).await.is_ok(),
@@ -1457,6 +1522,7 @@ async fn writer_falls_back_to_per_row_on_data_error() {
         persons: rows(vec![make_person(99_042, 1, 1), make_person(99_042, 2, 1)]),
         offsets: HashMap::new(),
         oldest_message_ts_ms: None,
+        generations: HashMap::new(),
     };
     flush_tx.send(batch).await.unwrap();
 
@@ -1466,6 +1532,7 @@ async fn writer_falls_back_to_per_row_on_data_error() {
         persons: rows(vec![make_person(99_042, 3, 1)]),
         offsets: HashMap::new(),
         oldest_message_ts_ms: None,
+        generations: HashMap::new(),
     };
     assert!(
         flush_tx.send(batch2).await.is_ok(),
@@ -1524,11 +1591,13 @@ async fn unapplyable_batch_halts_the_writer_before_any_later_batch() {
         persons: rows(vec![make_person(99_043, 1, 1)]),
         offsets: HashMap::new(),
         oldest_message_ts_ms: None,
+        generations: HashMap::new(),
     };
     let buffered = FlushBatch {
         persons: rows(vec![make_person(99_043, 2, 1)]),
         offsets: HashMap::new(),
         oldest_message_ts_ms: None,
+        generations: HashMap::new(),
     };
     flush_tx.send(poison).await.unwrap();
     flush_tx.send(buffered).await.unwrap();

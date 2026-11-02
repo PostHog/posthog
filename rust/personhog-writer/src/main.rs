@@ -11,6 +11,7 @@ use metrics::counter;
 use personhog_coordination::changelog::{load_changelog_config, CHANGELOG_BOOT_POLL_INTERVAL};
 use personhog_coordination::follow::{follow_changelog, Follower, Reporter};
 use personhog_coordination::store::PersonhogStore;
+use personhog_coordination::types::PropertyStoreLayout;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::level_filters::LevelFilter;
@@ -28,9 +29,12 @@ use personhog_writer::writer::WriterTask;
 
 common_alloc::used!();
 
+const STORE_CLOSE_TIMEOUT: Duration = Duration::from_secs(10);
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::init_from_env().expect("Invalid configuration");
+    let mode = config.property_storage_mode;
 
     let log_layer = fmt::layer()
         .with_target(true)
@@ -46,7 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .init();
 
-    tracing::info!("Starting personhog-writer");
+    tracing::info!(property_storage_mode = ?mode, "Starting personhog-writer");
     tracing::info!("Consumer group: {}", config.kafka_consumer_group);
     tracing::info!("Flush interval: {}ms", config.flush_interval_ms);
     tracing::info!("Flush buffer size: {}", config.flush_buffer_size);
@@ -119,6 +123,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ComponentOptions::new().is_observability(true),
     );
     let changelog_handle = manager.register("changelog-config", ComponentOptions::new());
+    let ownership_handle = mode
+        .writes_slatedb()
+        .then(|| manager.register("property-ownership", ComponentOptions::new()));
 
     let readiness = manager.readiness_handler();
     let liveness = manager.liveness_handler();
@@ -210,21 +217,70 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let upsert_permits = Arc::new(tokio::sync::Semaphore::new(upsert_concurrency));
 
+    let property_writer = if mode.writes_slatedb() {
+        let object_store = personhog_property_store::object_store(&config.property_store)?;
+        let writer =
+            personhog_property_store::PropertyWriter::new(&config.property_store, object_store);
+        // A topic still draining is consumed too, so its partitions must fit as well.
+        writer.check_partitions(loaded.partitions)?;
+        for draining in &loaded.draining {
+            writer.check_partitions(draining.partitions)?;
+        }
+        store
+            .require_property_store_layout(&PropertyStoreLayout {
+                shards: config.property_store.shards,
+                location: config.property_store.location()?,
+            })
+            .await?;
+        tracing::info!(
+            location = %config.property_store.location()?,
+            shards = config.property_store.shards,
+            "Writing properties to SlateDB"
+        );
+        let writer = Arc::new(writer);
+        writer.spawn_maintenance();
+        let events = kafka_consumer
+            .take_ownership_events()
+            .expect("ownership events are taken once");
+        tokio::spawn(personhog_writer::property_ownership::run(
+            Arc::clone(&kafka_consumer),
+            Arc::clone(&writer),
+            events,
+            ownership_handle.expect("registered when the property store is enabled"),
+        ));
+        Some(writer)
+    } else {
+        // Nothing consumes ownership events without a store, so stop them queuing.
+        drop(kafka_consumer.take_ownership_events());
+        None
+    };
+
     // Writer lanes: each lane gets its own channel, store, and task, and
     // commits offsets only for the partitions routed to it.
     let mut lane_txs = Vec::with_capacity(lanes);
     for writer_handle in writer_handles {
         let (flush_tx, flush_rx) = mpsc::channel(config.flush_channel_capacity);
-        let store = PersonWriteStore::new(
-            PgStore::new(pool.clone(), config.pg_target_table.clone()),
-            personhog_writer::store::StoreConfig {
-                chunk_size: config.upsert_batch_size,
-                row_fallback_concurrency: config.row_fallback_concurrency,
-            },
-            Arc::clone(&upsert_permits),
+        let pg = if mode.writes_postgres_properties() {
+            PgStore::new(pool.clone(), config.pg_target_table.clone())
+        } else {
+            PgStore::without_properties(pool.clone(), config.pg_target_table.clone())
+        };
+        let mut writer_task = WriterTask::new(
+            Arc::clone(&kafka_consumer),
+            PersonWriteStore::new(
+                pg,
+                personhog_writer::store::StoreConfig {
+                    chunk_size: config.upsert_batch_size,
+                    row_fallback_concurrency: config.row_fallback_concurrency,
+                },
+                Arc::clone(&upsert_permits),
+            ),
+            flush_rx,
+            writer_handle,
         );
-        let writer_task =
-            WriterTask::new(Arc::clone(&kafka_consumer), store, flush_rx, writer_handle);
+        if let Some(properties) = &property_writer {
+            writer_task = writer_task.with_properties(Arc::clone(properties));
+        }
         tokio::spawn(async move {
             writer_task.run().await;
         });
@@ -270,7 +326,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    monitor_guard.wait().await?;
+    let waited = monitor_guard.wait().await;
+    if let Some(properties) = property_writer {
+        // A hung object store must not keep the process alive.
+        if tokio::time::timeout(STORE_CLOSE_TIMEOUT, properties.close())
+            .await
+            .is_err()
+        {
+            tracing::warn!("property store shards did not close in time");
+        }
+    }
+    waited?;
     Ok(())
 }
 
