@@ -401,7 +401,7 @@ class TestJudgeAttachmentsContent:
         image = images.marker(_inline("aa"))
         pdfs = " ".join(
             images.marker(MediaBlock(modality="file", url=f"phaiblob://v1/sha256/{i:064x}?mime=application%2Fpdf"))
-            for i in range(MAX_ATTACHMENTS)
+            for i in range(MAX_ATTACHMENTS + 1)
         )
 
         content = images.content(f"user: {image} {pdfs}", "openrouter", "example/image-only")
@@ -413,7 +413,7 @@ class TestJudgeAttachmentsContent:
                 "type": "text",
                 "text": "Not attached, this judge can't read their file type: "
                 + ", ".join(f"File {n}" for n in range(1, MAX_ATTACHMENTS + 1))
-                + ".",
+                + ", and 1 more.",
             },
         ]
         # Each lookup reads the whole OpenRouter catalogue, so it runs once per file type, not per attachment.
