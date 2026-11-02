@@ -19,10 +19,11 @@ tools:
         list: true
         title: List support macros
         description: >
-            List the shared reply macros in the project, most used first. A macro is a saved reply an agent inserts into
-            a ticket. The body is markdown and may contain customer, agent, and ticket variables in double braces. Fill
-            those in for the current ticket before sending the reply. shortcut is the slash command without the leading
-            slash, or null when the macro has none.
+            List the reply macros the caller can use, most used first: the macros shared with the project, plus the
+            caller's personal macros (visibility 'personal'). A macro is a saved reply an agent inserts into a ticket.
+            The body is markdown and may contain customer, agent, and ticket variables in double braces. Fill those in
+            for the current ticket before sending the reply. shortcut is the slash command without the leading slash, or
+            null when the macro has none.
         feature_flag: support-macros
         response:
             include:
@@ -30,6 +31,7 @@ tools:
                 - name
                 - shortcut
                 - body
+                - visibility
                 - usage_count
             informational_wrapper:
                 tag: support-macro-data
@@ -59,6 +61,7 @@ tools:
                 - name
                 - shortcut
                 - body
+                - visibility
                 - usage_count
                 - last_used_at
             informational_wrapper:
