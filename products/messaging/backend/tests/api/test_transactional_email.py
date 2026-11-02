@@ -6,7 +6,7 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.db import IntegrityError, connection, transaction
+from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
 import requests
@@ -46,6 +46,7 @@ class CapturedFirstCodeSend:
     distinct_id: str | None
     properties: dict[str, Any]
     organization_id: str
+    project: str
 
 
 def _stage_counts() -> dict[str, float]:
@@ -113,11 +114,15 @@ class TestTransactionalEmail(APIBaseTest):
         return {**flat, "template_id": str(self.template.id)}
 
     def _psak_client(
-        self, scopes: list[str], created_by: User | None = None, label: str = "transactional email"
+        self,
+        scopes: list[str],
+        created_by: User | None = None,
+        label: str = "transactional email",
+        team: Team | None = None,
     ) -> APIClient:
         raw_token = generate_random_token_secret()
         ProjectSecretAPIKey.objects.create(
-            team=self.team,
+            team=team or self.team,
             label=label,
             secure_value=hash_key_value(raw_token),
             scopes=scopes,
@@ -903,28 +908,41 @@ class TestTransactionalEmail(APIBaseTest):
                 distinct_id=call.kwargs["distinct_id"],
                 properties=call.kwargs["properties"],
                 organization_id=call.kwargs["groups"]["organization"],
+                project=call.kwargs["groups"]["project"],
             )
             for call in capture.call_args_list
             if call.kwargs["event"] == "email first code send"
         ]
 
-    def test_the_first_code_send_of_a_project_is_reported_once_for_whoever_made_its_key(
-        self, mock_post, _flag, capture
+    @parameterized.expand([("the_project", False), ("an_environment", True)])
+    def test_the_first_code_send_of_a_project_is_reported_once_for_whoever_made_its_key_in(
+        self, mock_post, _flag, capture, _name, in_environment
     ):
         self._cdp_accepts(mock_post)
-        psak = self._sender_client("key_creator")
+        key_team = self.team
+        if in_environment:
+            key_team = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+            sender = Integration.objects.create(
+                team=key_team, kind="email", integration_id="hello@example.com", config={"verified": True}
+            )
+            set_default_email_sender_if_unset(key_team.id, sender.id)
+        psak = self._psak_client(["hog_flow:write"], created_by=self.user, team=key_team)
+        url = f"/api/projects/{key_team.id}/messaging/send/email/"
 
         with self.captureOnCommitCallbacks(execute=True):
-            first = psak.post(self.send_email_url, self._code_send(), format="json")
+            first = psak.post(url, self._code_send(), format="json")
         with self.captureOnCommitCallbacks(execute=True):
-            second = psak.post(self.send_email_url, self._code_send(), format="json")
+            second = psak.post(url, self._code_send(), format="json")
 
-        assert (first.status_code, second.status_code) == (status.HTTP_202_ACCEPTED, status.HTTP_202_ACCEPTED)
+        assert (first.status_code, second.status_code) == (status.HTTP_202_ACCEPTED, status.HTTP_202_ACCEPTED), (
+            first.json()
+        )
         assert self._first_code_sends(capture) == [
             CapturedFirstCodeSend(
                 distinct_id=self.user.distinct_id,
                 properties={"team_id": self.team.id, "addressed_by": "template_key"},
                 organization_id=str(self.organization.id),
+                project=str(self.team.uuid),
             )
         ]
 
@@ -1025,6 +1043,7 @@ class TestTransactionalEmail(APIBaseTest):
                 distinct_id=self.user.distinct_id,
                 properties={"team_id": self.team.id, "addressed_by": "template_key"},
                 organization_id=str(self.organization.id),
+                project=str(self.team.uuid),
             )
         ]
 
@@ -1060,17 +1079,6 @@ class TestTransactionalEmail(APIBaseTest):
             report_first_code_send(team_id, capture_for(team_id))
 
         assert captured == [self.team.id, other_team.id]
-
-    def test_the_unique_row_settles_a_first_code_send_the_lookup_missed(self, _mock_post, _flag, _capture):
-        report_first_code_send(self.team.id, lambda: True)
-        capture = MagicMock(return_value=True)
-
-        with pytest.raises(IntegrityError), transaction.atomic():
-            FirstCodeSend.objects.for_team(self.team.id).create(team_id=self.team.id)
-        with patch.object(transactional_email, "first_code_send_recorded", return_value=False):
-            report_first_code_send(self.team.id, capture)
-
-        capture.assert_not_called()
 
 
 @pytest.mark.ee

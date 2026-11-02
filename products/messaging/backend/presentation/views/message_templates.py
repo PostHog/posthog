@@ -6,10 +6,7 @@ from email.utils import parseaddr
 from types import SimpleNamespace
 from typing import Any, cast
 
-from django.core.exceptions import (
-    ObjectDoesNotExist,
-    ValidationError as DjangoValidationError,
-)
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email
 from django.db import transaction
 
@@ -632,10 +629,6 @@ def require_email_from_code(team: Any) -> None:
     _require_flag(team, EMAIL_FROM_CODE_FLAG)
 
 
-def email_from_code_enabled(team: Any) -> bool:
-    return _flag_enabled(team, EMAIL_FROM_CODE_FLAG)
-
-
 def _require_flag(team: Any, flag: str) -> None:
     if not _flag_enabled(team, flag):
         raise NotFound()
@@ -815,11 +808,13 @@ class TransactionalEmailSendMixin:
     def _report_first_code_send_after_commit(self, request: Any, route: str, addressed_by: str) -> None:
         if route != "send_email" or not isinstance(request.user, ProjectSecretAPIKeyUser):
             return
-        if not email_from_code_enabled(self.team):
-            return
         key = request.user.project_secret_api_key
-        if key.created_by_id is not None:
-            transaction.on_commit(lambda: self._report_first_code_send(key, addressed_by))
+        if key.created_by_id is None:
+            return
+        # A code send passed this flag before it went out, so only a send by template id checks it here.
+        if addressed_by != "template_key" and not _flag_enabled(self.team, EMAIL_FROM_CODE_FLAG):
+            return
+        transaction.on_commit(lambda: self._report_first_code_send(key, addressed_by))
 
     def _report_first_code_send(self, key: ProjectSecretAPIKey, addressed_by: str) -> None:
         try:
@@ -828,14 +823,16 @@ class TransactionalEmailSendMixin:
             logger.warning("Failed to capture the first code send", team_id=self.team_id, error=str(e))
 
     def _capture_first_code_send(self, key: ProjectSecretAPIKey, addressed_by: str) -> bool:
-        key_creator = _current_creator(key)
+        key_creator = User.objects.filter(created_project_secret_api_keys__id=key.pk).first()
         if key_creator is None:
             return False
+        # A key made in an environment sends for its project, and the project holds the claim.
+        project = self.team.parent_team or self.team
         queued = posthoganalytics.capture(
             distinct_id=key_creator.distinct_id,
             event=FIRST_CODE_SEND_EVENT,
-            properties={"team_id": self.team_id, "addressed_by": addressed_by},
-            groups=groups(self.organization, self.team),
+            properties={"team_id": project.id, "addressed_by": addressed_by},
+            groups=groups(self.organization, project),
         )
         return queued is not None
 
@@ -856,14 +853,6 @@ class TransactionalEmailSendMixin:
             )
         except Exception as e:
             logger.warning("Failed to capture transactional email usage event", error=str(e))
-
-
-def _current_creator(key: ProjectSecretAPIKey) -> User | None:
-    try:
-        key.refresh_from_db(fields=["created_by"])
-        return key.created_by
-    except ObjectDoesNotExist:
-        return None
 
 
 @extend_schema_view(
