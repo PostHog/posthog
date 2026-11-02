@@ -1,9 +1,7 @@
 import { hogFile } from '@/core/paths'
 import type { Runtime } from '@/core/runtime'
 
-import { hostKey } from './credential-store'
-
-export type StoreChoice = 'keychain' | 'file'
+import { hostKey, type StoreChoice } from './credential-store'
 
 // What settings.json keeps about the login to one host: everything except its secrets.
 export interface LoginRecord {
