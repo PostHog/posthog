@@ -789,18 +789,45 @@ describe('HogFunctionHandler', () => {
     // received — the same version `email_sent` is counted under — so a send re-pins the attribution
     // version. A non-message step must leave it alone.
     it.each([
-        { billingType: 'email' as const, expected: 3 },
-        { billingType: 'push' as const, expected: 3 },
-        { billingType: 'fetch' as const, expected: 1 },
+        { billingType: 'email' as const, outcome: 'sent', expected: 3 },
+        { billingType: 'push' as const, outcome: 'sent', expected: 3 },
+        { billingType: 'fetch' as const, outcome: 'sent', expected: 1 },
+        { billingType: 'email' as const, outcome: 'failed', expected: 1 },
+        { billingType: 'email' as const, outcome: 'sent nothing', expected: 1 },
+        { billingType: 'push' as const, outcome: 'reached no device', expected: 1 },
     ])(
-        'a completed $billingType step leaves the attribution version at $expected',
-        async ({ billingType, expected }) => {
+        'a $billingType step that $outcome leaves the attribution version at $expected',
+        async ({ billingType, outcome, expected }) => {
             const handler = new HogFunctionHandler(
                 mockHogFlowFunctionsService,
                 mockRecipientPreferencesService,
                 mockEmailValidationService,
                 billingType,
                 null
+            )
+            const executeWithAsyncFunctions =
+                mockHogFlowFunctionsService.executeWithAsyncFunctions.bind(mockHogFlowFunctionsService)
+            jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockImplementation(
+                async (hogFunctionInvocation, options) => {
+                    const functionResult = await executeWithAsyncFunctions(hogFunctionInvocation, options)
+                    if (outcome === 'sent' && billingType === 'email') {
+                        functionResult.emailSendResult = { status: 'accepted' }
+                    }
+                    if (outcome === 'sent' && billingType === 'push') {
+                        functionResult.deliveredToRecipient = true
+                    }
+                    if (outcome === 'failed') {
+                        functionResult.error = 'send failed'
+                        functionResult.emailSendResult = { status: 'failed', reason: 'send failed' }
+                    }
+                    if (outcome === 'sent nothing') {
+                        functionResult.emailSendResult = { status: 'skipped', reason: 'suppressed' }
+                    }
+                    if (outcome === 'reached no device') {
+                        functionResult.deliveredToRecipient = false
+                    }
+                    return functionResult
+                }
             )
             // The run entered on v1; v3 is what is live now and what this step executes under.
             const republished = {

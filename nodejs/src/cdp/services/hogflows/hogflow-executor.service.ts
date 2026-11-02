@@ -300,6 +300,7 @@ export class HogFlowExecutorService {
         const warehouseWebhookPayloads: WarehouseWebhookPayload[] = []
         const messageAssets: MessageAssetRow[] = []
         const conversionWatchers: ConversionWatcherRow[] = []
+        const versionAtStart = invocation.state.flowVersion
 
         // A run that started before a step was protected must keep it out of its snapshot too, even when
         // a recovery path later holds only the workflow id.
@@ -371,6 +372,9 @@ export class HogFlowExecutorService {
         result.warehouseWebhookPayloads = warehouseWebhookPayloads
         result.messageAssets = messageAssets
         result.conversionWatchers = conversionWatchers
+        if (result.invocation.state.flowVersion !== versionAtStart) {
+            result.conversionWatcherVersion = result.invocation.state.flowVersion
+        }
 
         return result
     }
