@@ -1,0 +1,12 @@
+@keyframes DetailPanel__slide-in {
+    from {
+        opacity: 0;
+        transform: translateX(2rem);
+    }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .DetailPanel {
+        animation: DetailPanel__slide-in 200ms ease-out;
+    }
+}
