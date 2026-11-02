@@ -386,7 +386,7 @@ export function Playlist({
                                 <ReplayListHeader
                                     filters={filters}
                                     setFilters={setFilters}
-                                    collapseButton={collapseButton}
+                                    onCollapse={() => setPlaylistCollapsed(true)}
                                     type={type}
                                     shortId={type === 'collection' ? logicKey : undefined}
                                 />
