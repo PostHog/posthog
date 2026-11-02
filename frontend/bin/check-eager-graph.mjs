@@ -196,6 +196,9 @@ const ROOTS = [
             // A hit means a module imports re2js directly again.
             'node_modules/re2js/',
             KEA_TEST_UTILS,
+            // Query loads each node renderer in its own chunk. The debug renderers draw only on the debug scene.
+            'src/scenes/debug/HogDebug.tsx',
+            'src/queries/QueryEditor/QueryEditor.tsx',
         ],
     },
     {
@@ -254,6 +257,12 @@ const ROOTS = [
             // A hit means a module imports re2js directly again.
             'node_modules/re2js/',
             KEA_TEST_UTILS,
+            // The scene draws only a data table. Query loads every other node renderer in its own chunk.
+            'src/queries/nodes/InsightViz/InsightViz.tsx',
+            'src/queries/nodes/DataVisualization/DataVisualization.tsx',
+            'src/queries/nodes/WebOverview/WebOverview.tsx',
+            'src/scenes/debug/HogDebug.tsx',
+            'src/queries/QueryEditor/QueryEditor.tsx',
         ],
     },
     {
@@ -272,6 +281,9 @@ const ROOTS = [
             // A hit means a module imports re2js directly again.
             'node_modules/re2js/',
             KEA_TEST_UTILS,
+            // Query loads each node renderer in its own chunk. The debug renderers draw only on the debug scene.
+            'src/scenes/debug/HogDebug.tsx',
+            'src/queries/QueryEditor/QueryEditor.tsx',
         ],
     },
     {
