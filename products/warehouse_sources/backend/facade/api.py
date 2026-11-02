@@ -47,12 +47,13 @@ from products.warehouse_sources.backend.models.external_data_job import (
     ExternalDataJob as _ExternalDataJob,
     latest_completed_job_subquery,
 )
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema as _ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource as _ExternalDataSource
-from products.warehouse_sources.backend.models.table import (
-    HIDDEN_COLUMNS,
-    DataWarehouseTable as _DataWarehouseTable,
+from products.warehouse_sources.backend.models.external_data_schema import (
+    SCHEMA_SELF_MANAGED_TABLE_METADATA_KEY,
+    ExternalDataSchema as _ExternalDataSchema,
+    self_managed_table_ref,
 )
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource as _ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable as _DataWarehouseTable
 
 # Framework-free helper transforms — re-exported as the public helper surface.
 from products.warehouse_sources.backend.models.util import (
@@ -96,6 +97,7 @@ __all__ = [
     "record_table_row_count",
     "allowed_table_ids",
     "denied_table_ids",
+    "pending_source_ids_for_tables",
     "all_queryable_tables",
     "all_queryable_table_columns",
     "list_tables_for_source",
@@ -533,6 +535,55 @@ def _resolve_allowed_table_ids(
     return _allowed_tables(_tables_for_access_check(candidates), user_access_control, required_level)
 
 
+def pending_source_ids_for_tables(team_id: int, table_ids: Collection[UUID] | None = None) -> dict[UUID, UUID]:
+    """Map each self-managed table to the managed source that will import it on its first sync.
+
+    A table is pending when a live, still unlinked schema of a live source in the same team pins it,
+    and the table has no source yet and still reads the files the schema was pinned to. That matches
+    the conditions under which the first sync adopts the table rather than creating a new one.
+    `table_ids` of None checks every table in the team.
+    """
+    if table_ids is not None and not table_ids:
+        return {}
+    pinned = (
+        _ExternalDataSchema.objects.filter(team_id=team_id, source__team_id=team_id)
+        .exclude(deleted=True)
+        .exclude(source__deleted=True)
+        .filter(table__isnull=True)
+        .filter(sync_type_config__schema_metadata__has_key=SCHEMA_SELF_MANAGED_TABLE_METADATA_KEY)
+        .order_by("created_at", "id")
+    )
+    if table_ids is not None:
+        pinned = pinned.filter(
+            sync_type_config__schema_metadata__self_managed_table__table_id__in=[str(i) for i in table_ids]
+        )
+    by_table: dict[UUID, list[tuple[UUID, str, str]]] = {}
+    for schema in pinned:
+        ref = self_managed_table_ref(schema)
+        if ref is None or ref.abandon_reason is not None or not UUIDT.is_valid_uuid(ref.table_id):
+            continue
+        by_table.setdefault(UUID(ref.table_id), []).append((schema.source_id, ref.url_pattern, ref.format))
+    if not by_table:
+        return {}
+    unsourced = _DataWarehouseTable.raw_objects.filter(
+        team_id=team_id, id__in=list(by_table), external_data_source__isnull=True
+    ).values_list("id", "url_pattern", "format")
+    found: dict[UUID, UUID] = {}
+    for table_id, url_pattern, table_format in unsourced:
+        # A table edited since the migration reads other files, so its sync creates a new table instead.
+        source_id = next(
+            (
+                sid
+                for sid, ref_url, ref_format in by_table[table_id]
+                if (ref_url, ref_format) == (url_pattern, table_format)
+            ),
+            None,
+        )
+        if source_id is not None:
+            found[table_id] = source_id
+    return found
+
+
 def denied_table_ids(team_id: int, user_access_control: "UserAccessControl") -> frozenset[UUID]:
     """Every table this caller may not view.
 
@@ -610,6 +661,7 @@ def all_queryable_table_columns(team_id: int, table_ids: Collection[UUID] | None
             "id",
             "name",
             "columns",
+            "options",
             "external_data_source_id",
             "external_data_source__id",
             "external_data_source__prefix",
@@ -628,10 +680,11 @@ def _hogql_visible_columns(table: _DataWarehouseTable) -> dict[str, str]:
     # The same raw -> visible mapping DataWarehouseTable.get_user_facing_columns applies, keeping
     # the stored type rather than the cleaned one so a consumer still reads any Nullable() wrapper.
     hogql_by_raw = get_hogql_column_name_mapping(table.table_name_without_prefix())
+    hidden = table.hidden_columns()
     return {
         hogql_by_raw.get(name, name): type_
         for name, entry in (table.columns or {}).items()
-        if name not in HIDDEN_COLUMNS and (type_ := _clickhouse_column_type(entry)) is not None
+        if name not in hidden and (type_ := _clickhouse_column_type(entry)) is not None
     }
 
 

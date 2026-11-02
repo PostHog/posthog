@@ -34,6 +34,8 @@ permissions:
 
 jobs:
     multinode-migration-smoke:
+        # Push and schedule runs only belong in this repo. Mirrors run CI on their own PRs only.
+        if: github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')
         name: Run ClickHouse migrations against per-cluster topology
         runs-on: ubuntu-24.04
         # The common path primes Postgres from the master schema artifact. The

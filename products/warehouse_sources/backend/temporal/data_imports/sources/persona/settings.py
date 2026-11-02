@@ -138,6 +138,27 @@ PERSONA_ENDPOINTS: dict[str, PersonaEndpointConfig] = {
         partition_key=None,
         should_sync_default=False,
     ),
+    # The reports, workflow runs, and inquiry sessions lists take no created-at window (only
+    # reference/account/status/inquiry filters), so they are full refresh only. `created-at` is
+    # immutable, so it still works as a partition key.
+    "reports": PersonaEndpointConfig(
+        name="reports",
+        path="/reports",
+        supports_incremental=False,
+    ),
+    "workflow_runs": PersonaEndpointConfig(
+        name="workflow_runs",
+        path="/workflow-runs",
+        supports_incremental=False,
+    ),
+    # Roughly one row per attempt at every inquiry, re-read in full on each sync, so it is off by
+    # default to keep the cheap inquiry-level sync the default.
+    "inquiry_sessions": PersonaEndpointConfig(
+        name="inquiry_sessions",
+        path="/inquiry-sessions",
+        supports_incremental=False,
+        should_sync_default=False,
+    ),
 }
 
 ENDPOINTS = tuple(PERSONA_ENDPOINTS.keys())

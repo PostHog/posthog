@@ -304,7 +304,7 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
                 return redirect(_change_url(schema.id))
 
         # Single save: stage the partition update(s), reset_pipeline, and the auto-unpause
-        # marker (read by `update_external_data_job_model` at workflow end) in one round-trip.
+        # marker (read by `resume_schedule_after_ad_hoc_run` when the run completes) in one round-trip.
         # reset_pipeline goes on sync_type_config rather than the workflow input so the pipeline
         # can pop it after the first reset; passing it on inputs makes every activity retry
         # re-read True and wipe Delta + cursor, restarting from row 0.
@@ -312,8 +312,10 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             schema.sync_type_config[key] = value
         if reset_pipeline:
             schema.sync_type_config["reset_pipeline"] = True
-        if admin_paused_now:
-            schema.sync_type_config["admin_unpause_schedule_after_run"] = True
+        workflow_id = f"{schema.id}-admin-{workflow_kind}-{int(time.time())}"
+        previous_marker = schema.sync_type_config.get("admin_unpause_schedule_after_run")
+        if admin_paused_now or previous_marker:
+            schema.sync_type_config["admin_unpause_schedule_after_run"] = workflow_id
         schema.save(update_fields=["sync_type_config"])
 
         inputs = ExternalDataWorkflowInputs(
@@ -323,7 +325,6 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             billable=False,
             reset_pipeline=None,
         )
-        workflow_id = f"{schema.id}-admin-{workflow_kind}-{int(time.time())}"
         try:
             _start_external_data_workflow(client, workflow_id, inputs)
         except Exception as e:
@@ -335,6 +336,12 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
                 try:
                     unpause_external_data_schedule(str(schema.id))
                     schema.sync_type_config.pop("admin_unpause_schedule_after_run", None)
+                    schema.save(update_fields=["sync_type_config"])
+                except Exception:
+                    pass
+            elif previous_marker:
+                try:
+                    schema.sync_type_config["admin_unpause_schedule_after_run"] = previous_marker
                     schema.save(update_fields=["sync_type_config"])
                 except Exception:
                     pass
@@ -366,7 +373,7 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
         # the schedule's stored input cannot override `billable` per-trigger. To avoid
         # racing with the regular scheduled run, mirror repartition_view: pause the
         # schedule (if not already paused), record the auto-unpause marker, and let
-        # `update_external_data_job_model` resume the schedule on COMPLETED.
+        # `resume_schedule_after_ad_hoc_run` resume the schedule on COMPLETED.
         if request.method != "POST":
             return redirect(_change_url(schema_id))
 

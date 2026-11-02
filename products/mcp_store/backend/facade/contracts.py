@@ -58,3 +58,30 @@ class ActiveInstallation:
     # Set only for credentials delegated to a built-in agent. Kept out of reprs so the
     # short-lived bearer cannot accidentally land in logs.
     proxy_token: str | None = field(default=None, repr=False)
+
+
+UnmountedInstallationReason = Literal[
+    "needs_reconnect",
+    "server_disabled",
+    "revoked",
+    "not_selected",
+    "replaced_by_personal",
+]
+
+
+@dataclass(frozen=True)
+class UnmountedInstallation:
+    """An enabled installation a sandbox run could reach but did not mount."""
+
+    id: str
+    name: str
+    scope: str
+    reason: UnmountedInstallationReason
+
+
+@dataclass(frozen=True)
+class SandboxInstallations:
+    """What a sandbox run mounts from the MCP Store, and what it left out."""
+
+    mounted: tuple[ActiveInstallation, ...]
+    unmounted: tuple[UnmountedInstallation, ...] = ()

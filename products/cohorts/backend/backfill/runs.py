@@ -39,7 +39,7 @@ from products.cohorts.backend.models.backfill import (
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.leaf_shape import walk_filter_leaves
 from products.cohorts.backend.parity.eligibility import structural_exclusion
-from products.cohorts.backend.realtime_teams import is_realtime_cohort_team
+from products.cohorts.backend.realtime_teams import is_processing_team
 
 logger = structlog.get_logger(__name__)
 
@@ -292,7 +292,7 @@ def attempt_backfill_run_for_cohort(team_id: int, cohort_id: int, trigger_kind: 
     static in the meantime refuses instead of creating a second run for the same slot. The reason
     comes back on the attempt so the signal path can label its metric with it.
     """
-    if not is_realtime_cohort_team(team_id):
+    if not is_processing_team(team_id, fresh=True):
         return BackfillRunAttempt.refused(BackfillRefusalReason.TEAM_NOT_REALTIME)
 
     try:
@@ -377,8 +377,8 @@ def create_team_backfill_run(
     boundary_at: datetime | None = None,
     scan_estimate: BehavioralScanEstimate | None = None,
 ) -> CohortBackfillRun:
-    if not is_realtime_cohort_team(team_id):
-        raise ValueError(f"Team {team_id} is not in the realtime cohort allowlist")
+    if not is_processing_team(team_id, fresh=True):
+        raise ValueError(f"Team {team_id} is not processed by the realtime cohort pipeline")
 
     boundary_at = _validate_boundary_at(trigger_kind, boundary_at)
 
@@ -480,7 +480,7 @@ def attempt_person_backfill_run_for_cohort(
     The reason for a refusal comes back on the attempt, so the signal path can label its metric
     with it.
     """
-    if not is_realtime_cohort_team(team_id):
+    if not is_processing_team(team_id, fresh=True):
         return BackfillRunAttempt.refused(BackfillRefusalReason.TEAM_NOT_REALTIME)
 
     horizon_days = (
@@ -677,8 +677,8 @@ def create_person_team_backfill_run(
     created_by_id: int | None = None,
     boundary_at: datetime | None = None,
 ) -> CohortBackfillRun:
-    if not is_realtime_cohort_team(team_id):
-        raise ValueError(f"Team {team_id} is not in the realtime cohort allowlist")
+    if not is_processing_team(team_id, fresh=True):
+        raise ValueError(f"Team {team_id} is not processed by the realtime cohort pipeline")
     if person_horizon_days < 1:
         raise ValueError("person_horizon_days must be at least 1")
 

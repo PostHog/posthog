@@ -68,6 +68,34 @@ def test_incremental_filter_and_full_refresh(
     assert result.params("modified_since") == ([expected] * 2 if incremental else [None] * 2)
 
 
+@pytest.mark.parametrize("endpoint", ["revenue_centers", "sales_categories", "dining_options"])
+def test_location_lookup_walks_every_location(driver: SourceDriver, endpoint: str) -> None:
+    result = driver.run(
+        endpoint,
+        [
+            response([{"id": 11}], "locations-two"),
+            response([{"external_id": "a", "name": "A", "location_id": 11}], "child-two"),
+            response([{"external_id": "b", "name": "B", "location_id": 11}]),
+            response([{"id": 22}]),
+            response([{"external_id": "a", "name": "A", "location_id": 22}]),
+        ],
+        should_use_incremental_field=True,
+        db_incremental_field_last_value="2026-03-05T12:30:00Z",
+    )
+
+    assert result.raised is None
+    assert result.paths == [
+        "/v2/company/123/locations",
+        f"/v2/company/123/location/11/{endpoint}",
+        f"/v2/company/123/location/11/{endpoint}",
+        "/v2/company/123/locations",
+        f"/v2/company/123/location/22/{endpoint}",
+    ]
+    assert result.params("cursor") == [None, None, "child-two", "locations-two", None]
+    assert result.params("modified_since") == [None] * 5
+    assert [(row["location_id"], row["external_id"]) for row in result.rows] == [(11, "a"), (11, "b"), (22, "a")]
+
+
 def test_repeated_cursor_fails(driver: SourceDriver) -> None:
     result = driver.run("users", [response([{"id": 1}], "same-cursor"), response([{"id": 1}], "same-cursor")])
 

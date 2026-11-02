@@ -1,5 +1,6 @@
 import time
 import uuid
+from datetime import timedelta
 
 import time_machine
 from posthog.test.base import BaseTest
@@ -902,6 +903,43 @@ class TestWidgetIdentityVerification(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(_stale_counter() - before_stale, 0.0)
+
+    @parameterized.expand(
+        [
+            # A hash signed with the replaced secret keeps verifying inside the grace
+            # window and expires on its own after it, with no manual backup deletion.
+            ("inside_grace_window", timedelta(hours=47), status.HTTP_200_OK, "verified", "signing_secret_previous"),
+            ("after_grace_window", timedelta(hours=49), status.HTTP_403_FORBIDDEN, "invalid_hash", "none"),
+        ]
+    )
+    @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
+    def test_list_tickets_previous_secret_grace_window(
+        self, _name: str, age: timedelta, expected_status: int, outcome: str, source: str
+    ) -> None:
+        replaced_secret = "a_replaced_secret"
+        SigningSecret.objects.for_team(self.team.id).create(
+            team=self.team,
+            secret="the_new_secret",
+            rotated_independently=True,
+            previous_secret=replaced_secret,
+            previous_secret_rotated_at=timezone.now() - age,
+        )
+        self._create_ticket()
+        before_stale = _stale_counter()
+        before_outcome = _verification_counter(outcome, source)
+
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": compute_identity_hash(self.distinct_id, replaced_secret),
+            },
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(_stale_counter() - before_stale, 0.0)
+        self.assertEqual(_verification_counter(outcome, source) - before_outcome, 1.0)
 
     def test_list_tickets_legacy_hash_rejected_after_independent_rotation(self):
         # Even with the kill switch on, an independent rotation must revoke the legacy

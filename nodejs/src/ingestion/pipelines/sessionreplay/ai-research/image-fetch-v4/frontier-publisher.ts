@@ -22,9 +22,11 @@ export interface FrontierPublisherOptions {
     frontierTopic: string
     delayTiers: DelayTier[]
     maxConcurrentRepublishes: number
+    maxUrlAgeMs?: number
+    maxUrlAgeFromMs?: number
 }
 
-export type RepublishResult = 'queued' | 'refused_delay'
+export type RepublishResult = 'queued' | 'refused_delay' | 'refused_age'
 
 export interface RepublishFlushResult {
     failedUrls: number
@@ -85,6 +87,9 @@ export class FrontierPublisher {
         if (!Number.isInteger(options.maxConcurrentRepublishes) || options.maxConcurrentRepublishes < 1) {
             throw new Error('the image fetch lane needs a positive republish limit')
         }
+        if (options.maxUrlAgeMs !== undefined && !(options.maxUrlAgeMs > 0)) {
+            throw new Error('the image fetch lane needs a positive URL age limit')
+        }
         this.republishes = new ConcurrencyController(options.maxConcurrentRepublishes)
     }
 
@@ -94,7 +99,9 @@ export class FrontierPublisher {
             this.options.frontierTopic,
             this.delayTiers,
             this.republishes,
-            deadlineAtMonotonicMs
+            deadlineAtMonotonicMs,
+            this.options.maxUrlAgeMs ?? Number.POSITIVE_INFINITY,
+            this.options.maxUrlAgeFromMs ?? 0
         )
     }
 }
@@ -108,7 +115,9 @@ class BufferedRepublishBatch implements RepublishBatch {
         private readonly frontierTopic: string,
         private readonly delayTiers: DelayTier[],
         private readonly republishes: ConcurrencyController,
-        private readonly deadlineAtMonotonicMs: number
+        private readonly deadlineAtMonotonicMs: number,
+        private readonly maxUrlAgeMs: number,
+        private readonly maxUrlAgeFromMs: number
     ) {}
 
     public republish(
@@ -119,6 +128,12 @@ class BufferedRepublishBatch implements RepublishBatch {
     ): Promise<RepublishResult> {
         if (this.flushed) {
             return Promise.reject(new Error('an image fetch republish batch cannot accept work after its flush'))
+        }
+        if (
+            candidate.firstSeenAtMs >= this.maxUrlAgeFromMs &&
+            Date.now() - candidate.firstSeenAtMs >= this.maxUrlAgeMs
+        ) {
+            return Promise.resolve('refused_age')
         }
         const spendsHop = reason === 'redirect' || reason === 'retry'
         const remainingHops = candidate.remainingHops - (spendsHop ? 1 : 0)
@@ -296,8 +311,13 @@ class BufferedRepublishBatch implements RepublishBatch {
                 this.recordFailedPlan(plan)
                 continue
             }
-            for (const reason of plan.reasons) {
-                ImageFetchRequestMetrics.incRepublished(reason, metricTopic === 'frontier' ? 'frontier' : 'delay')
+            const nowMs = Date.now()
+            for (let job = 0; job < plan.candidates.length; job++) {
+                ImageFetchRequestMetrics.incRepublished(
+                    plan.reasons[job],
+                    metricTopic === 'frontier' ? 'frontier' : 'delay',
+                    Math.max(0, nowMs - plan.candidates[job].firstSeenAtMs) / 1000
+                )
             }
         }
         if (attemptedMessages > 0) {

@@ -1,10 +1,17 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
+# Documented maximum page size; the largest page minimises round trips against the ~150 req/min
+# rate limit.
+PAGE_SIZE = 1000
 
-@dataclass
+
+@dataclass(frozen=True)
 class RetentlyEndpointConfig:
     name: str
     path: str
@@ -23,6 +30,11 @@ class RetentlyEndpointConfig:
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Stable creation-time field used for datetime partitioning. Never an updated_at-style field.
     partition_key: Optional[str] = None
+    # The /{metric}/score endpoints return one object under `data`, not a list of rows.
+    single_object: bool = False
+    fanout: Optional[DependentEndpointConfig] = None
+    default_incremental_field: Optional[str] = None
+    page_size: int = PAGE_SIZE
 
 
 def _created_date_incremental_field() -> list[IncrementalField]:
@@ -42,7 +54,9 @@ def _created_date_incremental_field() -> list[IncrementalField]:
 # specified and customer records are mutable (properties, tags), so a creation-window incremental
 # would silently miss updates — customers stays full refresh. Companies expose no date filter, and
 # outbox rows carry no consistently documented unique identifier (`surveyId` is absent from some
-# example rows), so there is no safe merge key and outbox stays full refresh too.
+# example rows), so there is no safe merge key and outbox stays full refresh too. The score, trend
+# and suppression endpoints take no date filter or pagination and return the full collection (or a
+# point-in-time snapshot) in one response, so they are full refresh as well.
 RETENTLY_ENDPOINTS: dict[str, RetentlyEndpointConfig] = {
     "customers": RetentlyEndpointConfig(
         name="customers",
@@ -95,6 +109,55 @@ RETENTLY_ENDPOINTS: dict[str, RetentlyEndpointConfig] = {
         path="/reports",
         data_selector="data",
         primary_keys=["campaignId"],
+        paginated=False,
+    ),
+    # One table per metric: each metric's score payload has its own keys (e.g. `nps`, `promoters`).
+    **{
+        f"{metric}_score": RetentlyEndpointConfig(
+            name=f"{metric}_score",
+            path=f"/{metric}/score",
+            data_selector="data",
+            paginated=False,
+            single_object=True,
+        )
+        for metric in ("nps", "csat", "ces", "star")
+    },
+    "trend_groups": RetentlyEndpointConfig(
+        name="trend_groups",
+        path="/trends",
+        data_selector="groups",
+        primary_keys=["_id"],
+        paginated=False,
+    ),
+    "trends": RetentlyEndpointConfig(
+        name="trends",
+        path="/trends/{groupId}",
+        data_selector="trends",
+        primary_keys=["groupId", "_id"],
+        paginated=False,
+        fanout=DependentEndpointConfig(
+            parent_name="trend_groups",
+            resolve_param="groupId",
+            resolve_field="_id",
+            include_from_parent=["_id"],
+            parent_field_renames={"_id": "groupId"},
+            # A group deleted between the group listing and this fetch 404s; skip it instead of
+            # failing the whole fan-out.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    "suppressed_emails": RetentlyEndpointConfig(
+        name="suppressed_emails",
+        path="/suppressions/emails",
+        data_selector="data",
+        primary_keys=["id"],
+        paginated=False,
+    ),
+    "suppressed_domains": RetentlyEndpointConfig(
+        name="suppressed_domains",
+        path="/suppressions/domains",
+        data_selector="data",
+        primary_keys=["id"],
         paginated=False,
     ),
 }

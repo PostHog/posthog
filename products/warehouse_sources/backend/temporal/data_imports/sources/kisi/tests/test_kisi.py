@@ -10,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing.fake_network import RecordedRequest
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kisi import KisiSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.kisi.kisi import (
     KisiEventSetError,
@@ -67,6 +68,50 @@ def test_pagination_and_resume(
     assert result.rows == first_page + last_page
     assert result.params("offset") == [str(value) for value in expected_offsets]
     assert result.saved_states == [KisiResumeConfig(offset=value) for value in expected_offsets[1:]]
+
+
+def _group_locks_responder(request: RecordedRequest) -> ScriptedResponse:
+    if request.path == "/groups":
+        return ScriptedResponse(json=[{"id": 1}, {"id": 2}, {"id": 3}])
+    group_id, offset = request.param("group_id"), request.param("offset")
+    if group_id == "1":
+        size = 100 if offset == "0" else 1
+        return ScriptedResponse(json=[{"id": 1000 + int(offset or 0) + i, "group_id": 1} for i in range(size)])
+    if group_id == "2":
+        return ScriptedResponse(status=404, json={"error": "Not found", "code": "not_found"})
+    return ScriptedResponse(json=[{"id": 3000, "group_id": 3}])
+
+
+@pytest.mark.parametrize("resumed", [False, True])
+def test_group_locks_read_each_group(resumed: bool, driver: SourceDriver) -> None:
+    result = driver.run(
+        "group_locks",
+        _group_locks_responder,
+        resume_state=KisiResumeConfig(
+            fanout_state={"completed": [], "current": "group_locks?group_id=1", "child_state": {"offset": 100}}
+        )
+        if resumed
+        else None,
+    )
+
+    first_group_offsets = ["100"] if resumed else ["0", "100"]
+    assert result.raised is None
+    assert [row["id"] for row in result.rows] == [
+        1000 + int(offset) + i for offset in first_group_offsets for i in range(100 if offset == "0" else 1)
+    ] + [3000]
+    assert [(request.path, request.param("group_id"), request.param("offset")) for request in result.requests] == [
+        ("/groups", None, "0"),
+        *[("/group_locks", "1", offset) for offset in first_group_offsets],
+        ("/group_locks", "2", "0"),
+        ("/group_locks", "3", "0"),
+    ]
+    if not resumed:
+        assert (
+            KisiResumeConfig(
+                fanout_state={"completed": [], "current": "group_locks?group_id=1", "child_state": {"offset": 100}}
+            )
+            in result.saved_states
+        )
 
 
 @pytest.mark.parametrize("total,should_fail", [(20_100, False), (20_101, True)])

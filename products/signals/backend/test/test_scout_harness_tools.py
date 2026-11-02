@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import uuid
 import dataclasses
+from collections.abc import Iterator
 from datetime import timedelta
+from ipaddress import ip_address
 from typing import TYPE_CHECKING
 from urllib.parse import quote
 
@@ -203,7 +205,6 @@ class TestSearchRecentRuns(BaseTest):
         assert len(hits) == MAX_RUN_SEARCH_LIMIT
 
     def test_summary_surfaces_run_metadata(self) -> None:
-        # New runs also carry accounting metadata; legacy NULL rows must still project as {}.
         routed = _create_run(self.team, metadata={"model": "@cf/zai-org/glm-5.2", "runtime_adapter": "claude"})
         legacy = _create_run(self.team, metadata=None)
         SignalScoutRun.objects.for_team(self.team.id).filter(pk=legacy.pk).update(metadata=None)
@@ -213,7 +214,6 @@ class TestSearchRecentRuns(BaseTest):
         assert by_run_id[str(routed.id)].metadata == {
             "model": "@cf/zai-org/glm-5.2",
             "runtime_adapter": "claude",
-            "spend_accounting_failed_stages": ["scout"],
         }
         assert by_run_id[str(legacy.id)].metadata == {}
 
@@ -1966,6 +1966,11 @@ def _no_flag_payload():
 
 
 class TestLighthouseAudit:
+    @pytest.fixture(autouse=True)
+    def mock_target_dns(self) -> Iterator[None]:
+        with patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")}):
+            yield
+
     def _audit(self, payload: dict, *, url: str = "https://posthog.com/pricing", form_factor: str = "desktop"):
         response = MagicMock(status_code=200, content=b"{}")
         response.json.return_value = payload

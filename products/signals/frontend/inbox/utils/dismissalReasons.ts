@@ -9,7 +9,6 @@ export const DISMISSAL_REASON_OPTIONS = [
     { value: 'already_fixed', label: 'Already fixed' },
     { value: 'report_unclear', label: 'Report is unclear to me' },
     { value: 'analysis_wrong', label: "Agent's analysis is wrong" },
-    { value: 'wrong_assignee', label: 'Wrong assignee' },
     { value: 'wrong_repo', label: 'Agent picked the wrong repository' },
     { value: 'wontfix_intentional', label: "Won't fix - intentional behavior" },
     { value: 'wontfix_irrelevant', label: 'Not relevant to this project' },
@@ -95,8 +94,12 @@ export function suppressDismissalPayload(dismissal: DismissalFeedback): {
 // reason chip still renders a label instead of the raw code. `refunded` is written by the PR
 // refund action, which dismisses the report as part of the refund. `merged` is written by the
 // report merge action, which archives each duplicate it folds into the surviving report.
+// `wrong_assignee` is no longer offered: a report sent to the wrong person still holds work, so the
+// person removes themselves from its reviewers with a reason instead. Older dismissals and clients
+// still carry it.
 const EXTRA_DISMISSAL_REASON_LABELS: Record<string, string> = {
     pr_merged: 'PR already merged',
+    wrong_assignee: 'Wrong assignee',
     refunded: 'Refunded',
     merged: 'Merged into another report',
 }

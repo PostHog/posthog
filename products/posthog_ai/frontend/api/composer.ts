@@ -19,3 +19,4 @@ export type {
 export { QuillComposerLayout } from '../components/quill/QuillComposerLayout'
 export type { QuillComposerLayoutProps } from '../components/quill/QuillComposerLayout'
 export { QuillComposerSendButton } from '../components/quill/QuillComposerSendButton'
+export { QuillTaskComposerSkeleton } from '../components/quill/QuillTaskComposerSkeleton'

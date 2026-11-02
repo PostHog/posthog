@@ -24,6 +24,7 @@ import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { HogInputsService } from './hog-inputs.service'
+import type { PreferencesTokenSource } from './messaging/recipient-tokens.service'
 
 export interface HogExecutorConfig {
     /** Hard wall-clock limit for one Hog program. The VM aborts the invocation once it elapses. */
@@ -63,7 +64,14 @@ export type HogExecutorAsyncFunctionHandler = (
 /** The parts of an earlier step's result that carry forward into the next one. */
 export type HogExecutorPreviousResult = Pick<
     Partial<CyclotronJobInvocationResult>,
-    'finished' | 'capturedPostHogEvents' | 'warehouseWebhookPayloads' | 'logs' | 'metrics' | 'error' | 'execResult'
+    | 'finished'
+    | 'capturedPostHogEvents'
+    | 'warehouseWebhookPayloads'
+    | 'logs'
+    | 'metrics'
+    | 'error'
+    | 'execResult'
+    | 'emailSendResult'
 >
 
 export type HogExecutorExecuteOptions = {
@@ -93,9 +101,15 @@ export class HogExecutorService {
     async buildInputsWithGlobals(
         hogFunction: HogFunctionType,
         globals: HogFunctionInvocationGlobals,
-        additionalInputs?: Record<string, any>
+        additionalInputs?: Record<string, any>,
+        preferencesTokenSource?: PreferencesTokenSource
     ): Promise<HogFunctionInvocationGlobalsWithInputs> {
-        return this.hogInputsService.buildInputsWithGlobals(hogFunction, globals, additionalInputs)
+        return this.hogInputsService.buildInputsWithGlobals(
+            hogFunction,
+            globals,
+            additionalInputs,
+            preferencesTokenSource
+        )
     }
 
     /**

@@ -21,20 +21,26 @@ that on the CACHE_WARMUP feature tag (which the Dagster warmer already sets) plu
 
 import json
 import hashlib
+from collections.abc import Iterable, Sequence
 from contextlib import suppress
+from datetime import UTC, date, datetime
 from typing import Any
 
 import structlog
 from prometheus_client import Counter
 
+from posthog.schema import HogQLQueryModifiers
+
 from posthog import redis
 from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
 from posthog.models import Team
+from posthog.models.event.new_events_schema import events_route_cache_modifiers, use_new_events_schema
 from posthog.token_bucket import BucketDecision, Budget, consume
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     EXPIRY_BUFFER_SECONDS,
     LazyComputationResult,
+    ServedWindow,
     ensure_precomputed,
 )
 from products.analytics_platform.backend.lazy_computation.stale_policy import is_background_warming_request
@@ -124,9 +130,37 @@ def marketing_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputatio
     return ensure_precomputed(team=team, **kwargs)
 
 
+def _oldest_stamp(windows: Iterable[ServedWindow]) -> datetime | None:
+    # A window without a stamp makes the age unknown, so the result must not read fresher than it is.
+    stamps = [w.computed_at for w in windows]
+    if not stamps or any(stamp is None for stamp in stamps):
+        return None
+    return min(stamp for stamp in stamps if stamp is not None)
+
+
+def events_latest_day_computed_at(windows: Sequence[ServedWindow], latest_day_start: datetime) -> datetime | None:
+    """Oldest stamp among the windows that hold events of the local day starting at `latest_day_start`."""
+    return _oldest_stamp(w for w in windows if w.end > latest_day_start)
+
+
+def costs_latest_day_computed_at(windows: Sequence[ServedWindow], latest_cost_day: date) -> datetime | None:
+    """Oldest stamp among the windows that hold `latest_cost_day`.
+
+    Cost rows carry a date, which the materialization reads as UTC midnight, so the day lives in the one
+    window that contains that instant rather than in every window the local day overlaps.
+    """
+    cost_day_start = datetime(latest_cost_day.year, latest_cost_day.month, latest_cost_day.day, tzinfo=UTC)
+    return _oldest_stamp(w for w in windows if w.start <= cost_day_start < w.end)
+
+
 def _query_shape_key(query: Any) -> str:
+    query_json = query.model_dump(mode="json", exclude_none=True, exclude=set(FINAL_READ_ONLY_FIELDS))
+    if "modifiers" in query_json:
+        query_json["modifiers"] = events_route_cache_modifiers(query_json["modifiers"], reads_events=True)
+        if not query_json["modifiers"]:
+            query_json.pop("modifiers")
     payload = json.dumps(
-        query.model_dump(mode="json", exclude_none=True, exclude=set(FINAL_READ_ONLY_FIELDS)),
+        query_json,
         sort_keys=True,
         default=str,
     )
@@ -150,6 +184,17 @@ def _scope_to_revalidation(query: Any) -> Any:
     return scoped
 
 
+def _revalidation_query(*, team: Team, query: Any) -> Any:
+    """The query the revalidation task rebuilds, which also keys its debounce slot.
+
+    The events table the stale read resolved is pinned, so the task, which runs without the reader's cookie, rebuilds
+    from the same table, and each table gets its own slot.
+    """
+    modifiers = (query.modifiers or HogQLQueryModifiers()).model_copy()
+    modifiers.useNewEventsSchema = use_new_events_schema(team.pk, modifiers)
+    return _scope_to_revalidation(query.model_copy(update={"modifiers": modifiers}))
+
+
 def is_on_demand_revalidation() -> bool:
     """True inside the Celery revalidation task, which a user read can trigger.
 
@@ -171,7 +216,7 @@ def enqueue_stale_revalidation(*, team: Team, query: Any) -> None:
         revalidate_marketing_analytics_precompute,
     )
 
-    query = _scope_to_revalidation(query)
+    query = _revalidation_query(team=team, query=query)
     claimed = False
     debounce_key: str | None = None
     try:

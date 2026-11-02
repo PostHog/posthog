@@ -13,6 +13,8 @@ from posthog.schema import HogQLQueryModifiers
 from posthog.hogql.escape_sql import escape_clickhouse_identifier
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.events_json import EVENTS_PROPERTIES_JSON_SUBCOLUMNS, PERSON_PROPERTIES_JSON_SUBCOLUMNS
+
 
 def execute_hogql_query_with_timings(*args, **kwargs):
     modifiers = kwargs.get("modifiers") or HogQLQueryModifiers()
@@ -165,25 +167,41 @@ def pretty_dataclasses(obj, seen=None, indent=0):
         return str(obj)
 
 
+def _json_text_sql(field: str, *, declared: bool) -> str:
+    # A declared array column holds [] for a missing key, so its empty containers read as NULL.
+    if declared:
+        return f"nullIf(nullIf(toJSONString({field}), '[]'), '{{}}')"
+    return f"toJSONString({field})"
+
+
 def json_dynamic_read_sql_from_parts(
-    field: Callable[[], str], sub_object: Callable[[], str], *, as_json: bool = False, with_sub_object: bool = True
+    field: Callable[[], str],
+    sub_object: Callable[[], str],
+    *,
+    as_json: bool = False,
+    with_sub_object: bool = True,
+    declared: bool = False,
 ) -> str:
     """The ClickHouse SQL the resolver prints for a property read on the native-JSON events table.
 
     `field` and `sub_object` are called once per occurrence, so a caller whose key is parameterized can hand out the
     next `%(hogql_val_N)s` placeholder each time. The shape mirrors `_json_subcolumn_value_expr`: a non-empty
-    sub-object wins, an empty scalar reads as NULL, containers render as JSON.
+    sub-object wins, a missing key reads as NULL, containers render as JSON. A declared path cannot hold NULL, so
+    its '' and [] defaults read as NULL as well.
     """
     sub_object_read = f"toJSONString({sub_object()})" if with_sub_object else ""
     sub_object_again = f"toJSONString({sub_object()})" if with_sub_object else ""
-    empty_check = f"isNull(nullIf(toString({field()}), ''))"
+    if declared:
+        empty_check = f"isNull(nullIf(toString({field()}), ''))"
+    else:
+        empty_check = f"isNull({field()})"
     if as_json:
-        typed = f"nullIf(nullIf(toJSONString({field()}), '[]'), '{{}}')"
+        typed = _json_text_sql(field(), declared=declared)
     else:
         is_container = (
             f"and(in(ascii(toString({field()})), tuple(91, 123)), in(ascii(toJSONString({field()})), tuple(91, 123)))"
         )
-        typed = f"if({is_container}, nullIf(nullIf(toJSONString({field()}), '[]'), '{{}}'), toString({field()}))"
+        typed = f"if({is_container}, {_json_text_sql(field(), declared=declared)}, toString({field()}))"
     scalar_or_null = f"if({empty_check}, NULL, {typed})"
     if not with_sub_object:
         return scalar_or_null
@@ -194,12 +212,20 @@ def json_dynamic_read_sql(root: str, path: Sequence[str | int], *, as_json: bool
     """`json_dynamic_read_sql_from_parts` for a literal key path under `root` (e.g. `events.properties`).
 
     An integer key is an array index; the read then has no sub-object branch, because a sub-object only exists
-    for a plain key path.
+    for a plain key path, and it scrubs like a declared path, because only a declared array is indexed in place.
     """
     field = root
     for key in path:
         field += f"[{key}]" if isinstance(key, int) else f".{escape_clickhouse_identifier(key)}"
     if any(isinstance(key, int) for key in path):
-        return json_dynamic_read_sql_from_parts(lambda: field, lambda: field, as_json=as_json, with_sub_object=False)
+        return json_dynamic_read_sql_from_parts(
+            lambda: field, lambda: field, as_json=as_json, with_sub_object=False, declared=True
+        )
+    declared_types = (
+        PERSON_PROPERTIES_JSON_SUBCOLUMNS if root.endswith(".person_properties") else EVENTS_PROPERTIES_JSON_SUBCOLUMNS
+    )
+    declared = ".".join(str(key) for key in path) in declared_types
     escaped = ".".join(escape_clickhouse_identifier(key) for key in path if isinstance(key, str))
-    return json_dynamic_read_sql_from_parts(lambda: field, lambda: f"{root}.^{escaped}", as_json=as_json)
+    return json_dynamic_read_sql_from_parts(
+        lambda: field, lambda: f"{root}.^{escaped}", as_json=as_json, declared=declared
+    )

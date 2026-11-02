@@ -11,7 +11,7 @@ import type {
   CreateAgentSessionRuntimeFactory,
   CreateAgentSessionServicesOptions,
 } from "@earendil-works/pi-coding-agent";
-import { installHogBrandEnv } from "./extensions/hog-branding/brand-env";
+import { installHognessBrandEnv } from "./extensions/hogness-branding/brand-env";
 import {
   POSTHOG_PROVIDER_NAME,
   type PosthogOAuthCredentials,
@@ -79,7 +79,7 @@ export async function createHarnessRuntime(
   } = options;
   // Pi reads its application branding when the SDK is first evaluated. Keep
   // every runtime import below dynamic so this always happens first.
-  installHogBrandEnv();
+  installHognessBrandEnv();
 
   const pi = await import("@earendil-works/pi-coding-agent");
   const [{ harnessExtensions }, { DEFAULT_MODEL }] = await Promise.all([

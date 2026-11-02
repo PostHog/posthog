@@ -108,6 +108,7 @@ Connect a Salesforce account that has access to Account Engagement, then enter t
                     ),
                     SourceFieldInputConfig(
                         name="business_unit_id",
+                        account_selector=True,
                         label="Business unit ID",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,

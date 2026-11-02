@@ -13,7 +13,7 @@ from __future__ import annotations
 from products.notebooks.evals.offline_config import offline_suite
 from products.notebooks.evals.scorers import CellRunsCompleted, NotebookCreated, NotebookRunCompleted
 from products.notebooks.evals.seeders import seed_case_team
-from products.posthog_ai.eval_harness.base import SandboxedPublicEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import RequiredToolCall
@@ -85,7 +85,7 @@ async def eval_notebook_cells(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-notebook-cells-cli",
         offline_suite=offline_suite(
             "notebooks/eval_notebook_cells::eval_notebook_cells",

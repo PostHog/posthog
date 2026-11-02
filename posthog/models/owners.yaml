@@ -45,9 +45,6 @@ rules:
           - '/tophog/'
       owners: team-ingestion
     - match:
-          - '/filters/test/'
-      owners: team-product-analytics
-    - match:
           - '/exchange_rate/'
           - '/person_group_membership/'
       owners: team-web-analytics

@@ -136,8 +136,10 @@ class CiscoMerakiSource(ResumableSource[CiscoMerakiSourceConfig, CiscoMerakiResu
             caption=(
                 "In Meraki Dashboard, open **Organization > API & Webhooks > API keys and access**. Create an API key. "
                 "Enable API access for your organization. Use an administrator account with read access to the selected tables. "
-                "Each connection imports one organization. Network events support incremental sync, and other tables use full refresh. "
-                "Network clients include clients seen in the last 31 days. Health alerts include active alerts only."
+                "Each connection imports one organization. Network events, uplink usage history, and client usage histories support incremental sync. "
+                "Other tables use full refresh. Network clients include clients seen in the last 31 days. "
+                "The first sync of client usage histories reads the last 31 days, and the first sync of uplink usage history reads the last 30 days. "
+                "Health alerts include active alerts only."
             ),
             fields=cast(
                 list[FieldType],
