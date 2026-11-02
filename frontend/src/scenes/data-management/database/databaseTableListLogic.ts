@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { objectsEqual } from 'lib/utils/objects'
 
 import { performQuery } from '~/queries/query'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     DatabaseSchemaDataWarehouseTable,
     DatabaseSchemaEndpointTable,
@@ -14,7 +15,6 @@ import {
     DatabaseSchemaViewTable,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 
 import { parseEndpointModelName } from 'products/data_modeling/frontend/endpointModelName'
 

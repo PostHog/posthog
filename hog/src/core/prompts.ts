@@ -25,6 +25,7 @@ export interface Prompts {
     ): Promise<Value>
     text(message: string, options?: { initialValue?: string; validate?: Validate }): Promise<string>
     password(message: string, options?: { validate?: Validate }): Promise<string>
+    confirm(message: string, options?: { initialValue?: boolean }): Promise<boolean>
     note(message: string, title: string): void
     spinner(message: string): Spinner
 }
@@ -67,6 +68,9 @@ export function clackPrompts(): Prompts {
             return answer(
                 await clack.password({ message, validate: validate ? (value) => validate(value ?? '') : undefined })
             )
+        },
+        async confirm(message, options = {}) {
+            return answer(await clack.confirm({ message, initialValue: options.initialValue ?? true }))
         },
         note(message, title) {
             clack.note(message, title)

@@ -292,12 +292,11 @@ def semgrep_source(
     )
 
 
-def validate_credentials(api_token: str) -> bool:
+def validate_credentials(api_token: str) -> tuple[bool, int | None]:
     # One cheap probe of the token itself: /deployments is the root resource every Web API token
     # can read, and it's the same call the sync fans out from.
-    ok, _status = validate_via_probe(
+    return validate_via_probe(
         lambda: _client_session(api_token),
         f"{SEMGREP_BASE_URL}/deployments",
         headers={"Authorization": f"Bearer {api_token}", "Accept": "application/json"},
     )
-    return ok
