@@ -1,3 +1,4 @@
+import { compress } from '@mongodb-js/zstd'
 import avro from 'avsc'
 
 import { parseJSON } from '~/common/utils/json-parse'
@@ -437,6 +438,37 @@ describe('log-record-avro', () => {
             ],
         ])('rejects promise for %s', async (_name, build, message) => {
             await expect(decodeLogRecords(await build())).rejects.toThrow(message)
+        })
+
+        it('keeps decoding bytes fields after a container whose bytes length is NaN', async () => {
+            // uuid null, then trace_id as bytes with a length varint whose float read gives NaN.
+            const craftedBlock = Buffer.concat([
+                Buffer.from([0x00, 0x02]),
+                Buffer.alloc(200, 0x80),
+                Buffer.from([0x00]),
+            ])
+            const crafted = await new Promise<Buffer>((resolve, reject) => {
+                const buffers: Buffer[] = []
+                const encoder = new avro.streams.BlockEncoder(LOG_RECORD_SCHEMA, {
+                    codec: 'zstandard',
+                    codecs: {
+                        zstandard: (_buf: Buffer, cb: (err: Error | null, compressed?: Buffer) => void) => {
+                            compress(craftedBlock, 1).then((compressed) => cb(null, compressed), cb)
+                        },
+                    },
+                })
+                encoder.on('data', (buf: Buffer) => buffers.push(buf))
+                encoder.on('end', () => resolve(Buffer.concat(buffers)))
+                encoder.on('error', reject)
+                encoder.end(createRecord())
+            })
+            const traceId = Buffer.from('0102030405060708090a0b0c0d0e0f10', 'hex')
+            const valid = await encodeLogRecords(LOG_RECORD_SCHEMA, 'zstandard', [createRecord({ trace_id: traceId })])
+
+            await expect(decodeLogRecords(crafted)).rejects.toThrow()
+            const [, , decoded] = await decodeLogRecords(valid)
+
+            expect(decoded[0].trace_id).toEqual(traceId)
         })
     })
 
