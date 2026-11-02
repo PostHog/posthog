@@ -366,6 +366,7 @@ depot ci run --workflow .depot/workflows/ci-backend.yml --job <job>
 
 - `<job>` is one of `repo-checks`, `check-migrations`, `check-openapi-types` or `sdk-major-guard`.
   The CLI adds the `changes` job that they need.
+- Always pass `--job`. Depot rejects an inline workflow over 65,535 bytes before any job starts, and the whole `ci-backend.yml` is larger than that.
 - Start at most 2 runs per task without approval. Ask the user before each run after that.
 - Never run another job this way without approval.
   A CLI run has the event `api`, so `changes` marks every path as changed.
