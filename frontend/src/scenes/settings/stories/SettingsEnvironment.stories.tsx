@@ -231,7 +231,23 @@ export const SettingsEnvironmentPrivacy: Story = { args: { sectionId: 'environme
 
 export const SettingsEnvironmentMax: Story = { args: { sectionId: 'environment-max' } }
 
-export const SettingsEnvironmentIntegrations: Story = { args: { sectionId: 'environment-integrations' } }
+export const SettingsEnvironmentIntegrations: Story = {
+    args: { sectionId: 'environment-integrations' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/error_tracking/settings/retrieve_settings/': {
+                    project_rate_limit_value: null,
+                    project_rate_limit_bucket_size_minutes: null,
+                    per_issue_rate_limit_value: null,
+                    per_issue_rate_limit_bucket_size_minutes: null,
+                    ingestion_enabled: true,
+                    linear_status_sync_enabled: false,
+                },
+            },
+        }),
+    ],
+}
 
 export const SettingsEnvironmentAccessControl: Story = { args: { sectionId: 'environment-access-control' } }
 

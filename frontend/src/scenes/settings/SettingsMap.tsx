@@ -16,8 +16,9 @@ import { FilterTestAccountsConfiguration as RevenueAnalyticsFilterTestAccountsCo
 
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { FeaturePreviews, FeaturePreviewsComingSoon } from 'lib/components/FeaturePreviews/FeaturePreviews'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { PersonalPosthogConnections } from 'lib/integrations/PosthogConnect'
 import { DefaultMinimumDetectableEffect } from 'scenes/experiments/DefaultMinimumDetectableEffect'
 import { GitHub, Linear, Slack } from 'scenes/integrations/definitions'
@@ -73,6 +74,7 @@ import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/fr
 import { DataQualityGateToggle } from 'products/data_quality/frontend/settings/DataQualityGateToggle'
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 import { GeneralSettings } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/general/GeneralSettings'
+import { LinearStatusSyncSetting } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/linear_status_sync/LinearStatusSyncSetting'
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
 import { MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'products/experiments/frontend/constants'
 import { FeatureFlagRequestBlocklist } from 'products/feature_flags/frontend/FeatureFlagRequestBlocklist'
@@ -2145,8 +2147,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Linear integration',
                 description: 'Connect Linear to create and link issues directly from PostHog.',
                 docsUrl: Linear.docsUrl,
-                component: <Linear.SettingsSection />,
-                keywords: ['linear', 'issue', 'project management', 'task'],
+                component: (
+                    <div className="flex flex-col gap-y-4">
+                        <Linear.SettingsSection />
+                        <FlaggedFeature flag={FEATURE_FLAGS.ERROR_TRACKING_LINEAR_STATUS_SYNC}>
+                            <LinearStatusSyncSetting />
+                        </FlaggedFeature>
+                    </div>
+                ),
+                keywords: ['linear', 'issue', 'project management', 'task', 'status', 'sync', 'resolve'],
             },
             {
                 id: 'integration-other',
