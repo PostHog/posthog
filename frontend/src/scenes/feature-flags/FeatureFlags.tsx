@@ -247,29 +247,36 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
         return urls.insightNew({ query })
     }
 
+    // Both menus open with these, so a deleted row's View keeps the list's filters like a live row's does.
+    const viewAndCopyKeyItems = (
+        <>
+            {featureFlag.id && (
+                <LemonButton
+                    to={featureFlagUrlFromList(featureFlag.id, filters)}
+                    data-attr="feature-flag-view"
+                    fullWidth
+                >
+                    View
+                </LemonButton>
+            )}
+            <LemonButton
+                onClick={() => {
+                    void copyToClipboard(keyBeforeDelete(featureFlag), 'feature flag key')
+                }}
+                fullWidth
+            >
+                Copy key
+            </LemonButton>
+        </>
+    )
+
     // A deleted flag serves nobody, so the only change it takes is a restore.
     if (featureFlag.deleted) {
         return (
             <More
                 overlay={
                     <>
-                        {featureFlag.id && (
-                            <LemonButton
-                                to={featureFlagUrlFromList(featureFlag.id, filters)}
-                                data-attr="feature-flag-view"
-                                fullWidth
-                            >
-                                View
-                            </LemonButton>
-                        )}
-                        <LemonButton
-                            onClick={() => {
-                                void copyToClipboard(keyBeforeDelete(featureFlag), 'feature flag key')
-                            }}
-                            fullWidth
-                        >
-                            Copy key
-                        </LemonButton>
+                        {viewAndCopyKeyItems}
                         {featureFlag.id && (
                             <>
                                 <LemonDivider />
@@ -309,24 +316,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
             <More
                 overlay={
                     <>
-                        {featureFlag.id && (
-                            <LemonButton
-                                to={featureFlagUrlFromList(featureFlag.id, filters)}
-                                data-attr="feature-flag-view"
-                                fullWidth
-                            >
-                                View
-                            </LemonButton>
-                        )}
-
-                        <LemonButton
-                            onClick={() => {
-                                void copyToClipboard(featureFlag.key, 'feature flag key')
-                            }}
-                            fullWidth
-                        >
-                            Copy key
-                        </LemonButton>
+                        {viewAndCopyKeyItems}
 
                         {featureFlag.id && isV1Config && (
                             <AccessControlAction
