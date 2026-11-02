@@ -90,7 +90,13 @@ export function useKeys({
   repoPickerKey: (paneId: string, sequence: string) => boolean;
   notice: Notice;
 }): Keys {
-  const { exit } = useApp();
+  const { exit: inkExit } = useApp();
+  // Only a quit stops the local agents: a reload that overlaps a retry shares one Ink instance between two copies
+  // of main.tsx, and the copy that did not tear down would otherwise read the unmount as the user leaving.
+  const exit = (): void => {
+    (globalThis as { __posthogTuiQuit?: boolean }).__posthogTuiQuit = true;
+    inkExit();
+  };
   const {
     rows,
     selectedIndex,

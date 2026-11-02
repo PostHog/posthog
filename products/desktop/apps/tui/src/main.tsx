@@ -65,7 +65,11 @@ if (import.meta.hot) {
 
 // Not awaited: a full reload waits for this module to finish, and Vite holds every later reload behind it.
 void instance.waitUntilExit().then(async () => {
-  if (reloading) return;
+  if (
+    reloading ||
+    !(globalThis as { __posthogTuiQuit?: boolean }).__posthogTuiQuit
+  )
+    return;
   mouse.dispose();
   await Promise.all([stopLocals(), stopAnalytics()]);
   process.exit(0);
