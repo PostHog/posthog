@@ -124,7 +124,9 @@ function TableRowRaw<T extends Record<string, any>>({
                             const value = column.dataIndex != null ? record[column.dataIndex] : undefined
                             const rawContents = column.render
                                 ? column.render(value as T[keyof T], record, recordIndex, rowCount)
-                                : value
+                                : isTableCellRepresentation(value)
+                                  ? JSON.stringify(value)
+                                  : value
 
                             // Wrap with cell actions if defined
                             const cellActionsOverlay = column.cellActions
