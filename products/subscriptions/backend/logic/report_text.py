@@ -154,6 +154,7 @@ REPORT_TEXT_INSTRUCTIONS = """Return structured text items. The renderer applies
 - Use kind=time for every date, clock time, duration, and reporting window, even when it contains numbers.
 - Use kind=text for connecting words, punctuation, and Markdown structure. Never include event names, measured values, or dates inside a text item.
 - Do not include bold, italic, or underline markers in item text. Keep each styled item to the relevant name, value, or time expression.
+- Do not start or end a styled item with whitespace. Put spaces in adjacent text items, after the closing style marker; for example, use value `48.7%` followed by text ` (` instead of value `48.7% `.
 - Preserve sentence order, spaces, and line breaks across items. Write complete sentences; do not rearrange a sentence to group items by kind.
 - Keep inline code and code blocks literal; do not style their contents.
 - Review every mention before returning the report. Use the same kind for the same item throughout the report."""
