@@ -963,6 +963,187 @@ export interface SendTransactionalEmailApi {
     identifiers?: TransactionalEmailIdentifiersApi
 }
 
+export interface TransactionalEmailLogEntryApi {
+    /** The `message_id` that the send returned. */
+    message_id: string
+    /** When the send was queued. */
+    created_at: string
+    /** The email's delivery status. `queued` waits to go out, `sent` reached the email provider, `delivered` was accepted by the recipient's mail server, `bounced` and `complained` came back later, and `failed` was not sent.
+     *
+     * * `queued` - Queued
+     * * `failed` - Failed
+     * * `sent` - Sent
+     * * `delivered` - Delivered
+     * * `bounced` - Bounced
+     * * `complained` - Complained */
+    status: EmailDeliveryStatusEnumApi
+    /** When the email reached its delivery status. */
+    status_at: string
+    /**
+     * Why a failed email was not sent, or the bounce type. Null otherwise.
+     * @nullable
+     */
+    reason: string | null
+    /** The address the email was sent to. */
+    recipient: string
+    /** The workflow behind the transactional email. */
+    workflow_id: string
+    /**
+     * The transactional email template. Null when it no longer exists.
+     * @nullable
+     */
+    template_id: string | null
+    /** The template's name. Empty when it was deleted. */
+    template_name: string
+    /** The domain the email was sent from. Empty before it was sent. */
+    sending_domain: string
+    /** Whether the recipient opened the email. */
+    opened: boolean
+    /** Whether the recipient clicked a link in the email. */
+    clicked: boolean
+}
+
+export interface TransactionalEmailLogListApi {
+    /** Sends, newest first. */
+    results: TransactionalEmailLogEntryApi[]
+    /** Whether another page follows. */
+    has_more: boolean
+}
+
+/**
+ * * `queued` - Queued
+ * * `failed` - Failed
+ * * `sent` - Sent
+ * * `delivered` - Delivered
+ * * `bounced` - Bounced
+ * * `complained` - Complained
+ * * `opened` - Opened
+ * * `clicked` - Clicked
+ */
+export type EmailLogEventKindEnumApi = (typeof EmailLogEventKindEnumApi)[keyof typeof EmailLogEventKindEnumApi]
+
+export const EmailLogEventKindEnumApi = {
+    Queued: 'queued',
+    Failed: 'failed',
+    Sent: 'sent',
+    Delivered: 'delivered',
+    Bounced: 'bounced',
+    Complained: 'complained',
+    Opened: 'opened',
+    Clicked: 'clicked',
+} as const
+
+export interface TransactionalEmailLogEventApi {
+    /** What happened. The delivery statuses, plus `opened` and `clicked` for what the recipient did.
+     *
+     * * `queued` - Queued
+     * * `failed` - Failed
+     * * `sent` - Sent
+     * * `delivered` - Delivered
+     * * `bounced` - Bounced
+     * * `complained` - Complained
+     * * `opened` - Opened
+     * * `clicked` - Clicked */
+    kind: EmailLogEventKindEnumApi
+    /** When it happened. */
+    at: string
+    /**
+     * Why a send failed, or the bounce type. Null otherwise.
+     * @nullable
+     */
+    reason: string | null
+}
+
+export interface TransactionalEmailLogDetailApi {
+    /** The `message_id` that the send returned. */
+    message_id: string
+    /** When the send was queued. */
+    created_at: string
+    /** The email's delivery status. `queued` waits to go out, `sent` reached the email provider, `delivered` was accepted by the recipient's mail server, `bounced` and `complained` came back later, and `failed` was not sent.
+     *
+     * * `queued` - Queued
+     * * `failed` - Failed
+     * * `sent` - Sent
+     * * `delivered` - Delivered
+     * * `bounced` - Bounced
+     * * `complained` - Complained */
+    status: EmailDeliveryStatusEnumApi
+    /** When the email reached its delivery status. */
+    status_at: string
+    /**
+     * Why a failed email was not sent, or the bounce type. Null otherwise.
+     * @nullable
+     */
+    reason: string | null
+    /** The address the email was sent to. */
+    recipient: string
+    /** The workflow behind the transactional email. */
+    workflow_id: string
+    /**
+     * The transactional email template. Null when it no longer exists.
+     * @nullable
+     */
+    template_id: string | null
+    /** The template's name. Empty when it was deleted. */
+    template_name: string
+    /** The domain the email was sent from. Empty before it was sent. */
+    sending_domain: string
+    /** Whether the recipient opened the email. */
+    opened: boolean
+    /** Whether the recipient clicked a link in the email. */
+    clicked: boolean
+    /** Everything that happened, oldest first. */
+    timeline: TransactionalEmailLogEventApi[]
+    /** The subject the email went out with. Empty when it was never sent. */
+    subject: string
+    /** The distinct ID the send named. Empty when it named none. */
+    distinct_id: string
+    /** The workflow step that sent the email, which the rendered email is stored under. Empty when no rendered email was stored. */
+    action_id: string
+    /** True when the template is marked sensitive, so no rendered body or subject values are kept. */
+    sensitive: boolean
+}
+
+export interface TransactionalEmailResultsApi {
+    /** People the email was sent to in the date range. */
+    recipients: number
+    /** Of those, people who did the event within the window. */
+    converted: number
+    /** The sum of the revenue property on those events. */
+    revenue: number
+    /**
+     * Median hours from the first send to the first conversion. Null when none converted.
+     * @nullable
+     */
+    median_hours_to_convert: number | null
+}
+
+export interface TransactionalEmailStatsRowApi {
+    /** The template ID or the sending domain. */
+    key: string
+    /** The template name or the sending domain. Empty for a deleted template. */
+    label: string
+    /** Emails that reached the email provider. */
+    sent: number
+    /** Emails the recipient's mail server accepted. */
+    delivered: number
+    /** Emails that bounced. */
+    bounced: number
+    /** Emails the recipient marked as spam. */
+    complained: number
+    /** Emails the recipient opened. */
+    opened: number
+    /** Emails where the recipient clicked a link. */
+    clicked: number
+    /** Emails that were not sent. */
+    failed: number
+}
+
+export interface TransactionalEmailStatsApi {
+    /** One row per group, busiest first. */
+    results: TransactionalEmailStatsRowApi[]
+}
+
 export type MessagingCategoriesListParams = {
     /**
      * Number of results to return per page.
@@ -1015,3 +1196,114 @@ export type MessagingTemplatesListParams = {
      */
     offset?: number
 }
+
+export type TransactionalEmailLogListParams = {
+    /**
+     * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
+     */
+    date_from?: string
+    /**
+     * Only sends queued before this time. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * Page size.
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number
+    /**
+     * Sends to skip.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * A `message_id` for an exact match, or part of the recipient's email address.
+     */
+    search?: string
+    /**
+     * Only sends in this delivery status.
+     *
+     * * `queued` - Queued
+     * * `failed` - Failed
+     * * `sent` - Sent
+     * * `delivered` - Delivered
+     * * `bounced` - Bounced
+     * * `complained` - Complained
+     * @minLength 1
+     */
+    status?: TransactionalEmailLogListStatus
+    /**
+     * Only sends of the transactional email backed by this workflow.
+     */
+    workflow_id?: string
+}
+
+export type TransactionalEmailLogListStatus =
+    (typeof TransactionalEmailLogListStatus)[keyof typeof TransactionalEmailLogListStatus]
+
+export const TransactionalEmailLogListStatus = {
+    Queued: 'queued',
+    Failed: 'failed',
+    Sent: 'sent',
+    Delivered: 'delivered',
+    Bounced: 'bounced',
+    Complained: 'complained',
+} as const
+
+export type TransactionalEmailLogResultsRetrieveParams = {
+    /**
+     * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
+     */
+    date_from?: string
+    /**
+     * Only sends queued before this time. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * The event that counts as a conversion, such as `signed_up`.
+     * @minLength 1
+     */
+    event: string
+    /**
+     * An event property holding a revenue amount to add up.
+     */
+    revenue_property?: string
+    /**
+     * How many days after the first send the event still counts.
+     * @minimum 1
+     * @maximum 30
+     */
+    window_days?: number
+    /**
+     * The workflow behind the transactional email.
+     */
+    workflow_id: string
+}
+
+export type TransactionalEmailLogStatsRetrieveParams = {
+    /**
+     * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
+     */
+    date_from?: string
+    /**
+     * Only sends queued before this time. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * Count per template or per sending domain.
+     *
+     * * `template` - Template
+     * * `sending_domain` - Sending domain
+     * @minLength 1
+     */
+    group_by?: TransactionalEmailLogStatsRetrieveGroupBy
+}
+
+export type TransactionalEmailLogStatsRetrieveGroupBy =
+    (typeof TransactionalEmailLogStatsRetrieveGroupBy)[keyof typeof TransactionalEmailLogStatsRetrieveGroupBy]
+
+export const TransactionalEmailLogStatsRetrieveGroupBy = {
+    Template: 'template',
+    SendingDomain: 'sending_domain',
+} as const

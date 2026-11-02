@@ -209,3 +209,80 @@ class EmailStatus:
     status_at: datetime
     # Why a send failed, or the bounce type of a bounced email.
     reason: str | None = None
+
+
+class EmailLogEventKind(LabeledStrEnum):
+    QUEUED = "queued", "Queued"
+    FAILED = "failed", "Failed"
+    SENT = "sent", "Sent"
+    DELIVERED = "delivered", "Delivered"
+    BOUNCED = "bounced", "Bounced"
+    COMPLAINED = "complained", "Complained"
+    OPENED = "opened", "Opened"
+    CLICKED = "clicked", "Clicked"
+
+
+class EmailStatsGroupBy(LabeledStrEnum):
+    TEMPLATE = "template", "Template"
+    SENDING_DOMAIN = "sending_domain", "Sending domain"
+
+
+@frozen
+class TransactionalEmailLogEntry:
+    message_id: str
+    created_at: datetime
+    status: EmailDeliveryStatus
+    status_at: datetime
+    # Why a send failed, or the bounce type of a bounced email.
+    reason: str | None
+    recipient: str
+    workflow_id: str
+    template_id: str | None
+    # Empty when the template was deleted.
+    template_name: str
+    sending_domain: str
+    opened: bool
+    clicked: bool
+
+
+@frozen
+class TransactionalEmailLogEvent:
+    kind: EmailLogEventKind
+    at: datetime
+    reason: str | None
+
+
+@frozen
+class TransactionalEmailLogDetail:
+    entry: TransactionalEmailLogEntry
+    timeline: list[TransactionalEmailLogEvent]
+    # Empty when the send never reached the provider, so nothing was rendered.
+    subject: str
+    distinct_id: str
+    # The step that sent the email, which the rendered email is stored under. Empty when none was stored.
+    action_id: str
+    # True when the template keeps no rendered body.
+    sensitive: bool
+
+
+@frozen
+class TransactionalEmailStatsRow:
+    # The template id or the sending domain.
+    key: str
+    label: str
+    sent: int
+    delivered: int
+    bounced: int
+    complained: int
+    opened: int
+    clicked: int
+    failed: int
+
+
+@frozen
+class TransactionalEmailResults:
+    recipients: int
+    converted: int
+    revenue: float
+    # Hours from the send to the first conversion, for the median converted recipient. None when nobody converted.
+    median_hours_to_convert: float | None
