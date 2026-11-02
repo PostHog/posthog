@@ -22,7 +22,12 @@ import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 
 import { hasScope } from '../src/lib/api'
-import { discoverDefinitions, isQueryWrappersConfig, modulesWithStrictBodies } from './lib/definitions.mjs'
+import {
+    discoverDefinitions,
+    isQueryWrappersConfig,
+    modulesWithStrictBodies,
+    operationIdToPascal,
+} from './lib/definitions.mjs'
 import { type JsonSchemaRoot, generateZodFromSchemaRef, getEntryVarName } from './lib/json-schema-to-zod'
 import {
     type CategoryConfig,
@@ -446,14 +451,6 @@ function parseEnrichUrl(enrichUrl: string): {
         suffix: match[4] ?? '',
         source: match[2] === 'params' ? 'params' : 'result',
     }
-}
-
-/** Convert operationId (snake_case) to PascalCase for Orval schema names */
-function operationIdToPascal(operationId: string): string {
-    return operationId
-        .split(/[_.]/)
-        .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
-        .join('')
 }
 
 // ------------------------------------------------------------------
