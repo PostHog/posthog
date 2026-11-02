@@ -29,11 +29,15 @@ def get_team_github_readiness(team_id: int, *, verify: bool = False, repository:
     ]
     blocked = GitHubReadiness(status=GitHubReadinessStatus.NOT_CONNECTED)
     for github in candidates:
-        readiness = github_readiness(github, verify=verify)
+        readiness = github_readiness(github, verify=verify, repository=repository)
         if readiness.status == GitHubReadinessStatus.READY:
-            if repository is None or any(
-                repo.get("full_name", "").casefold() == repository.casefold()
-                for repo in github.integration.repository_cache or []
+            if (
+                verify
+                or repository is None
+                or any(
+                    repo.get("full_name", "").casefold() == repository.casefold()
+                    for repo in github.integration.repository_cache or []
+                )
             ):
                 return readiness
             readiness = GitHubReadiness(status=GitHubReadinessStatus.NO_REPOSITORIES, integration=github)

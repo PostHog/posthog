@@ -1787,6 +1787,10 @@ def get_stale_queued_task_run_ids(
     if created_hard_cap is not None:
         stale |= Q(created_at__lt=now - created_hard_cap, updated_at__lt=now - hard_cap_min_queued)
     queryset = TaskRun.objects.filter(status=TaskRun.Status.QUEUED)  # nosemgrep: celery-task-team-scope-audit
+    queryset = queryset.exclude(
+        state__github_recovery_deadline__gt=now.isoformat(),
+        task__origin_product=Task.OriginProduct.SIGNAL_REPORT,
+    )
     if environment is not None:
         queryset = queryset.filter(environment=environment)
     if exclude_covered_dispatches:
@@ -3024,6 +3028,8 @@ def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int
 # These keys are reserved for server-owned run state, never PATCH input.
 _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
+        "github_blocked_reason",
+        "github_recovery_deadline",
         "sandbox_environment_id",
         # Worker-interpreted trial markers must never be caller-writable.
         "scout_trial",
@@ -8021,6 +8027,7 @@ def create_task(
     # The relationship the client asserted (validated by the serializer, which rejects `research`).
     # Popped so it isn't forwarded to the model; the link itself is recorded by record_report_task below.
     signal_report_task_relationship = validated_data.pop("signal_report_task_relationship", None)
+    confirmed_report_repository = validated_data.pop("confirmed_repository", None)
     signal_report = validated_data.get("signal_report")
     report_discussion = (
         validated_data["origin_product"] == Task.OriginProduct.SIGNAL_REPORT
@@ -8323,6 +8330,14 @@ def create_task(
                 relationship=signal_report_task_relationship,
                 description=validated_data.get("description"),
                 created_by_id=user_id,
+            )
+        if signal_report_id and signal_report_task_relationship in (None, "implementation"):
+            from products.signals.backend.facade.github_optional import (
+                require_repository_confirmation,  # noqa: PLC0415 - keeps the signals model graph off the facade import path
+            )
+
+            require_repository_confirmation(
+                team_id, signal_report_id, confirmed_report_repository, validated_data.get("repository")
             )
         task = Task.objects.create(**validated_data)
         if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:

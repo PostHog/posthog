@@ -1319,6 +1319,9 @@ def set_scout_report_repository(
         # naming it is the decision that lifts it, so that correction must still land.
         previous = persisted_repo_selection(report_id)
         selection.research_context = previous.research_context if previous is not None else None
+        selection.confirmation_required = bool(previous and previous.requires_confirmation)
+        if selection.confirmation_required:
+            selection.autostart_eligible = False
         if previous == selection:
             logger.info(
                 "signals_scout.edit_report: repository unchanged",
@@ -1442,6 +1445,7 @@ def set_scout_report_inferred_repository(
                 repository=repository,
                 reason=INFERRED_REPOSITORY_REASON,
                 autostart_eligible=False,
+                confirmation_required=bool(previous and previous.requires_confirmation),
                 research_context=previous.research_context if previous is not None else None,
             ),
             attribution=attribution,

@@ -119,7 +119,8 @@ from products.mcp_registry.backend.facade.tasks import MCP_REGISTRY_SYNC_CRONTAB
 from products.notebooks.backend.facade.tasks import cleanup_widget_snapshots
 from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
-from products.signals.backend.facade.tasks import (
+from products.signals.backend.github_readiness_tasks import sweep_github_blocked_reports
+from products.signals.backend.tasks import (
     pause_inactive_signal_scouts,
     prune_expired_scratchpad_entries_task,
     reconcile_report_inbox_state_cache,
@@ -285,7 +286,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         sender, crontab(minute="*"), reconcile_account_audits.s(), name="reconcile-account-audits"
     )
     if privacy_enabled():
-        sender.add_periodic_task(30.0, process_ai_training_privacy_requests.s(), name="process-ai-training-privacy")
+        sender.add_periodic_task(300, sweep_github_blocked_reports.s(), name="resume github-blocked signal reports")
+
+    sender.add_periodic_task(30.0, process_ai_training_privacy_requests.s(), name="process-ai-training-privacy")
     # Short-interval heartbeat tasks (<60s) use intervals since cron minimum is 1 minute.
     # These are fine because they run more frequently than beat restarts.
     if not settings.DEBUG:

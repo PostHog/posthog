@@ -125,7 +125,7 @@ class ResearchAccessPolicy:
 
     @staticmethod
     def enrolled(team_id: int) -> bool:
-        team_id = Team.objects.values_list("parent_team_id", flat=True).get(id=team_id) or team_id
+        team_id = Team.objects.filter(id=team_id).values_list("parent_team_id", flat=True).first() or team_id
         return SignalTeamConfig.objects.filter(
             Q(team_id=team_id) | Q(team__parent_team_id=team_id),
             onboarding__completed_at__isnull=False,
@@ -160,9 +160,9 @@ class ProjectResearchAccess:
     research_access: ResearchAccess
 
 
-def project_research_access(team_id: int) -> ProjectResearchAccess:
+def project_research_access(team_id: int, *, verify: bool = False) -> ProjectResearchAccess:
     optional = ResearchAccessPolicy.enabled(team_id)
-    readiness = get_team_github_readiness(team_id)
+    readiness = get_team_github_readiness(team_id, verify=verify)
     access = research_access(
         github_optional_allowed=optional,
         github_status=readiness.status,

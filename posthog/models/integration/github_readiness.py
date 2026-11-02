@@ -48,7 +48,7 @@ class GitHubReadiness:
 
 
 def github_readiness(
-    github: GitHubIntegrationBase, *, verify: bool = False, refresh_cache: bool = True
+    github: GitHubIntegrationBase, *, verify: bool = False, refresh_cache: bool = True, repository: str | None = None
 ) -> GitHubReadiness:
     integration = github.integration
     if github.installation_unavailable():
@@ -59,7 +59,9 @@ def github_readiness(
                 if refresh_backoff_active(integration):
                     return GitHubReadiness(status=GitHubReadinessStatus.TEMPORARILY_UNAVAILABLE, integration=github)
                 github.refresh_access_token()
-            if refresh_cache:
+            if repository is not None:
+                has_repositories = github.installation_can_access_repository(repository, raise_on_transient=True)
+            elif refresh_cache:
                 has_repositories = bool(
                     github.sync_repository_cache(min_refresh_interval_seconds=GITHUB_REPOSITORY_CACHE_TTL_SECONDS)
                 )

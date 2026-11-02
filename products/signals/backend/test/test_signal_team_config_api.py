@@ -32,6 +32,31 @@ class TestSignalTeamConfigAPI(APIBaseTest):
     def _url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/config/"
 
+    @parameterized.expand([(False, False), (True, False), (False, True)])
+    def test_config_and_onboarding_share_research_access(self, pilot: bool, ubp: bool) -> None:
+        self.config.onboarding = {"completed_at": "2026-01-01T00:00:00Z"}
+        self.config.autostart_enabled = True
+        self.config.save()
+        with patch(
+            "products.signals.backend.github_optional.feature_enabled_or_false",
+            side_effect=lambda key, *args, **kwargs: {
+                "self-driving-github-optional": pilot,
+                "self-driving-ubp": ubp,
+            }.get(key, False),
+        ):
+            config = self.client.get(self._url()).json()
+            onboarding = self.client.get(f"/api/projects/{self.team.id}/signals/onboarding/").json()
+        for state in [config, onboarding]:
+            assert state["github_optional_available"] is (pilot or ubp)
+            assert state["github_readiness"] == "not_connected"
+            assert state["research_access"] == {
+                "mode": "data_only" if pilot or ubp else "blocked",
+                "blocker": None if pilot or ubp else "not_connected",
+            }
+        self.config.refresh_from_db()
+        assert self.config.autostart_enabled
+        assert self.config.onboarding == {"completed_at": "2026-01-01T00:00:00Z"}
+
     def _activity(self) -> list[ActivityLog]:
         return list(ActivityLog.objects.filter(team_id=self.team.pk, scope="SignalTeamConfig").order_by("created_at"))
 

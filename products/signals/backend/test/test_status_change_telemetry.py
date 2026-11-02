@@ -28,6 +28,30 @@ class TestCaptureStatusChangeAnalytics(BaseTest):
             total_weight=2.5,
         )
 
+    def test_first_publication_is_not_repeated(self) -> None:
+        with patch("products.signals.backend.publication_telemetry.ph_scoped_capture") as scoped_capture:
+            capture = scoped_capture.return_value.__enter__.return_value
+            with self.captureOnCommitCallbacks(execute=True):
+                report = self._create_report(SignalReport.Status.IN_PROGRESS)
+                report.save(
+                    update_fields=report.transition_to(
+                        SignalReport.Status.READY, title=report.title, summary=report.summary
+                    )
+                )
+            with self.captureOnCommitCallbacks(execute=True):
+                report.refresh_from_db()
+                report.summary = "The evidence was updated."
+                report.save(update_fields=["summary"])
+                report.save(update_fields=report.transition_to(SignalReport.Status.RESOLVED))
+            events = [
+                call.kwargs
+                for call in capture.call_args_list
+                if call.kwargs.get("event") == "signal_report_first_published"
+            ]
+            assert len(events) == 1
+            assert events[0]["properties"]["origin"] == "pipeline"
+            assert events[0]["properties"]["publication_status"] == "ready"
+
     @parameterized.expand(
         [
             ("dismiss", SignalReport.Status.READY, SignalReport.Status.SUPPRESSED, {}),

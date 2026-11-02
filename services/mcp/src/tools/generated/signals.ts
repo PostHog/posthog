@@ -1272,7 +1272,10 @@ const inboxSourceConfigsUpdate = (): ToolBase<
     },
 })
 
-const InboxSteeringInstructionsGetSchema = () => z.object({})
+const InboxSteeringInstructionsGetSchema = () => {
+    const SignalsConfigListQueryParams = orvalSchemas.SignalsConfigListQueryParams()
+    return SignalsConfigListQueryParams
+}
 
 const inboxSteeringInstructionsGet = (): ToolBase<
     ReturnType<typeof InboxSteeringInstructionsGetSchema>,
@@ -1280,11 +1283,14 @@ const inboxSteeringInstructionsGet = (): ToolBase<
 > => ({
     name: 'inbox-steering-instructions-get',
     schema: InboxSteeringInstructionsGetSchema(),
-    handler: async (context: Context, _params: z.infer<ReturnType<typeof InboxSteeringInstructionsGetSchema>>) => {
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxSteeringInstructionsGetSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.SignalTeamConfig>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/config/`,
+            query: {
+                refresh_github: params.refresh_github,
+            },
         })
         const filtered = pickResponseFields(result, [
             'research_instructions',

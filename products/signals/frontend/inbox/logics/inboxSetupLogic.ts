@@ -343,7 +343,10 @@ export interface inboxSetupLogicMeta {
         completed: (savedState: InboxOnboardingStateApi | null) => boolean
         firstReportProgress: (savedState: InboxOnboardingStateApi | null) => FirstReportProgressState | null
         sourceCount: (draft: InboxOnboardingDraftApi) => number
-        hasGithubIntegration: (githubIntegrations: IntegrationType[]) => boolean
+        hasGithubIntegration: (
+            savedState: InboxOnboardingStateApi | null,
+            githubIntegrations: IntegrationType[]
+        ) => boolean
         isFinalStep: (draft: InboxOnboardingDraftApi) => boolean
         defaultScouts: (
             scoutConfigs: SignalScoutConfigApi[] | null,
@@ -645,9 +648,11 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
         ],
         sourceCount: [(s) => [s.draft], (draft: InboxOnboardingDraftApi): number => selectedSourceCount(draft)],
         hasGithubIntegration: [
-            (s) => [s.githubIntegrations],
-            (integrations: IntegrationType[]): boolean =>
-                integrations.some((integration) => integration.installation_status !== 'unavailable'),
+            (s) => [s.savedState, s.githubIntegrations],
+            (state: InboxOnboardingStateApi | null, integrations: IntegrationType[]): boolean =>
+                state?.github_readiness !== undefined
+                    ? state.github_readiness === 'ready'
+                    : integrations.some((integration) => integration.installation_status !== 'unavailable'),
         ],
         isFinalStep: [(s) => [s.draft], (draft: InboxOnboardingDraftApi): boolean => draft.step === 'github'],
         defaultScouts: [

@@ -74,6 +74,8 @@
         "priority": "P2",
         "dollar_value": 15000.0
       }
-    ]
+    ],
+    "repository_recommendation": null,
+    "research_run_id": null
   }
 }

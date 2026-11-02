@@ -21,6 +21,7 @@ import { FindingsPanel } from './components/findings/FindingsPanel'
 import { InboxOnboardingBanner } from './components/onboarding/InboxOnboardingBanner'
 import { InboxOnboardingEntry } from './components/onboarding/InboxOnboardingEntry'
 import { ScratchpadPanel } from './components/scratchpad/ScratchpadPanel'
+import { GitHubConnectionNotice } from './components/shell/GitHubConnectionNotice'
 import { InboxTabBar } from './components/shell/InboxTabBar'
 import { InboxTriageButton } from './components/shell/InboxTriageButton'
 import { InboxValueSummary } from './components/shell/InboxValueSummary'
@@ -295,6 +296,9 @@ export function InboxScene(): JSX.Element {
                         isn't set up, the list view itself swaps in the welcome page; the banner sits
                         above the otherwise-normal inbox when there's already work to keep. */}
                     {onboardingMode === 'banner' && <InboxOnboardingBanner />}
+                    {onboardingMode !== 'takeover' && onboardingMode !== 'pending' && (
+                        <GitHubConnectionNotice className="mx-4 mb-3 mt-2 shrink-0" />
+                    )}
                     {onboardingMode !== 'takeover' && onboardingMode !== 'pending' && (
                         <InboxValueSummary visible={!showDetail} />
                     )}

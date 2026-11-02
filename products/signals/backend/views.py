@@ -741,9 +741,22 @@ class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # notification channel) would 404.
         return get_or_create_team_extension(self.team, SignalTeamConfig)
 
-    @extend_schema(summary="Read the project's signals config")
+    @extend_schema(
+        summary="Read the project's signals config",
+        parameters=[
+            OpenApiParameter(
+                "refresh_github",
+                OpenApiTypes.BOOL,
+                description="Recheck GitHub access using the repository cache refresh cooldown.",
+            )
+        ],
+    )
     def list(self, request: Request, *args, **kwargs) -> Response:
-        return Response(SignalTeamConfigSerializer(self._get_config()).data)
+        return Response(
+            SignalTeamConfigSerializer(
+                self._get_config(), context={"refresh_github": request.query_params.get("refresh_github") == "true"}
+            ).data
+        )
 
     @extend_schema(
         summary="Update the project's signals config",

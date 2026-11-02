@@ -265,6 +265,22 @@ export const ReportReadyToImplement: Story = {
     ),
 }
 
+export const ReportDiscoveredRepository: Story = {
+    decorators: [readyToImplementMocks],
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={{
+                    ...reportTabReports[0],
+                    repo_slug: 'example/app',
+                    repository_confirmation_required: true,
+                    research_context: { mode: 'repository_discovery', repository_status: 'available' },
+                }}
+            />
+        </Frame>
+    ),
+}
+
 export const ReportWithoutCodeAccess: Story = {
     ...ReportReadyToImplement,
     parameters: {

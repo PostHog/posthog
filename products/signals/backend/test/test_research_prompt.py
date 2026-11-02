@@ -61,7 +61,8 @@ class TestRenderSignalForResearch:
     def test_research_only_requests_code_evidence_when_available(self, code_available):
         prompt = build_initial_research_prompt(_make_signal({}), 1, code_available=code_available)
         assert ("**Git blame:**" in prompt) is code_available
-        assert ("full PostHog repository is available" in prompt) is code_available
+        assert ("selected repository is available" in prompt) is code_available
+        assert "for the PostHog codebase" not in prompt
         assert ("No repository is checked out for this run." in prompt) is not code_available
         for guidance in [
             "<writing_guide>",
@@ -97,6 +98,29 @@ class TestRenderSignalForResearch:
             finding, is_new = _resolve_finding_response(response, None, "sig-1")
             assert is_new
             assert artefact_type_for_model(type(finding)) == "signal_finding"
+
+    def test_repository_discovery_keeps_data_evidence_and_read_only_tools(self):
+        prompt = build_initial_research_prompt(
+            _make_signal({}), 1, code_available=False, repository_candidates=["example/app", "example/api"]
+        )
+        assert "system.integration_repository_cache" in prompt
+        assert "example/app" in prompt
+        assert "gh repo clone" in prompt
+        assert "read-only" in prompt
+        assert "continue with project data" in prompt
+        assert "repository_recommendation" in prompt
+
+    @pytest.mark.parametrize("recommendation", [{"repository": 42}, {"repository": "example/app", "reason": []}])
+    def test_invalid_repository_recommendation_preserves_presentation(self, recommendation):
+        presentation = ReportPresentationOutput.model_validate(
+            {
+                "title": "Investigate upload failures",
+                "summary": "Uploads failed after validation.",
+                "repository_recommendation": recommendation,
+            }
+        )
+        assert presentation.repository_recommendation is None
+        assert presentation.title == "Investigate upload failures"
 
     def test_renders_attached_images_with_author_prefix(self):
         signal = _make_signal(

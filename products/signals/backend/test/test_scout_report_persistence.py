@@ -147,15 +147,27 @@ class TestScoutReportPersistence(BaseTest):
         # stamps pipeline reports), so creation must stamp visible births or the daily report limit
         # would never count them.
         run = self._make_run()
-        result = create_scout_report(
-            team_id=self.team.id,
-            title="Checkout API p99 latency regressed",
-            summary="The checkout endpoint p99 doubled after the 4.2 deploy.",
-            signals=[ScoutReportSignal(description="p99 doubled on /checkout", source_id="obs-1", weight=1.0)],
-            attribution=ArtefactAttribution.from_task(str(run.task_run.task_id)),
-            status=born_status,
-            run=run,
-        )
+        with patch("products.signals.backend.publication_telemetry.ph_scoped_capture") as scoped_capture:
+            with self.captureOnCommitCallbacks(execute=True):
+                result = create_scout_report(
+                    team_id=self.team.id,
+                    title="Checkout API p99 latency regressed",
+                    summary="The checkout endpoint p99 doubled after the 4.2 deploy.",
+                    signals=[ScoutReportSignal(description="p99 doubled on /checkout", source_id="obs-1", weight=1.0)],
+                    attribution=ArtefactAttribution.from_task(str(run.task_run.task_id)),
+                    status=born_status,
+                    run=run,
+                )
+            capture = scoped_capture.return_value.__enter__.return_value
+            events = [
+                call.kwargs
+                for call in capture.call_args_list
+                if call.kwargs.get("event") == "signal_report_first_published"
+            ]
+            assert len(events) == int(expect_stamp)
+            if expect_stamp:
+                assert events[0]["properties"]["origin"] == "scout"
+                assert events[0]["properties"]["publication_status"] == born_status
         report = SignalReport.objects.get(id=result.report_id)
         assert (report.first_visible_at is not None) is expect_stamp
 
@@ -980,14 +992,16 @@ class TestScoutReportRepository(BaseTest):
         assert self._set(report_id, repository) is False
         assert self._set(report_id, "acme/other") is True
 
-    @parameterized.expand([False, True])
-    def test_naming_an_already_inferred_repository_is_a_change(self, with_context: bool) -> None:
+    @parameterized.expand([None, "data_only", "repository_discovery"])
+    def test_naming_an_already_inferred_repository_is_a_change(self, mode: str | None) -> None:
         # An inferred selection names the repository the report links, and is stamped ineligible for
         # autostart because the report never asked for a pull request. A scout naming the same one is
         # the decision that lifts it, so comparing the repository alone would drop the correction and
         # leave the report unable to open a draft pull request.
         report_id = self._create()
-        context = ReportResearchContext(mode="data_only", repository_status="no_integration") if with_context else None
+        context = (
+            ReportResearchContext.model_validate({"mode": mode, "repository_status": "available"}) if mode else None
+        )
         if context is not None:
             SignalReportArtefact.append_status(
                 team_id=self.team.id,
@@ -1022,7 +1036,9 @@ class TestScoutReportRepository(BaseTest):
             .first()
         )
         assert selection is not None
-        assert '"autostart_eligible":true' in selection.content
+        selected = RepoSelectionResult.model_validate_json(selection.content)
+        assert selected.autostart_eligible is (mode != "repository_discovery")
+        assert selected.requires_confirmation is (mode == "repository_discovery")
 
 
 class TestScoutReportSuggestedPrompts(BaseTest):

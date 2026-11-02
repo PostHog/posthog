@@ -234,3 +234,5 @@ Renders a concise timeline of: prompts, tool calls, tool outputs, agent messages
 - **If you change any command or the flow, update this file to match**
 
 Fix verification may revise only the Expected impact section of the presentation summary; validation preserves all other sections and chart links.
+
+Read [research access and recovery](../../../../docs/internal/signals-pr-lifecycle.md#github-optional-research-access) when changing GitHub prerequisites, repository discovery, or publication. The shared server policy governs all run origins; implementation confirmation and billing remain separate.

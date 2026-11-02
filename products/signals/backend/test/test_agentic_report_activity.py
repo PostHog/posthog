@@ -61,6 +61,7 @@ from products.signals.backend.report_generation.research import (
     PriorityUpdate,
     ReportPresentationOutput,
     ReportResearchOutput,
+    RepositoryRecommendation,
     ResearchReviewerDecision,
     SignalFinding,
     _resolve_actionability_response,
@@ -83,6 +84,7 @@ from products.signals.backend.temporal.agentic.report import (
     _parse_stored_metrics,
     _persist_agentic_report_artefacts,
     _resolve_report_metrics_payload,
+    _validated_repository_recommendation,
     run_agentic_report_activity,
 )
 from products.signals.backend.temporal.agentic.select_repository import (
@@ -709,27 +711,23 @@ async def test_select_repository_activity_returns_repo(monkeypatch, ateam):
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "github_optional,connected,reused,private_origin",
+    "github_optional,connected,reused,discovered",
     [
         (False, True, True, False),
         (False, False, False, False),
         (True, True, True, False),
         (True, False, True, False),
-        (False, True, False, True),
-        (True, True, False, True),
-        (False, True, True, True),
+        (True, True, True, True),
+        (True, False, True, True),
     ],
 )
 async def test_select_repository_activity_reuses_previous_selection(
-    monkeypatch, ateam, github_optional, connected, reused, private_origin
+    monkeypatch, ateam, github_optional, connected, reused, discovered
 ):
-    previous = RepoSelectionResult(
-        repository="EXAMPLE/PRIVATE" if private_origin and reused else "posthog/posthog", reason="Previously selected"
-    )
-    report = await SignalReport.objects.acreate(team=ateam, status="in_progress")
-    await SignalReportArtefact.objects.acreate(
-        team=ateam, report=report, type="repo_selection", content=previous.model_dump_json()
-    )
+    previous = RepoSelectionResult(repository="posthog/posthog", reason="Previously selected")
+    if discovered:
+        previous.autostart_eligible = False
+        previous.research_context = ReportResearchContext(mode="repository_discovery", repository_status="available")
     if connected:
         await Integration.objects.acreate(
             team=ateam,
@@ -789,6 +787,7 @@ async def test_select_repository_activity_reuses_previous_selection(
 
     if reused:
         assert result is previous
+        assert result.requires_confirmation is discovered
     else:
         assert result.repository is None
         assert ("No allowed destination" if private_origin else "No GitHub integration") in result.reason
@@ -987,14 +986,15 @@ async def test_run_agentic_report_activity_flags_transient_sandbox_failures(
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "repository,failure",
+    "repository,failure,discovery",
     [
-        (None, None),
-        ("example/app", RepositoryContextUnavailable("RepositoryAccessError")),
-        ("example/app", RepositoryContextUnavailable("RepositoryCloneError")),
+        (None, None, False),
+        (None, None, True),
+        ("example/app", RepositoryContextUnavailable("RepositoryAccessError"), False),
+        ("example/app", RepositoryContextUnavailable("RepositoryCloneError"), False),
     ],
 )
-async def test_pilot_research_persists_a_report_without_code(monkeypatch, ateam, repository, failure):
+async def test_pilot_research_persists_a_report_without_code(monkeypatch, ateam, repository, failure, discovery):
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam, status=SignalReport.Status.IN_PROGRESS
     )
@@ -1030,7 +1030,7 @@ async def test_pilot_research_persists_a_report_without_code(monkeypatch, ateam,
                     repository=repository,
                     reason="Pilot",
                     research_context=ReportResearchContext(
-                        mode="code" if repository else "data_only",
+                        mode="code" if repository else "repository_discovery" if discovery else "data_only",
                         repository_status="available" if repository else "no_integration",
                     ),
                 ),
@@ -1291,6 +1291,8 @@ async def test_run_agentic_report_activity_persists_artefacts(
 
         repo_selection_content = json.loads(artefacts[3].content)
         assert repo_selection_content == {
+            "blocked_reason": None,
+            "confirmation_required": False,
             "repository": "posthog/posthog",
             "reason": "Single repository connected: posthog/posthog",
             "research_context": None,
@@ -2640,3 +2642,50 @@ def test_resolve_priority_response(response, previous, expected_explanation, exp
     result, is_new = _resolve_priority_response(response, previous)
     assert is_new is expected_is_new
     assert result.explanation == expected_explanation
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "recommended,accessible,expected",
+    [("example/app", True, "example/app"), ("example/app", False, None), ("other/private", True, None)],
+)
+def test_discovery_recommendations_require_project_access(team, recommended, accessible, expected):
+    report = SignalReport.objects.create(team=team, status=SignalReport.Status.IN_PROGRESS)
+    Integration.objects.create(
+        team=team,
+        kind="github",
+        integration_id="discovery",
+        config={"installation_id": "discovery"},
+        repository_cache=[{"id": 1, "name": "app", "full_name": "example/app", "private": True}],
+        repository_cache_updated_at=timezone.now(),
+    )
+    initial = RepoSelectionResult(
+        repository=None,
+        reason="Selection unresolved",
+        research_context=ReportResearchContext(mode="repository_discovery", repository_status="selection_unresolved"),
+    )
+    research = _build_research_output().model_copy(
+        update={
+            "repository_recommendation": RepositoryRecommendation(
+                repository=recommended, reason="The relevant validation code lives here."
+            )
+        }
+    )
+    with patch(
+        "posthog.models.integration.GitHubIntegration.installation_can_access_repository", return_value=accessible
+    ):
+        selected = _validated_repository_recommendation(
+            RunAgenticReportInput(
+                team_id=team.id,
+                report_id=str(report.id),
+                signals=_build_signals(),
+                repo_selection=initial,
+                github_optional=True,
+            ),
+            research,
+        )
+    assert selected.repository == expected
+    if expected:
+        assert selected.requires_confirmation
+        assert not selected.autostart_eligible
+    assert research.effective_findings()

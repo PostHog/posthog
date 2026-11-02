@@ -357,13 +357,16 @@ async function createReportTask(
     matchWarmRun: boolean = true
 ): Promise<{ taskId: string; runId: string }> {
     const isDiscussion = relationship === SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP
-    // `repository` is intentionally omitted: the backend resolves it for signal_report tasks.
+    // Echo a discovered target so the server can reject a stale confirmation.
     const taskData: TaskCreateApi = {
         title: report.title?.trim() || fallbackTitle,
         description: prompt,
         origin_product: TaskOriginProductEnumApi.SignalReport,
         signal_report: report.id,
         signal_report_task_relationship: relationship,
+        ...(!isDiscussion && report.repository_confirmation_required && report.repo_slug
+            ? { confirmed_repository: report.repo_slug }
+            : {}),
         ...(isDiscussion
             ? {
                   signal_report_discussion_question: discussionQuestion?.trim() ?? '',

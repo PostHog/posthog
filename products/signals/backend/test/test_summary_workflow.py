@@ -198,6 +198,7 @@ class _Recorder:
         spend_owner_available: bool = True,
         research_errors: list[Exception] | None = None,
         github_optional: bool = False,
+        github_ready: bool = True,
     ) -> None:
         self.gate_answers = gate_answers or {}
         self.fetch_results = fetch_results or [[_signal_data()]]
@@ -214,6 +215,7 @@ class _Recorder:
         self.failure_startups: list[ResearchStartupFailure | None] = []
         self.startup_notice_attempts = 0
         self.github_optional = github_optional
+        self.github_ready = github_ready
         self.gate_checks: list[str] = []
         self.fetches = 0
         self.fetch_failures = fetch_failures
@@ -273,6 +275,10 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
     @activity.defn(name="github_optional_pilot_activity")
     async def fake_pilot(team_id: int) -> bool:
         return recorder.github_optional
+
+    @activity.defn(name="check_report_github_readiness_activity")
+    async def fake_github_access(input: dict) -> bool:
+        return recorder.github_optional or recorder.github_ready
 
     @activity.defn(name="check_report_quota_gate_activity")
     async def fake_quota(input: CheckReportQuotaGateInput) -> bool:
@@ -393,6 +399,7 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
             workflows=[SignalReportSummaryWorkflow],
             activities=[
                 fake_quota,
+                fake_github_access,
                 fake_pilot,
                 fake_fetch,
                 fake_has_assigned_signals,
@@ -673,3 +680,14 @@ async def test_report_has_assigned_signals_reads_postgres_signal_count(ateam, si
         ReportHasAssignedSignalsInput(team_id=ateam.id, report_id=str(report.id))
     )
     assert result is expected
+
+
+@pytest.mark.asyncio
+async def test_connection_blocker_stops_before_research_without_publishing_attention_report():
+    recorder = _Recorder(github_ready=False)
+    await _run_summary_workflow(recorder)
+    assert recorder.fetches == 0
+    assert recorder.researches == 0
+    assert recorder.pending_inputs == []
+    assert recorder.ready_inputs == []
+    assert recorder.failures == 0

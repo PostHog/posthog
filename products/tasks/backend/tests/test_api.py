@@ -3090,6 +3090,9 @@ class TestTaskAPI(BaseTaskAPITest):
             ("pilot_without_access", True, "example/app", None, True, False),
             ("pilot_with_access", True, "example/app", "example/app", True, True),
             ("pilot_temporary_failure", True, "example/app", None, True, True, True),
+            ("discovered_unconfirmed", True, "example/app", None, True, True, False, True, None),
+            ("discovered_stale_confirmation", True, "example/app", None, True, True, False, True, "example/old"),
+            ("discovered_confirmed", True, "example/app", "example/app", True, True, False, True, "example/app"),
         ]
     )
     def test_create_signal_report_task_resolves_repository_when_none_provided(
@@ -3101,6 +3104,8 @@ class TestTaskAPI(BaseTaskAPITest):
         pilot=False,
         repository_available=True,
         temporary_failure=False,
+        discovered=False,
+        confirmed_repository=None,
     ):
         from products.signals.backend.github_optional import RepositoryAccessTemporarilyUnavailable
         from products.signals.backend.models import SignalReport, SignalReportArtefact
@@ -3129,7 +3134,14 @@ class TestTaskAPI(BaseTaskAPITest):
                 team=self.team,
                 report=report,
                 type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
-                content=RepoSelectionResult(repository=persisted_repository, reason="test").model_dump_json(),
+                content=RepoSelectionResult(
+                    repository=persisted_repository,
+                    reason="test",
+                    autostart_eligible=not discovered,
+                    research_context={"mode": "repository_discovery", "repository_status": "available"}
+                    if discovered
+                    else None,
+                ).model_dump_json(),
             )
 
         with (
@@ -3147,6 +3159,7 @@ class TestTaskAPI(BaseTaskAPITest):
                     "description": "From a signal report",
                     "origin_product": "signal_report",
                     "signal_report": str(report.id),
+                    **({"confirmed_repository": confirmed_repository} if confirmed_repository else {}),
                 },
                 format="json",
             )
@@ -3156,7 +3169,7 @@ class TestTaskAPI(BaseTaskAPITest):
             self.assertEqual(response.headers["Retry-After"], "30")
             self.assertFalse(Task.objects.filter(signal_report=report).exists())
             return
-        if pilot and not repository_available:
+        if (pilot and not repository_available) or (discovered and confirmed_repository != persisted_repository):
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
             self.assertFalse(Task.objects.filter(signal_report=report).exists())
             return

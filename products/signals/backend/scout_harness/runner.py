@@ -41,6 +41,7 @@ from products.signals.backend.first_report_scout import set_first_report_state
 from products.signals.backend.first_report_scout_types import FirstReportScoutResult
 from products.signals.backend.github_optional import ResearchAccessPolicy
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
+from products.signals.backend.publication_telemetry import capture_research_access_event
 from products.signals.backend.scout_harness.acting_user import resolve_scout_run_acting_user
 from products.signals.backend.scout_harness.derived_metadata import stamp_derived_metadata
 from products.signals.backend.scout_harness.lazy_seed import canonical_skill_names, sync_canonical_skills
@@ -65,7 +66,7 @@ from products.signals.backend.scout_harness.prompt import (
     SignalScoutRunSummary,
     build_run_prompt,
 )
-from products.signals.backend.scout_harness.run_gates import lane_has_live_run
+from products.signals.backend.scout_harness.run_gates import check_research_access, lane_has_live_run
 from products.signals.backend.scout_harness.skill_loader import (
     SIGNALS_SCOUT_SKILL_PREFIX,
     LoadedSkill,
@@ -297,6 +298,21 @@ async def _arun_signals_scout(
     if skill_name == FIRST_REPORT_SCOUT and triggered_by != TRIGGERED_BY_ONBOARDING:
         raise ValueError("The first-report scout only accepts onboarding dispatches.")
     team = await database_sync_to_async(_get_team, thread_sensitive=False)(team_id)
+    access_rejection = await database_sync_to_async(check_research_access, thread_sensitive=False)(
+        team.parent_team_id or team.id
+    )
+    if access_rejection is not None:
+        return RunResult(
+            run_id=None,
+            task_run_id=None,
+            status=None,
+            last_message=None,
+            runtime_s=0.0,
+            skill_name=skill_name,
+            skill_version=skill_version or 0,
+            skip_reason=access_rejection.reason,
+        )
+
     trial = (
         await database_sync_to_async(load_trial_launch, thread_sensitive=False)(
             team.parent_team_id or team.id, trial_launch_id
@@ -1027,6 +1043,17 @@ async def _spawn_and_run(
     # provisioning layer enforces. Trusted (default) shares the research env; full gets its own
     # env name so its unrestricted policy can't be reasserted onto the shared one.
     github_optional = await database_sync_to_async(ResearchAccessPolicy.enabled, thread_sensitive=False)(team.id)
+    if (
+        github_optional
+        and not repositories
+        and not await database_sync_to_async(tasks_facade.can_mint_readonly_github_token, thread_sensitive=False)(
+            team.id
+        )
+    ):
+        await database_sync_to_async(capture_research_access_event, thread_sensitive=False)(
+            team_id=team.id, scout_config_id=str(config.id), origin="scout", reason="github_unavailable", fallback=True
+        )
+
     if config.network_access == SignalScoutConfig.NetworkAccess.FULL:
         sandbox_env_name = SIGNALS_SCOUT_FULL_NETWORK_ENV_NAME
         network_access_level = tasks_facade.SandboxNetworkAccessLevel.FULL

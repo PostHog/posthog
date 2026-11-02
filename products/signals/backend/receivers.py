@@ -59,6 +59,41 @@ def _schedule_first_report_notification(team_id: int) -> None:
     transaction.on_commit(enqueue, robust=True)
 
 
+@receiver(pre_save, sender=SignalReport)
+def remember_first_publication(sender: type[SignalReport], instance: SignalReport, **kwargs: Any) -> None:
+    instance._publishing_first_time = bool(
+        instance.first_visible_at is not None
+        and instance.status
+        in (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT, SignalReport.Status.FAILED)
+        and (
+            instance._state.adding
+            or not SignalReport.objects.filter(
+                pk=instance.pk, team_id=instance.team_id, first_visible_at__isnull=False
+            ).exists()
+        )
+    )
+
+
+@receiver(post_save, sender=SignalReport)
+def schedule_first_publication(sender: type[SignalReport], instance: SignalReport, **kwargs: Any) -> None:
+    if not getattr(instance, "_publishing_first_time", False):
+        return
+    from products.signals.backend.publication_telemetry import (
+        capture_first_publication,  # noqa: PLC0415 - keeps telemetry dependencies off Django startup
+    )
+
+    transaction.on_commit(
+        partial(
+            capture_first_publication,
+            instance.team_id,
+            str(instance.id),
+            instance.status,
+            getattr(instance, "_pending_reason", None),
+        ),
+        robust=True,
+    )
+
+
 @receiver(post_save, sender=SignalReport)
 def enqueue_first_report_notification(
     sender: type[SignalReport],

@@ -67,6 +67,7 @@ from products.signals.backend.scout_harness.limits import (
     DUE_GRACE_SECONDS,
     dispatch_ticks_per_interval,
 )
+from products.signals.backend.scout_harness.run_gates import check_research_access
 
 # Per-team cap resolution + the flag-payload read live in the temporalio-free `team_limits` module
 # so the HTTP metadata surface can share them. Imported by name so the planning code below calls
@@ -623,6 +624,8 @@ def _collect_planned_runs(
     skipped_without_consent = 0
     reconcile_by_team = operational_configs_needing_reconcile() if enrollment.wildcard else {}
     for team, needs_seed in _participating_teams(enrollment, reconcile_team_ids=set(reconcile_by_team)):
+        if check_research_access(team.id) is not None:
+            continue
         # Scouts held back from this team via the `withheld_skills` denylist (resolved most-
         # specific-first from this team's `team_configs` entry, then the fleet `default_team_config`):
         # skip seeding the skill, skip seeding/enabling a config, and skip dispatch.

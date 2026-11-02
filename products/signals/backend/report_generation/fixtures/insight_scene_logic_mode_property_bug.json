@@ -3,7 +3,9 @@
   "report_id": "test-backups-succesful-typo-001",
   "generated_at": "2026-04-17T10:00:00Z",
   "repository": "PostHog/posthog",
-  "signal_ids": ["7e000000-0000-0000-0000-000000000001"],
+  "signal_ids": [
+    "7e000000-0000-0000-0000-000000000001"
+  ],
   "result": {
     "reviewer_decision": null,
     "title": "fix(backups): correct 'succesful' typo in docstring",
@@ -34,6 +36,8 @@
         "priority": "P1",
         "dollar_value": 0.0
       }
-    ]
+    ],
+    "repository_recommendation": null,
+    "research_run_id": null
   }
 }

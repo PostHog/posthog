@@ -148,6 +148,7 @@ import type {
     SignalsActivitySummaryVersionsRetrieveParams,
     SignalsAnomaliesInsightRetrieveParams,
     SignalsAnomaliesSearchRetrieveParams,
+    SignalsConfigListParams,
     SignalsProcessingListParams,
     SignalsReportArtefactsListParams,
     SignalsReportChecksListParams,
@@ -358,8 +359,20 @@ export const signalsAnomaliesSearchRetrieve = async (
     })
 }
 
-export const getSignalsConfigListUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/signals/config/`
+export const getSignalsConfigListUrl = (projectId: string, params?: SignalsConfigListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/config/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/config/`
 }
 
 /**
@@ -369,8 +382,12 @@ export const getSignalsConfigListUrl = (projectId: string) => {
  * POST /signals/config/  → update
  * @summary Read the project's signals config
  */
-export const signalsConfigList = async (projectId: string, options?: RequestInit): Promise<SignalTeamConfigApi> => {
-    return apiMutator<SignalTeamConfigApi>(getSignalsConfigListUrl(projectId), {
+export const signalsConfigList = async (
+    projectId: string,
+    params?: SignalsConfigListParams,
+    options?: RequestInit
+): Promise<SignalTeamConfigApi> => {
+    return apiMutator<SignalTeamConfigApi>(getSignalsConfigListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
