@@ -21,6 +21,7 @@ from posthog.scopes import UNPRIVILEGED_SCOPES
 # - `task:write` starts an agent run, which gets its own longer-lived token as the owner. So do
 #   `conversation:write` (PostHog AI can create a task), `signal_scout:write`, `business_knowledge:write`
 #   and `autoresearch:write`.
+# - `streamlit_app` hands out a one-hour OAuth token to connect to a running app.
 # - `integration:write`, `organization_integration:write` and `llm_provider_key:write` store
 #   third-party credentials, and `hog_function:write` and `hog_flow:write` run code that can read
 #   the stored credentials of the project's integrations.
@@ -59,6 +60,8 @@ CI_TRUST_POLICY_DENIED_SCOPES: frozenset[str] = frozenset(
         "sharing_configuration:read",
         "sharing_configuration:write",
         "signal_scout:write",
+        "streamlit_app:read",
+        "streamlit_app:write",
         "task:write",
         "user:read",
         "user:write",

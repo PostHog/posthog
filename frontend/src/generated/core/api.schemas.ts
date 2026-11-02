@@ -4756,7 +4756,7 @@ export interface CITrustPolicyApi {
     scopes: string[]
     /** Whether the policy can mint tokens. Disabling it cuts off its tokens. */
     enabled?: boolean
-    readonly created_by: UserBasicApi
+    readonly created_by: UserBasicApi | null
     readonly created_at: string
     readonly updated_at: string
 }
@@ -4814,7 +4814,7 @@ export interface PatchedCITrustPolicyApi {
     scopes?: string[]
     /** Whether the policy can mint tokens. Disabling it cuts off its tokens. */
     enabled?: boolean
-    readonly created_by?: UserBasicApi
+    readonly created_by?: UserBasicApi | null
     readonly created_at?: string
     readonly updated_at?: string
 }

@@ -33,6 +33,8 @@ export interface CITrustPolicyScopeRow {
     disabledActions: APIScopeAction[]
 }
 
+const POLICIES_PAGE_SIZE = 100
+
 const EMPTY_FORM: CITrustPolicyFormValues = {
     name: '',
     issuer: '',
@@ -63,6 +65,7 @@ export interface ciTrustPoliciesLogicValues {
     policiesLoading: boolean
     providerNames: Record<string, string>
     providers: CIProvidersResponseApi | null
+    providersLoadFailed: boolean
     providersLoading: boolean
     scopeLevels: Record<string, ScopeAccessLevel>
     scopeRows: CITrustPolicyScopeRow[]
@@ -229,8 +232,19 @@ export const ciTrustPoliciesLogic = kea<ciTrustPoliciesLogicType>([
             null as CITrustPolicyApi[] | null,
             {
                 loadPolicies: async () => {
-                    const response = await ciTrustPoliciesList(String(values.currentTeamId))
-                    return response.results
+                    const projectId = String(values.currentTeamId)
+                    // Every policy stays active until someone disables it, so the list must show all of them.
+                    const policies: CITrustPolicyApi[] = []
+                    let hasNextPage = true
+                    while (hasNextPage) {
+                        const page = await ciTrustPoliciesList(projectId, {
+                            limit: POLICIES_PAGE_SIZE,
+                            offset: policies.length,
+                        })
+                        policies.push(...page.results)
+                        hasNextPage = !!page.next && page.results.length > 0
+                    }
+                    return policies
                 },
                 setPolicyEnabled: async ({ policy, enabled }: { policy: CITrustPolicyApi; enabled: boolean }) => {
                     try {
@@ -260,6 +274,13 @@ export const ciTrustPoliciesLogic = kea<ciTrustPoliciesLogicType>([
             {
                 loadPolicies: () => false,
                 loadPoliciesFailure: () => true,
+            },
+        ],
+        providersLoadFailed: [
+            false,
+            {
+                loadProviders: () => false,
+                loadProvidersFailure: () => true,
             },
         ],
     }),

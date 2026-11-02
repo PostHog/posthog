@@ -158,7 +158,7 @@ class CITrustPolicySerializer(CIConditionsSerializerMixin, serializers.ModelSeri
     enabled = serializers.BooleanField(
         required=False, help_text="Whether the policy can mint tokens. Disabling it cuts off its tokens."
     )
-    created_by = UserBasicSerializer(read_only=True)
+    created_by = UserBasicSerializer(read_only=True, allow_null=True)
 
     class Meta:
         model = CITrustPolicy
