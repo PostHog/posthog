@@ -495,7 +495,7 @@ def handle_oauth_application_scopes_change(
     )
 
 
-def _log_ci_trust_activity(
+def _log_workload_trust_activity(
     scope: ActivityScope,
     before_update: WorkloadTrustPolicy | WorkloadTrustPolicyRequest | None,
     after_update: WorkloadTrustPolicy | WorkloadTrustPolicyRequest | None,
@@ -532,7 +532,7 @@ def handle_workload_trust_policy_change(
     was_impersonated: bool = False,
     **kwargs,
 ) -> None:
-    _log_ci_trust_activity(scope, before_update, after_update, activity, user, was_impersonated)
+    _log_workload_trust_activity(scope, before_update, after_update, activity, user, was_impersonated)
 
 
 @mutable_receiver(model_activity_signal, sender=WorkloadTrustPolicyRequest)
@@ -551,7 +551,7 @@ def handle_workload_trust_policy_request_change(
         if before_update is None or after_update is None or before_update.status == after_update.status:
             return
         activity = after_update.status
-    _log_ci_trust_activity(scope, before_update, after_update, activity, user, was_impersonated)
+    _log_workload_trust_activity(scope, before_update, after_update, activity, user, was_impersonated)
 
 
 # --- Receivers relocated from posthog.api viewset modules ---------------------------------

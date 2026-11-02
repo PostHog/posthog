@@ -48,7 +48,7 @@ def use_token(test: APIBaseTest, kind: str, oauth_scope: str) -> None:
             organization=test.organization,
             user=test.user,
         )
-        token = f"pha_ci_trust_test_{application.pk}"
+        token = f"pha_workload_trust_test_{application.pk}"
         OAuthAccessToken.objects.create(
             user=test.user,
             application=application,
