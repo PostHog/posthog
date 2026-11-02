@@ -478,7 +478,7 @@ class TestGetInstallationsForSandbox(BaseTest):
         )
         assert mismatched_results == []
 
-        profiled_results = get_installations_for_sandbox(
+        profiled_results = resolve_installations_for_sandbox(
             self.team.id,
             user_id=self.user.id,
             include_personal=True,
@@ -487,16 +487,16 @@ class TestGetInstallationsForSandbox(BaseTest):
             has_profile=True,
             profile_agent_key="support",
             credential_owner_id=self.user.id,
-        )
+        ).mounted
         assert [result.id for result in profiled_results] == [str(personal.id)]
 
-        profiled_member_results = get_installations_for_sandbox(
+        profiled_member_results = resolve_installations_for_sandbox(
             self.team.id,
             user_id=self.user.id,
             include_personal=True,
             task_origin="support_reply",
             has_profile=True,
-        )
+        ).mounted
         assert {result.name for result in profiled_member_results} == {"Personal", "Ungranted"}
 
     def test_built_in_agent_only_gets_the_run_credential_owner_s_grants(self) -> None:
