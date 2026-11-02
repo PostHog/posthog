@@ -1,7 +1,7 @@
 """Native email-sending integration (SES / maildev) and its cleanup signal."""
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -56,6 +56,44 @@ def _with_config_key(key: str, value: object) -> Func:
 
 def mark_verification_requested(senders: "models.QuerySet[model.Integration]") -> int:
     return senders.update(config=_with_config_key(VERIFICATION_REQUESTED_AT, int(timezone.now().timestamp())))
+
+
+def request_domain_verification(domain: str) -> int:
+    return mark_verification_requested(_pending_ses_senders().filter(config__domain__iexact=domain))
+
+
+@frozen
+class PendingSenderWindow:
+    """Pending SES senders whose last verification request falls in (oldest, newest], or their creation when none."""
+
+    oldest: datetime
+    newest: datetime
+
+    def __post_init__(self) -> None:
+        if self.oldest >= self.newest:
+            raise ValueError("PendingSenderWindow needs oldest before newest")
+
+    def last_id(self) -> int:
+        return self._senders().order_by("-id").values_list("id", flat=True).first() or 0
+
+    def senders(self, *, after_id: int, up_to_id: int) -> Iterator[IntegrationRecord]:
+        return self._senders().filter(id__gt=after_id, id__lte=up_to_id).order_by("id").iterator(chunk_size=500)
+
+    def _senders(self) -> "models.QuerySet[model.Integration]":
+        requested_in_window = Q(
+            config__verification_requested_at__gt=self.oldest.timestamp(),
+            config__verification_requested_at__lte=self.newest.timestamp(),
+        )
+        created_in_window = Q(
+            config__verification_requested_at__isnull=True, created_at__gt=self.oldest, created_at__lte=self.newest
+        )
+        return _pending_ses_senders().filter(requested_in_window | created_in_window)
+
+
+def _pending_ses_senders() -> "models.QuerySet[model.Integration]":
+    return model.defer_repository_cache_fields(
+        model.Integration.objects.filter(kind="email", config__provider="ses", config__verified=False)
+    )
 
 
 class EmailIntegration:

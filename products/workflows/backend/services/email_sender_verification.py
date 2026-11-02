@@ -1,22 +1,17 @@
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from datetime import timedelta
 from functools import cached_property
 from itertools import batched
 from time import monotonic
 
-from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 import structlog
 from botocore.exceptions import BotoCoreError
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import (
-    EmailIntegration,
-    Integration,
-    defer_repository_cache_fields,
-    mark_verification_requested,
-)
+from posthog.integrations import IntegrationRecord
+from posthog.models.integration import EmailIntegration, PendingSenderWindow, request_domain_verification
 from posthog.redis import get_client
 
 from products.workflows.backend.providers.ses import (
@@ -81,10 +76,10 @@ class EmailSenderVerification:
 
     @staticmethod
     def request_domain_check(domain: str) -> None:
-        mark_verification_requested(_pending_ses_senders().filter(config__domain__iexact=domain))
+        request_domain_verification(domain)
 
     def verify_ready_senders(
-        self, senders: Iterable[Integration], on_sender: Callable[[Integration], None] = lambda _: None
+        self, senders: Iterable[IntegrationRecord], on_sender: Callable[[IntegrationRecord], None] = lambda _: None
     ) -> bool:
         checked: set[tuple[int, str]] = set()
         for batch in batched(senders, IDENTITY_ATTRIBUTES_BATCH_SIZE, strict=False):
@@ -109,7 +104,7 @@ class EmailSenderVerification:
     def _has_time_for_step(self) -> bool:
         return monotonic() + self.STEP_WORST_CASE_SECONDS <= self.deadline
 
-    def _verify(self, sender: Integration, status: SESIdentityStatus) -> None:
+    def _verify(self, sender: IntegrationRecord, status: SESIdentityStatus) -> None:
         try:
             verification = self.provider.get_email_domain_verification(
                 sender.config["domain"], _mail_from_subdomain(sender), sender.team_id, identity_status=status
@@ -126,54 +121,40 @@ class _TierSweep:
 
     def run(self) -> None:
         verification = EmailSenderVerification(self.tier.work_budget_seconds)
-        if verification.verify_ready_senders(self._senders().iterator(chunk_size=500), on_sender=self._advance):
+        if verification.verify_ready_senders(self._senders(), on_sender=self._advance):
             self.redis.delete(self.tier.redis_key("cursor"), self.tier.redis_key("scan_end"))
 
-    def _in_tier(self) -> Q:
+    def _window(self) -> PendingSenderWindow:
         now = timezone.now()
-        newest, oldest = now - self.tier.min_age, now - self.tier.max_age
-        requested_in_tier = Q(
-            config__verification_requested_at__gt=oldest.timestamp(),
-            config__verification_requested_at__lte=newest.timestamp(),
-        )
-        created_in_tier = Q(
-            config__verification_requested_at__isnull=True, created_at__gt=oldest, created_at__lte=newest
-        )
-        return requested_in_tier | created_in_tier
+        return PendingSenderWindow(oldest=now - self.tier.max_age, newest=now - self.tier.min_age)
 
-    def _advance(self, sender: Integration) -> None:
+    def _advance(self, sender: IntegrationRecord) -> None:
         self.redis.set(self.tier.redis_key("cursor"), sender.id)
 
-    def _senders(self) -> QuerySet[Integration]:
-        pending = _pending_ses_senders().filter(self._in_tier())
+    def _senders(self) -> Iterator[IntegrationRecord]:
+        window = self._window()
         cursor = int(self.redis.get(self.tier.redis_key("cursor")) or 0)
         scan_end = int(self.redis.get(self.tier.redis_key("scan_end")) or 0)
         if not scan_end:
-            scan_end = pending.order_by("-id").values_list("id", flat=True).first() or 0
+            scan_end = window.last_id()
             self.redis.set(self.tier.redis_key("scan_end"), scan_end)
-        return pending.filter(id__gt=cursor, id__lte=scan_end).order_by("id")
+        return window.senders(after_id=cursor, up_to_id=scan_end)
 
 
-def _pending_ses_senders() -> QuerySet[Integration]:
-    return defer_repository_cache_fields(
-        Integration.objects.filter(kind="email", config__provider="ses", config__verified=False)
-    )
-
-
-def _ready_status(statuses: dict[str, SESIdentityStatus], sender: Integration) -> SESIdentityStatus | None:
+def _ready_status(statuses: dict[str, SESIdentityStatus], sender: IntegrationRecord) -> SESIdentityStatus | None:
     status = statuses.get(_domain(sender) or "")
     if status is None or not status.is_ready_for(_mail_from_domain(sender)):
         return None
     return status
 
 
-def _domain(sender: Integration) -> str | None:
+def _domain(sender: IntegrationRecord) -> str | None:
     return sender.config.get("domain")
 
 
-def _mail_from_subdomain(sender: Integration) -> str:
+def _mail_from_subdomain(sender: IntegrationRecord) -> str:
     return sender.config.get("mail_from_subdomain", "feedback")
 
 
-def _mail_from_domain(sender: Integration) -> str:
+def _mail_from_domain(sender: IntegrationRecord) -> str:
     return f"{_mail_from_subdomain(sender)}.{_domain(sender)}"
