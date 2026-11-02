@@ -959,11 +959,9 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             actions.setFeatureFlagsFilters({ ...DEFAULT_FILTERS, order: values.filters.order }, true)
         },
         restoreFeatureFlagSuccess: () => {
-            // The list switched away from the deleted view during the restore, and it may have loaded without the
-            // restored flag.
-            if (values.featureFlags.filters?.deleted !== 'true') {
-                actions.loadFeatureFlags()
-            }
+            // The deleted view drops the restored row at once, but its page is then a row short of its count, so the
+            // first flag of the next page can't be reached. Any other view may have loaded without the restored flag.
+            actions.loadFeatureFlags()
         },
         loadFeatureFlagsSuccess: () => {
             if (values.featureFlags.results.length > 0) {

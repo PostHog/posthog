@@ -685,24 +685,38 @@ describe('restoreFeatureFlag', () => {
 
     beforeEach(() => {
         restoreBodies = []
+        const deletedFlags = [
+            { id: 1, key: 'checkout-flag:deleted:1', deleted: true, active: true },
+            { id: 3, key: 'pricing-flag', deleted: true, active: true },
+        ]
+        const restoredIds: number[] = []
+        const restored = (flag: (typeof deletedFlags)[number]): Partial<FeatureFlagType> => ({
+            ...flag,
+            key: flag.key.replace(`:deleted:${flag.id}`, ''),
+            deleted: false,
+        })
         useMocks({
             get: {
-                // Answer like the API, so the deleted view only fills when it asks for deleted flags.
-                '/api/projects/:projectId/feature_flags/': ({ request }) =>
-                    new URL(request.url).searchParams.get('deleted') === 'true'
-                        ? [
-                              200,
-                              {
-                                  results: [{ id: 1, key: 'checkout-flag:deleted:1', deleted: true, active: true }],
-                                  count: 1,
-                              },
-                          ]
-                        : [200, { results: [{ id: 2, key: 'live-flag', deleted: false, active: true }], count: 1 }],
+                // Answer like the API: a restored flag leaves the deleted view and joins the live one. The deleted
+                // view serves one row per page, so a restore leaves the next deleted flag on the server.
+                '/api/projects/:projectId/feature_flags/': ({ request }) => {
+                    if (new URL(request.url).searchParams.get('deleted') === 'true') {
+                        const stillDeleted = deletedFlags.filter((flag) => !restoredIds.includes(flag.id))
+                        return [200, { results: stillDeleted.slice(0, 1), count: stillDeleted.length }]
+                    }
+                    const live = [
+                        ...deletedFlags.filter((flag) => restoredIds.includes(flag.id)).map(restored),
+                        { id: 2, key: 'live-flag', deleted: false, active: true },
+                    ]
+                    return [200, { results: live, count: live.length }]
+                },
             },
             patch: {
-                '/api/projects/:projectId/feature_flags/:id': async ({ request }) => {
+                '/api/projects/:projectId/feature_flags/:id': async ({ request, params }) => {
                     restoreBodies.push(await request.json())
-                    return [200, { id: 1, key: 'checkout-flag', deleted: false, active: true }]
+                    const flag = deletedFlags.find(({ id }) => id === Number(params.id))!
+                    restoredIds.push(flag.id)
+                    return [200, restored(flag)]
                 },
             },
         })
@@ -719,10 +733,11 @@ describe('restoreFeatureFlag', () => {
     beforeEach(silenceKeaLoadersErrors)
     afterEach(resumeKeaLoadersErrors)
 
-    it('restores the flag and drops it from the deleted view', async () => {
+    it('restores the flag, drops it from the deleted view, and refetches the page', async () => {
         logic.actions.setFeatureFlagsFilters({ deleted: 'true' }, true)
         await expectLogic(logic).toDispatchActions(['loadFeatureFlagsSuccess'])
         expect(logic.values.displayedFlags.map((flag) => flag.id)).toEqual([1])
+        expect(logic.values.count).toBe(2)
 
         logic.actions.restoreFeatureFlag({ id: 1 })
         expect(logic.values.featureFlagsUpdating[1]).toBe(true)
@@ -730,10 +745,31 @@ describe('restoreFeatureFlag', () => {
 
         expect(restoreBodies).toEqual([{ deleted: false }])
         expect(logic.values.displayedFlags).toEqual([])
-        expect(logic.values.count).toBe(0)
+        expect(logic.values.count).toBe(1)
         expect(logic.values.featureFlagsUpdating[1]).toBeUndefined()
         expect(deleteFromTree).toHaveBeenCalledWith('feature_flag', '1')
         expect(refreshTreeItem).toHaveBeenCalledWith('feature_flag', '1')
+
+        // Without the refetch the page stays empty with a count of 1, and the flag that was on the next page
+        // can't be reached.
+        await expectLogic(logic).toDispatchActions(['loadFeatureFlags', 'loadFeatureFlagsSuccess'])
+        expect(logic.values.displayedFlags.map((flag) => flag.id)).toEqual([3])
+        expect(logic.values.count).toBe(1)
+    })
+
+    it('lists the restored flag once the person leaves the deleted view', async () => {
+        logic.actions.setFeatureFlagsFilters({ deleted: 'true' }, true)
+        await expectLogic(logic).toDispatchActions(['loadFeatureFlagsSuccess'])
+        logic.actions.restoreFeatureFlag({ id: 1 })
+        await expectLogic(logic).toDispatchActions(['restoreFeatureFlagSuccess', 'loadFeatureFlagsSuccess'])
+
+        logic.actions.setFeatureFlagsFilters({ deleted: undefined }, true)
+        await expectLogic(logic).toDispatchActions(['loadFeatureFlagsSuccess'])
+
+        expect(logic.values.displayedFlags.map((flag) => [flag.id, flag.key])).toEqual([
+            [1, 'checkout-flag'],
+            [2, 'live-flag'],
+        ])
     })
 
     // Regression guard: the restore used to take one off the count of whatever list was cached when it
