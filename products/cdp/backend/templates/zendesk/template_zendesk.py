@@ -43,7 +43,7 @@ let tokenRes := fetch(f'https://{inputs.subdomain}.zendesk.com/oauth/tokens', {
     'client_id': inputs.client_id,
     'client_secret': inputs.client_secret,
     'scope': 'users:write',
-    'expires_in': 300
+    'expires_in': 3600
   },
   'method': 'POST'
 });

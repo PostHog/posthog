@@ -50,7 +50,7 @@ class TestTemplateZendesk(BaseHogFunctionTemplateTest):
                         "client_id": "posthog_destination",
                         "client_secret": "fake-client-secret",
                         "scope": "users:write",
-                        "expires_in": 300,
+                        "expires_in": 3600,
                     },
                 },
             ),
