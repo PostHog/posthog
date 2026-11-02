@@ -20,15 +20,15 @@ from products.messaging.backend.facade.contracts import (
     EmailStatsGroupBy,
     TransactionalEmailLogEntry,
 )
-from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_RETENTION_DAYS
-from products.messaging.backend.presentation.views.message_templates import require_transactional_email_api
-from products.messaging.backend.services.transactional_email_log import (
+from products.messaging.backend.facade.transactional_email_log import (
+    EMAIL_STATUS_RETENTION_DAYS,
     MAX_CONVERSION_WINDOW_DAYS,
     get_transactional_email,
     list_transactional_emails,
     transactional_email_results,
     transactional_email_stats,
 )
+from products.messaging.backend.presentation.views.message_templates import require_transactional_email_api
 
 RETENTION_NOTE = f"The log keeps sends for {EMAIL_STATUS_RETENTION_DAYS} days."
 

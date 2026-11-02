@@ -36,6 +36,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.apm.backend.presentation.views.ServiceMapViewSet",
     # Returns the team's 20 most recent import runs, not a page of rows.
     "products.messaging.backend.presentation.views.provider_imports.ProviderImportViewSet",
+    # Offset pages with `has_more` over a stable (queued time, message id) order; a ClickHouse scan, not a queryset.
+    "products.messaging.backend.presentation.views.transactional_email_log.TransactionalEmailLogViewSet",
     "ee.api.billing.BillingViewset",
     "ee.api.quota_limits.QuotaLimitsViewSet",
     "products.subscriptions.backend.presentation.views.SubscriptionDeliveryViewSet",
