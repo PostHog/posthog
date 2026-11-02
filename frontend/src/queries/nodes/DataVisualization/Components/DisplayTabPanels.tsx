@@ -2,6 +2,10 @@ import { ReactNode } from 'react'
 
 import { LemonCollapse } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
+import { QuillDisplayTabPanels } from './QuillDisplayTabPanels'
+
 export interface DisplayTabPanel {
     key: string
     header: ReactNode
@@ -14,6 +18,12 @@ export interface DisplayTabPanelsProps {
 }
 
 export function DisplayTabPanels({ panels, defaultOpenKeys }: DisplayTabPanelsProps): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <QuillDisplayTabPanels panels={panels} defaultOpenKeys={defaultOpenKeys} />
+    }
+
     return (
         <div className="flex flex-col w-full">
             <LemonCollapse
