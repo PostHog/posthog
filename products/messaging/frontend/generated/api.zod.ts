@@ -102,7 +102,7 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe(
-            'Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says.'
+            'Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says. A send by `template.id` takes it only in the beta for sending email from code.'
         ),
     from: zod
         .string()
