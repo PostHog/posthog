@@ -595,14 +595,19 @@ class TestWebExperimentValidationNoDB(SimpleTestCase):
         )
         assert serializer.is_valid(), serializer.errors
 
-    def test_rejects_html_tags_over_request_budget(self) -> None:
-        html = "<b>x</b>" * 2600
+    @parameterized.expand(
+        [
+            ["start tags", "<b>x</b>" * 2600],
+            ["attributes in one tag", "<div " + " ".join(f"a{i}=x" for i in range(5001)) + "></div>"],
+        ]
+    )
+    def test_rejects_html_over_request_parse_budget(self, _name: str, html: str) -> None:
         variants = {
             "control": {"rollout_percentage": 50},
             "test": {"rollout_percentage": 50, "transforms": [{"selector": "#a", "html": html}]},
             "test2": {"rollout_percentage": 50, "transforms": [{"selector": "#b", "html": html}]},
         }
-        self._assert_invalid(variants, "more than 5000 html tags")
+        self._assert_invalid(variants, "too much html")
 
     def test_rejects_missing_control_variant(self) -> None:
         self._assert_invalid({"test": {"rollout_percentage": 50}}, "control variant")

@@ -51,8 +51,12 @@ _URL_SCHEMES: list[tuple[str, str]] = [
 ]
 
 _START_TAG_NAME = re.compile(r"<([a-zA-Z][^\t\n\f\r />]*)")
-# The HTML5 parse costs more for each level of nesting, so this caps the parse work for one request.
+# The HTML5 parse cost grows with the square of the nesting depth and of the attribute count in one tag.
+# These caps bound the parse work for one request.
 _MAX_START_TAGS_PER_REQUEST = 5000
+_MAX_ATTRIBUTE_STARTS_PER_REQUEST = 10000
+# Every attribute name starts after whitespace, "/" or a quote, so this also counts text words but never misses an attribute.
+_ATTRIBUTE_START = re.compile(r"(?<=[\t\n\f\r /\"'])[^\t\n\f\r />]")
 # The HTML5 tokenizer lowercases only ASCII letters in a tag name and replaces NUL with U+FFFD.
 _ASCII_LOWER = str.maketrans(string.ascii_uppercase + "\x00", string.ascii_lowercase + "\ufffd")
 # nh3 drops elements missing from its allow list with their attributes, and html5ever camel-cases these SVG names.
@@ -234,6 +238,7 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
         if "control" not in variants:
             raise ValidationError("Experiment should contain a control variant")
         start_tag_count = 0
+        attribute_start_count = 0
         for name, variant in variants.items():
             if variant.get("rollout_percentage") is None:
                 raise ValidationError(f"Experiment variant '{name}' does not have any rollout percentage")
@@ -251,9 +256,13 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
                         if not isinstance(content, str):
                             continue
                         start_tag_count += len(_START_TAG_NAME.findall(content))
-                        if start_tag_count > _MAX_START_TAGS_PER_REQUEST:
+                        attribute_start_count += len(_ATTRIBUTE_START.findall(content))
+                        if (
+                            start_tag_count > _MAX_START_TAGS_PER_REQUEST
+                            or attribute_start_count > _MAX_ATTRIBUTE_STARTS_PER_REQUEST
+                        ):
                             raise ValidationError(
-                                f"Experiment transforms contain more than {_MAX_START_TAGS_PER_REQUEST} HTML tags. Split the change into fewer or smaller transforms."
+                                "Experiment transforms contain too much HTML to check. Split the change into fewer or smaller transforms."
                             )
                         validate_no_xss(content, f"Transform {field} in variant '{name}'")
 
