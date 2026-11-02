@@ -53,7 +53,6 @@ telli/telli.py::telli_source.get_rows
 twenty/twenty.py::twenty_source.items
 twitter/twitter.py::_iter_pages
 unleash/unleash.py::unleash_source.items
-vitally/vitally.py::vitally_source
 who_gho/who_gho.py::_catalog_pages
 who_gho/who_gho.py::_dimension_values_pages
 who_gho/who_gho.py::_indicator_data_pages

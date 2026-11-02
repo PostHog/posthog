@@ -10,17 +10,19 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.optimizely import (
     OptimizelySourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.optimizely.optimizely import (
+    OptimizelyResumeConfig,
     optimizely_source,
     validate_credentials as validate_optimizely_credentials,
 )
@@ -29,7 +31,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class OptimizelySource(SimpleSource[OptimizelySourceConfig]):
+class OptimizelySource(ResumableSource[OptimizelySourceConfig, OptimizelyResumeConfig]):
     codebase_detection = detect(
         env=("^OPTIMIZELY_", "^NEXT_PUBLIC_OPTIMIZELY_SDK_KEY$", "^EXPO_PUBLIC_OPTIMIZELY_SDK_KEY$"),
         script_hosts=("cdn.optimizely.com", "cdn-pci.optimizely.com", "optimizely-edge.com"),
@@ -170,10 +172,19 @@ An admin can generate a personal access token in Optimizely under Account Settin
 
         return False, "Invalid Optimizely personal access token"
 
-    def source_for_pipeline(self, config: OptimizelySourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[OptimizelyResumeConfig]:
+        return ResumableSourceManager[OptimizelyResumeConfig](inputs, OptimizelyResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: OptimizelySourceConfig,
+        resumable_source_manager: ResumableSourceManager[OptimizelyResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         return optimizely_source(
             api_token=config.api_token,
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
+            resumable_source_manager=resumable_source_manager,
         )

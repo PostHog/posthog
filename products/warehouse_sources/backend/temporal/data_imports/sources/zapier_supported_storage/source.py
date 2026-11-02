@@ -8,11 +8,12 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zapiersupportedstorage import (
@@ -24,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zapier_sup
     ZAPIER_SUPPORTED_STORAGE_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zapier_supported_storage.zapier_supported_storage import (
+    ZapierSupportedStorageResumeConfig,
     validate_credentials as validate_zapier_supported_storage_credentials,
     zapier_supported_storage_source,
 )
@@ -39,7 +41,9 @@ _ENDPOINT_DESCRIPTIONS: dict[str, str] = {
 
 
 @SourceRegistry.register
-class ZapierSupportedStorageSource(SimpleSource[ZapierSupportedStorageSourceConfig]):
+class ZapierSupportedStorageSource(
+    ResumableSource[ZapierSupportedStorageSourceConfig, ZapierSupportedStorageResumeConfig]
+):
     codebase_detection = NOT_DETECTABLE
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -129,9 +133,20 @@ Only full-refresh syncing is supported: the store has no timestamps, so every sy
     ) -> tuple[bool, str | None]:
         return validate_zapier_supported_storage_credentials(config.secret)
 
-    def source_for_pipeline(self, config: ZapierSupportedStorageSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(
+        self, inputs: SourceInputs
+    ) -> ResumableSourceManager[ZapierSupportedStorageResumeConfig]:
+        return ResumableSourceManager[ZapierSupportedStorageResumeConfig](inputs, ZapierSupportedStorageResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: ZapierSupportedStorageSourceConfig,
+        resumable_source_manager: ResumableSourceManager[ZapierSupportedStorageResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         return zapier_supported_storage_source(
             secret=config.secret,
             endpoint=inputs.schema_name,
             logger=inputs.logger,
+            resumable_source_manager=resumable_source_manager,
         )

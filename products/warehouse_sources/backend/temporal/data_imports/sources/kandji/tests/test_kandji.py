@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 from unittest.mock import Mock, patch
 
@@ -13,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kandji import KandjiSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.kandji.kandji import (
     KandjiNextLinkPaginator,
+    KandjiResumeConfig,
     build_base_url,
     kandji_source,
     validate_credentials,
@@ -98,6 +101,7 @@ class TestKandjiTransport:
             endpoint="devices",
             team_id=1,
             job_id="job-1",
+            resumable_source_manager=Mock(can_resume=Mock(return_value=False)),
         )
 
         assert response.name == "devices"
@@ -122,6 +126,53 @@ class TestKandjiTransport:
         # bundle_id is only unique within a device, so the parent device id is part of the key.
         assert result.response is not None
         assert result.response.primary_keys == ["device_id", "bundle_id"]
+
+    @parameterized.expand(
+        [
+            (
+                "offset_list",
+                "devices",
+                {"offset": 300},
+                [ScriptedResponse(json=[{"device_id": "dev_301"}])],
+                ["https://accuhive.api.kandji.io/api/v1/devices?offset=300&limit=300"],
+            ),
+            (
+                "next_link_list",
+                "users",
+                {"next_params": {"cursor": "abc"}},
+                [ScriptedResponse(json={"results": [{"id": "u2"}], "next": None})],
+                ["https://accuhive.api.kandji.io/api/v1/users?sizePerPage=300&cursor=abc"],
+            ),
+            (
+                "fan_out",
+                "device_apps",
+                {"completed": ["/devices/dev_1/apps"], "current": None, "child_state": None, "parent": None},
+                [
+                    ScriptedResponse(json=[{"device_id": "dev_1"}, {"device_id": "dev_2"}]),
+                    ScriptedResponse(json={"apps": [{"bundle_id": "com.apple.Safari"}]}),
+                ],
+                [
+                    "https://accuhive.api.kandji.io/api/v1/devices?limit=300&offset=0",
+                    "https://accuhive.api.kandji.io/api/v1/devices/dev_2/apps?limit=300",
+                ],
+            ),
+        ]
+    )
+    def test_resumes_from_saved_state(
+        self,
+        _name: str,
+        endpoint: str,
+        saved: dict[str, Any],
+        script: list[ScriptedResponse],
+        expected_urls: list[str],
+    ) -> None:
+        result = SourceDriver(
+            KandjiSource(), KandjiSourceConfig(api_token="tok", subdomain="accuhive", region="us")
+        ).run(endpoint, script, resume_state=KandjiResumeConfig(paginator_state=saved))
+
+        assert result.raised is None
+        assert result.urls == expected_urls
+        assert len(result.rows) == 1
 
 
 class TestKandjiNextLinkPaginator:

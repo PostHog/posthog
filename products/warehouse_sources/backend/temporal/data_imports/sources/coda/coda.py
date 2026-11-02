@@ -1,6 +1,8 @@
 from collections.abc import Callable
 from typing import Any, cast
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.coda.settings import CODA_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -14,12 +16,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     EndpointResource,
     ResponseAction,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 CODA_BASE_URL = "https://coda.io/apis/v1"
 PAGE_SIZE = 100
 ROWS_PAGE_SIZE = 200
+
+
+@frozen
+class CodaResumeConfig:
+    # What the framework handed the resume hook: the next page token of a list endpoint, or the
+    # finished and in-progress parents of a fan-out. Stored unchanged.
+    paginator_state: dict[str, Any]
+
 
 # The docs list also returns docs the token user only opened (shared or published docs from other
 # workspaces). Their sharing settings and their workspace's members are not readable, so skip those
@@ -309,6 +320,7 @@ def coda_source(
     endpoint: str,
     team_id: int,
     job_id: str,
+    resumable_source_manager: ResumableSourceManager[CodaResumeConfig],
 ) -> SourceResponse:
     resource_chain = _resource_chain(endpoint)
     config = CODA_ENDPOINTS[endpoint]
@@ -322,11 +334,27 @@ def coda_source(
         "resources": cast("list[str | EndpointResource]", resource_chain),
     }
 
-    resources = rest_api_resources(rest_config, team_id, job_id, None)
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+    def save_checkpoint(state: dict[str, Any] | None) -> None:
+        if state:
+            resumable_source_manager.save_state(CodaResumeConfig(paginator_state=state))
+
+    # The framework resumes a fan-out with one dependent level only. Rows and columns chain two
+    # levels, so they read every doc and table again after a resume.
+    resources = rest_api_resources(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=resume.paginator_state if resume is not None else None,
+    )
     resource = next(r for r in resources if r.name == endpoint)
 
     return SourceResponse(
         name=endpoint,
+        on_complete=resumable_source_manager.clear_state,
         items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,

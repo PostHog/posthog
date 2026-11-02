@@ -6,6 +6,8 @@ from urllib.parse import parse_qsl, urlsplit
 from requests import Request, Response
 from requests.exceptions import RequestException
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -24,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     Endpoint,
     EndpointResource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.kandji.settings import (
     EU_API_HOST_TEMPLATE,
@@ -31,6 +34,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kandji.set
     US_API_HOST_TEMPLATE,
     KandjiEndpointConfig,
 )
+
+
+@frozen
+class KandjiResumeConfig:
+    # What the framework handed the resume hook: the next offset or `next` query of a list endpoint,
+    # or the device listing position and finished devices of a fan-out. Stored unchanged.
+    paginator_state: dict[str, Any]
+
 
 REGION_TEMPLATES = {
     "us": US_API_HOST_TEMPLATE,
@@ -93,9 +104,22 @@ class KandjiNextLinkPaginator(BasePaginator):
         self._next_params = next_params
         self._has_next_page = True
 
+    def init_request(self, request: Request) -> None:
+        # Apply a resumed `next` query to the first request.
+        self.update_request(request)
+
     def update_request(self, request: Request) -> None:
         if self._next_params is not None:
             request.params = {**(request.params or {}), **self._next_params}
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"next_params": self._next_params} if self._has_next_page and self._next_params else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        next_params = state.get("next_params")
+        if isinstance(next_params, dict) and next_params:
+            self._next_params = {str(key): str(value) for key, value in next_params.items()}
+            self._has_next_page = True
 
 
 def _list_paginator(config: KandjiEndpointConfig) -> BasePaginator:
@@ -163,9 +187,12 @@ def get_resource(config: KandjiEndpointConfig) -> EndpointResource:
     }
 
 
-def _make_source_response(config: KandjiEndpointConfig, items_fn) -> SourceResponse:
+def _make_source_response(
+    config: KandjiEndpointConfig, items_fn, manager: ResumableSourceManager[KandjiResumeConfig]
+) -> SourceResponse:
     return SourceResponse(
         name=config.name,
+        on_complete=manager.clear_state,
         items=items_fn,
         primary_keys=config.primary_key if isinstance(config.primary_key, list) else [config.primary_key],
         # Full refresh only — Kandji's list endpoints expose no stable updated-since cursor.
@@ -180,10 +207,18 @@ def kandji_source(
     endpoint: str,
     team_id: int,
     job_id: str,
+    resumable_source_manager: ResumableSourceManager[KandjiResumeConfig],
 ) -> SourceResponse:
     config = KANDJI_ENDPOINTS[endpoint]
     base_url = build_base_url(subdomain, region)
     client_config = _rest_api_client_config(base_url, api_token)
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    initial_paginator_state = resume.paginator_state if resume is not None else None
+
+    def save_checkpoint(state: dict[str, Any] | None) -> None:
+        if state:
+            resumable_source_manager.save_state(KandjiResumeConfig(paginator_state=state))
 
     if config.fanout is not None:
         parent_config = KANDJI_ENDPOINTS[config.fanout.parent_name]
@@ -208,14 +243,24 @@ def kandji_source(
                     "paginator": _list_paginator(config),
                     "data_selector": config.data_selector,
                 },
+                resume_hook=save_checkpoint,
+                initial_paginator_state=initial_paginator_state,
+                resume_parent_pagination=True,
             ),
         )
-        return _make_source_response(config, lambda: dependent_resource)
+        return _make_source_response(config, lambda: dependent_resource, resumable_source_manager)
 
     rest_config: RESTAPIConfig = {
         "client": client_config,
         "resource_defaults": {"write_disposition": "replace"},
         "resources": [get_resource(config)],
     }
-    resource = rest_api_resource(rest_config, team_id, job_id, None)
-    return _make_source_response(config, lambda: resource)
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+    return _make_source_response(config, lambda: resource, resumable_source_manager)

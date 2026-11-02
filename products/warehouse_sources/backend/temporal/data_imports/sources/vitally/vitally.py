@@ -1,10 +1,13 @@
 import base64
+from collections.abc import Iterable, Iterator
 from datetime import datetime
 from typing import Any, Optional
 
 from dateutil import parser
-from requests import HTTPError, JSONDecodeError, Request, Response
+from requests import HTTPError, JSONDecodeError, Request, Response, Session
 from structlog.types import FilteringBoundLogger
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -13,9 +16,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.vitally.settings import (
     CUSTOM_OBJECT_SCHEMA_PREFIX,
 )
+
+
+@frozen
+class VitallyResumeConfig:
+    # The `from` cursor of the page to read. None is the first page.
+    cursor: str | None = None
+    # Messages only: how many conversations of that page are already handed on.
+    conversations_done: int = 0
 
 
 def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:
@@ -381,11 +393,25 @@ class VitallyPaginator(BasePaginator):
         else:
             self._has_next_page = False
 
+    def init_request(self, request: Request) -> None:
+        # Apply a resumed cursor to the first request.
+        if self._cursor is not None:
+            self.update_request(request)
+
     def update_request(self, request: Request) -> None:
         if request.params is None:
             request.params = {}
 
         request.params["from"] = self._cursor
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"cursor": self._cursor} if self._has_next_page and self._cursor else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        cursor = state.get("cursor")
+        if cursor:
+            self._cursor = str(cursor)
+            self._has_next_page = True
 
 
 def get_messages(
@@ -395,7 +421,8 @@ def get_messages(
     db_incremental_field_last_value: Optional[Any],
     should_use_incremental_field: bool,
     logger: FilteringBoundLogger,
-):
+    manager: ResumableSourceManager[VitallyResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
     """Messages are a field on conversations which only get returned
     when you request each conversation individually. This queries
     for conversations and then gets and yields the messages for each
@@ -429,10 +456,19 @@ def get_messages(
         headers={"Authorization": f"Basic {basic_token}:"},
     )
 
+    resume = manager.load_state() if manager.can_resume() else None
+    page_cursor = resume.cursor if resume is not None else None
+    skip = resume.conversations_done if resume is not None else 0
+    if page_cursor is not None:
+        paginator.set_resume_state({"cursor": page_cursor})
+
     logger.debug("Requesting first page")
 
     with make_tracked_session() as session:
         while paginator.has_next_page:
+            # Every conversation before this point is handed on, so an empty page can end the run here.
+            manager.save_state(VitallyResumeConfig(cursor=page_cursor, conversations_done=skip))
+            manager.safe_point()
             paginator.update_request(request)
             prepared_request = session.prepare_request(request)
             response = session.send(prepared_request)
@@ -441,34 +477,59 @@ def get_messages(
             response.raise_for_status()
             results = response.json().get("results") or []
 
-            for conversation in results:
-                id = conversation.get("id")
-                conversation_updated_at = conversation.get("updatedAt")
-                logger.debug(f"Requesting messages for conversation {id}")
-
-                conversation_response = session.get(
-                    f"{get_base_url(region, subdomain)}resources/conversations/{id}",
-                    headers={"Authorization": f"Basic {basic_token}:"},
-                )
-
-                try:
-                    conversation_response.raise_for_status()
-
-                    messages = conversation_response.json().get("messages") or []
-                    logger.debug(f"Yielding {len(messages)} messages")
-                    for message in messages:
-                        message["conversation_updated_at"] = conversation_updated_at
-                        yield message
-                except HTTPError as e:
-                    logger.debug(
-                        f"Failed to fetch messages for conversation {id}: {conversation_response.status_code} {e}. Body: {conversation_response.text}"
-                    )
-                except JSONDecodeError as e:
-                    logger.debug(
-                        f"Failed to decode JSON response for conversation {id}: {conversation_response.status_code} {e}. Body: {conversation_response.text}"
-                    )
+            for index, conversation in enumerate(results):
+                # A resumed page is read again from its start, so skip the conversations already handed on.
+                if index < skip:
+                    continue
+                messages = _conversation_messages(session, conversation, region, subdomain, basic_token, logger)
+                manager.save_state(VitallyResumeConfig(cursor=page_cursor, conversations_done=index + 1))
+                if messages:
+                    # One list per conversation, so its messages and the cursor past it commit together.
+                    yield messages
+                else:
+                    manager.safe_point()
+            skip = 0
 
             paginator.update_state(response)
+            next_state = paginator.get_resume_state()
+            page_cursor = next_state["cursor"] if next_state else None
+
+
+def _conversation_messages(
+    session: Session,
+    conversation: dict[str, Any],
+    region: str,
+    subdomain: Optional[str],
+    basic_token: str,
+    logger: FilteringBoundLogger,
+) -> list[dict[str, Any]]:
+    id = conversation.get("id")
+    conversation_updated_at = conversation.get("updatedAt")
+    logger.debug(f"Requesting messages for conversation {id}")
+
+    conversation_response = session.get(
+        f"{get_base_url(region, subdomain)}resources/conversations/{id}",
+        headers={"Authorization": f"Basic {basic_token}:"},
+        timeout=60,
+    )
+
+    try:
+        conversation_response.raise_for_status()
+
+        messages = conversation_response.json().get("messages") or []
+        logger.debug(f"Yielding {len(messages)} messages")
+        for message in messages:
+            message["conversation_updated_at"] = conversation_updated_at
+        return messages
+    except HTTPError as e:
+        logger.debug(
+            f"Failed to fetch messages for conversation {id}: {conversation_response.status_code} {e}. Body: {conversation_response.text}"
+        )
+    except JSONDecodeError as e:
+        logger.debug(
+            f"Failed to decode JSON response for conversation {id}: {conversation_response.status_code} {e}. Body: {conversation_response.text}"
+        )
+    return []
 
 
 def get_base_url(region: str, subdomain: Optional[str]) -> str:
@@ -487,13 +548,19 @@ def vitally_source(
     job_id: str,
     logger: FilteringBoundLogger,
     db_incremental_field_last_value: Optional[Any],
+    resumable_source_manager: ResumableSourceManager[VitallyResumeConfig],
     should_use_incremental_field: bool = False,
-):
+) -> Iterable[Any]:
     if endpoint == "Messages":
-        yield from get_messages(
-            secret_token, region, subdomain, db_incremental_field_last_value, should_use_incremental_field, logger
+        return get_messages(
+            secret_token,
+            region,
+            subdomain,
+            db_incremental_field_last_value,
+            should_use_incremental_field,
+            logger,
+            resumable_source_manager,
         )
-        return
 
     if endpoint.startswith(CUSTOM_OBJECT_SCHEMA_PREFIX):
         machine_name = endpoint[len(CUSTOM_OBJECT_SCHEMA_PREFIX) :]
@@ -532,7 +599,21 @@ def vitally_source(
         "resources": [endpoint_resource],
     }
 
-    yield from rest_api_resource(config, team_id, job_id, db_incremental_field_last_value)
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+    def save_checkpoint(state: dict[str, Any] | None) -> None:
+        if state and state.get("cursor"):
+            resumable_source_manager.save_state(VitallyResumeConfig(cursor=str(state["cursor"])))
+
+    # Returned, not wrapped, so the framework reaches a safe point after each page.
+    return rest_api_resource(
+        config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state={"cursor": resume.cursor} if resume is not None and resume.cursor else None,
+    )
 
 
 def validate_credentials(secret_token: str, region: str, subdomain: Optional[str]) -> bool:

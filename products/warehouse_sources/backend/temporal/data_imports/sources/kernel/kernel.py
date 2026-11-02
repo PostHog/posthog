@@ -11,11 +11,14 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     make_tracked_session,
     retry_with_deadline,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.kernel.settings import (
     BROWSER_TELEMETRY_EVENTS,
@@ -35,6 +38,18 @@ AUDIT_LOGS_ENDPOINT = "audit_logs"
 AUDIT_LOG_MAX_WINDOW = timedelta(days=28)
 AUDIT_LOG_MIN_WINDOW = timedelta(hours=1)
 AUDIT_LOG_RETENTION = timedelta(days=365)
+
+
+@frozen
+class KernelResumeConfig:
+    # List endpoints: the offset of the next page.
+    offset: int | None = None
+    # audit_logs: the start of the next time window, as an ISO timestamp.
+    audit_log_start: str | None = None
+    # browser_telemetry_events: the browser session to read next, and the offset cursor of its next
+    # page. Sessions are read in id order, and a None cursor starts the session at its first event.
+    telemetry_session_id: str | None = None
+    telemetry_cursor: int | None = None
 
 
 class KernelRetryableError(Exception):
@@ -232,8 +247,14 @@ def _fetch_audit_log_page(
 
 
 def _iter_audit_log_windows(
-    session: requests.Session, headers: dict[str, str], start: datetime, end: datetime, logger: FilteringBoundLogger
-) -> Iterator[list[dict[str, Any]]]:
+    session: requests.Session,
+    headers: dict[str, str],
+    start: datetime,
+    end: datetime,
+    logger: FilteringBoundLogger,
+    manager: ResumableSourceManager[KernelResumeConfig],
+) -> Iterator[tuple[datetime, list[dict[str, Any]]]]:
+    """Yield the end of each window with its rows, oldest window first. A window with no rows is yielded too."""
     windows: list[tuple[datetime, datetime]] = []
     window_start = start
     while window_start < end:
@@ -247,17 +268,21 @@ def _iter_audit_log_windows(
             midpoint = window_start + (window_end - window_start) / 2
             pending.append((midpoint, window_end))
             pending.append((window_start, midpoint))
+            # The rows of the window are dropped and read again in the halves, so none is held.
+            manager.safe_point()
             continue
         while next_token is not None:
             page, next_token = _fetch_audit_log_page(session, headers, window_start, window_end, next_token, logger)
             rows.extend(page)
-        if rows:
-            rows.sort(key=lambda row: _parse_datetime(row.get("timestamp")) or datetime.min.replace(tzinfo=UTC))
-            yield _add_audit_log_ids(rows)
+        rows.sort(key=lambda row: _parse_datetime(row.get("timestamp")) or datetime.min.replace(tzinfo=UTC))
+        yield window_end, _add_audit_log_ids(rows)
 
 
 def get_audit_log_rows(
-    api_key: str, logger: FilteringBoundLogger, db_incremental_field_last_value: Optional[Any] = None
+    api_key: str,
+    logger: FilteringBoundLogger,
+    manager: ResumableSourceManager[KernelResumeConfig],
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> Iterator[Any]:
     headers = _get_headers(api_key)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
@@ -267,32 +292,35 @@ def get_audit_log_rows(
     last_value = _parse_datetime(db_incremental_field_last_value)
     if last_value is not None and last_value > start:
         start = last_value
-    for rows in _iter_audit_log_windows(session, headers, start, end, logger):
-        for row in rows:
-            batcher.batch(row)
-            if batcher.should_yield():
-                yield batcher.get_table()
-    if batcher.should_yield(include_incomplete_chunk=True):
-        yield batcher.get_table()
+    resume = manager.load_state() if manager.can_resume() else None
+    resume_start = _parse_datetime(resume.audit_log_start) if resume is not None else None
+    if resume_start is not None and resume_start > start:
+        start = resume_start
+    for window_end, rows in _iter_audit_log_windows(session, headers, start, end, logger, manager):
+        manager.save_state(KernelResumeConfig(audit_log_start=_format_datetime(window_end)))
+        if rows:
+            # One table per window, so a window and the cursor past it commit together.
+            batcher.batch(rows)
+            yield batcher.get_table()
+        else:
+            manager.safe_point()
 
 
-def _iter_list_items(
+def _iter_list_pages(
     session: requests.Session,
     headers: dict[str, str],
     config: KernelEndpointConfig,
     logger: FilteringBoundLogger,
-) -> Iterator[Any]:
-    # Full refresh only: no resumable offset state. A crashed sync restarts from offset 0 and
-    # the pipeline overwrites the table on the first chunk, so re-fetched pages never duplicate
-    # rows (full-refresh appends have no primary-key dedupe, so resuming mid-table would).
-    offset = 0
+    offset: int = 0,
+) -> Iterator[tuple[list[Any], int | None]]:
+    """Yield each page with the offset of the page after it, or None after the last page."""
     while True:
         params: dict[str, Any] = {"limit": PAGE_SIZE, "offset": offset, **config.extra_params}
         url = _build_url(config.path, params)
         try:
             response = _fetch_page(session, url, headers, logger, empty_on_error_code=config.empty_on_error_code)
         except KernelResourceDisabledError:
-            break
+            return
         items = _extract_items(response.json())
 
         has_more, next_offset = _next_page(response.headers, offset, len(items))
@@ -302,14 +330,15 @@ def _iter_list_items(
             # via X-Has-More. Keep going, but stop if the offset can't advance (an empty page
             # with no X-Next-Offset would otherwise loop forever on the same request).
             if not has_more or next_offset <= offset:
-                break
+                return
+            yield [], next_offset
             offset = next_offset
             continue
 
-        yield from items
+        yield items, next_offset if has_more else None
 
         if not has_more:
-            break
+            return
 
         offset = next_offset
 
@@ -329,24 +358,29 @@ def _telemetry_session_ids(
     headers: dict[str, str],
     retention_start: datetime,
     logger: FilteringBoundLogger,
+    manager: ResumableSourceManager[KernelResumeConfig],
 ) -> list[str]:
-    """Session ids of every browser that can still have retained telemetry events.
+    """Session ids of every browser that can still have retained telemetry events, in id order.
 
     Ids are collected before fanning out so the offset-paginated /browsers walk isn't stretched
-    across thousands of child requests while new sessions shift its pages.
+    across thousands of child requests while new sessions shift its pages. The id order is the
+    order a resume relies on.
     """
     session_ids: list[str] = []
-    for browser in _iter_list_items(session, headers, KERNEL_ENDPOINTS["browsers"], logger):
-        if not isinstance(browser, dict):
-            continue
-        session_id = browser.get("session_id")
-        if not isinstance(session_id, str) or not session_id:
-            continue
-        deleted_at = _parse_timestamp(browser.get("deleted_at"))
-        if deleted_at is not None and deleted_at < retention_start:
-            continue
-        session_ids.append(session_id)
-    return session_ids
+    for browsers, _next_offset in _iter_list_pages(session, headers, KERNEL_ENDPOINTS["browsers"], logger):
+        for browser in browsers:
+            if not isinstance(browser, dict):
+                continue
+            session_id = browser.get("session_id")
+            if not isinstance(session_id, str) or not session_id:
+                continue
+            deleted_at = _parse_timestamp(browser.get("deleted_at"))
+            if deleted_at is not None and deleted_at < retention_start:
+                continue
+            session_ids.append(session_id)
+        # No row is handed on while the ids are collected, so the run can stop here.
+        manager.safe_point()
+    return sorted(set(session_ids))
 
 
 def _next_telemetry_cursor(headers: Any) -> int | None:
@@ -375,15 +409,16 @@ def _telemetry_row(session_id: str, envelope: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
-def _iter_telemetry_events(
+def _iter_telemetry_pages(
     session: requests.Session,
     headers: dict[str, str],
     session_id: str,
     since: str,
     logger: FilteringBoundLogger,
-) -> Iterator[dict[str, Any]]:
+    cursor: int | None,
+) -> Iterator[tuple[list[dict[str, Any]], int | None]]:
+    """Yield each page of a session's events with the cursor of the page after it, or None after the last."""
     path = KERNEL_ENDPOINTS[BROWSER_TELEMETRY_EVENTS].path.format(session_id=quote(session_id, safe=""))
-    cursor: int | None = None
     while True:
         # `since` defaults to the last 5 minutes, so it must be set to read the archive.
         # Kernel ignores it once an offset cursor is passed.
@@ -394,15 +429,19 @@ def _iter_telemetry_events(
         if response.status_code == 404:
             # The session can be purged between listing browsers and reading its events.
             logger.debug(f"Kernel browser session {session_id} not found, skipping its telemetry events")
+            yield [], None
             return
 
-        for envelope in _extract_items(response.json()):
-            if isinstance(envelope, dict):
-                yield _telemetry_row(session_id, envelope)
-
+        rows = [
+            _telemetry_row(session_id, envelope)
+            for envelope in _extract_items(response.json())
+            if isinstance(envelope, dict)
+        ]
         next_cursor = _next_telemetry_cursor(response.headers)
         if next_cursor is None or next_cursor == cursor:
+            yield rows, None
             return
+        yield rows, next_cursor
         cursor = next_cursor
 
 
@@ -410,17 +449,34 @@ def _iter_browser_telemetry_events(
     session: requests.Session,
     headers: dict[str, str],
     logger: FilteringBoundLogger,
-) -> Iterator[dict[str, Any]]:
+    manager: ResumableSourceManager[KernelResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
     retention_start = datetime.now(UTC) - timedelta(days=TELEMETRY_RETENTION_DAYS)
     since = retention_start.strftime("%Y-%m-%dT%H:%M:%SZ")
-    for session_id in _telemetry_session_ids(session, headers, retention_start, logger):
-        yield from _iter_telemetry_events(session, headers, session_id, since, logger)
+    resume = manager.load_state() if manager.can_resume() else None
+    resume_session_id = resume.telemetry_session_id if resume is not None else None
+    session_ids = _telemetry_session_ids(session, headers, retention_start, logger, manager)
+    for index, session_id in enumerate(session_ids):
+        if resume_session_id is not None and session_id < resume_session_id:
+            continue
+        cursor = resume.telemetry_cursor if resume is not None and session_id == resume_session_id else None
+        following = session_ids[index + 1] if index + 1 < len(session_ids) else None
+        for rows, next_cursor in _iter_telemetry_pages(session, headers, session_id, since, logger, cursor):
+            if next_cursor is not None:
+                manager.save_state(KernelResumeConfig(telemetry_session_id=session_id, telemetry_cursor=next_cursor))
+            elif following is not None:
+                manager.save_state(KernelResumeConfig(telemetry_session_id=following))
+            if rows:
+                yield rows
+            else:
+                manager.safe_point()
 
 
 def get_rows(
     api_key: str,
     endpoint: str,
     logger: FilteringBoundLogger,
+    manager: ResumableSourceManager[KernelResumeConfig],
 ) -> Iterator[Any]:
     config = KERNEL_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
@@ -430,27 +486,30 @@ def get_rows(
     # generic HTTP-sample scrubber does not know to redact, and sampling happens before redaction.
     session = make_tracked_session(capture=False)
 
+    # Each page goes out as its own table, so the cursor staged for a page covers every row handed on.
     if endpoint == BROWSER_TELEMETRY_EVENTS:
-        items: Iterator[Any] = _iter_browser_telemetry_events(session, headers, logger)
-    else:
-        items = (
-            _redact_sensitive_fields(item, config.nested_sensitive_fields)
-            for item in _iter_list_items(session, headers, config, logger)
-        )
-
-    for item in items:
-        batcher.batch(item)
-        if batcher.should_yield():
+        for rows in _iter_browser_telemetry_events(session, headers, logger, manager):
+            batcher.batch(rows)
             yield batcher.get_table()
+        return
 
-    if batcher.should_yield(include_incomplete_chunk=True):
-        yield batcher.get_table()
+    resume = manager.load_state() if manager.can_resume() else None
+    offset = resume.offset if resume is not None and resume.offset is not None else 0
+    for items, next_offset in _iter_list_pages(session, headers, config, logger, offset):
+        if next_offset is not None:
+            manager.save_state(KernelResumeConfig(offset=next_offset))
+        if items:
+            batcher.batch([_redact_sensitive_fields(item, config.nested_sensitive_fields) for item in items])
+            yield batcher.get_table()
+        else:
+            manager.safe_point()
 
 
 def kernel_source(
     api_key: str,
     endpoint: str,
     logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[KernelResumeConfig],
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     endpoint_config: KernelEndpointConfig = KERNEL_ENDPOINTS[endpoint]
@@ -459,13 +518,15 @@ def kernel_source(
             get_audit_log_rows,
             api_key=api_key,
             logger=logger,
+            manager=resumable_source_manager,
             db_incremental_field_last_value=db_incremental_field_last_value,
         )
         if endpoint == AUDIT_LOGS_ENDPOINT
-        else partial(get_rows, api_key=api_key, endpoint=endpoint, logger=logger)
+        else partial(get_rows, api_key=api_key, endpoint=endpoint, logger=logger, manager=resumable_source_manager)
     )
     return SourceResponse(
         name=endpoint,
+        on_complete=resumable_source_manager.clear_state,
         items=items,
         primary_keys=endpoint_config.primary_keys,
         sort_mode="asc",

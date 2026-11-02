@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zapier_sup
     ZapierSupportedStorageSource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zapier_supported_storage.zapier_supported_storage import (
+    ZapierSupportedStorageResumeConfig,
     ZapierSupportedStorageRetryableError,
     validate_credentials,
     zapier_supported_storage_source,
@@ -62,6 +63,22 @@ class TestGetRows:
         # everything else is JSON-encoded, and a genuine null stays null.
         rows = _rows_from_store({"k": stored_value})
         assert rows == [{"key": "k", "value": expected}]
+
+    @pytest.mark.parametrize(
+        ("resume_state", "expected_keys"),
+        [
+            (None, ["a", "b", "c"]),
+            (ZapierSupportedStorageResumeConfig(last_key="a"), ["b", "c"]),
+            (ZapierSupportedStorageResumeConfig(last_key="c"), []),
+        ],
+    )
+    def test_resume_reads_only_keys_after_the_saved_one(
+        self, resume_state: ZapierSupportedStorageResumeConfig | None, expected_keys: list[str]
+    ) -> None:
+        result = _driver().run("records", [ScriptedResponse(json={"c": 3, "a": 1, "b": 2})], resume_state=resume_state)
+
+        assert result.raised is None
+        assert [row["key"] for table in result.items for row in table.to_pylist()] == expected_keys
 
 
 class TestFetchStore:
@@ -138,7 +155,9 @@ class TestSourceResponse:
     def test_items_is_lazy(self) -> None:
         # Building the SourceResponse must not issue any request; only iterating items should.
         with scripted_network([]) as network:
-            zapier_supported_storage_source(secret="s", endpoint="records", logger=MagicMock())
+            zapier_supported_storage_source(
+                secret="s", endpoint="records", logger=MagicMock(), resumable_source_manager=MagicMock()
+            )
 
         assert network.requests_log == []
         assert network.session_options == []

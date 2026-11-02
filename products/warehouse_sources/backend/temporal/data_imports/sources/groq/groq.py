@@ -1,3 +1,7 @@
+from typing import Any
+
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -8,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     JSONResponseCursorPaginator,
     SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.groq.settings import (
@@ -16,6 +21,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.groq.setti
 )
 
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+
+
+@frozen
+class GroqResumeConfig:
+    # The `paging.next_cursor` of the last page handed on. Only `batches` paginates.
+    cursor: str
 
 
 def _get_headers(api_key: str) -> dict[str, str]:
@@ -39,6 +50,7 @@ def groq_source(
     endpoint: str,
     team_id: int,
     job_id: str,
+    resumable_source_manager: ResumableSourceManager[GroqResumeConfig],
 ) -> SourceResponse:
     config: GroqEndpointConfig = GROQ_ENDPOINTS[endpoint]
 
@@ -68,10 +80,24 @@ def groq_source(
         ],
     }
 
-    resource = rest_api_resource(rest_config, team_id, job_id, None)
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+    def save_checkpoint(state: dict[str, Any] | None) -> None:
+        if state and state.get("cursor"):
+            resumable_source_manager.save_state(GroqResumeConfig(cursor=str(state["cursor"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state={"cursor": resume.cursor} if resume is not None else None,
+    )
 
     return SourceResponse(
         name=endpoint,
+        on_complete=resumable_source_manager.clear_state,
         items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,

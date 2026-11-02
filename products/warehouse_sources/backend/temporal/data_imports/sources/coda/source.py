@@ -9,15 +9,17 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfigType,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.coda.coda import (
+    CodaResumeConfig,
     coda_source,
     validate_credentials as validate_coda_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.coda.settings import ENDPOINTS, INCREMENTAL_FIELDS
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
     SourceSchema,
     build_endpoint_schemas,
@@ -28,7 +30,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class CodaSource(SimpleSource[CodaSourceConfig]):
+class CodaSource(ResumableSource[CodaSourceConfig, CodaResumeConfig]):
     codebase_detection = detect(env=("^CODA_API_",), npm=("@codahq/packs-sdk",), pypi=("codaio",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -101,10 +103,19 @@ You can generate an API token in [Coda account settings](https://coda.io/account
 
         return False, "Invalid Coda API token"
 
-    def source_for_pipeline(self, config: CodaSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[CodaResumeConfig]:
+        return ResumableSourceManager[CodaResumeConfig](inputs, CodaResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: CodaSourceConfig,
+        resumable_source_manager: ResumableSourceManager[CodaResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         return coda_source(
             api_token=config.api_token,
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
+            resumable_source_manager=resumable_source_manager,
         )

@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.kernel.kernel import (
     AUDIT_LOG_MAX_WINDOW,
     PAGE_SIZE,
+    KernelResumeConfig,
     KernelRetryableError,
     KernelUnexpectedResponseError,
     _extract_items,
@@ -157,6 +158,52 @@ class TestGetRows:
 
         assert isinstance(result.raised, KernelUnexpectedResponseError)
 
+    @pytest.mark.parametrize(
+        "endpoint, saved, responses, expected_paths, expected_offsets, row_key, expected_keys",
+        [
+            pytest.param(
+                "deployments",
+                KernelResumeConfig(offset=100),
+                {"/deployments": [_response([{"id": "a2"}], has_more=False)]},
+                ["/deployments"],
+                ["100"],
+                "id",
+                ["a2"],
+                id="list_starts_at_saved_offset",
+            ),
+            pytest.param(
+                "browser_telemetry_events",
+                KernelResumeConfig(telemetry_session_id="b2", telemetry_cursor=987),
+                {
+                    "/browsers": [_response([{"session_id": "b3"}, {"session_id": "b1"}, {"session_id": "b2"}])],
+                    "/browsers/b2/telemetry/events": [_response([{"seq": 2, "event": {}}], has_more=False)],
+                    "/browsers/b3/telemetry/events": [_response([{"seq": 3, "event": {}}], has_more=False)],
+                },
+                ["/browsers", "/browsers/b2/telemetry/events", "/browsers/b3/telemetry/events"],
+                ["0", "987", None],
+                "seq",
+                [2, 3],
+                id="telemetry_skips_finished_sessions_and_resumes_the_saved_one",
+            ),
+        ],
+    )
+    def test_resumes_from_saved_state(
+        self,
+        endpoint: str,
+        saved: KernelResumeConfig,
+        responses: dict[str, list[ScriptedResponse]],
+        expected_paths: list[str],
+        expected_offsets: list[str | None],
+        row_key: str,
+        expected_keys: list[Any],
+    ) -> None:
+        result = _driver().run(endpoint, route(responses), resume_state=saved)
+
+        assert result.raised is None
+        assert result.paths == expected_paths
+        assert result.params("offset") == expected_offsets
+        assert [row[row_key] for row in _rows(result)] == expected_keys
+
     def test_retries_exhausted_raises(self) -> None:
         result = _driver().run("apps", always(_response(None, status_code=503)))
 
@@ -274,7 +321,7 @@ class TestKernelSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
         config = KERNEL_ENDPOINTS[endpoint]
-        response = kernel_source("sk_test", endpoint, mock.MagicMock())
+        response = kernel_source("sk_test", endpoint, mock.MagicMock(), resumable_source_manager=mock.MagicMock())
 
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
@@ -369,20 +416,26 @@ class TestAuditLogRows:
         assert {r["id"] for r in _rows(rerun)} == {r["id"] for r in rows[-2:]}
 
     @pytest.mark.parametrize(
-        "last_value, expected_start",
+        "last_value, resume_start, expected_start",
         [
-            (None, _NOW - timedelta(days=365)),
-            (_NOW - timedelta(days=2), _NOW - timedelta(days=2)),
-            ("2026-05-30T00:00:00Z", datetime(2026, 5, 30, tzinfo=UTC)),
+            (None, None, _NOW - timedelta(days=365)),
+            (_NOW - timedelta(days=2), None, _NOW - timedelta(days=2)),
+            ("2026-05-30T00:00:00Z", None, datetime(2026, 5, 30, tzinfo=UTC)),
             # Kernel keeps one year of audit logs, so an older watermark starts at the retention edge.
-            (_NOW - timedelta(days=500), _NOW - timedelta(days=365)),
+            (_NOW - timedelta(days=500), None, _NOW - timedelta(days=365)),
+            # A resumed run starts after the last window it handed on.
+            (None, "2026-05-10T00:00:00.000000Z", datetime(2026, 5, 10, tzinfo=UTC)),
+            (_NOW - timedelta(days=2), "2026-05-10T00:00:00.000000Z", _NOW - timedelta(days=2)),
         ],
     )
     @time_machine.travel(_NOW, tick=False)
-    def test_search_starts_at_watermark_or_retention_edge(self, last_value: Any, expected_start: datetime) -> None:
+    def test_search_starts_at_watermark_or_retention_edge(
+        self, last_value: Any, resume_start: str | None, expected_start: datetime
+    ) -> None:
         result = _driver().run(
             "audit_logs",
             always(_response([], has_more=False)),
+            resume_state=KernelResumeConfig(audit_log_start=resume_start) if resume_start else None,
             incremental_field="timestamp" if last_value is not None else None,
             db_incremental_field_last_value=last_value,
         )
