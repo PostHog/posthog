@@ -3,10 +3,11 @@
 Vendored from [depot/skills](https://github.com/depot/skills) — used by the Depot CI workflows this repo keeps under `.depot/workflows/`.
 
 - Source: `skills/depot-ci/SKILL.md` and `skills/depot-ci/references/`
-- Commit: [`71f008d`](https://github.com/depot/skills/tree/71f008de4dbfa8625ece3df85019bc914b9399a0/skills/depot-ci) (2026-10-15)
+- Commit: [`34871e1`](https://github.com/depot/skills/tree/34871e14c57f322e87debbe17e73f0a3b4e2e4f1/skills/depot-ci) (2026-10-30)
 - License: none in upstream at this commit; README documents `cp SKILL.md` install.
 
 Upstream also ships `agents/openai.yaml`, `assets/` icons and `references/test-splitting.md` in this directory. None is vendored: we do not run the OpenAI agent definition, the icons are branding for Depot's own docs, and PostHog does not use Depot test splitting.
+`references/entire.md` is vendored even though PostHog does not use Entire, because upstream `SKILL.md` links to it.
 
 ## Local additions
 
@@ -25,7 +26,7 @@ SHA=$(curl -s https://api.github.com/repos/depot/skills/commits/main | jq -r .sh
 BASE=https://raw.githubusercontent.com/depot/skills/$SHA/skills/depot-ci
 cp .agents/skills/depot-ci/SKILL.md /tmp/depot-ci-local.md
 curl -sfL "$BASE/SKILL.md" -o .agents/skills/depot-ci/SKILL.md
-for r in github-actions-compatibility migration oidc runs-and-debugging secrets-and-variables; do
+for r in entire github-actions-compatibility migration oidc runs-and-debugging secrets-and-variables; do
   curl -sfL "$BASE/references/$r.md" -o ".agents/skills/depot-ci/references/$r.md"
 done
 diff /tmp/depot-ci-local.md .agents/skills/depot-ci/SKILL.md

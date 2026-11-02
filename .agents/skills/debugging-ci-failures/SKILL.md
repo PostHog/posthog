@@ -378,7 +378,7 @@ depot ci run --workflow .depot/workflows/ci-backend.yml --job <job>
 After each run:
 
 1. Poll `depot ci status <run-id>` in a bounded loop until the run is no longer queued or running.
-   The CLI version that flox installs has no `--wait` flag.
+   `depot ci status --wait` needs CLI 2.102.19 or later, and the flox lock pins 2.102.9.
 2. On failure, run `depot ci diagnose --job <job-id> --output json`.
    It returns grouped failures, a possible fix and its evidence lines.
    The diagnosis is AI-generated, so confirm it against `depot ci logs <attempt-id>` before you act on it.
