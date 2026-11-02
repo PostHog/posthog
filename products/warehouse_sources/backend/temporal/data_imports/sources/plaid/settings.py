@@ -65,6 +65,31 @@ PLAID_ENDPOINTS: dict[str, PlaidEndpointConfig] = {
         name="institutions",
         primary_keys=["institution_id"],
     ),
+    "recurring_transactions": PlaidEndpointConfig(
+        name="recurring_transactions",
+        primary_keys=["stream_id"],
+        # Recurring Transactions is a separately billed add-on to Transactions.
+        should_sync_default=False,
+        description="Syncing this table starts Plaid's Recurring Transactions subscription for the Item if it does not have one yet.",
+    ),
+    "balances": PlaidEndpointConfig(
+        name="balances",
+        primary_keys=["account_id"],
+        # Plaid bills Balance per request, unlike the cached balances on accounts.
+        should_sync_default=False,
+        description="Each sync of this table makes one billed Plaid Balance request.",
+    ),
+    # One row per account, with the account owners' names, emails, phone numbers and addresses.
+    "identity": PlaidEndpointConfig(
+        name="identity",
+        primary_keys=["account_id"],
+        should_sync_default=False,
+        description="Contains the names, emails, phone numbers and addresses of the account owners.",
+    ),
+    "items": PlaidEndpointConfig(
+        name="items",
+        primary_keys=["item_id"],
+    ),
 }
 
 ENDPOINTS = tuple(PLAID_ENDPOINTS.keys())

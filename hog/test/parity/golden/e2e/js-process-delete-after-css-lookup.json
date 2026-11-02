@@ -65,7 +65,10 @@
   ],
   "files": {
     "dist/a.js": "utf8:!function(){try{var e=\"undefined\"!=typeof window?window:\"undefined\"!=typeof global?global:\"undefined\"!=typeof globalThis?globalThis:\"undefined\"!=typeof self?self:{};e._posthogReleaseId=e._posthogReleaseId||\"e7ccdce0-e172-5444-b00e-bec22162f00f\";var n=(new e.Error).stack;n&&(e._posthogChunkIds=e._posthogChunkIds||{},e._posthogChunkIds[n]=\"3f161e6c-fc03-5fe2-a9e9-08e5ae65fd15\")}catch(e){}}();a();\n\n//# chunkId=3f161e6c-fc03-5fe2-a9e9-08e5ae65fd15",
+    "dist/a.js.map": null,
     "dist/cdn.css": "utf8:.a{}\n",
-    "dist/stale.css": "utf8:.b{}\n"
+    "dist/cdn.css.map": null,
+    "dist/stale.css": "utf8:.b{}\n",
+    "dist/stale.css.map": null
   }
 }

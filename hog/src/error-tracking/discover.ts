@@ -106,9 +106,16 @@ function detect(
 
 // Sorted, so runs on different machines visit files in the same order. Symlinks are skipped, as
 // in posthog-cli, so a link can't make hog rewrite files outside the folder. A dSYM bundle is one
-// artifact, so the walk doesn't look inside it.
+// artifact, so the walk doesn't look inside it. A folder that can't be read is skipped, as in
+// posthog-cli, which drops the walk errors.
 function walk(folder: string, out: { files: string[]; bundles: string[] }): void {
-    for (const entry of readdirSync(folder, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
+    let entries
+    try {
+        entries = readdirSync(folder, { withFileTypes: true })
+    } catch {
+        return
+    }
+    for (const entry of entries.sort((a, b) => (a.name < b.name ? -1 : 1))) {
         if (entry.name === 'node_modules' || entry.name === '.git') {
             continue
         }

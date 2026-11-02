@@ -1013,6 +1013,9 @@ class TaskWriteSerializer(serializers.Serializer):
             tasks_facade.TaskOriginProduct.BUSINESS_KNOWLEDGE,
             # Maps to the billed `posthog_ai` gateway product. Only the metrics dashboard import sets it.
             tasks_facade.TaskOriginProduct.METRICS_IMPORT,
+            # Owns the docs repository branch it pushes to. Only the knowledge writer intake sets it.
+            tasks_facade.TaskOriginProduct.KNOWLEDGE_WRITER,
+            tasks_facade.TaskOriginProduct.CONTEXT_LAYER,
         }
         if value in reserved_origins:
             raise serializers.ValidationError(f"origin_product '{value}' is reserved for server-created tasks")
@@ -2462,6 +2465,22 @@ class ChannelSerializer(DataclassSerializer):
             "starred",
             "system_role",
         ]
+
+
+class ChannelPageSerializer(serializers.Serializer):
+    count = serializers.IntegerField(help_text="Number of channels the requester can access.")
+    next = serializers.URLField(allow_null=True, help_text="URL of the next page, or null on the last page.")
+    previous = serializers.URLField(allow_null=True, help_text="URL of the previous page, or null on the first page.")
+    results = ChannelSerializer(many=True, help_text="Channels on this page.")
+
+
+# The channel list is an array without `limit` and a page with `limit`, so its schema is one of the two.
+ChannelListResponseSerializer = PolymorphicProxySerializer(
+    component_name="ChannelListResponse",
+    serializers=[ChannelSerializer(many=True), ChannelPageSerializer],
+    resource_type_field_name=None,
+    many=False,
+)
 
 
 class ChannelContributorsSerializer(DataclassSerializer):

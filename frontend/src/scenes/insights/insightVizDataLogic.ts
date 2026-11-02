@@ -17,6 +17,7 @@ import {
     PIE_DISPLAY_TYPES,
 } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils/dateFilters'
 import { objectsEqual } from 'lib/utils/objects'
@@ -31,7 +32,7 @@ import {
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import { cleanSeriesNodes } from 'scenes/insights/filters/ActionFilter/cleanSeriesNodes'
 import {
-    FLAG_CALLS_SERIES_NAME,
+    flagCallsSeriesName,
     dataWarehouseSeriesNodes,
     everyWarehouseSeriesReadsFlagCalls,
     flagCallsBreakdownFromEventBreakdown,
@@ -41,18 +42,45 @@ import {
 import type { SeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { trendsResultsMatchQuery } from 'scenes/insights/utils/queryUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
+import { trendsResultsMatchQuery } from '~/queries/nodes/InsightViz/queryUtils'
 import {
     extractValidationError,
     extractValidationErrorCode,
     getAllEventNames,
     queryFromKind,
 } from '~/queries/nodes/InsightViz/utils'
+import {
+    getBreakdown,
+    getCompareFilter,
+    getDisplay,
+    getFormula,
+    getInterval,
+    getSeries,
+} from '~/queries/schema/node-accessors'
+import {
+    isActionsNode,
+    isAnyDataWarehouseNode,
+    isDataWarehouseNode,
+    isEventsNode,
+    isFunnelsQuery,
+    isInsightQueryNode,
+    isInsightVizNode,
+    isLifecycleDataWarehouseNode,
+    isLifecycleQuery,
+    isNodeWithSource,
+    isPathsQuery,
+    isPathsV2Query,
+    isRetentionQuery,
+    isStickinessQuery,
+    isTrendsQuery,
+    isWebOverviewQuery,
+    isWebStatsTableQuery,
+    hasBreakdownFilter,
+} from '~/queries/schema/node-guards'
 import {
     AnyDataWarehouseNode,
     AnyEntityNode,
@@ -82,17 +110,11 @@ import {
     filterForQuery,
     filterKeyForQuery,
     getAggregationGroupTypeIndex,
-    getBreakdown,
-    getCompareFilter,
-    getDisplay,
-    getFormula,
     getFormulaNodes,
     getFormulas,
     getGoalLines,
-    getInterval,
     getLegendPosition,
     getResultCustomizationBy,
-    getSeries,
     getShowAlertThresholdLines,
     getAnnotationsScope,
     getShowAnnotations,
@@ -103,28 +125,10 @@ import {
     getShowPercentStackView,
     getShowValuesOnSeries,
     getYAxisScaleType,
-    isActionsNode,
-    isAnyDataWarehouseNode,
-    isDataWarehouseNode,
-    isEventsNode,
-    isFunnelsQuery,
-    isInsightQueryNode,
-    isInsightVizNode,
-    isLifecycleDataWarehouseNode,
-    isLifecycleQuery,
-    isNodeWithSource,
-    isPathsQuery,
-    isPathsV2Query,
-    isRetentionQuery,
-    isStickinessQuery,
-    isTrendsQuery,
     isWebAnalyticsInsightQuery,
-    isWebOverviewQuery,
-    isWebStatsTableQuery,
     nodeKindToFilterProperty,
     supportsBarValueStacking,
     supportsPercentStackView,
-    hasBreakdownFilter,
 } from '~/queries/utils'
 import {
     BaseMathType,
@@ -3266,7 +3270,7 @@ const handleQuerySourceUpdateSideEffects = (
         hasEventBasedBreakdown(breakdownFilter)
     if (mixesEventAndDataWarehouseSeries || hasEventBreakdownOnDataWarehouseSeries) {
         if (hasBreakdownFilter(breakdownFilter)) {
-            const subject = readsFlagCalls(nextQuery) ? FLAG_CALLS_SERIES_NAME : 'A data warehouse series'
+            const subject = readsFlagCalls(nextQuery) ? flagCallsSeriesName() : 'A data warehouse series'
             lemonToast.info(
                 hasEventBreakdownOnDataWarehouseSeries
                     ? `${subject} doesn't support this breakdown, so it's removed.`

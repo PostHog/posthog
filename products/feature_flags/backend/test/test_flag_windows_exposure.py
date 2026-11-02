@@ -13,12 +13,8 @@ from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.models import Team
 from posthog.test.persons import create_person
 
-from products.feature_flags.backend.flag_windows.exposure import (
-    ExposureBucket,
-    ExposureCounts,
-    WatchedEdit,
-    exposure_by_bucket,
-)
+from products.feature_flags.backend.flag_windows.exposure import ExposureBucket, ExposureCounts, exposure_by_bucket
+from products.feature_flags.backend.flag_windows.query import WatchedEdit
 
 START = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
 BUCKET = timedelta(minutes=10)
