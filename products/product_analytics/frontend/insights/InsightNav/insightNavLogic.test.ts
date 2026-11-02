@@ -236,34 +236,19 @@ describe('insightNavLogic', () => {
         })
 
         describe('metrics tab visibility', () => {
-            it.each([
-                ['no flags', {}, false],
-                ['only the builder flag', { [FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]: true }, false],
-                [
-                    'both metrics flags',
-                    { [FEATURE_FLAGS.METRICS]: true, [FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]: true },
-                    true,
-                ],
-                [
-                    'both metrics flags and dashboard widgets, which make metrics charts widgets',
-                    {
-                        [FEATURE_FLAGS.METRICS]: true,
-                        [FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]: true,
-                        [FEATURE_FLAGS.DASHBOARD_WIDGETS]: true,
-                    },
-                    false,
-                ],
-            ])('on a new insight with %s, shows the metrics tab: %s', (_, flags, shown) => {
-                featureFlagLogic.actions.setFeatureFlags([], flags)
-                expect(logic.values.tabs.map((tab) => tab.type).includes(InsightType.METRICS)).toBe(shown)
-            })
-
-            it('keeps the metrics tab and its draft after switching to another tab and back', async () => {
-                // With dashboard widgets on, only an open metrics query keeps the tab, as for a saved metrics insight.
+            it('does not offer the metrics tab on a new insight, because new metrics charts are widgets', () => {
                 featureFlagLogic.actions.setFeatureFlags([], {
                     [FEATURE_FLAGS.METRICS]: true,
                     [FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]: true,
-                    [FEATURE_FLAGS.DASHBOARD_WIDGETS]: true,
+                })
+                expect(logic.values.tabs.map((tab) => tab.type)).not.toContain(InsightType.METRICS)
+            })
+
+            it('keeps the metrics tab and its draft after switching to another tab and back', async () => {
+                // Only an open metrics query keeps the tab, as for a saved metrics insight.
+                featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.METRICS]: true,
+                    [FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]: true,
                 })
 
                 await expectLogic(builtInsightDataLogic, () => {
