@@ -150,14 +150,13 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
                 opted_out[EMAIL_TRACKING_PREFERENCE_ID] = tracking_pref
             return opted_out
 
-        prior_preferences = transition_preferences(team_id, identifier, opt_out_of_everything, touch_updated_at=False)
+        transition = transition_preferences(team_id, identifier, opt_out_of_everything, touch_updated_at=False)
         was_fully_opted_out = (
-            preference_status(prior_preferences, ALL_MESSAGE_PREFERENCE_CATEGORY_ID) == PreferenceStatus.OPTED_OUT
+            preference_status(transition.before, ALL_MESSAGE_PREFERENCE_CATEGORY_ID) == PreferenceStatus.OPTED_OUT
         )
-        preferences_dict = opt_out_of_everything(prior_preferences)
-        current_preferences = preferences_dict
+        current_preferences = transition.after
 
-        sync_to_customerio(team_id, identifier, preferences_dict)
+        sync_to_customerio(team_id, identifier, transition.after)
 
         # Only a genuine transition emits, so token replays and scanner prefetches don't inflate events
         if not was_fully_opted_out:
@@ -275,25 +274,24 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
                 updated = {**stored, **updated}
             return updated
 
-        prior_preferences = transition_preferences(team_id, identifier, apply_submitted, touch_updated_at=True)
-        preferences_dict = apply_submitted(prior_preferences)
+        transition = transition_preferences(team_id, identifier, apply_submitted, touch_updated_at=True)
 
-        sync_to_customerio(team_id, identifier, preferences_dict)
+        sync_to_customerio(team_id, identifier, transition.after)
 
         # Only genuine opt-out transitions count, so repeated saves don't double-emit
         newly_opted_out = [
             category_id
-            for category_id, status in preferences_dict.items()
+            for category_id, status in transition.after.items()
             if category_id != EMAIL_TRACKING_PREFERENCE_ID
             and status == PreferenceStatus.OPTED_OUT.value
-            and prior_preferences.get(category_id) != PreferenceStatus.OPTED_OUT.value
+            and transition.before.get(category_id) != PreferenceStatus.OPTED_OUT.value
         ]
         if newly_opted_out:
             record_unsubscribe_metric(team_id, data, newly_opted_out)
             report_workflows_email_unsubscribed(team_id, identifier, newly_opted_out, "preferences_page")
 
-        new_tracking_consent = preferences_dict.get(EMAIL_TRACKING_PREFERENCE_ID)
-        if new_tracking_consent is not None and new_tracking_consent != prior_preferences.get(
+        new_tracking_consent = transition.after.get(EMAIL_TRACKING_PREFERENCE_ID)
+        if new_tracking_consent is not None and new_tracking_consent != transition.before.get(
             EMAIL_TRACKING_PREFERENCE_ID
         ):
             report_workflows_email_tracking_consent_updated(team_id, identifier, new_tracking_consent)

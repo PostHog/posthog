@@ -50,6 +50,14 @@ class ChangedPreferences:
 
 
 @frozen
+class PreferenceTransition:
+    """A recipient's stored preferences before and after one locked write."""
+
+    before: dict[str, Any]
+    after: dict[str, Any]
+
+
+@frozen
 class OptOutRequest:
     identifier: str
     category_key: str | None = None
@@ -219,12 +227,15 @@ def transition_preferences(
     build: Callable[[dict[str, Any]], dict[str, Any]],
     *,
     touch_updated_at: bool,
-) -> dict[str, Any]:
+) -> PreferenceTransition:
     """Replace the recipient's preferences with `build(stored)` under a row lock, creating the row when it is missing.
 
-    Returns the stored preferences it replaced. `touch_updated_at=False` writes only the preferences column.
+    Returns the stored preferences before and after the write. `touch_updated_at=False` writes only the preferences column.
     """
-    return preferences_service.transition_preferences(team_id, identifier, build, touch_updated_at=touch_updated_at)
+    transition = preferences_service.transition_preferences(
+        team_id, identifier, build, touch_updated_at=touch_updated_at
+    )
+    return PreferenceTransition(before=transition.before, after=transition.after)
 
 
 def sync_to_customerio(team_id: int, identifier: str, preferences: dict[str, Any]) -> None:

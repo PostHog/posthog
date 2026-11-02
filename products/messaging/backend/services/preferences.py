@@ -4,6 +4,8 @@ from typing import Any
 from django.db import transaction
 from django.db.models import QuerySet
 
+from posthog.dataclasses import frozen
+
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_preferences import (
     ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
@@ -107,8 +109,6 @@ def set_preferences(
     if unknown:
         raise TopicsNotFound(unknown)
 
-    saved: dict[str, Any] = {}
-
     def apply(stored: dict[str, Any]) -> dict[str, Any]:
         preferences = dict(stored)
         if all_marketing is not None:
@@ -117,13 +117,12 @@ def set_preferences(
             if opted_in:
                 _lift_global_opt_out(team_id, preferences, categories[key])
             preferences[str(categories[key].id)] = _status(opted_in)
-        saved.update(preferences)
         return preferences
 
-    transition_preferences(team_id, identifier, apply, touch_updated_at=True)
+    transition = transition_preferences(team_id, identifier, apply, touch_updated_at=True)
     _sync_after_commit(team_id, identifier)
     # The written snapshot, not a reread that a lagging replica could answer with old preferences.
-    return saved
+    return transition.after
 
 
 def _status(opted_in: bool) -> str:
@@ -196,21 +195,28 @@ def recipient_or_none(team_id: int, identifier: str) -> MessageRecipientPreferen
     return MessageRecipientPreference.objects.filter(team_id=team_id, identifier=identifier).first()
 
 
+@frozen
+class PreferenceTransition:
+    before: dict[str, Any]
+    after: dict[str, Any]
+
+
 def transition_preferences(
     team_id: int,
     identifier: str,
     build: Callable[[dict[str, Any]], dict[str, Any]],
     *,
     touch_updated_at: bool,
-) -> dict[str, Any]:
-    """Replace the recipient's preferences with `build(stored)` under a row lock, and return the stored ones.
+) -> PreferenceTransition:
+    """Replace the recipient's preferences with `build(stored)` under a row lock, and return both states.
 
     Concurrent saves for one recipient run one after another, so each sees the result of the one before it.
     """
     with transaction.atomic():
         MessageRecipientPreference.objects.get_or_create(team_id=team_id, identifier=identifier)
         recipient = MessageRecipientPreference.objects.select_for_update().get(team_id=team_id, identifier=identifier)
-        prior = dict(recipient.preferences or {})
-        recipient.preferences = build(prior)
+        before = dict(recipient.preferences or {})
+        after = build(before)
+        recipient.preferences = after
         recipient.save(update_fields=None if touch_updated_at else ["preferences"])
-    return prior
+    return PreferenceTransition(before=before, after=after)
