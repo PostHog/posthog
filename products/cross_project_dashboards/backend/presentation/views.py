@@ -7,11 +7,11 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.exceptions import NotFound, PermissionDenied
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
 from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scoped_team_ids
@@ -39,8 +39,7 @@ def _uuid(value: str) -> UUID:
         raise NotFound()
 
 
-class CrossProjectDashboardPagination(LimitOffsetPagination):
-    # The shared paginator has no ceiling, so ?limit= could ask a single request for every row.
+class CrossProjectDashboardPagination(FacadeLimitOffsetPagination):
     default_limit = 100
     max_limit = 100
 
@@ -58,23 +57,7 @@ class OrganizationWideCredentialPermission(BasePermission):
         return get_authenticator_scoped_team_ids(getattr(request, "successful_authenticator", None)) is None
 
 
-class _FacadePageMixin:
-    def _paginated(self, request: Request, page: contracts.DashboardPage | contracts.TilePage, data: Any) -> Response:
-        paginator = self.paginator  # type: ignore[attr-defined]
-        paginator.request = request
-        paginator.limit = paginator.get_limit(request)
-        paginator.offset = paginator.get_offset(request)
-        paginator.count = page.count
-        return paginator.get_paginated_response(data)
-
-    def _offset(self, request: Request) -> int:
-        return self.paginator.get_offset(request)  # type: ignore[attr-defined]
-
-    def _limit(self, request: Request) -> int:
-        return self.paginator.get_limit(request)  # type: ignore[attr-defined]
-
-
-class CrossProjectDashboardViewSet(TeamAndOrgViewSetMixin, _FacadePageMixin, viewsets.GenericViewSet):
+class CrossProjectDashboardViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Dashboards the organization owns, holding insights from one or more projects."""
 
     # Any organization member may create one, and may edit or delete one whose tiles all come from
@@ -96,13 +79,11 @@ class CrossProjectDashboardViewSet(TeamAndOrgViewSetMixin, _FacadePageMixin, vie
 
     @extend_schema(responses={200: CrossProjectDashboardListItemSerializer(many=True)})
     def list(self, request: Request, **kwargs: Any) -> Response:
-        page = api.list_dashboards(
-            organization_id=self.organization_id,
-            user=self._user(),
-            offset=self._offset(request),
-            limit=self._limit(request),
+        return facade_page_response(
+            self,
+            lambda page: api.list_dashboards(organization_id=self.organization_id, user=self._user(), page=page),
+            serializer_class=CrossProjectDashboardListItemSerializer,
         )
-        return self._paginated(request, page, CrossProjectDashboardListItemSerializer(page.results, many=True).data)
 
     @extend_schema(request=CrossProjectDashboardSerializer, responses={201: CrossProjectDashboardSerializer})
     def create(self, request: Request, **kwargs: Any) -> Response:
@@ -157,7 +138,7 @@ class CrossProjectDashboardViewSet(TeamAndOrgViewSetMixin, _FacadePageMixin, vie
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class CrossProjectDashboardTileViewSet(TeamAndOrgViewSetMixin, _FacadePageMixin, viewsets.GenericViewSet):
+class CrossProjectDashboardTileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Tiles on one cross-project dashboard, edited one at a time.
 
     Writes are per tile rather than a whole-set replace, so two people editing the same
@@ -182,14 +163,12 @@ class CrossProjectDashboardTileViewSet(TeamAndOrgViewSetMixin, _FacadePageMixin,
 
     @extend_schema(parameters=[PARENT_DASHBOARD_ID], responses={200: CrossProjectDashboardTileSerializer(many=True)})
     def list(self, request: Request, **kwargs: Any) -> Response:
-        page = api.list_tiles(
-            organization_id=self.organization_id,
-            dashboard_id=self._dashboard_id(),
-            user=self._user(),
-            offset=self._offset(request),
-            limit=self._limit(request),
+        return facade_page_response(
+            self,
+            lambda page: api.list_tiles(
+                organization_id=self.organization_id, dashboard_id=self._dashboard_id(), user=self._user(), page=page
+            ),
         )
-        return self._paginated(request, page, CrossProjectDashboardTileSerializer(page.results, many=True).data)
 
     @extend_schema(
         parameters=[PARENT_DASHBOARD_ID],
