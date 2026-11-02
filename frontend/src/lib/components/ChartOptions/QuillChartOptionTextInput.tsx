@@ -23,10 +23,11 @@ export function QuillChartOptionTextInput({
     const id = useId()
 
     return (
-        <Field>
+        <Field orientation="horizontal" className="justify-between">
             {label && <QuillChartOptionLabel htmlFor={id} label={label} info={info} />}
             <Input
                 id={id}
+                className={label ? 'w-28' : undefined}
                 value={draft}
                 placeholder={placeholder}
                 onChange={(event) => setDraft(event.target.value)}

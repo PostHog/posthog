@@ -55,7 +55,7 @@ export function QuillInsightDisplayOptionsPanel({
 }: QuillInsightDisplayOptionsPanelProps): JSX.Element {
     if (tabs.length === 1) {
         return (
-            <div className="w-80 p-2" data-attr="insight-display-options-panel">
+            <div className="w-60 p-2" data-attr="insight-display-options-panel">
                 <QuillDisplayOptionSectionList sections={activeTab.sections} />
             </div>
         )
@@ -65,7 +65,7 @@ export function QuillInsightDisplayOptionsPanel({
         <Tabs
             value={activeTab.key}
             onValueChange={(key) => onTabChange(key as DisplayOptionTabKey)}
-            className="w-80 gap-3 p-2"
+            className="w-60 gap-3 p-2 [--quill-tabs-active-bg:var(--card)]"
             data-attr="insight-display-options-panel"
         >
             <TabsList variant="line" className="w-full" data-attr="insight-display-options-tabs">

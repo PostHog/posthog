@@ -3,7 +3,7 @@ import { LemonSwitch } from '@posthog/lemon-ui'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { ChartOptionLabel } from './ChartOptionLabel'
-import { QuillChartOptionSwitch } from './QuillChartOptionSwitch'
+import { QuillChartOptionCheckbox } from './QuillChartOptionCheckbox'
 
 export interface ChartOptionSwitchProps {
     label: string
@@ -18,7 +18,7 @@ export function ChartOptionSwitch(props: ChartOptionSwitchProps): JSX.Element {
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (todayRailNav) {
-        return <QuillChartOptionSwitch {...props} />
+        return <QuillChartOptionCheckbox {...props} />
     }
 
     const { label, info, checked, onChange, disabledReason, 'data-attr': dataAttr } = props

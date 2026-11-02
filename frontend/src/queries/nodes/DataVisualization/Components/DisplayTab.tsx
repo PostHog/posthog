@@ -116,6 +116,7 @@ export const DisplayTab = (): JSX.Element => {
                     onChange={(label) => updateChartSettings({ [name]: { label } })}
                 />
                 <AxisScaleOption
+                    label="Scale"
                     value={chartSettings[name]?.scale === 'logarithmic' ? 'log' : 'linear'}
                     onChange={(scale) =>
                         updateChartSettings({ [name]: { scale: scale === 'log' ? 'logarithmic' : 'linear' } })
@@ -307,6 +308,7 @@ export const DisplayTab = (): JSX.Element => {
                 {isScatterPlot && (
                     <>
                         <AxisScaleOption
+                            label="Scale"
                             value={chartSettings.scatter?.xScale === 'logarithmic' ? 'log' : 'linear'}
                             onChange={(scale) =>
                                 updateChartSettings({
@@ -411,6 +413,7 @@ export const DisplayTab = (): JSX.Element => {
             header: 'Lines',
             content: (
                 <LineStyleOption
+                    label="Line style"
                     data-attr="data-visualization-line-style"
                     value={chartSettings.chartStyle?.curve ?? 'smooth'}
                     onChange={(curve) => updateChartSettings({ chartStyle: { curve } })}

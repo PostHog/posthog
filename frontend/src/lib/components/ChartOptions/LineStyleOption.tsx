@@ -8,15 +8,16 @@ const LINE_STYLE_OPTIONS: { value: LineStyle; label: string }[] = [
 ]
 
 export interface LineStyleOptionProps {
+    label?: string
     value: LineStyle
     onChange: (value: LineStyle) => void
     'data-attr'?: string
 }
 
-export function LineStyleOption({ value, onChange, 'data-attr': dataAttr }: LineStyleOptionProps): JSX.Element {
+export function LineStyleOption({ label, value, onChange, 'data-attr': dataAttr }: LineStyleOptionProps): JSX.Element {
     return (
         <ChartOptionToggleGroup
-            label="Line style"
+            label={label}
             value={value}
             options={LINE_STYLE_OPTIONS}
             onChange={onChange}

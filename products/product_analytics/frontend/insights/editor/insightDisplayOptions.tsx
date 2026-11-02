@@ -4,6 +4,7 @@ import { normalizeAxisLabel } from '@posthog/quill-charts'
 
 import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
 import { PART_OF_WHOLE_DISPLAY_TYPES, PIE_DISPLAY_TYPES } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -42,6 +43,7 @@ function countTruthy(...flags: (boolean | null | undefined)[]): number {
 // non-default active options across all tabs, badged on the Options button.
 export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: number } {
     const { insightProps } = useValues(insightLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const {
         querySource,
         isTrends,
@@ -243,13 +245,16 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
     if (showAxisLabelsConfig) {
         yAxisItems.push(DisplayOptions.YAxisLabel)
     }
+    if (todayRailNav && showYAxisRangeConfig) {
+        yAxisItems.push(DisplayOptions.YAxisRange)
+    }
     if (showMultipleYAxesConfig) {
         yAxisItems.push(DisplayOptions.MultipleYAxes)
     }
     if (showYAxisScale) {
         yAxisItems.push(DisplayOptions.Scale)
     }
-    if (showYAxisRangeConfig) {
+    if (!todayRailNav && showYAxisRangeConfig) {
         yAxisItems.push(DisplayOptions.YAxisRange)
     }
     if (yAxisItems.length > 0) {

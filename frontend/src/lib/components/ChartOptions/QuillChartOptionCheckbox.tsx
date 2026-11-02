@@ -1,11 +1,11 @@
 import { useId } from 'react'
 
-import { Field, Switch } from '@posthog/quill'
+import { Checkbox, Field } from '@posthog/quill'
 
 import type { ChartOptionSwitchProps } from './ChartOptionSwitch'
 import { QuillChartOptionLabel } from './QuillChartOptionLabel'
 
-export function QuillChartOptionSwitch({
+export function QuillChartOptionCheckbox({
     label,
     info,
     checked,
@@ -16,15 +16,15 @@ export function QuillChartOptionSwitch({
     const id = useId()
 
     return (
-        <Field orientation="horizontal" className="justify-between">
-            <QuillChartOptionLabel htmlFor={id} label={label} info={info} />
-            <Switch
+        <Field orientation="horizontal" className="min-h-6">
+            <Checkbox
                 id={id}
                 checked={checked}
                 onCheckedChange={(next: boolean) => onChange(next)}
                 disabledReason={disabledReason || undefined}
                 data-attr={dataAttr}
             />
+            <QuillChartOptionLabel htmlFor={id} label={label} info={info} />
         </Field>
     )
 }

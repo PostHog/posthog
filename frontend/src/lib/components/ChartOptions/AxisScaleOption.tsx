@@ -8,10 +8,11 @@ const SCALE_OPTIONS: { value: AxisScale; label: string }[] = [
 ]
 
 export interface AxisScaleOptionProps {
+    label?: string
     value: AxisScale
     onChange: (value: AxisScale) => void
 }
 
-export function AxisScaleOption({ value, onChange }: AxisScaleOptionProps): JSX.Element {
-    return <ChartOptionToggleGroup label="Scale" value={value} options={SCALE_OPTIONS} onChange={onChange} />
+export function AxisScaleOption({ label, value, onChange }: AxisScaleOptionProps): JSX.Element {
+    return <ChartOptionToggleGroup label={label} value={value} options={SCALE_OPTIONS} onChange={onChange} />
 }

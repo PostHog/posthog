@@ -20,7 +20,6 @@ export function SmoothingFilter(): JSX.Element | null {
     return (
         <ChartOptionSelect
             key={interval}
-            label="Smoothing"
             value={trendsFilter?.smoothingIntervals || 1}
             options={smoothingOptions[interval]}
             onChange={(smoothingIntervals) => updateInsightFilter({ smoothingIntervals })}

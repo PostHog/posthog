@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { BeginAtZeroOption } from 'lib/components/ChartOptions/BeginAtZeroOption'
 import { ChartOptionNumberInput } from 'lib/components/ChartOptions/ChartOptionNumberInput'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -9,6 +10,7 @@ export function YAxisRangeFilter(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { trendsFilter, yAxisScaleType, showPercentStackView } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const rangeDisabledReason =
         yAxisScaleType === 'log10'
@@ -28,14 +30,18 @@ export function YAxisRangeFilter(): JSX.Element {
         typeof trendsFilter?.yAxisMax === 'number' &&
         trendsFilter.yAxisMin >= trendsFilter.yAxisMax
 
+    const beginAtZero = (
+        <BeginAtZeroOption
+            data-attr="trends-y-axis-start-at-zero"
+            checked={beginsAtZero}
+            disabledReason={rangeDisabledReason}
+            onChange={(checked) => updateInsightFilter({ yAxisStartAtZero: checked ? undefined : false })}
+        />
+    )
+
     return (
         <div className="flex flex-col gap-2">
-            <BeginAtZeroOption
-                data-attr="trends-y-axis-start-at-zero"
-                checked={beginsAtZero}
-                disabledReason={rangeDisabledReason}
-                onChange={(checked) => updateInsightFilter({ yAxisStartAtZero: checked ? undefined : false })}
-            />
+            {!todayRailNav && beginAtZero}
             {!beginsAtZero && (
                 <ChartOptionNumberInput
                     label="Minimum"
@@ -55,6 +61,7 @@ export function YAxisRangeFilter(): JSX.Element {
                 onChange={(yAxisMax) => updateInsightFilter({ yAxisMax })}
             />
             {invalidRange && <span className="text-xs text-danger">Maximum must be greater than minimum.</span>}
+            {todayRailNav && beginAtZero}
         </div>
     )
 }
