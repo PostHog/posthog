@@ -19,7 +19,6 @@ from posthog.scopes import UNPRIVILEGED_SCOPES
 # - `task:write` starts an agent run, which gets its own longer-lived token as the owner. So do
 #   `conversation:write` (PostHog AI can create a task), `signal_scout:write`, `business_knowledge:write`
 #   and `autoresearch:write`.
-# - `experiment:write` can end an experiment with a cleanup pull request, which starts an agent run.
 # - `integration:write`, `organization_integration:write` and `llm_provider_key:write` store
 #   third-party credentials, and `hog_function:write` and `hog_flow:write` run code that can read
 #   the stored credentials of the project's integrations.
@@ -45,7 +44,6 @@ CI_TRUST_POLICY_DENIED_SCOPES: frozenset[str] = frozenset(
         "conversation:write",
         "cross_project_dashboard:read",
         "cross_project_dashboard:write",
-        "experiment:write",
         "hog_flow:write",
         "hog_function:write",
         "integration:write",
