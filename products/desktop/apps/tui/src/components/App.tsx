@@ -250,6 +250,7 @@ export function App({
     taskOf,
     loadMore,
     reset: resetWork,
+    listed,
   } = useWorkList({
     work,
     runs,
@@ -382,6 +383,7 @@ export function App({
     onChatStarted,
     setTitles,
     pin: setPinnedTo,
+    listed,
     runShell,
     notice,
     account,

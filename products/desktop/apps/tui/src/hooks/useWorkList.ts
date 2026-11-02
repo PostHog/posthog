@@ -25,6 +25,12 @@ export interface WorkListState {
   taskOf: (taskId: string | null) => Task | undefined;
   loadMore: () => void;
   reset: () => void;
+  // Takes a chat out of the loaded list at once, puts it back where it was, or lets the server's list have it again.
+  listed: {
+    drop: (taskId: string) => void;
+    restore: (taskId: string, task?: Task) => void;
+    release: (taskId: string) => void;
+  };
 }
 
 // The recent work list, refreshed on a timer, with each listed cloud run's recent messages preloaded.
@@ -52,6 +58,9 @@ export function useWorkList({
   const [loaded, setLoaded] = useState({ scope, page: EMPTY_PAGE });
   const page = loaded.scope === scope ? loaded.page : EMPTY_PAGE;
   const [known, setKnown] = useState<Map<string, Task>>(new Map());
+  // Chats dropped from the list, with their place, until the server has heard of it or the drop is undone.
+  const dropped = useRef(new Map<string, { task: Task; index: number }>());
+  const hidden = useRef(new Set<string>());
 
   useEffect(() => {
     if (!work) return;
@@ -63,7 +72,13 @@ export function useWorkList({
           if (!cancelled) {
             setLoaded({
               scope,
-              page: { tasks, hasMore, me, loadingMore: false, error: null },
+              page: {
+                tasks: tasks.filter((task) => !hidden.current.has(task.id)),
+                hasMore,
+                me,
+                loadingMore: false,
+                error: null,
+              },
             });
           }
         },
@@ -145,6 +160,41 @@ export function useWorkList({
     reset: () => {
       setLoaded({ scope, page: EMPTY_PAGE });
       setKnown(new Map());
+    },
+    listed: {
+      drop: (taskId) => {
+        hidden.current.add(taskId);
+        setLoaded((current) => {
+          const tasks = current.page.tasks;
+          const index = tasks?.findIndex((task) => task.id === taskId) ?? -1;
+          if (!tasks || index < 0) return current;
+          dropped.current.set(taskId, { task: tasks[index], index });
+          return {
+            ...current,
+            page: {
+              ...current.page,
+              tasks: tasks.filter((task) => task.id !== taskId),
+            },
+          };
+        });
+      },
+      restore: (taskId, task) => {
+        hidden.current.delete(taskId);
+        const remembered = dropped.current.get(taskId);
+        dropped.current.delete(taskId);
+        const back = remembered?.task ?? task;
+        setLoaded((current) => {
+          const tasks = current.page.tasks;
+          if (!tasks || !back || tasks.some((listed) => listed.id === taskId))
+            return current;
+          const next = [...tasks];
+          next.splice(Math.min(remembered?.index ?? 0, next.length), 0, back);
+          return { ...current, page: { ...current.page, tasks: next } };
+        });
+      },
+      release: (taskId) => {
+        hidden.current.delete(taskId);
+      },
     },
   };
 }

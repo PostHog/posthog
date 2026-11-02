@@ -26,6 +26,7 @@ import type { McpSheet } from "./useMcpSheet";
 import type { Notice } from "./useNotice";
 import type { RepoPicker } from "./useRepoPicker";
 import type { OpenModal } from "./useSheets";
+import type { WorkListState } from "./useWorkList";
 
 export interface Send {
   // What the composer submits: an answer to a typed prompt, a slash command, a ! command, or a message.
@@ -54,6 +55,7 @@ export function useSend({
   setFresh,
   setTitles,
   pin,
+  listed,
   chats,
   taskOf,
   local,
@@ -81,6 +83,7 @@ export function useSend({
   setTitles: Dispatch<SetStateAction<Map<string, string>>>;
   // Pins or unpins a chat; false when it already was.
   pin: (chat: PinnedChat, pinned: boolean) => boolean;
+  listed: WorkListState["listed"];
   chats: PiChats | undefined;
   taskOf: (taskId: string | null) => Task | undefined;
   local: {
@@ -280,24 +283,30 @@ export function useSend({
       if (!taskId) flashNotice("There's no chat to archive yet", here);
       else if (!chats)
         flashNotice("Sign in to archive a chat: type /login", here);
-      else
+      else {
+        // Shown at once; a failed call puts the chat back where it was.
+        if (archived) listed.drop(taskId);
+        else listed.restore(taskId, current);
+        flashNotice(
+          archived ? "Archived. /unarchive brings it back" : "Back in the list",
+          { taskId },
+        );
         chats.setArchived(taskId, archived).then(
           (task) => {
             track("chat archived", { archived });
             setFresh((tasks) => new Map(tasks).set(task.id, task));
-            flashNotice(
-              archived
-                ? "Archived. It leaves the list on its next refresh; /unarchive brings it back"
-                : "Back in the list",
-              { taskId },
-            );
+            listed.release(taskId);
           },
-          (error: unknown) =>
+          (error: unknown) => {
+            if (archived) listed.restore(taskId, current);
+            else listed.drop(taskId);
             flashNotice(
               `Couldn't ${slash.command} this chat: ${messageOf(error)}`,
               { taskId },
-            ),
+            );
+          },
         );
+      }
       return;
     }
     if (slash?.command === "rename-workspace") {

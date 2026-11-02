@@ -740,17 +740,37 @@ describe("App", () => {
     }
   });
 
-  it("pins and unpins the pane's chat with /pin and /unpin, and archives it with /archive and /unarchive", async () => {
+  it("pins and unpins the pane's chat with /pin and /unpin, and archives it at once with /archive, undone when the server refuses", async () => {
     saveLayout(openTask(initialLayout(), "t1", "Old name"));
-    const setArchived = vi.fn((taskId: string, _archived: boolean) =>
-      Promise.resolve({ id: taskId, title: "Old name", runtime: "pi" } as Task),
+    let answer = (): void => {};
+    const setArchived = vi.fn(
+      (taskId: string, _archived: boolean) =>
+        new Promise<Task>((resolve, reject) => {
+          answer = () =>
+            setArchived.mock.calls.length === 1
+              ? reject(new Error("forbidden"))
+              : resolve({
+                  id: taskId,
+                  title: "Old name",
+                  runtime: "pi",
+                } as Task);
+        }),
     );
     const mouse: MouseEvents = new EventEmitter();
     const { instance, output } = renderInTerminal(
       <App
         session={{
           work: {
-            listRecent: () => new Promise(() => {}),
+            listRecent: async () => ({
+              tasks: [
+                { id: "t2", title: "Other", runtime: "pi" } as Task,
+                { id: "t1", title: "Old name", runtime: "pi" } as Task,
+              ],
+              hasMore: false,
+            }),
+            // A dropped chat the pane still shows is fetched on its own.
+            get: async (taskId: string) =>
+              ({ id: taskId, title: "Old name", runtime: "pi" }) as Task,
           } as unknown as WorkList,
           runs: {
             prefetch: async () => {},
@@ -769,8 +789,16 @@ describe("App", () => {
       mouse.emit("keys", text);
       mouse.emit("keys", "\r");
     };
+    // The first chat under the tabs: the sidebar has two list rows here, and a chat the list dropped sits above it as the pane's own row.
+    const topOfList = (): string | undefined => {
+      const rows = stripTerminalSequences(output()).split("\n");
+      const tabs = rows.findLastIndex((row) => row.includes("My chats"));
+      return rows
+        .slice(tabs + 1)
+        .flatMap((row) => row.match(/Other|Old name/)?.[0] ?? [])[0];
+    };
     try {
-      await vi.waitFor(() => expect(output()).toContain("Old name"));
+      await vi.waitFor(() => expect(topOfList()).toBe("Other"));
       type("/pin");
       await vi.waitFor(() =>
         expect(loadPrefs().pinnedChats).toEqual([
@@ -786,12 +814,20 @@ describe("App", () => {
       await vi.waitFor(() =>
         expect(setArchived).toHaveBeenCalledWith("t1", true),
       );
-      await vi.waitFor(() => expect(output()).toContain("Archived"));
+      // Out of the list before the server answers, so the pane's own row leads; refused, it is back where it was.
+      await vi.waitFor(() => expect(topOfList()).toBe("Old name"));
+      answer();
+      await vi.waitFor(() => expect(output()).toContain("Couldn't archive"));
+      await vi.waitFor(() => expect(topOfList()).toBe("Other"));
+      type("/archive");
+      await vi.waitFor(() => expect(setArchived).toHaveBeenCalledTimes(2));
+      await vi.waitFor(() => expect(topOfList()).toBe("Old name"));
+      answer();
       type("/unarchive");
       await vi.waitFor(() =>
         expect(setArchived).toHaveBeenCalledWith("t1", false),
       );
-      await vi.waitFor(() => expect(output()).toContain("Back in the list"));
+      await vi.waitFor(() => expect(topOfList()).toBe("Other"));
     } finally {
       instance.unmount();
     }
