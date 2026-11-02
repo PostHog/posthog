@@ -1016,7 +1016,13 @@ def _set_tags(
         if created:
             added_tags.append(tag_instance)
     removed_tags: list[Tag] = []
-    for tagged_item in account.tagged_items.exclude(tag__name__in=deduped_tags).select_related("tag"):
+    # Activity logging reads each deleted item's tag, its team and the tagged object.
+    removed_items = (
+        account.tagged_items.exclude(tag__name__in=deduped_tags)
+        .select_related("tag__team")
+        .prefetch_related("uuid_object")
+    )
+    for tagged_item in removed_items:
         removed_tags.append(tagged_item.tag)
         tagged_item.delete()
     if removed_tags:
