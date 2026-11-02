@@ -141,7 +141,7 @@ SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 # to push or pin a digest for. Keep these two pins in sync with
 # Dockerfile.sandbox-slim's NODE_MAJOR / uv COPY --from pins (and with Dockerfile.sandbox-base,
 # which both mirror).
-SANDBOX_SLIM_NODE_MAJOR = 24
+SANDBOX_SLIM_NODE_MAJOR = 26
 SANDBOX_SLIM_UV_IMAGE = "ghcr.io/astral-sh/uv:0.13.4"
 # Set as image ENV, so the build step that warms the cache and every `uv run` inside the sandbox
 # use the same directory whatever HOME the sandbox process gets.
@@ -619,6 +619,7 @@ def _build_slim_template_image() -> modal.Image:
             f"curl -fsSL https://deb.nodesource.com/setup_{SANDBOX_SLIM_NODE_MAJOR}.x | bash -",
             "apt-get install -y --no-install-recommends nodejs",
             "rm -rf /var/lib/apt/lists/*",
+            "npm install -g corepack@0.36.0",
         )
         .dockerfile_commands(
             [f"COPY --from={SANDBOX_SLIM_UV_IMAGE} /uv /uvx /usr/local/bin/"],

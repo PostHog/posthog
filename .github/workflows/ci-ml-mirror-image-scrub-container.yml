@@ -74,7 +74,7 @@ jobs:
 
             - name: Install dependencies
               # Standalone package: own lockfile, outside the root pnpm workspace, so ignore the workspace.
-              run: corepack enable && CI=1 pnpm install --frozen-lockfile --ignore-workspace
+              run: npm install -g corepack@0.36.0 && corepack enable && CI=1 pnpm install --frozen-lockfile --ignore-workspace
 
             - name: Lint
               run: pnpm lint

@@ -27,7 +27,7 @@
 # ---------------------------------------------------------
 #
 # Digest-pinned because the runtime stage copies its `node` binary out of this stage.
-FROM node:24.22.1-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS node-base
+FROM node:26.13.0-bookworm-slim@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9 AS node-base
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -36,7 +36,7 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 # off every source change: only a root package.json edit re-runs this layer. Then take corepack off
 # the network, so a pin this layer does not cover fails in milliseconds naming the URL it wanted.
 COPY package.json ./
-RUN corepack enable && corepack install
+RUN npm install -g corepack@0.36.0 && corepack enable && corepack install
 ENV COREPACK_ENABLE_NETWORK=0
 
 
@@ -44,7 +44,7 @@ ENV COREPACK_ENABLE_NETWORK=0
 # ---------------------------------------------------------
 #
 # Only the package.json files, so a product source change does not rerun the frontend pnpm install.
-FROM node:24.22.1-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS product-manifests
+FROM node:26.13.0-bookworm-slim@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9 AS product-manifests
 COPY products/ /tmp/products/
 RUN cd /tmp/products && for manifest in */package.json; do install -D -m 644 "$manifest" "/manifests/products/$manifest"; done
 
@@ -82,7 +82,7 @@ RUN bin/turbo --filter=@posthog/frontend build
 # Isolated stage for sourcemap upload - keeps secrets and external network calls
 # out of the main build cache. This stage produces no artifacts for the final image.
 #
-FROM node:24.22.1-bookworm-slim AS sourcemap-upload
+FROM node:26.13.0-bookworm-slim AS sourcemap-upload
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 

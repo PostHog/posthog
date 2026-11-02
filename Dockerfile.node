@@ -8,7 +8,7 @@
 #
 # Build stage: Compile nodejs and dependencies
 #
-FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.91-node_24.22.1 AS nodejs-build
+FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.91-node_26.13.0 AS nodejs-build
 
 # Compile and install system dependencies
 # Add Confluent's client repository for librdkafka 2.12.0
@@ -54,6 +54,7 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ENV BUILD_LIBRDKAFKA=0
 
 # Compile and install Node.js dependencies
+RUN npm install -g corepack@0.36.0
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
     corepack enable && \
     NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/nodejs... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
@@ -89,7 +90,7 @@ RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/nodejs
 #
 # Runtime stage: Minimal image with only nodejs runtime dependencies
 #
-FROM node:24.22.1-bookworm-slim
+FROM node:26.13.0-bookworm-slim
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
