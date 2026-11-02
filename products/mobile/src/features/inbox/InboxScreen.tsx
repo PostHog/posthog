@@ -179,8 +179,8 @@ export function InboxScreen(): ReactElement {
             <View
                 style={{
                     flexGrow: paired ? 0 : 1,
-                    flexShrink: 0,
-                    flexBasis: paired ? INBOX_PANE_WIDTH : 0,
+                    flexShrink: paired ? 0 : 1,
+                    width: paired ? INBOX_PANE_WIDTH : undefined,
                     minWidth: 0,
                 }}
             >
