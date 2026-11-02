@@ -4884,6 +4884,11 @@ export const CITrustPolicyRequestStatusEnumApi = {
     Expired: 'expired',
 } as const
 
+/**
+ * What each risky scope in the request lets a token do, keyed by scope. Show it before approving.
+ */
+export type CITrustPolicyRequestApiRiskyScopes = { [key: string]: string }
+
 export interface CITrustPolicyRequestApi {
     readonly id: string
     /**
@@ -4931,6 +4936,8 @@ export interface CITrustPolicyRequestApi {
      * @items.maxLength 100
      */
     scopes: string[]
+    /** What each risky scope in the request lets a token do, keyed by scope. Show it before approving. */
+    readonly risky_scopes: CITrustPolicyRequestApiRiskyScopes
     /** Where the request stands. A request expires after 7 days. */
     readonly status: CITrustPolicyRequestStatusEnumApi
     /** The link to send to an admin to approve the request. */

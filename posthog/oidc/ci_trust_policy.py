@@ -360,6 +360,9 @@ class CITrustPolicyRequestSerializer(CIConditionsSerializerMixin, serializers.Mo
     approvers = serializers.SerializerMethodField(
         help_text="Names of the organization admins and owners who can approve, when the current user cannot."
     )
+    risky_scopes = serializers.SerializerMethodField(
+        help_text="What each risky scope in the request lets a token do, keyed by scope. Show it before approving."
+    )
     requested_by = UserBasicSerializer(read_only=True, allow_null=True)
     resolved_by = UserBasicSerializer(read_only=True, allow_null=True)
     policy_id = serializers.UUIDField(read_only=True, allow_null=True, help_text="The policy created on approval.")
@@ -377,6 +380,7 @@ class CITrustPolicyRequestSerializer(CIConditionsSerializerMixin, serializers.Mo
             "ref",
             "environment",
             "scopes",
+            "risky_scopes",
             "status",
             "approval_url",
             "can_approve",
@@ -394,6 +398,7 @@ class CITrustPolicyRequestSerializer(CIConditionsSerializerMixin, serializers.Mo
             "id",
             "provider",
             "provider_name",
+            "risky_scopes",
             "status",
             "approval_url",
             "can_approve",
@@ -424,6 +429,10 @@ class CITrustPolicyRequestSerializer(CIConditionsSerializerMixin, serializers.Mo
     @extend_schema_field(serializers.ChoiceField(choices=CITrustPolicyRequest.Status.choices))
     def get_status(self, policy_request: CITrustPolicyRequest) -> str:
         return policy_request.effective_status
+
+    @extend_schema_field(serializers.DictField(child=serializers.CharField()))
+    def get_risky_scopes(self, policy_request: CITrustPolicyRequest) -> dict[str, str]:
+        return {scope: RISKY_SCOPE_WARNINGS[scope] for scope in policy_request.scopes if scope in RISKY_SCOPE_WARNINGS}
 
     def get_approval_url(self, policy_request: CITrustPolicyRequest) -> str:
         return ci_trust_policy_request_url(policy_request.team_id, str(policy_request.pk))

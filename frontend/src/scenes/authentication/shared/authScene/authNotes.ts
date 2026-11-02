@@ -43,6 +43,12 @@ export const AUTH_NOTES = {
         done: ['2fa reset', 'back in you go'],
         invalid: ['this link stopped working', 'ask for a new one'],
     },
+    ciTrustPolicyRequest: {
+        pending: ['a ci job wants in', 'check it before you approve'],
+        approved: ['approved', 'the policy is live'],
+        closed: ['nothing to approve', 'this request is closed'],
+        missing: ['hmm', "this request isn't here"],
+    },
     cliAuthorize: {
         authorize: ['hello, terminal', 'only grant what you need'],
         authorized: ['authorized', 'your terminal has a key now'],

@@ -289,14 +289,15 @@ class TestCITrustPolicyRequestAPI(APIBaseTest):
         assert body["approval_url"].endswith(f"/project/{self.team.id}/ci-trust-policy-requests/{body['id']}")
         assert not CITrustPolicy.objects.for_team(self.team.id).exists()
 
-    def test_admin_sees_they_can_approve(self) -> None:
+    def test_admin_sees_they_can_approve_and_the_risky_scopes(self) -> None:
         self._set_level(OrganizationMembership.Level.ADMIN)
-        policy_request = self._create_request()
+        policy_request = self._create_request(scopes=["organization_member:write", "annotation:write"])
 
         body = self.client.get(f"{self.url}{policy_request.id}/").json()
 
         assert body["can_approve"] is True
         assert body["approvers"] == []
+        assert list(body["risky_scopes"]) == ["organization_member:write"]
 
     def test_a_token_minted_while_impersonating_cannot_ask_for_a_policy(self) -> None:
         staff = User.objects.create_user(email="staff@example.com", password=None, first_name="Staff", is_staff=True)
