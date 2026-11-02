@@ -193,6 +193,21 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "receipt_basis": "Set only on points from the historical backfill for the period before a city went live. These points are not settlement-eligible.",
         },
     },
+    "weather_index_calibrations": {
+        "description": "Each city's weather index configuration timeline, one row per version: the launch configuration plus every weekly offset calibration and methodology update.",
+        "docs_url": "https://docs.kalshi.com/api-reference/live-data/get-weather-index-calibrations",
+        "columns": {
+            "city": "Index city ID, for example miami.",
+            "config_version": "Configuration version. Weather index points report the version they were computed under in their own config_version field.",
+            "published_at_ms": "When the record was published, as a Unix timestamp in milliseconds (UTC).",
+            "effective_at_ms": "Start of the minutes this record governs, as a Unix timestamp in milliseconds (UTC). It applies until the next record takes effect.",
+            "change_reason": "Why the configuration changed.",
+            "calibration_window_start_ms": "Start of the observation window the offsets were estimated from. Empty on the launch configuration.",
+            "calibration_window_end_ms": "End of the calibration window, exclusive.",
+            "city_reference_c": "City reference in Celsius: the weighted sum of the station offsets.",
+            "stations": "Member stations in configuration order, each with its ID, weight, offset in Celsius, and weekly calibration note.",
+        },
+    },
     "fills": {
         "description": "Your account's fills. A fill is one match of your order against another order.",
         "docs_url": "https://docs.kalshi.com/api-reference/portfolio/get-fills",
@@ -238,6 +253,18 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "value": "Payout of a single yes contract, in cents.",
             "fee_cost": "Total fees paid on the market, in dollars.",
             "settled_time": "When the market settled and payouts were made.",
+        },
+    },
+    "credit_history": {
+        "description": "Credits applied to your account, one row per credit.",
+        "docs_url": "https://docs.kalshi.com/api-reference/portfolio/get-credit-history",
+        "columns": {
+            "credit_id": "Unique identifier for the credit.",
+            "type": "Category of the credit.",
+            "status": "Processing status of the credit: pending, applied, failed, or unknown.",
+            "amount_dollars": "Credit amount, in dollars.",
+            "reason": "Description of the credit, which can include a market or event ticker.",
+            "created_time": "When the credit was created.",
         },
     },
 }
