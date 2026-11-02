@@ -1,6 +1,6 @@
 import { HogFunctionTemplate } from '~/cdp/types'
 
-import { webhookHeaderInputs } from './webhook-header-inputs'
+import { webhookHeaderInputs } from './webhook-inputs'
 
 export const template: HogFunctionTemplate = {
     free: false,
