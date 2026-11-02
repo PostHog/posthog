@@ -154,6 +154,8 @@ class TestWorkloadTrustPolicyAPI(APIBaseTest):
             ("app_token_scope", {"scopes": ["streamlit_app:read"]}, "scopes"),
             ("webhook_feed_scope", {"scopes": ["webhook:write"]}, "scopes"),
             ("batch_export_feed_scope", {"scopes": ["batch_export:write"]}, "scopes"),
+            ("owner_ai_chat_scope", {"scopes": ["conversation:read"]}, "scopes"),
+            ("owner_task_scope", {"scopes": ["task:read"]}, "scopes"),
         ]
     )
     def test_rejects_invalid_policies(self, _name: str, overrides: dict[str, Any], field: str) -> None:
