@@ -8,6 +8,7 @@ name the usual cause: the exposure and the event come from different SDKs under 
 the event aren't the people who were exposed.
 """
 
+from collections.abc import Mapping
 from typing import assert_never
 
 from posthog.schema import FunnelConversionWindowTimeUnit
@@ -137,9 +138,15 @@ def _values_a_zero_bound_hides(metric: ZeroMetric) -> int:
     """How many exposures can have a value while the upper outlier bound is still 0. Zero without a bound that counts
     zeros, and when the bound picks the largest value."""
     percentile = _upper_bound(metric)
-    if percentile is None:
+    # The queries compute one bound per breakdown group, and the stored totals don't hold the size of each group.
+    if percentile is None or _has_breakdowns(metric):
         return 0
     return metric.exposures - quantile_exact_position(percentile, metric.exposures) - 1
+
+
+def _has_breakdowns(metric: ZeroMetric) -> bool:
+    breakdown_filter = metric.definition.get("breakdownFilter")
+    return isinstance(breakdown_filter, Mapping) and bool(breakdown_filter.get("breakdowns"))
 
 
 def _word(metric: ZeroMetric, ctx: HealthContext, hours_of_data: float) -> _Worded | None:

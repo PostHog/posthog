@@ -230,6 +230,17 @@ class TestMetricAllZero(TestCase):
                 96,
             ),
             (
+                "a_bound_per_breakdown_group",
+                _metric(
+                    role="secondary",
+                    definition={
+                        **BOUNDED,
+                        "breakdownFilter": {"breakdowns": [{"property": "$browser", "type": "event"}]},
+                    },
+                ),
+                96,
+            ),
+            (
                 "a_bound_that_picks_the_largest_of_its_exposures",
                 _metric(role="secondary", definition=BOUNDED, exposures=100),
                 96,

@@ -1044,7 +1044,8 @@ class EnterpriseExperimentsViewSet(
         exposures have a value) or null when none shows a cause. `blank_event` and `outlier_bound`
         also report a secondary metric, and need only 100 exposures and 12 hours of data, because
         they read 0 at any traffic. A bound on the largest value of the exposures can't be 0 while
-        one has a value, so it is no cause. Until the end, the check leaves out a metric that uses an
+        one has a value, so it is no cause. Neither is a bound on a metric with breakdowns, which
+        gets one bound per breakdown group. Until the end, the check leaves out a metric that uses an
         event `metric_event_not_ingested` reports. Each metric, or side of a ratio, is in the
         `evidence` keys `metric_N`, `metric_N_role`, `metric_N_side`, `metric_N_exposures` and
         `metric_N_cause`. It is a warning for a primary metric. After the end it stays a warning only
