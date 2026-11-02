@@ -1,17 +1,17 @@
-import json
-from collections.abc import Callable, Iterator
-from typing import Any, cast
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import urlsplit
 
 import pytest
 import time_machine
-from unittest.mock import MagicMock, patch
 
-from requests import HTTPError, PreparedRequest, Response, Session
+from requests import HTTPError
 
-from products.warehouse_sources.backend.facade.types import IncrementalFieldType
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.thousandeyes import (
     ThousandeyesSourceConfig,
 )
@@ -23,78 +23,39 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.thousandey
 BASE = "https://api.thousandeyes.com/v7/"
 
 
-def inputs(name: str, incremental: bool = False, watermark: str | None = None) -> SourceInputs:
-    return SourceInputs(
-        schema_name=name,
-        schema_id="schema",
-        source_id="source",
-        team_id=1,
-        job_id="job",
+def read(
+    name: str,
+    script: Script,
+    resume: ThousandeyesResumeConfig | None = None,
+    incremental: bool = False,
+    watermark: str | None = None,
+) -> DriveResult:
+    driver = SourceDriver(
+        ThousandeyesSource(), ThousandeyesSourceConfig(api_token="fake-token", account_group_id="123")
+    )
+    return driver.run(
+        name,
+        script,
+        resume_state=resume,
         should_use_incremental_field=incremental,
         db_incremental_field_last_value=watermark,
-        db_incremental_field_earliest_value=None,
-        incremental_field="date" if incremental else None,
-        incremental_field_type=IncrementalFieldType.DateTime if incremental else None,
-        reset_pipeline=False,
-        logger=MagicMock(),
     )
-
-
-def manager(resume: ThousandeyesResumeConfig | None = None) -> MagicMock:
-    value = MagicMock(spec=ResumableSourceManager)
-    value.can_resume.return_value = resume is not None
-    value.load_state.return_value = resume
-    return value
-
-
-@pytest.fixture
-def transport() -> Iterator[tuple[list[PreparedRequest], Callable[[dict[str, Any], int], None]]]:
-    pending: list[tuple[dict[str, Any], int]] = []
-    sent: list[PreparedRequest] = []
-
-    def enqueue(body: dict[str, Any], status: int = 200) -> None:
-        pending.append((body, status))
-
-    def send(_session: Session, request: PreparedRequest, **kwargs: Any) -> Response:
-        sent.append(request)
-        assert kwargs["allow_redirects"] is False
-        assert kwargs["timeout"] == 60
-        body, status = pending.pop(0)
-        response = Response()
-        response.status_code = status
-        response.reason = {401: "Unauthorized", 403: "Forbidden"}.get(status, "OK")
-        response.url = request.url or ""
-        response.request = request
-        response._content = json.dumps(body).encode()
-        response.headers["Content-Type"] = "application/json"
-        return response
-
-    with patch.object(Session, "send", send):
-        yield sent, enqueue
-    assert not pending
-
-
-def read(name: str, state: MagicMock, incremental: bool = False, watermark: str | None = None) -> list[dict[str, Any]]:
-    response = ThousandeyesSource().source_for_pipeline(
-        ThousandeyesSourceConfig(api_token="fake-token", account_group_id="123"),
-        state,
-        inputs(name, incremental, watermark),
-    )
-    return [row for page in cast(Iterator[list[dict[str, Any]]], response.items()) for row in page]
 
 
 @pytest.mark.parametrize(("table", "alert_state"), [("active_alerts", "trigger"), ("cleared_alerts", "clear")])
 @time_machine.travel("2026-06-01T12:00:00Z", tick=False)
-def test_alert_states_and_window(transport: Any, table: str, alert_state: str) -> None:
-    sent, enqueue = transport
-    enqueue({"alerts": [{"id": "alert-1"}]})
-    assert read(table, manager()) == [{"id": "alert-1"}]
-    assert parse_qs(urlsplit(sent[0].url).query) == {
-        "aid": ["123"],
-        "state": [alert_state],
-        "startDate": ["2026-05-02T12:00:00Z"],
-        "endDate": ["2026-06-01T12:00:00Z"],
-    }
+def test_alert_states_and_window(table: str, alert_state: str) -> None:
+    result = read(table, [ScriptedResponse(json={"alerts": [{"id": "alert-1"}]})])
+    assert result.rows == [{"id": "alert-1"}]
+    assert result.queries == [
+        {
+            "aid": ("123",),
+            "state": (alert_state,),
+            "startDate": ("2026-05-02T12:00:00Z",),
+            "endDate": ("2026-06-01T12:00:00Z",),
+        }
+    ]
+    assert result.requests[0].read_timeout == 60
 
 
 @pytest.mark.parametrize(
@@ -107,44 +68,43 @@ def test_alert_states_and_window(transport: Any, table: str, alert_state: str) -
     ],
 )
 @time_machine.travel("2026-06-01T12:00:00Z", tick=False)
-def test_results_fanout_keys_and_time_filter(
-    transport: Any, incremental: bool, watermark: str | None, expected_start: str
-) -> None:
-    sent, enqueue = transport
-    enqueue({"tests": [{"testId": "1"}, {"testId": "snapshot", "savedEvent": True}, {"testId": "2"}]})
+def test_results_fanout_keys_and_time_filter(incremental: bool, watermark: str | None, expected_start: str) -> None:
     row = {"roundId": 1780272000, "date": "2026-06-01T00:00:00Z", "agent": {"agentId": "5"}, "responseTime": 200}
-    enqueue({"results": [row]})
-    enqueue({"results": [row]})
-    state = manager()
-    rows = read("http_server_results", state, incremental, watermark)
-    assert rows == [{**row, "testId": "1", "agentId": "5"}, {**row, "testId": "2", "agentId": "5"}]
-    assert [urlsplit(request.url).path for request in sent] == [
+    result = read(
+        "http_server_results",
+        [
+            ScriptedResponse(
+                json={"tests": [{"testId": "1"}, {"testId": "snapshot", "savedEvent": True}, {"testId": "2"}]}
+            ),
+            ScriptedResponse(json={"results": [row]}),
+            ScriptedResponse(json={"results": [row]}),
+        ],
+        incremental=incremental,
+        watermark=watermark,
+    )
+    assert result.rows == [{**row, "testId": "1", "agentId": "5"}, {**row, "testId": "2", "agentId": "5"}]
+    assert result.paths == [
         "/v7/tests/http-server",
         "/v7/test-results/1/http-server",
         "/v7/test-results/2/http-server",
     ]
-    for request in sent[1:]:
-        assert parse_qs(urlsplit(request.url).query) == {
-            "aid": ["123"],
-            "startDate": [expected_start],
-            "endDate": ["2026-06-01T12:00:00Z"],
+    for request in result.requests[1:]:
+        assert request.query == {
+            "aid": ("123",),
+            "startDate": (expected_start,),
+            "endDate": ("2026-06-01T12:00:00Z",),
         }
-    assert state.save_state.call_args.args[0].paginator_state["completed"] == [
+    assert result.saved_states[-1].paginator_state["completed"] == [
         "test-results/1/http-server",
         "test-results/2/http-server",
     ]
-    response = ThousandeyesSource().source_for_pipeline(
-        ThousandeyesSourceConfig(api_token="fake-token"),
-        manager(),
-        inputs("http_server_results", True),
-    )
-    assert response.sort_mode == "desc"
-    assert response.primary_keys == ["testId", "agentId", "roundId"]
+    assert result.response is not None
+    assert result.response.sort_mode == "desc"
+    assert result.response.primary_keys == ["testId", "agentId", "roundId"]
 
 
 @time_machine.travel("2026-06-02T12:00:00Z", tick=False)
-def test_resume_child_page_keeps_original_window_and_skips_completed_tests(transport: Any) -> None:
-    sent, enqueue = transport
+def test_resume_child_page_keeps_original_window_and_skips_completed_tests() -> None:
     next_url = BASE + "test-results/2/http-server?aid=123&cursor=next"
     resume = ThousandeyesResumeConfig(
         start_date="2026-05-01T00:00:00Z",
@@ -155,51 +115,64 @@ def test_resume_child_page_keeps_original_window_and_skips_completed_tests(trans
             "child_state": {"next_url": next_url},
         },
     )
-    enqueue({"tests": [{"testId": "1"}, {"testId": "2"}, {"testId": "3"}]})
-    enqueue({"results": [{"roundId": 2, "agent": {"agentId": "5"}}]})
-    enqueue({"results": []})
-    state = manager(resume)
-    assert read("http_server_results", state)[0]["testId"] == "2"
-    assert len(sent) == 3
-    assert sent[1].url == next_url
-    assert parse_qs(urlsplit(sent[2].url).query)["startDate"] == [resume.start_date]
-    assert parse_qs(urlsplit(sent[2].url).query)["endDate"] == [resume.end_date]
-    assert len(state.save_state.call_args.args[0].paginator_state["completed"]) == 3
+    result = read(
+        "http_server_results",
+        [
+            ScriptedResponse(json={"tests": [{"testId": "1"}, {"testId": "2"}, {"testId": "3"}]}),
+            ScriptedResponse(json={"results": [{"roundId": 2, "agent": {"agentId": "5"}}]}),
+            ScriptedResponse(json={"results": []}),
+        ],
+        resume=resume,
+    )
+    assert result.rows[0]["testId"] == "2"
+    assert len(result.requests) == 3
+    assert result.requests[1].url == next_url
+    assert result.requests[2].param("startDate") == resume.start_date
+    assert result.requests[2].param("endDate") == resume.end_date
+    assert len(result.saved_states[-1].paginator_state["completed"]) == 3
 
 
 @pytest.mark.parametrize("account_group_id", [None, "123"])
 @pytest.mark.parametrize("status", [200, 401, 403])
-def test_credential_validation_and_errors(transport: Any, account_group_id: str | None, status: int) -> None:
-    sent, enqueue = transport
-    enqueue({"alerts": [], "_links": {"next": {"href": BASE + "alerts?cursor=unused"}}}, status)
+def test_credential_validation_and_errors(account_group_id: str | None, status: int) -> None:
     source = ThousandeyesSource()
-    valid, message = source.validate_credentials(
-        ThousandeyesSourceConfig(api_token="fake-token", account_group_id=account_group_id), 1
+    answer = ScriptedResponse(
+        status=status, json={"alerts": [], "_links": {"next": {"href": BASE + "alerts?cursor=unused"}}}
     )
+    with scripted_network([answer]) as network:
+        valid, message = source.validate_credentials(
+            ThousandeyesSourceConfig(api_token="fake-token", account_group_id=account_group_id), 1
+        )
     assert valid is (status == 200)
-    assert len(sent) == 1
-    assert sent[0].headers["Authorization"] == "Bearer fake-token"
-    assert parse_qs(urlsplit(sent[0].url).query) == (
-        {"max": ["1"], "aid": ["123"]} if account_group_id else {"max": ["1"]}
-    )
+    assert len(network.requests_log) == 1
+    request = network.requests_log[0]
+    assert request.headers["authorization"] == "Bearer fake-token"
+    assert request.query == ({"max": ("1",), "aid": ("123",)} if account_group_id else {"max": ("1",)})
     if status != 200:
         assert message == source.get_non_retryable_errors()[f"{status} Client Error"]
-        enqueue({}, status)
-        with pytest.raises(HTTPError, match=f"{status} Client Error"):
-            read("tests", manager())
+        result = read("tests", [ScriptedResponse(status=status, json={})])
+        assert isinstance(result.raised, HTTPError)
+        assert f"{status} Client Error" in str(result.raised)
 
 
 @pytest.mark.parametrize("next_url", ["https://example.com/steal", "http://api.thousandeyes.com/v7/tests"])
-def test_rejects_pagination_outside_api_origin(transport: Any, next_url: str) -> None:
-    sent, enqueue = transport
-    enqueue({"tests": [{"testId": "1"}], "_links": {"next": {"href": next_url}}})
-    with pytest.raises(ValueError, match="Refusing to send request"):
-        read("tests", manager())
-    assert len(sent) == 1
+def test_rejects_pagination_outside_api_origin(next_url: str) -> None:
+    result = read(
+        "tests", [ScriptedResponse(json={"tests": [{"testId": "1"}], "_links": {"next": {"href": next_url}}})]
+    )
+    assert isinstance(result.raised, ValueError)
+    assert "Refusing to send request" in str(result.raised)
+    assert len(result.requests) == 1
 
 
-def test_invalid_watermark_fails_before_request(transport: Any) -> None:
-    sent, _ = transport
-    with pytest.raises(ValueError, match="Invalid ThousandEyes result timestamp"):
-        read("http_server_results", manager(), True, "not-a-date")
-    assert sent == []
+def test_redirects_are_not_followed() -> None:
+    result = read("tests", [ScriptedResponse(status=302, headers={"Location": "https://example.com/steal"}, json={})])
+    assert result.raised is not None
+    assert [urlsplit(url).netloc for url in result.urls] == ["api.thousandeyes.com"]
+
+
+def test_invalid_watermark_fails_before_request() -> None:
+    result = read("http_server_results", [], incremental=True, watermark="not-a-date")
+    assert isinstance(result.raised, ValueError)
+    assert "Invalid ThousandEyes result timestamp" in str(result.raised)
+    assert result.requests == []

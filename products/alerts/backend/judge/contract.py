@@ -22,10 +22,7 @@ if TYPE_CHECKING:
 
 AnomalyKind = Literal["spike", "drop", "flatline", "trend_break", "level_shift", "pattern_change", "none"]
 
-DEFAULT_CONFIDENCE_THRESHOLD = 0.7
-
-# Enough history for the model to see a weekly shape at any cadence, while bounding
-# what one check can send. Caps the configured window.
+# Bounds what one check can send, whatever lookback the interval asks for.
 MAX_PROMPT_POINTS = 400
 
 # Bound on model calls in flight per process. The evaluate activity runs AI checks on a
@@ -65,6 +62,15 @@ LLM_DETECTOR_UNAVAILABLE_MESSAGE = (
 
 
 @frozen
+class EarlierFlag:
+    """A point that an earlier check of the same alert fired on, with the reason it gave."""
+
+    date: str
+    # Model output from that check. Untrusted, because it can echo series labels.
+    rationale: str
+
+
+@frozen
 class SeriesContext:
     """What the series means: everything the judge reads that the values array cannot carry."""
 
@@ -77,6 +83,8 @@ class SeriesContext:
     insight_name: str = ""
     # The alert author's free text describing what counts as unusual. Untrusted input.
     instructions: str = ""
+    # Points that earlier AI checks of this alert fired on. Empty for a new alert.
+    earlier_flags: tuple[EarlierFlag, ...] = ()
 
 
 @frozen
@@ -97,58 +105,31 @@ class JudgeAttribution:
 
 @frozen
 class SeriesJudgment:
-    """A judge's answer about one series, after the alert's own rules are applied.
+    """A judge's answer about the latest point of one series.
 
-    ``fires`` is the alert-level outcome: the model's verdict gated by the configured
-    confidence and, for a live check, by whether the latest point was the one flagged.
-    ``score`` is folded into the anomaly direction (``confidence`` for an anomaly,
-    ``1 - confidence`` for an all-clear) so the threshold gate and the history chart read
-    every detector on one scale; the raw verdict rides along because that fold cannot say
-    which way the model voted.
+    ``fires`` is the model's verdict on the latest point, with the earlier points as its history.
     """
 
     fires: bool
-    verdict_is_anomaly: bool
-    # The model's confidence in whichever verdict it gave. Uncalibrated, and never a probability.
-    confidence: float
     kind: AnomalyKind
     rationale: str
     model: str
-    score: float
-    triggered_indices: tuple[int, ...]
-    all_scores: tuple[float | None, ...]
-    below_threshold: bool = False
-    latest_point_not_flagged: bool = False
 
     def persisted_metadata(self) -> dict[str, Any]:
         """The slice of the judgment worth keeping on the check for a person to read later."""
-        metadata: dict[str, Any] = {
-            "rationale": self.rationale,
-            "kind": self.kind,
-            "verdict_is_anomaly": self.verdict_is_anomaly,
-            "confidence": self.confidence,
-        }
-        if self.latest_point_not_flagged:
-            metadata["latest_point_not_flagged"] = True
-        return metadata
+        return {"rationale": self.rationale, "kind": self.kind}
 
 
 class SeriesJudge(Protocol):
     """A judge scores a series it understands, at a cost, on someone's behalf.
 
-    Either method returns None when the series is too short to judge, in which case no
-    call was made. A failure to reach a verdict raises ``LLMDetectorError``; a judge never
-    reports "no anomaly" because it could not ask.
+    It returns None when the series is too short to judge, in which case no call was made.
+    A failure to reach a verdict raises ``LLMDetectorError``; a judge never reports "no
+    anomaly" because it could not ask.
     """
 
     def judge_latest(
         self, data: np.ndarray, *, series: SeriesContext, attribution: JudgeAttribution
     ) -> SeriesJudgment | None:
         """Judge whether the final point is anomalous, with the rest as its history."""
-        ...
-
-    def judge_every_point(
-        self, data: np.ndarray, *, series: SeriesContext, attribution: JudgeAttribution
-    ) -> SeriesJudgment | None:
-        """Judge every point against the points before it, for a preview over history."""
         ...

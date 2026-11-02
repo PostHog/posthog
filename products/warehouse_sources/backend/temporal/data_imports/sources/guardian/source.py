@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GuardianSource(ResumableSource[GuardianSourceConfig, GuardianResumeConfig]):
+    codebase_detection = NOT_DETECTABLE
+
     api_docs_url = "https://open-platform.theguardian.com/documentation/"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -48,7 +51,7 @@ class GuardianSource(ResumableSource[GuardianSourceConfig, GuardianResumeConfig]
             name=ExternalDataSourceType.GUARDIAN,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="The Guardian",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Guardian Open Platform API key to pull Guardian news content into the PostHog Data warehouse.
 
 You can request a free developer key from the [Guardian Open Platform](https://open-platform.theguardian.com/access/). Free keys are rate-limited (~12 requests/second, ~5,000 requests/day), so an initial backfill of the full content archive can take a while.

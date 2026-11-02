@@ -9,7 +9,9 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 #   `sensors` array into one row per sensor. Full refresh (single locations walk, cheap).
 # - "measurement": fanned out per sensor (/v3/sensors/{sensors_id}/...). Incremental via the
 #   API's server-side datetime filter. Request-heavy (one paginated fetch per sensor), so opt-in.
-EndpointKind = Literal["list", "sensors", "measurement"]
+# - "location_fanout" / "sensor_fanout": fanned out per location (/v3/locations/{locations_id}/...)
+#   or per sensor (/v3/sensors/{sensors_id}/...). Full refresh. Request-heavy, so opt-in.
+EndpointKind = Literal["list", "sensors", "measurement", "location_fanout", "sensor_fanout"]
 
 
 def _datetime_incremental_field(name: str) -> IncrementalField:
@@ -21,11 +23,11 @@ def _datetime_incremental_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@dataclass(frozen=True)
 class OpenAQEndpointConfig:
     name: str
     kind: EndpointKind
-    # API path. For "measurement" endpoints this is a template with a `{sensors_id}` placeholder.
+    # API path. Fan-out endpoints use a `{sensors_id}` or `{locations_id}` placeholder.
     path: str
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     partition_key: Optional[str] = None
@@ -34,6 +36,7 @@ class OpenAQEndpointConfig:
     # `datetime_from`/`datetime_to`; the daily + yearly aggregates use `date_from`/`date_to`.
     time_param_prefix: Optional[str] = None
     should_sync_default: bool = True
+    sort_mode: Optional[Literal["asc", "desc"]] = "asc"
 
 
 OPENAQ_ENDPOINTS: dict[str, OpenAQEndpointConfig] = {
@@ -80,6 +83,49 @@ OPENAQ_ENDPOINTS: dict[str, OpenAQEndpointConfig] = {
         incremental_fields=[_datetime_incremental_field("datetime_from")],
         time_param_prefix="date",
         should_sync_default=False,
+    ),
+    "measurements_yearly": OpenAQEndpointConfig(
+        name="measurements_yearly",
+        kind="measurement",
+        path="/v3/sensors/{sensors_id}/years",
+        primary_keys=["sensor_id", "datetime_from"],
+        partition_key="datetime_from",
+        incremental_fields=[_datetime_incremental_field("datetime_from")],
+        time_param_prefix="date",
+        should_sync_default=False,
+        # Rows are paged per sensor, so the run is not one ascending series across the table.
+        sort_mode=None,
+    ),
+    # One row per sensor holding its most recent reading. The reading time moves on every sync, so the
+    # table is not partitioned.
+    "location_latest": OpenAQEndpointConfig(
+        name="location_latest",
+        kind="location_fanout",
+        path="/v3/locations/{locations_id}/latest",
+        primary_keys=["location_id", "sensor_id"],
+        should_sync_default=False,
+        sort_mode=None,
+    ),
+    # Flags carry no id. A flag is a period of a given type, so (parent, flag type, period start) keys it.
+    # Full refresh only: an open flag's end moves forward, and the API's datetime filter applies to the
+    # flag period, so an incremental read on the start would miss those updates.
+    "location_flags": OpenAQEndpointConfig(
+        name="location_flags",
+        kind="location_fanout",
+        path="/v3/locations/{locations_id}/flags",
+        primary_keys=["location_id", "flag_type_id", "datetime_from"],
+        partition_key="datetime_from",
+        should_sync_default=False,
+        sort_mode=None,
+    ),
+    "sensor_flags": OpenAQEndpointConfig(
+        name="sensor_flags",
+        kind="sensor_fanout",
+        path="/v3/sensors/{sensors_id}/flags",
+        primary_keys=["sensor_id", "flag_type_id", "datetime_from"],
+        partition_key="datetime_from",
+        should_sync_default=False,
+        sort_mode=None,
     ),
 }
 

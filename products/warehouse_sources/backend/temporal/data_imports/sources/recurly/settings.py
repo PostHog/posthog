@@ -25,15 +25,29 @@ class RecurlyEndpoint:
     # parameters at all — no `limit`, `sort`, `order`, or `begin_time`. Recurly rejects the
     # request with a 400 validation error if any are sent, so it can only ever be listed bare.
     supports_list_params: bool = True
+    # Set for endpoints that only exist per parent row (e.g. `/accounts/{account_id}/...`).
+    # They fan out over the parent listing and are always full refresh: rows arrive grouped
+    # by parent, not in time order, so an ascending watermark would skip rows.
+    parent: str | None = None
+    primary_keys: tuple[str, ...] = ("id",)
 
 
 RECURLY_ENDPOINTS: dict[str, RecurlyEndpoint] = {
     "accounts": RecurlyEndpoint("accounts", "/accounts", True),
     "acquisitions": RecurlyEndpoint("acquisitions", "/acquisitions", True),
     "add_ons": RecurlyEndpoint("add_ons", "/add_ons", True),
+    "business_entities": RecurlyEndpoint("business_entities", "/business_entities", False, supports_list_params=False),
+    "coupon_redemptions": RecurlyEndpoint(
+        "coupon_redemptions",
+        "/accounts/{account_id}/coupon_redemptions",
+        False,
+        parent="accounts",
+        primary_keys=("account_id", "id"),
+    ),
     "coupons": RecurlyEndpoint("coupons", "/coupons", True),
     "credit_payments": RecurlyEndpoint("credit_payments", "/credit_payments", True),
     "dunning_campaigns": RecurlyEndpoint("dunning_campaigns", "/dunning_campaigns", False),
+    "external_invoices": RecurlyEndpoint("external_invoices", "/external_invoices", False),
     "external_subscriptions": RecurlyEndpoint("external_subscriptions", "/external_subscriptions", False),
     "gift_cards": RecurlyEndpoint("gift_cards", "/gift_cards", False, supports_list_params=False),
     "invoices": RecurlyEndpoint("invoices", "/invoices", True),
@@ -44,6 +58,13 @@ RECURLY_ENDPOINTS: dict[str, RecurlyEndpoint] = {
     "shipping_methods": RecurlyEndpoint("shipping_methods", "/shipping_methods", True),
     "subscriptions": RecurlyEndpoint("subscriptions", "/subscriptions", True),
     "transactions": RecurlyEndpoint("transactions", "/transactions", True),
+    # Usage ids are unique site-wide (Recurly serves them at `/usage/{usage_id}`).
+    "usage": RecurlyEndpoint(
+        "usage",
+        "/subscriptions/{subscription_id}/add_ons/{add_on_id}/usage",
+        False,
+        parent="subscriptions",
+    ),
 }
 
 ENDPOINTS = tuple(RECURLY_ENDPOINTS.keys())

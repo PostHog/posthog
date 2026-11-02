@@ -11,6 +11,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.circleci_i
 from products.warehouse_sources.backend.temporal.data_imports.sources.circleci_insights.source import (
     CircleciInsightsSource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    route,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.circleciinsights import (
     CircleciInsightsSourceConfig,
 )
@@ -43,20 +48,10 @@ class TestCircleciInsightsSource:
         assert schemas[endpoint].supports_incremental is expected
         assert bool(INCREMENTAL_FIELDS.get(endpoint)) is expected
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["flaky_tests"])
-        assert [schema.name for schema in schemas] == ["flaky_tests"]
-
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
     @parameterized.expand(
         [
-            ("401 Client Error: Unauthorized for url: https://circleci.com/api/v2/insights/gh/a/b/workflows", True),
-            ("403 Client Error: Forbidden for url: https://circleci.com/api/v2/insights/gh/a/summary", True),
             ("404 Client Error: Not Found for url: https://circleci.com/api/v2/insights/gh/a/b/flaky-tests", True),
             ("401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers", False),
-            ("500 Server Error for url: https://circleci.com/api/v2/insights/gh/a/b/workflows", False),
-            ("429 Client Error: Too Many Requests for url: https://circleci.com/api/v2/insights", False),
         ]
     )
     def test_non_retryable_errors_match_only_permanent_failures(self, observed_error, should_match):
@@ -85,17 +80,25 @@ class TestCircleciInsightsSource:
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == datetime(2026, 7, 1, tzinfo=UTC)
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.circleci_insights.source.circleci_insights_source"
-    )
-    def test_source_for_pipeline_drops_cursor_on_full_refresh(self, mock_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "workflow_runs"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = datetime(2026, 7, 1, tzinfo=UTC)
+    def test_source_for_pipeline_drops_cursor_on_full_refresh(self):
+        result = SourceDriver(self.source, self.config).run(
+            "workflow_runs",
+            route(
+                {
+                    "/api/v2/insights/gh/posthog/posthog/workflows": [
+                        ScriptedResponse(json={"items": [{"name": "ci"}], "next_page_token": None})
+                    ],
+                    "/api/v2/insights/gh/posthog/posthog/workflows/ci": [
+                        ScriptedResponse(json={"items": [], "next_page_token": None})
+                    ],
+                    "/api/v2/insights/gh/posthog/posthog.com/workflows": [
+                        ScriptedResponse(json={"items": [], "next_page_token": None})
+                    ],
+                }
+            ),
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=datetime(2026, 7, 1, tzinfo=UTC),
+        )
 
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["should_use_incremental_field"] is False
-        assert kwargs["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert result.requests[1].param("start-date") is None

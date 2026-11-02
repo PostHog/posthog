@@ -1,0 +1,44 @@
+rules:
+    - id: personal-api-key-created-outside-mint
+      pattern-either:
+          - pattern: PersonalAPIKey(...)
+          - pattern: PersonalAPIKey.objects.create(...)
+          - pattern: PersonalAPIKey.objects.bulk_create(...)
+          - pattern: PersonalAPIKey.objects.get_or_create(...)
+          - pattern: PersonalAPIKey.objects.update_or_create(...)
+          - pattern: $OWNER.personal_api_keys.create(...)
+          - pattern: $OWNER.personal_api_keys.get_or_create(...)
+          - pattern: $OWNER.personal_api_keys.update_or_create(...)
+      message: >
+          Create personal API keys with `mint_personal_api_key` from
+          `posthog.personal_api_key_minting`. It takes the team scope as an
+          `AccessibleTeams`, which is built only after the owner's project access
+          is checked, so no key can reach a team its owner cannot use. If a key
+          genuinely cannot go through it (for example a dev seed with a fixed
+          value), add `# nosemgrep: personal-api-key-created-outside-mint` on the
+          line before, with the reason.
+      severity: ERROR
+      languages: [python]
+      paths:
+          exclude:
+              - '**/test*/**'
+              - '**/tests/**'
+              - '**/test_*.py'
+              - '**/*_test.py'
+              - '**/conftest.py'
+              - '**/migrations/**'
+              - '**/.semgrep/**'
+              - '/posthog/personal_api_key_minting.py'
+    - id: accessible-teams-built-directly
+      pattern: AccessibleTeams(...)
+      message: >
+          Build `AccessibleTeams` with `for_user`, `for_request` or `all_for`. Those
+          constructors run the project access check; direct construction skips it
+          and raises at runtime.
+      severity: ERROR
+      languages: [python]
+      paths:
+          exclude:
+              - '**/migrations/**'
+              - '**/.semgrep/**'
+              - '/posthog/accessible_teams.py'

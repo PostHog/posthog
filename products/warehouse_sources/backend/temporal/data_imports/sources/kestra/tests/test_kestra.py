@@ -12,12 +12,18 @@ from requests import PreparedRequest, Response
 from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    route,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kestra import (
     KestraAuthMethodConfig,
     KestraSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.kestra.kestra import (
+    KestraResumeState,
     kestra_source,
     validate_credentials,
 )
@@ -182,14 +188,19 @@ def test_catalog_rows_keep_unique_keys(
 
 
 @pytest.mark.parametrize(
-    "status,schema,valid,message",
+    "status,schema,valid,message,probed",
     [
-        (200, None, True, None),
-        (200, "executions", True, None),
-        (401, None, False, "Kestra rejected"),
-        (401, "executions", False, "Kestra rejected"),
-        (403, None, True, None),
-        (403, "executions", False, "Grant read permission"),
+        (200, None, True, None, "flows"),
+        (200, "executions", True, None, "executions"),
+        (200, "logs", True, None, "logs"),
+        (200, "task_runs", True, None, "executions"),
+        (200, "execution_metrics", True, None, "executions"),
+        (200, "flow_revisions", True, None, "flows"),
+        (401, None, False, "Kestra rejected", "flows"),
+        (401, "executions", False, "Kestra rejected", "executions"),
+        (403, None, True, None, "flows"),
+        (403, "executions", False, "Grant read permission", "executions"),
+        (403, "flow_revisions", False, "Grant read permission", "flows"),
     ],
 )
 def test_credential_probe(
@@ -198,6 +209,7 @@ def test_credential_probe(
     schema: str | None,
     valid: bool,
     message: str | None,
+    probed: str,
 ) -> None:
     with patch("requests.sessions.Session.send", return_value=response({"results": [], "total": 0}, status)) as send:
         success, error = validate_credentials(config, 1, schema)
@@ -207,7 +219,7 @@ def test_credential_probe(
     request = send.call_args.args[0]
     assert request.headers["Authorization"] == "Bearer test-token"
     assert parse_qs(urlsplit(request.url or "").query) == {"page": ["1"], "size": ["1"]}
-    assert urlsplit(request.url or "").path == f"/api/v1/main/{schema or 'flows'}/search"
+    assert urlsplit(request.url or "").path == f"/api/v1/main/{probed}/search"
 
 
 @pytest.mark.parametrize("status", [400, 404])
@@ -332,3 +344,178 @@ def test_unknown_table_fails_before_request(
         with pytest.raises(UnknownResourceError):
             validate_credentials(config, 1, "unknown")
     send.assert_not_called()
+
+
+def page(results: list[dict[str, Any]], total: int) -> ScriptedResponse:
+    return ScriptedResponse(json={"results": results, "total": total})
+
+
+@pytest.mark.parametrize("watermark", [datetime(2026, 1, 1, tzinfo=UTC), None])
+def test_task_runs_fan_out_over_windowed_executions(config: KestraSourceConfig, watermark: datetime | None) -> None:
+    executions = [
+        {"id": "run-1", "state": {"startDate": "2026-01-02T00:00:00Z"}},
+        {"id": "gone", "state": {"startDate": "2026-01-03T00:00:00Z"}},
+        {"id": "run-2", "state": {"startDate": "2026-01-04T00:00:00Z"}},
+    ]
+    script = route(
+        {
+            "/api/v1/main/executions/search": [page(executions, 3)],
+            "/api/v1/main/executions/run-1": [
+                ScriptedResponse(
+                    json={"id": "run-1", "taskRunList": [{"id": "tr-1", "executionId": "run-1", "taskId": "a"}]}
+                )
+            ],
+            "/api/v1/main/executions/gone": [ScriptedResponse(status=404, json={"message": "Not found"})],
+            "/api/v1/main/executions/run-2": [ScriptedResponse(json={"id": "run-2", "taskRunList": None})],
+        }
+    )
+    result = SourceDriver(KestraSource(), config).run(
+        "task_runs",
+        script,
+        incremental_field="execution_start_date",
+        db_incremental_field_last_value=watermark,
+    )
+    assert result.raised is None
+    assert result.rows == [
+        {
+            "id": "tr-1",
+            "executionId": "run-1",
+            "taskId": "a",
+            "execution_start_date": datetime(2026, 1, 2, tzinfo=UTC),
+        }
+    ]
+    search = result.requests[0]
+    assert search.param("sort") == "state.startDate:asc"
+    assert search.param("dateFilter") == "START_DATE"
+    assert search.param("filters[startDate][GREATER_THAN_OR_EQUAL_TO]") == (watermark and watermark.isoformat())
+    assert search.param("filters[endDate][LESS_THAN_OR_EQUAL_TO]") is not None
+    assert all(request.param("size") is None for request in result.requests[1:])
+    assert result.response is not None and result.response.sort_mode == "asc"
+
+
+def test_execution_metrics_walk_pages_and_key_each_entry(config: KestraSourceConfig) -> None:
+    metric = {"namespace": "ns", "flowId": "f", "executionId": "run-1", "type": "counter", "name": "rows", "value": 5.0}
+    script = route(
+        {
+            "/api/v1/main/executions/search": [
+                page([{"id": "run-1", "state": {"startDate": "2026-01-02T00:00:00Z"}}], 1)
+            ],
+            "/api/v1/main/metrics/run-1": [
+                page([{**metric, "timestamp": "2026-01-02T00:00:01Z"}], 1001),
+                page([{**metric, "timestamp": "2026-01-02T00:00:02Z"}, {**metric, "tags": {"k": "v"}}], 1001),
+            ],
+        }
+    )
+    result = SourceDriver(KestraSource(), config).run(
+        "execution_metrics", script, incremental_field="execution_start_date"
+    )
+    assert result.raised is None
+    metric_requests = [request for request in result.requests if "/metrics/" in request.path]
+    assert [(request.param("page"), request.param("size")) for request in metric_requests] == [
+        ("1", "1000"),
+        ("2", "1000"),
+    ]
+    assert len({row["entry_id"] for row in result.rows}) == 3
+    assert {row["execution_start_date"] for row in result.rows} == {datetime(2026, 1, 2, tzinfo=UTC)}
+    assert not any(key.startswith("_executions") for row in result.rows for key in row)
+
+
+def test_flow_revisions_bind_namespace_and_id(config: KestraSourceConfig) -> None:
+    flows = [{"namespace": "company.team", "id": "etl"}, {"namespace": "company.team", "id": "deleted"}]
+    script = route(
+        {
+            "/api/v1/main/flows/search": [page(flows, 2)],
+            "/api/v1/main/flows/company.team/etl/revisions": [
+                ScriptedResponse(
+                    json=[
+                        {"namespace": "company.team", "id": "etl", "revision": 1},
+                        {"namespace": "company.team", "id": "etl", "revision": 2},
+                    ]
+                )
+            ],
+            "/api/v1/main/flows/company.team/deleted/revisions": [ScriptedResponse(status=404, json={})],
+        }
+    )
+    result = SourceDriver(KestraSource(), config).run("flow_revisions", script)
+    assert result.raised is None
+    assert [row["revision"] for row in result.rows] == [1, 2]
+    assert result.requests[0].query["sort"] == ("namespace:asc", "id:asc")
+
+
+@pytest.mark.parametrize(
+    "answers,expected_pages,expected_cursors",
+    [
+        (
+            [
+                {"type": "OFFSET", "total": 1001, "results": [{"message": "first"}]},
+                {"type": "OFFSET", "total": 1001, "results": [{"message": "second"}]},
+            ],
+            ["1", "2"],
+            [None, None],
+        ),
+        (
+            [
+                {"type": "CURSOR", "nextCursor": "c2", "results": [{"message": "first"}]},
+                {"type": "CURSOR", "results": [{"message": "second"}]},
+            ],
+            ["1", None],
+            [None, "c2"],
+        ),
+    ],
+)
+def test_logs_walk_offset_and_cursor_pages(
+    config: KestraSourceConfig,
+    answers: list[dict[str, Any]],
+    expected_pages: list[str | None],
+    expected_cursors: list[str | None],
+) -> None:
+    for answer in answers:
+        for row in answer["results"]:
+            row.update({"namespace": "ns", "flowId": "f", "timestamp": "2026-01-02T03:04:05.123456789Z"})
+    result = SourceDriver(KestraSource(), config).run(
+        "logs",
+        [ScriptedResponse(json=answer) for answer in answers],
+        incremental_field="timestamp",
+        db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    assert result.raised is None
+    assert result.params("page") == expected_pages
+    assert result.params("cursor") == expected_cursors
+    assert result.params("sort") == ["timestamp:asc", "timestamp:asc"]
+    assert result.params("filters[startDate][GREATER_THAN_OR_EQUAL_TO]") == ["2026-01-01T00:00:00+00:00"] * 2
+    assert [row["message"] for row in result.rows] == ["first", "second"]
+    assert result.rows[0]["timestamp"] == datetime(2026, 1, 2, 3, 4, 5, 123456, tzinfo=UTC)
+    assert len({row["entry_id"] for row in result.rows}) == 2
+    assert len(result.committed_states) == 1
+    assert result.completed_state is None
+
+
+@pytest.mark.parametrize(
+    "resume,expected_page,expected_cursor",
+    [
+        (KestraResumeState(page=3, start_date=None, end_date="2026-01-05T00:00:00+00:00"), "3", None),
+        (KestraResumeState(page=1, start_date=None, end_date="2026-01-05T00:00:00+00:00", cursor="c9"), None, "c9"),
+    ],
+)
+def test_logs_resume_from_saved_page_or_cursor(
+    config: KestraSourceConfig, resume: KestraResumeState, expected_page: str | None, expected_cursor: str | None
+) -> None:
+    result = SourceDriver(KestraSource(), config).run(
+        "logs",
+        [ScriptedResponse(json={"type": "OFFSET", "total": 0, "results": []})],
+        incremental_field="timestamp",
+        resume_state=resume,
+    )
+    assert result.raised is None
+    assert result.params("page") == [expected_page]
+    assert result.params("cursor") == [expected_cursor]
+    assert result.params("filters[endDate][LESS_THAN_OR_EQUAL_TO]") == ["2026-01-05T00:00:00+00:00"]
+
+
+def test_logs_stop_on_a_repeated_cursor(config: KestraSourceConfig) -> None:
+    answer = {"type": "CURSOR", "nextCursor": "same", "results": []}
+    result = SourceDriver(KestraSource(), config).run(
+        "logs", [ScriptedResponse(json=answer), ScriptedResponse(json=answer)], incremental_field="timestamp"
+    )
+    assert isinstance(result.raised, ValueError)
+    assert "same log cursor" in str(result.raised)

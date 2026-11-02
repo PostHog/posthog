@@ -4,11 +4,15 @@ import { useValues } from 'kea'
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 
+import { isSharedView } from '~/exporter/exporterViewLogic'
 import { DashboardPlacement } from '~/types'
 
+import { BIDashboardFilterBar } from 'products/business_intelligence/frontend/BIDashboardFilterBar'
 import { DashboardUnsavedChangesIndicator } from 'products/dashboards/frontend/dashboardSettings/DashboardUnsavedChangesIndicator'
+import { DashboardMetricVariables } from 'products/metrics/frontend/components/dashboardVariables/DashboardMetricVariables'
 
 import { DashboardEditBar } from './DashboardEditBar'
 import { dashboardLogic } from './dashboardLogic'
@@ -19,7 +23,8 @@ interface DashboardFilterBarProps {
 }
 
 export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Element {
-    const { placement, dashboard, hasVariables } = useValues(dashboardLogic)
+    const { placement, dashboard, layoutEditMode, hasVariables, effectiveEditBarFilters } = useValues(dashboardLogic)
+    const controlsEnabled = useFeatureFlag('METRICS_DASHBOARD_CONTROLS')
     return (
         <div className="@container/dashboard-filters flex min-w-0 flex-1 flex-col gap-2">
             <div className="flex flex-wrap gap-x-2 gap-y-2 justify-between items-start">
@@ -34,7 +39,19 @@ export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Ele
                             DashboardPlacement.Builtin,
                         ].includes(placement) &&
                             dashboard && <DashboardEditBar />}
-                        {placement === DashboardPlacement.Dashboard && <DashboardUnsavedChangesIndicator />}
+                        {placement === DashboardPlacement.Builtin &&
+                            controlsEnabled &&
+                            !!effectiveEditBarFilters.metricVariables?.length && (
+                                <DashboardMetricVariables editable={false} />
+                            )}
+                        {placement === DashboardPlacement.Dashboard && (
+                            <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 empty:hidden">
+                                <DashboardUnsavedChangesIndicator />
+                                {dashboard && !layoutEditMode && !isSharedView() && (
+                                    <BIDashboardFilterBar dashboardId={dashboard.id} />
+                                )}
+                            </div>
+                        )}
                     </div>
                 </div>
                 {![DashboardPlacement.Export, DashboardPlacement.Builtin].includes(placement) && (

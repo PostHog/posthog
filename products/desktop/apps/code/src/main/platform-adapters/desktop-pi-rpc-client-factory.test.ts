@@ -72,6 +72,7 @@ describe("DesktopPiRpcClientFactory", () => {
           ? "http://127.0.0.1:5678"
           : "http://127.0.0.1:1234",
       ),
+      startGatewaySession: vi.fn(async () => "http://127.0.0.1:1234"),
     } as unknown as AuthProxyService;
     const policies = [
       {
@@ -115,7 +116,12 @@ describe("DesktopPiRpcClientFactory", () => {
       mcpApps as unknown as AgentMcpApps,
       rootLogger,
       {
-        getRoute: vi.fn(async () => ({ mode: "legacy" as const, reason: "x" })),
+        getRoute: vi.fn(async () => ({
+          mode: "blocked" as const,
+          reason: "not_rolled_out",
+          detail: "unavailable",
+          status: 403 as const,
+        })),
         remint: vi.fn(),
         fallBack: vi.fn(),
       },
@@ -125,6 +131,7 @@ describe("DesktopPiRpcClientFactory", () => {
       factory.create({
         taskContext: {
           taskId: "task-1",
+          taskRunId: "run-1",
           cwd: "/workspace",
           customInstructions: "Keep the patch small.",
           additionalDirectories: ["/tmp/shared"],
@@ -132,14 +139,19 @@ describe("DesktopPiRpcClientFactory", () => {
         },
       }),
     ).resolves.toBe(client);
-    expect(authProxy.start).toHaveBeenCalledWith(
-      getLlmGatewayUrl(getCloudUrlFromRegion("dev-cloud")),
-      {
+    expect(authProxy.startGatewaySession).toHaveBeenCalledWith({
+      projectId: 1,
+      legacyGatewayUrl: getLlmGatewayUrl(getCloudUrlFromRegion("dev-cloud")),
+      headers: {
         "x-posthog-property-task_id": "task-1",
+        "x-posthog-property-task_run_id": "run-1",
+        "x-posthog-property-task_runtime_adapter": "pi",
+        "x-posthog-property-task_execution_environment": "local",
         "x-posthog-property-$ai_session_id": "task-1",
+        "X-PostHog-Task-Run-Id": "run-1",
         "X-PostHog-Project-Id": "1",
       },
-    );
+    });
     expect(authProxy.start).toHaveBeenCalledWith("https://app.dev.posthog.dev");
     expect(createLocalRuntimeMcpServers).toHaveBeenCalledWith("/workspace");
     expect(mcpApps.addServerConfigs).toHaveBeenCalledWith([
@@ -181,6 +193,7 @@ describe("DesktopPiRpcClientFactory", () => {
         projectId: 1,
         apiHost: "https://app.dev.posthog.dev",
         taskId: "task-1",
+        taskRunId: "run-1",
         cwd: "/workspace",
         environment: "local",
         customInstructions: "Keep the patch small.",
@@ -198,9 +211,9 @@ describe("DesktopPiRpcClientFactory", () => {
 
   it.each([
     ["go", "http://127.0.0.1:1234/session"],
-    ["legacy", "http://127.0.0.1:1234/legacy"],
+    ["blocked", "http://127.0.0.1:1234/session"],
   ] as const)(
-    "routes a Pi session to the %s gateway by the source's route",
+    "routes a Pi session on a %s route through the gateway session",
     async (mode, expectedBaseUrl) => {
       const auth = {
         getOAuthCredentials: vi.fn(async () => ({
@@ -227,7 +240,12 @@ describe("DesktopPiRpcClientFactory", () => {
         getRoute: vi.fn(async () =>
           mode === "go"
             ? { mode: "go", token: "phe_x", teamId: 7, projectId: 7 }
-            : { mode: "legacy", reason: "not_rolled_out" },
+            : {
+                mode: "blocked",
+                reason: "not_rolled_out",
+                detail: "unavailable",
+                status: 403,
+              },
         ),
         remint: vi.fn(),
         fallBack: vi.fn(),
@@ -269,17 +287,21 @@ describe("DesktopPiRpcClientFactory", () => {
           },
         }),
       );
-      if (mode === "go") {
-        expect(authProxy.startGatewaySession).toHaveBeenCalledWith({
-          projectId: 7,
-          legacyGatewayUrl: getLlmGatewayUrl("https://us.posthog.com"),
-          headers: {
-            "x-posthog-property-task_id": "task-9",
-            "x-posthog-property-$ai_session_id": "task-9",
-            "X-PostHog-Project-Id": "7",
-          },
-        });
-      }
+      expect(authProxy.start).not.toHaveBeenCalledWith(
+        getLlmGatewayUrl("https://us.posthog.com"),
+        expect.anything(),
+      );
+      expect(authProxy.startGatewaySession).toHaveBeenCalledWith({
+        projectId: 7,
+        legacyGatewayUrl: getLlmGatewayUrl("https://us.posthog.com"),
+        headers: {
+          "x-posthog-property-task_id": "task-9",
+          "x-posthog-property-task_runtime_adapter": "pi",
+          "x-posthog-property-task_execution_environment": "local",
+          "x-posthog-property-$ai_session_id": "task-9",
+          "X-PostHog-Project-Id": "7",
+        },
+      });
     },
   );
 });

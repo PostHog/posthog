@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -20,6 +21,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_config
     ENDPOINT_DESCRIPTIONS,
     ENDPOINTS,
     ERROR_MESSAGES,
+    INCREMENTAL_FIELDS,
+    INCREMENTAL_LOOKBACK_SECONDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -40,6 +43,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AwsConfigSource(ResumableSource[AwsConfigSourceConfig, AwsConfigResumeConfig]):
+    codebase_detection = detect(
+        npm=("@aws-sdk/client-config-service",),
+        cargo=("aws-sdk-config",),
+        go=("github.com/aws/aws-sdk-go-v2/service/configservice",),
+        maven=("software.amazon.awssdk:config", "com.amazonaws:aws-java-sdk-config"),
+        rubygems=("aws-sdk-configservice",),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = (CONFIG_API_VERSION,)
     default_version = CONFIG_API_VERSION
@@ -64,7 +75,15 @@ class AwsConfigSource(ResumableSource[AwsConfigSourceConfig, AwsConfigResumeConf
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, {}, names, descriptions=ENDPOINT_DESCRIPTIONS)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            # The lookback reads rows again, so appending would duplicate them.
+            merge_only=INCREMENTAL_LOOKBACK_SECONDS.keys(),
+            descriptions=ENDPOINT_DESCRIPTIONS,
+            default_incremental_lookback_seconds=INCREMENTAL_LOOKBACK_SECONDS,
+        )
 
     def validate_credentials(
         self,
@@ -85,7 +104,12 @@ class AwsConfigSource(ResumableSource[AwsConfigSourceConfig, AwsConfigResumeConf
         inputs: SourceInputs,
     ) -> SourceResponse:
         return aws_config_source(
-            config, inputs.schema_name, self.resolve_api_version(inputs.api_version), resumable_source_manager
+            config,
+            inputs.schema_name,
+            self.resolve_api_version(inputs.api_version),
+            resumable_source_manager,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )
 
     @property
@@ -94,19 +118,28 @@ class AwsConfigSource(ResumableSource[AwsConfigSourceConfig, AwsConfigResumeConf
             name=ExternalDataSourceType.AWSCONFIG,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="AWS Config",
-            caption="""Sync resource configurations, rules, compliance status, and conformance packs from one AWS region.
+            caption="""Sync resource configurations and their history, rules, compliance status and evaluation results, conformance packs, remediation executions, proactive evaluations, and aggregated resources from one AWS region.
 
 Grant these IAM permissions for the tables you want to sync:
 - `config:SelectResourceConfig`
 - `config:DescribeConfigRules`
 - `config:DescribeComplianceByConfigRule`
+- `config:GetComplianceDetailsByConfigRule`
 - `config:DescribeConformancePacks`
+- `config:ListConformancePackComplianceScores`
+- `config:DescribeConfigurationAggregators` and `config:SelectAggregateResourceConfig`
+- `config:SelectResourceConfig` and `config:GetResourceConfigHistory`
+- `config:DescribeConformancePacks` and `config:GetConformancePackComplianceDetails`
+- `config:DescribeConfigRules` and `config:DescribeRemediationExecutionStatus`
+- `config:ListResourceEvaluations`
 
 Enable an AWS Config recorder for resource inventory. The resources table contains current configurations and excludes deleted resources.
+The aggregated resources table reads every configuration aggregator in the selected region.
+The resource configuration history table reads the history of each current resource. A full refresh or a first incremental sync reads the last 90 days.
 Add a session token if you use temporary credentials. Replace temporary credentials when they expire.""",
             iconPath="/static/services/aws_config.png",
             docsUrl="https://docs.aws.amazon.com/config/latest/APIReference/Welcome.html",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["aws", "config", "compliance", "inventory"],
             fields=cast(
                 list[FieldType],

@@ -24,8 +24,8 @@ from temporalio.service import RPCError
 
 from posthog.dataclasses import frozen
 from posthog.ingress.contracts import DeliveryOwnership, WebhookDelivery
+from posthog.integrations import IntegrationManager
 from posthog.models.comment import Comment
-from posthog.models.integration import Integration
 from posthog.models.team import Team
 from posthog.slack.identity import resolve_slack_profile_by_email
 from posthog.temporal.common.client import sync_connect
@@ -57,10 +57,11 @@ from products.conversations.backend.models import (
     Status,
     Ticket,
 )
-from products.conversations.backend.models.constants import WORKFLOW_AUTHOR_TYPE
+from products.conversations.backend.models.constants import WORKFLOW_AUTHOR_TYPE, Channel
 from products.conversations.backend.services.messages import public_human_ticket_replies
-from products.conversations.backend.slack import get_slack_client
+from products.conversations.backend.slack import _is_internal_channel, get_slack_client
 from products.conversations.backend.support_slack import (
+    automated_update_channel_allowed,
     get_support_slack_bot_token,
     supporthog_lacks_custom_identity_scope,
 )
@@ -439,6 +440,59 @@ def post_ticket_internal_note(team_id: int, ticket_id: str, content: str, *, ded
     return str(comment.id)
 
 
+def post_ticket_automated_update(
+    team_id: int, ticket_id: str, *, public_content: str, private_content: str, dedupe_key: str
+) -> str | None:
+    source_ticket = Ticket.objects.filter(team_id=team_id, id=ticket_id).select_related("team").first()
+    if source_ticket is None:
+        return None
+    checked_channel = source_ticket.slack_channel_id
+    send_to_slack = False
+    if (
+        source_ticket.channel_source == Channel.SLACK
+        and checked_channel
+        and source_ticket.slack_thread_ts
+        and automated_update_channel_allowed(source_ticket.team, checked_channel)
+    ):
+        try:
+            send_to_slack = _is_internal_channel(get_slack_client(source_ticket.team), checked_channel)
+        except Exception:
+            logger.exception("Failed to check support Slack channel before automated update", ticket_id=ticket_id)
+
+    with transaction.atomic():
+        ticket = Ticket.objects.select_for_update().filter(team_id=team_id, id=ticket_id).first()
+        if ticket is None:
+            return None
+        if Comment.objects.filter(
+            team_id=team_id,
+            scope="conversations_ticket",
+            item_id=ticket_id,
+            item_context__automated_update_key=dedupe_key,
+            deleted=False,
+        ).exists():
+            return None
+        send_to_slack = bool(
+            send_to_slack
+            and ticket.channel_source == Channel.SLACK
+            and ticket.slack_channel_id == checked_channel
+            and ticket.slack_thread_ts == source_ticket.slack_thread_ts
+        )
+        comment = Comment.objects.create(
+            team_id=team_id,
+            scope="conversations_ticket",
+            item_id=ticket_id,
+            content=public_content if send_to_slack else private_content,
+            item_context={
+                "author_type": "AI",
+                "is_private": not send_to_slack,
+                "automated_update_key": dedupe_key,
+                "internal_channel_only": send_to_slack,
+                **({"internal_note_key": dedupe_key} if not send_to_slack else {}),
+            },
+        )
+    return str(comment.id)
+
+
 def trigger_immediate_channel_summary(
     *,
     team_id: int,
@@ -801,6 +855,8 @@ def list_email_threads_for_account_matching(
     team_id: int,
     *,
     thread_ids: list[str] | None = None,
+    participant_emails: list[str] | None = None,
+    participant_domains: list[str] | None = None,
     after_id: str | None = None,
     limit: int = 100,
 ) -> list[EmailThreadForAccountMatching]:
@@ -810,6 +866,11 @@ def list_email_threads_for_account_matching(
     )
     if thread_ids is not None:
         threads = threads.filter(id__in=thread_ids)
+    if participant_emails is not None or participant_domains is not None:
+        matching_participants = Q(email__in=participant_emails or [])
+        for domain in participant_domains or []:
+            matching_participants |= Q(email__endswith=f"@{domain}")
+        threads = threads.filter(Exists(participants.filter(matching_participants, thread_id=OuterRef("id"))))
     if after_id is not None:
         threads = threads.filter(id__gt=after_id)
 
@@ -830,13 +891,12 @@ def list_email_threads_for_account_matching(
             continue
         integration_ids.add(int(integration_id))
 
-    integration_owner_ids = dict(
-        Integration.objects.filter(
-            team_id=team_id,
-            id__in=integration_ids,
-            kind=Integration.IntegrationKind.GOOGLE_CALENDAR,
-        ).values_list("id", "created_by_id")
-    )
+    integration_owner_ids = {
+        integration_id: integration.created_by_id
+        for integration_id, integration in IntegrationManager.google_calendar.oauth.get_many(
+            team_id, integration_ids
+        ).items()
+    }
     matching_threads: list[EmailThreadForAccountMatching] = []
     for thread in thread_page:
         normalized_thread_id = str(thread.id)
@@ -859,22 +919,62 @@ def list_email_threads_for_account_matching(
     return matching_threads
 
 
+def _validate_match_source(link: EmailThreadAccountLinkInput) -> None:
+    if link.match_source not in EmailThreadAccountMatchSource.values:
+        raise ValueError(f"Unknown email account match source: {link.match_source}")
+
+
 @transaction.atomic
-def replace_email_thread_account_links(
+def create_email_thread_account_links(
     team_id: int,
     thread_id: str,
     links: list[EmailThreadAccountLinkInput],
 ) -> None:
     thread = EmailThread.objects.for_team(team_id).select_for_update().get(id=thread_id)
+    linked_account_ids = set(
+        EmailThreadAccountLink.objects.for_team(team_id).filter(thread=thread).values_list("account_id", flat=True)
+    )
     links_by_account_id = {link.account_id: link for link in links}
-    EmailThreadAccountLink.objects.for_team(team_id).filter(thread=thread).exclude(
-        account_id__in=links_by_account_id
-    ).delete()
+    for link in links_by_account_id.values():
+        _validate_match_source(link)
+    EmailThreadAccountLink.objects.for_team(team_id).bulk_create(
+        [
+            EmailThreadAccountLink(
+                team_id=team_id,
+                thread=thread,
+                account_id=account_id,
+                account_external_id=link.account_external_id,
+                match_source=link.match_source,
+            )
+            for account_id, link in links_by_account_id.items()
+            if account_id not in linked_account_ids
+        ]
+    )
 
-    valid_sources = set(EmailThreadAccountMatchSource.values)
+
+@transaction.atomic
+def replace_email_thread_account_links(
+    team_id: int,
+    thread_id: str,
+    links: list[EmailThreadAccountLinkInput],
+    *,
+    match_sources: list[str] | None = None,
+) -> None:
+    thread = EmailThread.objects.for_team(team_id).select_for_update().get(id=thread_id)
+    links_by_account_id = {link.account_id: link for link in links}
+    existing_links = EmailThreadAccountLink.objects.for_team(team_id).filter(thread=thread)
+    preserved_account_ids: set[str] = set()
+    if match_sources is not None:
+        preserved_account_ids = set(
+            existing_links.exclude(match_source__in=match_sources).values_list("account_id", flat=True)
+        )
+        existing_links = existing_links.filter(match_source__in=match_sources)
+    existing_links.exclude(account_id__in=links_by_account_id).delete()
+
     for account_id, link in links_by_account_id.items():
-        if link.match_source not in valid_sources:
-            raise ValueError(f"Unknown email account match source: {link.match_source}")
+        _validate_match_source(link)
+        if account_id in preserved_account_ids:
+            continue
         EmailThreadAccountLink.objects.for_team(team_id).update_or_create(
             team_id=team_id,
             thread=thread,

@@ -1,18 +1,17 @@
 #!/usr/bin/env bash
 # Copy the prod inbox_report_state and inbox_report_labels partitions into local SeaweedFS so
-# inbox_ranking_training_job can run from the local Dagster UI against real snapshots.
+# inbox_ranking_nn_training_job can run from the local Dagster UI against real snapshots.
 #
 #   products/signals/dags/inbox_ranking/bin/sync_snapshots_local.sh
 #
 # INBOX_RANKING_SYNC_EMBEDDINGS=1 also copies inbox_report_embeddings, the report vectors the
-# report_embeddings family trains on. It is off by default because that table holds a 1536-float
-# vector per live report per partition, which is orders of magnitude more to pull than the other
-# two together. Without it the training job still runs: the family finds no vector for any report
-# and builds no examples, and every other family is unaffected.
+# nn families train on. It is off by default because that table holds a 1536-float vector per
+# live report per partition, which is orders of magnitude more to pull than the other two
+# together. Without it the nn assets skip the partition.
 #
 # INBOX_RANKING_SYNC_TITLE_EMBEDDINGS=1 copies inbox_report_title_embeddings, the title-only
 # vectors of the same reports. It is a separate switch for the same reason: each table is a vector
-# per live report per partition, and a local loop usually wants one of them.
+# per live report per partition. No model family trains on it.
 #
 # Two hops: prod S3 -> a disk cache -> the local object-storage bucket. The disk copy is what
 # makes a re-sync cheap (aws s3 sync only moves new partitions) and doubles as input for

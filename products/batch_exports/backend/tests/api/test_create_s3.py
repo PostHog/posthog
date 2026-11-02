@@ -5,7 +5,7 @@ from django.test.client import Client as HttpClient
 from rest_framework import status
 from temporalio.client import ScheduleActionStartWorkflow
 
-from products.batch_exports.backend.models.batch_export import S3_FAMILY_TYPES
+from products.batch_exports.backend.facade.enums import S3_FAMILY_TYPES
 from products.batch_exports.backend.tests.api.conftest import describe_schedule
 from products.batch_exports.backend.tests.api.operations import create_batch_export
 

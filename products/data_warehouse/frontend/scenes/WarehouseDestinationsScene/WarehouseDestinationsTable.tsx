@@ -1,27 +1,19 @@
 import type { ReactNode } from 'react'
 
 import { IconPencil, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumn, LemonTag, LemonTagType, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTableColumn, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 
-import {
-    ExternalDataDestinationApi,
-    ExternalDataDestinationStatusEnumApi,
-} from 'products/warehouse_sources/frontend/generated/api.schemas'
+import { ExternalDataDestinationApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { DestinationIcon, destinationTypeLabel } from '../../shared/components/DestinationIcon'
+import { DESTINATION_STATUS_TAGS } from '../../shared/components/destinationStatus'
 import { destinationTarget } from '../../shared/components/destinationTarget'
 import { SyncedSources } from './SyncedSources'
 
 const MANAGED_REASON = 'The PostHog warehouse is managed for you'
-
-const STATUS_TAGS: Record<ExternalDataDestinationStatusEnumApi, { label: string; type: LemonTagType }> = {
-    healthy: { label: 'Healthy', type: 'success' },
-    failing: { label: 'Failing', type: 'warning' },
-    paused: { label: 'Paused', type: 'danger' },
-}
 
 export interface WarehouseDestinationsTableProps {
     destinations: ExternalDataDestinationApi[]
@@ -90,7 +82,7 @@ export function WarehouseDestinationsTable({
                 if (destination.is_posthog_warehouse) {
                     return null
                 }
-                const tag = STATUS_TAGS[destination.status]
+                const tag = DESTINATION_STATUS_TAGS[destination.status]
                 return (
                     <div className="flex flex-col items-start gap-1 max-w-80">
                         <LemonTag type={tag.type}>{tag.label}</LemonTag>

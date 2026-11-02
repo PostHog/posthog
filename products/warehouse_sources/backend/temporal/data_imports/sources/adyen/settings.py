@@ -4,16 +4,17 @@ from typing import Literal
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
-# Adyen splits its read APIs across three hosts with independent versions, so each endpoint
+# Adyen splits its read APIs across several hosts with independent versions, so each endpoint
 # names the API it belongs to rather than sharing one base URL.
-AdyenApi = Literal["transfers", "configuration", "management", "reports"]
+AdyenApi = Literal["transfers", "configuration", "management", "reports", "legal_entity"]
 
 # `cursor` — Transfers API `_links.next` with an opaque `cursor` query param.
 # `offset` — Configuration API `offset`/`limit`.
 # `page` — Management API `pageNumber`/`pageSize`.
 # `fanout_offset` — offset pagination per parent id resolved from another endpoint.
+# `fanout_object` — one single-object GET per parent id resolved from another endpoint.
 # `report_batch` — no pagination: walk sequential report batch numbers, one CSV file each.
-AdyenPagination = Literal["cursor", "offset", "page", "fanout_offset", "report_batch"]
+AdyenPagination = Literal["cursor", "offset", "page", "fanout_offset", "fanout_object", "report_batch"]
 
 
 @dataclass(frozen=True)
@@ -30,8 +31,11 @@ class AdyenEndpointConfig:
     partition_key: str | None = None
     requires_balance_platform: bool = False
     requires_merchant_account: bool = False
-    # Fan-out children: the endpoint whose row ids fill the `{parent_id}` placeholder.
+    # Fan-out children: the endpoint whose rows fill the `{parent_id}` placeholder, and the field
+    # read from each parent row.
     parent: str | None = None
+    parent_field: str = "id"
+    sync_by_default: bool = True
     description: str = ""
 
 
@@ -57,6 +61,31 @@ ADYEN_ENDPOINTS: dict[str, AdyenEndpointConfig] = {
         requires_balance_platform=True,
         description="Balance accounts holding funds for each account holder in your balance platform.",
     ),
+    "PaymentInstruments": AdyenEndpointConfig(
+        name="PaymentInstruments",
+        api="configuration",
+        path="/balanceAccounts/{parent_id}/paymentInstruments",
+        primary_key=("id",),
+        pagination="fanout_offset",
+        data_key="paymentInstruments",
+        parent="BalanceAccounts",
+        requires_balance_platform=True,
+        description="Cards and business accounts issued against each balance account, with their status.",
+    ),
+    "LegalEntities": AdyenEndpointConfig(
+        name="LegalEntities",
+        api="legal_entity",
+        path="/legalEntities/{parent_id}",
+        primary_key=("id",),
+        pagination="fanout_object",
+        parent="AccountHolders",
+        parent_field="legalEntityId",
+        requires_balance_platform=True,
+        # Needs a Legal Entity Management API role most credentials lack, and the rows carry
+        # personal identity data, so the table is opt-in.
+        sync_by_default=False,
+        description="Legal entities behind your account holders, with their business identity and verification status.",
+    ),
     "Companies": AdyenEndpointConfig(
         name="Companies",
         api="management",
@@ -74,6 +103,15 @@ ADYEN_ENDPOINTS: dict[str, AdyenEndpointConfig] = {
         pagination="page",
         data_key="data",
         description="Merchant accounts your API credential can access, with their processing configuration.",
+    ),
+    "Stores": AdyenEndpointConfig(
+        name="Stores",
+        api="management",
+        path="/stores",
+        primary_key=("id",),
+        pagination="page",
+        data_key="data",
+        description="Physical store locations across the merchant accounts your API credential can access.",
     ),
     "SettlementDetailReports": AdyenEndpointConfig(
         name="SettlementDetailReports",

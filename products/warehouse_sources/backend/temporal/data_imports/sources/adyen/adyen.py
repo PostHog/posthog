@@ -30,12 +30,14 @@ ADYEN_HOSTS: dict[str, dict[str, str]] = {
         "configuration": "https://balanceplatform-api-test.adyen.com/bcl/v2",
         "management": "https://management-test.adyen.com/v3",
         "reports": "https://ca-test.adyen.com",
+        "legal_entity": "https://kyc-test.adyen.com/lem/v4",
     },
     "live": {
         "transfers": "https://balanceplatform-api-live.adyen.com/btl/v4",
         "configuration": "https://balanceplatform-api-live.adyen.com/bcl/v2",
         "management": "https://management-live.adyen.com/v3",
         "reports": "https://ca-live.adyen.com",
+        "legal_entity": "https://kyc-live.adyen.com/lem/v4",
     },
 }
 
@@ -395,31 +397,94 @@ def _iter_page_number_pages(
         manager.save_state(AdyenResumeConfig(page_number=page_number))
 
 
+def _parent_endpoint(config: AdyenEndpointConfig) -> AdyenEndpointConfig:
+    parent = ADYEN_ENDPOINTS[config.parent] if config.parent else None
+    if parent is None:
+        raise AdyenConfigurationError(f"Adyen endpoint {config.name} has no parent endpoint configured.")
+    return parent
+
+
+def _collect_ids(
+    session: requests.Session,
+    config: AdyenEndpointConfig,
+    environment: Optional[str],
+    balance_platform: str,
+    logger: FilteringBoundLogger,
+    manager: ResumableSourceManager[AdyenResumeConfig],
+    field: str = "id",
+) -> list[str]:
+    """Distinct `field` values across an offset-paginated endpoint, walking its own parents first."""
+    host = base_url(environment, config.api)
+    if config.pagination == "fanout_offset":
+        paths = [
+            config.path.format(parent_id=parent_id)
+            for parent_id in _collect_ids(
+                session, _parent_endpoint(config), environment, balance_platform, logger, manager
+            )
+        ]
+    else:
+        paths = [config.path.format(balance_platform=balance_platform)]
+
+    ids: dict[str, None] = {}
+    for path in paths:
+        for page in _iter_offset_pages(session, host, path, config.data_key, logger):
+            for item in page:
+                value = item.get(field)
+                # The id is interpolated into the next request path, so only accept plain identifiers.
+                if isinstance(value, str) and _IDENTIFIER_RE.match(value):
+                    ids[value] = None
+            # Nothing has been yielded yet, so resuming here loses no rows.
+            manager.safe_point()
+    return list(ids)
+
+
 def _iter_fanout_pages(
     session: requests.Session,
     config: AdyenEndpointConfig,
-    host: str,
+    environment: Optional[str],
     balance_platform: str,
     logger: FilteringBoundLogger,
     manager: ResumableSourceManager[AdyenResumeConfig],
     start_parent_index: int,
 ) -> Iterator[list[dict[str, Any]]]:
-    parent = ADYEN_ENDPOINTS[config.parent] if config.parent else None
-    if parent is None:
-        raise AdyenConfigurationError(f"Adyen endpoint {config.name} has no parent endpoint configured.")
-
-    parent_path = parent.path.format(balance_platform=balance_platform)
-    parent_ids: list[str] = []
-    for page in _iter_offset_pages(session, host, parent_path, parent.data_key, logger):
-        parent_ids.extend(str(item["id"]) for item in page if item.get("id"))
+    parent_ids = _collect_ids(
+        session, _parent_endpoint(config), environment, balance_platform, logger, manager, config.parent_field
+    )
+    host = base_url(environment, config.api)
 
     for index, parent_id in enumerate(parent_ids):
         if index < start_parent_index:
             continue
         child_path = config.path.format(parent_id=parent_id)
-        for page in _iter_offset_pages(session, host, child_path, config.data_key, logger):
-            yield page
+        yield from _iter_offset_pages(session, host, child_path, config.data_key, logger)
         manager.save_state(AdyenResumeConfig(parent_index=index + 1))
+        # Many parents have no children, and a long run of empty requests needs a hand-off point.
+        manager.safe_point()
+
+
+def _iter_fanout_objects(
+    session: requests.Session,
+    config: AdyenEndpointConfig,
+    environment: Optional[str],
+    balance_platform: str,
+    logger: FilteringBoundLogger,
+    manager: ResumableSourceManager[AdyenResumeConfig],
+    start_parent_index: int,
+) -> Iterator[list[dict[str, Any]]]:
+    parent_ids = _collect_ids(
+        session, _parent_endpoint(config), environment, balance_platform, logger, manager, config.parent_field
+    )
+    host = base_url(environment, config.api)
+
+    for index, parent_id in enumerate(parent_ids):
+        if index < start_parent_index:
+            continue
+        payload = _request(session, f"{host}{config.path.format(parent_id=parent_id)}", logger).json()
+        manager.save_state(AdyenResumeConfig(parent_index=index + 1))
+        if isinstance(payload, dict) and payload.get("id"):
+            yield [payload]
+        else:
+            manager.safe_point()
 
 
 def _iter_report_batches(
@@ -522,11 +587,12 @@ def get_rows(
         )
         return
 
-    if config.pagination == "fanout_offset":
+    if config.pagination in ("fanout_offset", "fanout_object"):
         platform = _require_identifier(balance_platform, "Balance platform ID")
         start_parent_index = resume.parent_index if resume is not None and resume.parent_index is not None else 0
-        yield from _iter_fanout_pages(
-            session, config, host, platform, logger, resumable_source_manager, start_parent_index
+        iter_fanout = _iter_fanout_pages if config.pagination == "fanout_offset" else _iter_fanout_objects
+        yield from iter_fanout(
+            session, config, environment, platform, logger, resumable_source_manager, start_parent_index
         )
         return
 

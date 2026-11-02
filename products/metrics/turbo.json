@@ -8,6 +8,7 @@
                 "backend/routes.py",
                 "backend/hogql_queries/**",
                 "backend/tasks/**",
+                "backend/temporal/**",
                 "backend/models.py",
                 "backend/migrations/**"
             ],

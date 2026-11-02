@@ -15,11 +15,6 @@ class TestEverhourSource:
         self.team_id = 123
         self.config = EverhourSourceConfig(api_key="ev_abc")
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["time_records"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "time_records"
-
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [

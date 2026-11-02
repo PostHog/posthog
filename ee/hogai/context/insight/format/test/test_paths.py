@@ -1,9 +1,9 @@
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from .. import PathsResultsFormatter
 
 
-class TestPathsResultsFormatter(BaseTest):
+class TestPathsResultsFormatter(SimpleTestCase):
     def test_format_paths(self):
         results = [
             {"source": "1_/home", "target": "2_/pricing", "value": 150, "average_conversion_time": 150.0},

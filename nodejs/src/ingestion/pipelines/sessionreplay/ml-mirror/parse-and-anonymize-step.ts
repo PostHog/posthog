@@ -83,6 +83,7 @@ export interface ImageCollectionConfig {
     pseudonymSecret: string | Buffer
     /** Replace inlined images with refs and return their bytes for the scrub topic. */
     collectImages: boolean
+    maxImageBytes: number
     /**
      * Keep a remote image's placeholder, stash its ref, and return its URL for the fetch lane.
      *
@@ -108,6 +109,13 @@ export function createParseAndAnonymizeMessageStep<
     imageCollection?: ImageCollectionConfig,
     producedRefs?: ProducedRefs
 ): ProcessingStep<T, T & ParseAndAnonymizeStepOutput> {
+    // The addon rejects a bad cap on every call, which would drop every message while the consumer looks healthy.
+    if (
+        imageCollection &&
+        !(Number.isSafeInteger(imageCollection.maxImageBytes) && imageCollection.maxImageBytes > 0)
+    ) {
+        throw new Error(`maxImageBytes must be a positive integer, got ${imageCollection.maxImageBytes}`)
+    }
     const globalUrlKey =
         imageCollection?.collectUrls === true
             ? pseudonymize(imageCollection.pseudonymSecret, PSEUDONYM_IMAGE_URL_KEY, PSEUDONYM_IMAGE_URL_GLOBAL_VALUE)
@@ -185,7 +193,8 @@ export function createParseAndAnonymizeMessageStep<
                 teamKeys?.contentKey,
                 globalUrlKey,
                 referenceNamespace,
-                producedRefDedup(producedRefs, Date.now())
+                producedRefDedup(producedRefs, Date.now()),
+                imageCollection?.maxImageBytes
             )
         } catch (error) {
             // A rejected promise (native panic, addon load failure) must fail closed.
@@ -202,6 +211,9 @@ export function createParseAndAnonymizeMessageStep<
         if (result.failed) {
             if (result.reason && DLQ_REASONS.has(result.reason)) {
                 return dlq(result.reason, new Error(result.error ?? result.reason))
+            }
+            if (result.reason === 'ml_mirror_non_web_replay') {
+                return drop('ml_mirror_non_web_replay')
             }
             if (result.reason === 'message_contained_no_valid_rrweb_events') {
                 return drop(
@@ -229,6 +241,10 @@ export function createParseAndAnonymizeMessageStep<
             logger.warn('🙈', 'anonymize_event_failed', { error: String(error) })
             MlMirrorMetrics.incrementMlAnonymizeFailed('rust')
             return drop('anonymize_failed')
+        }
+
+        if (!isWebReplay(meta.snapshotSource)) {
+            return drop('ml_mirror_non_web_replay')
         }
 
         const startDateTime = DateTime.fromMillis(meta.startTs)
@@ -264,6 +280,9 @@ export function createParseAndAnonymizeMessageStep<
         }
 
         recordImageSources(meta)
+        for (const drop of meta.scrubDrops ?? []) {
+            MlMirrorMetrics.incrementMlScrubDrops(drop.reason, drop.count)
+        }
         MlMirrorMetrics.incrementMlJsonLdEvents(meta.jsonLdEventCount)
 
         const parsedMessage: ParsedMessageData = {
@@ -303,6 +322,15 @@ export function createParseAndAnonymizeMessageStep<
 
         return ok({ ...input, parsedMessage, collectedImages, collectedUrls })
     }
+}
+
+/**
+ * The anonymizer scrubs the web rrweb shapes only. Mobile SDKs send wireframes and screenshots, which
+ * none of its scrubbers read, so only a web replay is mirrored. Capture writes `web` when a client
+ * sends no source, so a missing one never comes from capture.
+ */
+export function isWebReplay(snapshotSource: string | null | undefined): boolean {
+    return snapshotSource === 'web'
 }
 
 function recordImageSources(meta: AnonymizeMeta): void {

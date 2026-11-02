@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ButtondownSource(ResumableSource[ButtondownSourceConfig, ButtondownResumeConfig]):
+    codebase_detection = detect(env=("^BUTTONDOWN_",), npm=("buttondown",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("2026-04-01",)
     default_version = "2026-04-01"
@@ -51,7 +54,7 @@ class ButtondownSource(ResumableSource[ButtondownSourceConfig, ButtondownResumeC
             name=ExternalDataSourceType.BUTTONDOWN,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Buttondown",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Buttondown API key to sync your newsletter data into the PostHog data warehouse.
 
 You can find your API key on the [API page](https://buttondown.com/requests) in your Buttondown settings.

@@ -1,8 +1,10 @@
 import { useMemo } from 'react'
 
+import { LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
+
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { AggregatedSpanRow } from '~/queries/schema/schema-general'
+import { AggregatedSpanRow, SpanHealthStatus } from '~/queries/schema/schema-general'
 
 import { formatIdentityCoverage } from './identityCoverage'
 import { formatDuration } from './TraceWaterfallView'
@@ -56,7 +58,27 @@ const impactCell =
         )
     }
 
-function buildColumns(windowMs: number, showImpact: boolean): VirtualizedTableColumn<AggregatedSpanRow>[] {
+// Listed worst first, so the Health column sorts unhealthy rows to the top.
+const HEALTH_META: Record<SpanHealthStatus, { label: string; tagType: LemonTagType }> = {
+    silent: { label: 'Silent', tagType: 'danger' },
+    regressed: { label: 'Regressed', tagType: 'danger' },
+    degraded: { label: 'Degraded', tagType: 'warning' },
+    new: { label: 'New', tagType: 'highlight' },
+    recovered: { label: 'Recovered', tagType: 'success' },
+    improved: { label: 'Improved', tagType: 'success' },
+    ok: { label: 'OK', tagType: 'muted' },
+}
+const HEALTH_ORDER = Object.keys(HEALTH_META) as SpanHealthStatus[]
+
+function healthRank(row: AggregatedSpanRow): number {
+    return row.health_status ? HEALTH_ORDER.indexOf(row.health_status) : HEALTH_ORDER.length
+}
+
+function buildColumns(
+    windowMs: number,
+    showImpact: boolean,
+    groupedByEndpoint: boolean
+): VirtualizedTableColumn<AggregatedSpanRow>[] {
     const impactColumns: VirtualizedTableColumn<AggregatedSpanRow>[] = showImpact
         ? [
               {
@@ -86,7 +108,33 @@ function buildColumns(windowMs: number, showImpact: boolean): VirtualizedTableCo
           ]
         : []
 
+    const healthColumns: VirtualizedTableColumn<AggregatedSpanRow>[] = groupedByEndpoint
+        ? [
+              {
+                  key: 'health',
+                  title: 'Health',
+                  width: 110,
+                  tooltip: 'Compared with the previous period of the same length.',
+                  sorter: (a, b) => healthRank(b) - healthRank(a),
+                  render: (row) => {
+                      if (!row.health_status) {
+                          return null
+                      }
+                      const { label, tagType } = HEALTH_META[row.health_status]
+                      return (
+                          <Tooltip title={row.health_reason || undefined}>
+                              <LemonTag type={tagType} size="small">
+                                  {label}
+                              </LemonTag>
+                          </Tooltip>
+                      )
+                  },
+              },
+          ]
+        : []
+
     return [
+        ...healthColumns,
         {
             key: 'service_name',
             title: 'Service',
@@ -96,7 +144,7 @@ function buildColumns(windowMs: number, showImpact: boolean): VirtualizedTableCo
         },
         {
             key: 'name',
-            title: 'Operation',
+            title: groupedByEndpoint ? 'Endpoint' : 'Operation',
             width: 320,
             grow: true,
             sorter: (a, b) => a.name.localeCompare(b.name),
@@ -195,6 +243,8 @@ export interface OperationsTableProps {
     windowMs: number
     /** Show the Sessions and Users columns. Must match the `includeImpact` the rows were fetched with. */
     showImpact?: boolean
+    /** Rows are `METHOD route` endpoints. Must match the `groupByEndpoint` the rows were fetched with. */
+    groupedByEndpoint?: boolean
     onRowClick?: (row: AggregatedSpanRow) => void
 }
 
@@ -203,11 +253,17 @@ export function OperationsTable({
     loading,
     windowMs,
     showImpact = false,
+    groupedByEndpoint = false,
     onRowClick,
 }: OperationsTableProps): JSX.Element {
-    const columns = useMemo(() => buildColumns(windowMs, showImpact), [windowMs, showImpact])
+    const columns = useMemo(
+        () => buildColumns(windowMs, showImpact, groupedByEndpoint),
+        [windowMs, showImpact, groupedByEndpoint]
+    )
     return (
         <VirtualizedTable<AggregatedSpanRow>
+            // Remounts on a mode switch, so each mode starts from its own default sort.
+            key={groupedByEndpoint ? 'endpoints' : 'operations'}
             // pinned: identifies stored column widths — renaming resets everyone's widths
             tableKey="operations"
             columns={columns}
@@ -215,8 +271,12 @@ export function OperationsTable({
             loading={loading}
             rowKey={operationRowKey}
             onRowClick={onRowClick}
-            defaultSort={{ columnKey: 'total_time', order: -1 }}
-            emptyLabel="No operations found for these filters"
+            defaultSort={{ columnKey: groupedByEndpoint ? 'health' : 'total_time', order: -1 }}
+            emptyLabel={
+                groupedByEndpoint
+                    ? 'No HTTP server spans found for these filters'
+                    : 'No operations found for these filters'
+            }
             data-attr="tracing-operations-table"
         />
     )

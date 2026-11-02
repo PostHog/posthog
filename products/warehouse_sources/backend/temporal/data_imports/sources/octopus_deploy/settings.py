@@ -61,6 +61,22 @@ OCTOPUS_DEPLOY_ENDPOINTS: dict[str, OctopusDeployEndpointConfig] = {
         name="machines",
         path="/machines",
     ),
+    "lifecycles": OctopusDeployEndpointConfig(
+        name="lifecycles",
+        path="/lifecycles",
+    ),
+    "users": OctopusDeployEndpointConfig(
+        name="users",
+        path="/api/users",
+        space_scoped=False,
+    ),
+    # Interruptions have no server-side date filter, and IsPending / ResponsibleUserId change as
+    # they are handled, so full refresh only. Created is set once.
+    "interruptions": OctopusDeployEndpointConfig(
+        name="interruptions",
+        path="/interruptions",
+        partition_key="Created",
+    ),
     # Releases and deployments expose no server-side date filter (only project/environment
     # filters), so they are full-refresh only. Their creation timestamps are immutable and make
     # stable partition keys.

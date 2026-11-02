@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,6 +42,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 # webhook endpoint, so auto-creating ours would clobber any webhook the customer already relies on.
 @SourceRegistry.register
 class TremendousSource(ResumableSource[TremendousSourceConfig, TremendousResumeConfig]):
+    codebase_detection = detect(
+        env=("^TREMENDOUS_",), npm=("tremendous",), pypi=("tremendous-python",), rubygems=("tremendous_ruby",)
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"
@@ -56,7 +61,7 @@ class TremendousSource(ResumableSource[TremendousSourceConfig, TremendousResumeC
             name=ExternalDataSourceType.TREMENDOUS,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Tremendous",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Tremendous API key to pull your rewards and payouts data into the PostHog Data warehouse.
 
 You can create an API key under **Team settings → Developers** in [Tremendous](https://www.tremendous.com). Sandbox and production are separate environments with separate API keys — make sure the environment matches the key.""",

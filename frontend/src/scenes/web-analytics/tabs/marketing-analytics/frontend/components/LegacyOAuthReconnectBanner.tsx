@@ -15,7 +15,7 @@ import { IntegrationKind, IntegrationType } from '~/types'
 // The backend flags the affected connections on refresh (`oauth_uses_legacy_client`); reconnecting
 // moves them to the current app and clears the flag.
 const RETIRING_OAUTH_APPS: Partial<Record<IntegrationKind, { name: string; retiresOn: string }>> = {
-    'bing-ads': { name: 'Bing Ads', retiresOn: '2026-08-07' },
+    'bing-ads': { name: 'Bing Ads', retiresOn: '2026-11-30' },
 }
 
 const usesRetiringApp = (integration: IntegrationType): boolean =>

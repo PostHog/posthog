@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 from posthog.exceptions_capture import capture_exception
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     SourceConfig,
@@ -20,6 +21,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.paddle import PaddleSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.constants import (
+    EXPLORE_METRICS_RESOURCE_NAME,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.paddle import (
     PaddlePermissionError,
     PaddleResumeConfig,
@@ -29,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.pad
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.settings import (
     ENDPOINTS as PADDLE_ENDPOINTS,
+    EXPLORE_METRICS_LOOKBACK_SECONDS,
     INCREMENTAL_FIELDS as PADDLE_INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -46,6 +51,36 @@ KEY_CHECK_FAILED_ERROR = "PostHog could not check your Paddle API key. Wait a fe
 
 @SourceRegistry.register
 class PaddleSource(ResumableSource[PaddleSourceConfig, PaddleResumeConfig]):
+    codebase_detection = detect(
+        env=(
+            "^PADDLE_",
+            "^NEXT_PUBLIC_PADDLE_CLIENT_TOKEN$",
+            "^NEXT_PUBLIC_PADDLE_ENV$",
+            "^NEXT_PUBLIC_PADDLE_PRICE_ID$",
+        ),
+        script_hosts=(
+            "cdn.paddle.com",
+            "sandbox-cdn.paddle.com",
+            "buy.paddle.com",
+            "sandbox-buy.paddle.com",
+            "checkout.paddle.com",
+            "sandbox-checkout.paddle.com",
+        ),
+        npm=(
+            "@paddle/paddle-node-sdk",
+            "@paddle/paddle-js",
+            "@paddle/paddle-mcp",
+            "@paddle/partner-embeds",
+            "@paddle/partner-embeds-react",
+        ),
+        pypi=("paddle-python-sdk",),
+        cocoapods=("Paddle", "PaddleV4", "Paddle-MAS"),
+        composer=("paddlehq/paddle-php-sdk", "laravel/cashier-paddle"),
+        go=("github.com/PaddleHQ/paddle-go-sdk",),
+        rubygems=("paddle",),
+        swiftpm=("github.com/paddlehq/mac-framework-v4",),
+    )
+
     api_docs_url = "https://developer.paddle.com"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -129,7 +164,12 @@ class PaddleSource(ResumableSource[PaddleSourceConfig, PaddleResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(PADDLE_ENDPOINTS, PADDLE_INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            PADDLE_ENDPOINTS,
+            PADDLE_INCREMENTAL_FIELDS,
+            names,
+            default_incremental_lookback_seconds={EXPLORE_METRICS_RESOURCE_NAME: EXPLORE_METRICS_LOOKBACK_SECONDS},
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[PaddleResumeConfig]:
         return ResumableSourceManager[PaddleResumeConfig](inputs, PaddleResumeConfig)

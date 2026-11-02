@@ -169,6 +169,60 @@ class LogsVolumeBucketsTable(Table):
         return "logs_volume_buckets"
 
 
+class LogsPatternBucketsTable(Table):
+    description: str = (
+        "Log pattern volume rollup on a 5-minute UTC grid, one row per (service, namespace, environment, severity, "
+        "pattern_version, pattern) series per bucket. Only holds logs with a pattern. Holds partial counts: always "
+        "GROUP BY the key columns and sum(log_count)."
+    )
+    workload: Workload | None = Workload.LOGS
+    fields: dict[str, FieldOrTable] = {
+        "team_id": IntegerDatabaseField(name="team_id", nullable=False),
+        "time_bucket": DateTimeDatabaseField(
+            name="time_bucket",
+            nullable=False,
+            description="Start of the 5-minute UTC bucket the counts fall in.",
+        ),
+        "service_name": StringDatabaseField(
+            name="service_name", nullable=False, description="Name of the service that emitted the logs."
+        ),
+        "namespace": StringDatabaseField(
+            name="namespace",
+            nullable=False,
+            description="Kubernetes or service namespace of the emitting resource; empty string when absent.",
+        ),
+        "environment": StringDatabaseField(
+            name="environment",
+            nullable=False,
+            description="Deployment environment of the emitting resource; empty string when absent.",
+        ),
+        "severity_text": StringDatabaseField(
+            name="severity_text", nullable=False, description="Lowercased log severity (for example info, warn, error)."
+        ),
+        "pattern_version": IntegerDatabaseField(
+            name="pattern_version",
+            nullable=False,
+            description="Version of the masking rules that produced `pattern`. Compare patterns only within one version.",
+        ),
+        "pattern": StringDatabaseField(
+            name="pattern",
+            nullable=False,
+            description="Masked template of the log message, with variable parts replaced. Logs that share a pattern are the same kind of message.",
+        ),
+        "log_count": IntegerDatabaseField(
+            name="log_count",
+            nullable=False,
+            description="Partial log count for the bucket; sum() across rows for the true count.",
+        ),
+    }
+
+    def to_printed_clickhouse(self, context: "HogQLContext") -> str:
+        return "logs_pattern_buckets_distributed"
+
+    def to_printed_hogql(self) -> str:
+        return "logs_pattern_buckets"
+
+
 class LogAttributesTable(Table):
     description: str = "Distinct log attribute key/value pairs with occurrence counts, used to power log attribute autocomplete and faceting."
     workload: Workload | None = Workload.LOGS

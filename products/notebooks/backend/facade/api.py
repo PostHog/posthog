@@ -16,6 +16,8 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from django.db import transaction
+
 from asgiref.sync import sync_to_async
 
 from .. import logic, markdown_migration
@@ -37,14 +39,6 @@ if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 MAX_NOTEBOOK_MIGRATION_BATCH_SIZE = markdown_migration.MAX_NOTEBOOK_MIGRATION_BATCH_SIZE
-
-
-def is_notebook_widget_enabled(user: "User | None") -> bool:
-    from ..widgets import (
-        is_notebook_widget_enabled as is_enabled,  # noqa: PLC0415 — avoid loading widget generation and Temporal for unrelated facade callers
-    )
-
-    return is_enabled(user)
 
 
 def _to_notebook_data(notebook: Notebook) -> contracts.NotebookData:
@@ -127,7 +121,7 @@ async def aupdate_notebook_content(
     content: dict[str, Any],
     title: str,
     text_content: str | None,
-    last_modified_by_id: int | None,
+    user: "User",
 ) -> contracts.NotebookData | None:
     notebook = await logic.aupdate_notebook_content(
         team_id,
@@ -135,7 +129,7 @@ async def aupdate_notebook_content(
         content=content,
         title=title,
         text_content=text_content,
-        last_modified_by_id=last_modified_by_id,
+        user=user,
     )
     return _to_notebook_data(notebook) if notebook is not None else None
 
@@ -145,7 +139,7 @@ async def aupsert_notebook(
     short_id: str,
     *,
     created_by_id: int | None,
-    last_modified_by_id: int | None,
+    user: "User",
     title: str,
     content: dict[str, Any],
     text_content: str | None = None,
@@ -157,7 +151,7 @@ async def aupsert_notebook(
         team_id,
         short_id,
         created_by_id=created_by_id,
-        last_modified_by_id=last_modified_by_id,
+        user=user,
         title=title,
         content=content,
         text_content=text_content,
@@ -196,13 +190,15 @@ def create_notebook(
         last_modified_by_id=last_modified_by_id,
         visibility=visibility,
     )
-    capture_notebook_created(
-        short_id=notebook.short_id,
-        creation_source=creation_source,
-        team_id=team_id,
-        created_by_id=created_by_id,
-        visibility=notebook.visibility,
-        node_count=notebook_node_count(notebook.content),
+    transaction.on_commit(
+        lambda: capture_notebook_created(
+            short_id=notebook.short_id,
+            creation_source=creation_source,
+            team_id=team_id,
+            created_by_id=created_by_id,
+            visibility=notebook.visibility,
+            node_count=notebook_node_count(notebook.content),
+        )
     )
     return _to_notebook_data(notebook)
 

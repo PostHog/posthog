@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+from queue import Queue
+from time import monotonic
 from typing import Any
 from uuid import uuid4
 
@@ -10,6 +14,7 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
+from django.db import connection, transaction
 from django.test import override_settings
 from django.utils import timezone
 
@@ -28,6 +33,7 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalScoutRun,
     SignalScratchpad,
+    SignalSpend,
 )
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_REASON
 from products.signals.backend.scout_harness.tools.report import (
@@ -50,10 +56,60 @@ from products.signals.backend.scout_harness.trial_state import (
     memory_snapshot,
 )
 from products.signals.backend.scout_report.persistence import MAX_REPORT_SIGNALS, set_scout_report_inferred_repository
+from products.signals.backend.spend import record_task_cost_delta
 from products.signals.backend.suggested_reviewer_index import report_ids_naming_reviewers
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeResponse
-from products.signals.backend.test.test_scout_harness_api import _make_run
+from products.signals.backend.test.test_scout_harness_api import _authenticate_as_scout, _make_run
+from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.models import TaskRun
+
+
+@pytest.mark.django_db(transaction=True)
+def test_trial_memory_write_and_accounting_both_commit(team: Team) -> None:
+    with team_scope(team.id):
+        run = _make_run(team, metadata={"scout_trial": {"version": 1, "context_id": str(uuid4())}})
+    spend = SignalSpend.objects.for_team(team.id).create(
+        team_id=team.id,
+        kind=SignalSpend.Kind.SCOUT_RUN,
+        scout_run_id=run.id,
+        task_run_id=run.task_run_id,
+        spend=Decimal("4"),
+        billing_exempt=True,
+    )
+    trial_pid: Queue[int] = Queue()
+
+    def remember() -> None:
+        try:
+            with transaction.atomic():
+                with connection.cursor() as cursor:
+                    cursor.execute("SET LOCAL lock_timeout = '10s'")
+                    cursor.execute("SELECT pg_backend_pid()")
+                    trial_pid.put(cursor.fetchone()[0])
+                ScoutTrialStore(run, initial_memory=[]).remember(key="finding", content="Synthetic finding")
+        finally:
+            connection.close()
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with transaction.atomic():
+            TaskRun.objects.select_for_update().get(id=run.task_run_id, team_id=team.id)
+            with connection.cursor() as cursor:
+                cursor.execute("SET LOCAL lock_timeout = '10s'")
+                future = pool.submit(remember)
+                pid = trial_pid.get(timeout=10)
+                deadline = monotonic() + 10
+                while monotonic() < deadline:
+                    cursor.execute("SELECT pg_backend_pid() = ANY(pg_blocking_pids(%s))", [pid])
+                    if cursor.fetchone()[0]:
+                        break
+                else:
+                    pytest.fail("Trial writer did not reach the held task run lock")
+            record_task_cost_delta(team_id=team.id, run_id=run.task_run_id, cost_delta_microusd=10_000)
+        future.result(timeout=15)
+
+    spend.refresh_from_db()
+    run.refresh_from_db()
+    assert spend.spend == run.total_spend == Decimal("5")
+    assert ScoutTrialStore(run, initial_memory=[]).search_memory(key="finding")[0].content == "Synthetic finding"
 
 
 class TestScoutTrialState(APIBaseTest):
@@ -294,11 +350,17 @@ class TestScoutTrialReportCapture(APIBaseTest):
         report_id = self._emit()
         assert self._emit(title="Retried wording") == report_id
         assert self.judge.call_count == 1
+        created = self.store.get_report(report_id)
+        assert created is not None
+        assert created.document["summary_lead"] == "The synthetic checkout handler returns an incorrect total."
+        revised_summary = (
+            "A **revised** synthetic [explanation](https://example.com/details).\n\n## Detail\nMore context."
+        )
         result = edit_report_sync(
             team=self.team,
             author=ScoutRunReportAuthor(run=self.scout_run),
             report_id=report_id,
-            summary="A revised synthetic explanation.",
+            summary=revised_summary,
             append_note="A second fixture confirms it.",
             append_evidence=[
                 ReportEvidence(description="The second fixture also returns 12.", source_id="second-observation")
@@ -315,7 +377,8 @@ class TestScoutTrialReportCapture(APIBaseTest):
         assert result.decision_fields_set == ("actionability", "priority")
         draft = self.store.get_report(report_id)
         assert draft is not None
-        assert draft.document["summary"] == "A revised synthetic explanation."
+        assert draft.document["summary"] == revised_summary
+        assert draft.document["summary_lead"] == "A revised synthetic explanation."
         assert draft.document["priority"] == "P1"
         assert draft.document["actionability"] == "requires_human_input"
         assert draft.document["already_addressed"] is True
@@ -398,6 +461,7 @@ class TestScoutTrialReportCapture(APIBaseTest):
             author=ScoutRunReportAuthor(run=self.scout_run),
             report_id=str(original.id),
             title="Privately revised title",
+            summary="Privately **revised** summary.\n\n## Detail\nPrivate supporting detail.",
             append_note="Private supporting note",
             actionability="requires_human_input",
             actionability_explanation="The fixture needs an owner to choose the expected total.",
@@ -408,12 +472,14 @@ class TestScoutTrialReportCapture(APIBaseTest):
 
         original.refresh_from_db()
         assert original.title == "Existing synthetic report"
+        assert original.summary == "Existing synthetic summary"
         assert original.latest_actionability == "immediately_actionable"
         assert original.latest_already_addressed is False
         assert original.artefacts.count() == 2
         draft = self.store.get_report(str(original.id))
         assert draft is not None
         assert draft.document["title"] == "Privately revised title"
+        assert draft.document["summary_lead"] == "Privately revised summary."
         assert draft.document["priority"] == "P1"
         assert draft.document["actionability"] == "requires_human_input"
         assert draft.document["already_addressed"] is True
@@ -725,6 +791,51 @@ class TestScoutTrialReportCapture(APIBaseTest):
         assert report is not None
         assert report.operator_metadata["skipped_automatic_repository_selection"] is True
 
+    @parameterized.expand(
+        [(action, state) for action in ("emit-report", "edit-report") for state in ("invalid", "completed")]
+    )
+    def test_report_api_rejects_unwritable_trial_without_changing_captured_reports(
+        self, action: str, state: str
+    ) -> None:
+        report_id = self._emit()
+        LLMSkill.objects.create(
+            team=self.team,
+            name=self.scout_run.skill_name,
+            version=self.scout_run.skill_version,
+            body="Inspect the synthetic checkout fixture.",
+            allowed_tools=["emit_report", "edit_report"],
+        )
+        _authenticate_as_scout(self, scopes="signals_scout_experiment", sandbox_task_id=self.scout_run.task_run.task_id)
+        if state == "invalid":
+            expected_reason = "The synthetic trial was invalidated."
+            self.store.invalidate(expected_reason)
+        else:
+            expected_reason = "Reports can only be authored on in-progress runs"
+            self.scout_run.task_run.status = "completed"
+            self.scout_run.task_run.save(update_fields=["status"])
+        before = self.store.export()
+        payload = (
+            {
+                "title": "Another synthetic checkout issue",
+                "summary": "The synthetic fixture returns an unexpected total.",
+                "evidence": [{"description": "The second fixture returns 9 instead of 8.", "source_id": "fixture-two"}],
+                "actionability": "immediately_actionable",
+                "actionability_explanation": "Correct the synthetic fixture calculation.",
+                "repository": "NO_REPO",
+            }
+            if action == "emit-report"
+            else {"report_id": report_id, "append_note": "This synthetic note must not persist."}
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/signals/scout/runs/{self.scout_run.id}/{action}/", payload, format="json"
+        )
+
+        assert response.status_code == 400, response.data
+        assert expected_reason in response.json()["detail"]
+        assert self.store.export() == before
+        assert not SignalReport.objects.filter(team=self.team).exists()
+
     @parameterized.expand([("title", " "), ("summary", ""), ("append_note", " ")])
     def test_invalid_edits_fail_before_judging(self, field: str, value: str) -> None:
         report_id = self._emit()
@@ -805,6 +916,7 @@ class TestScoutTrialReportCapture(APIBaseTest):
             evidence = self.client.get(f"{base}{report_id}/signals/")
             assert evidence.status_code == 200
             assert evidence.json()["signals"][0]["source_id"] == "synthetic-observation"
+            assert evidence.json()["signals"][0]["spend_accounting_failed_stages"] == []
             artefacts = self.client.get(f"{base}{report_id}/artefacts/")
             assert artefacts.status_code == 200
             assert artefacts.json()["count"] == detail.json()["artefact_count"]

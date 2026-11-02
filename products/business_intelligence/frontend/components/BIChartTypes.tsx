@@ -1,10 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { cn } from 'lib/utils/css-classes'
 
 import { ChartDisplayType } from '~/types'
 
@@ -12,9 +10,9 @@ import { biEditorLogic } from 'products/business_intelligence/frontend/biEditorL
 import { getChartTypeOptions } from 'products/business_intelligence/frontend/biEditorOptions'
 
 /** Chart picker that highlights the chart types that suit the fields on the shelves. */
-export function BIChartTypes({ docked }: { docked: boolean }): JSX.Element {
+export function BIChartTypes(): JSX.Element {
     const { chartFits, config, hoveredChartType } = useValues(biEditorLogic)
-    const { setChartType, setChartTypesOpen, setHoveredChartType } = useActions(biEditorLogic)
+    const { setChartType, setHoveredChartType } = useActions(biEditorLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const options = getChartTypeOptions(featureFlags)
@@ -24,21 +22,8 @@ export function BIChartTypes({ docked }: { docked: boolean }): JSX.Element {
     const describedFit = describedOption ? chartFits[describedOption.value] : undefined
 
     return (
-        <div className={cn('flex flex-col', docked ? 'w-full' : 'w-44')}>
-            <div className="flex min-h-7 items-center justify-between px-2 pt-2">
-                <span className="text-sm font-semibold">Chart types</span>
-                {docked ? (
-                    <LemonButton
-                        icon={<IconX />}
-                        size="xsmall"
-                        type="tertiary"
-                        tooltip="Hide chart picker"
-                        aria-label="Hide chart picker"
-                        onClick={() => setChartTypesOpen(false)}
-                    />
-                ) : null}
-            </div>
-            <div className="grid grid-cols-3 gap-1 p-2 @6xl/bi-editor:grid-cols-6" role="group" aria-label="Chart type">
+        <div className="flex flex-col">
+            <div className="grid grid-cols-4 gap-1 p-2" role="group" aria-label="Chart type">
                 {options.map((option) => {
                     const fits = chartFits[option.value]?.fits ?? true
                     const selected = config.chartType === option.value
@@ -49,7 +34,8 @@ export function BIChartTypes({ docked }: { docked: boolean }): JSX.Element {
                             active={selected}
                             icon={option.icon}
                             size="small"
-                            className={cn('justify-center', !fits && !selected && 'opacity-40')}
+                            center
+                            className={!fits && !selected ? 'opacity-40' : undefined}
                             tooltip={option.label}
                             aria-label={option.label}
                             aria-pressed={selected}

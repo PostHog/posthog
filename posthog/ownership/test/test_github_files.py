@@ -394,7 +394,7 @@ class TestFetcherForTeam(BaseTest):
         )
         with patch(
             "posthog.ownership.github_files.GitHubIntegration.first_for_team_repository",
-            return_value=GitHubIntegration(integration) if covered else None,
+            return_value=GitHubIntegration(integration, source="test", priority=Priority.CRITICAL) if covered else None,
         ) as probe:
             first = fetcher_for_team(self.team.pk, _REPOSITORY, priority=Priority.NORMAL)
             second = fetcher_for_team(self.team.pk, _REPOSITORY, priority=Priority.NORMAL)

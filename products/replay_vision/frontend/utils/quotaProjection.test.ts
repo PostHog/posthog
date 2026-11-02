@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
-import { daysUntilCapReached, hasBillableSpend, projectQuota, quotaUx } from './quotaProjection'
+import { daysUntilCapReached, freeCreditsCoverage, hasBillableSpend, projectQuota, quotaUx } from './quotaProjection'
 import { makeQuota } from './quotaTestUtils'
 
 describe('hasBillableSpend', () => {
@@ -119,6 +119,18 @@ describe('projectQuota', () => {
         // 8,000 used + 30,000/month × 20 days = 20,000 more → 280% of the 10,000 cap.
         const proj = projectQuota(makeQuota({ credits_used: 8_000, scanners_monthly_credits: 30_000 }))
         expect(proj.projectedPct).toBeCloseTo(200, 0)
+    })
+})
+
+describe('freeCreditsCoverage', () => {
+    it.each([
+        [2_500, 3_000, 'the first 3 weeks'],
+        [2_500, 5_000, 'the first 2 weeks'],
+        [2_500, 6_000, 'the first 12 days'],
+        [2_500, 75_000, 'the first day'],
+        [2_500, 1_000_000, 'the first day'],
+    ])('%s free credits at %s a month cover %s', (allowance, monthlyCredits, expected) => {
+        expect(freeCreditsCoverage(allowance, monthlyCredits)).toBe(expected)
     })
 })
 

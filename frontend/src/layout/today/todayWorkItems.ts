@@ -28,7 +28,10 @@ export interface TodayWorkItem {
     createdById: number | null
     author: TaskUserBasicInfoApi | null
     latestRunId: string | null
+    runtime?: string | null
     runEnvironment: string | null
+    /** The latest run's execution mode, `interactive` or `background`. */
+    runMode?: string | null
     originProduct: string | null
     /** What filed it: a session's origin product, or PostHog AI for a chat. */
     source: string | null
@@ -123,11 +126,23 @@ function finalMessage(output: TaskRunDetailDTOApi['output'] | undefined): string
     return typeof message === 'string' && message.trim() ? message.trim() : null
 }
 
+function runMode(state: TaskRunDetailDTOApi['state'] | null | undefined): string | null {
+    return typeof state?.mode === 'string' ? state.mode : null
+}
+
 /** What the session icon reads, from a task's latest run, for a page that has the task but not its work item. */
 export function sessionIconFields(
-    latestRun: { status?: string | null; environment?: string | null } | null | undefined
-): Pick<TodayWorkItem, 'kind' | 'status' | 'runEnvironment'> {
-    return { kind: 'session', status: latestRun?.status ?? null, runEnvironment: latestRun?.environment ?? null }
+    latestRun:
+        | { status?: string | null; environment?: string | null; state?: TaskRunDetailDTOApi['state'] | null }
+        | null
+        | undefined
+): Pick<TodayWorkItem, 'kind' | 'status' | 'runEnvironment' | 'runMode'> {
+    return {
+        kind: 'session',
+        status: latestRun?.status ?? null,
+        runEnvironment: latestRun?.environment ?? null,
+        runMode: runMode(latestRun?.state),
+    }
 }
 
 export function sessionItem(task: TaskListItemApi): TodayWorkItem {
@@ -142,7 +157,9 @@ export function sessionItem(task: TaskListItemApi): TodayWorkItem {
         createdById: task.created_by?.id ?? null,
         author: task.created_by ?? null,
         latestRunId: task.latest_run?.id ?? null,
+        runtime: task.runtime ?? null,
         runEnvironment: task.latest_run?.environment ?? null,
+        runMode: runMode(task.latest_run?.state),
         originProduct: task.origin_product ?? null,
         source: task.origin_product || null,
         repository: task.repository || null,
@@ -162,7 +179,16 @@ export function chatItem(conversation: ConversationDetail): TodayWorkItem {
         status: null,
         channel: null,
         createdById: conversation.user?.id ?? null,
-        author: null,
+        author: conversation.user
+            ? {
+                  id: conversation.user.id,
+                  uuid: conversation.user.uuid,
+                  distinct_id: conversation.user.distinct_id,
+                  first_name: conversation.user.first_name,
+                  last_name: conversation.user.last_name ?? '',
+                  email: conversation.user.email,
+              }
+            : null,
         latestRunId: null,
         runEnvironment: null,
         originProduct: null,

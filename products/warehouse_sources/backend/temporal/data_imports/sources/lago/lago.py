@@ -4,7 +4,8 @@ Lago is an open-source usage-based billing platform offered both as Lago Cloud
 (``https://api.getlago.com``) and self-hosted (a customer-supplied host), so the API base URL
 must be configurable. Auth is a single Bearer API key. List endpoints are page-number paginated
 (``page`` / ``per_page``) and wrap their records under a resource key alongside a ``meta`` object
-that carries ``total_pages`` / ``next_page``.
+that carries ``total_pages`` / ``next_page``. Billing entities and the analytics reports are the
+exception: they return the whole collection in one body with no ``meta``.
 
 Every stream is full-refresh. Lago's REST API exposes no universal server-side ``created_at`` /
 ``updated_at`` cursor across resources — only a handful of endpoints offer ad-hoc date filters
@@ -42,7 +43,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     PageNumberPaginator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.lago.settings import (
@@ -229,18 +233,15 @@ def lago_source(
             initial_paginator_state=resume.fanout_state if resume else None,
         )
     else:
+        endpoint_config: Endpoint = {"path": config.path, "data_selector": config.data_key}
+        if config.paginated:
+            endpoint_config["params"] = {"per_page": config.page_size}
+        else:
+            endpoint_config["paginator"] = "single_page"
+
         rest_config: RESTAPIConfig = {
             "client": client_config,
-            "resources": [
-                {
-                    "name": endpoint,
-                    "endpoint": {
-                        "path": config.path,
-                        "params": {"per_page": config.page_size},
-                        "data_selector": config.data_key,
-                    },
-                }
-            ],
+            "resources": [{"name": endpoint, "endpoint": endpoint_config}],
         }
 
         def save_checkpoint(state: Optional[dict[str, Any]]) -> None:

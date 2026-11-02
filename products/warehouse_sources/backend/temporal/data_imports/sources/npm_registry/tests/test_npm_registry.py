@@ -4,26 +4,31 @@ import pytest
 import time_machine
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.npmregistry import (
+    NpmRegistrySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.npm_registry.npm_registry import (
     NpmRegistryResumeConfig,
     _fetch_json,
     _first_license,
     _to_date,
-    get_rows,
-    npm_registry_source,
     parse_packages,
     validate_packages,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.npm_registry.settings import MAX_PACKAGES
+from products.warehouse_sources.backend.temporal.data_imports.sources.npm_registry.source import NpmRegistrySource
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.npm_registry.npm_registry"
 
 
-def _manager(resume: NpmRegistryResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume is not None
-    manager.load_state.return_value = resume
-    return manager
+def _driver(package_names: str = "react") -> SourceDriver:
+    return SourceDriver(NpmRegistrySource(), NpmRegistrySourceConfig(package_names=package_names))
 
 
 class TestParsePackages:
@@ -66,71 +71,53 @@ class TestFirstLicense:
 
 class TestGetRowsDownloads:
     @time_machine.travel("2024-02-15", tick=False)
-    def test_incremental_starts_the_day_after_the_watermark(self):
-        with mock.patch(f"{_MODULE}._fetch_json", return_value={"downloads": []}) as fetch:
-            list(
-                get_rows(
-                    endpoint="Downloads",
-                    packages=["react"],
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=_manager(),
-                    should_use_incremental_field=True,
-                    db_incremental_field_last_value=date(2024, 2, 1),
-                )
-            )
-        assert "2024-02-02:2024-02-15" in fetch.call_args_list[0].args[1]
+    def test_incremental_starts_the_day_after_the_watermark(self) -> None:
+        result = _driver().run(
+            "Downloads",
+            [ScriptedResponse(json={"downloads": []})],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2024, 2, 1),
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/downloads/range/2024-02-02:2024-02-15/react"]
 
     @time_machine.travel("2024-02-15", tick=False)
-    def test_resume_starts_from_saved_package_and_window(self):
-        with mock.patch(f"{_MODULE}._fetch_json", return_value={"downloads": []}) as fetch:
-            list(
-                get_rows(
-                    endpoint="Downloads",
-                    packages=["react", "lodash"],
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=_manager(
-                        NpmRegistryResumeConfig(package_index=1, window_start="2024-02-10")
-                    ),
-                )
-            )
+    def test_resume_starts_from_saved_package_and_window(self) -> None:
+        result = _driver("react\nlodash").run(
+            "Downloads",
+            [ScriptedResponse(json={"downloads": []})],
+            resume_state=NpmRegistryResumeConfig(package_index=1, window_start="2024-02-10"),
+        )
+
         # `react` (index 0) is skipped entirely; `lodash` resumes from the saved window.
-        assert len(fetch.call_args_list) == 1
-        url = fetch.call_args_list[0].args[1]
-        assert "lodash" in url
-        assert "2024-02-10:2024-02-15" in url
+        assert result.raised is None
+        assert result.paths == ["/downloads/range/2024-02-10:2024-02-15/lodash"]
 
     @time_machine.travel("2024-02-15", tick=False)
-    def test_missing_package_is_skipped_without_raising(self):
-        with mock.patch(f"{_MODULE}._fetch_json", return_value=None) as fetch:
-            batches = list(
-                get_rows(
-                    endpoint="Downloads",
-                    packages=["this-package-does-not-exist"],
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=_manager(),
-                )
-            )
-        assert batches == []
-        assert fetch.call_count == 1
+    def test_missing_package_is_skipped_without_raising(self) -> None:
+        result = _driver("this-package-does-not-exist").run("Downloads", [ScriptedResponse(status=404)])
+
+        assert result.raised is None
+        assert result.rows == []
+        assert len(result.requests) == 1
 
     @time_machine.travel("2024-02-15", tick=False)
-    def test_saves_state_after_each_window_and_advances_package_on_completion(self):
-        manager = _manager()
-        with mock.patch(f"{_MODULE}._fetch_json", return_value={"downloads": [{"day": "2015-01-10", "downloads": 1}]}):
-            list(
-                get_rows(
-                    endpoint="Downloads",
-                    packages=["react"],
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=manager,
-                )
-            )
+    def test_saves_state_after_each_window_and_advances_package_on_completion(self) -> None:
+        result = _driver().run(
+            "Downloads", always(ScriptedResponse(json={"downloads": [{"day": "2015-01-10", "downloads": 1}]}))
+        )
+
         # Final call always advances to the next package index with no in-progress window.
-        assert manager.save_state.call_args_list[-1] == mock.call(NpmRegistryResumeConfig(package_index=1))
+        assert result.raised is None
+        assert len(result.requests) > 1
+        assert len(result.saved_states) == len(result.requests)
+        assert result.saved_states[-1] == NpmRegistryResumeConfig(package_index=1)
+        assert result.committed_states == result.saved_states[:-1]
 
 
 class TestGetRowsVersions:
-    def test_extracts_one_row_per_version(self):
+    def test_extracts_one_row_per_version(self) -> None:
         document = {
             "dist-tags": {"latest": "1.1.0"},
             "time": {"1.0.0": "2020-01-01T00:00:00.000Z", "1.1.0": "2021-01-01T00:00:00.000Z"},
@@ -150,16 +137,9 @@ class TestGetRowsVersions:
                 },
             },
         }
-        with mock.patch(f"{_MODULE}._fetch_json", return_value=document):
-            batches = list(
-                get_rows(
-                    endpoint="Versions",
-                    packages=["react"],
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=_manager(),
-                )
-            )
-        rows = {row["version"]: row for batch in batches for row in batch}
+        result = _driver().run("Versions", [ScriptedResponse(json=document)])
+        assert result.raised is None
+        rows = {row["version"]: row for row in result.rows}
 
         assert rows["1.0.0"]["package"] == "react"
         assert rows["1.0.0"]["published_at"] == "2020-01-01T00:00:00.000Z"
@@ -172,19 +152,52 @@ class TestGetRowsVersions:
         # Legacy `licenses` array falls back to its first entry's type.
         assert rows["1.1.0"]["license"] == "ISC"
 
-    def test_missing_package_is_skipped_without_raising(self):
-        with mock.patch(f"{_MODULE}._fetch_json", return_value=None):
-            assert (
-                list(
-                    get_rows(
-                        endpoint="Versions",
-                        packages=["this-package-does-not-exist"],
-                        logger=mock.MagicMock(),
-                        resumable_source_manager=_manager(),
-                    )
-                )
-                == []
-            )
+    def test_missing_package_is_skipped_without_raising(self) -> None:
+        result = _driver("this-package-does-not-exist").run("Versions", [ScriptedResponse(status=404)])
+
+        assert result.raised is None
+        assert result.rows == []
+
+
+class TestGetRowsVersionDownloads:
+    @pytest.mark.parametrize(
+        "response,expected_rows",
+        [
+            (
+                ScriptedResponse(json={"package": "react", "downloads": {"1.0.0": 12, "1.0.1": 0, "1.0.2": None}}),
+                [
+                    {"package": "react", "version": "1.0.0", "downloads": 12},
+                    {"package": "react", "version": "1.0.1", "downloads": 0},
+                ],
+            ),
+            # An unknown package returns 200 with an empty map.
+            (ScriptedResponse(json={"package": "react", "downloads": {}}), []),
+            (ScriptedResponse(json={"error": "not found"}), []),
+            (ScriptedResponse(status=404), []),
+        ],
+    )
+    def test_row_shaping(self, response: ScriptedResponse, expected_rows: list[dict]) -> None:
+        result = _driver().run("VersionDownloads", [response])
+
+        assert result.raised is None
+        assert result.rows == expected_rows
+        assert result.paths == ["/versions/react/last-week"]
+
+    def test_walks_every_package_and_encodes_scoped_names(self) -> None:
+        result = _driver("@scope/name\nlodash").run(
+            "VersionDownloads",
+            [
+                ScriptedResponse(json={"package": "@scope/name", "downloads": {"1.0.0": 3}}),
+                ScriptedResponse(json={"package": "lodash", "downloads": {"4.0.0": 9}}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/versions/%40scope%2Fname/last-week", "/versions/lodash/last-week"]
+        assert result.rows == [
+            {"package": "@scope/name", "version": "1.0.0", "downloads": 3},
+            {"package": "lodash", "version": "4.0.0", "downloads": 9},
+        ]
 
 
 class TestFetchJson:
@@ -228,22 +241,21 @@ class TestValidatePackages:
         "status,expected_ok",
         [(200, True), (404, False), (500, False)],
     )
-    def test_probes_first_configured_package(self, status: int, expected_ok: bool):
-        session = mock.MagicMock()
-        session.get.return_value = mock.MagicMock(status_code=status)
-        with mock.patch(f"{_MODULE}.make_tracked_session", return_value=session):
+    def test_probes_first_configured_package(self, status: int, expected_ok: bool) -> None:
+        with scripted_network(always(ScriptedResponse(status=status))) as network:
             ok, _ = validate_packages("react\nlodash")
+
         assert ok is expected_ok
         # Only the first configured package is probed.
-        assert "react" in session.get.call_args.args[0]
+        assert {request.path for request in network.requests_log} == {"/downloads/point/last-day/react"}
 
-    def test_network_failure_returns_error(self):
-        session = mock.MagicMock()
-        session.get.side_effect = Exception("boom")
-        with mock.patch(f"{_MODULE}.make_tracked_session", return_value=session):
+    def test_network_failure_returns_error(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))) as network:
             ok, message = validate_packages("react")
+
         assert ok is False
         assert message is not None and "Could not reach" in message
+        assert {request.path for request in network.requests_log} == {"/downloads/point/last-day/react"}
 
 
 class TestNpmRegistrySourceResponse:
@@ -254,13 +266,18 @@ class TestNpmRegistrySourceResponse:
             ("Versions", ["package", "version"], "published_at"),
         ],
     )
-    def test_response_shape(self, endpoint, primary_keys, partition_key):
-        response = npm_registry_source(
-            endpoint=endpoint,
-            package_names="react",
-            logger=mock.MagicMock(),
-            resumable_source_manager=_manager(),
+    @time_machine.travel("2024-02-15", tick=False)
+    def test_response_shape(self, endpoint: str, primary_keys: list[str], partition_key: str) -> None:
+        result = _driver().run(
+            endpoint,
+            [ScriptedResponse(json={"downloads": []} if endpoint == "Downloads" else {"versions": {}})],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2024, 2, 14),
         )
+
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
         assert response.partition_mode == "datetime"

@@ -77,6 +77,22 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
         label: 'Data quality check failures',
         description: 'When a data quality check on a warehouse table or view starts failing',
     },
+    workflow_suggestion: {
+        label: 'Workflow suggestions',
+        description: 'When PostHog suggests a change to a workflow you set up',
+    },
+    warehouse_suggestion_assigned: {
+        label: 'Warehouse suggestions',
+        description: 'When a suggestion for a view or table is assigned to you',
+    },
+    first_report_completed: {
+        label: 'First Self-Driving investigation',
+        description: 'When your first Self-Driving investigation finishes, including when it has no report.',
+    },
+    feature_flag_failure: {
+        label: 'Feature flag failures',
+        description: 'When a feature flag in your project fails to evaluate',
+    },
 }
 
 export function NotificationTitle({

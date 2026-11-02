@@ -1,7 +1,3 @@
-from collections.abc import Iterable
-from typing import Any, cast
-from urllib.parse import urlsplit
-
 import pytest
 from unittest import mock
 
@@ -9,6 +5,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     ExternalWebhookInfo,
     WebhookCreationResult,
     WebhookDeletionResult,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailgun import (
     MailgunSourceConfig,
@@ -23,25 +24,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.so
 WEBHOOK_URL = "https://us.posthog.com/public/webhooks/abc"
 
 
-def _response(payload: dict[str, Any]) -> mock.MagicMock:
-    response = mock.MagicMock()
-    response.json.return_value = payload
-    response.status_code = 200
-    response.ok = True
-    response.headers = {}
-    return response
-
-
 class TestMailgunSource:
     def setup_method(self):
         self.source = MailgunSource()
         self.team_id = 123
         self.config = MailgunSourceConfig(api_key="key-123", region="us")
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["events"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "events"
 
     @pytest.mark.parametrize(
         "mock_return",
@@ -77,34 +64,19 @@ class TestMailgunSource:
             ("mailing_lists", ["/v3/lists/pages"]),
         ],
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
-    def test_request_paths_are_version_independent(self, mock_session, endpoint, expected_paths, pinned_version):
+    def test_request_paths_are_version_independent(self, endpoint, expected_paths, pinned_version):
         # The pin is declaration-only: a v3 and a v4 source must hit the exact same URLs, so a
         # future accidental per-version URL branch (or a repin silently switching a table's route)
         # would fail here.
-        requests_made: list[str] = []
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/v4/domains":
+                return ScriptedResponse(json={"items": [{"name": "a.com"}]})
+            return ScriptedResponse(json={"items": [], "paging": {}})
 
-        def fake_get(url, **kwargs):
-            requests_made.append(url)
-            if "/v4/domains" in url:
-                return _response({"items": [{"name": "a.com"}]})
-            return _response({"items": [], "paging": {}})
+        result = SourceDriver(self.source, self.config).run(endpoint, answer, api_version=pinned_version)
 
-        mock_session.return_value.get.side_effect = fake_get
-
-        inputs = mock.MagicMock()
-        inputs.schema_name = endpoint
-        inputs.api_version = pinned_version
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = None
-        inputs.incremental_field = None
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = False
-
-        response = self.source.source_for_pipeline(self.config, manager, inputs)
-        list(cast(Iterable[Any], response.items()))
-
-        assert [urlsplit(url).path for url in requests_made] == expected_paths
+        assert result.raised is None
+        assert result.paths == expected_paths
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.source.mailgun_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_mailgun_source):

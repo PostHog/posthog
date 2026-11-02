@@ -1,15 +1,20 @@
 import pytest
 from posthog.test.base import BaseTest
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.models import User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization, OrganizationMembership
 
 from products.access_control.backend.facade import contracts
 from products.access_control.backend.facade.api import (
     InvalidObjectAccessControlError,
+    bulk_set_object_access_controls,
     every_member_has_resource_access,
     object_ids_restricted_from_any_member,
     role_belongs_to_organization,
@@ -67,6 +72,9 @@ class TestSetObjectAccessControl(BaseTest):
         assert self._other_user_level() == "none"
         assert self._grant(None) is None
 
+        logged = ActivityLog.objects.filter(scope="AccessControl", item_id=str(rule.id)).order_by("created_at")
+        assert [log.activity for log in logged] == ["created", "updated", "deleted"]
+
     def test_role_rule_grants_role_members(self) -> None:
         role = Role.objects.create(name="Sales", organization=self.organization)
         RoleMembership.objects.create(user=self.other_user, role=role)
@@ -106,6 +114,136 @@ class TestSetObjectAccessControl(BaseTest):
             self._grant("viewer", organization_member_id=None)
         with pytest.raises(ValueError):
             self._grant("viewer", role_id=role.id)
+
+    @parameterized.expand([("member", False), ("role", False), ("member", True), ("role", True)])
+    def test_bulk_rules_preserve_access_and_audit(self, subject: str, duplicates: bool) -> None:
+        role = Role.objects.create(name="Support", organization=self.organization)
+        RoleMembership.objects.create(user=self.other_user, role=role)
+        if duplicates:
+            AccessControl.objects.bulk_create(
+                [
+                    AccessControl(
+                        team=self.team,
+                        resource="dashboard",
+                        resource_id=str(self.dashboard.id),
+                        access_level="viewer",
+                        organization_member_id=self.other_membership.id if subject == "member" else None,
+                        role_id=role.id if subject == "role" else None,
+                    )
+                    for _ in range(2)
+                ]
+            )
+        for level in ("viewer", "editor", "editor", None, None):
+            bulk_set_object_access_controls(
+                team_id=self.team.id,
+                inputs=[
+                    contracts.SetObjectAccessControlInput(
+                        resource="dashboard",
+                        resource_id=str(self.dashboard.id),
+                        access_level=level,
+                        created_by_id=self.user.id,
+                        organization_member_id=self.other_membership.id if subject == "member" else None,
+                        role_id=role.id if subject == "role" else None,
+                    )
+                ],
+            )
+            assert self._other_user_level() == (level or "none")
+        logs = list(
+            ActivityLog.objects.filter(
+                team_id=self.team.id, scope="AccessControl", detail__name=f"dashboard {self.dashboard.id}"
+            ).order_by("created_at")
+        )
+        assert [log.activity for log in logs] == (
+            ["updated", "updated", "deleted", "deleted"] if duplicates else ["created", "updated", "deleted"]
+        )
+        assert len({log.item_id for log in logs}) == (2 if duplicates else 1)
+        detail = logs[0 if duplicates else 1].detail
+        assert detail is not None
+        assert detail["changes"] == [
+            {
+                "type": "AccessControl",
+                "field": "access_level",
+                "action": "changed",
+                "before": "viewer",
+                "after": "editor",
+            }
+        ]
+
+    @parameterized.expand([("member",), ("role",)])
+    def test_bulk_rules_lock_only_requested_object_subject_pairs(self, subject: str) -> None:
+        other_dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        roles = Role.objects.bulk_create([Role(name=f"Role {i}", organization=self.organization) for i in range(2)])
+        subjects = (
+            [(self.other_membership.id, None), (self.organization_membership.id, None)]
+            if subject == "member"
+            else [(None, role.id) for role in roles]
+        )
+        rules = AccessControl.objects.bulk_create(
+            [
+                AccessControl(
+                    team=self.team,
+                    resource="dashboard",
+                    resource_id=str(dashboard.id),
+                    organization_member_id=member_id,
+                    role_id=role_id,
+                    access_level="viewer",
+                )
+                for dashboard in (self.dashboard, other_dashboard)
+                for member_id, role_id in subjects
+            ]
+        )
+        selected = [rules[0], rules[3]]
+        with CaptureQueriesContext(connection) as queries:
+            bulk_set_object_access_controls(
+                team_id=self.team.id,
+                inputs=[
+                    contracts.SetObjectAccessControlInput(
+                        resource=rule.resource,
+                        resource_id=str(rule.resource_id),
+                        organization_member_id=rule.organization_member_id,
+                        role_id=rule.role_id,
+                        access_level="editor",
+                    )
+                    for rule in selected
+                ],
+            )
+        locking_queries = [
+            query["sql"]
+            for query in queries.captured_queries
+            if "FOR UPDATE" in query["sql"] and AccessControl._meta.db_table in query["sql"]
+        ]
+        assert len(locking_queries) == 1
+        assert {rule.id for rule in AccessControl.objects.raw(locking_queries[0])} == {rule.id for rule in selected}
+        assert set(
+            AccessControl.objects.filter(id__in=[rules[1].id, rules[2].id]).values_list("access_level", flat=True)
+        ) == {"viewer"}
+
+    @parameterized.expand([("member",), ("role",)])
+    def test_bulk_rules_reject_foreign_subject_before_writing(self, subject: str) -> None:
+        other_org = Organization.objects.create(name="Other organization")
+        outsider = User.objects.create_and_join(other_org, "outside@example.com", "testtest")
+        member = OrganizationMembership.objects.get(user=outsider, organization=other_org)
+        role = Role.objects.create(name="Other role", organization=other_org)
+        with pytest.raises(InvalidObjectAccessControlError):
+            bulk_set_object_access_controls(
+                team_id=self.team.id,
+                inputs=[
+                    contracts.SetObjectAccessControlInput(
+                        resource="dashboard",
+                        resource_id=str(self.dashboard.id),
+                        access_level="editor",
+                        organization_member_id=self.other_membership.id,
+                    ),
+                    contracts.SetObjectAccessControlInput(
+                        resource="dashboard",
+                        resource_id=str(self.dashboard.id),
+                        access_level="editor",
+                        organization_member_id=member.id if subject == "member" else None,
+                        role_id=role.id if subject == "role" else None,
+                    ),
+                ],
+            )
+        assert not AccessControl.objects.filter(team=self.team, resource_id=str(self.dashboard.id)).exists()
 
 
 class TestEveryMemberHasResourceAccess(BaseTest):

@@ -1,40 +1,27 @@
-from typing import Any
-
 import pytest
-from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.linearb import (
+    LinearbSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.linearb.linearb import (
-    _iter_list_rows,
-    _iter_measurements_rows,
     _sanitize_metric_key,
-    linearb_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.linearb.settings import (
     ENDPOINTS,
     LINEARB_ENDPOINTS,
-    LinearbEndpointConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.linearb.source import LinearbSource
 
 
-def _response(status_code: int = 200, payload: Any = None, content: bytes = b"x") -> mock.MagicMock:
-    response = mock.MagicMock()
-    response.status_code = status_code
-    response.ok = status_code < 400
-    response.content = content
-    response.json.return_value = payload
-    return response
-
-
-def _session_returning(responses: list[mock.MagicMock]) -> mock.MagicMock:
-    session = mock.MagicMock()
-    session.request.side_effect = responses
-    return session
-
-
-def _list_config(page_size: int = 2) -> LinearbEndpointConfig:
-    return LinearbEndpointConfig(name="teams", path="/api/v2/teams", page_size_param="page_size", page_size=page_size)
+def _driver() -> SourceDriver:
+    return SourceDriver(LinearbSource(), LinearbSourceConfig(api_key="key"))
 
 
 class TestSanitizeMetricKey:
@@ -56,105 +43,87 @@ class TestValidateCredentials:
         ("status_code", "expected"),
         [(200, True), (403, False), (401, False), (500, False)],
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linearb.linearb.make_tracked_session")
-    def test_status_mapping(self, mock_make_session: mock.MagicMock, status_code: int, expected: bool) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _response(status_code=status_code)
-        mock_make_session.return_value = session
+    def test_status_mapping(self, status_code: int, expected: bool) -> None:
+        with scripted_network([ScriptedResponse(status=status_code)]) as network:
+            assert validate_credentials("key") is expected
 
-        assert validate_credentials("key") is expected
+        assert network.requests_log[0].path == "/api/v2/teams"
+        assert network.requests_log[0].param("page_size") == "1"
+        assert network.requests_log[0].headers["x-api-key"] == "key"
+        assert network.session_options == [{"allow_redirects": False}]
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linearb.linearb.make_tracked_session")
-    def test_network_error_is_invalid(self, mock_make_session: mock.MagicMock) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = Exception("boom")
-        mock_make_session.return_value = session
+    def test_network_error_is_invalid(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))) as network:
+            assert validate_credentials("key") is False
 
-        assert validate_credentials("key") is False
+        assert {request.path for request in network.requests_log} == {"/api/v2/teams"}
 
 
 class TestListPagination:
-    def _manager(self) -> mock.MagicMock:
-        manager = mock.MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-        return manager
-
     @pytest.mark.parametrize(
-        ("config", "expected_requests"),
+        ("endpoint", "method", "page_size_param", "page_size"),
         [
-            (
-                _list_config(),
-                [
-                    ("GET", {"params": {"page_size": 2, "offset": 0}, "json": None}),
-                    ("GET", {"params": {"page_size": 2, "offset": 2}, "json": None}),
-                ],
-            ),
-            (
-                LinearbEndpointConfig(
-                    name="incidents",
-                    path="/api/v1/incidents/search",
-                    method="POST",
-                    page_size_param="limit",
-                    page_size=2,
-                    request_body={"issued_at": {"after": "2000-01-01"}, "sort_by": "issued_at", "sort_dir": "asc"},
-                ),
-                [
-                    (
-                        "POST",
-                        {
-                            "params": None,
-                            "json": {
-                                "issued_at": {"after": "2000-01-01"},
-                                "sort_by": "issued_at",
-                                "sort_dir": "asc",
-                                "limit": 2,
-                                "offset": offset,
-                            },
-                        },
-                    )
-                    for offset in (0, 2)
-                ],
-            ),
+            ("teams", "GET", "page_size", 50),
+            ("incidents", "POST", "limit", 100),
         ],
     )
     def test_paginates_until_total_reached(
-        self, config: LinearbEndpointConfig, expected_requests: list[tuple[str, dict[str, Any]]]
+        self, endpoint: str, method: str, page_size_param: str, page_size: int
     ) -> None:
-        # total=3 with page_size=2 -> a full page then a final short page.
-        responses = [
-            _response(payload={"total": 3, "items": [{"id": 1}, {"id": 2}]}),
-            _response(payload={"total": 3, "items": [{"id": 3}]}),
-        ]
-        session = _session_returning(responses)
+        # A full page followed by a short page must stop at the reported total.
+        result = _driver().run(
+            endpoint,
+            [
+                ScriptedResponse(json={"total": page_size + 1, "items": [{"id": i} for i in range(page_size)]}),
+                ScriptedResponse(json={"total": page_size + 1, "items": [{"id": page_size}]}),
+            ],
+        )
 
-        pages = list(_iter_list_rows(session, {}, mock.MagicMock(), config, self._manager()))
-
-        assert [row["id"] for page in pages for row in page] == [1, 2, 3]
-        assert [
-            (call.args[0], {"params": call.kwargs["params"], "json": call.kwargs["json"]})
-            for call in session.request.call_args_list
-        ] == expected_requests
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == list(range(page_size + 1))
+        assert [request.method for request in result.requests] == [method, method]
+        assert result.paths == [LINEARB_ENDPOINTS[endpoint].path] * 2
+        if method == "GET":
+            assert result.queries == [
+                {page_size_param: (str(page_size),), "offset": (str(offset),)} for offset in (0, page_size)
+            ]
+            assert [request.body for request in result.requests] == [None, None]
+        else:
+            assert result.queries == [{}, {}]
+            assert [request.json() for request in result.requests] == [
+                {
+                    "issued_at": {"after": "2000-01-01"},
+                    "sort_by": "issued_at",
+                    "sort_dir": "asc",
+                    page_size_param: page_size,
+                    "offset": offset,
+                }
+                for offset in (0, page_size)
+            ]
 
     def test_stops_on_empty_page(self) -> None:
-        session = _session_returning([_response(payload={"total": 0, "items": []})])
-        pages = list(_iter_list_rows(session, {}, mock.MagicMock(), _list_config(), self._manager()))
-        assert pages == []
+        result = _driver().run("teams", [ScriptedResponse(json={"total": 0, "items": []})])
+
+        assert result.raised is None
+        assert result.items == []
+        assert result.paths == ["/api/v2/teams"]
+        assert result.params("offset") == ["0"]
 
     def test_single_page_endpoint_without_paging_params_fetches_once(self) -> None:
         # services documents no paging params; even a large page must not loop forever.
-        config = LinearbEndpointConfig(name="services", path="/api/v1/services")
-        session = _session_returning([_response(payload={"total": 5, "items": [{"id": i} for i in range(5)]})])
+        result = _driver().run(
+            "services", [ScriptedResponse(json={"total": 5, "items": [{"id": i} for i in range(5)]})]
+        )
 
-        pages = list(_iter_list_rows(session, {}, mock.MagicMock(), config, self._manager()))
-
-        assert len(pages) == 1
-        assert session.request.call_count == 1
+        assert result.raised is None
+        assert len(result.items) == 1
+        assert result.rows == [{"id": i} for i in range(5)]
+        assert result.paths == ["/api/v1/services"]
+        assert result.queries == [{}]
 
 
 class TestMeasurements:
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linearb.linearb._measurements_body")
-    def test_flattens_windows_into_rows(self, mock_body: mock.MagicMock) -> None:
-        mock_body.return_value = {}
+    def test_flattens_windows_into_rows(self) -> None:
         windows = [
             {
                 "after": "2024-01-01",
@@ -162,42 +131,42 @@ class TestMeasurements:
                 "metrics": [{"organization_id": 7, "releases.count": 3, "branch.computed.cycle_time:p75": 100}],
             }
         ]
-        session = _session_returning([_response(payload=windows)])
+        result = _driver().run("measurements", [ScriptedResponse(json=windows)])
 
-        pages = list(_iter_measurements_rows(session, {}, mock.MagicMock()))
-
-        assert len(pages) == 1
-        row = pages[0][0]
+        assert result.raised is None
+        assert len(result.items) == 1
+        row = result.rows[0]
         assert row["after"] == "2024-01-01"
         assert row["before"] == "2024-01-02"
         assert row["organization_id"] == 7
         assert row["releases_count"] == 3
         assert row["branch_computed_cycle_time_p75"] == 100
+        assert result.paths == ["/api/v2/measurements"]
+        assert result.requests[0].method == "POST"
+        assert result.requests[0].json()["group_by"] == "organization"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linearb.linearb._measurements_body")
-    def test_no_content_yields_nothing(self, mock_body: mock.MagicMock) -> None:
-        mock_body.return_value = {}
-        session = _session_returning([_response(status_code=204, content=b"")])
+    def test_no_content_yields_nothing(self) -> None:
+        result = _driver().run("measurements", [ScriptedResponse(status=204)])
 
-        assert list(_iter_measurements_rows(session, {}, mock.MagicMock())) == []
+        assert result.raised is None
+        assert result.items == []
+        assert result.paths == ["/api/v2/measurements"]
 
 
 class TestLinearbSource:
     @pytest.mark.parametrize("endpoint", ENDPOINTS)
     def test_source_response_matches_endpoint_config(self, endpoint: str) -> None:
-        response = linearb_source(
-            api_key="key",
-            endpoint=endpoint,
-            logger=mock.MagicMock(),
-            resumable_source_manager=mock.MagicMock(spec=ResumableSourceManager),
-        )
+        answer = ScriptedResponse(status=204) if endpoint == "measurements" else ScriptedResponse(json={"items": []})
+        result = _driver().run(endpoint, [answer])
         config = LINEARB_ENDPOINTS[endpoint]
 
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        assert response.sort_mode == "asc"
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == endpoint
+        assert result.response.primary_keys == config.primary_keys
+        assert result.response.sort_mode == "asc"
         if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
+            assert result.response.partition_mode == "datetime"
+            assert result.response.partition_keys == [config.partition_key]
         else:
-            assert response.partition_mode is None
+            assert result.response.partition_mode is None

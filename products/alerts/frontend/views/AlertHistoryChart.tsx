@@ -1,6 +1,6 @@
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { DetectorType, InsightThresholdType } from '~/queries/schema/schema-general'
+import { InsightThresholdType } from '~/queries/schema/schema-general'
 
 import {
     AlertEvaluationHistoryChart,
@@ -8,12 +8,11 @@ import {
 } from 'products/alerts/frontend/components/AlertEvaluationHistoryChart'
 
 import type { AlertHistoryChartPoint } from '../logic/alertLogic'
-import { DEFAULT_LLM_DETECTION_CONFIDENCE } from '../logic/detectorConfigDefaults'
 import type { AlertType } from '../types'
 
 export type { AlertHistoryChartPoint }
 
-type ThresholdLineMode = 'value' | 'anomaly_probability' | 'model_confidence'
+type ThresholdLineMode = 'value' | 'anomaly_probability'
 
 interface ChartThresholdContext {
     lower: number | null
@@ -42,24 +41,17 @@ function getChartThresholdContext(alert: AlertType, chartPlotsAnomalyScore: bool
             }
             return { lower, upper, boundType: 'absolute', lineMode: 'value' }
         }
-        if (chartPlotsAnomalyScore) {
-            const isLLM = detectorConfig.type === DetectorType.LLM
-            const configured =
-                'threshold' in detectorConfig &&
-                typeof detectorConfig.threshold === 'number' &&
-                !Number.isNaN(detectorConfig.threshold)
-                    ? detectorConfig.threshold
-                    : null
-            // An AI config saved through the API or MCP can omit the threshold, and evaluation
-            // then uses the same default. Draw the line the checks are actually judged against.
-            const threshold = configured ?? (isLLM ? DEFAULT_LLM_DETECTION_CONFIDENCE : null)
-            if (threshold !== null) {
-                return {
-                    lower: null,
-                    upper: threshold,
-                    boundType: 'absolute',
-                    lineMode: isLLM ? 'model_confidence' : 'anomaly_probability',
-                }
+        if (
+            chartPlotsAnomalyScore &&
+            'threshold' in detectorConfig &&
+            typeof detectorConfig.threshold === 'number' &&
+            !Number.isNaN(detectorConfig.threshold)
+        ) {
+            return {
+                lower: null,
+                upper: detectorConfig.threshold,
+                boundType: 'absolute',
+                lineMode: 'anomaly_probability',
             }
         }
         return null
@@ -82,9 +74,6 @@ function getChartThresholdContext(alert: AlertType, chartPlotsAnomalyScore: bool
 function formatThresholdLabel(value: number, context: ChartThresholdContext): string {
     if (context.lineMode === 'anomaly_probability') {
         return `${Math.round(value * 100)}% probability`
-    }
-    if (context.lineMode === 'model_confidence') {
-        return `${Math.round(value * 100)}% confidence`
     }
     if (context.boundType === 'percentage') {
         return `${humanFriendlyNumber(value * 100)}% change`

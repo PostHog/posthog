@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AsknicelySource(ResumableSource[AsknicelySourceConfig, AskNicelyResumeConfig]):
+    codebase_detection = detect(env=("^ASKNICELY_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -51,7 +54,7 @@ class AsknicelySource(ResumableSource[AsknicelySourceConfig, AskNicelyResumeConf
             name=ExternalDataSourceType.ASKNICELY,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="AskNicely",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["nps", "csat", "survey"],
             caption="""Sync your AskNicely survey responses (NPS, CSAT, 5-star), daily stats and unsubscribed contacts into the PostHog Data warehouse.
 

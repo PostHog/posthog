@@ -16,9 +16,10 @@ use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use cohort_core::filters::{CohortId, TeamId};
 use cohort_core::partitioner::COHORT_PARTITION_COUNT;
 use cohort_seeder::domain::{
-    CompletionPhase, DispatchEpoch, MarkerPartition, MarkerWatch, NextOffset, ObservationEnds,
-    PartitionBitmap, PersonShapeHash, ProducedOffset, ReconcileHwms, ReconcileScope, RunId,
-    SeedPartition, UndispatchedReason, WatchPartition, WatchPositions,
+    CatalogMiss, CompletionPhase, CoverageStartMs, DispatchEpoch, MarkerPartition, MarkerWatch,
+    NextOffset, ObservationEnds, PartitionBitmap, PersonShapeHash, ProducedOffset, ReconcileHwms,
+    ReconcileScope, RunBoundaryMs, RunId, SeedPartition, UndispatchedReason, WatchPartition,
+    WatchPositions, WithheldCohort, WithheldReason,
 };
 use cohort_seeder::store::chunks::PgChunkStore;
 use cohort_seeder::store::completion::{
@@ -199,6 +200,14 @@ async fn person_run_loads_pin_the_person_hash_and_ignore_the_empty_behavioral_co
 
         let run = load_reconcile_run(&pool, run_id).await?;
         ensure!(run.kind() == RunKind::PersonProperty);
+        let boundary_at: DateTime<Utc> =
+            sqlx::query_scalar("SELECT boundary_at FROM cohort_backfill_runs WHERE id = $1")
+                .bind(run_id)
+                .fetch_one(&pool)
+                .await?;
+        ensure!(run
+            .tiles()
+            .all(|tile| tile.boundary() == Some(RunBoundaryMs(boundary_at.timestamp_millis()))));
         let scopes: Vec<ReconcileScope> = run.tiles().map(|tile| tile.scope().clone()).collect();
         ensure!(
             scopes
@@ -444,6 +453,7 @@ async fn record_is_fenced_against_a_dispatch_recorded_after_the_claim() -> Resul
             run_id,
             epoch,
             &[(CohortId(301), PartitionBitmap::from_bits(3)?)],
+            &[],
             &WatchPositions::new(),
             MARKER_TOPIC,
         )
@@ -567,6 +577,121 @@ async fn recording_a_partial_preserves_an_existing_supersession_reason() -> Resu
     .await
 }
 
+/// A withheld supersede rides the fenced flush and spares completed, stamped and superseded rows.
+#[tokio::test]
+async fn a_withheld_supersede_rides_the_fenced_marker_flush() -> Result<()> {
+    with_db(|pool| async move {
+        let run_id = insert_reconciling_run(&pool, 2).await?;
+        for cohort_id in [401, 402, 403, 404] {
+            insert_participation(&pool, run_id, 2, cohort_id, false, empty_pinned()).await?;
+        }
+        let claim = confirm_reconciling(&pool, run_id, RunKind::Behavioral)
+            .await?
+            .context("run should be claimable")?;
+        let epoch = claim.record(&pool, &full_hwms(), &empty_watch()).await?;
+        mark_participation_completed(&pool, run_id, epoch, CohortId(402)).await?;
+        sqlx::query(
+            "UPDATE cohort_backfill_run_cohorts SET stamped_at = now() \
+             WHERE run_id = $1 AND cohort_id = 403",
+        )
+        .bind(run_id)
+        .execute(&pool)
+        .await?;
+        let edited = RenderedError::from_message("Cohort definition changed during backfill");
+        record_participation_partial(&pool, run_id, epoch, CohortId(404), &edited).await?;
+
+        let withheld = |cohort_id: i32, reason: WithheldReason| WithheldCohort {
+            cohort_id: CohortId(cohort_id),
+            partition: MarkerPartition::new(7).expect("7 is a marker partition"),
+            reason,
+        };
+        let catalog = WithheldReason::Catalog(CatalogMiss::HashUnknown);
+        let verdicts = [
+            withheld(
+                401,
+                WithheldReason::PartialCoverage {
+                    covered_since: CoverageStartMs(1_791_547_200_000),
+                },
+            ),
+            withheld(402, catalog),
+            withheld(403, catalog),
+            withheld(404, catalog),
+        ];
+        let mut bits = PartitionBitmap::default();
+        bits.set(MarkerPartition::new(0)?);
+        let bit_updates = [(CohortId(401), bits)];
+        let mut advanced = WatchPositions::new();
+        advanced.insert(WatchPartition::new(0), NextOffset::from_high_watermark(42));
+
+        let stale = test_support::epoch_at(epoch.as_datetime() - ChronoDuration::hours(1));
+        ensure_fence_lost(
+            persist_marker_observations(
+                &pool,
+                run_id,
+                stale,
+                &bit_updates,
+                &verdicts,
+                &advanced,
+                MARKER_TOPIC,
+            )
+            .await,
+        )?;
+        let outcomes = || async {
+            sqlx::query_as::<_, (i32, bool, String, i64)>(
+                "SELECT cohort_id, superseded_at IS NOT NULL, error, reconcile_marker_bits \
+                 FROM cohort_backfill_run_cohorts WHERE run_id = $1 ORDER BY cohort_id",
+            )
+            .bind(run_id)
+            .fetch_all(&pool)
+            .await
+        };
+        let positions = || async {
+            sqlx::query_scalar::<_, Json<MarkerWatch>>(
+                "SELECT marker_watch FROM cohort_backfill_runs WHERE id = $1",
+            )
+            .bind(run_id)
+            .fetch_one(&pool)
+            .await
+            .map(|watch| watch.0.positions)
+        };
+        let before = outcomes().await?;
+        ensure!(
+            before.iter().map(|row| row.1).collect::<Vec<_>>() == [false, false, false, true],
+            "a stale epoch superseded a participation: {before:?}"
+        );
+        ensure!(before[0].3 == 0, "a stale epoch merged bits");
+        ensure!(positions().await? == WatchPositions::new());
+
+        persist_marker_observations(
+            &pool,
+            run_id,
+            epoch,
+            &bit_updates,
+            &verdicts,
+            &advanced,
+            MARKER_TOPIC,
+        )
+        .await?;
+
+        let after = outcomes().await?;
+        ensure!(
+            after.iter().map(|row| row.1).collect::<Vec<_>>() == [true, false, false, true],
+            "only the open participation is superseded: {after:?}"
+        );
+        ensure!(
+            after[0].2.contains("partition 7 (partial_coverage)")
+                && after[0].2.contains("2026-10-09T12:00:00+00:00"),
+            "the error must name the partition and the recovery instant: {}",
+            after[0].2
+        );
+        ensure!(after[0].3 != 0, "the bits rode the same flush");
+        ensure!(after[3].2 == edited.as_str(), "an earlier reason is kept");
+        ensure!(positions().await? == advanced);
+        Ok(())
+    })
+    .await
+}
+
 /// Every fenced observation write is rejected under a stale epoch and under a run whose status has
 /// left `reconciling`, while a matching epoch on a reconciling run is accepted.
 #[tokio::test]
@@ -602,6 +727,7 @@ async fn fenced_writes_reject_stale_epoch_and_wrong_status() -> Result<()> {
                     run_id,
                     at,
                     &bit_updates,
+                    &[],
                     &WatchPositions::new(),
                     MARKER_TOPIC,
                 )
@@ -736,7 +862,8 @@ async fn capturing_ends_leaves_the_watcher_positions_alone() -> Result<()> {
 
         let mut advanced = WatchPositions::new();
         advanced.insert(WatchPartition::new(0), NextOffset::from_high_watermark(42));
-        persist_marker_observations(&pool, run_id, epoch, &[], &advanced, MARKER_TOPIC).await?;
+        persist_marker_observations(&pool, run_id, epoch, &[], &[], &advanced, MARKER_TOPIC)
+            .await?;
         persist_observation_ends(&pool, run_id, epoch, &captured_ends(), MARKER_TOPIC).await?;
 
         let watch: Json<MarkerWatch> =
@@ -818,6 +945,7 @@ async fn marker_observations_or_merge_round_trip_including_bit_63() -> Result<()
             run_id,
             epoch,
             &[(CohortId(401), low)],
+            &[],
             &WatchPositions::new(),
             MARKER_TOPIC,
         )
@@ -830,6 +958,7 @@ async fn marker_observations_or_merge_round_trip_including_bit_63() -> Result<()
             run_id,
             epoch,
             &[(CohortId(401), high)],
+            &[],
             &WatchPositions::new(),
             MARKER_TOPIC,
         )

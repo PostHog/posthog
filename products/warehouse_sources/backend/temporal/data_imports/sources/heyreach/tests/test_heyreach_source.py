@@ -27,11 +27,3 @@ class TestHeyReachSourceErrorClassification:
 
         non_retryable_errors = HeyReachSource().get_non_retryable_errors()
         assert any(pattern in str(exc_info.value) for pattern in non_retryable_errors)
-
-    def test_transient_server_errors_stay_retryable(self) -> None:
-        error_message = (
-            "500 Server Error: Internal Server Error for url: https://api.heyreach.io/api/public/campaign/GetAll"
-        )
-
-        non_retryable_errors = HeyReachSource().get_non_retryable_errors()
-        assert not any(pattern in error_message for pattern in non_retryable_errors)

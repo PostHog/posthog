@@ -37,7 +37,7 @@ class TestEarlyAccessFeatureSiteAppTemplate(unittest.TestCase):
     def test_site_app_template_escapes_user_controlled_fields(self):
         import re
 
-        from posthog.cdp.templates._siteapps.template_early_access_features import template
+        from products.cdp.backend.templates._siteapps.template_early_access_features import template
 
         code = template.code
 
@@ -58,7 +58,7 @@ class TestEarlyAccessFeatureSiteAppTemplate(unittest.TestCase):
         unlike raw encodeURI which would allow javascript: URLs through."""
         import re
 
-        from posthog.cdp.templates._siteapps.template_early_access_features import template
+        from products.cdp.backend.templates._siteapps.template_early_access_features import template
 
         code = template.code
 

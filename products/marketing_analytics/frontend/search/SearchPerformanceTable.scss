@@ -10,7 +10,9 @@
     .PaginationControl {
         margin-top: auto;
     }
+}
 
+.SearchPerformanceTable {
     .SearchPerformanceTable__metric > span {
         flex-direction: column;
         gap: 0;
@@ -20,4 +22,10 @@
     tbody td {
         height: 4rem;
     }
+}
+
+.SearchPerformanceTable--wrap-text .LemonButton__content {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    white-space: normal;
 }

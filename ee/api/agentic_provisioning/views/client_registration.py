@@ -31,7 +31,12 @@ from posthog.api.oauth.cimd import (
     fetch_and_upsert_cimd_application,
     is_cimd_client_id,
 )
-from posthog.api.oauth.client_assertion import ClientAssertionError, describe_jwks, verify_client_assertion
+from posthog.api.oauth.client_assertion import (
+    PRIVATE_KEY_REQUIRED_MESSAGE,
+    ClientAssertionError,
+    describe_jwks,
+    verify_client_assertion,
+)
 from posthog.models.oauth import OAuthApplication
 
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
@@ -84,18 +89,11 @@ class ClientRegistrationView(ProvisioningAPIView):
                     "can_create_accounts": app.provisioning.can_create_accounts,
                     "can_provision_resources": app.provisioning.can_provision_resources,
                 },
-                # Spelled out because "why can't I call github/grants" is the question this
-                # endpoint exists to answer, and the rule (a confidential client PostHog granted
-                # the capability to) is not something a partner can infer from its own metadata
-                # document.
                 "capabilities": {
-                    "account_requests": app.provisioning.active and app.provisioning.can_create_accounts,
-                    "github_grants": (
-                        app.requires_client_authentication
-                        and app.provisioning.can_use_github_grants
-                        and app.provisioning.can_create_accounts
-                    ),
-                    "wizard_runs": app.provisioning.active and app.provisioning.can_start_wizard_runs,
+                    "account_requests": app.provisioning.active
+                    and app.provisioning.can_create_accounts
+                    and not app.cannot_meet_provisioning_signature,
+                    "unsigned_requests": not app.requires_provisioning_signature,
                 },
                 "checks": checks,
             }
@@ -153,6 +151,10 @@ class ClientRegistrationView(ProvisioningAPIView):
         return app
 
     def _check_jwks(self, app: OAuthApplication, checks: list[dict[str, Any]]) -> None:
+        if app.cannot_meet_provisioning_signature:
+            _record(checks, "jwks", False, PRIVATE_KEY_REQUIRED_MESSAGE)
+            return
+
         if not app.jwks_uri:
             # Not a failure: a public client legitimately publishes no keys. Reported so the
             # response says which of the two situations the caller is in.
@@ -160,7 +162,7 @@ class ClientRegistrationView(ProvisioningAPIView):
                 checks,
                 "jwks",
                 True,
-                "No jwks_uri, so this client authenticates with PKCE only and cannot use the GitHub grant endpoints",
+                "No jwks_uri, so this client authenticates with PKCE only",
             )
             return
 

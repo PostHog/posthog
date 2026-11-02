@@ -28,6 +28,7 @@ export type TaskRunUpdate = Partial<
     "status" | "branch" | "stage" | "error_message" | "output" | "state"
   >
 > & {
+  error_type?: string;
   state_remove_keys?: string[];
   state_append?: Record<string, unknown>;
 };

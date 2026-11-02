@@ -185,8 +185,14 @@ impl FeatureFlagStorage for PostgresStorage {
         sqlx::query("SET CONSTRAINTS ALL IMMEDIATE")
             .execute(&mut *tx)
             .await?;
-        // Kept under the router's 5 s backend deadline so the caller sees an error, not a timeout.
-        sqlx::query("SET LOCAL lock_timeout = '2s'")
+        // statement_timeout includes time spent waiting on row locks, so it bounds the whole
+        // INSERT, including several held rows in turn. It stays under the caller's deadline, so
+        // the INSERT can fail with its own error before the caller gives up. The limit covers
+        // only the INSERT. The pool acquire above runs before it and can still use up the
+        // caller's deadline. The setting is local to the transaction, so PgBouncer does not pass
+        // it to the next client of the server connection.
+        sqlx::query("SELECT set_config('statement_timeout', $1, true)")
+            .bind(self.hash_key_override_statement_timeout_ms.to_string())
             .execute(&mut *tx)
             .await?;
 

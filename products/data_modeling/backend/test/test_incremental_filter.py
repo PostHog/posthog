@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -36,7 +36,7 @@ def _where_terms(select: ast.SelectQuery) -> list[ast.Expr]:
     return [select.where]
 
 
-class TestInjectIncrementalFilter(BaseTest):
+class TestInjectIncrementalFilter(SimpleTestCase):
     @parameterized.expand(
         [
             (

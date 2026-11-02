@@ -4,13 +4,22 @@ import itertools
 import threading
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import parse_qs, urlparse
 
 import pytest
 from unittest import mock
 
 import requests
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    FakeNetwork,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.infisical import (
+    InfisicalSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.infisical import infisical as infisical_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.infisical.infisical import (
     INVALID_CREDENTIALS_ERROR,
@@ -25,12 +34,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.infisical.
     _get_offset_paginated_rows,
     _parse_retry_after,
     _retry_wait,
-    get_rows,
-    infisical_source,
     normalize_base_url,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.infisical.settings import INFISICAL_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.infisical.source import InfisicalSource
 
 LOGIN_JSON = {"accessToken": "tok", "expiresIn": 3600, "accessTokenMaxTTL": 7200, "tokenType": "Bearer"}
 
@@ -56,49 +64,20 @@ def _response(
     return response
 
 
-def _login_response() -> mock.MagicMock:
-    return _response(json_data=LOGIN_JSON)
-
-
-def _run_get_rows(
-    responses: list[Any],
-    endpoint: str,
-    manager: Optional[mock.MagicMock] = None,
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> tuple[list[dict[str, Any]], mock.MagicMock, mock.MagicMock]:
-    if manager is None:
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = False
-    session = mock.MagicMock()
-    session.request.side_effect = responses
-    with (
-        mock.patch.object(infisical_module, "make_tracked_session", return_value=session),
-        mock.patch.object(infisical_module, "_is_host_safe", return_value=(True, None)),
-    ):
-        rows: list[dict[str, Any]] = []
-        for batch in get_rows(
+def _driver() -> SourceDriver:
+    return SourceDriver(
+        InfisicalSource(),
+        InfisicalSourceConfig(
             base_url="https://app.infisical.com",
+            organization_id="org-123",
             client_id="cid",
             client_secret="csecret",
-            organization_id="org-123",
-            endpoint=endpoint,
-            logger=mock.MagicMock(),
-            resumable_source_manager=manager,
-            team_id=1,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ):
-            rows.extend(batch)
-    return rows, session, manager
+        ),
+    )
 
 
-def _get_urls(session: mock.MagicMock) -> list[str]:
-    return [call.args[1] for call in session.request.call_args_list if call.args[0] == "get"]
-
-
-def _query(url: str) -> dict[str, list[str]]:
-    return parse_qs(urlparse(url).query)
+def _scripted_login_response() -> ScriptedResponse:
+    return ScriptedResponse(json=LOGIN_JSON)
 
 
 class TestNormalizeBaseUrl:
@@ -125,76 +104,72 @@ class TestFormatIncrementalValue:
 class TestAuditLogRows:
     def test_incremental_run_windows_and_paginates(self):
         audit_config = INFISICAL_ENDPOINTS["audit_logs"]
-        page1 = _response(json_data={"auditLogs": [{"id": i, "orgId": "org-123"} for i in ("3", "2", "1")]})
-        page2 = _response(json_data={"auditLogs": [{"id": "0", "orgId": "org-123"}]})
+        page1 = ScriptedResponse(json={"auditLogs": [{"id": i, "orgId": "org-123"} for i in ("3", "2", "1")]})
+        page2 = ScriptedResponse(json={"auditLogs": [{"id": "0", "orgId": "org-123"}]})
         with mock.patch.object(audit_config, "page_limit", 3):
-            rows, session, manager = _run_get_rows(
-                [_login_response(), page1, page2],
+            result = _driver().run(
                 "audit_logs",
-                should_use_incremental_field=True,
+                [_scripted_login_response(), page1, page2],
+                incremental_field="createdAt",
                 db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
             )
 
-        assert [r["id"] for r in rows] == ["3", "2", "1", "0"]
+        assert [r["id"] for r in result.rows] == ["3", "2", "1", "0"]
 
-        first, second = (_query(u) for u in _get_urls(session))
-        assert first["startDate"] == ["2024-01-01T00:00:00.000Z"]
-        assert first["offset"] == ["0"]
-        assert second["offset"] == ["3"]
+        first, second = result.requests[1:]
+        assert first.param("startDate") == "2024-01-01T00:00:00.000Z"
+        assert first.param("offset") == "0"
+        assert second.param("offset") == "3"
         # endDate is pinned at sync start so offset pagination stays stable while new logs arrive.
-        assert first["endDate"] == second["endDate"]
+        assert first.param("endDate") == second.param("endDate")
         # A short page terminates pagination.
-        assert len(_get_urls(session)) == 2
+        assert len(result.requests) == 3
 
-        saved_offsets = [call.args[0].offset for call in manager.save_state.call_args_list]
-        assert saved_offsets == [3, 4]
+        assert [state.offset for state in result.saved_states] == [3, 4]
 
     def test_resumes_saved_window_and_offset(self):
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = InfisicalResumeConfig(
+        resume = InfisicalResumeConfig(
             offset=7, window_start="2024-01-01T00:00:00.000Z", window_end="2024-06-01T00:00:00.000Z"
         )
-        page = _response(json_data={"auditLogs": [{"id": "1", "orgId": "org-123"}]})
-        _rows, session, _manager = _run_get_rows([_login_response(), page], "audit_logs", manager=manager)
+        page = ScriptedResponse(json={"auditLogs": [{"id": "1", "orgId": "org-123"}]})
+        result = _driver().run("audit_logs", [_scripted_login_response(), page], resume_state=resume)
 
-        params = _query(_get_urls(session)[0])
-        assert params["offset"] == ["7"]
-        assert params["startDate"] == ["2024-01-01T00:00:00.000Z"]
-        assert params["endDate"] == ["2024-06-01T00:00:00.000Z"]
+        request = result.requests[1]
+        assert request.param("offset") == "7"
+        assert request.param("startDate") == "2024-01-01T00:00:00.000Z"
+        assert request.param("endDate") == "2024-06-01T00:00:00.000Z"
 
     def test_empty_first_page_yields_nothing(self):
-        page = _response(json_data={"auditLogs": []})
-        rows, _session, manager = _run_get_rows([_login_response(), page], "audit_logs")
+        page = ScriptedResponse(json={"auditLogs": []})
+        result = _driver().run("audit_logs", [_scripted_login_response(), page])
 
-        assert rows == []
-        manager.save_state.assert_not_called()
+        assert result.rows == []
+        assert result.saved_states == []
 
 
 class TestOffsetPaginatedRows:
     def test_identities_paginates_with_stable_sort(self):
         identities_config = INFISICAL_ENDPOINTS["identities"]
-        page1 = _response(json_data={"identityMemberships": [{"id": "a"}, {"id": "b"}]})
-        page2 = _response(json_data={"identityMemberships": [{"id": "c"}]})
+        page1 = ScriptedResponse(json={"identityMemberships": [{"id": "a"}, {"id": "b"}]})
+        page2 = ScriptedResponse(json={"identityMemberships": [{"id": "c"}]})
         with mock.patch.object(identities_config, "page_limit", 2):
-            rows, session, manager = _run_get_rows([_login_response(), page1, page2], "identities")
+            result = _driver().run("identities", [_scripted_login_response(), page1, page2])
 
-        assert [r["id"] for r in rows] == ["a", "b", "c"]
+        assert [r["id"] for r in result.rows] == ["a", "b", "c"]
 
-        urls = _get_urls(session)
-        assert all("/api/v2/organizations/org-123/identity-memberships" in u for u in urls)
-        first, second = (_query(u) for u in urls)
-        assert first["orderBy"] == ["name"]
-        assert first["orderDirection"] == ["asc"]
-        assert first["offset"] == ["0"]
-        assert second["offset"] == ["2"]
-        assert [call.args[0].offset for call in manager.save_state.call_args_list] == [2, 3]
+        assert result.paths[1:] == ["/api/v2/organizations/org-123/identity-memberships"] * 2
+        first, second = result.requests[1:]
+        assert first.param("orderBy") == "name"
+        assert first.param("orderDirection") == "asc"
+        assert first.param("offset") == "0"
+        assert second.param("offset") == "2"
+        assert [state.offset for state in result.saved_states] == [2, 3]
 
 
 class TestProjectMembershipsFanOut:
     def test_fans_out_over_projects_and_skips_forbidden(self):
-        projects = _response(
-            json_data={
+        projects = ScriptedResponse(
+            json={
                 "projects": [
                     {"id": "p1", "orgId": "org-123"},
                     {"id": "p2", "orgId": "org-123"},
@@ -202,18 +177,17 @@ class TestProjectMembershipsFanOut:
                 ]
             }
         )
-        memberships_p1 = _response(json_data={"memberships": [{"id": "m1", "projectId": "p1"}]})
-        memberships_p2 = _response(status_code=403)
-        memberships_p3 = _response(json_data={"memberships": [{"id": "m2", "projectId": "p3"}]})
-        rows, session, _manager = _run_get_rows(
-            [_login_response(), projects, memberships_p1, memberships_p2, memberships_p3],
+        memberships_p1 = ScriptedResponse(json={"memberships": [{"id": "m1", "projectId": "p1"}]})
+        memberships_p2 = ScriptedResponse(status=403)
+        memberships_p3 = ScriptedResponse(json={"memberships": [{"id": "m2", "projectId": "p3"}]})
+        result = _driver().run(
             "project_memberships",
+            [_scripted_login_response(), projects, memberships_p1, memberships_p2, memberships_p3],
         )
 
         # The 403 project is skipped (per-project grants), the rest still sync.
-        assert [r["id"] for r in rows] == ["m1", "m2"]
-        paths = [urlparse(u).path for u in _get_urls(session)]
-        assert paths == [
+        assert [r["id"] for r in result.rows] == ["m1", "m2"]
+        assert result.paths[1:] == [
             "/api/v1/projects",
             "/api/v1/projects/p1/memberships",
             "/api/v1/projects/p2/memberships",
@@ -224,24 +198,24 @@ class TestProjectMembershipsFanOut:
     def test_fails_the_sync_when_no_project_is_readable(self, status_code):
         # A 403 on every project means the identity lacks the permission outright, so an empty
         # full refresh must not be reported as a success.
-        projects = _response(json_data={"projects": [{"id": "p1", "orgId": "org-123"}]})
-        error = _response(status_code=status_code)
-        with pytest.raises(requests.HTTPError):
-            _run_get_rows([_login_response(), projects, error], "project_memberships")
+        projects = ScriptedResponse(json={"projects": [{"id": "p1", "orgId": "org-123"}]})
+        error = ScriptedResponse(status=status_code)
+        result = _driver().run("project_memberships", [_scripted_login_response(), projects, error])
+        assert isinstance(result.raised, requests.HTTPError)
 
     def test_fan_out_is_capped(self):
         # base_url is customer-controlled: a host returning far more projects than any real org
         # (still under the byte cap) would fan one sync out into a request per project and hold
         # the worker. The fan-out must stop at MAX_FAN_OUT_PARENTS.
-        projects = _response(json_data={"projects": [{"id": f"p{i}", "orgId": "org-123"} for i in range(3)]})
-        membership = _response(json_data={"memberships": [{"id": "m1", "projectId": "p0"}]})
+        projects = ScriptedResponse(json={"projects": [{"id": f"p{i}", "orgId": "org-123"} for i in range(3)]})
+        membership = ScriptedResponse(json={"memberships": [{"id": "m1", "projectId": "p0"}]})
         with mock.patch.object(infisical_module, "MAX_FAN_OUT_PARENTS", 2):
-            _rows, session, _manager = _run_get_rows(
-                [_login_response(), projects, membership, membership], "project_memberships"
+            result = _driver().run(
+                "project_memberships", [_scripted_login_response(), projects, membership, membership]
             )
 
         # Only the first 2 of the 3 projects are fetched (1 project list + 2 membership calls).
-        membership_paths = [p for p in (urlparse(u).path for u in _get_urls(session)) if "memberships" in p]
+        membership_paths = [p for p in result.paths if "memberships" in p]
         assert membership_paths == ["/api/v1/projects/p0/memberships", "/api/v1/projects/p1/memberships"]
 
     def test_fan_out_aborts_when_time_budget_exhausted(self):
@@ -271,21 +245,20 @@ class TestProjectMembershipsFanOut:
 
 class TestGroupMembersFanOut:
     def test_paginates_each_group_and_stamps_group_id(self):
-        groups = _response(json_data=[{"id": "g1", "orgId": "org-123"}, {"id": "g2", "orgId": "other-org"}])
-        page1 = _response(
-            json_data={"members": [{"id": "u1", "type": "user"}, {"id": "i1", "type": "machineIdentity"}]}
+        groups = ScriptedResponse(json=[{"id": "g1", "orgId": "org-123"}, {"id": "g2", "orgId": "other-org"}])
+        page1 = ScriptedResponse(
+            json={"members": [{"id": "u1", "type": "user"}, {"id": "i1", "type": "machineIdentity"}]}
         )
-        page2 = _response(json_data={"members": [{"id": "u2", "type": "user"}]})
+        page2 = ScriptedResponse(json={"members": [{"id": "u2", "type": "user"}]})
         with mock.patch.object(INFISICAL_ENDPOINTS["group_members"], "page_limit", 2):
-            rows, session, _manager = _run_get_rows([_login_response(), groups, page1, page2], "group_members")
+            result = _driver().run("group_members", [_scripted_login_response(), groups, page1, page2])
 
         # Member rows don't carry their group, so without the stamp the composite key collapses
         # across groups.
-        assert [(r["groupId"], r["id"]) for r in rows] == [("g1", "u1"), ("g1", "i1"), ("g1", "u2")]
-        urls = _get_urls(session)
+        assert [(r["groupId"], r["id"]) for r in result.rows] == [("g1", "u1"), ("g1", "i1"), ("g1", "u2")]
         # The other org's group is never fetched.
-        assert [urlparse(u).path for u in urls] == ["/api/v1/groups", *["/api/v1/groups/g1/members"] * 2]
-        assert [_query(u)["offset"] for u in urls[1:]] == [["0"], ["2"]]
+        assert result.paths[1:] == ["/api/v1/groups", *["/api/v1/groups/g1/members"] * 2]
+        assert result.params("offset")[2:] == ["0", "2"]
 
 
 class TestProjectTypeScopedFanOut:
@@ -298,27 +271,26 @@ class TestProjectTypeScopedFanOut:
     )
     def test_only_matching_projects_are_queried_by_project_id(self, endpoint, project_type, path, data_key):
         # These endpoints reject other project types with a 400, which would fail the sync.
-        projects = _response(
-            json_data={
+        projects = ScriptedResponse(
+            json={
                 "projects": [
                     {"id": "p1", "orgId": "org-123", "type": "cert-manager"},
                     {"id": "p2", "orgId": "org-123", "type": project_type},
                 ]
             }
         )
-        children = _response(json_data={data_key: [{"id": "c1", "projectId": "p2"}]})
-        rows, session, _manager = _run_get_rows([_login_response(), projects, children], endpoint)
+        children = ScriptedResponse(json={data_key: [{"id": "c1", "projectId": "p2"}]})
+        result = _driver().run(endpoint, [_scripted_login_response(), projects, children])
 
-        assert [r["id"] for r in rows] == ["c1"]
-        child_url = _get_urls(session)[1]
-        assert urlparse(child_url).path == path
-        assert _query(child_url) == {"projectId": ["p2"]}
+        assert [r["id"] for r in result.rows] == ["c1"]
+        assert result.paths[2] == path
+        assert result.queries[2] == {"projectId": ("p2",)}
 
 
 class TestProjectEnvironmentsFanOut:
     def test_fetches_each_embedded_environment_of_the_org_projects(self):
-        projects = _response(
-            json_data={
+        projects = ScriptedResponse(
+            json={
                 "projects": [
                     {"id": "p1", "orgId": "org-123", "environments": [{"id": "e1"}, {"id": "e2"}]},
                     {"id": "p2", "orgId": "other-org", "environments": [{"id": "e3"}]},
@@ -326,13 +298,13 @@ class TestProjectEnvironmentsFanOut:
                 ]
             }
         )
-        env1 = _response(json_data={"environment": {"id": "e1", "slug": "dev", "projectId": "p1"}})
-        env2 = _response(status_code=404)
-        rows, session, _manager = _run_get_rows([_login_response(), projects, env1, env2], "project_environments")
+        env1 = ScriptedResponse(json={"environment": {"id": "e1", "slug": "dev", "projectId": "p1"}})
+        env2 = ScriptedResponse(status=404)
+        result = _driver().run("project_environments", [_scripted_login_response(), projects, env1, env2])
 
         # A single-object body becomes one row; an environment deleted mid-sync is skipped.
-        assert rows == [{"id": "e1", "slug": "dev", "projectId": "p1"}]
-        assert [urlparse(u).path for u in _get_urls(session)] == [
+        assert result.rows == [{"id": "e1", "slug": "dev", "projectId": "p1"}]
+        assert result.paths[1:] == [
             "/api/v1/projects",
             "/api/v1/projects/p1/environments/e1",
             "/api/v1/projects/p1/environments/e2",
@@ -348,56 +320,44 @@ class TestOrgScoping:
         ],
     )
     def test_token_scoped_tables_exclude_other_orgs(self, endpoint, body):
-        rows, _session, _manager = _run_get_rows([_login_response(), _response(json_data=body)], endpoint)
-        assert [r["id"] for r in rows] == ["r1"]
+        result = _driver().run(endpoint, [_scripted_login_response(), ScriptedResponse(json=body)])
+        assert [r["id"] for r in result.rows] == ["r1"]
 
 
 class TestTokenHandling:
     def test_relogins_once_when_token_rejected_mid_sync(self):
-        rejected = _response(status_code=401)
-        page = _response(json_data={"projects": [{"id": "1", "orgId": "org-123"}]})
-        rows, session, _manager = _run_get_rows([_login_response(), rejected, _login_response(), page], "projects")
+        rejected = ScriptedResponse(status=401)
+        page = ScriptedResponse(json={"projects": [{"id": "1", "orgId": "org-123"}]})
+        result = _driver().run("projects", [_scripted_login_response(), rejected, _scripted_login_response(), page])
 
-        assert [r["id"] for r in rows] == ["1"]
-        logins = [call for call in session.request.call_args_list if call.args[0] == "post"]
+        assert [r["id"] for r in result.rows] == ["1"]
+        logins = [request for request in result.requests if request.method == "POST"]
         assert len(logins) == 2
 
     def test_requests_never_follow_redirects(self):
-        page = _response(json_data={"projects": [{"id": "1"}]})
-        _rows, session, _manager = _run_get_rows([_login_response(), page], "projects")
+        redirect = ScriptedResponse(status=302, headers={"Location": "https://internal.example.com/api/v1/projects"})
+        result = _driver().run("projects", [_scripted_login_response(), redirect])
 
-        assert all(call.kwargs["allow_redirects"] is False for call in session.request.call_args_list)
+        assert isinstance(result.raised, infisical_module.InfisicalHostNotAllowedError)
+        assert len(result.requests) == 2
+        assert all(request.url.startswith("https://app.infisical.com") for request in result.requests)
 
     def test_rejects_unsafe_host_before_any_request(self):
-        session = mock.MagicMock()
-        with (
-            mock.patch.object(infisical_module, "make_tracked_session", return_value=session),
-            mock.patch.object(infisical_module, "_is_host_safe", return_value=(False, "internal address")),
-        ):
-            with pytest.raises(infisical_module.InfisicalHostNotAllowedError):
-                list(
-                    get_rows(
-                        base_url="https://10.0.0.1",
-                        client_id="cid",
-                        client_secret="csecret",
-                        organization_id="org-123",
-                        endpoint="projects",
-                        logger=mock.MagicMock(),
-                        resumable_source_manager=mock.MagicMock(),
-                        team_id=1,
-                    )
-                )
-        session.request.assert_not_called()
+        with mock.patch.object(infisical_module, "_is_host_safe", return_value=(False, "internal address")):
+            result = _driver().run("projects", [])
+
+        assert isinstance(result.raised, infisical_module.InfisicalHostNotAllowedError)
+        assert result.requests == []
 
 
 class TestResponseLimits:
     def test_oversized_response_is_rejected(self):
         # base_url is customer-controlled, so an unbounded body must abort rather than buffer
         # into memory and exhaust the worker.
-        oversized = _response(json_data={"projects": []}, body_chunks=[b"x" * 2048])
+        oversized = ScriptedResponse(body=b"x" * 2048)
         with mock.patch.object(infisical_module, "MAX_RESPONSE_BYTES", 1024):
-            with pytest.raises(InfisicalResponseTooLargeError):
-                _run_get_rows([_login_response(), oversized], "projects")
+            result = _driver().run("projects", [_scripted_login_response(), oversized])
+        assert isinstance(result.raised, InfisicalResponseTooLargeError)
 
     def test_slow_drip_body_aborts_on_total_deadline(self):
         # requests' timeout is an idle read timeout: a host that trickles bytes under the size
@@ -492,16 +452,16 @@ class TestResponseLimits:
     def test_pagination_stops_at_max_pages(self):
         # A host that always returns a full page would loop forever without the page cap.
         identities_config = INFISICAL_ENDPOINTS["identities"]
-        full1 = _response(json_data={"identityMemberships": [{"id": "a"}]})
-        full2 = _response(json_data={"identityMemberships": [{"id": "b"}]})
+        full1 = ScriptedResponse(json={"identityMemberships": [{"id": "a"}]})
+        full2 = ScriptedResponse(json={"identityMemberships": [{"id": "b"}]})
         with (
             mock.patch.object(identities_config, "page_limit", 1),
             mock.patch.object(infisical_module, "MAX_PAGES", 2),
         ):
-            rows, session, _manager = _run_get_rows([_login_response(), full1, full2], "identities")
+            result = _driver().run("identities", [_scripted_login_response(), full1, full2])
 
-        assert [r["id"] for r in rows] == ["a", "b"]
-        assert len(_get_urls(session)) == 2
+        assert [r["id"] for r in result.rows] == ["a", "b"]
+        assert len(result.requests) == 3
 
     @pytest.mark.parametrize(
         "endpoint, run_loop",
@@ -547,34 +507,29 @@ class TestResponseLimits:
 
 
 class TestValidateCredentials:
-    def _run(self, responses: list[Any], schema_name: Optional[str] = None, **kwargs: Any):
-        session = mock.MagicMock()
-        session.request.side_effect = responses
-        with (
-            mock.patch.object(infisical_module, "make_tracked_session", return_value=session),
-            mock.patch.object(infisical_module, "_is_host_safe", return_value=(True, None)),
-        ):
-            return (
-                validate_credentials(
-                    kwargs.pop("base_url", "https://app.infisical.com"),
-                    "cid",
-                    "csecret",
-                    kwargs.pop("organization_id", "org-123"),
-                    schema_name,
-                    team_id=kwargs.pop("team_id", 1),
-                ),
-                session,
+    def _run(
+        self, responses: Script, schema_name: Optional[str] = None, **kwargs: Any
+    ) -> tuple[tuple[bool, str | None], FakeNetwork]:
+        with scripted_network(responses) as network:
+            result = validate_credentials(
+                kwargs.pop("base_url", "https://app.infisical.com"),
+                "cid",
+                "csecret",
+                kwargs.pop("organization_id", "org-123"),
+                schema_name,
+                team_id=kwargs.pop("team_id", 1),
             )
+        return result, network
 
     def test_login_success_at_source_create(self):
-        result, session = self._run([_login_response()])
+        result, network = self._run([_scripted_login_response()])
         assert result == (True, None)
         # Only the login probe — per-endpoint permissions are granted separately.
-        assert session.request.call_count == 1
+        assert len(network.requests_log) == 1
 
     @pytest.mark.parametrize("status_code", [400, 401, 403])
     def test_login_rejection_is_invalid_credentials(self, status_code):
-        result, _session = self._run([_response(status_code=status_code)])
+        result, _network = self._run([ScriptedResponse(status=status_code)])
         assert result == (False, INVALID_CREDENTIALS_ERROR)
 
     @pytest.mark.parametrize(
@@ -586,44 +541,44 @@ class TestValidateCredentials:
         ],
     )
     def test_scoped_probe_success(self, schema_name, body, expected_path):
-        result, session = self._run([_login_response(), _response(json_data=body)], schema_name=schema_name)
+        result, network = self._run([_scripted_login_response(), ScriptedResponse(json=body)], schema_name=schema_name)
         assert result == (True, None)
-        assert urlparse(_get_urls(session)[0]).path == expected_path
+        assert network.requests_log[1].path == expected_path
 
     def test_scoped_probe_403_names_the_table(self):
-        result, _session = self._run([_login_response(), _response(status_code=403)], schema_name="audit_logs")
+        result, _network = self._run(
+            [_scripted_login_response(), ScriptedResponse(status=403)], schema_name="audit_logs"
+        )
         valid, message = result
         assert valid is False
         assert "audit_logs" in (message or "")
 
     def test_invalid_base_url_short_circuits(self):
-        result, session = self._run([], base_url="not a url!")
+        result, network = self._run([], base_url="not a url!")
         assert result == (False, "Invalid Infisical base URL")
-        session.request.assert_not_called()
+        assert network.requests_log == []
 
     def test_invalid_organization_id_short_circuits(self):
-        result, session = self._run([], organization_id="../../etc/passwd")
+        result, network = self._run([], organization_id="../../etc/passwd")
         assert result == (False, "Invalid Infisical organization ID")
-        session.request.assert_not_called()
+        assert network.requests_log == []
 
     def test_blocks_unsafe_host(self):
-        session = mock.MagicMock()
-        with (
-            mock.patch.object(infisical_module, "make_tracked_session", return_value=session),
-            mock.patch.object(infisical_module, "_is_host_safe", return_value=(False, "internal address")),
-        ):
-            result = validate_credentials("https://10.0.0.1", "cid", "csecret", "org-123", None, team_id=99)
+        with mock.patch.object(infisical_module, "_is_host_safe", return_value=(False, "internal address")):
+            result, network = self._run([], base_url="https://10.0.0.1", team_id=99)
         assert result == (False, "internal address")
-        session.request.assert_not_called()
+        assert network.requests_log == []
 
     def test_redirecting_host_is_rejected(self):
         # A validated host that 3xx-redirects (potentially to an internal address) must be
         # rejected, not followed (SSRF).
-        result, _session = self._run([_response(status_code=302)])
+        result, _network = self._run(
+            [ScriptedResponse(status=302, headers={"Location": "https://internal.example.com/"})]
+        )
         assert result == (False, infisical_module.HOST_NOT_ALLOWED_ERROR)
 
     def test_request_exception_returns_failure(self):
-        result, _session = self._run([requests.exceptions.RequestException("boom")])
+        result, _network = self._run([requests.exceptions.RequestException("boom")])
         valid, message = result
         assert valid is False
         assert "boom" in (message or "")
@@ -641,16 +596,12 @@ class TestInfisicalSourceResponse:
         ],
     )
     def test_response_shape(self, endpoint, sort_mode, partition_key):
-        response = infisical_source(
-            base_url="https://app.infisical.com",
-            client_id="cid",
-            client_secret="csecret",
-            organization_id="org-123",
-            endpoint=endpoint,
-            logger=mock.MagicMock(),
-            resumable_source_manager=mock.MagicMock(),
-            team_id=1,
-        )
+        data_key = INFISICAL_ENDPOINTS[endpoint].data_key
+        body = {data_key: []} if data_key is not None else []
+        result = _driver().run(endpoint, [_scripted_login_response(), ScriptedResponse(json=body)])
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
         assert response.sort_mode == sort_mode
@@ -685,5 +636,5 @@ class TestRetryAfter:
 
 class TestAuthErrors:
     def test_login_failure_raises_auth_error_from_get_rows(self):
-        with pytest.raises(InfisicalAuthError):
-            _run_get_rows([_response(status_code=401)], "projects")
+        result = _driver().run("projects", [ScriptedResponse(status=401)])
+        assert isinstance(result.raised, InfisicalAuthError)

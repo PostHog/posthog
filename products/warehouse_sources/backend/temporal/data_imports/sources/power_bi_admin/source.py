@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PowerBiAdminSource(ResumableSource[PowerBiAdminSourceConfig, PowerBiAdminResumeConfig]):
+    codebase_detection = detect(env=("^(POWER_BI_ADMIN|POWERBIADMIN)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # `v1.0` is a fixed segment of the admin API base path, not a version the tenant chooses.
     api_docs_url = "https://learn.microsoft.com/en-us/rest/api/power-bi/admin"
@@ -140,8 +143,8 @@ class PowerBiAdminSource(ResumableSource[PowerBiAdminSourceConfig, PowerBiAdminR
             keywords=["power bi", "powerbi", "fabric", "microsoft"],
             caption=(
                 "Sync tenant-wide Power BI and Fabric governance data: the audit log of views, edits, exports "
-                "and shares, plus the workspace, semantic model, report, dashboard, dataflow, and capacity "
-                "inventories.\n\n"
+                "and shares, the workspace, semantic model, report, dashboard, dataflow, and capacity "
+                "inventories, plus dashboard tiles and capacity refresh statistics.\n\n"
                 "Create an Entra ID app registration, add a client secret, and put the app in a security group "
                 "that is allowed to use the read-only admin APIs in the Fabric admin portal. The app must not "
                 "have any admin-consent Power BI permissions set on it. Then enter the directory (tenant) ID, "
@@ -151,7 +154,7 @@ class PowerBiAdminSource(ResumableSource[PowerBiAdminSourceConfig, PowerBiAdminR
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/power-bi-admin",
             iconPath="/static/services/power_bi_admin.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

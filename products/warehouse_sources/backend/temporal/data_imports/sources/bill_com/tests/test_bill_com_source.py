@@ -1,6 +1,10 @@
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bill_com.source import BillComSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.billcom import (
     BillComSourceConfig,
 )
@@ -46,14 +50,13 @@ class TestBillComSource:
         assert kwargs["db_incremental_field_last_value"] == "2026-03-01T00:00:00.000Z"
         assert kwargs["resumable_source_manager"] is manager
 
-    @mock.patch(f"{_MODULE}.bill_com_source")
-    def test_source_for_pipeline_drops_the_cursor_on_a_full_refresh(self, mock_source: mock.MagicMock) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "vendors"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2026-03-01T00:00:00.000Z"
-        inputs.api_version = None
+    def test_source_for_pipeline_drops_the_cursor_on_a_full_refresh(self) -> None:
+        result = SourceDriver(self.source, self.config).run(
+            "vendors",
+            [ScriptedResponse(json={"sessionId": "sess-1"}), ScriptedResponse(json={"results": []})],
+            db_incremental_field_last_value="2026-03-01T00:00:00.000Z",
+        )
 
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert result.requests[1].param("filters") is None
+        assert result.requests[1].param("sort") == "createdTime:asc"

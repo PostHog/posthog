@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -29,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zuora.sett
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zuora.zuora import (
+    ZUORA_INCOMPLETE_LIST_ERROR,
     ZuoraResumeConfig,
     validate_credentials as validate_zuora_credentials,
     zuora_source,
@@ -38,6 +40,18 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ZuoraSource(ResumableSource[ZuoraSourceConfig, ZuoraResumeConfig]):
+    codebase_detection = detect(
+        env=("^ZUORA_",),
+        script_hosts=("static.zuora.com",),
+        pypi=("zuora-sdk",),
+        maven=(
+            "com.zuora.sdk:zuora-sdk-java",
+            "com.zuora.sdk:zuora-java",
+            "com.zuora.sdk:zuora-sdk-java-core",
+            "com.zuora.sdk:zuora-sdk-java-root",
+        ),
+    )
+
     api_docs_url = "https://developer.zuora.com"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -61,6 +75,7 @@ class ZuoraSource(ResumableSource[ZuoraSourceConfig, ZuoraResumeConfig]):
             "400 Client Error: Bad Request for url: https://rest.": "Zuora rejected the request. If this occurs while connecting, check your client ID and client secret (and that they match the selected environment).",
             "401 Client Error: Unauthorized for url: https://rest.": "Zuora authentication failed. Please check your client ID and client secret (and that they match the selected environment).",
             "403 Client Error: Forbidden for url: https://rest.": "Zuora denied access. Please check that the OAuth client's user has permission for this object.",
+            ZUORA_INCOMPLETE_LIST_ERROR: "Zuora returned more rows than one request can hold for this table, and its API has no way to fetch the rest. The sync stopped so the table is not saved incomplete. Contact support if this keeps happening.",
         }
 
     @property
@@ -74,7 +89,7 @@ class ZuoraSource(ResumableSource[ZuoraSourceConfig, ZuoraResumeConfig]):
 A Zuora admin can create an OAuth client under Settings > Administration > Manage Users (the client inherits the user's permissions). Pick the environment that matches your tenant — credentials only work against their own environment.""",
             iconPath="/static/services/zuora.png",
             docsUrl="https://posthog.com/docs/cdp/sources/zuora",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

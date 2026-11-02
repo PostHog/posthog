@@ -17,8 +17,10 @@ import gzip
 import json
 import base64
 import asyncio
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from typing import Any
+from uuid import uuid4
 
 import pytest
 from unittest import mock
@@ -27,12 +29,27 @@ from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
 from posthog.models import Organization, Team
+from posthog.tasks import usage_report
 from posthog.tasks.usage_report import send_all_org_usage_reports
-from posthog.temporal.usage_report.activities import aggregate_and_chunk_org_reports
+from posthog.temporal.usage_report.activities import (
+    aggregate_and_chunk_org_reports,
+    fetch_usage_counter_report,
+    plan_usage_counters,
+    run_legacy_usage_counter,
+)
 from posthog.temporal.usage_report.queries import QUERIES
 from posthog.temporal.usage_report.storage import queries_key, write_json
-from posthog.temporal.usage_report.types import AggregateInputs, AggregateResult, RunQueryToS3Result, WorkflowContext
+from posthog.temporal.usage_report.types import (
+    AggregateInputs,
+    AggregateResult,
+    RunLegacyCounterInputs,
+    RunQueryToS3Result,
+    WorkflowContext,
+)
+from posthog.usage_counters import UsageCounter
 from posthog.utils import get_previous_day
+
+from products.tasks.backend.facade.billing import SandboxComputeUsageByTeam
 
 
 def _all_destination_keys() -> list[str]:
@@ -60,6 +77,7 @@ def _seed_all_data(team_a_id: int, team_b_id: int, team_c_id: int) -> dict[str, 
     interesting: dict[str, dict[int, int]] = {
         "teams_with_event_count_in_period": {team_a_id: 100, team_b_id: 50, team_c_id: 25},
         "teams_with_enhanced_persons_event_count_in_period": {team_a_id: 80, team_b_id: 40},
+        "teams_with_mcp_event_count_in_period": {team_a_id: 30, team_c_id: 5},
         "teams_with_recording_count_in_period": {team_a_id: 8, team_c_id: 3},
         "teams_with_recording_bytes_in_period": {team_a_id: 1_234_567, team_c_id: 89_012},
         "teams_with_decide_requests_count_in_period": {team_a_id: 1_000, team_b_id: 200, team_c_id: 50},
@@ -68,6 +86,14 @@ def _seed_all_data(team_a_id: int, team_b_id: int, team_c_id: int) -> dict[str, 
         "teams_with_ff_count": {team_a_id: 7, team_b_id: 3},
         "teams_with_survey_count": {team_a_id: 1, team_c_id: 2},
         "teams_with_web_events_count_in_period": {team_a_id: 60, team_b_id: 30},
+        "teams_with_rows_synced_in_period": {team_a_id: 101, team_b_id: 27},
+        "teams_with_logs_bytes_in_period": {team_a_id: 3_500_000, team_b_id: 600_000},
+        "teams_with_logs_retention_30d_bytes_in_period": {team_a_id: 2_500_000},
+        "teams_with_posthog_code_credits_used_in_period": {team_a_id: 321},
+        "teams_with_sandbox_compute_credits_used_in_period": {team_a_id: 9},
+        "teams_with_sandbox_compute_cpu_millicore_seconds_in_period": {team_b_id: 1_000},
+        "teams_with_sandbox_compute_memory_mib_seconds_in_period": {team_b_id: 2_000},
+        "teams_with_logs_retention_byte_days_in_period": {team_a_id: 4_000_000},
         "teams_with_exceptions_captured_in_period": {team_a_id: 5, team_b_id: 1},
         "teams_with_web_exceptions_captured_in_period": {team_a_id: 5},
         "teams_with_node_exceptions_captured_in_period": {team_b_id: 1},
@@ -173,13 +199,17 @@ def _decode_temporal_chunks(s3: dict[str, bytes], chunk_keys: list[str]) -> dict
 
 
 @pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("mode", ["legacy", "both", "realtime"])
 def test_end_to_end_parity_celery_task_vs_temporal_activity(
     activity_environment: Any,
     monkeypatch: pytest.MonkeyPatch,
+    mode: str,
 ) -> None:
     """Both production paths must produce the same per-org bytes for the
     same `all_data` snapshot. Drift here is what billing's parity check
-    will catch in production.
+    will catch in production. The Celery path always uses legacy counts,
+    so it ignores the counter mode. The Temporal path matches it in
+    `legacy` mode, and apart from its counter metadata in `both` mode.
 
     Two orgs × three teams (org_a has two teams so the multi-team rollup
     is exercised; org_b has one). The shared test DB may already contain
@@ -190,12 +220,25 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     org_a = Organization.objects.create(name="E2E Parity A")
     org_b = Organization.objects.create(name="E2E Parity B")
     team_a1 = Team.objects.create(organization=org_a, name="A1")
-    team_a2 = Team.objects.create(organization=org_a, name="A2")
     team_b = Team.objects.create(organization=org_b, name="B")
+    idle_org = Organization.objects.create(name="Idle")
+    idle_team = Team.objects.create(organization=idle_org, name="Idle")
+    legacy_only_org = Organization.objects.create(name="Legacy only")
+    legacy_only_team = Team.objects.create(organization=legacy_only_org, name="Legacy only")
+    deleted_org_id = str(uuid4())
+    excluded_org_id = str(uuid4())
+    organization_ids = [str(org_a.id), str(org_b.id), str(idle_org.id), str(legacy_only_org.id), deleted_org_id]
+    team_a2 = Team.objects.create(organization=org_a, name="A2")
+    demo_team = Team.objects.create(organization=org_b, name="Demo", is_demo=True)
+    internal_org = Organization.objects.create(name="Internal", for_internal_metrics=True)
+    internal_team = Team.objects.create(organization=internal_org, name="Internal")
 
     celery_at = datetime(2026, 5, 5, 0, 0, 0, tzinfo=UTC)
     period = get_previous_day(celery_at)
     seeded = _seed_all_data(team_a1.id, team_a2.id, team_b.id)
+    seeded["teams_with_workflow_emails_sent_in_period"] = {team_a1.id: 11, team_a2.id: 13, legacy_only_team.id: 5}
+    seeded["teams_with_event_count_in_period"].update({demo_team.id: 999, internal_team.id: 999})
+    monkeypatch.setattr("posthog.tasks.usage_report.BILLING_ORGANIZATION_BATCH_SIZE", 1)
 
     s3 = _install_in_memory_object_storage(monkeypatch)
     sqs_messages = _install_fake_sqs_producer(monkeypatch)
@@ -203,34 +246,167 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     # Don't let the Celery task short-circuit on the kill-switch flag,
     # and silence the start/end PostHog `capture` calls.
     monkeypatch.setattr("posthoganalytics.feature_enabled", lambda *a, **kw: False)
+    monkeypatch.setattr("django.conf.settings.CLOUD_DEPLOYMENT", "US")
+    monkeypatch.setattr("django.conf.settings.USAGE_COUNTER_REALTIME_MODES", f"workflow-emails:{mode}")
+    captures_on_event_loop: list[str] = []
+
+    def check_capture_thread(*args: Any, **kwargs: Any) -> None:
+        if kwargs.get("event") != "usage counter shadow missing organizations":
+            return
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        captures_on_event_loop.append(kwargs["properties"]["caller"])
+
+    capture = mock.Mock(side_effect=check_capture_thread)
+    monkeypatch.setattr("posthoganalytics.capture", capture)
+    monkeypatch.setattr("posthog.tasks.usage_report.ph_scoped_capture", lambda **kw: nullcontext(capture))
+    scan = mock.Mock(
+        return_value=[
+            (team_a1.id, org_a.id, "workflow_emails_sent", "invocations", 7),
+            (team_a2.id, org_a.id, "workflow_emails_sent", "invocations", 9),
+            (idle_team.id, idle_org.id, "workflow_emails_sent", "invocations", 4),
+            (987654, deleted_org_id, "workflow_emails_sent", "invocations", 6),
+            (987655, excluded_org_id, "workflow_emails_sent", "invocations", 23),
+        ]
+    )
+    monkeypatch.setattr("posthog.tasks.usage_report.sync_execute", scan)
     monkeypatch.setattr("posthog.tasks.usage_report.get_ph_client", lambda *a, **kw: mock.MagicMock())
     # Skip the heavy gather queries — both paths use this same `seeded`
     # dict, just shaped differently for each entry point.
+    monkeypatch.setattr("posthog.tasks.usage_report._get_all_usage_data_as_team_rows", lambda begin, end: dict(seeded))
+
+    for counter, query_name in (
+        (UsageCounter.ROWS_SYNCED, "get_teams_with_rows_synced_in_period"),
+        (UsageCounter.FREE_HISTORICAL_ROWS_SYNCED, "get_teams_with_free_historical_rows_synced_in_period"),
+        (UsageCounter.ROWS_EXPORTED, "get_teams_with_rows_exported_in_period"),
+    ):
+        monkeypatch.setattr(
+            usage_report,
+            query_name,
+            mock.Mock(
+                return_value=[{"team_id": team_id, "total": total} for team_id, total in seeded[counter].items()]
+            ),
+        )
+    for counter, query_name in (
+        (UsageCounter.LOGS_BYTES, "get_teams_with_logs_bytes_in_period"),
+        (UsageCounter.LOGS_RETENTION_BYTE_DAYS, "get_teams_with_logs_retention_byte_days_in_period"),
+        (UsageCounter.AI_CREDITS, "get_teams_with_ai_credits_used_in_period"),
+        (UsageCounter.SIGNALS_CREDITS, "get_teams_with_signals_credits_used_in_period"),
+        (UsageCounter.POSTHOG_CODE_CREDITS, "get_teams_with_posthog_code_credits_used_in_period"),
+        (UsageCounter.REPLAY_VISION_CREDITS, "get_teams_with_replay_vision_credits_used_in_period"),
+        (UsageCounter.EVENTS, "get_teams_with_billable_event_count_in_period"),
+        (UsageCounter.ENHANCED_PERSON_EVENTS, "get_teams_with_billable_enhanced_persons_event_count_in_period"),
+        (UsageCounter.MOBILE_BILLABLE_RECORDINGS, "get_teams_with_mobile_billable_recording_count_in_period"),
+        (UsageCounter.SURVEY_RESPONSES, "get_teams_with_survey_responses_count_in_period"),
+        (UsageCounter.AI_EVENTS, "get_teams_with_ai_event_count_in_period"),
+        (UsageCounter.CDP_INVOCATIONS, "get_teams_with_cdp_billable_invocations_in_period"),
+        (UsageCounter.WORKFLOW_EMAILS, "get_teams_with_workflow_emails_sent_in_period"),
+        (UsageCounter.WORKFLOW_PUSH, "get_teams_with_workflow_push_sent_in_period"),
+        (UsageCounter.WORKFLOW_SMS, "get_teams_with_workflow_sms_sent_in_period"),
+        (UsageCounter.WORKFLOW_INVOCATIONS, "get_teams_with_workflow_billable_invocations_in_period"),
+    ):
+        monkeypatch.setattr(usage_report, query_name, mock.Mock(return_value=list(seeded[counter].items())))
     monkeypatch.setattr(
-        "posthog.tasks.usage_report._get_all_usage_data_as_team_rows",
-        lambda *a, **kw: seeded,
+        usage_report,
+        "get_teams_with_recording_count_in_period",
+        lambda begin, end, snapshot_source: list(
+            seeded[UsageCounter.RECORDINGS if snapshot_source == "web" else UsageCounter.MOBILE_RECORDINGS].items()
+        ),
     )
+    monkeypatch.setattr(
+        usage_report,
+        "get_teams_with_billable_sandbox_compute_usage_in_period",
+        mock.Mock(
+            return_value=SandboxComputeUsageByTeam(
+                credits=list(seeded[UsageCounter.SANDBOX_COMPUTE_CREDITS].items()),
+                cpu_millicore_seconds=list(
+                    seeded["teams_with_sandbox_compute_cpu_millicore_seconds_in_period"].items()
+                ),
+                memory_mib_seconds=list(seeded["teams_with_sandbox_compute_memory_mib_seconds_in_period"].items()),
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        usage_report,
+        "get_teams_with_logs_retention_bytes_in_period",
+        mock.Mock(
+            return_value={
+                tier: list(seeded[f"teams_with_logs_retention_{tier}_bytes_in_period"].items())
+                for tier in ("14d", "30d", "90d")
+            }
+        ),
+    )
+    exception_spec = next(spec for spec in QUERIES if spec.name == "exceptions_captured")
+    monkeypatch.setattr(
+        usage_report,
+        "get_teams_with_exceptions_captured_in_period",
+        mock.Mock(
+            return_value=(
+                {
+                    library: list(seeded[field].items())
+                    for library, field in exception_spec.multi_keys_mapping.items()
+                    if library != "total"
+                },
+                list(seeded[UsageCounter.EXCEPTIONS].items()),
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        usage_report,
+        "get_teams_with_feature_flag_requests_count_in_period",
+        lambda begin, end, kind: [
+            (str(team_id), total)
+            for team_id, total in seeded[
+                UsageCounter.FEATURE_FLAG_REQUESTS
+                if kind == usage_report.FlagRequestType.DECIDE
+                else UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS
+            ].items()
+        ],
+    )
+    monkeypatch.setattr("posthoganalytics.get_feature_flag", mock.Mock(return_value="legacy"))
 
     # ---- Celery path ----
-    send_all_org_usage_reports(at=celery_at.isoformat(), skip_capture_event=True)
+    send_all_org_usage_reports(at=celery_at.isoformat(), skip_capture_event=True, organization_ids=organization_ids)
     celery_per_org = _decode_celery_sqs_messages(sqs_messages)
 
     # ---- Temporal path ----
     ctx = WorkflowContext(
         run_id="e2e-parity-test",
-        workflow_started_at=period.start,
+        workflow_started_at=celery_at,
         period_start=period.start,
         period_end=period.end,
         date_str=period.start.strftime("%Y-%m-%d"),
-        organization_ids=None,
+        organization_ids=organization_ids,
+        report_completeness="complete",
     )
-    query_results = _seed_temporal_query_files(s3, ctx, seeded)
+    ctx.usage_counter_plan = asyncio.run(activity_environment.run(plan_usage_counters, ctx))
+    query_results = [
+        result
+        for result in _seed_temporal_query_files(s3, ctx, seeded)
+        if result.query_name not in ctx.usage_counter_plan.query_names
+    ]
+
+    async def fetch_counters() -> RunQueryToS3Result:
+        assert ctx.usage_counter_plan is not None
+        prepared = []
+        for counter in ctx.usage_counter_plan.legacy_counters:
+            if await activity_environment.run(
+                run_legacy_usage_counter, RunLegacyCounterInputs(ctx=ctx, counter=counter)
+            ):
+                prepared.append(counter)
+        return await activity_environment.run(
+            fetch_usage_counter_report, ctx.model_copy(update={"prepared_legacy_counters": prepared})
+        )
+
+    counter_result = asyncio.run(fetch_counters())
     # The activity is async; the test is sync so DB setup can use the
     # ORM directly. `asyncio.run` drives the activity in a fresh loop.
     result: AggregateResult = asyncio.run(
         activity_environment.run(
             aggregate_and_chunk_org_reports,
-            AggregateInputs(ctx=ctx, query_results=query_results),
+            AggregateInputs(ctx=ctx, query_results=query_results, counter_result=counter_result),
         )
     )
     temporal_per_org = _decode_temporal_chunks(s3, result.chunk_keys)
@@ -241,22 +417,30 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     assert str(org_a.id) in celery_per_org
     assert str(org_b.id) in celery_per_org
 
-    # Both paths skip zero-usage orgs; comparing on the Celery key set
-    # keeps the assertion focused on the orgs billing actually receives.
-    for org_id, celery_dict in celery_per_org.items():
-        assert org_id in temporal_per_org, f"Celery emitted {org_id} but Temporal didn't"
-        celery_json = json.dumps(celery_dict, sort_keys=True, default=str)
-        temporal_json = json.dumps(temporal_per_org[org_id], sort_keys=True, default=str)
-        assert celery_json == temporal_json, (
-            f"Drift between Celery SQS payload and Temporal chunk for org {org_id}.\n"
-            f"Celery (first 500 chars):\n{celery_json[:500]}\n"
-            f"Temporal (first 500 chars):\n{temporal_json[:500]}"
-        )
+    counter_metadata = ("usage_sources", "counter_comparisons")
+    assert not any(field in report for report in celery_per_org.values() for field in counter_metadata)
+    if mode != "realtime":
+        # Both paths skip zero-usage orgs; comparing on the Celery key set
+        # keeps the assertion focused on the orgs billing actually receives.
+        assert celery_per_org.keys() == temporal_per_org.keys()
+        for org_id, celery_dict in celery_per_org.items():
+            assert org_id in temporal_per_org, f"Celery emitted {org_id} but Temporal didn't"
+            temporal_dict = {
+                field: value for field, value in temporal_per_org[org_id].items() if field not in counter_metadata
+            }
+            celery_json = json.dumps(celery_dict, sort_keys=True, default=str)
+            temporal_json = json.dumps(temporal_dict, sort_keys=True, default=str)
+            assert celery_json == temporal_json, (
+                f"Drift between Celery SQS payload and Temporal chunk for org {org_id}.\n"
+                f"Celery (first 500 chars):\n{celery_json[:500]}\n"
+                f"Temporal (first 500 chars):\n{temporal_json[:500]}"
+            )
 
     # Sanity-check the rollup math — org_a sums its two teams, org_b
     # only has one. If this drifts, the rest of the parity numbers are
     # suspect.
     assert temporal_per_org[str(org_a.id)]["event_count_in_period"] == 100 + 50
+    assert temporal_per_org[str(org_a.id)]["mcp_event_count_in_period"] == 30
     assert temporal_per_org[str(org_b.id)]["event_count_in_period"] == 25
     assert temporal_per_org[str(org_a.id)]["team_count"] == 2
     assert temporal_per_org[str(org_b.id)]["team_count"] == 1
@@ -271,21 +455,52 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     assert temporal_per_org[str(org_b.id)]["apm_tracing_bytes_in_period"] == 999_999
     assert temporal_per_org[str(org_b.id)]["apm_tracing_spans_in_period"] == 5
     assert temporal_per_org[str(org_b.id)]["apm_tracing_mb_in_period"] == 0
+    assert temporal_per_org[str(org_a.id)]["workflow_emails_sent_in_period"] == (16 if mode == "realtime" else 24)
+    assert celery_per_org[str(org_a.id)]["workflow_emails_sent_in_period"] == 24
+    assert temporal_per_org[str(org_a.id)]["posthog_code_credits_used_in_period"] == 321 + 9
+    assert temporal_per_org[str(org_a.id)]["sandbox_compute_memory_mib_seconds_in_period"] == 2_000
+    assert temporal_per_org[str(org_a.id)]["logs_retention_mb_days_in_period"] == 4
+    assert (str(idle_org.id) in temporal_per_org) == (mode == "realtime")
+    assert str(idle_org.id) not in celery_per_org
+    assert scan.call_count == (0 if mode == "legacy" else 1)
+    assert captures_on_event_loop == []
+    assert (str(legacy_only_org.id) in temporal_per_org) == (mode != "realtime")
+    assert str(legacy_only_org.id) in celery_per_org
+    if mode != "legacy":
+        assert temporal_per_org[str(org_a.id)]["counter_comparisons"] == {
+            "workflow_emails_sent_in_period": {"legacy": 24, "realtime": 16}
+        }
+        assert temporal_per_org[str(org_b.id)]["counter_comparisons"] == {
+            "workflow_emails_sent_in_period": {"legacy": 0, "realtime": 0}
+        }
+        assert temporal_per_org[str(org_a.id)]["usage_sources"]["workflow_emails_sent_in_period"] == mode
+        missing_events = [
+            call.kwargs
+            for call in capture.call_args_list
+            if call.kwargs.get("event") == "usage counter shadow missing organizations"
+        ]
+        assert len(missing_events) == 1
+        assert missing_events[0]["properties"]["caller"] == "usage_reports_v2"
+        expected_missing = {deleted_org_id: {"workflow_emails_sent_in_period": {"legacy": 0, "realtime": 6}}}
+        if mode == "both":
+            expected_missing[str(idle_org.id)] = {"workflow_emails_sent_in_period": {"legacy": 0, "realtime": 4}}
+        else:
+            expected_missing[str(legacy_only_org.id)] = {"workflow_emails_sent_in_period": {"legacy": 5, "realtime": 0}}
+        for event in missing_events:
+            assert event["properties"]["organizations"] == expected_missing
+    else:
+        assert "usage_sources" not in temporal_per_org[str(org_a.id)]
+        assert "counter_comparisons" not in temporal_per_org[str(org_a.id)]
 
 
 @pytest.mark.django_db(transaction=True)
-def test_temporal_build_org_reports_does_not_run_per_org_membership_queries() -> None:
-    """The Temporal-local `aggregator.build_org_reports` must fetch
-    organization membership counts in bulk. The legacy Celery facade still
-    runs one `OrganizationMembership.count()` per organization inside its
-    team loop — that's the cost we lifted out of the
-    `aggregate-and-chunk-org-reports` activity by routing it through the
-    aggregator's own builder instead of the shared one.
+def test_temporal_org_reports_do_not_run_per_org_membership_queries() -> None:
+    """The Temporal `aggregator.iter_org_reports` must fetch organization
+    membership counts in bulk. The legacy Celery facade still runs one
+    `OrganizationMembership.count()` per organization inside its team loop,
+    and the `aggregate-and-chunk-org-reports` activity must not.
     """
-    from posthog.temporal.usage_report.aggregator import (
-        build_org_reports as temporal_build_org_reports,
-        get_org_user_counts,
-    )
+    from posthog.temporal.usage_report.aggregator import get_org_user_counts, iter_org_reports
 
     # Create a meaningful number of fresh orgs/teams so the per-org N+1
     # would have clear daylight from the bulk-fetch path. Without this,
@@ -297,18 +512,24 @@ def test_temporal_build_org_reports_does_not_run_per_org_membership_queries() ->
         fresh_orgs.append(org)
 
     period_start = datetime(2026, 5, 4, 0, 0, 0, tzinfo=UTC)
+    ctx = WorkflowContext(
+        run_id="membership-queries",
+        period_start=period_start,
+        period_end=datetime(2026, 5, 4, 23, 59, 59, 999999, tzinfo=UTC),
+        date_str="2026-05-04",
+    )
     all_data: dict[str, dict[int, int]] = {key: {} for key in _all_destination_keys()}
 
     with CaptureQueriesContext(connection) as captured:
         org_user_counts = get_org_user_counts()
-        temporal_build_org_reports(all_data, period_start, org_user_counts)
+        list(iter_org_reports(all_data, ctx, org_user_counts))
 
     # The Temporal path runs ~2 queries (teams + bulk memberships)
     # regardless of org count. The legacy Celery path runs 1 + N. Cap
     # well below `1 + N` so any per-org N+1 here blows the test, while
     # leaving slack for harmless query-count drift (savepoints etc.).
     assert len(captured.captured_queries) <= 5, (
-        f"Temporal build_org_reports issued {len(captured.captured_queries)} "
+        f"Temporal iter_org_reports issued {len(captured.captured_queries)} "
         f"queries — with {len(fresh_orgs)} fresh orgs this looks like a "
         f"per-org N+1, which dominates wall-clock for the aggregation activity."
     )

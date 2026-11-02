@@ -2,7 +2,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 
-# Descriptions sourced from the OnceHub Booking Calendars API docs (https://developers.oncehub.com).
+# Descriptions sourced from the OnceHub Booking Calendars and Booking Pages API docs (https://developers.oncehub.com).
 # Partial coverage is fine — uncovered columns fall back to LLM enrichment.
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "bookings": {
@@ -99,6 +99,48 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "columns": {
             "id": "Unique identifier for the team.",
             "name": "The name of the team.",
+        },
+    },
+    "event_types": {
+        "description": "An event type (service) offered on classic Booking Pages. Bookings reference it through their event_type column.",
+        "docs_url": "https://help.oncehub.com/developers/api/booking-pages-api.yaml",
+        "columns": {
+            "id": "Unique identifier for the event type.",
+            "name": "The name of the event type.",
+            "description": "The description of the event type.",
+        },
+    },
+    "booking_pages": {
+        "description": "A classic Booking Page that customers use to schedule meetings. Bookings reference it through their booking_page column.",
+        "docs_url": "https://help.oncehub.com/developers/api/booking-pages-api.yaml",
+        "columns": {
+            "id": "Unique identifier for the booking page.",
+            "name": "The customer-facing name of the booking page.",
+            "label": "The internal label of the booking page.",
+            "url": "The URL of the booking page.",
+            "active": "True if this booking page is enabled and accepts bookings.",
+            "timezone": "The booking page timezone, in IANA format.",
+        },
+    },
+    "master_pages": {
+        "description": "A master page that groups several booking pages behind one scheduling entry point. Bookings reference it through their master_page column.",
+        "docs_url": "https://help.oncehub.com/developers/api/booking-pages-api.yaml",
+        "columns": {
+            "id": "Unique identifier for the master page.",
+            "name": "The customer-facing name of the master page.",
+            "label": "The internal label of the master page.",
+            "url": "The URL of the master page.",
+            "active": "True if this master page is enabled and accepts bookings.",
+        },
+    },
+    "user_scheduling_availability": {
+        "description": "The scheduling availability of each user: weekly working hours and date-specific overrides, one row per user.",
+        "docs_url": "https://help.oncehub.com/developers/api/booking-calendars-api.yaml",
+        "columns": {
+            "user_id": "The ID of the user this availability belongs to.",
+            "timezone": "The IANA timezone the working hours are expressed in.",
+            "weekly": "Recurring working hours per day of the week, with the meeting locations offered in each window.",
+            "overrides": "Date-specific working hours that replace the weekly hours. An empty list of working hours marks the date as unavailable.",
         },
     },
 }

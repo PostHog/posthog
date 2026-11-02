@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING, cast
 
 from requests.exceptions import HTTPError
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -47,7 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.paymongo.s
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 
 def webhook_error(error: HTTPError) -> str:
@@ -59,6 +60,8 @@ def webhook_error(error: HTTPError) -> str:
 
 @SourceRegistry.register
 class PaymongoSource(ResumableSource[PaymongoSourceConfig, PaymongoResumeConfig], WebhookSource[PaymongoSourceConfig]):
+    codebase_detection = detect(env=("^PAYMONGO_", "^PAYMONGO_SECRET_KEY$"))
+
     lists_tables_without_credentials = True
     api_docs_url = "https://docs.paymongo.com/reference/list-all-payments"
 
@@ -74,7 +77,7 @@ class PaymongoSource(ResumableSource[PaymongoSourceConfig, PaymongoResumeConfig]
             label="PayMongo",
             iconPath="/static/services/paymongo.png",
             docsUrl="https://posthog.com/docs/cdp/sources/paymongo",
-            caption="Import payments, refunds, payment links, payouts, and webhook settings from PayMongo.",
+            caption="Import payments, refunds, payment links, payouts and their transactions, subscriptions, invoices, and webhook settings from PayMongo.",
             fields=cast(
                 list[FieldType],
                 [
@@ -89,7 +92,7 @@ class PaymongoSource(ResumableSource[PaymongoSourceConfig, PaymongoResumeConfig]
                     )
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             webhookSetupCaption="PostHog registers payment webhooks automatically. For manual setup, add the URL below in PayMongo, select payment.paid, payment.failed, payment.refunded, and payment.refund.updated, then copy the signing secret below. Disconnecting disables the webhook in PayMongo.",
             webhookFields=cast(
                 list[FieldType],
@@ -113,6 +116,16 @@ class PaymongoSource(ResumableSource[PaymongoSourceConfig, PaymongoResumeConfig]
         return {
             "401 Client Error: Unauthorized": "PayMongo rejected your API key. Replace the invalid or expired key and reconnect.",
             "403 Client Error: Forbidden": "Your PayMongo API key cannot access this table. Check your account permissions.",
+            # PayMongo sometimes rejects the refunds filter for a specific payment (e.g.
+            # code=parameter_invalid). The payment ID is baked into the path, not a query param, and
+            # a paginated/resumed page appends a cursor param after the limit — so matching exact query
+            # text would miss later pages. Match the path prefix instead: it is unique to this endpoint
+            # among the source's resources and identical on every page, and any 4xx PayMongo gives for
+            # one payment's refunds filter is a verdict on that payment, not our request.
+            "api.paymongo.com/v1/refunds?data.attributes.payment_id=": (
+                "PayMongo rejected the refunds filter for one of your payments. "
+                "That payment's refunds can't be imported; check the payment in your PayMongo dashboard."
+            ),
         }
 
     def get_schemas(

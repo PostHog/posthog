@@ -135,17 +135,13 @@ struct TestClientOptions {
     event_restriction_service: Option<EventRestrictionService>,
     quota_limiter: Option<CaptureQuotaLimiter>,
     ai_gateway_signing_secret: Option<String>,
-    // Opt-in OverflowLimiter wiring, on the AI lane where OTEL spans land.
-    // `None` (default) matches production configs without
-    // `OVERFLOW_ENABLED=true` and exercises the no-op branch of
-    // `stamp_overflow_reason`.
+    // `None` matches deploys without both `OVERFLOW_ENABLED` and `AI_EVENTS_OVERFLOW_ENABLED`.
     ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
     // Opt-in warnings emitter. `None` (default) matches deploys without
     // `CAPTURE_INGESTION_WARNINGS_ENABLED` and exercises the no-op branch of
     // every emit site.
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
-    // Per-event AI size ceiling. `None` keeps the 960KB the multipart
-    // endpoint enforced before it became configurable.
+    // `None` uses 960KB (983_040).
     ai_max_event_bytes: Option<u64>,
     // Opt-in AI byte budget. `None` (default) matches deploys with
     // `AI_BYTE_LIMIT_PER_SECOND=0`, where setup builds no limiter.
@@ -204,10 +200,8 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         options.ai_events_overflow_limiter,
         options.ai_byte_rate_limiter,
         None, // replay_overflow_limiter
-        None, // v1_sink_router
         8,    // capture_v1_scatter_gather_min_batch
         options.ai_gateway_signing_secret,
-        true,                              // ai_events_overflow_enabled
         options.ingestion_warning_emitter, // ingestion_warning_emitter
     );
 
@@ -1682,17 +1676,7 @@ async fn test_filtered_drop_restriction_rejects_otel_batch() {
 // ============================================================================
 // OverflowLimiter coverage for the OTEL endpoint
 // ============================================================================
-//
-// `otel_handler` bypasses `events::analytics::process_events` and produces
-// `DataType::AiEvents` spans directly, so the shared `stamp_overflow_reason`
-// helper is what preserves OverflowLimiter parity for `capture-ai-prod-us`.
-// These tests exercise the helper end-to-end across the OTEL batch path.
-//
-// Note on OTEL batching semantics: `otel::identity::extract_distinct_id`
-// returns a single distinct_id for the entire request (derived from
-// ResourceSpan attributes), so all spans in one request share the same
-// `token:distinct_id` key. The helper still evaluates per-event — the tests
-// below reflect the realistic per-request shape.
+// `make_three_span_request` sets `posthog.distinct_id` only on the resource, so all its spans share one `token:distinct_id` key.
 
 fn make_three_span_request() -> ExportTraceServiceRequest {
     ExportTraceServiceRequest {
@@ -1838,9 +1822,6 @@ async fn test_otel_batch_rate_limited_key_stamps_overbudget_spans() {
 
 #[tokio::test]
 async fn test_otel_batch_without_overflow_limiter_leaves_reason_none() {
-    // Baseline: no limiter wired (deploy without `OVERFLOW_ENABLED=true`) —
-    // overflow_reason must stay None across the batch, matching pre-refactor
-    // behavior.
     let sink = CapturingSink::new();
     let request = make_three_span_request();
 

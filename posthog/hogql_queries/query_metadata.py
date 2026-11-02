@@ -16,8 +16,6 @@ from posthog.schema import (
     EntityType,
     EventsNode,
     EventsQuery,
-    FunnelCorrelationActorsQuery,
-    FunnelCorrelationQuery,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
     FunnelsActorsQuery,
@@ -99,8 +97,6 @@ class QueryEventsExtractor:
             events = self.extract_events(self._ensure_model_instance(query, InsightActorsQuery).source)
         elif kind == "FunnelsActorsQuery":
             events = self.extract_events(self._ensure_model_instance(query, FunnelsActorsQuery).source)
-        elif kind == "FunnelCorrelationActorsQuery":
-            events = self.extract_events(self._ensure_model_instance(query, FunnelCorrelationActorsQuery).source)
         elif kind == "StickinessActorsQuery":
             events = self.extract_events(self._ensure_model_instance(query, StickinessActorsQuery).source)
         elif kind == "PathsV2ActorsQuery":
@@ -114,11 +110,6 @@ class QueryEventsExtractor:
             events = self._extract_events_from_series(self._ensure_model_instance(query, LifecycleQuery).series)
         elif kind == "CalendarHeatmapQuery":
             events = self._extract_events_from_series(self._ensure_model_instance(query, CalendarHeatmapQuery).series)
-
-        elif kind == "FunnelCorrelationQuery":
-            events = self._extract_events_from_funnels_correlation_query(
-                self._ensure_model_instance(query, FunnelCorrelationQuery)
-            )
 
         elif kind == "EventsQuery":
             events = self._extract_events_from_events_query(self._ensure_model_instance(query, EventsQuery))
@@ -195,17 +186,6 @@ class QueryEventsExtractor:
         if query.pathsV2Filter is None or query.pathsV2Filter.stepSources is None:
             return ["$pageview"]
         return list({source.event for source in query.pathsV2Filter.stepSources})
-
-    def _extract_events_from_funnels_correlation_query(self, query: FunnelCorrelationQuery) -> list[str]:
-        events = self.extract_events(query.source)
-
-        if query.funnelCorrelationEventNames:
-            events.extend(query.funnelCorrelationEventNames)
-
-        if query.funnelCorrelationExcludeEventNames:
-            events.extend(query.funnelCorrelationExcludeEventNames)
-
-        return list(set(events))
 
     @staticmethod
     def _is_valid_url(url: str) -> bool:

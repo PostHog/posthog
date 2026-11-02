@@ -14,12 +14,28 @@ interface SectionImpressionState {
     totalCount: number | null
     loadedQueryKey: string | null
     loadedContext: ReportListRequestContext | null
+    loadedRanker: string | null
 }
 
 function useSectionImpressionState(sectionKey: InboxReportSectionKey): SectionImpressionState {
-    const { isLoaded, reportsLoadFailed, reportsResponseLoading, totalCount, loadedQueryKey, loadedContext } =
-        useValues(reportListLogic(sectionListLogicProps(sectionKey)))
-    return { isLoaded, reportsLoadFailed, reportsResponseLoading, totalCount, loadedQueryKey, loadedContext }
+    const {
+        isLoaded,
+        reportsLoadFailed,
+        reportsResponseLoading,
+        totalCount,
+        loadedQueryKey,
+        loadedContext,
+        loadedRanker,
+    } = useValues(reportListLogic(sectionListLogicProps(sectionKey)))
+    return {
+        isLoaded,
+        reportsLoadFailed,
+        reportsResponseLoading,
+        totalCount,
+        loadedQueryKey,
+        loadedContext,
+        loadedRanker,
+    }
 }
 
 /**
@@ -39,6 +55,7 @@ export function useReportImpressions(rows: MergedReportRow[], selectedSections: 
         monitoring: useSectionImpressionState('monitoring'),
         'needs-decision': useSectionImpressionState('needs-decision'),
         resolved: useSectionImpressionState('resolved'),
+        closed: useSectionImpressionState('closed'),
         dismissed: useSectionImpressionState('dismissed'),
         'held-back': useSectionImpressionState('held-back'),
         'not-actionable': useSectionImpressionState('not-actionable'),
@@ -60,7 +77,10 @@ export function useReportImpressions(rows: MergedReportRow[], selectedSections: 
     const settled = selectedSections.every(
         (key) => (sections[key].isLoaded || sections[key].reportsLoadFailed) && !sections[key].reportsResponseLoading
     )
-    const contextKey = JSON.stringify(selectedSections.map((key) => [key, sections[key].loadedQueryKey]))
+    // The ranker is in the key because `sort=recommended` keeps the same query when the server switches rankers.
+    const contextKey = JSON.stringify(
+        selectedSections.map((key) => [key, sections[key].loadedQueryKey, sections[key].loadedRanker])
+    )
 
     const impressedIdsRef = useRef(new Set<string>())
     const impressionContextKeyRef = useRef('')
@@ -104,6 +124,7 @@ export function useReportImpressions(rows: MergedReportRow[], selectedSections: 
                 sortField: context.sortField,
                 sortDirection: context.sortDirection,
                 createdWindow: context.createdWindow,
+                rankerId: sections[sectionKey].loadedRanker,
             })
         }
         // `sections` is a fresh object each render; `contextKey` and `settled` already change with

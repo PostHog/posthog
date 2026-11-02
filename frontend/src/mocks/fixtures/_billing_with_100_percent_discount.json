@@ -3,7 +3,6 @@
         "plan": "cloud"
     },
     "customer_id": "cus_234",
-    "deactivated": false,
     "has_active_subscription": true,
     "billing_period": {
         "current_period_start": "2023-04-13T04:41:02Z",

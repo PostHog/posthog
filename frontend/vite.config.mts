@@ -10,13 +10,27 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 import { htmlGenerationPlugin } from './plugins/vite-html-plugin'
 import { posthogJsPlugin } from './plugins/vite-posthog-js-plugin'
 import { publicAssetsPlugin } from './plugins/vite-public-assets-plugin'
+import { zodJitlessPlugin } from './plugins/vite-zod-jitless-plugin'
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
     const isDev = mode === 'development'
+    // Opt-in because the plugin's server listens on all interfaces with no auth. Set DEV_CODE_INSPECTOR=1 in .env.local.
+    const codeInspectorEnabled = ['1', 'true'].includes(process.env.DEV_CODE_INSPECTOR?.toLowerCase() ?? '')
 
     return {
         plugins: [
+            // Dev server only: hold Option+Shift (Alt+Shift) and click an element to open its source in your editor.
+            // The plugin must come before react(). CSPMiddleware admits port 5678 when DEV_CODE_INSPECTOR is set, so keep the two in sync.
+            codeInspectorEnabled &&
+                import('code-inspector-plugin').then(({ codeInspectorPlugin }) =>
+                    codeInspectorPlugin({
+                        bundler: 'vite',
+                        port: 5678,
+                        pathType: 'relative',
+                        injectTo: resolve(__dirname, 'src/index.tsx'),
+                    })
+                ),
             react(),
             tailwindcss(),
             // We delete and copy the HTML files for development
@@ -25,6 +39,7 @@ export default defineConfig(({ mode }) => {
             publicAssetsPlugin(),
             // Copy posthog-js files from node_modules to dist for development
             posthogJsPlugin(),
+            zodJitlessPlugin(),
             {
                 name: 'startup-message',
                 configureServer(server) {
@@ -81,6 +96,7 @@ export default defineConfig(({ mode }) => {
                     'node_modules/@posthog/llm-normalizer/src/types.ts'
                 ),
                 '@posthog/llm-normalizer': resolve(__dirname, 'node_modules/@posthog/llm-normalizer/src/index.ts'),
+                '@posthog/agent-contracts': resolve(__dirname, '../packages/agent/packages/agent-contracts/src'),
                 // These @tiptap packages live only in frontend/node_modules, which products/*/frontend
                 // files can't reach by walking up from their own directory. Alias each package
                 // individually: a blanket '@tiptap' prefix would also rewrite the imports *inside*
@@ -107,7 +123,7 @@ export default defineConfig(({ mode }) => {
                     index: resolve(__dirname, 'src/index.tsx'),
                     exporter: resolve(__dirname, 'src/exporter/index.tsx'),
                     render_query: resolve(__dirname, 'src/render-query/index.tsx'),
-                    toolbar: resolve(__dirname, 'src/toolbar/index.tsx'),
+                    toolbar: resolve(__dirname, 'src/toolbar/floating/index.tsx'),
                 },
                 output: {
                     entryFileNames: isDev ? '[name].js' : '[name]-[hash].js',
@@ -119,7 +135,7 @@ export default defineConfig(({ mode }) => {
         },
         worker: {
             format: 'es', // Use ES modules to support WASM imports
-            plugins: () => [react()],
+            plugins: () => [react(), zodJitlessPlugin()],
             rollupOptions: {
                 output: {
                     entryFileNames: isDev ? '[name].js' : '[name]-[hash].js',
@@ -162,6 +178,10 @@ export default defineConfig(({ mode }) => {
             // which pre-bundling rewrites to .vite/deps/ where the images don't exist — hoggie
             // art silently 404s in dev serve (production builds are unaffected).
             exclude: ['snappy-wasm', '@posthog/brand'],
+            // Pre-bundled deps skip the main plugin list, and zod is pre-bundled.
+            rolldownOptions: {
+                plugins: [zodJitlessPlugin()],
+            },
         },
     }
 })

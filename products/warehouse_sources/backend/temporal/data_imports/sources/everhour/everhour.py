@@ -7,9 +7,12 @@ from urllib.parse import urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.everhour.settings import (
@@ -29,8 +32,8 @@ MAX_PAGES_PER_URL = 50_000
 # defaults to a narrow recent window).
 EARLIEST_FROM_DATE = "2015-01-01"
 
-# Matches the parent project id in a fan-out tasks URL: /projects/{project_id}/tasks
-_PROJECT_ID_RE = re.compile(r"/projects/([^/?]+)/tasks")
+# Matches the parent project id in a project fan-out URL, e.g. /projects/{project_id}/tasks
+_PROJECT_ID_RE = re.compile(r"/projects/([^/?]+)/")
 
 # The endpoint each fan-out mode draws its parent ids from.
 _FAN_OUT_PARENT_ENDPOINTS: dict[FanOut, str] = {"project": "projects", "user": "users"}
@@ -111,7 +114,7 @@ def _row_key(item: dict[str, Any], dedupe_keys: list[str]) -> tuple[Any, ...]:
     return tuple(item.get(key) for key in dedupe_keys)
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type((EverhourRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(MAX_RETRIES),
     wait=wait_exponential_jitter(initial=1, max=60),

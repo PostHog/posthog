@@ -6,7 +6,8 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.conf import settings
-from django.test import override_settings
+from django.core.cache import cache
+from django.test import SimpleTestCase, override_settings
 
 import requests
 from parameterized import parameterized
@@ -106,7 +107,11 @@ class TestToolbarOAuthPrimitives(APIBaseTest):
         assert first.client_id == second.client_id
 
 
-class TestToolbarOAuthStateCache(APIBaseTest):
+class TestToolbarOAuthStateCache(SimpleTestCase):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+
     def test_mark_pending_then_claim_succeeds(self):
         nonce = "test-nonce-claim-ok"
         toolbar_oauth_state_cache.mark_pending(nonce)
@@ -281,7 +286,7 @@ class TestToolbarOAuthRefresh(APIBaseTest):
         assert response.status_code == 429
 
 
-class TestTokenEndpointStatusRemapping(APIBaseTest):
+class TestTokenEndpointStatusRemapping(SimpleTestCase):
     @parameterized.expand(
         [
             ("401_becomes_400", 401, 400),

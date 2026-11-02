@@ -32,6 +32,15 @@ Performance hints:
 
 Use `read-data-schema` to validate property names/values when needed.
 
+# Reading the results
+
+Each row in `results` is a positional array. The `columns` array in the response names each position, so read the cells by column name, not by a fixed index. The optional bounce rate and average time columns shift the positions after them.
+
+- `context.columns.breakdown_value`: the breakdown value, such as the page path.
+- `context.columns.visitors`, `context.columns.views`, `context.columns.avg_time_on_page`, `context.columns.bounce_rate`: each cell is a `[current, previous]` pair. When `compareFilter` is off, ignore `previous`: the backend can return `null` or `0` there, and neither value is a measured comparison. `bounce_rate` is a fraction from 0 to 1. `avg_time_on_page` is in seconds.
+- `context.columns.ui_fill_fraction`: the share of the total for the row bar in the UI. Ignore it for analysis.
+- `context.columns.cross_sell`: an empty placeholder for the UI. Ignore it.
+
 # Example
 
 Top 20 pages by bounce rate, last 7 days:

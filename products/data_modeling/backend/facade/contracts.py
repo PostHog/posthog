@@ -16,6 +16,7 @@ from uuid import UUID
 from pydantic.dataclasses import dataclass
 
 from posthog.dataclasses import frozen
+from posthog.enums import LabeledStrEnum
 
 
 @dataclass(frozen=True)
@@ -60,6 +61,9 @@ class SavedQueryDefinition:
     is_managed: bool
     origin: str | None
     created_at: datetime
+    refreshes_incrementally: bool = False
+    calls_decision_functions: bool = False
+    created_by_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -101,7 +105,31 @@ class MaterializationRefusedError(Exception):
     pass
 
 
+class IncrementalConfigRefusedError(MaterializationRefusedError):
+    def __init__(self, message: str, refused_keys: tuple[str, ...] = ()) -> None:
+        super().__init__(message)
+        self.refused_keys = refused_keys
+
+
+class MaterializationRunDirection(LabeledStrEnum):
+    UPSTREAM = "upstream", "Upstream"
+    DOWNSTREAM = "downstream", "Downstream"
+
+
+class MaterializationEngine(LabeledStrEnum):
+    CLICKHOUSE = "clickhouse", "ClickHouse"
+    TRINO = "trino", "Trino"
+
+
 class MaterializationForbiddenError(Exception):
+    pass
+
+
+class ManagedWarehouseUnavailableError(MaterializationForbiddenError):
+    pass
+
+
+class MaterializationAlreadyRunningError(Exception):
     pass
 
 

@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     SourceConfig,
@@ -36,6 +37,51 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TemporalIOSource(ValidateDatabaseHostMixin, ResumableSource[TemporalIOSourceConfig, TemporalIOResumeConfig]):
+    # NOTE: these signals also match a self-hosted Temporal cluster, but the
+    # source wants Temporal Cloud mTLS certificates.
+    codebase_detection = detect(
+        env=("^TEMPORAL_",),
+        npm=("@temporalio/client", "@temporalio/worker", "@temporalio/workflow", "@temporalio/activity"),
+        pypi=("temporalio",),
+        cargo=(
+            "temporalio-sdk",
+            "temporal-sdk-core",
+            "temporalio-client",
+            "temporalio-common",
+            "temporalio-common-wasm",
+            "temporalio-macros",
+            "temporalio-protos",
+            "temporalio-sdk-core",
+            "temporalio-workflow",
+        ),
+        composer=("temporal/sdk",),
+        go=("go.temporal.io/sdk",),
+        maven=(
+            "io.temporal:temporal-sdk",
+            "io.temporal:temporal-aws-lambda",
+            "io.temporal:temporal-envconfig",
+            "io.temporal:temporal-gcp-cloud-run",
+            "io.temporal:temporal-gcp-cloud-run-id",
+            "io.temporal:temporal-gcp-cloud-run-opentelemetry",
+            "io.temporal:temporal-kotlin",
+            "io.temporal:temporal-opentelemetry",
+            "io.temporal:temporal-opentracing",
+            "io.temporal:temporal-payload-storage-s3driver",
+            "io.temporal:temporal-payload-storage-s3driver-awssdkv2",
+            "io.temporal:temporal-remote-data-encoder",
+            "io.temporal:temporal-serviceclient",
+            "io.temporal:temporal-shaded",
+            "io.temporal:temporal-spring-ai",
+            "io.temporal:temporal-spring-boot-autoconfigure",
+            "io.temporal:temporal-spring-boot-autoconfigure-alpha",
+            "io.temporal:temporal-spring-boot-starter",
+            "io.temporal:temporal-spring-boot-starter-alpha",
+            "io.temporal:temporal-workflowcheck",
+            "io.temporal:temporal-workflowstreams",
+        ),
+        rubygems=("temporalio",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.temporal.io"
 

@@ -1,19 +1,32 @@
 import dataclasses
+from collections.abc import Iterator
 from datetime import date
 from typing import Any, Optional
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
+    interruptible_wait,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
+    create_response_hooks,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     OffsetPaginator,
+    SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResponseAction
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.marketstack.settings import MARKETSTACK_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.marketstack.settings import (
+    MARKETSTACK_ENDPOINTS,
+    MarketstackEndpointConfig,
+)
 
 # Opaque Marketstack version labels (never parsed/ordered). Each version is served under its own
 # path segment; the source pin selects the base URL. v1 is deprecated (vendor sunset 2025-06-30);
@@ -57,9 +70,10 @@ _PERMANENT_BODY_CODES = (
 )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class MarketstackResumeConfig:
-    # Offset of the next page to fetch — Marketstack uses limit/offset pagination.
+    # Offset of the next page to fetch — Marketstack uses limit/offset pagination. Fan-out
+    # endpoints store the index of the next ticker / CIK to request instead.
     next_offset: int
 
 
@@ -104,6 +118,97 @@ def _response_actions() -> list[ResponseAction]:
     return actions
 
 
+def _split_values(raw: str | None) -> list[str]:
+    values = (value.strip() for value in (raw or "").split(","))
+    return list(dict.fromkeys(value for value in values if value))
+
+
+def _company_rating_rows(item: dict[str, Any], ticker: str) -> list[dict[str, Any]]:
+    basics = item.get("basics") or {}
+    analysts = (item.get("output") or {}).get("analysts") or []
+    rows = []
+    for analyst in analysts:
+        row = {key: value for key, value in analyst.items() if key != "rating"}
+        row.update(analyst.get("rating") or {})
+        rows.append({"ticker": basics.get("ticker") or ticker, "company_name": basics.get("company_name"), **row})
+    return rows
+
+
+def _filing_rows(item: dict[str, Any]) -> list[dict[str, Any]]:
+    # SEC returns recent filings as parallel arrays, one array per field.
+    recent = (item.get("filings") or {}).get("recent") or {}
+    columns = {key: values for key, values in recent.items() if isinstance(values, list)}
+    count = len(columns.get("accession_number") or [])
+    company = {"cik_code": item.get("cik_code"), "company_name": item.get("company_name")}
+    return [
+        {**company, **{key: values[i] if i < len(values) else None for key, values in columns.items()}}
+        for i in range(count)
+    ]
+
+
+def _shape_rows(endpoint: str, item: dict[str, Any], value: str) -> list[dict[str, Any]]:
+    if endpoint == "companyratings":
+        return _company_rating_rows(item, value)
+    if endpoint == "submissions":
+        return _filing_rows(item)
+    return [{"ticker": value, **item}]
+
+
+def _fan_out_pages(
+    client: RESTClient,
+    config: MarketstackEndpointConfig,
+    values: list[str],
+    resumable_source_manager: ResumableSourceManager[MarketstackResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    assert config.fan_out_param is not None
+    start = 0
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            start = resume.next_offset
+    hooks = create_response_hooks(_response_actions(), resource_name=config.name)
+
+    for index in range(start, len(values)):
+        if index > start and config.request_interval_seconds:
+            interruptible_wait(config.request_interval_seconds, safe_point=resumable_source_manager.safe_point)
+        rows: list[dict[str, Any]] = []
+        for page in client.paginate(
+            path=config.path,
+            params={config.fan_out_param: values[index]},
+            data_selector=config.data_selector,
+            data_selector_required=True,
+            hooks=hooks,
+        ):
+            for item in page:
+                rows.extend(_shape_rows(config.name, item, values[index]))
+        if index + 1 < len(values):
+            resumable_source_manager.save_state(MarketstackResumeConfig(next_offset=index + 1))
+        if rows:
+            yield rows
+        else:
+            resumable_source_manager.safe_point()
+
+
+def _fan_out_source(
+    access_key: str,
+    config: MarketstackEndpointConfig,
+    values: list[str],
+    resumable_source_manager: ResumableSourceManager[MarketstackResumeConfig],
+    api_version: str,
+) -> SourceResponse:
+    client = RESTClient(
+        base_url=marketstack_base_url(api_version),
+        auth=APIKeyAuth(api_key=access_key, name="access_key", location="query"),
+        paginator=SinglePagePaginator(),
+    )
+    return SourceResponse(
+        name=config.name,
+        items=lambda: _fan_out_pages(client, config, values, resumable_source_manager),
+        primary_keys=config.primary_keys,
+        sort_mode="asc",
+    )
+
+
 def marketstack_source(
     access_key: str,
     endpoint: str,
@@ -113,8 +218,19 @@ def marketstack_source(
     api_version: str,
     symbols: str | None = None,
     db_incremental_field_last_value: Optional[Any] = None,
+    cik_codes: str | None = None,
 ) -> SourceResponse:
     config = MARKETSTACK_ENDPOINTS[endpoint]
+
+    if config.fan_out_over is not None:
+        values = _split_values(symbols if config.fan_out_over == "symbols" else cik_codes)
+        if not values:
+            raise ValueError(
+                f"Marketstack API error [missing_{config.fan_out_over}]: the '{endpoint}' table requires one or "
+                f"more {'symbols' if config.fan_out_over == 'symbols' else 'CIK codes'}. Add them to the source "
+                "configuration, then resync."
+            )
+        return _fan_out_source(access_key, config, values, resumable_source_manager, api_version)
 
     if config.requires_symbols and not (symbols and symbols.strip()):
         # Selecting a time-series table with no symbols is a permanent misconfiguration; fail loud

@@ -1,8 +1,10 @@
 import secrets
 from typing import TYPE_CHECKING, Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
@@ -60,6 +62,8 @@ class GiteaSource(
     WebhookSource[GiteaSourceConfig],
     ValidateDatabaseHostMixin,
 ):
+    codebase_detection = detect(env=("^GITEA_",), npm=("gitea-js",), go=("code.gitea.io/sdk/gitea",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -89,7 +93,7 @@ class GiteaSource(
             name=ExternalDataSourceType.GITEA,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Gitea",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Connect a repository on your Gitea (or Forgejo) instance to sync issues, pull requests, commits, and more.
 
 Create an access token under **Settings > Applications** on your instance with read access to the repository (the `read:repository` and `read:issue` scopes). The instance URL is your Gitea host, e.g. `https://gitea.example.com` — it must be reachable over https from the internet.""",
@@ -165,6 +169,7 @@ If automatic creation failed, your token needs admin access to the repository �
             "404 Client Error": "Repository not found. Please verify the instance URL, repository name, and token access.",
             "Invalid Gitea instance URL": "The Gitea instance URL is invalid. Please enter the instance's canonical https URL.",
             "Gitea Actions runs are unavailable": "Gitea Actions runs are unavailable for this repository. Upgrade the instance to Gitea 1.25 or later and enable Actions on the repository, or turn off the workflow_runs table.",
+            "Gitea Actions jobs are unavailable": "Gitea Actions jobs are unavailable for this repository. Upgrade the instance to Gitea 1.25 or later and enable Actions on the repository, or turn off the workflow_jobs table.",
         }
 
     def get_schemas(

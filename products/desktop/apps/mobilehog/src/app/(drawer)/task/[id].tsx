@@ -17,6 +17,7 @@ import {
 } from "@/components/Transcript";
 import type { Photo } from "@/lib/attachments";
 import { useComposer } from "@/lib/composer";
+import { recordOpened } from "@/lib/openedChats";
 import { usePrefs } from "@/lib/prefs";
 import { useTask } from "@/lib/queries";
 import { useSessions } from "@/lib/session";
@@ -41,6 +42,10 @@ export default function TaskScreen() {
   // the top; it goes away once the reply lands so idle chats have no gap.
   const [pinRoom, setPinRoom] = useState(false);
   const topPadding = insets.top + 70;
+
+  useEffect(() => {
+    if (!isPending) recordOpened(id);
+  }, [id, isPending]);
 
   const runId = task.data?.latest_run?.id;
   useEffect(() => {
@@ -121,6 +126,7 @@ export default function TaskScreen() {
         renderItem={({ item }) => (
           <TranscriptRowView
             row={item}
+            taskId={id}
             onPermission={(toolCallId, optionId) =>
               respondToPermission(id, toolCallId, optionId)
             }
@@ -178,6 +184,7 @@ export default function TaskScreen() {
               onStop={isPending ? undefined : () => cancelTurn(id)}
               busy={session?.turnActive}
               sending={isPending}
+              draftKey={id}
             />
           </View>
         </View>

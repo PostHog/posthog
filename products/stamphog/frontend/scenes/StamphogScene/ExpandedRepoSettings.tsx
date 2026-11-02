@@ -58,7 +58,7 @@ function TriggerSettings({
         <div className="flex flex-wrap items-center gap-2">
             <LemonSelect
                 size="small"
-                value={repo.review_mode ?? ReviewModeEnumApi.All}
+                value={repo.review_mode ?? ReviewModeEnumApi.Label}
                 disabledReason={disabledReason}
                 onChange={(mode) => updateRepoConfig(repo.id, { review_mode: mode })}
                 options={[

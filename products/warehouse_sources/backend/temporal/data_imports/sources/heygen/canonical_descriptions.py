@@ -73,6 +73,33 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "aspect_ratio": "Aspect ratio of the template output.",
         },
     },
+    "lipsyncs": {
+        "description": "Lipsync jobs that replace or dub the audio of an existing video.",
+        "docs_url": "https://developers.heygen.com/reference/list-lipsyncs",
+        "columns": {
+            "id": "Unique lipsync identifier.",
+            "title": "Title of the lipsync job.",
+            "status": "Job status: pending, running, completed, or failed.",
+            "duration": "Output video duration in seconds.",
+            "created_at": "Lipsync creation time in Unix seconds.",
+            "failure_message": "Error description. Present only when the status is failed.",
+            "callback_id": "Client-provided callback identifier.",
+        },
+    },
+    "audio_voices": {
+        "description": "Professional and instant voice clones in the workspace, with their training status.",
+        "docs_url": "https://developers.heygen.com/reference/list-audio-voices",
+        "columns": {
+            "voice_id": "Unique voice identifier.",
+            "mode": "Clone type: professional or instant.",
+            "name": "Display name of the voice.",
+            "language": "Primary language code of the voice.",
+            "status": "Training status: PENDING, ACTIVE, or FAILED.",
+            "created_at": "Voice creation time in Unix seconds.",
+            "failure_reason": "Failure code. Present only when the status is FAILED.",
+            "preview_audio_url": "Expiring URL for an audio sample of the voice.",
+        },
+    },
     "account": {
         "description": "Current account profile and billing balance, including wallet or subscription credits.",
         "docs_url": "https://developers.heygen.com/reference/get-current-user",

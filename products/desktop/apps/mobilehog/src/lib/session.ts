@@ -395,6 +395,20 @@ export const useSessions = create<SessionState>((set, get) => {
           session.runId,
           photos,
         );
+        if (artifactIds.length) {
+          const sent = artifactIds.map((artifactId, index) => ({
+            runId: session.runId,
+            artifactId,
+            name: photos[index].name,
+          }));
+          patch(taskId, (s) => ({
+            blocks: s.blocks.map((block) =>
+              block.id === localId && block.kind === "user"
+                ? { ...block, photos: sent }
+                : block,
+            ),
+          }));
+        }
         await getClient().sendCloudRunCommand(
           taskId,
           session.runId,

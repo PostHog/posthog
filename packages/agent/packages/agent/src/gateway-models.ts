@@ -21,13 +21,17 @@ export {
   getProviderName,
   isAnthropicModel,
   isBasetenModel,
+  isClaudeAdapterModel,
+  isClaudeAdapterModelId,
   isCloudflareModel,
   isCloudflareModelId,
+  isCodexAdapterModel,
   isDeepseekModelId,
   isModalModel,
   isModalModelId,
   isOfferedModel,
   isOpenAIModel,
+  isServedModelId,
   pickAllowedModel,
 } from "@posthog/agent-contracts";
 

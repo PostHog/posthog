@@ -7,6 +7,13 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.datahub import datahub
 from products.warehouse_sources.backend.temporal.data_imports.sources.datahub.datahub import (
     PAGE_SIZE,
@@ -19,10 +26,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.datahub.da
     _extract_page,
     _timeseries_row_id,
     check_endpoint_permissions,
-    datahub_source,
-    get_rows,
     normalize_instance_url,
     validate_credentials,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.datahub.source import DatahubSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.datahub import (
+    DatahubSourceConfig,
 )
 
 # Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
@@ -56,26 +65,11 @@ def _mock_response(
     return response
 
 
-class _FakeResumableManager:
-    def __init__(self, state: DatahubResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[DatahubResumeConfig] = []
-        self.cleared = False
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> DatahubResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: DatahubResumeConfig) -> None:
-        self.saved.append(data)
-
-    def clear_state(self) -> None:
-        self.cleared = True
-
-
 class TestDatahub:
+    @staticmethod
+    def _driver(instance_url: str = BASE_URL) -> SourceDriver:
+        return SourceDriver(DatahubSource(), DatahubSourceConfig(instance_url=instance_url, api_token=TOKEN))
+
     # --- URL normalization ---
 
     @parameterized.expand(
@@ -177,165 +171,111 @@ class TestDatahub:
 
     # --- get_rows ---
 
-    @staticmethod
-    def _collect(
-        manager: _FakeResumableManager,
-        monkeypatch: Any,
-        pages: dict[Any, Any],
-        endpoint: str = "datasets",
-        db_incremental_field_last_value: Any = None,
-    ) -> tuple[list[dict], list[dict[str, Any]]]:
-        """Run get_rows with a fake _fetch keyed by the `scrollId` param (None = first page)."""
-        calls: list[dict[str, Any]] = []
-
-        def fake_fetch(session: Any, url: str, params: Optional[dict], logger: Any) -> Any:
-            calls.append({"url": url, "params": params})
-            page = pages[params.get("scrollId") if params else None]
-            if isinstance(page, Exception):
-                raise page
-            return page
-
-        monkeypatch.setattr(datahub, "_fetch", fake_fetch)
-        monkeypatch.setattr(datahub, "make_tracked_session", lambda **kwargs: MagicMock())
-        monkeypatch.setattr(datahub, "_check_host", lambda instance_url, team_id: None)
-
-        rows: list[dict] = []
-        for batch in get_rows(
-            instance_url=BASE_URL,
-            api_token=TOKEN,
-            endpoint=endpoint,
-            team_id=1,
-            logger=MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ):
-            rows.extend(batch)
-        return rows, calls
-
     def test_scroll_aborts_past_page_budget(self, monkeypatch: Any) -> None:
         # A hostile instance can echo a fresh non-empty page and cursor forever; the empty-page
         # guard never fires, so the sweep must abort at the page budget instead of writing rows
         # until the activity times out.
         monkeypatch.setattr(datahub, "MAX_PAGES_PER_SWEEP", 3)
-        manager = _FakeResumableManager()
 
-        def endless_fetch(session: Any, url: str, params: Optional[dict], logger: Any) -> Any:
-            cursor = params.get("scrollId") if params else None
+        def endless_page(request: RecordedRequest) -> ScriptedResponse:
+            cursor = request.param("scrollId")
             n = int(cursor) + 1 if cursor else 1
-            return {"scrollId": str(n), "entities": [{"urn": f"u{n}"}]}
+            return ScriptedResponse(json={"scrollId": str(n), "entities": [{"urn": f"u{n}"}]})
 
-        monkeypatch.setattr(datahub, "_fetch", endless_fetch)
-        monkeypatch.setattr(datahub, "make_tracked_session", lambda **kwargs: MagicMock())
-        monkeypatch.setattr(datahub, "_check_host", lambda instance_url, team_id: None)
-
-        collected: list[dict] = []
-        with pytest.raises(DatahubTooManyPagesError):
-            for batch in get_rows(
-                instance_url=BASE_URL,
-                api_token=TOKEN,
-                endpoint="datasets",
-                team_id=1,
-                logger=MagicMock(),
-                resumable_source_manager=manager,  # type: ignore[arg-type]
-            ):
-                collected.extend(batch)
+        result = self._driver().run("datasets", endless_page)
 
         # Pages up to the budget are still yielded; the cursor past the budget is never persisted,
         # so a resume restarts from the last good page rather than walking deeper into the stream.
-        assert [r["urn"] for r in collected] == ["u1", "u2", "u3"]
-        assert [s.scroll_id for s in manager.saved] == ["1", "2"]
+        assert isinstance(result.raised, DatahubTooManyPagesError)
+        assert [r["urn"] for r in result.rows] == ["u1", "u2", "u3"]
+        assert result.params("scrollId") == [None, "1", "2"]
+        assert result.saved_states == [DatahubResumeConfig(scroll_id="1"), DatahubResumeConfig(scroll_id="2")]
+        assert result.final_state == DatahubResumeConfig(scroll_id="2")
 
-    # pytest.mark.parametrize (not parameterized.expand) because the test also needs the
-    # monkeypatch fixture, which parameterized's wrapper doesn't forward.
     @pytest.mark.parametrize("status_code", [400, 404, 410])
-    def test_stale_resumed_cursor_restarts_from_scratch(self, status_code: int, monkeypatch: Any) -> None:
+    def test_stale_resumed_cursor_restarts_from_scratch(self, status_code: int) -> None:
         # Scroll contexts are server-side and expire; a rejected saved cursor must restart the
         # sweep (merge dedupes re-pulled rows) instead of wedging the sync.
-        manager = _FakeResumableManager(DatahubResumeConfig(scroll_id="stale"))
-        error = requests.HTTPError("rejected", response=_mock_response(status_code))
-        pages = {
-            "stale": error,
-            None: {"entities": [{"urn": "u1"}]},
-        }
-        rows, calls = self._collect(manager, monkeypatch, pages)
-        assert [r["urn"] for r in rows] == ["u1"]
-        assert [c["params"].get("scrollId") for c in calls] == ["stale", None]
-        assert manager.cleared is True
+        result = self._driver().run(
+            "datasets",
+            [ScriptedResponse(status=status_code), ScriptedResponse(json={"entities": [{"urn": "u1"}]})],
+            resume_state=DatahubResumeConfig(scroll_id="stale"),
+        )
+        assert result.raised is None
+        assert [r["urn"] for r in result.rows] == ["u1"]
+        assert result.params("scrollId") == ["stale", None]
+        assert result.final_state is None
 
-    def test_stale_cursor_mid_sweep_is_not_swallowed(self, monkeypatch: Any) -> None:
+    def test_stale_cursor_mid_sweep_is_not_swallowed(self) -> None:
         # Only a cursor loaded from resume state gets the restart treatment — a 4xx on a cursor
         # the server just handed us is a real error and must fail the sync.
-        manager = _FakeResumableManager()
-        error = requests.HTTPError("rejected", response=_mock_response(400))
-        pages = {
-            None: {"scrollId": "cursor-1", "entities": [{"urn": "u1"}]},
-            "cursor-1": error,
-        }
-        with pytest.raises(requests.HTTPError):
-            self._collect(manager, monkeypatch, pages)
+        result = self._driver().run(
+            "datasets",
+            [
+                ScriptedResponse(json={"scrollId": "cursor-1", "entities": [{"urn": "u1"}]}),
+                ScriptedResponse(status=400),
+            ],
+        )
+        assert isinstance(result.raised, requests.HTTPError)
+        assert result.params("scrollId") == [None, "cursor-1"]
+        assert result.rows == [{"urn": "u1"}]
+        assert result.saved_states == [DatahubResumeConfig(scroll_id="cursor-1")]
+        assert result.committed_states == []
+        assert result.final_state is None
 
     def test_get_rows_blocks_unsafe_hosts(self, monkeypatch: Any) -> None:
         monkeypatch.setattr(datahub, "_is_host_safe", lambda host, team_id: (False, "blocked"))
-        with pytest.raises(DatahubHostNotAllowedError):
-            list(
-                get_rows(
-                    instance_url="https://10.0.0.1",
-                    api_token=TOKEN,
-                    endpoint="datasets",
-                    team_id=1,
-                    logger=MagicMock(),
-                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
-                )
-            )
+        result = self._driver("https://10.0.0.1").run("datasets", [])
+        assert isinstance(result.raised, DatahubHostNotAllowedError)
+        assert result.requests == []
 
     def test_get_rows_blocks_ambiguous_url(self) -> None:
-        with pytest.raises(DatahubHostNotAllowedError):
-            list(
-                get_rows(
-                    instance_url="https://169.254.169.254\\@datahub.example.com",
-                    api_token=TOKEN,
-                    endpoint="datasets",
-                    team_id=1,
-                    logger=MagicMock(),
-                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
-                )
-            )
+        result = self._driver("https://169.254.169.254\\@datahub.example.com").run("datasets", [])
+        assert isinstance(result.raised, DatahubHostNotAllowedError)
+        assert result.requests == []
 
     # --- timeseries aspect endpoints ---
 
-    # pytest.mark.parametrize (not parameterized.expand) because the test also needs the
-    # monkeypatch fixture, which parameterized's wrapper doesn't forward.
     @pytest.mark.parametrize("last_value", [1500, None])
-    def test_timeseries_sweep_windows_every_page(self, last_value: Optional[int], monkeypatch: Any) -> None:
+    def test_timeseries_sweep_windows_every_page(self, last_value: Optional[int]) -> None:
         # The cursor is a stateless search_after token, so the server only keeps the time bound
         # while we keep sending it. Drop it after page one and an incremental sync walks back
         # through the whole history instead of stopping at the watermark. A full refresh must send
         # no bound at all.
-        manager = _FakeResumableManager()
-        pages = {
-            None: {"scrollId": "cursor-1", "results": [{"urn": "u1", "timestampMillis": 3000}]},
-            "cursor-1": {"results": [{"urn": "u1", "timestampMillis": 2000}]},
-        }
-        rows, calls = self._collect(
-            manager, monkeypatch, pages, endpoint="dataset_profiles", db_incremental_field_last_value=last_value
+        result = self._driver().run(
+            "dataset_profiles",
+            [
+                ScriptedResponse(json={"scrollId": "cursor-1", "results": [{"urn": "u1", "timestampMillis": 3000}]}),
+                ScriptedResponse(json={"results": [{"urn": "u1", "timestampMillis": 2000}]}),
+            ],
+            should_use_incremental_field=last_value is not None,
+            db_incremental_field_last_value=last_value,
         )
 
-        assert [r["timestampMillis"] for r in rows] == [3000, 2000]
-        assert calls[0]["url"] == f"{BASE_URL}/openapi/v2/timeseries/dataset/datasetProfile"
-        assert all(c["params"].get("startTimeMillis") == last_value for c in calls)
-        assert all(c["params"]["count"] == PAGE_SIZE for c in calls)
+        assert result.raised is None
+        assert [r["timestampMillis"] for r in result.rows] == [3000, 2000]
+        assert result.paths == ["/openapi/v2/timeseries/dataset/datasetProfile"] * 2
+        assert result.params("startTimeMillis") == [str(last_value) if last_value is not None else None] * 2
+        assert result.params("count") == [str(PAGE_SIZE)] * 2
         # The endpoint takes no sort parameter, so none of the entity scroll's sort params apply.
-        assert all("sortCriteria" not in c["params"] for c in calls)
+        assert result.params("sortCriteria") == [None, None]
+        assert result.saved_states == [DatahubResumeConfig(scroll_id="cursor-1")]
 
     def test_timeseries_full_page_without_a_cursor_fails_instead_of_truncating(self, monkeypatch: Any) -> None:
         # DataHub before v1.4.0 never returns a scroll cursor from the timeseries endpoint, so the
         # sweep would end after one page and write a silently truncated table. A fixed instance
         # always pairs a full page with a cursor, so this shape only happens on an old one.
         monkeypatch.setattr(datahub, "PAGE_SIZE", 2)
-        manager = _FakeResumableManager()
-        pages = {None: {"results": [{"urn": "u1", "timestampMillis": 3000}, {"urn": "u2", "timestampMillis": 2000}]}}
-        with pytest.raises(DatahubTimeseriesScrollUnsupportedError):
-            self._collect(manager, monkeypatch, pages, endpoint="dataset_profiles")
+        result = self._driver().run(
+            "dataset_profiles",
+            [
+                ScriptedResponse(
+                    json={"results": [{"urn": "u1", "timestampMillis": 3000}, {"urn": "u2", "timestampMillis": 2000}]}
+                )
+            ],
+        )
+        assert isinstance(result.raised, DatahubTimeseriesScrollUnsupportedError)
+        assert result.rows == []
 
     @parameterized.expand(
         [
@@ -374,55 +314,53 @@ class TestDatahub:
     def test_datahub_source_primary_key_and_sort_mode(
         self, endpoint: str, expected_keys: list[str], expected_sort: str
     ) -> None:
-        response = datahub_source(
-            instance_url=BASE_URL,
-            api_token=TOKEN,
-            endpoint=endpoint,
-            team_id=1,
-            logger=MagicMock(),
-            resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
-        )
+        result = self._driver().run(endpoint, [ScriptedResponse(json={"results": [], "entities": []})])
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == expected_keys
         assert response.sort_mode == expected_sort
 
     # --- credential validation ---
 
-    def _validate(self, monkeypatch: Any, response: MagicMock, schema_name: Optional[str] = None) -> tuple:
-        session = MagicMock()
-        session.get.return_value = response
-        monkeypatch.setattr(datahub, "make_tracked_session", lambda **kwargs: session)
-        monkeypatch.setattr(datahub, "_is_host_safe", lambda host, team_id: (True, None))
-        return validate_credentials(BASE_URL, TOKEN, schema_name=schema_name, team_id=1)
-
-    def test_validate_credentials_invalid_token(self, monkeypatch: Any) -> None:
+    def test_validate_credentials_invalid_token(self) -> None:
         # DataHub 401s carry an empty body, so the message must stand on its own.
-        valid, message = self._validate(monkeypatch, _mock_response(401, None))
+        with scripted_network([ScriptedResponse(status=401)]) as network:
+            valid, message = validate_credentials(BASE_URL, TOKEN)
         assert valid is False
         assert message is not None and "Invalid DataHub access token" in message
+        assert network.requests_log[0].path == "/openapi/v3/entity/dataPlatform"
+        assert network.requests_log[0].headers["authorization"] == f"Bearer {TOKEN}"
+        assert network.session_options[0]["allow_redirects"] is False
+        assert network.session_options[0]["redact_values"] == (TOKEN,)
 
-    def test_validate_credentials_accepts_403_at_source_create(self, monkeypatch: Any) -> None:
+    def test_validate_credentials_accepts_403_at_source_create(self) -> None:
         # A valid token may lack the view privilege for the probe entity; source creation must
         # still go through, and per-schema syncs surface their own permission errors.
-        assert self._validate(monkeypatch, _mock_response(403, {"message": "denied"})) == (True, None)
+        with scripted_network([ScriptedResponse(status=403, json={"message": "denied"})]):
+            assert validate_credentials(BASE_URL, TOKEN) == (True, None)
 
-    def test_validate_credentials_rejects_403_for_scoped_probe(self, monkeypatch: Any) -> None:
-        valid, message = self._validate(monkeypatch, _mock_response(403, {"message": "denied"}), schema_name="users")
+    def test_validate_credentials_rejects_403_for_scoped_probe(self) -> None:
+        with scripted_network([ScriptedResponse(status=403, json={"message": "denied"})]):
+            valid, message = validate_credentials(BASE_URL, TOKEN, schema_name="users")
         assert valid is False
         assert message == "denied"
 
-    def test_validate_credentials_scoped_probe_targets_schema_entity(self, monkeypatch: Any) -> None:
-        session = MagicMock()
-        session.get.return_value = _mock_response(200, {"entities": []})
-        monkeypatch.setattr(datahub, "make_tracked_session", lambda **kwargs: session)
-        monkeypatch.setattr(datahub, "_is_host_safe", lambda host, team_id: (True, None))
-        validate_credentials(BASE_URL, TOKEN, schema_name="users", team_id=1)
-        assert session.get.call_args.args[0] == f"{BASE_URL}/openapi/v3/entity/corpuser"
+    def test_validate_credentials_scoped_probe_targets_schema_entity(self) -> None:
+        with scripted_network([ScriptedResponse(json={"entities": []})]) as network:
+            assert validate_credentials(BASE_URL, TOKEN, schema_name="users") == (True, None)
+        assert network.requests_log[0].url.startswith(f"{BASE_URL}/openapi/v3/entity/corpuser?")
+        assert network.requests_log[0].param("count") == "1"
 
-    def test_validate_credentials_rejects_redirects(self, monkeypatch: Any) -> None:
+    def test_validate_credentials_rejects_redirects(self) -> None:
         # A redirect could bounce the probe to an internal address, defeating the host check.
-        valid, _ = self._validate(monkeypatch, _mock_response(200, {}, is_redirect=True))
+        with scripted_network(
+            [ScriptedResponse(status=302, headers={"Location": "https://other.example.com"})]
+        ) as network:
+            valid, _ = validate_credentials(BASE_URL, TOKEN)
         assert valid is False
+        assert len(network.requests_log) == 1
 
     def test_validate_credentials_rejects_unsafe_host(self, monkeypatch: Any) -> None:
         monkeypatch.setattr(datahub, "_is_host_safe", lambda host, team_id: (False, "blocked"))
@@ -462,12 +400,9 @@ class TestDatahub:
         with patch.object(datahub, "is_cloud", return_value=cloud):
             assert datahub._validated_hostname(url) == expected
 
-    def test_validate_credentials_handles_connection_errors(self, monkeypatch: Any) -> None:
-        session = MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        monkeypatch.setattr(datahub, "make_tracked_session", lambda **kwargs: session)
-        monkeypatch.setattr(datahub, "_is_host_safe", lambda host, team_id: (True, None))
-        valid, message = validate_credentials(BASE_URL, TOKEN, team_id=1)
+    def test_validate_credentials_handles_connection_errors(self) -> None:
+        with scripted_network(always(ConnectionResetError("boom"))):
+            valid, message = validate_credentials(BASE_URL, TOKEN)
         assert valid is False
         assert message is not None and "Could not connect to DataHub" in message
 
@@ -485,21 +420,16 @@ class TestDatahub:
     def test_check_endpoint_permissions_status_mapping(
         self, _name: str, status_code: int, expected: Optional[str]
     ) -> None:
-        session = MagicMock()
-        session.get.return_value = _mock_response(status_code, {"message": "no view privilege"})
-        with (
-            patch.object(datahub, "make_tracked_session", lambda **kwargs: session),
-            patch.object(datahub, "_is_host_safe", lambda host, team_id: (True, None)),
-        ):
+        with scripted_network(
+            always(ScriptedResponse(status=status_code, json={"message": "no view privilege"}))
+        ) as network:
             result = check_endpoint_permissions(BASE_URL, TOKEN, ["datasets"], team_id=1)
         assert result["datasets"] == expected
+        assert {request.path for request in network.requests_log} == {"/openapi/v3/entity/dataset"}
 
-    def test_check_endpoint_permissions_treats_network_blips_as_reachable(self, monkeypatch: Any) -> None:
-        session = MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        monkeypatch.setattr(datahub, "make_tracked_session", lambda **kwargs: session)
-        monkeypatch.setattr(datahub, "_is_host_safe", lambda host, team_id: (True, None))
-        assert check_endpoint_permissions(BASE_URL, TOKEN, ["datasets"], team_id=1) == {"datasets": None}
+    def test_check_endpoint_permissions_treats_network_blips_as_reachable(self) -> None:
+        with scripted_network(always(ConnectionResetError("boom"))):
+            assert check_endpoint_permissions(BASE_URL, TOKEN, ["datasets"], team_id=1) == {"datasets": None}
 
     def test_check_endpoint_permissions_blocks_unsafe_host_for_all_endpoints(self, monkeypatch: Any) -> None:
         monkeypatch.setattr(datahub, "_is_host_safe", lambda host, team_id: (False, "blocked"))

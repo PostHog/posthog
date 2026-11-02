@@ -29,12 +29,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sou
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.whop.settings import (
-    ALL_WEBHOOK_EVENTS,
+    API_VERSION_HEADER,
     BASE_URL,
+    COMPANY_FILTER_PARAM,
     PAGE_SIZE,
-    WEBHOOK_SCHEMA_NAMES,
+    WHOP_API_VERSION_2025_01_01,
     WHOP_ENDPOINTS,
     sort_mode_for,
+    webhook_events_for,
+    webhook_schema_names_for,
 )
 
 REQUEST_TIMEOUT = 30
@@ -105,9 +108,10 @@ def _list_params(
     endpoint: str,
     company_id: str,
     watermark: Optional[datetime],
+    api_version: str,
 ) -> dict[str, Any]:
     config = WHOP_ENDPOINTS[endpoint]
-    params: dict[str, Any] = {"first": PAGE_SIZE, "company_id": company_id}
+    params: dict[str, Any] = {"first": PAGE_SIZE, COMPANY_FILTER_PARAM[api_version]: company_id}
 
     if config.supports_created_at_order:
         # Forcing the sort column makes the arrival order knowable, which is what lets this endpoint
@@ -126,6 +130,7 @@ def _list_params(
 def whop_source(
     api_key: str,
     company_id: str,
+    api_version: str,
     endpoint: str,
     team_id: int,
     job_id: str,
@@ -135,12 +140,15 @@ def whop_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = WHOP_ENDPOINTS[endpoint]
+    if not config.served_on(api_version):
+        raise ValueError(f"Whop table {endpoint} is not available on API version {api_version}")
     watermark = _parse_datetime(db_incremental_field_last_value) if should_use_incremental_field else None
 
     rest_config: RESTAPIConfig = {
         "client": {
             "base_url": BASE_URL,
             "auth": {"type": "bearer", "token": api_key},
+            "headers": {API_VERSION_HEADER: api_version},
             "paginator": WhopCursorPaginator(),
             # capture=False: Whop list responses carry buyer PII (emails, phone numbers, billing and
             # shipping addresses) and signed invoice tokens the name-based scrubbers can't
@@ -158,8 +166,8 @@ def whop_source(
                 else "replace",
                 "table_format": "delta",
                 "endpoint": {
-                    "path": config.path,
-                    "params": _list_params(endpoint, company_id, watermark),
+                    "path": config.path_for(api_version),
+                    "params": _list_params(endpoint, company_id, watermark, api_version),
                     "data_selector": "data",
                 },
             }
@@ -190,7 +198,7 @@ def whop_source(
     )
 
     webhook_enabled = False
-    if webhook_source_manager is not None and endpoint in WEBHOOK_SCHEMA_NAMES:
+    if webhook_source_manager is not None and endpoint in webhook_schema_names_for(api_version):
         webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)(webhook_only=False)
 
     def items():
@@ -246,34 +254,39 @@ def webhook_table_transformer(table: pa.Table) -> pa.Table:
     return table_from_py_list([row for _, row in latest_by_id.values()])
 
 
-def _make_session(api_key: str) -> Session:
+def _headers(api_key: str, api_version: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {api_key}", "Accept": "application/json", API_VERSION_HEADER: api_version}
+
+
+def _make_session(api_key: str, api_version: str) -> Session:
     return make_tracked_session(
-        headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+        headers=_headers(api_key, api_version),
         redact_values=(api_key,),
         # Webhook responses carry the signing secret, so keep them out of HTTP sample capture.
         capture=False,
     )
 
 
-def validate_credentials(api_key: str, company_id: str) -> tuple[bool, Optional[int]]:
+def validate_credentials(api_key: str, company_id: str, api_version: str) -> tuple[bool, Optional[int]]:
     """Probe the credential against the connected company, returning `(is_valid, status_code)`.
 
-    `GET /companies/{id}` is the cheapest call that proves both the key and the company id. A 403
+    Retrieving the company is the cheapest call that proves both the key and the company id. A 403
     means the key is genuine but lacks `company:basic:read`, which the caller accepts at
     source-create time.
     """
+    resource = "companies" if api_version == WHOP_API_VERSION_2025_01_01 else "accounts"
     return validate_via_probe(
         lambda: make_tracked_session(capture=False, redact_values=(api_key,)),
-        f"{BASE_URL}/companies/{company_id}",
-        headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+        f"{BASE_URL}/{resource}/{company_id}",
+        headers=_headers(api_key, api_version),
     )
 
 
-def _iterate_webhooks(session: Session, company_id: str) -> Iterator[dict[str, Any]]:
+def _iterate_webhooks(session: Session, company_id: str, api_version: str) -> Iterator[dict[str, Any]]:
     """Walk `GET /webhooks` with Whop's cursor pagination, yielding each webhook object."""
     cursor: Optional[str] = None
     while True:
-        params: dict[str, Any] = {"company_id": company_id, "first": PAGE_SIZE}
+        params: dict[str, Any] = {COMPANY_FILTER_PARAM[api_version]: company_id, "first": PAGE_SIZE}
         if cursor:
             params["after"] = cursor
         response = session.get(f"{BASE_URL}/webhooks?{urlencode(params)}", timeout=REQUEST_TIMEOUT)
@@ -289,30 +302,30 @@ def _iterate_webhooks(session: Session, company_id: str) -> Iterator[dict[str, A
             return
 
 
-def _webhooks_matching(session: Session, company_id: str, webhook_url: str) -> list[dict[str, Any]]:
-    return [item for item in _iterate_webhooks(session, company_id) if item.get("url") == webhook_url]
+def _webhooks_matching(session: Session, company_id: str, webhook_url: str, api_version: str) -> list[dict[str, Any]]:
+    return [item for item in _iterate_webhooks(session, company_id, api_version) if item.get("url") == webhook_url]
 
 
-def create_webhook(api_key: str, company_id: str, webhook_url: str) -> WebhookCreationResult:
+def create_webhook(api_key: str, company_id: str, webhook_url: str, api_version: str) -> WebhookCreationResult:
     """Register a v1 webhook on the company, returning Whop's generated signing secret.
 
-    `api_version_date` is deliberately left unset: unpinned v1 deliveries use the payload shape this
-    source's transformer expects, and pinning would opt the webhook into the dated Experimental
-    contract instead.
+    Deliveries must carry resources in the same shape the list endpoints return, so the webhook
+    follows the source's version. An unpinned webhook delivers the "2025-01-01" shape. Later versions
+    reject the `api_version` input with a 400 and pin the payload with `api_version_date` instead.
     """
+    body: dict[str, Any] = {
+        "url": webhook_url,
+        "events": webhook_events_for(api_version),
+        "resource_id": company_id,
+        "enabled": True,
+    }
+    if api_version == WHOP_API_VERSION_2025_01_01:
+        body["api_version"] = "v1"
+    else:
+        body["api_version_date"] = api_version
     try:
-        session = _make_session(api_key)
-        response = session.post(
-            f"{BASE_URL}/webhooks",
-            json={
-                "url": webhook_url,
-                "events": ALL_WEBHOOK_EVENTS,
-                "resource_id": company_id,
-                "api_version": "v1",
-                "enabled": True,
-            },
-            timeout=REQUEST_TIMEOUT,
-        )
+        session = _make_session(api_key, api_version)
+        response = session.post(f"{BASE_URL}/webhooks", json=body, timeout=REQUEST_TIMEOUT)
         if response.status_code not in (200, 201):
             return WebhookCreationResult(
                 success=False,
@@ -337,15 +350,15 @@ def create_webhook(api_key: str, company_id: str, webhook_url: str) -> WebhookCr
 
 
 def sync_webhook_events(
-    api_key: str, company_id: str, webhook_url: str, desired_events: list[str]
+    api_key: str, company_id: str, webhook_url: str, desired_events: list[str], api_version: str
 ) -> WebhookSyncResult:
     """Add any missing `desired_events` to the company's webhooks pointing at `webhook_url`.
 
     Events are merged, never removed, so a manually broadened webhook keeps its extra events.
     """
     try:
-        session = _make_session(api_key)
-        for webhook in _webhooks_matching(session, company_id, webhook_url):
+        session = _make_session(api_key, api_version)
+        for webhook in _webhooks_matching(session, company_id, webhook_url, api_version):
             current = webhook.get("events") or []
             merged = sorted(set(current) | set(desired_events))
             if merged == sorted(current):
@@ -361,10 +374,10 @@ def sync_webhook_events(
         return WebhookSyncResult(success=False, error=f"Failed to update Whop webhook events: {e}")
 
 
-def get_external_webhook_info(api_key: str, company_id: str, webhook_url: str) -> ExternalWebhookInfo:
+def get_external_webhook_info(api_key: str, company_id: str, webhook_url: str, api_version: str) -> ExternalWebhookInfo:
     try:
-        session = _make_session(api_key)
-        matching = _webhooks_matching(session, company_id, webhook_url)
+        session = _make_session(api_key, api_version)
+        matching = _webhooks_matching(session, company_id, webhook_url, api_version)
         if not matching:
             return ExternalWebhookInfo(exists=False)
 
@@ -380,11 +393,11 @@ def get_external_webhook_info(api_key: str, company_id: str, webhook_url: str) -
         return ExternalWebhookInfo(exists=False, error=str(e))
 
 
-def delete_webhook(api_key: str, company_id: str, webhook_url: str) -> WebhookDeletionResult:
+def delete_webhook(api_key: str, company_id: str, webhook_url: str, api_version: str) -> WebhookDeletionResult:
     try:
-        session = _make_session(api_key)
+        session = _make_session(api_key, api_version)
         errors: list[str] = []
-        for webhook in _webhooks_matching(session, company_id, webhook_url):
+        for webhook in _webhooks_matching(session, company_id, webhook_url, api_version):
             response = session.delete(f"{BASE_URL}/webhooks/{webhook.get('id')}", timeout=REQUEST_TIMEOUT)
             if response.status_code not in (200, 202, 204):
                 errors.append(f"webhook {webhook.get('id')}: HTTP {response.status_code}")

@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
@@ -10,21 +10,21 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 PER_PAGE = 200
 
 
-def _updated_at_incremental_fields() -> list[IncrementalField]:
+def _updated_at_incremental_fields(column: str = "updated_at") -> list[IncrementalField]:
     # Every incremental-capable Aha! Ideas endpoint filters server-side with `updated_since`,
     # which keys off `updated_at`. Advertising just `updated_at` keeps the user's chosen cursor
     # aligned with what the API actually filters on.
     return [
         {
-            "label": "updated_at",
+            "label": column,
             "type": IncrementalFieldType.DateTime,
-            "field": "updated_at",
+            "field": column,
             "field_type": IncrementalFieldType.DateTime,
         },
     ]
 
 
-@dataclass
+@dataclass(frozen=True)
 class AhaIdeasEndpointConfig:
     name: str
     path: str  # Path under /api/v1, e.g. "/ideas"
@@ -40,6 +40,11 @@ class AhaIdeasEndpointConfig:
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     should_sync_default: bool = True
     page_size: int = PER_PAGE
+    # False for list actions that document no `page`/`per_page` and return everything in one response.
+    paginated: bool = True
+    params: dict[str, Any] = field(default_factory=dict)
+    # Emit one row per element of this array field on each listed record instead of the record itself.
+    nested_rows_field: str | None = None
     fanout: DependentEndpointConfig | None = None
 
 
@@ -106,6 +111,54 @@ AHA_IDEAS_ENDPOINTS: dict[str, AhaIdeasEndpointConfig] = {
             # parent fields need to be injected.
             include_from_parent=[],
         ),
+    ),
+    "products": AhaIdeasEndpointConfig(
+        name="products",
+        path="/products",
+        response_key="products",
+        # "List products" documents only `page`/`per_page`/`include_teams`/`with_idea_portals`.
+        supports_incremental=False,
+    ),
+    "users": AhaIdeasEndpointConfig(
+        name="users",
+        path="/users",
+        response_key="users",
+        # "List users" documents only `page`/`per_page`.
+        supports_incremental=False,
+    ),
+    "workflows": AhaIdeasEndpointConfig(
+        name="workflows",
+        path="/products/{product_id}/workflows",
+        response_key="workflows",
+        supports_incremental=False,
+        paginated=False,
+        partition_key=None,
+        # Workflows are account-level and shared between workspaces, so one workflow id is listed
+        # under every product that uses it.
+        primary_keys=["id", "product_id"],
+        fanout=DependentEndpointConfig(
+            parent_name="products",
+            resolve_param="product_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "product_id"},
+        ),
+    ),
+    # The per-idea `/ideas/{idea_id}/workflow_status_times` action needs Aha! support to enable it
+    # on the account and costs one request per idea. Aha! documents `fields=workflow_status_times`
+    # on the list action as the way to read status history, which also keeps `updated_since`.
+    "workflow_status_times": AhaIdeasEndpointConfig(
+        name="workflow_status_times",
+        path="/ideas",
+        response_key="ideas",
+        supports_incremental=True,
+        incremental_fields=_updated_at_incremental_fields("idea_updated_at"),
+        params={"fields": "id,updated_at,workflow_status_times"},
+        nested_rows_field="workflow_status_times",
+        # Embedded status times carry no id. An idea can re-enter a status, so `started_at` is
+        # part of the key.
+        primary_keys=["idea_id", "status_id", "started_at"],
+        partition_key="started_at",
     ),
 }
 

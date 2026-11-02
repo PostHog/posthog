@@ -1,18 +1,19 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { sceneFileLogic } from 'lib/components/Scenes/sceneFileLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'
-import { customProductsLogic } from './customProductsLogic'
 import { MovedItem, projectTreeDataLogic } from './projectTreeDataLogic'
 import { projectTreeLogic } from './projectTreeLogic'
 
@@ -43,22 +44,9 @@ describe('projectTreeDataLogic', () => {
         jest.restoreAllMocks()
     })
 
-    it('initializes the home folder once when the sidebar flag arrives after mount', async () => {
-        const initialize = jest.fn(() => [200, { id: 'home', path: 'Users/Alex' }])
-        useMocks({ post: { '/api/projects/:team_id/file_system/home_folder/': initialize } })
-        expect(logic.values.homeFolder).toBeNull()
-        await expectLogic(logic, () => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIMPLE_SIDEPANEL], {
-                [FEATURE_FLAGS.SIMPLE_SIDEPANEL]: true,
-            })
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIMPLE_SIDEPANEL], {
-                [FEATURE_FLAGS.SIMPLE_SIDEPANEL]: true,
-            })
-        }).toDispatchActions(['loadHomeFolderSuccess'])
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIMPLE_SIDEPANEL], {
-            [FEATURE_FLAGS.SIMPLE_SIDEPANEL]: true,
-        })
-        expect(initialize).toHaveBeenCalledTimes(1)
+    it('follows the home folder after it moves', async () => {
+        useMocks({ post: { '/api/projects/:team_id/file_system/home_folder/': { id: 'home', path: 'Users/Alex' } } })
+        await expectLogic(logic, () => logic.actions.loadHomeFolder()).toDispatchActions(['loadHomeFolderSuccess'])
         expect(logic.values.currentHomeFolder).toEqual({ id: 'home', path: 'Users/Alex' })
         logic.actions.loadFolderSuccess(
             'Research',
@@ -67,6 +55,53 @@ describe('projectTreeDataLogic', () => {
             0
         )
         expect(logic.values.currentHomeFolder?.path).toBe('Research/My work')
+    })
+
+    it.each([
+        { name: 'nothing when both lists show it', shortcut: true, rootFolder: true, reloads: [] },
+        {
+            name: 'the shortcuts when its shortcut is missing',
+            shortcut: false,
+            rootFolder: true,
+            reloads: ['shortcuts'],
+        },
+        { name: 'the root folder when its parent is missing', shortcut: true, rootFolder: false, reloads: ['root'] },
+        {
+            name: 'both lists for a new home folder',
+            shortcut: false,
+            rootFolder: false,
+            reloads: ['shortcuts', 'root'],
+        },
+    ])('after the home folder loads, reloads $name', async ({ shortcut, rootFolder, reloads }) => {
+        useMocks({ post: { '/api/projects/:team_id/file_system/home_folder/': { id: 'home', path: 'Users/Alex' } } })
+        logic.actions.loadShortcutsSuccess(
+            shortcut ? [{ id: 'star-home', path: 'Alex', type: 'folder', ref: 'Users/Alex' }] : []
+        )
+        logic.actions.loadFolderSuccess(
+            '',
+            rootFolder ? [{ id: 'users', path: 'Users', type: 'folder' }] : [],
+            false,
+            rootFolder ? 1 : 0
+        )
+
+        await expectLogic(logic, () => logic.actions.loadHomeFolder()).toDispatchActions(['loadHomeFolderSuccess'])
+
+        expect(api.fileSystemShortcuts.list).toHaveBeenCalledTimes(reloads.includes('shortcuts') ? 1 : 0)
+        expect(api.fileSystem.list).toHaveBeenCalledTimes(reloads.includes('root') ? 1 : 0)
+    })
+
+    it('checks each list once its own boot load ends', async () => {
+        useMocks({ post: { '/api/projects/:team_id/file_system/home_folder/': { id: 'home', path: 'Users/Alex' } } })
+        logic.actions.loadFolderStart('')
+
+        await expectLogic(logic, () => logic.actions.loadHomeFolder()).toDispatchActions(['loadHomeFolderSuccess'])
+        expect(api.fileSystem.list).not.toHaveBeenCalled()
+        expect(api.fileSystemShortcuts.list).toHaveBeenCalledTimes(1)
+
+        logic.actions.loadFolderSuccess('', [{ id: 'users', path: 'Users', type: 'folder' }], false, 1)
+
+        expect(api.fileSystem.list).not.toHaveBeenCalled()
+        expect(api.fileSystemShortcuts.list).toHaveBeenCalledTimes(1)
     })
 
     it.each(['loaded', 'loading', 'has-more', 'populated'] as const)(
@@ -99,6 +134,19 @@ describe('projectTreeDataLogic', () => {
         }
     )
 
+    it.each([false, true])('shows a starred flagged product only while its flag is on (%s)', (flagOn) => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION]: flagOn })
+        logic.actions.loadShortcutsSuccess([
+            { id: 'star-elt', path: 'ELT', type: 'product', href: urls.etlOverview() },
+            { id: 'star-sql', path: 'SQL editor', type: 'product', href: urls.sqlEditor() },
+        ])
+
+        expect(logic.values.getShortcutTreeItems('', false).map((item) => item.name)).toEqual(
+            flagOn ? ['ELT', 'SQL editor'] : ['SQL editor']
+        )
+        expect(logic.values.shortcutData).toHaveLength(2)
+    })
+
     it('reloads starred folders after a move, preserving custom labels and untouched environments', async () => {
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.loadShortcutsSuccess([
@@ -121,6 +169,45 @@ describe('projectTreeDataLogic', () => {
         }).toFinishAllListeners()
         expect(api.fileSystemShortcuts.list).toHaveBeenCalled()
         expect(logic.values.shortcutData).toEqual(updatedShortcuts)
+    })
+
+    it('loads shortcuts past the first page', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const firstPage = [
+            { id: 'star-1', path: 'Notes', type: 'notebook', ref: 'notes' },
+            { id: 'star-2', path: 'Revenue', type: 'insight', ref: 'revenue' },
+        ]
+        const secondPage = [{ id: 'star-3', path: 'Stripe (stripe_)', type: 'data_source', ref: 'source-1' }]
+        jest.mocked(api.fileSystemShortcuts.list).mockImplementation(async (params) =>
+            params?.offset === firstPage.length
+                ? { count: 3, next: null, results: secondPage }
+                : { count: 3, next: 'next-page', results: firstPage }
+        )
+
+        await expectLogic(logic, () => logic.actions.loadShortcuts()).toFinishAllListeners()
+
+        expect(logic.values.shortcutData.map((shortcut) => shortcut.id)).toEqual(['star-1', 'star-2', 'star-3'])
+    })
+
+    it.each([
+        { listedLocally: true, created: false },
+        { listedLocally: false, created: false },
+        { listedLocally: false, created: true },
+    ])('lists a star once and counts it as added only when created (%o)', async ({ listedLocally, created }) => {
+        await expectLogic(logic).toFinishAllListeners()
+        const existing = { id: 'star-dash', path: 'Dashboards', type: 'dashboard', ref: '42' }
+        logic.actions.loadShortcutsSuccess(listedLocally ? [existing] : [])
+        jest.spyOn(api.fileSystemShortcuts, 'create').mockResolvedValue({ shortcut: existing, created })
+        const capture = jest.spyOn(posthog, 'capture')
+
+        await expectLogic(logic, () => {
+            logic.actions.addShortcutItem({ id: 'dash', path: 'Dashboards', type: 'dashboard', ref: '42' })
+        }).toFinishAllListeners()
+
+        expect(logic.values.shortcutData.map((shortcut) => shortcut.id)).toEqual(['star-dash'])
+        expect(capture.mock.calls.filter(([event]) => event === 'navbar starred item added')).toHaveLength(
+            created ? 1 : 0
+        )
     })
 
     it.each([false, true])('keeps starred navigation in place unless explicitly revealed (%s)', async (explicit) => {
@@ -147,20 +234,16 @@ describe('projectTreeDataLogic', () => {
         projectTree.unmount()
     })
 
-    it('shows only the products the user added, with nothing injected alongside them', () => {
-        customProductsLogic.actions.loadCustomProductsSuccess([
-            {
-                id: 'abc',
-                product_path: 'Session replay',
-                enabled: true,
-                created_at: '2026-01-01T00:00:00Z',
-                updated_at: '2026-01-01T00:00:00Z',
-            },
-        ])
+    it('shows Warehouse properties in Data when its persisted feature flag is enabled', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES]: false })
 
-        const paths = logic.values.getCustomProductTreeItems('').map((item) => item.record?.path)
+        const dataRootWithoutFlag = logic.values.getStaticTreeItems('', false).find((item) => item.id === 'data://')
+        expect(dataRootWithoutFlag?.children?.some((item) => item.record?.path === 'Warehouse properties')).toBe(false)
 
-        expect(paths).toEqual(['Session replay'])
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES]: true })
+
+        const dataRootWithFlag = logic.values.getStaticTreeItems('', false).find((item) => item.id === 'data://')
+        expect(dataRootWithFlag?.children?.some((item) => item.record?.path === 'Warehouse properties')).toBe(true)
     })
 
     it('handles null unfiled item responses', async () => {
@@ -273,7 +356,7 @@ describe('projectTreeDataLogic', () => {
         expect(api.fileSystem.list).toHaveBeenCalledWith({ type: 'insight', ref: 'insight1' })
         currentItem.mockReturnValue({ type: 'insight', ref: 'insight2' })
         await expectLogic(consumer, () =>
-            panelLayoutLogic.actions.setActivePanelIdentifier('Products')
+            panelLayoutLogic.actions.setActivePanelIdentifier('Notifications')
         ).toFinishAllListeners()
         expect(api.fileSystem.list).toHaveBeenCalledWith({ type: 'insight', ref: 'insight2' })
         consumer.unmount()
@@ -309,7 +392,7 @@ describe('projectTreeDataLogic', () => {
 
         currentItem.mockReturnValue({ type: 'insight', ref: 'insight2' })
         await expectLogic(projectTree, () => {
-            panelLayoutLogic.actions.setActivePanelIdentifier('Products')
+            panelLayoutLogic.actions.setActivePanelIdentifier('Notifications')
         }).toFinishAllListeners()
         expect(api.fileSystem.list).not.toHaveBeenCalledWith(expect.objectContaining({ parent: 'Reports' }))
         expect(api.fileSystem.list).not.toHaveBeenCalledWith(expect.objectContaining({ ref: 'insight2' }))

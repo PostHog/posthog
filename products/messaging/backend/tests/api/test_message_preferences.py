@@ -3,7 +3,7 @@ import json
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
-from django.test import Client
+from django.test import Client, override_settings
 from django.urls import reverse
 
 from parameterized import parameterized
@@ -22,6 +22,8 @@ from products.messaging.backend.models.message_preferences import (
     PreferenceStatus,
 )
 
+STYLESHEET_LINK = '<link rel="stylesheet" href="/static/message-preferences.css" />'
+
 
 def mock_response(status_code: int, response_json: dict):
     response = Response()
@@ -30,6 +32,13 @@ def mock_response(status_code: int, response_json: dict):
     return response
 
 
+# Production storage, so a `{% static %}` link to the stylesheet fails to render here as it 404s there.
+@override_settings(
+    STORAGES={
+        "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+        "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.ManifestStaticFilesStorage"},
+    }
+)
 class TestMessagePreferencesViews(BaseTest):
     def setUp(self):
         super().setUp()
@@ -66,6 +75,7 @@ class TestMessagePreferencesViews(BaseTest):
 
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, "message_preferences/preferences.html")
+        self.assertContains(response, STYLESHEET_LINK)
 
         # Check context
         self.assertEqual(response.context["recipient"].identifier, self.recipient.identifier)
@@ -92,6 +102,7 @@ class TestMessagePreferencesViews(BaseTest):
 
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, "message_preferences/one_click_unsubscribe_success.html")
+        self.assertContains(response, STYLESHEET_LINK)
 
         self.recipient.refresh_from_db()
         prefs = self.recipient.get_all_preferences()
@@ -124,6 +135,7 @@ class TestMessagePreferencesViews(BaseTest):
         response = self.client.get(reverse("message_preferences", kwargs={"token": "invalid-token"}))
         self.assertEqual(response.status_code, 400)
         self.assertTemplateUsed(response, "message_preferences/error.html")
+        self.assertContains(response, STYLESHEET_LINK, status_code=400)
 
     @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_update_preferences_valid(self, mock_validate_messaging_preferences_token):
@@ -193,6 +205,122 @@ class TestMessagePreferencesViews(BaseTest):
         response = self.client.post(reverse("message_preferences_update"), data)
         self.assertEqual(response.status_code, 400)
         self.assertEqual(json.loads(response.content), {"error": "Preference values must be 'true' or 'false'"})
+
+    @parameterized.expand(
+        [
+            ("one_click", "one_click", {}, True),
+            ("preferences_opt_out", "opt_out", {}, True),
+            ("already_opted_out", "one_click", {"$all": PreferenceStatus.OPTED_OUT.value}, False),
+            ("preferences_opt_in", "opt_in", {}, False),
+            ("page_view", "view", {}, False),
+            ("unknown_category_only", "junk_opt_out", {}, False),
+            ("unknown_category_alone", "junk_alone", {}, False),
+        ]
+    )
+    @patch("products.messaging.backend.services.unsubscribe_metrics.get_producer")
+    @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
+    def test_opt_out_records_unsubscribed_metric_for_the_sending_email(
+        self, _name, action, prior_preferences, expect_metric, mock_validate, mock_get_producer
+    ):
+        run_id = "0192a3b4-c5d6-7e8f-9a0b-1c2d3e4f5a6b"
+        self.recipient.preferences = prior_preferences
+        self.recipient.save()
+        mock_validate.return_value = mock_response(
+            200,
+            {
+                "valid": True,
+                "team_id": self.team.id,
+                "identifier": self.recipient.identifier,
+                "app_source_id": run_id,
+                "instance_id": "action_function_email_1",
+            },
+        )
+
+        if action in ("one_click", "view"):
+            params = {"one_click_unsubscribe": "1"} if action == "one_click" else {}
+            response = self.client.get(reverse("message_preferences", kwargs={"token": self.token}), params)
+        else:
+            prefs = {
+                "opt_out": [f"{self.category.id}:false"],
+                "opt_in": [f"{self.category.id}:true"],
+                "junk_opt_out": [f"{self.category.id}:true", "not-a-real-category:false"],
+                "junk_alone": ["not-a-real-category:false"],
+            }[action]
+            response = self.client.post(
+                reverse("message_preferences_update"), {"token": self.token, "preferences[]": prefs}
+            )
+
+        self.assertEqual(response.status_code, 200)
+        produce = mock_get_producer.return_value.produce
+        if not expect_metric:
+            produce.assert_not_called()
+            return
+        produce.assert_called_once()
+        self.assertEqual(
+            {k: v for k, v in produce.call_args.kwargs["data"].items() if k != "timestamp"},
+            {
+                "team_id": self.team.id,
+                "app_source": "hog_flow",
+                "app_source_id": run_id,
+                "instance_id": "action_function_email_1",
+                "metric_kind": "email",
+                "metric_name": "email_unsubscribed",
+                "count": 1,
+            },
+        )
+
+    @parameterized.expand(
+        [
+            ("no_claims", {}),
+            ("app_source_id_not_a_uuid", {"app_source_id": "../other", "instance_id": "action_1"}),
+            ("instance_id_unsafe", {"app_source_id": "0192a3b4-c5d6-7e8f-9a0b-1c2d3e4f5a6b", "instance_id": "a b"}),
+            ("instance_id_missing", {"app_source_id": "0192a3b4-c5d6-7e8f-9a0b-1c2d3e4f5a6b"}),
+        ]
+    )
+    @patch("products.messaging.backend.services.unsubscribe_metrics.get_producer")
+    @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
+    def test_one_click_without_usable_source_opts_out_without_metric(
+        self, _name, claims, mock_validate, mock_get_producer
+    ):
+        mock_validate.return_value = mock_response(
+            200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier, **claims}
+        )
+
+        response = self.client.get(
+            reverse("message_preferences", kwargs={"token": self.token}), {"one_click_unsubscribe": "1"}
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.recipient.refresh_from_db()
+        self.assertEqual(
+            self.recipient.get_all_preferences()[ALL_MESSAGE_PREFERENCE_CATEGORY_ID], PreferenceStatus.OPTED_OUT
+        )
+        mock_get_producer.return_value.produce.assert_not_called()
+
+    @patch("products.messaging.backend.services.unsubscribe_metrics.get_producer")
+    @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
+    def test_one_click_opts_out_when_metric_produce_fails(self, mock_validate, mock_get_producer):
+        mock_get_producer.return_value.produce.side_effect = RuntimeError("kafka down")
+        mock_validate.return_value = mock_response(
+            200,
+            {
+                "valid": True,
+                "team_id": self.team.id,
+                "identifier": self.recipient.identifier,
+                "app_source_id": "0192a3b4-c5d6-7e8f-9a0b-1c2d3e4f5a6b",
+                "instance_id": "action_1",
+            },
+        )
+
+        response = self.client.get(
+            reverse("message_preferences", kwargs={"token": self.token}), {"one_click_unsubscribe": "1"}
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.recipient.refresh_from_db()
+        self.assertEqual(
+            self.recipient.get_all_preferences()[ALL_MESSAGE_PREFERENCE_CATEGORY_ID], PreferenceStatus.OPTED_OUT
+        )
 
     def _enable_engagement_events(self):
         config = self.team.workflows_config

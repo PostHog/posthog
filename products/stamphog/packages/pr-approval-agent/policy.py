@@ -1,10 +1,11 @@
 """Declarative merge-gate policy: loader, resolver, and prompt sanitizer.
 
-The engine's deny/allow/size/tier data lives in `.stamphog/policy.yml`
-(global, trusted) and optional per-folder `AGENT_APPROVALS.md` overrides
-(untrusted, positive allow-list). This module loads and validates the global
-policy, resolves the effective policy for a given set of changed files, and
-owns the untrusted-text sanitizer shared with the reviewer prompt.
+The engine's deny/allow/size/tier data lives in the shipped `defaults/policy.yml`,
+the repository's own `.stamphog/policy.yml` merged onto it (global, trusted), and
+optional per-folder `AGENT_APPROVALS.md` overrides (untrusted, positive
+allow-list). This module merges and validates the global policy, resolves the
+effective policy for a given set of changed files, and owns the untrusted-text
+sanitizer shared with the reviewer prompt.
 
 Security posture (see .stamphog/README.md):
 - All files are read from the checked-out working tree - the repo root is
@@ -22,10 +23,11 @@ Security posture (see .stamphog/README.md):
   it reaches the reviewer prompt, where it sits inside the untrusted region.
 """
 
+import os
 import re
 import functools
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -67,7 +69,14 @@ def repo_root() -> Path:
     same checked-out tree as this script, never from wherever the process runs.
     The single resolver for the whole tool; cached, the tree never moves
     mid-process.
+
+    A hosted run names the checkout in STAMPHOG_REPO_ROOT. The checkout is the
+    untrusted PR head, so a `.stamphog/` that the PR adds between the checkout
+    root and the engine would otherwise become the root.
     """
+    explicit_root = os.environ.get("STAMPHOG_REPO_ROOT")
+    if explicit_root:
+        return Path(explicit_root).resolve()
     here = Path(__file__).resolve().parent
     for parent in [here, *here.parents]:
         if (parent / ".stamphog").is_dir() or (parent / ".git").exists():
@@ -75,12 +84,19 @@ def repo_root() -> Path:
     raise RuntimeError("Cannot locate repo root (no .stamphog/ or .git found above policy.py)")
 
 
-def default_policy_path() -> Path:
+def bundled_defaults_dir() -> Path:
+    """The shipped defaults beside this module, which the server copies into the sandbox with the engine."""
+    return Path(__file__).resolve().parent / "defaults"
+
+
+def repo_policy_path() -> Path:
     return repo_root() / ".stamphog" / "policy.yml"
 
 
 def review_guidance_path() -> Path:
-    return repo_root() / ".stamphog" / "review-guidance.md"
+    """The repository's own guidance, which replaces the shipped default whole, or the shipped default."""
+    repo_guidance = repo_root() / ".stamphog" / "review-guidance.md"
+    return repo_guidance if repo_guidance.is_file() else bundled_defaults_dir() / "review-guidance.md"
 
 
 def steering_path() -> Path:
@@ -97,8 +113,14 @@ class DenyCategory:
     # Only the scopes present in the policy file, preserving pattern order.
     # Scope keys are a subset of {"any", "titles", "paths"}.
     match: dict[str, tuple[str, ...]]
-    exempt_path_prefixes: tuple[str, ...] = ()
     exempt_author_teams: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, kw_only=True)
+class DenyException:
+    keyword: str | None
+    path_prefixes: tuple[str, ...]
+    extensions: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -173,6 +195,7 @@ class Policy:
     overrides: dict[str, OverrideContract]
     familiarity: FamiliarityPolicy
     ownership: tuple[OwnershipSource, ...]
+    deny_exceptions: dict[str, tuple[DenyException, ...]] = field(default_factory=dict)
 
     def deny_pattern_defs(self) -> dict[str, dict[str, list[str]]]:
         """Reconstruct the raw scope→patterns mapping the compiler consumes."""
@@ -261,6 +284,7 @@ _TOP_LEVEL_KEYS = {"version", "deny", "allow", "size_gate", "tiers", "overrides"
 # a push may retain a standing approval (logic/approval_retention.py). A repo that could widen those
 # rules could keep an approval standing across arbitrary code pushes.
 _SERVER_ONLY_TOP_LEVEL_KEYS = {"digest", "dismiss"}
+_OPTIONAL_TOP_LEVEL_KEYS = {"deny_exceptions"}
 _DENY_SCOPES = {"any", "titles", "paths"}
 _BREADTH_RULES = {"single-area", "not-cross-cutting"}
 
@@ -289,6 +313,9 @@ def _compile_or_raise(pattern: str, context: str) -> None:
 
 
 _TEAM_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
+_DENY_EXCEPTION_KEYS = {"keyword", "path_prefixes", "extensions"}
+_LITERAL_KEYWORD_RE = re.compile(r"[A-Za-z0-9_-]+")
+_DENY_EXCEPTION_METACHARS_RE = re.compile(r"[\\*?\[\]{}()+|^$\x00-\x1f\x7f-\x9f]")
 
 
 def _parse_exempt_author_teams(category: str, raw: Any) -> tuple[str, ...]:
@@ -332,13 +359,14 @@ def _parse_deny(raw: Any, lockfile_names: Iterable[str]) -> dict[str, DenyCatego
                 _compile_or_raise(pattern, f"deny.{category}.match.{scope}")
             match[scope] = tuple(values)
 
-        exempt = spec.get("exempt_path_prefixes", [])
-        _require(isinstance(exempt, list), f"deny.{category}.exempt_path_prefixes: must be a list")
+        _require(
+            "exempt_path_prefixes" not in spec,
+            f"deny.{category}.exempt_path_prefixes: removed, declare deny_exceptions.{category} with path_prefixes instead",
+        )
         deny[category] = DenyCategory(
             description=str(spec.get("description", "")),
             rationale=str(spec.get("rationale", "")),
             match=match,
-            exempt_path_prefixes=tuple(str(p) for p in exempt),
             exempt_author_teams=_parse_exempt_author_teams(category, spec.get("exempt_author_teams", [])),
         )
 
@@ -351,6 +379,90 @@ def _parse_deny(raw: Any, lockfile_names: Iterable[str]) -> dict[str, DenyCatego
             "deny: missing 'deps_toolchain' category (the code-derived lockfile patterns splice into it)",
         )
     return deny
+
+
+def _parse_deny_exception_prefixes(raw: object, context: str) -> tuple[str, ...]:
+    if not isinstance(raw, list) or not raw:
+        raise PolicyError(f"{context}: must be a non-empty list")
+    prefixes: list[str] = []
+    for prefix in raw:
+        if not isinstance(prefix, str):
+            raise PolicyError(f"{context}: prefixes must be strings")
+        _require(
+            prefix.endswith("/")
+            and all(segment not in {"", ".", ".."} for segment in prefix[:-1].split("/"))
+            and not any(character.isspace() for character in prefix)
+            and not _DENY_EXCEPTION_METACHARS_RE.search(prefix),
+            f"{context}: {prefix!r} must be a literal relative POSIX directory prefix with a trailing slash",
+        )
+        prefixes.append(prefix.lower())
+    return tuple(prefixes)
+
+
+def _parse_deny_exception_extensions(raw: object, context: str) -> tuple[str, ...]:
+    if not isinstance(raw, list) or not raw:
+        raise PolicyError(f"{context}: must be a non-empty list")
+    extensions: list[str] = []
+    for extension in raw:
+        if not isinstance(extension, str):
+            raise PolicyError(f"{context}: extensions must be strings")
+        _require(
+            extension.startswith(".")
+            and all(extension[1:].split("."))
+            and "/" not in extension
+            and not any(character.isspace() for character in extension)
+            and not _DENY_EXCEPTION_METACHARS_RE.search(extension),
+            f"{context}: {extension!r} must be a literal dot-prefixed suffix",
+        )
+        extensions.append(extension.lower())
+    return tuple(extensions)
+
+
+def _parse_deny_exceptions(raw: object, deny: dict[str, DenyCategory]) -> dict[str, tuple[DenyException, ...]]:
+    if not isinstance(raw, dict):
+        raise PolicyError("deny_exceptions: must be a mapping")
+    exceptions: dict[str, tuple[DenyException, ...]] = {}
+    for category, rules in raw.items():
+        context = f"deny_exceptions.{category}"
+        if not isinstance(category, str) or category not in deny:
+            raise PolicyError(f"{context}: unknown deny category")
+        _require(category != "stamphog_policy", f"{context}: the self-governance category exempts nobody")
+        if not isinstance(rules, list) or not rules:
+            raise PolicyError(f"{context}: must be a non-empty list")
+        parsed: list[DenyException] = []
+        for index, rule in enumerate(rules):
+            rule_context = f"{context}[{index}]"
+            if not isinstance(rule, dict):
+                raise PolicyError(f"{rule_context}: must be a mapping")
+            unknown = set(rule) - _DENY_EXCEPTION_KEYS
+            _require(not unknown, f"{rule_context}: unknown keys {sorted(unknown, key=str)}")
+            prefixes = _parse_deny_exception_prefixes(rule.get("path_prefixes"), f"{rule_context}.path_prefixes")
+            extensions = (
+                _parse_deny_exception_extensions(rule["extensions"], f"{rule_context}.extensions")
+                if "extensions" in rule
+                else ()
+            )
+            keyword = None
+            if "keyword" in rule:
+                requested = rule["keyword"]
+                if not isinstance(requested, str) or not _LITERAL_KEYWORD_RE.fullmatch(requested):
+                    raise PolicyError(f"{rule_context}.keyword: must be a non-empty literal ASCII token")
+                keyword = next(
+                    (
+                        pattern
+                        for scope in ("any", "paths")
+                        for pattern in deny[category].match.get(scope, ())
+                        if _LITERAL_KEYWORD_RE.fullmatch(pattern) and pattern.lower() == requested.lower()
+                    ),
+                    None,
+                )
+                _require(
+                    keyword is not None,
+                    f"{rule_context}.keyword: {requested!r} is not a path-capable literal pattern in this deny category",
+                )
+            parsed.append(DenyException(keyword=keyword, path_prefixes=prefixes, extensions=extensions))
+        exceptions[category] = tuple(parsed)
+    return exceptions
 
 
 def _assert_self_governance(deny: dict[str, DenyCategory]) -> None:
@@ -523,10 +635,83 @@ def _parse_ownership(raw: Any, known_formats: Mapping[str, str]) -> tuple[Owners
     return tuple(sources)
 
 
-def load_policy(
-    policy_path: Path | None = None, *, lockfile_names: Iterable[str], ownership_formats: Mapping[str, str]
-) -> Policy:
-    """Parse and validate `.stamphog/policy.yml`, splicing code-derived data.
+_EXTEND_PREFIX = "extend_"
+
+
+def _merge_mapping(base: Mapping[str, Any], overlay: Mapping[str, Any], context: str) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in overlay.items():
+        key_context = f"{context}{key}"
+        if isinstance(key, str) and key.startswith(_EXTEND_PREFIX):
+            target = key.removeprefix(_EXTEND_PREFIX)
+            _require(target not in overlay, f"{key_context}: cannot both replace and extend {context}{target}")
+            inherited = base.get(target)
+            _require(isinstance(inherited, list), f"{key_context}: no inherited list {context}{target} to extend")
+            _require(isinstance(value, list), f"{key_context}: must be a list")
+            merged[target] = inherited + [item for item in value if item not in inherited]
+        elif isinstance(value, dict) and isinstance(base.get(key), dict):
+            merged[key] = _merge_mapping(base[key], value, f"{key_context}.")
+        else:
+            merged[key] = value
+    return merged
+
+
+def merge_policy(default: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    """A repository's policy.yml merged onto the shipped default.
+
+    Mappings merge key by key, so a repository declares only what it changes: one deny category,
+    one field of a category, one threshold. A list the repository declares replaces the default's
+    list, and an `extend_<name>` key appends to the default's `<name>` list instead. Lists never
+    merge silently, because a repository could then not drop an inherited entry.
+    """
+    _require(isinstance(overlay, dict), "policy root: must be a mapping")
+    return _merge_mapping(default, overlay, "")
+
+
+def _assert_self_governance_floor(default: dict[str, Any], merged: dict[str, Any]) -> None:
+    """A repository may extend the self-governance deny, but never drop a shipped pattern from it."""
+    shipped = default["deny"]["stamphog_policy"]["match"]["paths"]
+    effective = ((merged.get("deny") or {}).get("stamphog_policy") or {}).get("match") or {}
+    missing = [pattern for pattern in shipped if pattern not in (effective.get("paths") or [])]
+    _require(not missing, f"deny.stamphog_policy.match.paths: drops the shipped self-governance patterns {missing}")
+
+
+def _read_policy_yaml(path: Path) -> Any:
+    try:
+        return yaml.safe_load(path.read_text())
+    except (OSError, yaml.YAMLError) as exc:
+        raise PolicyError(f"could not read/parse {path}: {exc}") from exc
+
+
+def _parse_policy(raw: Any, *, lockfile_names: Iterable[str], ownership_formats: Mapping[str, str]) -> Policy:
+    _require(isinstance(raw, dict), "policy root: must be a mapping")
+    unknown = set(raw) - _TOP_LEVEL_KEYS - _OPTIONAL_TOP_LEVEL_KEYS - _SERVER_ONLY_TOP_LEVEL_KEYS
+    _require(not unknown, f"policy root: unknown top-level keys {sorted(unknown)}")
+    for required in _TOP_LEVEL_KEYS:
+        _require(required in raw, f"policy root: missing required section {required!r}")
+    _require(raw["version"] == 1, f"policy version: unsupported version {raw['version']!r}")
+
+    path_patterns, extensions = _parse_allow(raw["allow"])
+    size_gate = _parse_size_gate(raw["size_gate"])
+    overrides = _parse_overrides(raw["overrides"])
+    _require_ceilings_cover_globals(size_gate, overrides)
+    deny = _parse_deny(raw["deny"], lockfile_names)
+    return Policy(
+        version=1,
+        deny=deny,
+        allow_path_patterns=path_patterns,
+        allow_extensions=extensions,
+        size_gate=size_gate,
+        t1_subclasses=_parse_tiers(raw["tiers"]),
+        overrides=overrides,
+        familiarity=_parse_familiarity(raw["familiarity"]),
+        ownership=_parse_ownership(raw["ownership"], ownership_formats),
+        deny_exceptions=_parse_deny_exceptions(raw.get("deny_exceptions", {}), deny),
+    )
+
+
+def load_policy(path: Path, *, lockfile_names: Iterable[str], ownership_formats: Mapping[str, str]) -> Policy:
+    """Parse and validate one complete policy document, splicing code-derived data.
 
     `lockfile_names` are the deps_toolchain lockfile filenames owned by
     gates.py's DEPENDENCY_ECOSYSTEMS table; the loader re.escapes them and
@@ -538,34 +723,21 @@ def load_policy(
     code-sourced pattern as lockfile_names). Raises PolicyError on any
     malformed input.
     """
-    path = policy_path or default_policy_path()
-    try:
-        raw = yaml.safe_load(path.read_text())
-    except (OSError, yaml.YAMLError) as exc:
-        raise PolicyError(f"could not read/parse {path}: {exc}") from exc
+    return _parse_policy(_read_policy_yaml(path), lockfile_names=lockfile_names, ownership_formats=ownership_formats)
 
-    _require(isinstance(raw, dict), "policy root: must be a mapping")
-    unknown = set(raw) - _TOP_LEVEL_KEYS - _SERVER_ONLY_TOP_LEVEL_KEYS
-    _require(not unknown, f"policy root: unknown top-level keys {sorted(unknown)}")
-    for required in _TOP_LEVEL_KEYS:
-        _require(required in raw, f"policy root: missing required section {required!r}")
-    _require(raw["version"] == 1, f"policy version: unsupported version {raw['version']!r}")
 
-    path_patterns, extensions = _parse_allow(raw["allow"])
-    size_gate = _parse_size_gate(raw["size_gate"])
-    overrides = _parse_overrides(raw["overrides"])
-    _require_ceilings_cover_globals(size_gate, overrides)
-    return Policy(
-        version=1,
-        deny=_parse_deny(raw["deny"], lockfile_names),
-        allow_path_patterns=path_patterns,
-        allow_extensions=extensions,
-        size_gate=size_gate,
-        t1_subclasses=_parse_tiers(raw["tiers"]),
-        overrides=overrides,
-        familiarity=_parse_familiarity(raw["familiarity"]),
-        ownership=_parse_ownership(raw["ownership"], ownership_formats),
-    )
+def load_effective_policy(*, lockfile_names: Iterable[str], ownership_formats: Mapping[str, str]) -> Policy:
+    """The shipped default with the repository's `.stamphog/policy.yml` merged onto it, validated as one document.
+
+    Hosted runs, the server's pre-check and local runs all resolve the policy here. The server
+    copies the repository's default-branch file into the tree as it is, so the merge happens once.
+    """
+    default = _read_policy_yaml(bundled_defaults_dir() / "policy.yml")
+    _require(isinstance(default, dict), "shipped default policy: must be a mapping")
+    overlay_path = repo_policy_path()
+    merged = merge_policy(default, _read_policy_yaml(overlay_path)) if overlay_path.is_file() else default
+    _assert_self_governance_floor(default, merged)
+    return _parse_policy(merged, lockfile_names=lockfile_names, ownership_formats=ownership_formats)
 
 
 # ── Per-folder override resolution ───────────────────────────────

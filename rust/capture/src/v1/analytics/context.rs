@@ -10,7 +10,7 @@ use crate::v1::Error;
 
 /// Analytics-mode request context: the shared [`RequestContext`] plus the
 /// typed analytics [`Query`] refined from `req.raw_query`. Derefs to
-/// `RequestContext` so shared contracts (`Event`, `Sink`, logging) consume it
+/// `RequestContext` so shared contracts (`Publishable`, logging) consume it
 /// transparently.
 pub struct Context {
     pub req: RequestContext,

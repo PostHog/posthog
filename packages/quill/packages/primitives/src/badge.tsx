@@ -25,27 +25,25 @@ const badgeVariants = cva(
     }
 )
 
-function Badge({
-    className,
-    variant = 'default',
-    render,
-    ...props
-}: useRender.ComponentProps<'span'> & VariantProps<typeof badgeVariants>): React.ReactElement {
-    return useRender({
-        defaultTagName: 'span',
-        props: mergeProps<'span'>(
-            {
-                'data-quill': '',
-                className: cn(badgeVariants({ variant }), className),
-            } as Omit<React.ComponentProps<'span'>, 'ref'>,
-            props
-        ),
-        render,
-        state: {
-            slot: 'badge',
-            variant,
-        },
-    })
-}
+const Badge = React.forwardRef<HTMLSpanElement, useRender.ComponentProps<'span'> & VariantProps<typeof badgeVariants>>(
+    function Badge({ className, variant = 'default', render, ...props }, ref) {
+        return useRender({
+            ref,
+            defaultTagName: 'span',
+            props: mergeProps<'span'>(
+                {
+                    'data-quill': '',
+                    className: cn(badgeVariants({ variant }), className),
+                } as Omit<React.ComponentProps<'span'>, 'ref'>,
+                props
+            ),
+            render,
+            state: {
+                slot: 'badge',
+                variant,
+            },
+        })
+    }
+)
 
 export { Badge, badgeVariants }

@@ -4,6 +4,7 @@ import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pardot import PardotSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.pardot.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
@@ -148,14 +149,14 @@ class TestPardotSource:
 
         assert mock_pardot_source.call_args.kwargs["db_incremental_field_last_value"] is None
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.pardot.source.pardot_source")
-    def test_sync_stops_when_the_integration_has_no_token(self, mock_pardot_source: mock.MagicMock) -> None:
+    def test_sync_stops_when_the_integration_has_no_token(self) -> None:
         # Syncing on an empty token would fail every page with a 401 instead of naming the problem.
         with mock.patch.object(PardotSource, "get_oauth_integration", return_value=_integration(access_token=None)):
-            with pytest.raises(ValueError, match="access token not found"):
-                self.source.source_for_pipeline(self.config, mock.MagicMock(), _make_inputs())
+            result = SourceDriver(self.source, self.config).run("prospects", [])
 
-        mock_pardot_source.assert_not_called()
+        assert isinstance(result.raised, ValueError)
+        assert "access token not found" in str(result.raised)
+        assert result.requests == []
 
 
 class TestCanonicalDescriptions:

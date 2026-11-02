@@ -3,20 +3,26 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from unittest import mock
 
 from requests import Request, Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    route,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.conekta.conekta import (
     ConektaCursorPaginator,
     ConektaResumeConfig,
-    conekta_source,
     to_epoch_seconds,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.conekta.settings import API_VERSION, PAGE_SIZE
-
-SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.conekta.conekta.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.conekta.source import ConektaSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.conekta import (
+    ConektaSourceConfig,
+)
 
 
 def _page(rows: list[dict[str, Any]], next_cursor: str | None) -> Response:
@@ -31,35 +37,12 @@ def _page(rows: list[dict[str, Any]], next_cursor: str | None) -> Response:
     return response
 
 
-def _make_manager(resume_state: ConektaResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
+def _driver() -> SourceDriver:
+    return SourceDriver(ConektaSource(), ConektaSourceConfig(api_key="key_priv"))
 
 
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    # Snapshot each request at prepare time: the client mutates one Request object across pages.
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append({"url": request.url, "params": dict(request.params or {})})
-        prepared = mock.MagicMock()
-        prepared.url = request.url
-        return prepared
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any):
-    return conekta_source("key_priv", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, **kwargs)
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _scripted_page(rows: list[dict[str, Any]], next_cursor: str | None) -> ScriptedResponse:
+    return ScriptedResponse(json=_page(rows, next_cursor).json())
 
 
 class TestToEpochSeconds:
@@ -126,48 +109,135 @@ class TestPaginator:
 
 
 class TestValidateCredentials:
-    @mock.patch(SESSION_PATCH)
-    def test_probes_orders_with_bearer_token_and_versioned_accept(self, mock_session):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
+    def test_probes_orders_with_bearer_token_and_versioned_accept(self) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            assert validate_credentials("key_priv") == (True, 200)
 
-        validate_credentials("key_priv")
-
-        assert mock_session.call_args.kwargs["headers"]["Accept"] == f"application/vnd.conekta-v{API_VERSION}+json"
-        call = mock_session.return_value.get.call_args
-        assert call.args[0] == "https://api.conekta.io/orders?limit=1"
-        assert call.kwargs["headers"]["Authorization"] == "Bearer key_priv"
+        assert network.session_options[0]["headers"]["Accept"] == f"application/vnd.conekta-v{API_VERSION}+json"
+        assert len(network.requests_log) == 1
+        request = network.requests_log[0]
+        assert request.method == "GET"
+        assert request.path == "/orders"
+        assert request.param("limit") == "1"
+        assert request.headers["authorization"] == "Bearer key_priv"
 
 
 class TestRequests:
-    @mock.patch(SESSION_PATCH)
-    def test_incremental_filter_survives_pagination(self, MockSession):
-        session = MockSession.return_value
-        requests_seen = _wire(session, [_page([{"id": "ord_1"}], "ord_1"), _page([{"id": "ord_2"}], None)])
-
-        manager = _make_manager()
-        rows = _rows(
-            _source(
-                "orders",
-                manager,
-                incremental_field="updated_at",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=1676328434,
-            )
+    def test_incremental_filter_survives_pagination(self) -> None:
+        result = _driver().run(
+            "orders",
+            [_scripted_page([{"id": "ord_1"}], "ord_1"), _scripted_page([{"id": "ord_2"}], None)],
+            incremental_field="updated_at",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=1676328434,
         )
 
-        assert [row["id"] for row in rows] == ["ord_1", "ord_2"]
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["ord_1", "ord_2"]
         # Conekta's next_page_url only echoes limit+next, so the cursor must be re-applied to the
         # original request; otherwise page two drops the filter and walks the whole history.
-        assert requests_seen[0]["params"] == {"limit": PAGE_SIZE, "updated_at.gte": 1676328434}
-        assert requests_seen[1]["params"] == {"limit": PAGE_SIZE, "updated_at.gte": 1676328434, "next": "ord_1"}
-        assert manager.save_state.call_args.args[0] == ConektaResumeConfig(next_cursor="ord_1")
+        assert result.queries == [
+            {"limit": (str(PAGE_SIZE),), "updated_at.gte": ("1676328434",)},
+            {"limit": (str(PAGE_SIZE),), "updated_at.gte": ("1676328434",), "next": ("ord_1",)},
+        ]
+        assert result.saved_states == [ConektaResumeConfig(next_cursor="ord_1")]
 
-    @mock.patch(SESSION_PATCH)
-    def test_resumes_from_saved_cursor(self, MockSession):
-        session = MockSession.return_value
-        requests_seen = _wire(session, [_page([{"id": "ord_5"}], None)])
+    def test_resumes_from_saved_cursor(self) -> None:
+        result = _driver().run(
+            "orders",
+            [_scripted_page([{"id": "ord_5"}], None)],
+            resume_state=ConektaResumeConfig(next_cursor="ord_4"),
+        )
 
-        rows = _rows(_source("orders", _make_manager(ConektaResumeConfig(next_cursor="ord_4"))))
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["ord_5"]
+        assert result.queries == [{"limit": (str(PAGE_SIZE),), "next": ("ord_4",)}]
 
-        assert [row["id"] for row in rows] == ["ord_5"]
-        assert requests_seen[0]["params"] == {"limit": PAGE_SIZE, "next": "ord_4"}
+
+class TestBalance:
+    def test_single_object_becomes_one_row_without_list_params(self) -> None:
+        balance = {
+            "available": [{"amount": 150000, "currency": "MXN"}],
+            "pending": [{"amount": 2500, "currency": "MXN"}],
+            "target_collateral_amount": {},
+        }
+
+        result = _driver().run("balance", [ScriptedResponse(json=balance)])
+
+        assert result.raised is None
+        assert result.rows == [balance]
+        assert result.paths == ["/balance"]
+        assert result.queries == [{}]
+
+
+class TestCustomerFanout:
+    @pytest.mark.parametrize("endpoint", ["subscriptions", "payment_sources"])
+    def test_walks_every_customer_and_keys_rows_by_customer(self, endpoint: str) -> None:
+        script = route(
+            {
+                "/customers": [
+                    _scripted_page([{"id": "cus_1"}], "cus_1"),
+                    _scripted_page([{"id": "cus_2"}, {"id": "cus_3"}], None),
+                ],
+                f"/customers/cus_1/{endpoint}": [
+                    _scripted_page([{"id": "item_1"}], "item_1"),
+                    _scripted_page([{"id": "item_2"}], None),
+                ],
+                # A customer deleted between the listing and its child fetch.
+                f"/customers/cus_2/{endpoint}": [
+                    ScriptedResponse(status=404, json={"type": "resource_not_found_error"})
+                ],
+                f"/customers/cus_3/{endpoint}": [_scripted_page([{"id": "item_1"}], None)],
+            }
+        )
+
+        result = _driver().run(endpoint, script)
+
+        assert result.raised is None
+        assert [(row["customer_id"], row["id"]) for row in result.rows] == [
+            ("cus_1", "item_1"),
+            ("cus_1", "item_2"),
+            ("cus_3", "item_1"),
+        ]
+        child_queries = [
+            query for path, query in zip(result.paths, result.queries) if path == f"/customers/cus_1/{endpoint}"
+        ]
+        assert child_queries == [
+            {"limit": (str(PAGE_SIZE),)},
+            {"limit": (str(PAGE_SIZE),), "next": ("item_1",)},
+        ]
+
+    def test_resume_skips_completed_customers(self) -> None:
+        script = route(
+            {
+                "/customers": [_scripted_page([{"id": "cus_1"}, {"id": "cus_2"}], None)],
+                "/customers/cus_2/subscriptions": [_scripted_page([{"id": "sub_2"}], None)],
+            }
+        )
+
+        result = _driver().run(
+            "subscriptions",
+            script,
+            resume_state=ConektaResumeConfig(
+                fanout_state={"completed": ["/customers/cus_1/subscriptions"], "current": None, "child_state": None}
+            ),
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["sub_2"]
+        assert result.paths == ["/customers", "/customers/cus_2/subscriptions"]
+
+    def test_subscription_body_without_data_fails_loud(self) -> None:
+        script = route(
+            {
+                "/customers": [_scripted_page([{"id": "cus_1"}], None)],
+                "/customers/cus_1/subscriptions": [
+                    ScriptedResponse(json={"id": "sub_1", "object": "subscription", "status": "active"})
+                ],
+            }
+        )
+
+        result = _driver().run("subscriptions", script)
+
+        assert isinstance(result.raised, ValueError)
+        assert result.rows == []

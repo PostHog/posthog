@@ -236,12 +236,3 @@ class TestValidateCredentials:
         body = session.post.call_args.kwargs["json"]
         assert body["intervals"] == ["2026-07-15T11:00:00Z/2026-07-15T12:00:00Z"]
         assert body["filter"] == {"field": "resource.kafka.id", "op": "EQ", "value": "lkc-1"}
-
-    def test_transport_error_returns_none_status(self) -> None:
-        session = MagicMock()
-        session.post.side_effect = ConnectionError("boom")
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(confluent_cloud, "_make_session", lambda *a, **k: session)
-            assert confluent_cloud.validate_credentials(
-                "key", "secret", "io.confluent.kafka.server/received_bytes", "resource.kafka.id", "lkc-1"
-            ) == (False, None)

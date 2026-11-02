@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,6 +42,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TwelveDataSource(ResumableSource[TwelveDataSourceConfig, TwelveDataResumeConfig]):
+    codebase_detection = detect(env=("^(TWELVE_DATA|TWELVEDATA)_",), pypi=("twelvedata",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://twelvedata.com/docs"
 
@@ -126,7 +129,7 @@ class TwelveDataSource(ResumableSource[TwelveDataSourceConfig, TwelveDataResumeC
             caption="Import market data from Twelve Data: instrument catalogs, historical prices, quotes, dividends, splits, and earnings.",
             docsUrl="https://posthog.com/docs/cdp/sources/twelve-data",
             iconPath="/static/services/twelve_data.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["stocks", "forex", "crypto", "market data", "twelvedata"],
             fields=cast(
                 list[FieldType],
@@ -141,6 +144,7 @@ class TwelveDataSource(ResumableSource[TwelveDataSourceConfig, TwelveDataResumeC
                     ),
                     SourceFieldInputConfig(
                         name="symbols",
+                        sync_setting=True,
                         label="Symbols",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -150,6 +154,7 @@ class TwelveDataSource(ResumableSource[TwelveDataSourceConfig, TwelveDataResumeC
                     ),
                     SourceFieldSelectConfig(
                         name="interval",
+                        sync_setting=True,
                         label="Time series interval",
                         required=True,
                         defaultValue=DEFAULT_TIME_SERIES_INTERVAL,
@@ -160,6 +165,7 @@ class TwelveDataSource(ResumableSource[TwelveDataSourceConfig, TwelveDataResumeC
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Time series start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

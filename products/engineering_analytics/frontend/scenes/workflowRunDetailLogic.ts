@@ -3,7 +3,6 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import { ApiConfig } from 'lib/api'
-import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
@@ -14,8 +13,8 @@ import {
 } from '../generated/api'
 import type { CIEngineEnumApi, RunFailureLogsApi, WorkflowJobApi, WorkflowRunDetailApi } from '../generated/api.schemas'
 import { isDecisiveFailure } from '../lib/lifecycle'
+import { repoBreadcrumbs } from '../lib/repoBreadcrumbs'
 import { RunCostSummary, summarizeRunCost } from '../lib/runHealth'
-import { withScope } from '../lib/scope'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
@@ -103,8 +102,6 @@ export interface workflowRunDetailLogicMeta {
         breadcrumbs: (
             repoOwner: string,
             repoName: string,
-            runId: number,
-            run: WorkflowRunDetailApi | null,
             sourceId: string | null,
             searchParams: Record<string, any>
         ) => Breadcrumb[]
@@ -210,51 +207,13 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
             (runId: number): boolean => Number.isFinite(runId),
         ],
         breadcrumbs: [
-            (s, p) => [p.repoOwner, p.repoName, p.runId, s.run, s.sourceId, router.selectors.searchParams],
+            (s, p) => [p.repoOwner, p.repoName, s.sourceId, router.selectors.searchParams],
             (
                 repoOwner: string,
                 repoName: string,
-                runId: number,
-                run: WorkflowRunDetailApi | null,
                 sourceId: string | null,
                 searchParams: Record<string, string | undefined>
-            ): Breadcrumb[] => {
-                const breadcrumbs: Breadcrumb[] = [
-                    {
-                        key: 'EngineeringAnalytics',
-                        name: 'Engineering analytics',
-                        path: withScope(urls.engineeringAnalytics(), searchParams, sourceId),
-                        iconType: 'health',
-                    },
-                    {
-                        key: 'EngineeringAnalyticsWorkflows',
-                        name: 'Workflows',
-                        path: withScope(urls.engineeringAnalyticsWorkflows(), searchParams, sourceId),
-                        iconType: 'health',
-                    },
-                ]
-
-                if (run) {
-                    const loadedRepo = `${run.repo.owner}/${run.repo.name}`
-                    breadcrumbs.push({
-                        key: ['EngineeringAnalyticsWorkflowRuns', `${loadedRepo}/${run.workflow_name}`],
-                        name: `${loadedRepo} · ${run.workflow_name}`,
-                        path: withScope(
-                            urls.engineeringAnalyticsWorkflowRuns(run.repo.owner, run.repo.name, run.workflow_name),
-                            searchParams,
-                            sourceId
-                        ),
-                        iconType: 'health',
-                    })
-                }
-
-                breadcrumbs.push({
-                    key: ['EngineeringAnalyticsWorkflowRun', `${repoOwner}/${repoName}/runs/${runId}`],
-                    name: run ? `run #${runId}` : `${repoOwner}/${repoName} · run #${runId}`,
-                    iconType: 'health',
-                })
-                return breadcrumbs
-            },
+            ): Breadcrumb[] => repoBreadcrumbs(`${repoOwner}/${repoName}`, searchParams, sourceId),
         ],
     }),
 

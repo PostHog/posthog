@@ -4,6 +4,11 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openaq import OpenAQSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.openaq.source import OpenAQSource
 
@@ -24,6 +29,10 @@ class TestOpenAQSchemas:
             ("measurements", True, False),
             ("measurements_hourly", True, False),
             ("measurements_daily", True, False),
+            ("measurements_yearly", True, False),
+            ("location_latest", False, False),
+            ("location_flags", False, False),
+            ("sensor_flags", False, False),
             ("locations", False, True),
             ("parameters", False, True),
             ("sensors", False, True),
@@ -33,49 +42,21 @@ class TestOpenAQSchemas:
         self, endpoint: str, expected_incremental: bool, expected_default_sync: bool
     ) -> None:
         # Only the per-sensor measurement streams have a server-side datetime filter, so only they are
-        # incremental; and because they're request-heavy they must be off by default.
+        # incremental; and because fan-out tables are request-heavy they must be off by default.
         schema = {s.name: s for s in OpenAQSource().get_schemas(_config(), team_id=1)}[endpoint]
         assert schema.supports_incremental is expected_incremental
         assert schema.should_sync_default is expected_default_sync
-
-    def test_names_filter_narrows_schemas(self) -> None:
-        schemas = OpenAQSource().get_schemas(_config(), team_id=1, names=["parameters"])
-        assert [s.name for s in schemas] == ["parameters"]
-
-
-class TestOpenAQNonRetryableErrors:
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.openaq.org/v3/locations?page=1"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.openaq.org/v3/sensors/1/measurements"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed: str) -> None:
-        non_retryable = OpenAQSource().get_non_retryable_errors()
-        assert any(key in observed for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("rate_limit", "429 Client Error: Too Many Requests for url: https://api.openaq.org/v3/locations"),
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.openaq.org/v3/locations"),
-            ("timeout", "HTTPSConnectionPool(host='api.openaq.org', port=443): Read timed out."),
-        ]
-    )
-    def test_transient_errors_stay_retryable(self, _name: str, observed: str) -> None:
-        non_retryable = OpenAQSource().get_non_retryable_errors()
-        assert not any(key in observed for key in non_retryable)
 
 
 class TestOpenAQValidateCredentials:
     @parameterized.expand([("valid", True), ("invalid", False)])
     def test_validate_credentials(self, _name: str, upstream_ok: bool) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.openaq.source.validate_openaq_credentials",
-            return_value=upstream_ok,
-        ):
+        status = 200 if upstream_ok else 401
+        with scripted_network(always(ScriptedResponse(status=status))) as network:
             valid, message = OpenAQSource().validate_credentials(_config(), team_id=1)
         assert valid is upstream_ok
         assert (message is None) is upstream_ok
+        assert [request.path for request in network.requests_log] == ["/v3/parameters"]
 
 
 class TestOpenAQPipelineWiring:

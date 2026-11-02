@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconArrowLeft, IconCheckCircle, IconWarning } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTextArea, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 
 import { IntegrationType } from '~/types'
 
+import { IntegrationAccessRequest } from './components/IntegrationAccessRequest'
 import { IntegrationDefinition, IntegrationStatus, SettingsSectionComponent } from './integrationTypes'
 
 export function IntegrationFullPage({
@@ -123,7 +124,7 @@ function ConnectView({
             <div className="text-center text-sm">{definition.description}</div>
 
             {restrictionReason ? (
-                <RequestAccessSection definition={definition} />
+                <IntegrationAccessRequest kind={definition.kind} name={definition.name} />
             ) : (
                 // onClickCapture fires before the connect button triggers its OAuth redirect
                 <div onClickCapture={onConnectClick}>
@@ -137,45 +138,6 @@ function ConnectView({
                 </Link>
             ) : null}
         </>
-    )
-}
-
-function RequestAccessSection({ definition }: { definition: IntegrationDefinition }): JSX.Element {
-    const { accessRequestReason, accessRequestLoading, requestedAccessKinds } = useValues(integrationsLogic)
-    const { setAccessRequestReason, requestIntegrationAccess } = useActions(integrationsLogic)
-
-    if (requestedAccessKinds.includes(definition.kind)) {
-        return (
-            <LemonBanner type="success" className="w-full">
-                Request sent. Your project admins have been notified and can connect {definition.name}.
-            </LemonBanner>
-        )
-    }
-
-    return (
-        <div className="flex flex-col gap-3 w-full">
-            <LemonBanner type="info" className="w-full">
-                Connecting {definition.name} requires admin access. Tell your project admins why you need it and we'll
-                email them.
-            </LemonBanner>
-            <LemonTextArea
-                value={accessRequestReason}
-                onChange={setAccessRequestReason}
-                placeholder={`Why does your team need ${definition.name}?`}
-                minRows={3}
-                maxLength={2000}
-            />
-            <LemonButton
-                type="primary"
-                fullWidth
-                center
-                loading={accessRequestLoading}
-                disabledReason={!accessRequestReason.trim() ? 'Add a short note for your admins' : undefined}
-                onClick={() => requestIntegrationAccess({ kind: definition.kind })}
-            >
-                Request {definition.name}
-            </LemonButton>
-        </div>
     )
 }
 

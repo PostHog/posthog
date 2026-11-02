@@ -1,4 +1,5 @@
 import { QueryClient } from "@tanstack/react-query";
+import { resetSentPhotos } from "@/lib/attachments";
 import { sessionIdentity, useAuth } from "@/lib/auth";
 import {
   CACHE_MAX_AGE,
@@ -10,7 +11,8 @@ import { useComposer } from "@/lib/composer";
 import { resetEngine } from "@/lib/engine";
 import { resetMcpClient } from "@/lib/mcp/client";
 import { useRepo } from "@/lib/repo";
-import { resetUnstartedReportTasks, useSeenReports } from "@/lib/reports";
+import { useReportScope } from "@/lib/reportScope";
+import { resetUnstartedReportTasks } from "@/lib/reports";
 import { useSessions } from "@/lib/session";
 
 let stopPersisting: (() => void) | undefined;
@@ -41,8 +43,9 @@ useAuth.subscribe((state, previous) => {
   resetMcpClient();
   useComposer.getState().reset();
   useRepo.setState({ repository: undefined });
-  useSeenReports.setState({ seen: new Set(), hydrated: false });
+  useReportScope.setState({ scope: "for-you" });
   resetUnstartedReportTasks();
+  resetSentPhotos();
 });
 
 export function getAccountQueryClient(): QueryClient {

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SkyvernSource(ResumableSource[SkyvernSourceConfig, SkyvernResumeConfig]):
+    codebase_detection = detect(env=("^SKYVERN_",), npm=("@skyvern/client",), pypi=("skyvern",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v1",)
     default_version = "v1"
@@ -55,7 +58,7 @@ class SkyvernSource(ResumableSource[SkyvernSourceConfig, SkyvernResumeConfig]):
             name=ExternalDataSourceType.SKYVERN,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Skyvern",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Skyvern API key to automatically pull your Skyvern browser-automation data into the PostHog Data warehouse.
 
 You can find your API key in your [Skyvern settings](https://app.skyvern.com/settings).

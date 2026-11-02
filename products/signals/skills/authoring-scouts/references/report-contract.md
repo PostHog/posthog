@@ -658,3 +658,19 @@ A report on a workflow change could autostart a code PR for a change that is onl
 
 Before you add the report tools to a scout that does not have them, read its description and output section.
 If the scout states a product-specific output, keep it off the report channel.
+
+To create such a scout per team, do not use `scout-create`, because it always grants both report tools.
+Make both calls below on the parent project, not on a child environment.
+`skill-create` stores the skill in the active environment, but `scout-config-create` looks for the skill in the parent project.
+From a child environment, registration fails, or it registers a different skill with the same name from the parent project.
+If the active context is a child environment, select the parent project with `switch-project` first.
+Some MCP contexts do not expose `switch-project`, for example a connection with a filtered tool set.
+In such a context, connect to the parent project directly.
+If you cannot, do not use this path from that context.
+Create the skill with `skill-create` and leave `allowed_tools` empty.
+Then register it with `scout-config-create`, and set its schedule, `enabled`, and `emit` on that call.
+Also set `write_scopes` on that call to the scope that writes the product output, for example `["hog_flow_proposal:write"]` for workflow suggestions.
+Without that grant, the scout cannot write its output.
+A dry run (`emit: false`) never holds the grant, so the scout writes no output in a dry run.
+Give the skill a name without the `signals-scout-` prefix.
+The coordinator auto-registers an enabled config for a prefixed skill that has no config, so a prefixed scout can run on the defaults before your `scout-config-create` call.

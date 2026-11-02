@@ -85,6 +85,28 @@ METORIAL_ENDPOINTS: dict[str, MetorialEndpointConfig] = {
         default_incremental_field="updated_at",
         incremental_fields=[_incremental_field("updated_at"), _incremental_field("created_at")],
     ),
+    # Providers attached to a session. `status` and `usage` change over the session's lifetime.
+    "session_providers": MetorialEndpointConfig(
+        name="session_providers",
+        path="/session-providers",
+        default_incremental_field="updated_at",
+        incremental_fields=[_incremental_field("updated_at"), _incremental_field("created_at")],
+    ),
+    # Mutable per-actor/identity materializations of an integration (status, providers, archived_at).
+    "integration_instances": MetorialEndpointConfig(
+        name="integration_instances",
+        path="/integration-instances",
+        default_incremental_field="updated_at",
+        incremental_fields=[_incremental_field("updated_at"), _incremental_field("created_at")],
+    ),
+    # Versions of the global provider catalog, so off by default like `providers`.
+    "provider_versions": MetorialEndpointConfig(
+        name="provider_versions",
+        path="/provider-versions",
+        default_incremental_field="updated_at",
+        incremental_fields=[_incremental_field("updated_at"), _incremental_field("created_at")],
+        should_sync_default=False,
+    ),
     # The provider catalog exposes no server-side timestamp filter, so it can only be full-refreshed.
     # It's a global reference catalog (not project-specific), so it's off by default.
     "providers": MetorialEndpointConfig(

@@ -49,7 +49,7 @@ const offFormatVersions = new Counter({
 
 // `origin` is a loose string, not an enum: nothing branches on it, and rejecting a value the
 // processor added later would throw the whole batch and crash-loop on redelivery.
-const CohortMembershipChangeSchema = z.object({
+export const CohortMembershipChangeSchema = z.object({
     person_id: z.guid(),
     cohort_id: z.number(),
     team_id: z.number(),

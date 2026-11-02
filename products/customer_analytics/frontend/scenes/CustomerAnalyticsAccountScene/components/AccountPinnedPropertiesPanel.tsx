@@ -7,13 +7,13 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import {
     accountSidebarConfigLogic,
+    buildPinnedPropertyOptions,
     configuratorKeysToPinnedProperties,
     pinnedPropertyToConfiguratorKey,
 } from '../accountSidebarConfigLogic'
 import { AccountPropertyEditSource, accountSidebarPropertiesLogic } from '../accountSidebarPropertiesLogic'
 import { AccountPinnedProperties, AccountPinnedPropertiesProps } from './AccountPinnedProperties'
 import { AccountPropertyConfigurator } from './AccountPropertyConfigurator'
-import type { AccountPropertyOption } from './accountPropertyTypes'
 
 export interface AccountPinnedPropertiesPanelProps {
     accountId: string
@@ -70,18 +70,9 @@ export function AccountPinnedPropertiesPanel({
         }
     }
     const configuratorKey = `${source}:${accountId}`
-    const propertyOptions: AccountPropertyOption[] = [
-        ...(availableDefinitions?.customProperties ?? []).map((definition) => ({
-            key: pinnedPropertyToConfiguratorKey({ kind: 'custom_property', id: definition.id }),
-            label: definition.name,
-            kind: 'custom' as const,
-        })),
-        ...(availableDefinitions?.relationships ?? []).map((definition) => ({
-            key: pinnedPropertyToConfiguratorKey({ kind: 'relationship', id: definition.id }),
-            label: definition.name,
-            kind: 'relationship' as const,
-        })),
-    ]
+    const propertyOptions = buildPinnedPropertyOptions(
+        availableDefinitions ?? { customProperties: [], relationships: [] }
+    )
 
     return (
         <div className="flex flex-col flex-1 min-h-0" data-attr="account-rail-properties">

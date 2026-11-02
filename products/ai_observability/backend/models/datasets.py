@@ -7,6 +7,7 @@ from django.db.models.expressions import NegatedExpression
 from django.db.models.lookups import Exact
 
 from posthog.models.scoping.manager import TeamScopedManager
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 
@@ -21,7 +22,7 @@ def _json_type_is_not(field_name: str, json_type: str) -> NegatedExpression:
     return NegatedExpression(_json_type_is(field_name, json_type))
 
 
-class Dataset(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
+class Dataset(Taggable, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     objects = TeamScopedManager()
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")

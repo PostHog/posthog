@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -30,6 +31,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CopperSource(ResumableSource[CopperSourceConfig, CopperResumeConfig]):
+    codebase_detection = detect(env=("^COPPER_",))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://developer.copper.com"
@@ -114,7 +117,7 @@ class CopperSource(ResumableSource[CopperSourceConfig, CopperResumeConfig]):
             name=ExternalDataSourceType.COPPER,
             category=DataWarehouseSourceCategory.CRM,
             label="Copper",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Sync your Copper CRM data into the PostHog Data warehouse.
 
 Generate an API key in Copper under **Settings → Integrations → API Keys**. The email below must be the email of the user the API key belongs to.""",

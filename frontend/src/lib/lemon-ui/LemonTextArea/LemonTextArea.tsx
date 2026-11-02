@@ -35,6 +35,8 @@ interface LemonTextAreaPropsBase extends Pick<
      * Used for informational notes like whether markdown content is supported
      */
     rightFooter?: ReactElement
+    /** Replaces the built-in actions and character count. */
+    footer?: ReactElement
 }
 
 export interface LemonTextAreaWithCmdEnterProps extends LemonTextAreaPropsBase {
@@ -62,6 +64,7 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
         stopPropagation,
         actions,
         rightFooter,
+        footer,
         autoFocus,
         hideFocus = false,
         ...textProps
@@ -71,7 +74,7 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
     const _ref = useRef<HTMLTextAreaElement | null>(null)
     const textRef = ref || _ref
 
-    const hasFooter = (actions || []).length || textProps.maxLength || rightFooter
+    const hasFooter = footer || (actions || []).length || textProps.maxLength || rightFooter
 
     const textLength = textProps.value?.length ?? 0
 
@@ -109,21 +112,22 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
                 autoFocus={!!autoFocus}
                 {...textProps}
             />
-            {hasFooter ? (
-                <div className="flex flex-row gap-x-2 justify-between border-l border-r border-b rounded-b px-1">
-                    <div className="flex flex-row items-center">{actions}</div>
-                    <div className="flex flex-row gap-x-1 items-center">
-                        <div className="flex flex-row gap-x-1 justify-end flex-grow">
-                            {rightFooter}
-                            {textProps.maxLength ? (
-                                <div className={cn('text-sm', textLength >= textProps?.maxLength && 'text-error')}>
-                                    {textLength} / {textProps.maxLength}
-                                </div>
-                            ) : null}
+            {footer ??
+                (hasFooter ? (
+                    <div className="flex flex-row gap-x-2 justify-between border-l border-r border-b rounded-b px-1">
+                        <div className="flex flex-row items-center">{actions}</div>
+                        <div className="flex flex-row gap-x-1 items-center">
+                            <div className="flex flex-row gap-x-1 justify-end flex-grow">
+                                {rightFooter}
+                                {textProps.maxLength ? (
+                                    <div className={cn('text-sm', textLength >= textProps?.maxLength && 'text-error')}>
+                                        {textLength} / {textProps.maxLength}
+                                    </div>
+                                ) : null}
+                            </div>
                         </div>
                     </div>
-                </div>
-            ) : null}
+                ) : null)}
         </div>
     )
 })

@@ -107,7 +107,7 @@ def _build_parent_resource(
     path_format_values: Mapping[str, str],
     page_size_param: str | None,
     parent_endpoint_extra: Endpoint | None,
-    parent_data_map: Callable[[dict[str, Any]], dict[str, Any]] | None,
+    parent_data_map: Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]] | None,
 ) -> EndpointResource:
     # page_size_param=None is for APIs whose list endpoints take no page-size param at all
     # (unpaginated, full-collection responses) — sending one would be an undocumented param.
@@ -308,13 +308,14 @@ def build_dependent_resource(
     parent_endpoint_extra: Endpoint | None = None,
     child_endpoint_extra: Endpoint | None = None,
     child_params_extra: dict[str, Any] | None = None,
-    parent_data_map: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+    parent_data_map: Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]] | None = None,
     page_size_param: str | None = "limit",
     resume_hook: Callable[[dict[str, Any] | None], None] | None = None,
     initial_paginator_state: dict[str, Any] | None = None,
     source_id: str | None = None,
     use_warehouse_parent: bool = False,
     parent_snapshot_at: datetime | None = None,
+    resume_parent_pagination: bool = False,
 ) -> Iterable[Any]:
     parent_config = endpoint_configs[fanout.parent_name]
     child_config = endpoint_configs[child_endpoint]
@@ -357,6 +358,8 @@ def build_dependent_resource(
         incremental_field=incremental_field,
         incremental_config_factory=incremental_config_factory,
     )
+    if resume_parent_pagination:
+        child_resource["resume_parent_pagination"] = True
 
     config: RESTAPIConfig = {
         "client": client_config,

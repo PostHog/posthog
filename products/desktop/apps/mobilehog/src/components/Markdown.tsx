@@ -1,14 +1,30 @@
+import type { ObjectTagRef } from "@posthog/core/inbox/objectTags";
 import { isSafeExternalUrl } from "@posthog/shared";
-import { type MarkedToken, marked, type Token, type Tokens } from "marked";
-import { type ReactNode, useMemo } from "react";
+import type { MarkedToken, Token, Tokens } from "marked";
+import { type ReactNode, useMemo, useState } from "react";
 import {
   type ColorValue,
+  Image,
   Linking,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import { MermaidDiagram } from "@/components/MermaidDiagram";
+import {
+  ObjectCard,
+  openObjectUrl,
+  useObjectUrl,
+} from "@/components/ObjectCard";
+import { lexMarkdown, splitImageRuns } from "@/lib/markdown";
+import { isClosedFence, isMermaidLang } from "@/lib/mermaid";
+import {
+  isObjectCardToken,
+  isObjectRefToken,
+  isObjectTagMarkup,
+} from "@/lib/objectTags";
 import { colors, fonts } from "@/lib/theme";
 
 interface MarkdownProps {
@@ -20,30 +36,46 @@ function openLink(href: string): void {
   if (isSafeExternalUrl(href)) Linking.openURL(href).catch(() => {});
 }
 
+// Kinds without a page in PostHog read as plain text.
+function ObjectChip({ target }: { target: ObjectTagRef }): ReactNode {
+  const url = useObjectUrl(target.kind, target.id);
+  return url ? (
+    <Text style={styles.chip} onPress={() => openObjectUrl(url)}>
+      {target.label}
+    </Text>
+  ) : (
+    target.label
+  );
+}
+
 function renderInline(
   tokens: Token[] | undefined,
   color: ColorValue,
+  linked = false,
 ): ReactNode[] {
   return (tokens ?? []).map((raw, index) => {
-    const token = raw as MarkedToken;
     const key = String(index);
+    if (isObjectRefToken(raw)) {
+      return <ObjectChip key={key} target={raw.ref} />;
+    }
+    const token = raw as MarkedToken;
     switch (token.type) {
       case "strong":
         return (
           <Text key={key} style={{ fontFamily: fonts.sansSemi, color }}>
-            {renderInline(token.tokens, color)}
+            {renderInline(token.tokens, color, linked)}
           </Text>
         );
       case "em":
         return (
           <Text key={key} style={{ fontFamily: fonts.sansItalic, color }}>
-            {renderInline(token.tokens, color)}
+            {renderInline(token.tokens, color, linked)}
           </Text>
         );
       case "del":
         return (
           <Text key={key} style={styles.strike}>
-            {renderInline(token.tokens, color)}
+            {renderInline(token.tokens, color, linked)}
           </Text>
         );
       case "codespan":
@@ -59,14 +91,28 @@ function renderInline(
             style={styles.link}
             onPress={() => openLink(token.href)}
           >
-            {renderInline(token.tokens, colors.accent)}
+            {renderInline(token.tokens, colors.accent, true)}
           </Text>
+        );
+      case "image":
+        return !linked && isSafeExternalUrl(token.href) ? (
+          <Text
+            key={key}
+            style={styles.link}
+            onPress={() => openLink(token.href)}
+          >
+            {token.text || token.href}
+          </Text>
+        ) : (
+          token.text
         );
       case "br":
         return "\n";
+      case "html":
+        return isObjectTagMarkup(token.text) ? null : token.text;
       case "text":
         return token.tokens ? (
-          <Text key={key}>{renderInline(token.tokens, color)}</Text>
+          <Text key={key}>{renderInline(token.tokens, color, linked)}</Text>
         ) : (
           token.text
         );
@@ -138,24 +184,103 @@ function List({ token, color }: { token: Tokens.List; color: ColorValue }) {
   );
 }
 
+interface ImageSize {
+  width: number;
+  height: number;
+}
+
+function MarkdownImage({ token }: { token: Tokens.Image }) {
+  const [size, setSize] = useState<ImageSize | null>(null);
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <Text
+        style={[styles.body, styles.link]}
+        onPress={() => openLink(token.href)}
+      >
+        {token.text || token.href}
+      </Text>
+    );
+  }
+  return (
+    <Pressable
+      onPress={() => openLink(token.href)}
+      accessibilityRole="imagebutton"
+      accessibilityLabel={token.text || undefined}
+    >
+      <Image
+        source={{ uri: token.href }}
+        onLoad={(event) => {
+          const { width, height } = event.nativeEvent.source;
+          if (width > 0 && height > 0) setSize({ width, height });
+        }}
+        onError={() => setFailed(true)}
+        style={[
+          styles.image,
+          size
+            ? { aspectRatio: size.width / size.height }
+            : styles.imagePending,
+        ]}
+      />
+    </Pressable>
+  );
+}
+
+function Paragraph({ tokens, color }: { tokens: Token[]; color: ColorValue }) {
+  const runs = splitImageRuns(tokens);
+  if (!runs.some((run) => run.kind === "image")) {
+    return (
+      <Text style={[styles.body, { color }]} selectable>
+        {renderInline(tokens, color)}
+      </Text>
+    );
+  }
+  return (
+    <View style={styles.runs}>
+      {runs.map((run, index) =>
+        run.kind === "image" ? (
+          <MarkdownImage key={`${index}-${run.token.href}`} token={run.token} />
+        ) : (
+          <Text key={String(index)} style={[styles.body, { color }]} selectable>
+            {renderInline(run.tokens, color)}
+          </Text>
+        ),
+      )}
+    </View>
+  );
+}
+
+function CodeBlock({ token }: { token: Tokens.Code }) {
+  return (
+    <View style={styles.codeBlock}>
+      {token.lang ? <Text style={styles.codeLang}>{token.lang}</Text> : null}
+      <Text style={styles.codeText} selectable>
+        {token.text}
+      </Text>
+    </View>
+  );
+}
+
 function renderBlocks(
   tokens: Token[] | undefined,
   color: ColorValue,
 ): ReactNode[] {
   return (tokens ?? []).map((raw, index) => {
+    const key = `${index}-${raw.type}`;
+    if (isObjectCardToken(raw)) {
+      return <ObjectCard key={key} spec={raw.spec} />;
+    }
     const token = raw as MarkedToken;
-    const key = `${index}-${token.type}`;
     switch (token.type) {
       case "code":
-        return (
-          <View key={key} style={styles.codeBlock}>
-            {token.lang ? (
-              <Text style={styles.codeLang}>{token.lang}</Text>
-            ) : null}
-            <Text style={styles.codeText} selectable>
-              {token.text}
-            </Text>
-          </View>
+        return isMermaidLang(token.lang) && isClosedFence(token.raw) ? (
+          <MermaidDiagram
+            key={key}
+            code={token.text}
+            fallback={<CodeBlock token={token} />}
+          />
+        ) : (
+          <CodeBlock key={key} token={token} />
         );
       case "heading":
         return (
@@ -189,9 +314,7 @@ function renderBlocks(
       case "paragraph":
       case "text":
         return (
-          <Text key={key} style={[styles.body, { color }]} selectable>
-            {renderInline(token.tokens, color)}
-          </Text>
+          <Paragraph key={key} tokens={token.tokens ?? []} color={color} />
         );
       default:
         return null;
@@ -200,7 +323,7 @@ function renderBlocks(
 }
 
 export function Markdown({ text, color = colors.ink }: MarkdownProps) {
-  const tokens = useMemo(() => marked.lexer(text), [text]);
+  const tokens = useMemo(() => lexMarkdown(text), [text]);
   return <View style={styles.root}>{renderBlocks(tokens, color)}</View>;
 }
 
@@ -250,7 +373,19 @@ const styles = StyleSheet.create({
     color: colors.ink,
   },
   strike: { textDecorationLine: "line-through" },
+  runs: { gap: 8 },
+  image: {
+    width: "100%",
+    borderRadius: 16,
+    backgroundColor: colors.fill,
+  },
+  imagePending: { aspectRatio: 16 / 9 },
   link: { color: colors.accent, textDecorationLine: "underline" },
+  chip: {
+    fontFamily: fonts.sansMedium,
+    color: colors.accent,
+    backgroundColor: colors.fill,
+  },
   table: {
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.line,

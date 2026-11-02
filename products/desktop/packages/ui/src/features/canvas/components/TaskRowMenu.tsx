@@ -3,6 +3,8 @@ import {
   ArrowSquareOutIcon,
   CaretRightIcon,
   DotsThreeIcon,
+  EnvelopeSimpleIcon,
+  EnvelopeSimpleOpenIcon,
   FolderSimpleIcon,
   LinkIcon,
   MagnifyingGlassIcon,
@@ -32,7 +34,6 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@posthog/quill";
-import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import {
   TaskArchiveMenuItem,
@@ -44,10 +45,10 @@ import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useFileTaskToChannel } from "@posthog/ui/features/canvas/hooks/useFileTaskToChannel";
 import { copyCanvasLink } from "@posthog/ui/features/canvas/utils/copyCanvasLink";
 import { copyChannelLink } from "@posthog/ui/features/canvas/utils/copyChannelLink";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useSidebarPeekStore } from "@posthog/ui/features/sidebar/sidebarPeekStore";
 import { useHoldSidebarPeek } from "@posthog/ui/features/sidebar/useHoldSidebarPeek";
 import type { SidebarBulkActions } from "@posthog/ui/features/sidebar/useSidebarBulkActions";
+import { useTaskReadItem } from "@posthog/ui/features/sidebar/useToggleTaskRead";
 import { useTaskAnalysis } from "@posthog/ui/features/task-detail/components/TaskAnalysisButton";
 import {
   type MenuFlyoutItem,
@@ -136,6 +137,27 @@ function TaskAnalysisMenuItem({
   );
 }
 
+function TaskReadMenuItem({
+  Item,
+  task,
+}: {
+  Item: MenuParts["Item"];
+  task: Task;
+}): ReactElement {
+  const { isUnread, toggle } = useTaskReadItem(task);
+
+  return (
+    <Item onClick={toggle}>
+      {isUnread ? (
+        <EnvelopeSimpleOpenIcon size={14} />
+      ) : (
+        <EnvelopeSimpleIcon size={14} />
+      )}
+      {isUnread ? "Mark as read" : "Mark as unread"}
+    </Item>
+  );
+}
+
 /**
  * The row's actions, in the order the native menu used: the edits, then the
  * places a task can be sent, then the destructive one last.
@@ -148,16 +170,10 @@ function TaskRowMenuItems({
   menu: TaskRowMenuProps;
 }) {
   const { Item, Sub, SubTrigger } = parts;
-  // "File to…" is a Project Bluebird feature; gate the channel fetch behind the
-  // flag so neither the submenu nor its request reaches ungated users.
-  const bluebirdEnabled = useFeatureFlag(
-    PROJECT_BLUEBIRD_FLAG,
-    import.meta.env.DEV,
-  );
   const isTask = menu.kind === "task";
   const analysisTask = isTask && menu.task?.latest_run ? menu.task : null;
-  const { channels } = useChannels({ enabled: bluebirdEnabled });
-  const fileToChannel = useFileTaskToChannel({ enabled: bluebirdEnabled });
+  const { channels } = useChannels();
+  const fileToChannel = useFileTaskToChannel();
   const openBrowserTab = useOpenBrowserTab();
 
   const channelItems: MenuFlyoutItem[] = channels.map((channel) => ({
@@ -202,6 +218,7 @@ function TaskRowMenuItems({
         <LinkIcon size={14} />
         Copy link
       </Item>
+      {isTask && menu.task && <TaskReadMenuItem Item={Item} task={menu.task} />}
       <Item onClick={menu.onTogglePin}>
         {menu.isPinned ? (
           <PushPinSlashIcon size={14} />

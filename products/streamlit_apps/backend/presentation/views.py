@@ -4,7 +4,6 @@ from django.core.cache import cache
 
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
-from loginas.utils import is_impersonated_session
 from rest_framework import status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -109,7 +108,6 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 team_id=self.team_id,
                 user=cast(User, request.user),
                 data=request.validated_data,
-                was_impersonated=is_impersonated_session(request),
             )
         except ValueError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -128,9 +126,7 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             app = api.update_app(
                 team_id=self.team_id,
                 short_id=short_id,
-                user=cast(User, request.user),
                 data=request.validated_data,
-                was_impersonated=is_impersonated_session(request),
             )
         except api.AppNotFoundError:
             return Response(status=status.HTTP_404_NOT_FOUND)
@@ -157,12 +153,7 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(summary="Delete a streamlit app", request=None, responses={204: None})
     def destroy(self, request: Request, short_id: str, **kwargs: Any) -> Response:
         try:
-            api.delete_app(
-                team_id=self.team_id,
-                short_id=short_id,
-                user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
-            )
+            api.delete_app(team_id=self.team_id, short_id=short_id)
         except api.AppNotFoundError:
             return Response(status=status.HTTP_404_NOT_FOUND)
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -206,7 +197,6 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 user=cast(User, request.user),
                 file_content=file_content,
                 declared_size=zip_file.size,
-                was_impersonated=is_impersonated_session(request),
             )
         except api.AppNotFoundError:
             return Response(status=status.HTTP_404_NOT_FOUND)
@@ -239,7 +229,6 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 short_id=short_id,
                 user=cast(User, request.user),
                 data=request.validated_data,
-                was_impersonated=is_impersonated_session(request),
             )
         except api.AppNotFoundError:
             return Response(status=status.HTTP_404_NOT_FOUND)
@@ -300,7 +289,6 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 short_id=short_id,
                 user=cast(User, request.user),
                 data=request.validated_data,
-                was_impersonated=is_impersonated_session(request),
             )
         except api.AppNotFoundError:
             return Response(status=status.HTTP_404_NOT_FOUND)
@@ -342,7 +330,6 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 short_id=short_id,
                 user=cast(User, request.user),
                 version_number=version_number,
-                was_impersonated=is_impersonated_session(request),
             )
         except api.AppNotFoundError:
             return Response(status=status.HTTP_404_NOT_FOUND)

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,6 +33,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ZendutySource(ResumableSource[ZendutySourceConfig, ZendutyResumeConfig]):
+    codebase_detection = detect(
+        env=("^ZENDUTY_",),
+        pypi=("zenduty-api",),
+        go=("github.com/Zenduty/zenduty-go-sdk", "github.com/Zenduty/sensu-go-zenduty-handler"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://apidocs.zenduty.com/"
 
@@ -45,7 +52,7 @@ class ZendutySource(ResumableSource[ZendutySourceConfig, ZendutyResumeConfig]):
             name=ExternalDataSourceType.ZENDUTY,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Zenduty",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Zenduty API key to automatically pull your Zenduty incident-management and on-call data into the PostHog Data warehouse.
 
 Create an API key in your Zenduty account under **Account Settings → Access → API Keys** (account owners and admins only). The key is account-scoped and read access is enough for syncing.""",

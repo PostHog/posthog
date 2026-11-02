@@ -30,7 +30,9 @@ export function SearchSourceSuggestions(): JSX.Element {
                         to: urls.dataWarehouseSourceNew(
                             source,
                             `${urls.marketingAnalyticsApp()}?tab=ad-performance`,
-                            'Marketing analytics'
+                            'Marketing analytics',
+                            undefined,
+                            'marketing_analytics_search_suggestions'
                         ),
                     }}
                 >

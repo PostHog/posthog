@@ -29,6 +29,7 @@ from posthog.api.documentation import OpenApiParameter, extend_schema
 from posthog.models import PropertyDefinition
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.permissions import get_authenticator_scoped_team_ids
 from posthog.scopes import APIScopeObject
 
@@ -63,6 +64,8 @@ from products.access_control.backend.models.role import Role, RoleMembership
 from .access_control import AccessControlSerializer, apply_access_control_rule, upsert_access_control
 from .serializers import (
     AccessControlDefaultsResponseSerializer,
+    AccessControlManagementRequestSerializer,
+    AccessControlManagementSerializer,
     AccessControlMemberRuleRequestSerializer,
     AccessControlMembersResponseSerializer,
     AccessControlObjectRulesResponseSerializer,
@@ -156,6 +159,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             "access_control_role_properties",
             "access_control_object_search",
             "access_control_resolution_preview",
+            "access_control_management",
         ]:
             return ["access_control:read"]
         if request.method == "PUT" and self.action in [
@@ -163,6 +167,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             "access_control_default_rules",
             "access_control_member_rules",
             "access_control_role_rules",
+            "access_control_management",
         ]:
             return ["access_control:write"]
         if request.method == "POST" and self.action == "access_control_resolution_accept":
@@ -266,6 +271,38 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         )
 
     @extend_schema(
+        methods=["GET"],
+        description="Whether Terraform manages this project's access rules.",
+        responses={200: AccessControlManagementSerializer},
+        extensions=_SCHEMA_EXTENSIONS,
+    )
+    @extend_schema(
+        methods=["PUT"],
+        description="Enable or disable the Terraform lock. Disabled: the UI manages this project's access rules. "
+        "Enabled: only the account behind Terraform's API key can change them, and until Terraform writes for the "
+        "first time, nobody can. A Terraform write enables the lock. Project admins and organization admins can "
+        "call this.",
+        request=AccessControlManagementRequestSerializer,
+        responses={200: AccessControlManagementSerializer},
+        extensions=_SCHEMA_EXTENSIONS,
+    )
+    @action(methods=["GET", "PUT"], detail=True, url_path="access_control_management")
+    def access_control_management(self, request: Request, *args, **kwargs) -> Response:
+        team = cast(Team, self.team)  # type: ignore
+        if request.method == "PUT":
+            user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
+            if not user_access_control.check_can_modify_access_levels_for_object(team):
+                raise exceptions.PermissionDenied(
+                    "Only project admins and organization admins can change whether Terraform manages access control."
+                )
+            serializer = AccessControlManagementRequestSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            state = access_control_api.set_terraform_lock(team_id=team.id, enabled=serializer.validated_data["managed"])
+        else:
+            state = access_control_api.get_terraform_lock(team_id=team.id)
+        return Response(AccessControlManagementSerializer(state).data)
+
+    @extend_schema(
         description="The project's default access. Returns the level that applies to the project and to each "
         "resource type when a member or a role has no rule of their own. Also lists the resource types that accept "
         "rules on single objects, with the levels such a rule can set.",
@@ -300,7 +337,9 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         payload = {
             "available_project_levels": list(ordered_access_levels("project")),
             "available_resource_levels": list(ACCESS_CONTROL_LEVELS_RESOURCE),
-            "can_edit": user_access_control.check_can_modify_access_levels_for_object(team),
+            "can_edit": user_access_control.check_can_modify_access_levels_for_object(team)
+            and access_control_api.can_write_access_rules(team_id=team.id, user_id=cast(User, request.user).id),
+            "is_managed_by_terraform": access_control_api.get_terraform_lock(team_id=team.id).managed,
             "project_access_level": project_access_level,
             "resource_access_levels": resource_access_levels,
             # The resources the settings UI can search and rule on; every entry works with
@@ -366,7 +405,8 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         payload = {
             "available_project_levels": list(ordered_access_levels("project")),
             "available_resource_levels": list(ACCESS_CONTROL_LEVELS_RESOURCE),
-            "can_edit": user_access_control.check_can_modify_access_levels_for_object(team),
+            "can_edit": user_access_control.check_can_modify_access_levels_for_object(team)
+            and access_control_api.can_write_access_rules(team_id=team.id, user_id=cast(User, request.user).id),
             "results": results,
         }
         return Response(AccessControlRolesResponseSerializer(payload).data)
@@ -402,7 +442,9 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         if request.query_params.get("member_id"):
             memberships = memberships.filter(id=self._get_membership(request, team).id)
 
-        can_edit = user_access_control.check_can_modify_access_levels_for_object(team)
+        can_edit = user_access_control.check_can_modify_access_levels_for_object(
+            team
+        ) and access_control_api.can_write_access_rules(team_id=team.id, user_id=cast(User, request.user).id)
         hide_non_project_members = (
             not team.organization.members_can_see_org_members and not user_access_control.is_organization_admin
         )
@@ -743,6 +785,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         data = {**request.data, "resource": resource, "resource_id": resource_id}
         return upsert_access_control(
             team=team,
+            user=cast(User, request.user),
             user_access_control=user_access_control,
             build_serializer=self._rule_serializer_builder(team, user_access_control, target, data),
         )
@@ -850,6 +893,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             body["role"] = str(role.id)
         rule = apply_access_control_rule(
             team=team,
+            user=cast(User, request.user),
             user_access_control=user_access_control,
             build_serializer=self._rule_serializer_builder(team, user_access_control, target, body),
         )

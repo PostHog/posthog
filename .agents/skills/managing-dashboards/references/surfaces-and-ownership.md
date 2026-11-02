@@ -2,7 +2,7 @@
 
 ## Start from the domain model
 
-- `Dashboard` owns project-scoped metadata, dashboard filters, variables, sharing state, restriction level, and tile relations.
+- `Dashboard` owns project-scoped metadata, dashboard filters, variables, sharing state, and tile relations.
 - `DashboardTile` owns one tile relation and per-breakpoint layout JSON.
 - A tile is exactly one insight, text card, button, or widget.
 - `DashboardTemplate` stores a copyable dashboard definition. It is not a live dashboard.

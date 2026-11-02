@@ -5,6 +5,17 @@ API_DOCS_URL = "https://docs.aws.amazon.com/compute-optimizer/latest/APIReferenc
 TARGET_PREFIXES = {API_VERSION: "ComputeOptimizerService"}
 DEFAULT_REGION = "us-east-1"
 PAGE_SIZE = 100
+# One daily peak per metric keeps the fan-out tables small while matching how Compute Optimizer sizes resources.
+PROJECTED_METRICS_STAT = "Maximum"
+PROJECTED_METRICS_PERIOD_SECONDS = 86400
+DEFAULT_LOOKBACK_DAYS = 14
+
+
+@frozen
+class ProjectedMetricsFanout:
+    parent: str
+    arn_field: str
+    lookback_field: str
 
 
 @frozen
@@ -13,6 +24,7 @@ class Endpoint:
     result_key: str
     primary_keys: tuple[str, ...]
     description: str
+    fanout: ProjectedMetricsFanout | None = None
 
 
 ENDPOINTS: dict[str, Endpoint] = {
@@ -45,6 +57,36 @@ ENDPOINTS: dict[str, Endpoint] = {
         result_key="volumeRecommendations",
         primary_keys=("volume_arn",),
         description="EBS volume recommendations with configuration options and estimated savings.",
+    ),
+    "rds_database_recommendations": Endpoint(
+        operation="GetRDSDatabaseRecommendations",
+        result_key="rdsDBRecommendations",
+        primary_keys=("resource_arn",),
+        description="Aurora and RDS database recommendations for instance classes and storage, with estimated savings.",
+    ),
+    "idle_recommendations": Endpoint(
+        operation="GetIdleRecommendations",
+        result_key="idleRecommendations",
+        primary_keys=("resource_arn",),
+        description="Idle resources across resource types, with utilization metrics and estimated savings.",
+    ),
+    "ec2_recommendation_projected_metrics": Endpoint(
+        operation="GetEC2RecommendationProjectedMetrics",
+        result_key="recommendedOptionProjectedMetrics",
+        primary_keys=("instance_arn", "rank", "metric_name", "timestamp"),
+        description="Daily peak CPU and memory utilization projected for each recommended EC2 instance type.",
+        fanout=ProjectedMetricsFanout(
+            parent="ec2_instance_recommendations", arn_field="instanceArn", lookback_field="lookBackPeriodInDays"
+        ),
+    ),
+    "ecs_service_recommendation_projected_metrics": Endpoint(
+        operation="GetECSServiceRecommendationProjectedMetrics",
+        result_key="recommendedOptionProjectedMetrics",
+        primary_keys=("service_arn", "recommended_cpu_units", "recommended_memory_size", "metric_name", "timestamp"),
+        description="Daily peak CPU and memory utilization bounds projected for each recommended ECS service size.",
+        fanout=ProjectedMetricsFanout(
+            parent="ecs_service_recommendations", arn_field="serviceArn", lookback_field="lookbackPeriodInDays"
+        ),
     ),
     "recommendation_summaries": Endpoint(
         operation="GetRecommendationSummaries",

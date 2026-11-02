@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ScrunchSource(ResumableSource[ScrunchSourceConfig, ScrunchResumeConfig]):
+    codebase_detection = NOT_DETECTABLE
+
     lists_tables_without_credentials = True
     supported_versions = (API_VERSION,)
     default_version = API_VERSION
@@ -95,7 +98,7 @@ class ScrunchSource(ResumableSource[ScrunchSourceConfig, ScrunchResumeConfig]):
             label="Scrunch",
             keywords=["scrunch ai", "ai search visibility", "aeo", "geo"],
             iconPath="/static/services/scrunch.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "An organization admin can create an API key under the organization menu > API Keys in Scrunch. "
                 "Select Query scope and the brands to import. "

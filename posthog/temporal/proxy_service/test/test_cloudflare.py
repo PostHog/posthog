@@ -1,6 +1,6 @@
 from unittest.mock import Mock, patch
 
-from django.test import SimpleTestCase, TestCase, override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
@@ -63,7 +63,7 @@ CLOUDFLARE_HOSTNAME_STATUSES = [
 ]
 
 
-class TestCloudflareAPIErrorIsRateLimited(TestCase):
+class TestCloudflareAPIErrorIsRateLimited(SimpleTestCase):
     @parameterized.expand(
         [
             ("error_code_10000", "Rate limited", [{"code": 10000}], True),

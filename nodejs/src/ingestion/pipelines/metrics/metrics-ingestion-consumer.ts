@@ -103,7 +103,11 @@ export class MetricsIngestionConsumer {
 
         return {
             backgroundTask: Promise.all([
-                this.produceValidMetricMessages(rateLimiterAllowedMessages),
+                this.produceValidMetricMessages(rateLimiterAllowedMessages).then(() =>
+                    this.deps.teamManager.setTeamsIngestedData(
+                        rateLimiterAllowedMessages.map((message) => message.teamId)
+                    )
+                ),
                 this.emitUsageMetrics(usageStats),
             ]),
             messages: rateLimiterAllowedMessages,

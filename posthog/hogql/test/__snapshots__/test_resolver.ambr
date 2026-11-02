@@ -64,6 +64,10 @@
                             description: None,
                             hidden: False
                           },
+                          $virt_mcp_harness: {
+                            description: "MCP client label computed from this event's client identity signals.",
+                            hidden: False
+                          },
                           $virt_traffic_category: {
                             description: None,
                             hidden: False
@@ -378,6 +382,7 @@
                         field: "fingerprint_issue_state"
                         lazy_join: {
                           description: None,
+                          extra_from_fields: [],
                           from_field: [
                             "fingerprint"
                           ],
@@ -455,6 +460,7 @@
                         field: "fingerprint_issue_state"
                         lazy_join: {
                           description: None,
+                          extra_from_fields: [],
                           from_field: [
                             "fingerprint"
                           ],
@@ -532,6 +538,7 @@
                         field: "fingerprint_issue_state"
                         lazy_join: {
                           description: None,
+                          extra_from_fields: [],
                           from_field: [
                             "fingerprint"
                           ],
@@ -609,6 +616,7 @@
                         field: "fingerprint_issue_state"
                         lazy_join: {
                           description: None,
+                          extra_from_fields: [],
                           from_field: [
                             "fingerprint"
                           ],
@@ -686,6 +694,7 @@
                         field: "fingerprint_issue_state"
                         lazy_join: {
                           description: None,
+                          extra_from_fields: [],
                           from_field: [
                             "fingerprint"
                           ],
@@ -763,6 +772,7 @@
                         field: "fingerprint_issue_state"
                         lazy_join: {
                           description: None,
+                          extra_from_fields: [],
                           from_field: [
                             "fingerprint"
                           ],
@@ -840,6 +850,7 @@
                         field: "fingerprint_issue_state"
                         lazy_join: {
                           description: None,
+                          extra_from_fields: [],
                           from_field: [
                             "fingerprint"
                           ],
@@ -917,6 +928,7 @@
                         field: "fingerprint_issue_state"
                         lazy_join: {
                           description: None,
+                          extra_from_fields: [],
                           from_field: [
                             "fingerprint"
                           ],
@@ -1740,6 +1752,7 @@
                                 field: "override"
                                 lazy_join: {
                                   description: None,
+                                  extra_from_fields: [],
                                   from_field: [
                                     "distinct_id"
                                   ],
@@ -1827,6 +1840,7 @@
                         field: "override"
                         lazy_join: {
                           description: None,
+                          extra_from_fields: [],
                           from_field: [
                             "distinct_id"
                           ],
@@ -2334,6 +2348,10 @@
                     description: None,
                     hidden: False
                   },
+                  $virt_mcp_harness: {
+                    description: "MCP client label computed from this event's client identity signals.",
+                    hidden: False
+                  },
                   $virt_traffic_category: {
                     description: None,
                     hidden: False
@@ -2728,6 +2746,7 @@
                             field: "override"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "distinct_id"
                               ],
@@ -2818,6 +2837,7 @@
                     field: "override"
                     lazy_join: {
                       description: None,
+                      extra_from_fields: [],
                       from_field: [
                         "distinct_id"
                       ],
@@ -3155,6 +3175,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -3251,6 +3272,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -3347,6 +3369,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -3443,6 +3466,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -3539,6 +3563,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -3635,6 +3660,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -3731,6 +3757,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -3827,6 +3854,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -5334,6 +5362,10 @@
                                 description: None,
                                 hidden: False
                               },
+                              $virt_mcp_harness: {
+                                description: "MCP client label computed from this event's client identity signals.",
+                                hidden: False
+                              },
                               $virt_traffic_category: {
                                 description: None,
                                 hidden: False
@@ -5648,6 +5680,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -5725,6 +5758,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -5802,6 +5836,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -5879,6 +5914,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -5956,6 +5992,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -6033,6 +6070,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -6110,6 +6148,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -6187,6 +6226,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -6365,6 +6405,10 @@
                                 description: None,
                                 hidden: False
                               },
+                              $virt_mcp_harness: {
+                                description: "MCP client label computed from this event's client identity signals.",
+                                hidden: False
+                              },
                               $virt_traffic_category: {
                                 description: None,
                                 hidden: False
@@ -6679,6 +6723,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -6756,6 +6801,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -6833,6 +6879,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -6910,6 +6957,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -6987,6 +7035,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -7064,6 +7113,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -7141,6 +7191,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -7218,6 +7269,7 @@
                             field: "fingerprint_issue_state"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "fingerprint"
                               ],
@@ -8044,6 +8096,7 @@
                                   field: "override"
                                   lazy_join: {
                                     description: None,
+                                    extra_from_fields: [],
                                     from_field: [
                                       "distinct_id"
                                     ],
@@ -8131,6 +8184,7 @@
                           field: "override"
                           lazy_join: {
                             description: None,
+                            extra_from_fields: [],
                             from_field: [
                               "distinct_id"
                             ],
@@ -8692,6 +8746,7 @@
                                       field: "override"
                                       lazy_join: {
                                         description: None,
+                                        extra_from_fields: [],
                                         from_field: [
                                           "distinct_id"
                                         ],
@@ -8779,6 +8834,7 @@
                               field: "override"
                               lazy_join: {
                                 description: None,
+                                extra_from_fields: [],
                                 from_field: [
                                   "distinct_id"
                                 ],
@@ -9521,6 +9577,10 @@
                     description: None,
                     hidden: False
                   },
+                  $virt_mcp_harness: {
+                    description: "MCP client label computed from this event's client identity signals.",
+                    hidden: False
+                  },
                   $virt_traffic_category: {
                     description: None,
                     hidden: False
@@ -9911,6 +9971,7 @@
                             field: "override"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "distinct_id"
                               ],
@@ -10001,6 +10062,7 @@
                     field: "override"
                     lazy_join: {
                       description: None,
+                      extra_from_fields: [],
                       from_field: [
                         "distinct_id"
                       ],
@@ -10338,6 +10400,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -10434,6 +10497,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -10530,6 +10594,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -10626,6 +10691,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -10722,6 +10788,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -10818,6 +10885,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -10914,6 +10982,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -11010,6 +11079,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -11201,6 +11271,10 @@
                     },
                     $virt_is_bot: {
                       description: None,
+                      hidden: False
+                    },
+                    $virt_mcp_harness: {
+                      description: "MCP client label computed from this event's client identity signals.",
                       hidden: False
                     },
                     $virt_traffic_category: {
@@ -11594,6 +11668,7 @@
                             field: "override"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "distinct_id"
                               ],
@@ -11684,6 +11759,7 @@
                     field: "override"
                     lazy_join: {
                       description: None,
+                      extra_from_fields: [],
                       from_field: [
                         "distinct_id"
                       ],
@@ -12021,6 +12097,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -12117,6 +12194,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -12213,6 +12291,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -12309,6 +12388,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -12405,6 +12485,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -12501,6 +12582,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -12597,6 +12679,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -12693,6 +12776,7 @@
                 field: "fingerprint_issue_state"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "fingerprint"
                   ],
@@ -12885,6 +12969,10 @@
                       },
                       $virt_is_bot: {
                         description: None,
+                        hidden: False
+                      },
+                      $virt_mcp_harness: {
+                        description: "MCP client label computed from this event's client identity signals.",
                         hidden: False
                       },
                       $virt_traffic_category: {
@@ -13186,6 +13274,10 @@
                       },
                       $virt_is_bot: {
                         description: None,
+                        hidden: False
+                      },
+                      $virt_mcp_harness: {
+                        description: "MCP client label computed from this event's client identity signals.",
                         hidden: False
                       },
                       $virt_traffic_category: {
@@ -13837,6 +13929,10 @@
                     description: None,
                     hidden: False
                   },
+                  $virt_mcp_harness: {
+                    description: "MCP client label computed from this event's client identity signals.",
+                    hidden: False
+                  },
                   $virt_traffic_category: {
                     description: None,
                     hidden: False
@@ -14172,6 +14268,10 @@
                     },
                     $virt_is_bot: {
                       description: None,
+                      hidden: False
+                    },
+                    $virt_mcp_harness: {
+                      description: "MCP client label computed from this event's client identity signals.",
                       hidden: False
                     },
                     $virt_traffic_category: {
@@ -14513,6 +14613,10 @@
                       },
                       $virt_is_bot: {
                         description: None,
+                        hidden: False
+                      },
+                      $virt_mcp_harness: {
+                        description: "MCP client label computed from this event's client identity signals.",
                         hidden: False
                       },
                       $virt_traffic_category: {
@@ -14894,6 +14998,10 @@
                               },
                               $virt_is_bot: {
                                 description: None,
+                                hidden: False
+                              },
+                              $virt_mcp_harness: {
+                                description: "MCP client label computed from this event's client identity signals.",
                                 hidden: False
                               },
                               $virt_traffic_category: {
@@ -15283,6 +15391,10 @@
                     description: None,
                     hidden: False
                   },
+                  $virt_mcp_harness: {
+                    description: "MCP client label computed from this event's client identity signals.",
+                    hidden: False
+                  },
                   $virt_traffic_category: {
                     description: None,
                     hidden: False
@@ -15495,6 +15607,7 @@
               field: "person"
               lazy_join: {
                 description: None,
+                extra_from_fields: [],
                 from_field: [
                   "person_id"
                 ],
@@ -15508,6 +15621,7 @@
                 field: "pdi"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "distinct_id"
                   ],
@@ -15640,6 +15754,10 @@
                       description: None,
                       hidden: False
                     },
+                    $virt_mcp_harness: {
+                      description: "MCP client label computed from this event's client identity signals.",
+                      hidden: False
+                    },
                     $virt_traffic_category: {
                       description: None,
                       hidden: False
@@ -15854,6 +15972,7 @@
               field: "person"
               lazy_join: {
                 description: None,
+                extra_from_fields: [],
                 from_field: [
                   "person_id"
                 ],
@@ -15867,6 +15986,7 @@
                 field: "pdi"
                 lazy_join: {
                   description: None,
+                  extra_from_fields: [],
                   from_field: [
                     "distinct_id"
                   ],
@@ -15996,6 +16116,10 @@
                   },
                   $virt_is_bot: {
                     description: None,
+                    hidden: False
+                  },
+                  $virt_mcp_harness: {
+                    description: "MCP client label computed from this event's client identity signals.",
                     hidden: False
                   },
                   $virt_traffic_category: {
@@ -16209,6 +16333,7 @@
               field: "pdi"
               lazy_join: {
                 description: None,
+                extra_from_fields: [],
                 from_field: [
                   "distinct_id"
                 ],
@@ -16338,6 +16463,10 @@
                     },
                     $virt_is_bot: {
                       description: None,
+                      hidden: False
+                    },
+                    $virt_mcp_harness: {
+                      description: "MCP client label computed from this event's client identity signals.",
                       hidden: False
                     },
                     $virt_traffic_category: {
@@ -16553,6 +16682,7 @@
               field: "pdi"
               lazy_join: {
                 description: None,
+                extra_from_fields: [],
                 from_field: [
                   "distinct_id"
                 ],
@@ -16690,6 +16820,7 @@
               field: "person"
               lazy_join: {
                 description: None,
+                extra_from_fields: [],
                 from_field: [
                   "person_id"
                 ],
@@ -16793,6 +16924,10 @@
                     },
                     $virt_is_bot: {
                       description: None,
+                      hidden: False
+                    },
+                    $virt_mcp_harness: {
+                      description: "MCP client label computed from this event's client identity signals.",
                       hidden: False
                     },
                     $virt_traffic_category: {
@@ -17091,6 +17226,10 @@
                         },
                         $virt_is_bot: {
                           description: None,
+                          hidden: False
+                        },
+                        $virt_mcp_harness: {
+                          description: "MCP client label computed from this event's client identity signals.",
                           hidden: False
                         },
                         $virt_traffic_category: {
@@ -17413,6 +17552,10 @@
                     description: None,
                     hidden: False
                   },
+                  $virt_mcp_harness: {
+                    description: "MCP client label computed from this event's client identity signals.",
+                    hidden: False
+                  },
                   $virt_traffic_category: {
                     description: None,
                     hidden: False
@@ -17632,6 +17775,7 @@
                             field: "override"
                             lazy_join: {
                               description: None,
+                              extra_from_fields: [],
                               from_field: [
                                 "distinct_id"
                               ],
@@ -17722,6 +17866,7 @@
                     field: "override"
                     lazy_join: {
                       description: None,
+                      extra_from_fields: [],
                       from_field: [
                         "distinct_id"
                       ],

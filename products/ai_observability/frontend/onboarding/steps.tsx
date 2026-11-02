@@ -2,16 +2,16 @@ import { SetupTaskId } from 'lib/components/ProductSetup'
 import {
     AIObservabilitySDKInstructions,
     AIObservabilitySDKTagOverrides,
-} from 'scenes/onboarding/legacy/sdks/ai-observability/AIObservabilitySDKInstructions'
-import { VERIFY_AI_EVENTS } from 'scenes/onboarding/legacy/sdks/hooks/useInstallationComplete'
-import { OnboardingInstallStep } from 'scenes/onboarding/legacy/sdks/OnboardingInstallStep'
-import { type ProductOnboardingProvider } from 'scenes/onboarding/legacy/types'
+} from 'scenes/onboarding/sdks/ai-observability/AIObservabilitySDKInstructions'
+import { VERIFY_AI_EVENTS } from 'scenes/onboarding/sdks/hooks/useInstallationComplete'
+import { OnboardingInstallStep } from 'scenes/onboarding/sdks/OnboardingInstallStep'
 import { AnthropicLogo } from 'scenes/onboarding/shared/logos/AnthropicLogo'
 import geminiImage from 'scenes/onboarding/shared/logos/gemini.svg'
 import { LangChainLogo } from 'scenes/onboarding/shared/logos/LangChainLogo'
 import { OpenAILogo } from 'scenes/onboarding/shared/logos/OpenAILogo'
 import { OpenRouterLogo } from 'scenes/onboarding/shared/logos/OpenRouterLogo'
 import type { WizardBadgeItem } from 'scenes/onboarding/shared/wizard-sync/WizardModeShell'
+import { type ProductOnboardingProvider } from 'scenes/onboarding/types'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'

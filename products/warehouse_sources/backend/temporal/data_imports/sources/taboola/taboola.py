@@ -6,9 +6,12 @@ from urllib.parse import quote, urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.taboola.settings import (
@@ -107,7 +110,7 @@ def get_rows(
     # sync outright. Don't reuse `fetch`'s retry for this: it also retries on
     # TaboolaRetryableError, and re-mint failures already propagate into that retry via the
     # 401 branch below, so decorating the mint itself too would let the two retries compound.
-    @retry(
+    @retry_with_deadline(
         retry=retry_if_exception_type(TaboolaRetryableError),
         stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
         wait=wait_exponential_jitter(initial=2, max=90),
@@ -119,7 +122,7 @@ def get_rows(
     token = mint_initial_token()
     account_base = f"{TABOOLA_API_BASE_URL}/{_encode_path_segment(account_id)}"
 
-    @retry(
+    @retry_with_deadline(
         retry=retry_if_exception_type((TaboolaRetryableError, requests.ReadTimeout, requests.ConnectionError)),
         stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
         wait=wait_exponential_jitter(initial=2, max=90),

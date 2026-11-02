@@ -58,7 +58,8 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
-from posthog.models.integration import GoogleCloudServiceAccountIntegration, Integration
+from posthog.integrations import IntegrationManager, IntegrationNotFound
+from posthog.models.integration import GoogleCloudServiceAccountIntegration
 from posthog.models.integration.google_cloud import (
     GOOGLE_SERVICE_ACCOUNT_INVALID_TOKEN_URI_ERROR,
     InvalidGoogleTokenUriError,
@@ -66,6 +67,10 @@ from posthog.models.integration.google_cloud import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    normalize_column_name,
+    normalize_table_column_names,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_TABLE_SIZE_BYTES
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
     DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
@@ -75,6 +80,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
     incremental_type_to_operator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.credentials_service import get_secret
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.grpc import make_tracked_channel
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     DEFAULT_RETRY,
@@ -83,6 +89,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import log_connection_open
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.primary_keys import resolve_merge_keys
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     ColumnTypeCategory,
     ValidatedRowFilter,
@@ -105,7 +112,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bigquery import (
     BigQuerySourceConfig,
 )
-from products.warehouse_sources.backend.types import IncrementalFieldType, PartitionSettings
+from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType, IncrementalFieldType, PartitionSettings
 
 __all__ = [
     "BIGQUERY_API_VERSION_V2",
@@ -260,9 +267,32 @@ BIGQUERY_IMPERSONATION_PERMISSION_ERROR = (
     "the source."
 )
 
+# Raised when the PostHog worker cannot get PostHog's own Google Cloud credentials, the first hop of
+# the impersonation chain. The customer's service account is never contacted, so no change on their
+# side can fix it. Deliberately absent from `get_non_retryable_errors`, so the sync retries and the
+# failure still reaches error tracking.
+BIGQUERY_POSTHOG_CREDENTIALS_ERROR = (
+    "PostHog could not get its own Google Cloud credentials, so it could not connect to your "
+    "service account. This is a problem on PostHog's side, and you don't need to change your service "
+    "account. Syncs retry automatically. If you are setting up the source, try again in a few minutes."
+)
+
 # Stable prefix of the ownership failure raised when the service account description does not name
 # the connecting organization. The rest of the message carries the organization ID the user must add.
 BIGQUERY_OWNERSHIP_UNVERIFIED_ERROR_PREFIX = "Could not verify that service account"
+
+# Raised as a `Forbidden` (403) by every BigQuery REST/gRPC call when a VPC Service Controls
+# perimeter in the customer's Google Cloud organization blocks the request outright, e.g. "VPC
+# Service Controls: Request is prohibited by organization's policy. vpcServiceControlsUniqueIdentifier:
+# ...". This is an org-level network policy the customer's Google Cloud admin controls, not an IAM
+# role we can tell them to grant — retrying the same request only repeats the same denial. Shared
+# between onboarding credential validation and the sync-path classifier in
+# `BigQuerySource.get_non_retryable_errors`, so the two stay in lockstep.
+BIGQUERY_VPC_SERVICE_CONTROLS_ERROR = (
+    "A VPC Service Controls policy in your Google Cloud organization is blocking this request to "
+    "BigQuery. Add an access level for PostHog to the perimeter around this project (or the "
+    "dataset's project), or exempt BigQuery from the perimeter, then reconnect the source."
+)
 
 
 class BigQueryAuthResolutionError(Exception):
@@ -644,15 +674,26 @@ def _impersonated_credentials(service_account_email: str, team_id: int) -> googl
     # Imported here so the source registry — which the API imports on every request path — does not
     # pull in the batch-export Temporal module.
     from products.batch_exports.backend.facade.destinations.bigquery import (  # noqa: PLC0415 — keeps the batch-export Temporal module off the source registry's import path
+        GoogleCloudCredentialsError,
         MissingRequiredPermissionsError,
         ServiceAccountNotFoundError,
         ServiceAccountOwnershipError,
+        ensure_our_google_cloud_credentials_are_valid,
         get_our_google_cloud_credentials,
         verify_impersonated_service_account_ownership,
     )
 
-    if not settings.BATCH_EXPORT_BIGQUERY_STS_AUDIENCE_FIELD or not settings.BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT:
+    if not settings.BATCH_EXPORT_BIGQUERY_STS_AUDIENCE_FIELD or not get_secret("BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT"):
         raise BigQueryAuthResolutionError(BIGQUERY_IMPERSONATION_UNAVAILABLE_ERROR)
+
+    # The ownership check below authenticates with PostHog's own credentials. If this worker cannot
+    # get them, the check fails with the same "getAccessToken denied" text that a missing grant on
+    # the customer's service account produces, and the sync tells the customer to fix IAM they
+    # already set up. Batch exports run the same check first for the same reason.
+    try:
+        async_to_sync(ensure_our_google_cloud_credentials_are_valid)()
+    except GoogleCloudCredentialsError as e:
+        raise BigQueryAuthResolutionError(BIGQUERY_POSTHOG_CREDENTIALS_ERROR) from e
 
     # Confirm the team owns the account before impersonating it, or a team that merely knows another
     # org's service account email could have PostHog read that org's data on its behalf. Batch
@@ -676,13 +717,10 @@ def _impersonated_credentials(service_account_email: str, team_id: int) -> googl
 
 
 def _resolve_auth_from_integration(integration_id: int, team_id: int) -> BigQueryAuthInfo:
-    integration = Integration.objects.filter(
-        id=integration_id,
-        team_id=team_id,
-        kind=Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT,
-    ).first()
-    if integration is None:
-        raise BigQueryAuthResolutionError(BIGQUERY_INTEGRATION_NOT_FOUND_ERROR)
+    try:
+        integration = IntegrationManager.google_cloud_service_account.credentials.get(team_id, integration_id)
+    except IntegrationNotFound:
+        raise BigQueryAuthResolutionError(BIGQUERY_INTEGRATION_NOT_FOUND_ERROR) from None
 
     google_cloud_integration = GoogleCloudServiceAccountIntegration(integration)
     if google_cloud_integration.has_key():
@@ -983,6 +1021,8 @@ def classify_bigquery_validation_error(e: Exception) -> str:
         return BIGQUERY_INVALID_IDENTIFIER_ERROR
     if "was not found in location" in message or "Not found: Dataset" in message:
         return BIGQUERY_DATASET_NOT_FOUND_ERROR
+    if "VPC Service Controls" in message:
+        return BIGQUERY_VPC_SERVICE_CONTROLS_ERROR
     if "Access Denied" in message or "PermissionDenied" in message or "permission denied" in message:
         return BIGQUERY_VALIDATION_PERMISSION_DENIED_ERROR
     # Genuinely unexpected — keep the signal, and fall back to a generic message so no raw
@@ -1091,6 +1131,29 @@ def _get_primary_keys_for_table(table: bigquery.Table, client: bigquery.Client) 
     return primary_keys
 
 
+def _get_merge_keys(
+    stored_keys: list[str] | None,
+    detected_keys: list[str] | None,
+    table: bigquery.Table,
+    enabled_columns: list[str] | None,
+    incremental_field: str | None,
+) -> list[str] | None:
+    """The source columns an incremental merge matches rows on, or None when it has none.
+
+    The pipeline picks the key the same way (`resolve_primary_keys`). The Delta writer then keeps only the key
+    columns the read carries, under the names `normalize_table_column_names` gives them.
+    """
+    schema_columns = [field.name for field in table.schema]
+    merge_keys = resolve_merge_keys(stored_keys, detected_keys, schema_columns)
+    if not merge_keys:
+        return None
+    read_columns = compute_projected_columns(enabled_columns, detected_keys, incremental_field) or schema_columns
+    batch_columns = normalize_table_column_names(pa.table({name: pa.nulls(0) for name in read_columns}))
+    read_column_by_batch_name = dict(zip(batch_columns.column_names, read_columns))
+    merge_columns = (read_column_by_batch_name.get(normalize_column_name(key)) for key in merge_keys)
+    return list(dict.fromkeys(column for column in merge_columns if column is not None)) or None
+
+
 # Stable wording BigQuery puts in a `resourcesExceeded` query failure's message. Shared between
 # `_is_bigquery_resource_exceeded` and `BigQuerySource.get_non_retryable_errors` so the two sites
 # stay in lockstep if BigQuery ever adjusts the phrasing.
@@ -1128,19 +1191,28 @@ def _is_bigquery_view_parse_failure(error: BadRequest) -> bool:
     return "failed to parse view" in str(error)
 
 
-def _has_duplicate_primary_keys(table: bigquery.Table, client: bigquery.Client, primary_keys: list[str] | None) -> bool:
+def _has_duplicate_primary_keys(
+    table: bigquery.Table,
+    client: bigquery.Client,
+    primary_keys: list[str] | None,
+    row_filters: list[ValidatedRowFilter] | None = None,
+) -> bool:
     if not primary_keys or len(primary_keys) == 0:
         return False
 
     try:
+        key_columns = ", ".join(_BQ_QUOTER.quote(key) for key in primary_keys)
+        filter_conditions, query_parameters = _bq_row_filter_conditions(row_filters, table)
+        where_clause = f"WHERE {' AND '.join(filter_conditions)}" if filter_conditions else ""
         query = f"""
-            SELECT {", ".join(primary_keys)}
+            SELECT {key_columns}
             FROM `{table.dataset_id}`.`{table.table_id}`
-            GROUP BY {", ".join(primary_keys)}
+            {where_clause}
+            GROUP BY {key_columns}
             HAVING COUNT(*) > 1
         """
 
-        job_config = QueryJobConfig()
+        job_config = QueryJobConfig(query_parameters=query_parameters)
         job = client.query(query, job_config=job_config, project=table.project)
 
         for _ in job.result():
@@ -1872,7 +1944,13 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
             bq_table = bq_client.get_table(fully_qualified_table_name)
             primary_keys = _get_primary_keys_for_table(bq_table, bq_client)
             partition_settings = _get_partition_settings(bq_table, bq_client, partition_size_bytes=partition_size_bytes)
-            has_duplicate_keys = _has_duplicate_primary_keys(bq_table, bq_client, primary_keys)
+            # Only an incremental sync merges, so it is the only sync that reads the probe result.
+            merge_keys = (
+                _get_merge_keys(inputs.primary_keys, primary_keys, bq_table, enabled_columns, incremental_field)
+                if inputs.sync_type == ExternalDataSchemaSyncType.INCREMENTAL
+                else None
+            )
+            has_duplicate_keys = _has_duplicate_primary_keys(bq_table, bq_client, merge_keys, row_filters)
             rows_to_sync = _get_rows_to_sync(
                 bq_table,
                 bq_client,
@@ -2019,4 +2097,6 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
             partition_size=partition_settings.partition_size if partition_settings else None,
             rows_to_sync=rows_to_sync,
             has_duplicate_primary_keys=has_duplicate_keys,
+            # The ordered query writes a temporary table, and the read of a table has no order.
+            sort_mode=None,
         )

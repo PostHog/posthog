@@ -2,6 +2,8 @@ import { useState } from 'react'
 
 import { LemonButton, LemonModal, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
+import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
+
 import { BIConditionGroup } from '~/queries/schema/schema-business-intelligence'
 
 import {
@@ -105,6 +107,7 @@ export function BIConditionGroups({
     onChange: (group: BIConditionGroup) => void
 }): JSX.Element {
     const [open, setOpen] = useState(false)
+    const [modalOverlay, setModalOverlay] = useState<HTMLDivElement | null>(null)
     const normalized = normalizeBIConditionGroup(
         group,
         options.map((option) => option.value)
@@ -121,6 +124,8 @@ export function BIConditionGroups({
             <LemonModal
                 title={title}
                 isOpen={open}
+                forceAbovePopovers
+                overlayRef={setModalOverlay}
                 onClose={() => setOpen(false)}
                 width={560}
                 footer={
@@ -133,7 +138,9 @@ export function BIConditionGroups({
                     Add a group, then move filters into it. Empty groups have no effect. Ungroup moves its filters and
                     nested groups into the parent group.
                 </p>
-                <GroupEditor root={normalized} group={normalized} path={[]} options={options} onChange={onChange} />
+                <FloatingContainerContext.Provider value={modalOverlay}>
+                    <GroupEditor root={normalized} group={normalized} path={[]} options={options} onChange={onChange} />
+                </FloatingContainerContext.Provider>
             </LemonModal>
         </>
     )

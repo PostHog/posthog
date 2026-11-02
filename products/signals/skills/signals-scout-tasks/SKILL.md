@@ -18,6 +18,13 @@ compatibility: >
 metadata:
   owner_team: signals
   scope: tasks
+scout-precheck-query: |
+  SELECT t.origin_product AS origin_product, count() AS runs, max(r.created_at) AS last_run
+  FROM system.task_runs AS r
+  INNER JOIN system.tasks AS t ON r.task_id = t.id
+  WHERE t.origin_product NOT IN ('signals_scout', 'scout_suggestions')
+    AND r.created_at > {now} - INTERVAL 14 DAY
+  GROUP BY origin_product
 ---
 
 # Signals scout: tasks
@@ -82,6 +89,8 @@ They are not filtered out for you — the `internal` flag does not cover them.
 A run that forgets this exclusion is mostly measuring the scout fleet, and the demand lens would be reading the inbox's own output back as if it were user demand.
 
 ## Quick close-out: does this project run tasks?
+
+A scheduled run can start with a `<precheck_result>` block. Each row counts one origin's runs of the last 14 days, without the fleet's own origins, so the project uses Tasks. When the block is present, skip the `not-in-use` close-out. The baseline close-out below still applies.
 
 Close out on **runs, not task creation**.
 A project that creates no new tasks can still be running old ones daily, and those runs are exactly what lens A exists to watch — closing out on a task-creation count would skip today's failures entirely.

@@ -7,13 +7,14 @@ from collections.abc import Generator, Iterator
 from typing import Any
 
 import django
+from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
 _DJANGO_INITIALIZED = False
 
 
-def setup_django(*, debug: bool = True) -> None:
+def setup_django(*, debug: bool = True, keep_logging: bool = False) -> None:
     """Configure the environment and initialize Django for a harness run.
 
     Sets the eval env flags (``DEBUG``/``TEST``/``IN_EVAL_TESTING``) and disables
@@ -32,6 +33,8 @@ def setup_django(*, debug: bool = True) -> None:
     # Eval traces use an explicit regional client; local self-capture would poll flags with the development API key.
     os.environ["SELF_CAPTURE"] = "0"
 
+    if keep_logging:
+        settings.LOGGING_CONFIG = None
     django.setup()
 
     from django.test.utils import setup_test_environment  # noqa: PLC0415 — must import only after django.setup()

@@ -7,8 +7,10 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from posthog.auth import ExportRendererAuthentication
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.team import Team
+from posthog.test.authentication_checks import covers_authentication
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -126,6 +128,7 @@ class TestExportRendererAuthentication(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
 
+    @covers_authentication(ExportRendererAuthentication)
     def test_screenshot_token_accepts_content_and_heatmap_data(self) -> None:
         export_context = {
             "heatmap_url": f"https://example.com/api/environments/{self.team.id}/heatmap_screenshots/42/content/?width=1400",

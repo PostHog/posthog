@@ -161,6 +161,7 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
 }
 
 EVENT_KINDS: tuple[EventKind, ...] = tuple(EVENT_KIND_CONFIG.keys())
+LOGS_ALERT_EVENT_IDS: tuple[str, ...] = tuple(spec.event_id for spec in EVENT_KIND_CONFIG.values())
 
 _SEVERITY_SERVICE_CONTEXT = (
     "{if(length(event.properties.severity_levels) > 0 or length(event.properties.service_names) > 0,"

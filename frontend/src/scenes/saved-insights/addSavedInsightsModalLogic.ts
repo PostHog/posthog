@@ -16,7 +16,6 @@ import { insightsApi } from 'scenes/insights/utils/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import type { InsightModel } from '~/types'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
@@ -40,15 +39,6 @@ interface InsightListParams {
 }
 
 export const INSIGHTS_PER_PAGE = 15
-
-/**
- * The dashboards an insight currently sits on. Read off the tiles rather than off the deprecated
- * `dashboards` field: a PATCH of `dashboards` replaces the whole membership, so the list has to come
- * from something the API still serves the web app.
- */
-function currentDashboardIds(insight: InsightModel): number[] {
-    return (insight.dashboard_tiles || []).filter((tile) => !tile.deleted).map((tile) => tile.dashboard_id)
-}
 
 /**
  * Tell the user a membership update failed, and rethrow only what is worth filing. The listener has
@@ -273,10 +263,7 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
 
                 breakpoint()
 
-                return {
-                    ...response,
-                    results: response.results.map((rawInsight: any) => getQueryBasedInsightModel(rawInsight)),
-                }
+                return response
             },
         },
         userInsights: {
@@ -400,16 +387,18 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
         addInsightToDashboard: async ({ insight, dashboardId }) => {
             try {
                 actions.setDashboardUpdateLoading(insight.id, true)
-                const response = await insightsApi.update(insight.id, {
-                    dashboards: [...currentDashboardIds(insight), dashboardId],
+                const tile = await insightsApi.addToDashboard(insight.id, dashboardId)
+                actions.updateInsight({
+                    ...insight,
+                    dashboard_tiles: [
+                        ...(insight.dashboard_tiles || []).filter((t) => t.dashboard_id !== dashboardId),
+                        tile,
+                    ],
                 })
-                if (response) {
-                    actions.updateInsight(response)
-                    dashboardLogic.findMounted({ id: dashboardId })?.actions.loadDashboard({
-                        action: DashboardLoadAction.Update,
-                    })
-                    lemonToast.success('Insight added to dashboard')
-                }
+                dashboardLogic.findMounted({ id: dashboardId })?.actions.loadDashboard({
+                    action: DashboardLoadAction.Update,
+                })
+                lemonToast.success('Insight added to dashboard')
             } catch (e) {
                 actions.dashboardUpdateFailed(insight.id)
                 handleDashboardUpdateFailure(e, {
@@ -424,16 +413,15 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
         removeInsightFromDashboard: async ({ insight, dashboardId }) => {
             try {
                 actions.setDashboardUpdateLoading(insight.id, true)
-                const response = await insightsApi.update(insight.id, {
-                    dashboards: currentDashboardIds(insight).filter((d) => d !== dashboardId),
+                await insightsApi.removeFromDashboard(insight, dashboardId)
+                actions.updateInsight({
+                    ...insight,
+                    dashboard_tiles: (insight.dashboard_tiles || []).filter((t) => t.dashboard_id !== dashboardId),
                 })
-                if (response) {
-                    actions.updateInsight(response)
-                    dashboardLogic.findMounted({ id: dashboardId })?.actions.loadDashboard({
-                        action: DashboardLoadAction.Update,
-                    })
-                    lemonToast.success('Insight removed from dashboard')
-                }
+                dashboardLogic.findMounted({ id: dashboardId })?.actions.loadDashboard({
+                    action: DashboardLoadAction.Update,
+                })
+                lemonToast.success('Insight removed from dashboard')
             } catch (e) {
                 actions.dashboardUpdateFailed(insight.id)
                 handleDashboardUpdateFailure(e, {

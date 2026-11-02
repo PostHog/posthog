@@ -1,13 +1,7 @@
 import type { SignalReport } from "@posthog/shared/domain-types";
 import * as Haptics from "expo-haptics";
 import { useState } from "react";
-import {
-  Image,
-  StyleSheet,
-  Text,
-  useWindowDimensions,
-  View,
-} from "react-native";
+import { Image, StyleSheet, Text, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   FadeInDown,
@@ -19,13 +13,9 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Glass, GlassCircleButton } from "@/components/Glass";
+import { GlassCircleButton } from "@/components/Glass";
 import { BinIcon } from "@/components/Icons";
-import {
-  CardButton,
-  ReportDetail,
-  ReportSummary,
-} from "@/components/ReportCard";
+import { CardButton, ReportSummary } from "@/components/ReportCard";
 import { colors, fonts, radius } from "@/lib/theme";
 
 const SWIPE_THRESHOLD = 110;
@@ -38,27 +28,26 @@ interface TriageDeckProps {
   reports: SignalReport[];
   onDismiss: (report: SignalReport) => void;
   onStart: (report: SignalReport) => void;
+  onOpen: (report: SignalReport) => void;
   starting?: boolean;
   // Height of the screen header the deck sits under; the frame starts below it.
   headerHeight: number;
 }
 
 // Tinder-style stack: swipe left to dismiss, right to start a task, or open
-// the card in place to read the whole report before deciding.
+// the report to read all of it before deciding.
 export function TriageDeck({
   reports,
   onDismiss,
   onStart,
+  onOpen,
   starting,
   headerHeight,
 }: TriageDeckProps) {
-  const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const [expanded, setExpanded] = useState(false);
   const [frame, setFrame] = useState({ x: 0, y: 0, w: 0, h: 0 });
   const x = useSharedValue(0);
   const y = useSharedValue(0);
-  const grow = useSharedValue(0);
   const top = reports[0];
   const rest = reports.slice(1, 3);
 
@@ -78,7 +67,7 @@ export function TriageDeck({
   };
 
   const pan = Gesture.Pan()
-    .enabled(!expanded && !!top)
+    .enabled(!!top)
     .activeOffsetX([-12, 12])
     .failOffsetY([-16, 16])
     .onChange((event) => {
@@ -96,26 +85,7 @@ export function TriageDeck({
       }
     });
 
-  const toggleExpanded = (): void => {
-    const next = !expanded;
-    setExpanded(next);
-    // Critically damped and quick, like a UIKit sheet, no bounce.
-    grow.value = withSpring(next ? 1 : 0, {
-      duration: 380,
-      dampingRatio: 1,
-      overshootClamping: true,
-    });
-  };
-
-  // The top card lives in a fixed frame; expanding animates that frame out to
-  // the full screen so the report opens from where the card sits.
   const topStyle = useAnimatedStyle(() => ({
-    position: "absolute",
-    left: interpolate(grow.value, [0, 1], [frame.x, 0]),
-    top: interpolate(grow.value, [0, 1], [frame.y, 0]),
-    width: interpolate(grow.value, [0, 1], [frame.w, width]),
-    height: interpolate(grow.value, [0, 1], [frame.h - STACK_PEEK, height]),
-    borderRadius: interpolate(grow.value, [0, 1], [CARD_RADIUS, 0]),
     transform: [
       { translateX: x.value },
       { translateY: y.value },
@@ -127,15 +97,6 @@ export function TriageDeck({
   }));
   const dismissHint = useAnimatedStyle(() => ({
     opacity: interpolate(x.value, [-SWIPE_THRESHOLD, -20], [1, 0], "clamp"),
-  }));
-  // The overlay clips itself, since the card no longer does (its shadow needs
-  // to escape).
-  const detailStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(grow.value, [0.6, 1], [0, 1], "clamp"),
-    borderRadius: interpolate(grow.value, [0, 1], [CARD_RADIUS, 0]),
-  }));
-  const faceStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(grow.value, [0, 0.4], [1, 0], "clamp"),
   }));
 
   return (
@@ -178,15 +139,22 @@ export function TriageDeck({
         <GestureDetector gesture={pan}>
           <Animated.View
             entering={FadeInDown.duration(280)}
-            style={[styles.card, styles.topCard, topStyle]}
+            style={[
+              styles.card,
+              styles.topCard,
+              {
+                left: frame.x,
+                top: frame.y,
+                width: frame.w,
+                height: frame.h - STACK_PEEK,
+              },
+              topStyle,
+            ]}
           >
-            <Animated.View
-              style={[styles.face, faceStyle]}
-              pointerEvents={expanded ? "none" : "auto"}
-            >
+            <View style={styles.face}>
               <ReportSummary report={top} withEvidence />
               <View style={styles.actions}>
-                <CardButton label="Open report" onPress={toggleExpanded} />
+                <CardButton label="Open report" onPress={() => onOpen(top)} />
               </View>
               <Animated.View style={[styles.hint, styles.hintStart, startHint]}>
                 <Text style={styles.hintText}>Start</Text>
@@ -196,91 +164,41 @@ export function TriageDeck({
               >
                 <Text style={styles.hintText}>Dismiss</Text>
               </Animated.View>
-            </Animated.View>
-            {expanded ? (
-              <Animated.View
-                style={[
-                  StyleSheet.absoluteFill,
-                  styles.detail,
-                  { paddingTop: insets.top + 64 },
-                  detailStyle,
-                ]}
-              >
-                <ReportDetail report={top} />
-                <View style={[styles.detailHeader, { top: insets.top + 6 }]}>
-                  <GlassCircleButton
-                    onPress={toggleExpanded}
-                    tint={colors.glassTint}
-                  >
-                    <Text style={styles.close}>×</Text>
-                  </GlassCircleButton>
-                </View>
-                <View
-                  style={[
-                    styles.detailActions,
-                    { paddingBottom: insets.bottom + 12 },
-                  ]}
-                >
-                  <Glass
-                    style={styles.detailActionsGlass}
-                    tint={colors.glassTint}
-                  >
-                    <CardButton
-                      label="Dismiss"
-                      onPress={() => {
-                        toggleExpanded();
-                        setTimeout(() => flyOut(-1, top), 250);
-                      }}
-                    />
-                    <CardButton
-                      label="Start task"
-                      primary
-                      disabled={starting}
-                      onPress={() => {
-                        toggleExpanded();
-                        setTimeout(() => flyOut(1, top), 250);
-                      }}
-                    />
-                  </Glass>
-                </View>
-              </Animated.View>
-            ) : null}
+            </View>
           </Animated.View>
         </GestureDetector>
       ) : null}
 
       {/* Glass never renders when mounted inside a layout animation, so the
           footer stays out of the deck's entering fade. */}
-      {!expanded ? (
-        <View style={[styles.footer, { paddingBottom: insets.bottom + 8 }]}>
-          <View style={styles.verdict}>
-            <GlassCircleButton
-              size={64}
-              disabled={!top}
-              onPress={() => swipe(-1)}
-            >
-              <BinIcon />
-            </GlassCircleButton>
-            <Text style={styles.caption}>Dismiss</Text>
-          </View>
-          <Text style={styles.counter}>{reports.length} to triage</Text>
-          <View style={styles.verdict}>
-            <GlassCircleButton
-              size={64}
-              disabled={!top || starting}
-              onPress={() => swipe(1)}
-            >
-              <View style={styles.goClip}>
-                <Image
-                  source={require("../../assets/hedgehog/idle-strip.png")}
-                  style={styles.goSprite}
-                />
-              </View>
-            </GlassCircleButton>
-            <Text style={styles.caption}>Start task</Text>
-          </View>
+      <View style={[styles.footer, { paddingBottom: insets.bottom + 8 }]}>
+        <View style={styles.verdict}>
+          <GlassCircleButton
+            size={64}
+            disabled={!top}
+            onPress={() => swipe(-1)}
+          >
+            <BinIcon />
+          </GlassCircleButton>
+          <Text style={styles.caption}>Dismiss</Text>
         </View>
-      ) : null}
+        <Text style={styles.counter}>{reports.length} to triage</Text>
+        <View style={styles.verdict}>
+          <GlassCircleButton
+            size={64}
+            disabled={!top || starting}
+            onPress={() => swipe(1)}
+          >
+            <View style={styles.goClip}>
+              <Image
+                source={require("../../assets/hedgehog/idle-strip.png")}
+                style={styles.goSprite}
+              />
+            </View>
+          </GlassCircleButton>
+          <Text style={styles.caption}>Start task</Text>
+        </View>
+      </View>
     </View>
   );
 }
@@ -298,7 +216,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 14 },
   },
   behind: { position: "absolute", top: 0, left: 0, right: 0 },
-  topCard: { justifyContent: "space-between" },
+  topCard: { position: "absolute", justifyContent: "space-between" },
   face: { flex: 1, justifyContent: "space-between" },
   actions: { flexDirection: "row", gap: 8, marginTop: 16 },
   hint: {
@@ -311,21 +229,6 @@ const styles = StyleSheet.create({
   hintStart: { left: 0, backgroundColor: colors.ok },
   hintDismiss: { right: 0, backgroundColor: colors.inkMute },
   hintText: { fontFamily: fonts.sansBold, fontSize: 13, color: "#FFFFFF" },
-  detail: {
-    backgroundColor: colors.bgRaised,
-    paddingHorizontal: 20,
-    overflow: "hidden",
-  },
-  detailHeader: { position: "absolute", left: 16 },
-  detailActions: { position: "absolute", left: 16, right: 16, bottom: 0 },
-  detailActionsGlass: {
-    flexDirection: "row",
-    gap: 8,
-    padding: 10,
-    borderRadius: radius.pill,
-    overflow: "hidden",
-  },
-  close: { fontSize: 26, lineHeight: 28, color: colors.ink, marginTop: -2 },
   footer: {
     flexDirection: "row",
     alignItems: "center",

@@ -10,6 +10,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     PageNumberPaginator,
     SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.cortex.cortex import (
     _encode_entity_tag,
     _format_cortex_datetime,
@@ -19,6 +25,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cortex.cor
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.cortex.settings import CORTEX_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.cortex.source import CortexSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cortex import CortexSourceConfig
 
 
 class _FakeDltResource:
@@ -44,23 +52,23 @@ class TestCortexTransport:
             ("unexpected", 500, None, False),
         ]
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cortex.cortex.make_tracked_session")
     def test_validate_credentials_status_mapping(
-        self, _name: str, status_code: int, schema_name: str | None, expected_ok: bool, mock_session: Mock
+        self, _name: str, status_code: int, schema_name: str | None, expected_ok: bool
     ) -> None:
-        response = Mock(status_code=status_code)
-        mock_session.return_value.get.return_value = response
-
-        is_valid, _message = validate_credentials(api_key="cx_key", schema_name=schema_name)
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
+            is_valid, _message = validate_credentials(api_key="cx_key", schema_name=schema_name)
 
         assert is_valid is expected_ok
+        assert {request.path for request in network.requests_log} == {"/api/v1/catalog"}
+        assert {request.param("pageSize") for request in network.requests_log} == {"1"}
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cortex.cortex.make_tracked_session")
-    def test_validate_credentials_handles_request_exception(self, mock_session: Mock) -> None:
-        mock_session.return_value.get.side_effect = requests.exceptions.RequestException("boom")
-        is_valid, message = validate_credentials(api_key="cx_key")
+    def test_validate_credentials_handles_request_exception(self) -> None:
+        with scripted_network(always(requests.exceptions.ConnectionError("boom"))) as network:
+            is_valid, message = validate_credentials(api_key="cx_key")
+
         assert is_valid is False
         assert message is not None and "boom" in message
+        assert {request.path for request in network.requests_log} == {"/api/v1/catalog"}
 
     @parameterized.expand(
         [
@@ -152,30 +160,28 @@ class TestCortexTransport:
         assert rows[0]["destination_entity_tag"] == "service-b"
         assert response.primary_keys == ["relationship_type_tag", "source_entity_tag", "destination_entity_tag"]
 
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
-    )
-    def test_cortex_source_relationships_fanout_injects_parent_relationship_type_tag(
-        self, mock_rest_api_resources: Mock
-    ) -> None:
-        mock_rest_api_resources.return_value = [
-            _FakeDltResource("relationship_types", [{"tag": "depends-on"}]),
-            _FakeDltResource(
-                "relationships",
-                [
-                    {
-                        "sourceEntity": {"tag": "service-a"},
-                        "destinationEntity": {"tag": "service-b"},
-                        "_relationship_types_tag": "depends-on",
+    def test_cortex_source_relationships_fanout_injects_parent_relationship_type_tag(self) -> None:
+        result = SourceDriver(CortexSource(), CortexSourceConfig(api_key="cx_key")).run(
+            "relationships",
+            [
+                ScriptedResponse(json={"relationshipTypes": [{"tag": "depends-on"}], "totalPages": 1}),
+                ScriptedResponse(
+                    json={
+                        "relationships": [
+                            {
+                                "sourceEntity": {"tag": "service-a"},
+                                "destinationEntity": {"tag": "service-b"},
+                            }
+                        ],
+                        "totalPages": 1,
                     }
-                ],
-            ),
-        ]
+                ),
+            ],
+        )
 
-        response = cortex_source(api_key="cx_key", endpoint="relationships", team_id=1, job_id="job-1")
-        rows = list(cast(Any, response.items()))
-
-        assert rows[0]["relationship_type_tag"] == "depends-on"
+        assert result.raised is None
+        assert result.paths == ["/api/v1/relationship-types", "/api/v1/relationships/depends-on"]
+        assert result.rows[0]["relationship_type_tag"] == "depends-on"
 
     @parameterized.expand(
         [

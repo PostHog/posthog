@@ -1,5 +1,6 @@
 import shutil
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -13,14 +14,18 @@ from posthog.models import Team
 from products.review_hog.backend.models import ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import TurnMarkerArtefact, parse_artefact_content
 from products.review_hog.backend.reviewer.constants import (
+    CONTROL_ARM_SET,
     FLASH_LENSES,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
+    SINGLE_AGENT_ARM_SETS,
+    SINGLE_AGENT_FLASH_ARM,
+    SingleAgentArms,
     reviewhog_version_for_mode,
 )
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker, record_turn_marker
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
-from products.review_hog.backend.reviewer.persistence import upsert_review_report
+from products.review_hog.backend.reviewer.persistence import persist_pr_snapshot, upsert_review_report
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.skill_loader import REVIEW_HOG_VALIDATION_SKILL_NAME
 from products.review_hog.backend.reviewer.tools.single_agent_review import SINGLE_AGENT_PROMPT_PATH
@@ -33,26 +38,27 @@ class TestRecordTurnMarker(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         _sync_review_skills(self.team.id)
+        self.pr_metadata = PRMetadata(
+            number=7,
+            title="t",
+            state="open",
+            draft=False,
+            created_at="",
+            updated_at="",
+            author="octocat",
+            base_branch="main",
+            head_branch="feat",
+            head_sha="sha1",
+            commits=1,
+            additions=1,
+            deletions=0,
+            changed_files=1,
+        )
         self.report_id = upsert_review_report(
             team_id=self.team.id,
             repository="o/r",
             pr_url="https://github.com/o/r/pull/7",
-            pr_metadata=PRMetadata(
-                number=7,
-                title="t",
-                state="open",
-                draft=False,
-                created_at="",
-                updated_at="",
-                author="octocat",
-                base_branch="main",
-                head_branch="feat",
-                head_sha="sha1",
-                commits=1,
-                additions=1,
-                deletions=0,
-                changed_files=1,
-            ),
+            pr_metadata=self.pr_metadata,
         )
 
     def _record(
@@ -62,6 +68,9 @@ class TestRecordTurnMarker(BaseTest):
         report_id: str | None = None,
         review_mode: str = REVIEW_MODE_FULL,
         review_design: str = REVIEW_DESIGN_PIPELINE,
+        coordinator: bool = False,
+        publishes: bool | None = None,
+        arm_set: str = CONTROL_ARM_SET,
     ) -> ReviewHogMarker:
         return record_turn_marker(
             team_id=team_id or self.team.id,
@@ -72,10 +81,21 @@ class TestRecordTurnMarker(BaseTest):
             review_mode=review_mode,
             flash_reasoning_effort="medium",
             review_design=review_design,
+            coordinator=coordinator,
+            publishes=publishes,
+            arm_set=arm_set,
         )
 
-    def _record_single_agent(self, run_index: int) -> ReviewHogMarker:
-        return self._record(run_index, review_mode=REVIEW_MODE_FLASH, review_design=REVIEW_DESIGN_SINGLE_AGENT)
+    def _record_single_agent(
+        self, run_index: int, coordinator: bool = False, arm_set: str = CONTROL_ARM_SET
+    ) -> ReviewHogMarker:
+        return self._record(
+            run_index,
+            review_mode=REVIEW_MODE_FLASH,
+            review_design=REVIEW_DESIGN_SINGLE_AGENT,
+            coordinator=coordinator,
+            arm_set=arm_set,
+        )
 
     def _edit_single_agent_prompt(self, prompt_file: str) -> None:
         directory = tempfile.TemporaryDirectory()
@@ -100,8 +120,32 @@ class TestRecordTurnMarker(BaseTest):
         self._edit_single_agent_prompt(f"{prompt_name}.md")
         changed = self._record_single_agent(run_index=2)
 
-        assert original.version == "reviewhog-flash-2-2"
+        assert original.version == "reviewhog-flash-2-3"
         assert changed.fingerprint != original.fingerprint
+
+    def test_each_arm_of_an_arm_set_splits_the_single_agent_cohort(self) -> None:
+        # A trial that changes only the lens model would otherwise share the control cohort.
+        other = replace(SINGLE_AGENT_FLASH_ARM, model="gpt-6-luna")
+        trial_sets = {
+            "lens-only": SingleAgentArms(main=SINGLE_AGENT_FLASH_ARM, lens=other),
+            "main-only": SingleAgentArms(main=other, lens=SINGLE_AGENT_FLASH_ARM),
+        }
+        with patch.dict(SINGLE_AGENT_ARM_SETS, trial_sets):
+            fingerprints = [
+                self._record_single_agent(run_index=run_index, arm_set=arm_set).fingerprint
+                for run_index, arm_set in enumerate((CONTROL_ARM_SET, *trial_sets), start=1)
+            ]
+
+        assert len(set(fingerprints)) == 3
+
+    def test_the_coordinator_prompt_splits_only_coordinated_cohorts(self) -> None:
+        separate = self._record_single_agent(run_index=1)
+        coordinated = self._record_single_agent(run_index=2, coordinator=True)
+        self._edit_single_agent_prompt("coordinator.md")
+
+        assert coordinated.fingerprint != separate.fingerprint
+        assert self._record_single_agent(run_index=3).fingerprint == separate.fingerprint
+        assert self._record_single_agent(run_index=4, coordinator=True).fingerprint != coordinated.fingerprint
 
     @parameterized.expand(
         [
@@ -162,6 +206,37 @@ class TestRecordTurnMarker(BaseTest):
             (2, edited.fingerprint),
             (3, reverted.fingerprint),
         ]
+
+    def test_the_marker_records_what_the_turn_reviewed(self) -> None:
+        for design, skipped in (
+            (REVIEW_DESIGN_PIPELINE, ["yarn.lock", "tests/test_a.py"]),
+            (REVIEW_DESIGN_SINGLE_AGENT, []),
+        ):
+            persist_pr_snapshot(
+                team_id=self.team.id,
+                report_id=self.report_id,
+                head_sha="sha1",
+                pr_metadata=self.pr_metadata,
+                pr_comments=[],
+                pr_files=[],
+                review_design=design,
+                merge_base_sha="b" * 40,
+                skipped_paths=skipped,
+            )
+
+        self._record(run_index=1, publishes=True)
+
+        row = ReviewReportArtefact.objects.for_team(self.team.id).get(
+            report_id=self.report_id, type=ReviewReportArtefact.ArtefactType.TURN_MARKER
+        )
+        stored = parse_artefact_content(row.type, row.content)
+        assert isinstance(stored, TurnMarkerArtefact)
+        assert (stored.publishes, stored.base_branch, stored.base_sha, stored.skipped_paths) == (
+            True,
+            "main",
+            "b" * 40,
+            ["yarn.lock", "tests/test_a.py"],
+        )
 
     def test_an_archived_skill_sharing_name_and_version_with_the_live_one_is_ignored(self) -> None:
         original = self._record(run_index=1)

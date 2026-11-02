@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -30,6 +31,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class KlausSource(ResumableSource[KlausSourceConfig, KlausResumeConfig]):
+    codebase_detection = NOT_DETECTABLE
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -48,7 +51,7 @@ class KlausSource(ResumableSource[KlausSourceConfig, KlausResumeConfig]):
             name=ExternalDataSourceType.KLAUS,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Klaus",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["zendesk qa", "zendesk", "quality assurance", "conversation reviews"],
             caption="""Sync your Zendesk QA (formerly Klaus) reviews, AutoQA results, CSAT, disputes, and quality data into the PostHog Data warehouse.
 

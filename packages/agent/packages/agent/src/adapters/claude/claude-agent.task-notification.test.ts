@@ -247,6 +247,40 @@ describe("ClaudeAcpAgent — task-notification results", () => {
     });
   });
 
+  it("accepts a steer in a background turn whose notification echoed before the previous result", async () => {
+    const { agent } = makeAgent();
+    const sessionId = "s-task-notification-early-echo";
+    const { query, input } = installFakeSession(agent, sessionId);
+
+    const promptPromise = agent.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "hi" }],
+    });
+    await tick();
+    await echoUserMessage(query, input);
+    await send(query, assistantMessage(sessionId, "msg_1", "hello"));
+    await send(query, resultSuccess(sessionId, "result-1"));
+    await promptPromise;
+
+    await send(query, taskNotificationUserMessage(sessionId, "ping 1"));
+    await send(query, assistantMessage(sessionId, "msg_2", "ping 1 received."));
+    await send(query, taskNotificationUserMessage(sessionId, "ping 2"));
+    await send(query, taskNotificationResult(sessionId, "result-2"));
+    await send(query, assistantMessage(sessionId, "msg_3", "ping 2 received."));
+
+    const steerPromise = agent.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "wrap up now" }],
+      _meta: { steer: true },
+    });
+    await tick();
+    await echoUserMessage(query, input);
+    await send(query, assistantMessage(sessionId, "msg_4", "wrapping up"));
+    await expect(steerPromise).resolves.toMatchObject({
+      _meta: { steer: true },
+    });
+  });
+
   it("declines a background steer the SDK never echoes after the background turn ends", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {

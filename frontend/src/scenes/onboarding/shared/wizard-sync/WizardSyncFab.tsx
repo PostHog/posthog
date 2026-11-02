@@ -1,9 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { resolveOnboardingFlowVariant } from 'scenes/onboarding/onboardingVariants'
-
 import { activeCloudRunLogic, CloudRunHandle } from './activeCloudRunLogic'
 import { finishedLocalRunLogic } from './finishedLocalRunLogic'
 import { isStreamLost } from './helpers'
@@ -102,13 +98,8 @@ function WizardSyncLocalGate(): JSX.Element | null {
  * one corner widget, never two.
  */
 export function WizardSyncFab(): JSX.Element | null {
-    const syncFlagEnabled = useFeatureFlag('ONBOARDING_WIZARD_SYNC', 'test')
-    const { featureFlags } = useValues(featureFlagLogic)
     const { activeCloudRun } = useValues(activeCloudRunLogic)
     const { inlineCloudPanelMounted, inlineLocalPanelMounted } = useValues(wizardSyncUiLogic)
-    // The self-driving onboarding syncs unconditionally, so its users need the detached widget too
-    // once they navigate away from the install step — the sync flag only gates the legacy arm.
-    const syncEnabled = syncFlagEnabled || resolveOnboardingFlowVariant(featureFlags) === 'self-driving'
 
     // Deliberately not gated on the cloud-run flag: a persisted handle is proof the run started
     // while the user was on the test arm, and a mid-experiment flag change must not strand an
@@ -125,10 +116,5 @@ export function WizardSyncFab(): JSX.Element | null {
     if (inlineLocalPanelMounted || (activeCloudRun && inlineCloudPanelMounted)) {
         return null
     }
-    if (syncEnabled) {
-        return <WizardSyncLocalGate />
-    }
-    // Same reasoning as the cloud handle: a persisted finished run is proof it happened under the
-    // test arm, and it must stay dismissible if the flag flips mid-experiment.
-    return <WizardSyncFinishedLocalFab />
+    return <WizardSyncLocalGate />
 }

@@ -23,14 +23,12 @@ from .event.event import Event
 from .event_buffer import EventBuffer
 
 # TODO: remove noqa once the event filters API imports from posthog.models
-from .event_filter_config import EventFilterConfig  # noqa: F401
+from .event_filter_config import EventFilterConfig, EventFilterPipelineOverride  # noqa: F401
 from products.event_definitions.backend.models import EventDefinition
 from products.event_definitions.backend.models import EventProperty
 from .file_system.file_system import FileSystem
 from .file_system.file_system_home_folder import FileSystemHomeFolder
 from .file_system.file_system_view_log import FileSystemViewLog
-from .file_system.user_product_list import UserProductList
-from .filters import RetentionFilter
 from .group import Group
 from .group_usage_metric import GroupUsageMetric
 from .group_type_mapping import GroupTypeMapping
@@ -63,6 +61,8 @@ from .quick_filter import QuickFilter
 from .remote_config import RemoteConfig
 from .resource_transfer.resource_transfer import ResourceTransfer
 from products.event_definitions.backend.models import EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty
+from .scim_provisioned_user import SCIMProvisionedUser
+from .scim_request_log import SCIMRequestLog
 from .share_password import SharePassword
 from .sharing_configuration import SharingConfiguration
 from .tag import Tag
@@ -114,7 +114,6 @@ __all__ = [
     "FileSystem",
     "FileSystemHomeFolder",
     "FileSystemViewLog",
-    "UserProductList",
     "Group",
     "GroupUsageMetric",
     "GroupTypeMapping",
@@ -158,12 +157,13 @@ __all__ = [
     "PropertyDefinition",
     "ProxyRecord",
     "QuickFilter",
-    "RetentionFilter",
     "RemoteConfig",
     "ResourceTransfer",
     "EventSchema",
     "SchemaPropertyGroup",
     "SchemaPropertyGroupProperty",
+    "SCIMProvisionedUser",
+    "SCIMRequestLog",
     "SessionRecording",
     "SessionRecordingPlaylist",
     "SessionRecordingExternalReference",

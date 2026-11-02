@@ -1,5 +1,9 @@
-from typing import Optional, cast
+from typing import TYPE_CHECKING, Optional, cast
 
+if TYPE_CHECKING:
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -14,8 +18,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.cler
     clerk_source,
     validate_credentials as validate_clerk_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.settings import ENDPOINTS, RETIRED_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.settings import (
+    ENDPOINTS,
+    RETIRED_ENDPOINTS,
+    WEBHOOK_SCHEMA_NAMES,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    WebhookCreationResult,
+    WebhookDeletionResult,
+    WebhookSource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -23,12 +37,126 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clerk import ClerkSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class ClerkSource(ResumableSource[ClerkSourceConfig, ClerkResumeConfig]):
+class ClerkSource(
+    ResumableSource[ClerkSourceConfig, ClerkResumeConfig],
+    WebhookSource[ClerkSourceConfig],
+):
+    codebase_detection = detect(
+        env=(
+            "^CLERK_SECRET_KEY$",
+            "^NEXT_PUBLIC_CLERK_",
+            "^CLERK_PUBLISHABLE_KEY$",
+            "^CLERK_WEBHOOK_SIGNING_SECRET$",
+            "^CLERK_ENCRYPTION_KEY$",
+            "^VITE_CLERK_",
+            "^EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY$",
+            "^PUBLIC_CLERK_PUBLISHABLE_KEY$",
+            "^PUBLIC_CLERK_",
+            "^NUXT_PUBLIC_CLERK_",
+            "^NUXT_CLERK_",
+            "^EXPO_PUBLIC_CLERK_",
+            "^PLASMO_PUBLIC_CLERK_",
+            "^REACT_APP_CLERK_",
+            "^GATSBY_CLERK_",
+            "^PUBLIC_ASTRO_APP_CLERK_",
+            "^CLERK_JWT_KEY$",
+            "^CLERK_PEM_PUBLIC_KEY$",
+            "^CLERK_MACHINE_SECRET_KEY$",
+            "^CLERK_API_KEY$",
+            "^CLERK_PLATFORM_API_KEY$",
+            "^CLERK_API_(URL|VERSION|BASE)$",
+            "^CLERK_FRONTEND_API(_URL)?$",
+            "^CLERK_JS_(URL|VERSION)$",
+            "^CLERK_(DOMAIN|PROXY_URL|IS_SATELLITE)$",
+            "^CLERK_SIGN_(IN|UP|OUT)_URL$",
+            "^CLERK_SIGN_(IN|UP)_(FALLBACK|FORCE)_REDIRECT_URL$",
+            "^CLERK_AFTER_SIGN_(IN|UP)_URL$",
+            "^CLERK_USER_PROFILE_URL$",
+            "^CLERK_TELEMETRY_(DISABLED|DEBUG)$",
+            "^CLERK_TESTING_TOKEN$",
+            "^CLERK_KEYLESS_DISABLED$",
+            "^CLERK_SKIP_RAILTIE$",
+        ),
+        script_hosts=("clerk.accounts.dev", "lcl.dev"),
+        npm=(
+            "@clerk/nextjs",
+            "@clerk/clerk-react",
+            "@clerk/backend",
+            "@clerk/express",
+            "@clerk/fastify",
+            "@clerk/remix",
+            "@clerk/react",
+            "@clerk/clerk-js",
+            "@clerk/astro",
+            "@clerk/vue",
+            "@clerk/nuxt",
+            "@clerk/react-router",
+            "@clerk/tanstack-react-start",
+            "@clerk/expo",
+            "@clerk/clerk-expo",
+            "@clerk/chrome-extension",
+            "@clerk/clerk-sdk-node",
+            "clerk",
+            "@clerk/hono",
+            "@clerk/electron",
+            "@clerk/electron-passkeys",
+            "@clerk/expo-passkeys",
+            "@clerk/expo-biometrics",
+            "@clerk/expo-google-signin",
+            "@clerk/expo-native-components",
+            "@clerk/ui",
+            "@clerk/shared",
+            "@clerk/types",
+            "@clerk/themes",
+            "@clerk/localizations",
+            "@clerk/elements",
+            "@clerk/mosaic",
+            "@clerk/testing",
+            "@clerk/eslint-plugin",
+            "@clerk/mcp-tools",
+            "@clerk/agent-toolkit",
+            "@clerk/tanstack-start",
+            "@clerk/edge",
+            "@clerk/backend-core",
+            "gatsby-plugin-clerk",
+            "ngx-clerk",
+            "elysia-clerk",
+            "@hono/clerk-auth",
+            "@dimkl/clerk-koa",
+            "clerk-solidjs",
+            "svelte-clerk",
+            "clerk-sveltekit",
+            "vue-clerk",
+            "astro-clerk-auth",
+            "tauri-plugin-clerk",
+            "@redwoodjs/auth-clerk-web",
+            "@redwoodjs/auth-clerk-api",
+        ),
+        pypi=("clerk-backend-api", "fastapi-clerk-auth"),
+        cargo=("clerk-rs", "tauri-plugin-clerk"),
+        composer=("clerkinc/backend-php",),
+        go=("github.com/clerk/clerk-sdk-go",),
+        hex=("clerk",),
+        maven=(
+            "com.clerk:backend-api",
+            "com.clerk:backend-api-spring-boot-starter",
+            "com.clerk:backend-api-spring-boot-autoconfigure",
+            "com.clerk:clerk-android",
+            "com.clerk:clerk-android-api",
+            "com.clerk:clerk-android-ui",
+            "com.clerk:clerk-convex-kotlin",
+        ),
+        pub=("clerk_flutter", "clerk_auth", "clerk_backend_api"),
+        rubygems=("clerk-sdk-ruby", "clerk-http-client", "clerk-rails"),
+        swiftpm=("github.com/clerk/clerk-ios", "github.com/clerk/clerk-convex-swift"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = ("v1",)
@@ -38,6 +166,16 @@ class ClerkSource(ResumableSource[ClerkSourceConfig, ClerkResumeConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CLERK
+
+    @property
+    def webhook_template(self) -> Optional["HogFunctionTemplateDC"]:
+        from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.webhook_template import template
+
+        return template
+
+    @property
+    def webhook_resource_map(self) -> dict[str, str]:
+        return {name: name for name in WEBHOOK_SCHEMA_NAMES}
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -66,6 +204,29 @@ The secret key starts with `sk_live_`.
                     ),
                 ],
             ),
+            webhookManualOnly=True,
+            webhookSetupCaption="""Webhook sync keeps the users, organizations, and organization memberships tables up to date. Set it up in Clerk:
+
+1. In the [Clerk Dashboard](https://dashboard.clerk.com/), go to **Configure** > **Webhooks** and select **Add Endpoint**.
+2. Paste the webhook URL shown below into **Endpoint URL**.
+3. Subscribe to the `user`, `organization`, and `organizationMembership` created and updated events.
+4. Open the endpoint, copy its **Signing Secret**, and paste it into the field below.
+
+Clerk delete events only carry the record ID, so webhook sync doesn't remove deleted records. Resync a table to remove them.
+""",
+            webhookFields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="signing_secret",
+                        label="Signing secret",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=True,
+                        placeholder="whsec_...",
+                        secret=True,
+                    )
+                ],
+            ),
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -84,12 +245,14 @@ The secret key starts with `sk_live_`.
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Clerk only supports full refresh - the API doesn't support filtering by updated_at
+        # The Clerk API can't filter by updated_at, so a polled sync is always a full refresh. The
+        # tables in WEBHOOK_SCHEMA_NAMES can switch to webhook sync after the initial backfill.
         schemas = [
             SourceSchema(
                 name=endpoint,
                 supports_incremental=False,
                 supports_append=False,
+                supports_webhooks=endpoint in WEBHOOK_SCHEMA_NAMES,
                 incremental_fields=[],
             )
             for endpoint in list(ENDPOINTS)
@@ -162,6 +325,23 @@ The secret key starts with `sk_live_`.
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ClerkResumeConfig]:
         return ResumableSourceManager[ClerkResumeConfig](inputs, ClerkResumeConfig)
 
+    def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
+        return WebhookSourceManager(inputs, inputs.logger)
+
+    def create_webhook(
+        self, config: ClerkSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookCreationResult:
+        return WebhookCreationResult(
+            success=False,
+            error="Clerk does not support automatic webhook creation. Please follow the manual setup instructions.",
+        )
+
+    def delete_webhook(
+        self, config: ClerkSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookDeletionResult:
+        # PostHog never creates the Clerk endpoint, so there is nothing to remove on Clerk's side.
+        return WebhookDeletionResult(success=True)
+
     def source_for_pipeline(
         self,
         config: ClerkSourceConfig,
@@ -175,4 +355,5 @@ The secret key starts with `sk_live_`.
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             logger=inputs.logger,
+            webhook_source_manager=self.get_webhook_source_manager(inputs),
         )

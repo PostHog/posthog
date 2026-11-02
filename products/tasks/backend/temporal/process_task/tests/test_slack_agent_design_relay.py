@@ -35,7 +35,8 @@ CHECKING = [("agent_text_delta", "Checking."), ("agent_status_update", {"phase":
 
 
 class _SlackCalls:
-    def __init__(self, stream_closed: bool = False) -> None:
+    def __init__(self, stream_closed: bool = False, plain_reply: bool = False) -> None:
+        self.plain_reply = plain_reply
         # Slack has closed every stream, so each append reports it.
         self.stream_closed = stream_closed
         self.starts: list[StartSlackAgentDesignStreamInput] = []
@@ -46,7 +47,11 @@ class _SlackCalls:
         @activity.defn(name="start_slack_agent_design_stream")
         async def start(input: StartSlackAgentDesignStreamInput) -> SlackAgentDesignStream:
             self.starts.append(input)
-            return SlackAgentDesignStream(ts="2.0", has_plan=bool(input.task_updates), actor_slack_user_id="U9")
+            return SlackAgentDesignStream(
+                ts=None if self.plain_reply else "2.0",
+                has_plan=bool(input.task_updates),
+                actor_slack_user_id="U9",
+            )
 
         @activity.defn(name="append_slack_agent_design_steps")
         async def append(input: AppendSlackAgentDesignStepsInput) -> bool:
@@ -88,9 +93,10 @@ async def _run_relay(
     setup_title: str | None = None,
     cancel: bool = False,
     stream_closed: bool = False,
+    plain_reply: bool = False,
     turn_trace_id: str | None = TRACE_ID,
 ) -> _SlackCalls:
-    calls = _SlackCalls(stream_closed=stream_closed)
+    calls = _SlackCalls(stream_closed=stream_closed, plain_reply=plain_reply)
     async with await WorkflowEnvironment.start_time_skipping() as env:
         task_queue = f"test-{uuid.uuid4()}"
         async with Worker(
@@ -123,6 +129,19 @@ async def _run_relay(
 
 
 class TestSlackAgentDesignRelay:
+    @pytest.mark.parametrize("setup_title", [None, "Starting sandbox"])
+    @pytest.mark.timeout(60, func_only=True)
+    async def test_untargeted_reply_keeps_collecting_the_final_answer(self, setup_title: str | None) -> None:
+        calls = await _run_relay(
+            [("agent_text_delta", "Signups grew.")],
+            setup_title=setup_title,
+            plain_reply=True,
+        )
+
+        assert len(calls.stops) == 1
+        assert calls.stops[0].ts is None
+        assert calls.stops[0].answer_markdown == "Signups grew."
+
     @pytest.mark.timeout(60, func_only=True)
     async def test_tool_calls_collapse_into_one_line_per_phase(self) -> None:
         calls = await _run_relay(

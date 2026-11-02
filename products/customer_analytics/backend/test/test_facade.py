@@ -147,6 +147,10 @@ class TestCustomerAnalyticsFacade(BaseTest):
             ("known email", "AP@Billing-Provider.example", ["Acme Corp"]),
             ("email domain of an address", "someone@acme.example", ["Acme Corp"]),
             ("bare email domain", "acme.example", ["Acme Corp"]),
+            ("partial email domain", "acme.exa", ["Acme Corp"]),
+            ("email domain with a leading at sign", "@acme.example", ["Acme Corp"]),
+            ("partial website domain", "globex-corp.ex", ["Globex"]),
+            ("website url", "https://www.globex-corp.example/pricing", ["Globex"]),
             ("address nobody owns", "someone@elsewhere.example", []),
         ]
     )
@@ -157,7 +161,12 @@ class TestCustomerAnalyticsFacade(BaseTest):
             external_id="acme-123",
             properties={"email_domains": ["acme.example"], "known_emails": ["ap@billing-provider.example"]},
         )
-        create_account(team_id=self.team.id, name="Globex", external_id="globex-9")
+        create_account(
+            team_id=self.team.id,
+            name="Globex",
+            external_id="globex-9",
+            properties={"website_domain": "globex-corp.example"},
+        )
 
         rows, count = facade.search_accounts(self.team.id, query, self._uac(), limit=10)
 

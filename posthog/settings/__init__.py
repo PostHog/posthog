@@ -77,6 +77,20 @@ INSTANCE_PREFERENCES = {
 }
 
 SITE_URL: str = os.getenv("SITE_URL", "http://localhost:8010").rstrip("/")
+# django-scim2 requires these service-provider settings.
+SCIM_SERVICE_PROVIDER = {
+    "NETLOC": SITE_URL.replace("http://", "").replace("https://", ""),
+    "AUTHENTICATION_SCHEMES": [
+        {
+            "type": "oauthbearertoken",
+            "name": "OAuth Bearer Token",
+            "description": "Authentication scheme using the OAuth Bearer Token Standard",
+            "specUri": "https://www.rfc-editor.org/rfc/rfc6750.txt",
+            "documentationUri": "https://posthog.com/docs/settings/scim",
+        }
+    ],
+    "GROUP_MODEL": "products.access_control.backend.models.role.Role",
+}
 NGROK_URL: str | None = os.getenv("NGROK_URL", None)
 INSTANCE_TAG: str = os.getenv("INSTANCE_TAG", "none")
 
@@ -143,6 +157,9 @@ CONTAINER_HOSTNAME: str = os.getenv("HOSTNAME", "unknown")
 OTEL_SERVICE_NAME: str | None = os.getenv("OTEL_SERVICE_NAME", None)
 
 PROM_PUSHGATEWAY_ADDRESS: str | None = os.getenv("PROM_PUSHGATEWAY_ADDRESS", None)
+
+# Set only when the application ClickHouse profile supports AS MATERIALIZED and enables its analyzer.
+HOGQL_MATERIALIZED_CTE_SUPPORTED: bool = get_from_env("HOGQL_MATERIALIZED_CTE_SUPPORTED", False, type_cast=str_to_bool)
 
 HOGQL_INCREASED_MAX_EXECUTION_TIME: int = get_from_env("HOGQL_INCREASED_MAX_EXECUTION_TIME", 600, type_cast=int)
 

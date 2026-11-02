@@ -7,8 +7,9 @@ use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogL
 use personhog_proto::personhog::types::v1::{
     FencePersonRequest, FencePersonResponse, FencePersonsRequest, FencePersonsResponse,
     FoldPersonDocumentRequest, FoldPersonDocumentResponse, GetPersonRequest, GetPersonResponse,
-    Person, ReleaseFenceRequest, ReleaseFenceResponse, ReleaseFencesRequest, ReleaseFencesResponse,
-    SealedSourceSnapshot, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+    Person, RaisePersonVersionRequest, RaisePersonVersionResponse, ReleaseFenceRequest,
+    ReleaseFenceResponse, ReleaseFencesRequest, ReleaseFencesResponse, SealedSourceSnapshot,
+    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
 use tokio::sync::{Mutex, OwnedMutexGuard};
 use tonic::{Request, Response, Status};
@@ -19,9 +20,9 @@ use personhog_common::partitioning::partition_for_person;
 use personhog_coordination::authority::AuthorityClock;
 
 use crate::cache::{
-    approx_person_bytes, CacheLookup, CachedPerson, DirtyIndex, DirtyMark, PartitionedCache,
-    PersonCacheKey,
+    CacheLookup, CachedPerson, DirtyIndex, DirtyMark, PartitionedCache, PersonCacheKey, Stream,
 };
+use crate::coordination::ChangelogCaptures;
 use crate::emitted::{EmittedVersionGuard, EmittedVersions};
 use crate::fence::{
     fenced_status, semantic_refusal, target_mark_status, FenceHealer, FenceMap, FenceState,
@@ -83,6 +84,12 @@ struct Committer {
     dirty_index: Arc<DirtyIndex>,
     emitted_versions: Arc<EmittedVersions>,
     fenced: Arc<FencedChangelogProducers>,
+    /// Shared with the service; a mark names the partition's captured topic.
+    captures: ChangelogCaptures,
+}
+
+fn not_served(partition: u32) -> Status {
+    Status::failed_precondition(format!("partition {partition} is not served by this pod"))
 }
 
 /// A committed document, with the locks the handler took for it, so the
@@ -104,10 +111,8 @@ pub struct PersonHogLeaderService {
     fallback: Option<PgFallback>,
     /// Per-partition inflight counter used to drive the handoff drain phase.
     inflight: Arc<InflightTracker>,
-    /// Total changelog partition count, read from etcd at startup (the same
-    /// source the router uses). Used to validate the router's routing
-    /// decision against each request's key.
-    num_partitions: u32,
+    /// What each served partition was acquired under; shared with the handler.
+    captures: ChangelogCaptures,
     /// Persons whose latest acked state the writer may not have applied to
     /// PG yet. Consulted on every cache miss: marked persons recover from
     /// the changelog, unmarked persons' PG rows are known current.
@@ -209,7 +214,7 @@ impl PersonHogLeaderService {
         fallback: Option<PgFallback>,
         locks: Arc<DashMap<PersonCacheKey, Arc<Mutex<()>>>>,
         inflight: Arc<InflightTracker>,
-        num_partitions: u32,
+        captures: ChangelogCaptures,
         dirty_index: Arc<DirtyIndex>,
         recovery: Arc<ChangelogRecovery>,
         size_limits: PropertySizeLimits,
@@ -224,6 +229,7 @@ impl PersonHogLeaderService {
             dirty_index: Arc::clone(&dirty_index),
             emitted_versions: Arc::clone(&emitted_versions),
             fenced,
+            captures: Arc::clone(&captures),
         });
         Self {
             committer,
@@ -235,7 +241,7 @@ impl PersonHogLeaderService {
             mark_verifier: fallback.as_ref().map(MarkVerifier::new),
             fallback,
             inflight,
-            num_partitions,
+            captures,
             dirty_index,
             recovery,
             size_limits,
@@ -268,10 +274,16 @@ impl PersonHogLeaderService {
         team_id: i64,
         person_id: i64,
     ) -> Result<(), Status> {
-        let expected = partition_for_person(team_id, person_id, self.num_partitions);
+        let modulus = self
+            .captures
+            .get(&partition)
+            .map(|c| c.config.partitions)
+            .ok_or_else(|| not_served(partition))?;
+        let expected = partition_for_person(team_id, person_id, modulus);
         if partition != expected {
             counter!("personhog_leader_partition_mismatch_total").increment(1);
-            return Err(Status::invalid_argument(format!(
+            // A precondition, so the router bounces and retries, landing once it adopts the new count.
+            return Err(Status::failed_precondition(format!(
                 "x-partition {partition} does not match partition {expected} \
                  derived from team_id={team_id} person_id={person_id}"
             )));
@@ -289,9 +301,7 @@ impl PersonHogLeaderService {
     #[allow(clippy::result_large_err)]
     fn validate_ownership(&self, partition: u32) -> Result<(), Status> {
         if !self.cache.has_partition(partition) {
-            return Err(Status::failed_precondition(format!(
-                "partition {partition} is not served by this pod"
-            )));
+            return Err(not_served(partition));
         }
         Ok(())
     }
@@ -317,7 +327,7 @@ impl PersonHogLeaderService {
         &self,
         partition: u32,
         key: &PersonCacheKey,
-    ) -> Result<Arc<CachedPerson>, Status> {
+    ) -> Result<CachedPerson, Status> {
         let Some(mark) = self.dirty_index.get(key) else {
             // "No mark" means PG is current — but only while this pod owns
             // the partition. Handoffs drain writes, not reads, so a read
@@ -356,7 +366,7 @@ impl PersonHogLeaderService {
                 )
                 .increment(1);
                 self.cache.put(partition, key.clone(), person.clone());
-                Ok(Arc::new(person))
+                Ok(person)
             }
             Err(e) => {
                 counter!(
@@ -384,7 +394,7 @@ impl PersonHogLeaderService {
         &self,
         partition: u32,
         key: &PersonCacheKey,
-    ) -> Result<Arc<CachedPerson>, Status> {
+    ) -> Result<CachedPerson, Status> {
         let Some(fallback) = &self.fallback else {
             // Without the pool a cache miss answers NotFound, which callers
             // read as authoritative death; production always sets it.
@@ -406,7 +416,7 @@ impl PersonHogLeaderService {
                 )
                 .increment(1);
                 self.cache.put(partition, key.clone(), person.clone());
-                Ok(Arc::new(person))
+                Ok(person)
             }
             Ok(None) => {
                 counter!(
@@ -443,7 +453,7 @@ impl PersonHogLeaderService {
         &self,
         partition: u32,
         key: &PersonCacheKey,
-    ) -> Result<Arc<CachedPerson>, Status> {
+    ) -> Result<CachedPerson, Status> {
         // Fast path: cache hit (no lock needed)
         match self.cache.get(partition, key) {
             CacheLookup::Found(person) => {
@@ -478,7 +488,7 @@ impl PersonHogLeaderService {
         &self,
         partition: u32,
         key: &PersonCacheKey,
-    ) -> Result<Arc<CachedPerson>, Status> {
+    ) -> Result<CachedPerson, Status> {
         match self.cache.get(partition, key) {
             CacheLookup::Found(person) => {
                 Self::record_cache_hit();
@@ -520,7 +530,7 @@ impl PersonHogLeaderService {
             )));
         }
 
-        let proto = cached_person_to_proto(&person);
+        let proto = cached_person_into_proto(person.clone());
 
         // Re-check before producing, for the same reason the read path
         // re-checks before answering: admission proves nothing about the
@@ -562,6 +572,17 @@ impl PersonHogLeaderService {
 }
 
 impl Committer {
+    /// The producer was acquired on the capture's topic, so its records land there.
+    #[allow(clippy::result_large_err)]
+    fn stream_of(&self, partition: u32) -> Result<Stream, Status> {
+        let topic = self
+            .captures
+            .get(&partition)
+            .map(|c| Arc::clone(&c.topic))
+            .ok_or_else(|| not_served(partition))?;
+        Ok(Stream { topic, partition })
+    }
+
     async fn commit(
         &self,
         partition: u32,
@@ -571,6 +592,7 @@ impl Committer {
         lock: OwnedMutexGuard<()>,
         inflight: InflightGuard,
     ) -> Result<Committed, Status> {
+        let stream = self.stream_of(partition)?;
         // The guard is what makes the version un-reusable if this task
         // never reports.
         let mut emitted = EmittedVersionGuard::new(
@@ -690,6 +712,7 @@ impl Committer {
                 version: person.version,
                 offset,
                 partition,
+                stream,
                 is_deleted: person.is_deleted,
             },
         );
@@ -734,7 +757,7 @@ const MS_PER_HOUR: i64 = 3_600_000;
 /// uuid must parse, team_id must fit the column's `integer`, and the
 /// timestamps must sit inside a sanity range ([1970, 9999]) any
 /// legitimate value satisfies. The legacy jsonb columns have no cache
-/// field and are unconditionally empty in `cached_person_to_proto`, so a
+/// field and are unconditionally empty in `cached_person_into_proto`, so a
 /// record structurally cannot carry values the writer would refuse there.
 fn assert_writeable(p: &CachedPerson) -> Result<(), String> {
     if Uuid::parse_str(&p.uuid).is_err() {
@@ -760,13 +783,12 @@ fn assert_writeable(p: &CachedPerson) -> Result<(), String> {
     Ok(())
 }
 
-fn cached_person_to_proto(p: &CachedPerson) -> Person {
-    let properties_bytes = p.properties.clone();
+fn cached_person_into_proto(p: CachedPerson) -> Person {
     Person {
         id: p.id,
-        uuid: p.uuid.clone(),
+        uuid: p.uuid,
         team_id: p.team_id,
-        properties: properties_bytes,
+        properties: p.properties,
         properties_last_updated_at: Vec::new(),
         properties_last_operation: Vec::new(),
         created_at: p.created_at,
@@ -919,7 +941,7 @@ impl PersonHogLeader for PersonHogLeaderService {
         }
 
         Ok(Response::new(GetPersonResponse {
-            person: Some(cached_person_to_proto(&person)),
+            person: Some(cached_person_into_proto(person)),
         }))
     }
 
@@ -1115,7 +1137,7 @@ impl PersonHogLeader for PersonHogLeaderService {
         if !updates.has_changes && !identity_changed && !last_seen_changed {
             counter!("personhog_leader_updates_total", "outcome" => "no_change").increment(1);
             return Ok(Response::new(UpdatePersonPropertiesResponse {
-                person: Some(cached_person_to_proto(&person)),
+                person: Some(cached_person_into_proto(person)),
                 updated: false,
             }));
         }
@@ -1125,7 +1147,7 @@ impl PersonHogLeader for PersonHogLeaderService {
         if !updates.has_non_filtered_changes && !identity_changed && !last_seen_changed {
             counter!("personhog_leader_updates_total", "outcome" => "filtered_only").increment(1);
             return Ok(Response::new(UpdatePersonPropertiesResponse {
-                person: Some(cached_person_to_proto(&person)),
+                person: Some(cached_person_into_proto(person)),
                 updated: false,
             }));
         }
@@ -1138,7 +1160,7 @@ impl PersonHogLeader for PersonHogLeaderService {
         if !actually_updated && !identity_changed && !last_seen_changed {
             counter!("personhog_leader_updates_total", "outcome" => "no_change").increment(1);
             return Ok(Response::new(UpdatePersonPropertiesResponse {
-                person: Some(cached_person_to_proto(&person)),
+                person: Some(cached_person_into_proto(person)),
                 updated: false,
             }));
         }
@@ -1243,7 +1265,6 @@ impl PersonHogLeader for PersonHogLeaderService {
 
         let properties_bytes = serde_json::to_vec(&new_properties)
             .map_err(|e| Status::internal(format!("serialize updated properties: {e}")))?;
-        let approx_bytes = approx_person_bytes(properties_bytes.len());
         // A version this pod already put on the wire is spent even when
         // it never learned the outcome, so the next one has to clear that
         // floor as well as the state it derived from. Reusing it produces
@@ -1262,7 +1283,6 @@ impl PersonHogLeader for PersonHogLeaderService {
             is_identified: identified_now,
             is_deleted: false,
             last_seen_at: merged_last_seen,
-            approx_bytes,
         };
 
         let committed = self
@@ -1274,6 +1294,137 @@ impl PersonHogLeader for PersonHogLeaderService {
             person: Some(committed.proto),
             updated: true,
         }))
+    }
+
+    async fn raise_person_version(
+        &self,
+        request: Request<RaisePersonVersionRequest>,
+    ) -> Result<Response<RaisePersonVersionResponse>, Status> {
+        let partition = partition_from_metadata(&request)?;
+        let req = request.into_inner();
+        self.validate_partition(partition, req.team_id, req.person_id)?;
+        if req.min_version <= 0 {
+            return Err(Status::invalid_argument("min_version must be positive"));
+        }
+        self.check_authority(partition)?;
+
+        let Some(inflight_guard) = self.inflight.try_begin(partition) else {
+            return Err(Status::failed_precondition(format!(
+                "partition {partition} is fenced for handoff; writes are rejected"
+            )));
+        };
+
+        let cache_key = PersonCacheKey {
+            team_id: req.team_id,
+            person_id: req.person_id,
+        };
+        let mutex = self
+            .locks
+            .entry(cache_key.clone())
+            .or_default()
+            .value()
+            .clone();
+        let lock_wait = std::time::Instant::now();
+        let guard = mutex.lock_owned().await;
+        histogram!("personhog_leader_person_lock_wait_ms")
+            .record(lock_wait.elapsed().as_secs_f64() * 1000.0);
+
+        if !self.dirty_index.can_admit(&cache_key) {
+            counter!("personhog_leader_writes_shed_total", "reason" => "dirty_index_full")
+                .increment(1);
+            return Err(Status::resource_exhausted(
+                "dirty index at capacity: the writer is behind and this raise cannot be \
+                 tracked; retry later",
+            ));
+        }
+
+        if let Some(fence) = self.check_fence(&cache_key) {
+            counter!("personhog_leader_writes_fenced_total").increment(1);
+            if let Some(healer) = &self.fence_healer {
+                healer.maybe_heal(cache_key.clone(), fence);
+            }
+            return Err(fenced_status(&fence));
+        }
+
+        let person = self.lookup_or_load_locked(partition, &cache_key).await?;
+        self.check_authority(partition)?;
+        if person.is_deleted {
+            return Err(Status::not_found("person is destroyed"));
+        }
+
+        if person.version >= req.min_version {
+            counter!("personhog_leader_version_raises_total", "outcome" => "at_or_above")
+                .increment(1);
+            return self.authoritative_ok(
+                partition,
+                RaisePersonVersionResponse {
+                    person: Some(cached_person_into_proto(person)),
+                    raised: false,
+                },
+            );
+        }
+
+        // A spent version may already be in the changelog, so the raise must clear it.
+        let floor = self
+            .emitted_versions
+            .floor_for(partition, &cache_key, person.version);
+        let version = floor
+            .checked_add(1)
+            .ok_or_else(|| Status::invalid_argument("no version left above the emitted floor"))?
+            .max(req.min_version);
+        let mut raised = CachedPerson { version, ..person };
+
+        // A stored row over the size limit would stop the writer's partition, so trim it as an update does.
+        let stored = raised
+            .parse_properties()
+            .map_err(|e| Status::internal(format!("cached properties unparseable: {e}")))?;
+        let stored_size = jsonb_column_size(&stored);
+        if stored_size >= self.size_limits.threshold {
+            match trim_properties_to_fit_size(&stored, self.size_limits.trim_target) {
+                TrimResult::Trimmed(trimmed) => {
+                    counter!("personhog_leader_properties_trimmed_total").increment(1);
+                    self.warnings.emit(&SizeViolationWarning {
+                        team_id: cache_key.team_id,
+                        person_uuid: raised.uuid.clone(),
+                        message: "Oversized person properties were trimmed to fit the size limit"
+                            .to_string(),
+                    });
+                    raised.properties = serde_json::to_vec(&trimmed).map_err(|e| {
+                        Status::internal(format!("serialize trimmed properties: {e}"))
+                    })?;
+                }
+                TrimResult::Fits => {}
+                TrimResult::CannotFit => {
+                    counter!(
+                        "personhog_leader_version_raises_total",
+                        "outcome" => "rejected_unremediable"
+                    )
+                    .increment(1);
+                    return Err(semantic_refusal(
+                        format!(
+                            "person properties exceed the size limit: stored state is \
+                             {stored_size} bytes (jsonb) and protected properties alone exceed \
+                             the {} trim target",
+                            self.size_limits.trim_target,
+                        ),
+                        "person-too-large",
+                    ));
+                }
+            }
+        }
+
+        let committed = self
+            .commit_document(partition, &cache_key, raised, guard, inflight_guard)
+            .await?;
+        counter!("personhog_leader_version_raises_total", "outcome" => "raised").increment(1);
+
+        self.authoritative_ok(
+            partition,
+            RaisePersonVersionResponse {
+                person: Some(committed.proto),
+                raised: true,
+            },
+        )
     }
 
     async fn fold_person_document(
@@ -1538,7 +1689,7 @@ impl PersonHogLeader for PersonHogLeaderService {
                         return self.authoritative_ok(
                             partition,
                             FoldPersonDocumentResponse {
-                                person: Some(cached_person_to_proto(&person)),
+                                person: Some(cached_person_into_proto(person)),
                             },
                         );
                     }
@@ -1571,11 +1722,14 @@ impl PersonHogLeader for PersonHogLeaderService {
             .max();
 
         // The version is a max-merge over the target's floor and every
-        // sealed version, plus one: at or above every source's death
-        // document, which derives from the same sealed + 1 (equal when
-        // the highest sealed version dominates — harmless, the streams
-        // are per-person), and re-applying the fold only bumps it again
-        // — convergent under at-least-once delivery.
+        // sealed version, plus one. A source's death document starts
+        // from the same sealed + 1, so the fold sits at or above it and
+        // equals it when the highest sealed version dominates. A source
+        // row that moved after its seal raises its death document above
+        // the fold. The streams are per-person, so the relation is a
+        // convention, not a collision guard. Re-applying the fold only
+        // bumps the version again, so it converges under at-least-once
+        // delivery.
         let base_version = self
             .emitted_versions
             .floor_for(partition, &cache_key, person.version);
@@ -1590,7 +1744,6 @@ impl PersonHogLeader for PersonHogLeaderService {
 
         let folded_bytes = serde_json::to_vec(&folded)
             .map_err(|e| Status::internal(format!("serialize folded properties: {e}")))?;
-        let approx_bytes = approx_person_bytes(folded_bytes.len());
         let folded_person = CachedPerson {
             id: person.id,
             uuid: person.uuid.clone(),
@@ -1601,7 +1754,6 @@ impl PersonHogLeader for PersonHogLeaderService {
             is_identified: true,
             is_deleted: false,
             last_seen_at,
-            approx_bytes,
         };
 
         let committed = self
@@ -1666,9 +1818,7 @@ mod tests {
 
     use common_kafka::config::KafkaConfig;
     use envconfig::Envconfig;
-    use health::HealthRegistry;
     use personhog_proto::personhog::types::v1::{LifecycleOpType, ReleaseOutcome};
-    use rdkafka::ClientConfig;
     use tonic::Code;
 
     use super::*;
@@ -1790,30 +1940,30 @@ mod tests {
         assert_eq!(stats.clamped_numbers, 1);
     }
 
-    /// A service with no PG pool and a producer that never connects —
-    /// enough to exercise the miss path, where no test reaches Kafka or PG.
+    /// A service with no PG pool and no reachable Kafka — enough to
+    /// exercise the miss path, where no test reaches Kafka or PG.
     async fn make_test_service() -> PersonHogLeaderService {
         let kafka = KafkaConfig::init_from_hashmap(&HashMap::new()).unwrap();
-        let liveness = HealthRegistry::new("test")
-            .register("kafka".to_string(), Duration::from_secs(60))
-            .await;
-        let producer: rdkafka::producer::FutureProducer<
-            common_kafka::kafka_producer::KafkaContext,
-        > = ClientConfig::new()
-            .set("bootstrap.servers", "127.0.0.1:1")
-            .create_with_context(common_kafka::kafka_producer::KafkaContext::from(liveness))
-            .unwrap();
         PersonHogLeaderService::new(
             Arc::new(PartitionedCache::new(16)),
             None,
             Arc::new(DashMap::new()),
             Arc::new(InflightTracker::new()),
-            1,
+            // Partition 0 served under one partition.
+            Arc::new(DashMap::from_iter([(
+                0,
+                crate::coordination::Capture {
+                    topic: Arc::from("personhog_updates"),
+                    config: personhog_coordination::types::ChangelogConfig::new(
+                        "personhog_updates",
+                        1,
+                    ),
+                },
+            )])),
             Arc::new(DirtyIndex::new(16)),
             Arc::new(
                 ChangelogRecovery::new(RecoveryConfig {
                     kafka,
-                    topic: "personhog_updates".to_string(),
                     pod_name: "test".to_string(),
                     recv_timeout: Duration::from_millis(10),
                     pool_size: 1,
@@ -1821,13 +1971,12 @@ mod tests {
                 .expect("build recovery pool"),
             ),
             PropertySizeLimits::new(655360, 524288),
-            WarningsProducer::new(producer, "clickhouse_ingestion_warnings".to_string()),
+            WarningsProducer::disabled(),
             Arc::new(DashMap::new()),
             // Lazily built: nothing here connects until a write acquires
             // a partition, which these tests never do.
             Arc::new(FencedChangelogProducers::new(FencedProducerConfig {
                 kafka: KafkaConfig::init_from_hashmap(&HashMap::new()).unwrap(),
-                topic: "personhog_updates".to_string(),
                 init_timeout: Duration::from_secs(1),
                 commit_timeout: Duration::from_secs(1),
                 broker_txn_timeout: Duration::from_secs(10),
@@ -1932,7 +2081,6 @@ mod tests {
                 is_identified: false,
                 is_deleted: false,
                 last_seen_at: None,
-                approx_bytes: 64,
             },
         );
 
@@ -1990,7 +2138,6 @@ mod tests {
                 is_identified: false,
                 is_deleted: false,
                 last_seen_at: None,
-                approx_bytes: 64,
             },
         );
 
@@ -2093,7 +2240,6 @@ mod tests {
                 is_identified: false,
                 is_deleted: false,
                 last_seen_at: None,
-                approx_bytes: 64,
             },
         );
 
@@ -2186,7 +2332,7 @@ mod tests {
 
         // The handoff completes while the release is parked.
         service.cache.drop_partition(0);
-        crate::fence::drop_partition_fences(&service.fences, 0, 1);
+        crate::fence::drop_partition_fences(&service.fences, 0, 1, |_| false);
         drop(held);
 
         let err = releasing
@@ -2341,7 +2487,6 @@ mod tests {
                 is_identified: false,
                 is_deleted: false,
                 last_seen_at: None,
-                approx_bytes: 64,
             },
         );
 
@@ -2413,7 +2558,6 @@ mod tests {
                 is_identified: false,
                 is_deleted: true,
                 last_seen_at: None,
-                approx_bytes: 64,
             },
         );
 
@@ -2490,7 +2634,6 @@ mod tests {
                 is_identified: false,
                 is_deleted: false,
                 last_seen_at: None,
-                approx_bytes: 64,
             },
         );
 
@@ -2554,7 +2697,6 @@ mod tests {
                 is_identified: false,
                 is_deleted: false,
                 last_seen_at: None,
-                approx_bytes: 64,
             },
         );
 
@@ -2657,7 +2799,6 @@ mod tests {
                 is_identified: false,
                 is_deleted: false,
                 last_seen_at: None,
-                approx_bytes: 64,
             },
         );
         drop(held);
@@ -2703,7 +2844,6 @@ mod tests {
                 is_identified: false,
                 is_deleted: false,
                 last_seen_at: None,
-                approx_bytes: 64,
             },
         );
 

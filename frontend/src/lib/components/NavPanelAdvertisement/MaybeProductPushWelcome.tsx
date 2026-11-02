@@ -58,6 +58,7 @@ function ProductPushWelcome({
                       emptyState: sceneEmptyState,
                       activeSceneId,
                       params: activeSceneComponentParams,
+                      searchParams,
                       featureFlags,
                       receivedFeatureFlags,
                       forcedMode: forcedModeFromParam(searchParams[EMPTY_STATE_PARAM]),

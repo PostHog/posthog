@@ -75,7 +75,7 @@ class TestChannelInstructions(ChannelExtrasBaseTest):
         client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
         return client
 
-    def test_loop_sandbox_can_publish_only_to_its_configured_context(self):
+    def test_legacy_loop_sandbox_cannot_publish_context(self):
         with team_scope(self.team.id):
             other_channel = Channel.objects.create(team=self.team, name="other", created_by=self.user)
             task = Task.objects.create(
@@ -103,12 +103,12 @@ class TestChannelInstructions(ChannelExtrasBaseTest):
             {"content": "wrong target", "base_version": 0},
             format="json",
         )
-        allowed = client.put(
+        configured = client.put(
             f"{self.base}/instructions/", {"content": "configured target", "base_version": 0}, format="json"
         )
 
         assert denied.status_code == status.HTTP_403_FORBIDDEN
-        assert allowed.status_code == status.HTTP_200_OK
+        assert configured.status_code == status.HTTP_403_FORBIDDEN
 
     def test_unpublished_reads_as_blank_version_zero(self):
         response = self.client.get(f"{self.base}/instructions/")

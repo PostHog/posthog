@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import Optional
+from typing import Any, Literal, Optional
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -15,8 +15,76 @@ VIDEO_VIEWS_INITIAL_LOOKBACK = timedelta(days=30)
 # sync, so a wide window is cheap.
 AGGREGATE_LOOKBACK = timedelta(days=90)
 
+# Every metric the Mux Data breakdown and timeseries endpoints accept (`METRIC_ID` in the API reference).
+DATA_METRICS: tuple[str, ...] = (
+    "aggregate_startup_time",
+    "downscale_percentage",
+    "exits_before_video_start",
+    "live_stream_latency",
+    "max_downscale_percentage",
+    "max_request_latency",
+    "max_upscale_percentage",
+    "page_load_time",
+    "playback_failure_percentage",
+    "playback_success_score",
+    "player_startup_time",
+    "playing_time",
+    "rebuffer_count",
+    "rebuffer_duration",
+    "rebuffer_frequency",
+    "rebuffer_percentage",
+    "request_latency",
+    "request_throughput",
+    "rebuffer_score",
+    "requests_for_first_preroll",
+    "seek_latency",
+    "startup_time_score",
+    "unique_viewers",
+    "upscale_percentage",
+    "video_quality_score",
+    "video_startup_preroll_load_time",
+    "video_startup_preroll_request_time",
+    "video_startup_time",
+    "viewer_experience_score",
+    "views",
+    "weighted_average_bitrate",
+    "video_startup_failure_percentage",
+    "ad_attempt_count",
+    "ad_break_count",
+    "ad_break_error_count",
+    "ad_break_error_percentage",
+    "ad_error_count",
+    "ad_error_percentage",
+    "ad_exit_before_start_count",
+    "ad_exit_before_start_percentage",
+    "ad_impression_count",
+    "ad_startup_error_count",
+    "ad_startup_error_percentage",
+    "playback_business_exception_percentage",
+    "video_startup_business_exception_percentage",
+    "view_content_startup_time",
+    "ad_preroll_startup_time",
+    "view_dropped_percentage",
+    "rendition_change_count",
+    "rendition_upshift_count",
+    "rendition_downshift_count",
+)
+# Mux accepts ~90 breakdown dimensions and the table issues one request per metric per dimension, so
+# it covers the dimensions QoE triage usually starts from rather than all of them.
+BREAKDOWN_DIMENSIONS: tuple[str, ...] = (
+    "country",
+    "cdn",
+    "browser",
+    "operating_system",
+    "player_name",
+    "viewer_device_category",
+)
+# Identifier dimensions (view_session_id, viewer_user_id, ...) can have one value per view, so a full
+# walk would re-read the whole view history. Cap each dimension at this many pages of values.
+DIMENSION_VALUES_MAX_PAGES = 50
 
-@dataclass
+
+@dataclass(frozen=True)
 class MuxEndpointConfig:
     name: str
     path: str
@@ -49,6 +117,12 @@ class MuxEndpointConfig:
     # How far back the `timeframe[]` window reaches when there's no watermark (first sync or a
     # full-refresh endpoint). Only meaningful when `use_timeframe` is set.
     lookback: timedelta = AGGREGATE_LOOKBACK
+    # Mux Data endpoints keyed by a metric or dimension in the path. The source issues one request
+    # stream per metric (`metrics`), per metric and breakdown dimension (`metric_dimensions`), or per
+    # dimension listed by `/data/v1/dimensions` (`dimensions`), and adds the key to each row.
+    fan_out: Optional[Literal["metrics", "metric_dimensions", "dimensions"]] = None
+    extra_params: dict[str, Any] = field(default_factory=dict)
+    max_pages: Optional[int] = None
 
 
 MUX_ENDPOINTS: dict[str, MuxEndpointConfig] = {
@@ -113,6 +187,47 @@ MUX_ENDPOINTS: dict[str, MuxEndpointConfig] = {
         paginated=False,
         primary_keys=["metric"],
         use_timeframe=True,
+    ),
+    "metric_timeseries": MuxEndpointConfig(
+        name="metric_timeseries",
+        path="/data/v1/metrics/{metric}/timeseries",
+        partition_key=None,
+        # One response per metric holds every interval in the window.
+        paginated=False,
+        primary_keys=["metric", "interval_start"],
+        use_timeframe=True,
+        fan_out="metrics",
+        # Without an explicit granularity Mux picks one from the window length and may change it.
+        extra_params={"group_by": "day"},
+    ),
+    "metric_breakdowns": MuxEndpointConfig(
+        name="metric_breakdowns",
+        path="/data/v1/metrics/{metric}/breakdown?group_by={dimension}",
+        partition_key=None,
+        primary_keys=["metric", "dimension", "field"],
+        use_timeframe=True,
+        fan_out="metric_dimensions",
+        # A stable order keeps page boundaries fixed while the walk runs.
+        extra_params={"order_by": "field", "order_direction": "asc"},
+        # Hundreds of requests per sync, so only on when the user picks it.
+        should_sync_default=False,
+    ),
+    "dimensions": MuxEndpointConfig(
+        name="dimensions",
+        path="/data/v1/dimensions",
+        partition_key=None,
+        paginated=False,
+        primary_keys=["name"],
+    ),
+    "dimension_values": MuxEndpointConfig(
+        name="dimension_values",
+        path="/data/v1/dimensions/{values_path}",
+        partition_key=None,
+        primary_keys=["dimension", "value"],
+        use_timeframe=True,
+        fan_out="dimensions",
+        max_pages=DIMENSION_VALUES_MAX_PAGES,
+        should_sync_default=False,
     ),
 }
 

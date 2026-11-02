@@ -406,3 +406,33 @@ def test_read_command_caps_what_it_pulls_out_of_the_sandbox(tmp_path: Path) -> N
     assert result.returncode == 0
     assert len(result.stdout) < 300 * 1024
     assert result.stdout.rstrip().endswith(b'{"event": "kill", "pid": 19999}')
+
+
+def test_enforce_kills_survivors_after_memory_drops_below_trigger(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    signals: list[tuple[tuple[int, ...], str]] = []
+    alive = {40, 41, 42}
+
+    def record_signal(pids: dict[int, int] | tuple[int, ...], sig: sidecar.signal.Signals) -> None:
+        signals.append((tuple(pids), sig.name))
+        if sig == sidecar.signal.SIGTERM:
+            alive.difference_update({40, 42})
+        else:
+            alive.difference_update(pids)
+
+    monkeypatch.setattr(sidecar, "EVENTS_PATH", tmp_path / "events.jsonl")
+    monkeypatch.setattr(sidecar, "TERM_GRACE_SECONDS", 0.0)
+    monkeypatch.setattr(sidecar, "list_processes", lambda: SANDBOX_PROCESSES)
+    monkeypatch.setattr(sidecar, "read_pids", lambda path: (20,))
+    monkeypatch.setattr(sidecar, "read_pid", lambda path: 10)
+    monkeypatch.setattr(sidecar, "_start_time", lambda pid: pid)
+    monkeypatch.setattr(sidecar, "_alive_matching", lambda identities: tuple(pid for pid in identities if pid in alive))
+    monkeypatch.setattr(sidecar, "signal_pids", record_signal)
+    monkeypatch.setattr(sidecar, "read_memory", lambda: sidecar.MemoryReading(10 * GIB, 16 * GIB, "cgroup_v2"))
+    watchdog = sidecar.Watchdog(sidecar.MemoryReading(14 * GIB, 16 * GIB, "cgroup_v2"))
+
+    watchdog.enforce(0.0)
+
+    assert signals == [((42, 41, 40), "SIGTERM"), ((41,), "SIGKILL")]
+    assert json.loads((tmp_path / "events.jsonl").read_text())["signal"] == "SIGKILL"

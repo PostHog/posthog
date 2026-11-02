@@ -1,5 +1,5 @@
 import typing
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import cached_property
 from typing import Optional, cast
 
@@ -200,6 +200,11 @@ class TrendsActorsQueryBuilder:
     @cached_property
     def is_monthly_active_math(self) -> bool:
         return self.entity.math == BaseMathType.MONTHLY_ACTIVE
+
+    @cached_property
+    def active_users_lookback_days(self) -> int:
+        # A weekly or monthly active actor has an event in the 7 or 30 days that end on the data point.
+        return 6 if self.is_weekly_active_math else 29
 
     @cached_property
     def is_hourly(self) -> bool:
@@ -433,16 +438,44 @@ class TrendsActorsQueryBuilder:
 
         return conditions
 
-    def _date_where_expr(self) -> DateWhereExprs:
-        date_range: QueryDateRange | QueryCompareToDateRange | QueryPreviousPeriodDateRange = (
-            self.trends_previous_date_range if self.is_compare_previous else self.trends_date_range
-        )
-        query_from, query_to = date_range.date_from(), date_range.date_to()
+    def actors_date_window(self) -> ActorsDateWindow:
+        """The window of the events that the actors query counts, as datetimes.
 
+        The window matches the actors query's date condition. Use it to read the actors' events in another query.
+        Call it once per builder, because a previous-period window moves `time_frame`.
+        """
+        date_range = self._actors_date_range()
+        query_from, query_to = date_range.date_from(), date_range.date_to()
+        window = self._actors_window(date_range, query_from, query_to)
+        if not self.is_active_users_math:
+            return window
+
+        actors_from = window.to_datetime if self.is_total_value else window.from_datetime
+        # The query subtracts calendar days in the team's time zone, so a DST change keeps the local time.
+        actors_from = actors_from.astimezone(self.team.timezone_info) - timedelta(days=self.active_users_lookback_days)
+        actors_to = window.to_datetime
+        if self.is_explicit:
+            actors_from = max(actors_from, query_from)
+            actors_to = min(actors_to, query_to)
+        return ActorsDateWindow(from_datetime=actors_from, to_datetime=actors_to, to_op=window.to_op)
+
+    def _actors_date_range(self) -> QueryDateRange | QueryCompareToDateRange | QueryPreviousPeriodDateRange:
+        return self.trends_previous_date_range if self.is_compare_previous else self.trends_date_range
+
+    def _actors_window(
+        self,
+        date_range: QueryDateRange | QueryCompareToDateRange | QueryPreviousPeriodDateRange,
+        query_from: datetime,
+        query_to: datetime,
+    ) -> ActorsDateWindow:
         if self.is_total_value:
-            window = self._total_value_actors_window(query_from, query_to)
-        else:
-            window = self._time_series_actors_window(date_range, query_from, query_to)
+            return self._total_value_actors_window(query_from, query_to)
+        return self._time_series_actors_window(date_range, query_from, query_to)
+
+    def _date_where_expr(self) -> DateWhereExprs:
+        date_range = self._actors_date_range()
+        query_from, query_to = date_range.date_from(), date_range.date_to()
+        window = self._actors_window(date_range, query_from, query_to)
 
         # adjust date_from for weekly and monthly active calculations
         if self.is_active_users_math:
@@ -539,20 +572,12 @@ class TrendsActorsQueryBuilder:
             # This way we at least ensure the date range is the probably expected 7 or 30 days.
             actors_from = actors_to
 
-        if self.is_weekly_active_math:
-            actors_from_expr = ast.ArithmeticOperation(
-                op=ast.ArithmeticOperationOp.Sub,
-                left=ast.Constant(value=actors_from),
-                right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=6)]),
-            )
-            actors_to_expr = ast.Constant(value=actors_to)
-        elif self.is_monthly_active_math:
-            actors_from_expr = ast.ArithmeticOperation(
-                op=ast.ArithmeticOperationOp.Sub,
-                left=ast.Constant(value=actors_from),
-                right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=29)]),
-            )
-            actors_to_expr = ast.Constant(value=actors_to)
+        actors_from_expr = ast.ArithmeticOperation(
+            op=ast.ArithmeticOperationOp.Sub,
+            left=ast.Constant(value=actors_from),
+            right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=self.active_users_lookback_days)]),
+        )
+        actors_to_expr = ast.Constant(value=actors_to)
 
         if self.is_explicit:
             actors_from_expr = ast.Call(name="greatest", args=[actors_from_expr, ast.Constant(value=query_from)])

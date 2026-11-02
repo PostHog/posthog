@@ -25,6 +25,7 @@ import {
   type BedrockGatewayVariant,
   type CloudRegion,
   classifyGatewayLimitError,
+  classifyPromptFailure,
   customModelMeta,
   type ExecutionMode,
   flattenSelectOptions,
@@ -4746,6 +4747,11 @@ export class SessionService {
           "The AI provider could not complete the request. Your session is unaffected, so please send the message again.",
           { cause: error },
         );
+      }
+
+      const failure = classifyPromptFailure(error, errorDetails);
+      if (failure.kind === "request_rejected") {
+        throw new Error(failure.message, { cause: error });
       }
 
       throw error;

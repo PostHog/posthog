@@ -42,6 +42,11 @@ def load_all_sources() -> None:
             _load_source(module_path)
 
 
+def load_all_sources_or_raise() -> None:
+    """Import every source module, raising on the first one that fails instead of skipping it."""
+    _bulk_load()
+
+
 def _bulk_load() -> None:
     from . import _load_all  # noqa: F401, PLC0415
 

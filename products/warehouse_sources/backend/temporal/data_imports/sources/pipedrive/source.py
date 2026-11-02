@@ -1,6 +1,7 @@
 import datetime
 from typing import TYPE_CHECKING, Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -45,7 +46,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pipedrive.
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 
 @SourceRegistry.register
@@ -53,6 +54,20 @@ class PipedriveSource(
     ResumableSource[PipedriveSourceConfig, PipedriveResumeConfig],
     WebhookSource[PipedriveSourceConfig],
 ):
+    codebase_detection = detect(
+        env=("^PIPEDRIVE_",),
+        script_hosts=(
+            "leadbooster-chat.pipedrive.com",
+            "webforms.pipedrive.com",
+            "cdn.pipedriveassets.com",
+            "pipedrivewebforms.com",
+        ),
+        npm=("pipedrive", "@pipedrive/app-extensions-sdk", "@pipedrive/custom-app-surfaces-sdk"),
+        pypi=("pipedrive-python-lib", "pipedrive"),
+        composer=("pipedrive/pipedrive", "devio/pipedrive"),
+        rubygems=("pipedrive.rb", "pipedrive-ruby"),
+    )
+
     supported_versions = ("v1", "v2")
     default_version = "v2"
     # v1 only differs from v2 in the `activities` endpoint; the vendor deprecated the v1

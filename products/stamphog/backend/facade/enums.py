@@ -12,9 +12,9 @@ from posthog.enums import LabeledStrEnum
 
 
 class ReviewMode(LabeledStrEnum):
-    # Every relevant PR event triggers a review (the default).
+    # Every relevant PR event triggers a review.
     ALL = "all", "All pull requests"
-    # Reviews run only for PRs carrying the repo's trigger label (Action-style opt-in).
+    # Reviews run only for PRs carrying the repo's trigger label (Action-style opt-in, the default).
     LABEL = "label", "Labeled pull requests"
 
 

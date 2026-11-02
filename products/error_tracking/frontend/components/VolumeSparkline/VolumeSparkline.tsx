@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 
 import {
     type ChartMargins,
@@ -8,6 +8,7 @@ import {
     type Series,
     TimeSeriesBarChart,
     type TimeSeriesBarChartConfig,
+    type TooltipContext,
     useChartHover,
 } from '@posthog/quill-charts'
 
@@ -19,6 +20,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { errorTrackingVolumeSparklineLogic } from './errorTrackingVolumeSparklineLogic'
 import { EVENT_LABEL_BAR_GAP, EVENT_LABEL_HEIGHT, EventMarkers } from './EventMarkers'
 import { SpikeStripes } from './SpikeStripes'
+import { SpikeTooltip } from './SpikeTooltip'
 import type {
     SparklineData,
     SparklineDatum,
@@ -102,6 +104,8 @@ export function VolumeSparkline({
         [data]
     )
 
+    const hasSpikes = useMemo(() => data.some((datum) => datum.isSpike), [data])
+
     const showAxis = xAxis !== 'none'
     const eventLabelReserve = events.length > 0 ? EVENT_LABEL_HEIGHT + EVENT_LABEL_BAR_GAP : undefined
     const config = useChartConfig<TimeSeriesBarChartConfig>(
@@ -117,10 +121,19 @@ export function VolumeSparkline({
             showTickMarks: false,
             showCrosshair: showAxis,
             showGrid: false,
-            // Hover is surfaced as issue metrics beside the chart, not as a tooltip over it.
-            tooltip: { enabled: false },
+            // Only spike bars get a tooltip. Other hovers show as issue metrics beside the chart.
+            // `band` keeps a floored tiny spike bar easy to hit.
+            tooltip: { enabled: hasSpikes, hitArea: 'band' },
         }),
-        [layout, xAxis, showAxis, eventLabelReserve, timezone, maxValue]
+        [layout, xAxis, showAxis, eventLabelReserve, timezone, maxValue, hasSpikes]
+    )
+
+    const renderTooltip = useCallback(
+        ({ dataIndex }: TooltipContext): JSX.Element | null => {
+            const datum = data[dataIndex]
+            return datum?.isSpike ? <SpikeTooltip datum={datum} clickable={!!onSpikeClick} /> : null
+        },
+        [data, onSpikeClick]
     )
 
     const onDateRangeZoom = useMemo(() => {
@@ -144,33 +157,30 @@ export function VolumeSparkline({
         }
     }, [data, onRangeSelect])
 
-    const hasSpikes = useMemo(() => data.some((datum) => datum.isSpike), [data])
+    const isPointClickable = useCallback(
+        (dataIndex: number): boolean =>
+            (!!onSpikeClick && !!data[dataIndex].isSpike) || (!!onBucketClick && !!bucketEnd(data, dataIndex)),
+        [data, onBucketClick, onSpikeClick]
+    )
 
     const onPointClick = useMemo(() => {
-        if (!onBucketClick && !(onSpikeClick && hasSpikes)) {
+        if (!onBucketClick && !onSpikeClick) {
             return undefined
         }
         return ({ dataIndex }: PointClickData) => {
             const datum = data[dataIndex]
-            if (!datum) {
-                return
-            }
-            const adjacentDate = data[dataIndex + 1]?.date
-            const previousDate = data[dataIndex - 1]?.date
-            const endDate =
-                adjacentDate ??
-                (previousDate ? new Date(datum.date.getTime() + datum.date.getTime() - previousDate.getTime()) : null)
             // A flagged spike takes precedence: it opens the spike details popover rather than
             // filtering to the bucket, so callers passing both handlers still reach the popover.
             if (datum.isSpike && onSpikeClick) {
                 onSpikeClick(datum, cursorRef.current.x, cursorRef.current.y)
                 return
             }
-            if (onBucketClick && endDate && endDate.getTime() > datum.date.getTime()) {
+            const endDate = bucketEnd(data, dataIndex)
+            if (onBucketClick && endDate) {
                 onBucketClick(datum.date, endDate)
             }
         }
-    }, [data, hasSpikes, onBucketClick, onSpikeClick])
+    }, [data, onBucketClick, onSpikeClick])
 
     return (
         <div
@@ -184,8 +194,10 @@ export function VolumeSparkline({
                 labels={labels}
                 theme={theme}
                 config={config}
+                tooltip={renderTooltip}
                 onDateRangeZoom={onDateRangeZoom}
                 onPointClick={onPointClick}
+                isPointClickable={isPointClickable}
                 dataAttr="error-tracking-volume-sparkline"
             >
                 <HoverReporter sparklineKey={sparklineKey} data={data} />
@@ -200,6 +212,13 @@ export function VolumeSparkline({
             </TimeSeriesBarChart>
         </div>
     )
+}
+
+function bucketEnd(data: SparklineData, index: number): Date | null {
+    const start = data[index].date
+    const previous = data[index - 1]?.date
+    const end = data[index + 1]?.date ?? (previous ? new Date(2 * start.getTime() - previous.getTime()) : null)
+    return end && end > start ? end : null
 }
 
 /** A chart child because `useChartHover` only works inside the chart. Yields to an event marker's

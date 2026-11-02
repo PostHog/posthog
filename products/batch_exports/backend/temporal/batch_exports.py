@@ -14,7 +14,6 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.cdp.internal_events import InternalEventEvent, create_internal_event, internal_event_to_dict
 from posthog.kafka_client.routing import async_producer_scope
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2, KAFKA_CDP_INTERNAL_EVENTS
 from posthog.models.team.team import Team
@@ -52,6 +51,7 @@ from products.batch_exports.backend.temporal.sql.events import (
     SELECT_FROM_EVENTS_VIEW_UNBOUNDED,
     native_events_export_query,
 )
+from products.cdp.backend.internal_events import InternalEventEvent, create_internal_event, internal_event_to_dict
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,

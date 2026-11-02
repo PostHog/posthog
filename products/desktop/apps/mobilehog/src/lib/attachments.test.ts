@@ -27,10 +27,23 @@ vi.mock("expo-image-picker", () => ({
 }));
 vi.mock("@/lib/client", () => ({ getClient: () => mocks.client }));
 
-import { uploadStagedPhotos } from "./attachments";
+import {
+  resetSentPhotos,
+  sentPhotoUri,
+  uploadStagedPhotos,
+} from "./attachments";
+
+const photo = {
+  id: "photo-id",
+  uri: "file:///photo.png",
+  name: "photo.png",
+  mimeType: "image/png",
+  size: mocks.photoBytes.byteLength,
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
+  resetSentPhotos();
   mocks.client.prepareTaskStagedArtifactUploads.mockResolvedValue([
     {
       id: "prepared-id",
@@ -54,15 +67,7 @@ describe("uploadStagedPhotos", () => {
       return { ok: true };
     });
 
-    const result = await uploadStagedPhotos("task-id", [
-      {
-        id: "photo-id",
-        uri: "file:///photo.png",
-        name: "photo.png",
-        mimeType: "image/png",
-        size: mocks.photoBytes.byteLength,
-      },
-    ]);
+    const result = await uploadStagedPhotos("task-id", [photo]);
 
     expect(uploadedBytes).toEqual(mocks.photoBytes);
     expect(mocks.expoFetch).toHaveBeenCalledWith(
@@ -70,5 +75,25 @@ describe("uploadStagedPhotos", () => {
       expect.objectContaining({ method: "POST" }),
     );
     expect(result).toEqual(["artifact-id"]);
+    expect(sentPhotoUri("task-id", "artifact-id")).toBe("file:///photo.png");
+  });
+});
+
+describe("sentPhotoUri", () => {
+  beforeEach(() => {
+    mocks.expoFetch.mockResolvedValue({ ok: true });
+  });
+
+  it("shows a sent photo only in the task it was sent to", async () => {
+    await uploadStagedPhotos("task-id", [photo]);
+
+    expect(sentPhotoUri("other-task-id", "artifact-id")).toBeNull();
+  });
+
+  it("forgets sent photos when the account changes", async () => {
+    await uploadStagedPhotos("task-id", [photo]);
+    resetSentPhotos();
+
+    expect(sentPhotoUri("task-id", "artifact-id")).toBeNull();
   });
 });

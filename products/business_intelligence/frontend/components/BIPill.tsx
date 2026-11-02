@@ -36,7 +36,7 @@ export const BIPill = forwardRef<HTMLButtonElement, BIPillProps>(function BIPill
             draggable
             onDragStart={(event) => {
                 const dragData: BIShelfPillDragData = { shelf, index, dragSessionId }
-                event.dataTransfer.effectAllowed = 'move'
+                event.dataTransfer.effectAllowed = shelf === 'filters' ? 'move' : 'copyMove'
                 event.dataTransfer.setData(BI_SHELF_PILL_DRAG_MIME_TYPE, JSON.stringify(dragData))
             }}
             className={cn(

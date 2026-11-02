@@ -294,16 +294,34 @@ class TestWarehouseRoutes:
 
         assert (out.status_code, out.json()) == (200, {"name": "acme", "available": True})
 
+    @_routes({("GET", "/database-names/acme"): (200, {"name": "acme", "available": True, "reason": ""})})
+    @pytest.mark.parametrize("org_id, params", [(ORG, {"org_id": ORG}), ("", None)])
+    def test_check_name_asks_for_the_calling_org(
+        self, fake: FakeHogtower, org_id: str, params: dict[str, str] | None
+    ) -> None:
+        # hogtower treats a name the org's own warehouses carried as free only when told the org.
+        hogtower.request("GET", org_id, "database-name/check", params={"name": "acme"})
+
+        assert fake.calls[0]["params"] == params
+
     @_routes(
         {
             ("GET", f"{W}/monitoring/snapshot"): (200, {"sessions": 1}),
             ("GET", f"{W}/monitoring/series"): (200, {"points": []}),
+            ("GET", f"{W}/monitoring/trino/snapshot"): (200, {"queries": []}),
+            ("GET", f"{W}/monitoring/trino/series"): (200, {"points": []}),
         }
     )
-    def test_monitoring_is_passed_through(self, fake: FakeHogtower) -> None:
-        assert _mapped("GET", "/monitoring/snapshot").json() == {"sessions": 1}
+    @pytest.mark.parametrize("engine", ["duckdb", "trino"])
+    def test_monitoring_is_passed_through(self, fake: FakeHogtower, engine: str) -> None:
+        prefix = "/monitoring/trino" if engine == "trino" else "/monitoring"
+        snapshot: dict[str, object] = {"queries": []} if engine == "trino" else {"sessions": 1}
+        response = _mapped("GET", f"{prefix}/snapshot")
+        assert (response.status_code, response.json()) == (200, snapshot)
         params = {"metric": "query_rate", "window": "1h"}
-        assert _mapped("GET", "/monitoring/series", params=params).json() == {"points": []}
+        response = _mapped("GET", f"{prefix}/series", params=params)
+        assert (response.status_code, response.json()) == (200, {"points": []})
+        assert fake.paths == [("GET", f"{W}{prefix}/snapshot"), ("GET", f"{W}{prefix}/series")]
         assert fake.calls[1]["params"] == params
 
 
@@ -499,6 +517,7 @@ class TestViewsUseHogtower:
         resp = managed_warehouse.check_name(ORG, "acme")
 
         assert (resp.status_code, resp.data) == (200, {"name": "acme", "available": False})
+        assert fake.calls[0]["params"] == {"org_id": ORG}
 
     @_routes(
         {

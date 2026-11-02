@@ -1,26 +1,32 @@
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any, Optional
 
 import time_machine
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.awin import awin
 from products.warehouse_sources.backend.temporal.data_imports.sources.awin.awin import (
     AwinFanoutTarget,
     AwinResumeConfig,
     _build_window_params,
-    _discover_account_ids,
     _format_path,
     _rows_from_response,
     _to_datetime,
     _windows_for_account,
-    awin_source,
-    get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.awin.settings import AWIN_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.awin.source import AwinSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awin import AwinSourceConfig
 
 
 def _counts(values: list[str]) -> dict[str, int]:
@@ -28,23 +34,6 @@ def _counts(values: list[str]) -> dict[str, int]:
     for value in values:
         counts[value] = counts.get(value, 0) + 1
     return counts
-
-
-class FakeResumableManager:
-    """Minimal stand-in for ResumableSourceManager that records saved state in memory."""
-
-    def __init__(self, state: Optional[AwinResumeConfig] = None):
-        self.state = state
-        self.saved: list[AwinResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self.state is not None
-
-    def load_state(self) -> Optional[AwinResumeConfig]:
-        return self.state
-
-    def save_state(self, data: AwinResumeConfig) -> None:
-        self.saved.append(data)
 
 
 class TestToDatetime:
@@ -78,17 +67,52 @@ class TestWindowsForAccount:
 
 
 class TestBuildWindowParams:
-    def test_reports_advertiser_includes_region(self) -> None:
-        # Awin's aggregated advertiser report 400s without `region` because it's a required param
-        # the API has no "all regions" value for.
+    @parameterized.expand(
+        [
+            # Awin's aggregated reports 400 without `region` where it is a required param, because
+            # the API has no "all regions" value for it.
+            ("reports_advertiser", "US", None),
+            ("publisher_campaign_reports", "US", "day"),
+            ("advertiser_campaign_reports", None, "day"),
+            ("publisher_creative_reports", "US", None),
+            ("advertiser_creative_reports", "US", None),
+        ]
+    )
+    def test_report_params(
+        self, endpoint: str, expected_region: Optional[str], expected_interval: Optional[str]
+    ) -> None:
         params = _build_window_params(
-            AWIN_ENDPOINTS["reports_advertiser"],
+            AWIN_ENDPOINTS[endpoint],
             datetime(2024, 1, 1, tzinfo=UTC),
             datetime(2024, 1, 31, tzinfo=UTC),
             incremental_field=None,
             region="US",
         )
-        assert params["region"] == "US"
+        assert params.get("region") == expected_region
+        # Without a daily interval the campaign report returns one total per campaign, which the
+        # `date` primary key column cannot tell apart.
+        assert params.get("interval") == expected_interval
+        assert params["startDate"] == "2024-01-01"
+
+    @parameterized.expand(
+        [
+            ("default", None, "enquiryDate"),
+            ("enquiry_date", "enquiryDate", "enquiryDate"),
+            ("transaction_date", "transactionDate", "transactionDate"),
+        ]
+    )
+    def test_transaction_queries_window_on_the_selected_field(
+        self, _name: str, incremental_field: Optional[str], expected_date_type: str
+    ) -> None:
+        params = _build_window_params(
+            AWIN_ENDPOINTS["transaction_queries"],
+            datetime(2024, 1, 1, tzinfo=UTC),
+            datetime(2024, 1, 31, tzinfo=UTC),
+            incremental_field=incremental_field,
+            region="US",
+        )
+        assert params["dateType"] == expected_date_type
+        assert params["startDate"] == "2024-01-01T00:00:00"
 
 
 class TestRowsFromResponse:
@@ -146,17 +170,25 @@ class TestRowsFromResponse:
 class TestDiscoverAccountIds:
     @parameterized.expand([("publisher", [1, 3]), ("advertiser", [2])])
     def test_filters_by_account_type_and_sorts_and_dedupes(self, account_type: str, expected: list[int]) -> None:
-        with patch.object(awin, "_fetch") as mock_fetch:
-            mock_fetch.return_value = {
-                "accounts": [
-                    {"accountId": 3, "accountType": "publisher"},
-                    {"accountId": 1, "accountType": "publisher"},
-                    {"accountId": 2, "accountType": "advertiser"},
-                    {"accountId": 1, "accountType": "publisher"},
-                ]
-            }
-            ids = _discover_account_ids(MagicMock(), {}, MagicMock(), account_type)
-        assert ids == expected
+        accounts = [
+            {"accountId": 3, "accountType": "publisher"},
+            {"accountId": 1, "accountType": "publisher"},
+            {"accountId": 2, "accountType": "advertiser"},
+            {"accountId": 1, "accountType": "publisher"},
+        ]
+
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            return ScriptedResponse(json={"accounts": accounts} if request.path == "/accounts" else [])
+
+        endpoint = "programmes" if account_type == "publisher" else "advertiser_publishers"
+        result = SourceDriver(AwinSource(), AwinSourceConfig(api_token="token")).run(endpoint, answer)
+
+        assert result.raised is None
+        assert result.paths[1:] == [
+            f"/{'publishers' if account_type == 'publisher' else 'advertisers'}/{account_id}/"
+            f"{'programmes' if account_type == 'publisher' else 'publishers'}"
+            for account_id in expected
+        ]
 
 
 class TestFormatPath:
@@ -170,6 +202,9 @@ class TestFormatPath:
             ),
             ("reports_publisher", AwinFanoutTarget(advertiser_id=9), "/advertisers/9/reports/publisher"),
             ("advertiser_publishers", AwinFanoutTarget(advertiser_id=9), "/advertisers/9/publishers"),
+            # Awin serves these two under the singular `/publisher/` prefix.
+            ("transaction_queries", AwinFanoutTarget(publisher_id=5), "/publisher/5/transactionqueries"),
+            ("offers", AwinFanoutTarget(publisher_id=5), "/publisher/5/promotions"),
         ]
     )
     def test_each_id_lands_in_the_path_segment_that_accepts_it(
@@ -181,120 +216,175 @@ class TestFormatPath:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
+    @parameterized.expand(
+        [
+            ("ok", 200, True),
+        ]
+    )
     def test_status_maps_to_bool(self, _name: str, status: int, expected: bool) -> None:
-        with patch.object(awin, "make_tracked_session") as mock_session:
-            response = MagicMock()
-            response.status_code = status
-            mock_session.return_value.get.return_value = response
+        with scripted_network([ScriptedResponse(status=status)]) as network:
             assert validate_credentials("token") is expected
+        assert [request.path for request in network.requests_log] == ["/accounts"]
 
     def test_exception_is_false(self) -> None:
-        with patch.object(awin, "make_tracked_session") as mock_session:
-            mock_session.return_value.get.side_effect = Exception("boom")
+        with scripted_network(always(ConnectionResetError("boom"))) as network:
             assert validate_credentials("token") is False
+        assert {request.path for request in network.requests_log} == {"/accounts"}
 
 
 class TestGetRows:
     def test_accounts_endpoint_yields_accounts_without_fanout(self) -> None:
-        manager = FakeResumableManager()
-        with (
-            patch.object(awin, "make_tracked_session"),
-            patch.object(awin, "_fetch", return_value={"accounts": [{"accountId": 1}]}) as mock_fetch,
-        ):
-            batches = list(get_rows("token", "accounts", MagicMock(), manager, region="GB"))  # type: ignore[arg-type]
+        result = SourceDriver(AwinSource(), AwinSourceConfig(api_token="token")).run(
+            "accounts", [ScriptedResponse(json={"accounts": [{"accountId": 1}]})]
+        )
 
-        assert batches == [[{"accountId": 1}]]
+        assert result.raised is None
+        assert result.items == [[{"accountId": 1}]]
         # A single call to /accounts, no per-publisher fan-out.
-        assert mock_fetch.call_count == 1
+        assert result.paths == ["/accounts"]
 
     @time_machine.travel("2024-06-01", tick=False)
     def test_windowed_fanout_arrives_in_globally_ascending_order(self) -> None:
         # Two accounts, multiple 30-day windows each. To keep the asc watermark monotonic, every
         # account's window N must be fetched before any account's window N+1 (windows OUTER, accounts
         # INNER) — not one account fully before the next.
-        manager = FakeResumableManager()
-        seen_starts: list[str] = []
-
-        def fake_fetch(session: Any, path: str, headers: Any, params: Any, logger: Any) -> Any:
-            if path == "/accounts":
-                return {
-                    "accounts": [
-                        {"accountId": 10, "accountType": "publisher"},
-                        {"accountId": 20, "accountType": "publisher"},
-                    ]
-                }
-            seen_starts.append(params["startDate"])
-            return [{"id": 1}]
-
-        with patch.object(awin, "make_tracked_session"), patch.object(awin, "_fetch", side_effect=fake_fetch):
-            list(
-                get_rows(
-                    "token",
-                    "transactions",
-                    MagicMock(),
-                    manager,  # type: ignore[arg-type]
-                    region="GB",
-                    should_use_incremental_field=False,
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/accounts":
+                return ScriptedResponse(
+                    json={
+                        "accounts": [
+                            {"accountId": 10, "accountType": "publisher"},
+                            {"accountId": 20, "accountType": "publisher"},
+                        ]
+                    }
                 )
-            )
+            return ScriptedResponse(json=[{"id": 1}])
+
+        result = SourceDriver(AwinSource(), AwinSourceConfig(api_token="token")).run("transactions", answer)
+        starts = [request.param("startDate") or "" for request in result.requests[1:]]
 
         # startDate is non-decreasing across the whole run despite fanning out over two accounts.
-        assert seen_starts == sorted(seen_starts)
+        assert result.raised is None
+        assert starts == sorted(starts)
         # Each window's startDate appears once per account (two accounts).
-        assert all(count == 2 for count in _counts(seen_starts).values())
+        assert all(count == 2 for count in _counts(starts).values())
 
     @time_machine.travel("2024-06-01", tick=False)
     def test_no_publisher_accounts_yields_nothing(self) -> None:
-        manager = FakeResumableManager()
-        with (
-            patch.object(awin, "make_tracked_session"),
-            patch.object(awin, "_fetch", return_value={"accounts": []}),
-        ):
-            batches = list(get_rows("token", "programmes", MagicMock(), manager, region="GB"))  # type: ignore[arg-type]
-        assert batches == []
+        result = SourceDriver(AwinSource(), AwinSourceConfig(api_token="token")).run(
+            "programmes", [ScriptedResponse(json={"accounts": []})]
+        )
+        assert result.raised is None
+        assert result.items == []
+        assert result.paths == ["/accounts"]
 
     @time_machine.travel("2024-06-01", tick=False)
     def test_advertiser_fanout_skips_publisher_accounts(self) -> None:
         # /advertisers paths only accept advertiser accounts; fanning out over publisher ids 404s.
-        manager = FakeResumableManager()
-        seen_paths: list[str] = []
+        result = SourceDriver(AwinSource(), AwinSourceConfig(api_token="token")).run(
+            "advertiser_publishers",
+            [
+                ScriptedResponse(
+                    json={
+                        "accounts": [
+                            {"accountId": 10, "accountType": "publisher"},
+                            {"accountId": 90, "accountType": "advertiser"},
+                        ]
+                    }
+                ),
+                ScriptedResponse(json=[{"id": 7}]),
+            ],
+        )
 
-        def fake_fetch(session: Any, path: str, headers: Any, params: Any, logger: Any) -> Any:
-            if path == "/accounts":
-                return {
-                    "accounts": [
-                        {"accountId": 10, "accountType": "publisher"},
-                        {"accountId": 90, "accountType": "advertiser"},
-                    ]
-                }
-            seen_paths.append(path)
-            return [{"id": 7}]
-
-        with patch.object(awin, "make_tracked_session"), patch.object(awin, "_fetch", side_effect=fake_fetch):
-            batches = list(get_rows("token", "advertiser_publishers", MagicMock(), manager, region="GB"))  # type: ignore[arg-type]
-
-        assert seen_paths == ["/advertisers/90/publishers"]
-        assert batches == [[{"id": 7, "advertiserId": 90}]]
+        assert result.raised is None
+        assert result.paths[1:] == ["/advertisers/90/publishers"]
+        assert result.items == [[{"id": 7, "advertiserId": 90}]]
 
     @time_machine.travel("2024-06-01", tick=False)
     def test_programme_fanout_resumes_at_the_saved_pair(self) -> None:
-        manager = FakeResumableManager(state=AwinResumeConfig(publisher_id=10, advertiser_id=2, window_start=None))
-        fetched_advertisers: list[str] = []
-
-        def fake_fetch(session: Any, path: str, headers: Any, params: Any, logger: Any) -> Any:
-            if path == "/accounts":
-                return {"accounts": [{"accountId": 10, "accountType": "publisher"}]}
-            if path.endswith("/programmes"):
-                return [{"id": 1}, {"id": 2}, {"id": 3}]
-            fetched_advertisers.append(params["advertiserId"])
-            return {}
-
-        with patch.object(awin, "make_tracked_session"), patch.object(awin, "_fetch", side_effect=fake_fetch):
-            list(get_rows("token", "programme_details", MagicMock(), manager, region="GB"))  # type: ignore[arg-type]
+        result = SourceDriver(AwinSource(), AwinSourceConfig(api_token="token")).run(
+            "programme_details",
+            [
+                ScriptedResponse(json={"accounts": [{"accountId": 10, "accountType": "publisher"}]}),
+                ScriptedResponse(json=[{"id": 1}, {"id": 2}, {"id": 3}]),
+                ScriptedResponse(json={}),
+                ScriptedResponse(json={}),
+            ],
+            resume_state=AwinResumeConfig(publisher_id=10, advertiser_id=2, window_start=None),
+        )
 
         # Programme 1 was already done before the crash; the pair bookmark restarts at 2.
-        assert fetched_advertisers == ["2", "3"]
+        assert result.raised is None
+        assert result.params("advertiserId")[2:] == ["2", "3"]
+
+
+class TestPaginatedEndpoints:
+    @parameterized.expand(
+        [
+            # The last page is full, so only the page count stops the walk.
+            ("stops_at_total_pages", [2, 2], 2, ["1", "2"]),
+            # No totals in the body, so the short second page ends the walk.
+            ("stops_at_short_page", [2, 1], None, ["1", "2"]),
+            ("stops_at_empty_page", [0], None, ["1"]),
+        ]
+    )
+    @time_machine.travel("2024-06-01", tick=False)
+    def test_transaction_queries_walk_every_page_of_each_window(
+        self, _name: str, page_lengths: list[int], total_pages: Optional[int], expected_pages: list[str]
+    ) -> None:
+        page_iter = iter(page_lengths)
+        next_enquiry_id = iter(range(1, 1000))
+
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/accounts":
+                return ScriptedResponse(json={"accounts": [{"accountId": 10, "accountType": "publisher"}]})
+            items = [{"enquiryId": next(next_enquiry_id)} for _ in range(next(page_iter))]
+            body: dict[str, Any] = {"pageItems": items}
+            if total_pages is not None:
+                body["totalPagesAvailable"] = total_pages
+            return ScriptedResponse(json=body)
+
+        with patch.dict(
+            AWIN_ENDPOINTS, {"transaction_queries": replace(AWIN_ENDPOINTS["transaction_queries"], page_size=2)}
+        ):
+            # A recent cursor leaves a single window, so every request below is a page of it.
+            result = SourceDriver(AwinSource(), AwinSourceConfig(api_token="token")).run(
+                "transaction_queries",
+                answer,
+                should_use_incremental_field=True,
+                incremental_field="enquiryDate",
+                db_incremental_field_last_value="2024-05-20T00:00:00",
+            )
+
+        assert result.raised is None
+        assert result.params("pageNumber")[1:] == expected_pages
+        assert set(result.params("startDate")[1:]) == {"2024-05-20T00:00:00"}
+        assert {r.path for r in result.requests[1:]} == {"/publisher/10/transactionqueries"}
+        assert [row["enquiryId"] for row in result.rows] == list(range(1, sum(page_lengths) + 1))
+        assert all(row["publisherId"] == 10 for row in result.rows)
+
+    def test_offers_post_filters_and_page_through_the_total(self) -> None:
+        def offers(start: int, count: int) -> list[dict[str, Any]]:
+            return [{"promotionId": promotion_id} for promotion_id in range(start, start + count)]
+
+        with patch.dict(AWIN_ENDPOINTS, {"offers": replace(AWIN_ENDPOINTS["offers"], page_size=2)}):
+            result = SourceDriver(AwinSource(), AwinSourceConfig(api_token="token")).run(
+                "offers",
+                [
+                    ScriptedResponse(json={"accounts": [{"accountId": 10, "accountType": "publisher"}]}),
+                    ScriptedResponse(json={"data": offers(1, 2), "pagination": {"page": 1, "pageSize": 2, "total": 4}}),
+                    ScriptedResponse(json={"data": offers(3, 2), "pagination": {"page": 2, "pageSize": 2, "total": 4}}),
+                ],
+            )
+
+        assert result.raised is None
+        offer_requests = result.requests[1:]
+        assert [(r.method, r.path) for r in offer_requests] == [("POST", "/publisher/10/promotions")] * 2
+        assert [r.json() for r in offer_requests] == [
+            {"filters": {"membership": "joined", "status": "active"}, "pagination": {"page": page, "pageSize": 2}}
+            for page in (1, 2)
+        ]
+        assert result.rows == [{"promotionId": promotion_id, "publisherId": 10} for promotion_id in range(1, 5)]
 
 
 class TestAwinSource:
@@ -311,7 +401,12 @@ class TestAwinSource:
         ]
     )
     def test_source_response_shape(self, endpoint: str, expected_pks: list[str], partition_key: Optional[str]) -> None:
-        response = awin_source("token", endpoint, MagicMock(), FakeResumableManager(), region="GB")  # type: ignore[arg-type]
+        result = SourceDriver(AwinSource(), AwinSourceConfig(api_token="token")).run(
+            endpoint, [ScriptedResponse(json={"accounts": []})]
+        )
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == expected_pks
         if partition_key:

@@ -330,7 +330,8 @@ export function EditableListItemContent({
         // While the caret is inside the item, the DOM is the source of the latest model state:
         // rewriting innerHTML would destroy the caret mid-typing, so only sync when the live DOM
         // does not already represent the same content.
-        const selection = window.getSelection()
+        // An empty element can't already hold the content, so it skips the selection read and its forced layout.
+        const selection = element.firstChild ? window.getSelection() : null
         if (
             selection?.anchorNode &&
             element.contains(selection.anchorNode) &&

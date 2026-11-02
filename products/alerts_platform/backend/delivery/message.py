@@ -6,18 +6,20 @@ it is rendered. A source can word parts of it in its own vocabulary through a re
 A provider turns this into its own body shape.
 """
 
+import hashlib
 from typing import Any, Final
 
 from posthog.dataclasses import frozen
 from posthog.utils import absolute_uri, pluralize
 
-from products.alerts_platform.backend.delivery.describers import describe
+from products.alerts_platform.backend.delivery.describers import describe, resolve_image
 from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     AnnouncedTransition,
     EvaluationAnnouncement,
     IncidentAction,
     MessageDetail,
+    MessageImage,
     MessageLink,
     SourceKind,
 )
@@ -37,13 +39,19 @@ _SYMBOLS: Final[dict[AlertEventKind, str]] = {
     AlertEventKind.BROKEN: "⚠️",
 }
 
+UNTRACKED_GROUPS_LABEL: Final = "Untracked groups"
+
 _SOURCE_LABELS: Final[dict[SourceKind, str]] = {
     SourceKind.LOGS: "Log",
     SourceKind.INSIGHT: "Insight",
+    SourceKind.BILLING: "Billing",
+    SourceKind.WAREHOUSE_SOURCE: "Warehouse sync",
+    SourceKind.WAREHOUSE_DESTINATION: "Warehouse destination",
+    SourceKind.METRICS: "Metric",
 }
 
 # What a held row says, when cooldown or mute kept its announcement and only its incident moved.
-_INCIDENT_KINDS: Final[dict[IncidentAction, AlertEventKind]] = {
+INCIDENT_KINDS: Final[dict[IncidentAction, AlertEventKind]] = {
     IncidentAction.TRIGGER: AlertEventKind.FIRING,
     IncidentAction.RESOLVE: AlertEventKind.RESOLVED,
 }
@@ -69,7 +77,13 @@ class AlertMessage:
     transition: AnnouncedTransition
     context: tuple[str, ...] = ()
     data_link: MessageLink | None = None
+    image: MessageImage | None = None
+    slack_elements: tuple[dict[str, Any], ...] = ()
     incident_action: IncidentAction | None = None
+    # The incident key the source's own stack opened incidents under, for a firing the platform took over.
+    source_incident_key: str | None = None
+    # The project the alert belongs to, which a reader with alerts in several projects needs.
+    project: MessageLink | None = None
 
     @property
     def title(self) -> str:
@@ -81,6 +95,23 @@ class AlertMessage:
         """The source's data first, because that is where a responder starts."""
         view_alert = MessageLink(label="View alert", url=self.alert_url)
         return (self.data_link, view_alert) if self.data_link is not None else (view_alert,)
+
+
+def transition_delivery_key(message: AlertMessage) -> str:
+    """One key per transition a check recorded, for a provider that refuses a second send under one key.
+
+    A retried delivery builds the same key, so it reaches nobody twice. The email campaign column
+    and the notification idempotency column hold 128 characters, which a long evaluation or group
+    key would exceed, so the key is a digest.
+    """
+    transition = message.transition
+    parts = (
+        message.configuration_id,
+        transition.grouping_key,
+        transition.kind.value,
+        transition.occurred_at.isoformat(),
+    )
+    return f"alert-platform-{hashlib.sha256('|'.join(parts).encode()).hexdigest()[:32]}"
 
 
 def state_symbol(kind: AlertEventKind) -> str:
@@ -134,6 +165,10 @@ def build_message(
     *,
     team_id: int,
     incident_action: IncidentAction | None = None,
+    source_alert_url: str | None = None,
+    overflowed: int = 0,
+    source_incident_key: str | None = None,
+    project: MessageLink | None = None,
 ) -> AlertMessage:
     """The message for one transition.
 
@@ -143,7 +178,7 @@ def build_message(
     """
     kind = transition.kind
     if kind == AlertEventKind.CHECK and incident_action is not None:
-        kind = _INCIDENT_KINDS[incident_action]
+        kind = INCIDENT_KINDS[incident_action]
     headline = _HEADLINES.get(kind)
     if headline is None:
         # `announcement` returns a check row only for a group whose incident moved, so a check
@@ -155,19 +190,33 @@ def build_message(
     description = describe(announcement.source, project_id=project_id, transition=transition)
     failure_kinds = (AlertEventKind.ERRORED, AlertEventKind.BROKEN)
     if transition.kind in failure_kinds:
-        details = _failure_details(transition, announcement.consecutive_failures)
+        details = list(_failure_details(transition, announcement.consecutive_failures))
     else:
-        details = description.details or _breach_details(transition)
+        details = list(description.details or _breach_details(transition))
+    if overflowed:
+        untracked = pluralize(overflowed, "more group")
+        if announcement.overflow_is_lower_bound:
+            untracked = f"At least {untracked}"
+        details.append(
+            MessageDetail(
+                label=UNTRACKED_GROUPS_LABEL,
+                value=f"{untracked} not tracked because this alert is at its group limit",
+            )
+        )
     return AlertMessage(
         headline=headline.format(kind=_SOURCE_LABELS[announcement.source], name=announcement.alert_name),
         symbol=_SYMBOLS[kind],
-        details=details,
+        details=tuple(details),
         configuration_id=announcement.configuration_id,
         alert_name=announcement.alert_name,
         source=announcement.source,
-        alert_url=alert_url(project_id, announcement.configuration_id),
+        alert_url=source_alert_url or alert_url(project_id, announcement.configuration_id),
         transition=transition,
         context=description.context,
         data_link=description.data_link,
+        image=resolve_image(announcement.source, team_id=team_id, transition=transition),
+        slack_elements=description.slack_elements,
         incident_action=incident_action,
+        source_incident_key=source_incident_key,
+        project=project,
     )

@@ -8,6 +8,13 @@ import requests
 from parameterized import parameterized
 from tenacity import RetryCallState
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.notion import NotionSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.notion.notion import (
     ADMIN_TOKEN_FORBIDDEN_ERROR,
     ADMIN_TOKEN_INVALID_ERROR,
@@ -27,16 +34,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.notion.not
     _iter_block_children,
     _iter_page_ids,
     _parse_retry_after,
-    _permission_groups_stream,
     _request,
     _search_body,
-    _search_stream,
-    _users_stream,
     _wait_strategy,
     check_permission_groups_access,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.notion.settings import NOTION_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.notion.source import NotionSource
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.notion.notion"
 
@@ -103,6 +107,12 @@ def _list_response(results: list[dict[str, Any]], has_more: bool, next_cursor: s
     return FakeResponse({"results": results, "has_more": has_more, "next_cursor": next_cursor})
 
 
+def _scripted_list(
+    results: list[dict[str, Any]], has_more: bool = False, next_cursor: str | None = None
+) -> ScriptedResponse:
+    return ScriptedResponse(json={"results": results, "has_more": has_more, "next_cursor": next_cursor})
+
+
 class _FakeRetryState:
     """Minimal RetryCallState stand-in carrying just the failing outcome."""
 
@@ -112,6 +122,10 @@ class _FakeRetryState:
 
 
 class TestNotion:
+    @staticmethod
+    def _driver(admin_token: str | None = None) -> SourceDriver:
+        return SourceDriver(NotionSource(), NotionSourceConfig(api_key="tok", admin_api_key=admin_token))
+
     @parameterized.expand([(NOTION_VERSION_2025_09_03,), (NOTION_VERSION_2026_03_11,)])
     def test_headers_carry_requested_version(self, api_version: str) -> None:
         headers = _get_headers("ntn_secret", api_version)
@@ -128,23 +142,18 @@ class TestNotion:
         assert "start_cursor" not in body
 
     def test_search_stream_paginates_and_terminates(self) -> None:
-        session = FakeSession(
+        result = self._driver().run(
+            "pages",
             [
-                _list_response([{"id": "p1"}], has_more=True, next_cursor="c1"),
-                _list_response([{"id": "p2"}], has_more=False, next_cursor=None),
-            ]
-        )
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = False
-
-        tables = list(
-            _search_stream(cast(requests.Session, session), NOTION_ENDPOINTS["pages"], mock.MagicMock(), manager)
+                _scripted_list([{"id": "p1"}], has_more=True, next_cursor="c1"),
+                _scripted_list([{"id": "p2"}]),
+            ],
         )
 
-        total_rows = sum(t.num_rows for t in tables)
-        assert total_rows == 2
+        assert result.raised is None
+        assert sum(t.num_rows for t in result.items) == 2
         # Two pages fetched, then the loop terminates on has_more=False.
-        assert len(session.calls) == 2
+        assert result.paths == ["/v1/search", "/v1/search"]
 
     @staticmethod
     def _invalid_cursor_response() -> FakeResponse:
@@ -159,101 +168,82 @@ class TestNotion:
         # A resumed search cursor can expire before the retry runs; Notion then rejects it with a 400
         # validation_error. The stream must drop the stale cursor and restart from the beginning
         # rather than crashing the whole sync.
-        session = FakeSession(
+        result = self._driver().run(
+            "pages",
             [
-                self._invalid_cursor_response(),
-                _list_response([{"id": "p1"}], has_more=False, next_cursor=None),
-            ]
-        )
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = NotionResumeConfig(next_cursor="stale-cursor")
-
-        tables = list(
-            _search_stream(cast(requests.Session, session), NOTION_ENDPOINTS["pages"], mock.MagicMock(), manager)
+                ScriptedResponse(status=400, body=self._invalid_cursor_response().text.encode()),
+                _scripted_list([{"id": "p1"}]),
+            ],
+            resume_state=NotionResumeConfig(next_cursor="stale-cursor"),
         )
 
-        assert sum(t.num_rows for t in tables) == 1
+        assert result.raised is None
+        assert sum(t.num_rows for t in result.items) == 1
         # First request replays the stale cursor (rejected); the restart carries no cursor.
-        assert session.calls[0]["json"]["start_cursor"] == "stale-cursor"
-        assert "start_cursor" not in session.calls[1]["json"]
+        assert result.requests[0].json()["start_cursor"] == "stale-cursor"
+        assert "start_cursor" not in result.requests[1].json()
 
     def test_search_stream_propagates_non_cursor_bad_request(self) -> None:
         # A 400 that is not the invalid-cursor case is a genuine bad request and must still fail the
         # sync rather than being silently restarted.
-        other_400 = FakeResponse({}, status_code=400)
-        other_400.text = '{"code":"validation_error","message":"something else"}'
-        session = FakeSession([other_400])
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = NotionResumeConfig(next_cursor="stale-cursor")
+        result = self._driver().run(
+            "pages",
+            [ScriptedResponse(status=400, json={"code": "validation_error", "message": "something else"})],
+            resume_state=NotionResumeConfig(next_cursor="stale-cursor"),
+        )
 
-        with pytest.raises(NotionBadRequestError):
-            list(_search_stream(cast(requests.Session, session), NOTION_ENDPOINTS["pages"], mock.MagicMock(), manager))
+        assert isinstance(result.raised, NotionBadRequestError)
+        assert result.requests[0].json()["start_cursor"] == "stale-cursor"
+        assert len(result.requests) == 1
 
     def test_users_stream_restarts_when_resumed_cursor_invalid(self) -> None:
         # The users stream persists the same kind of resume cursor as search, so a stale cursor must
         # trigger the same restart-from-the-beginning recovery rather than crashing the sync.
-        session = FakeSession(
+        result = self._driver().run(
+            "users",
             [
-                self._invalid_cursor_response(),
-                _list_response([{"id": "u1"}], has_more=False, next_cursor=None),
-            ]
+                ScriptedResponse(status=400, body=self._invalid_cursor_response().text.encode()),
+                _scripted_list([{"id": "u1"}]),
+            ],
+            resume_state=NotionResumeConfig(next_cursor="stale-cursor"),
         )
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = NotionResumeConfig(next_cursor="stale-cursor")
 
-        tables = list(_users_stream(cast(requests.Session, session), mock.MagicMock(), manager))
-
-        assert sum(t.num_rows for t in tables) == 1
-        assert session.calls[0]["params"]["start_cursor"] == "stale-cursor"
-        assert "start_cursor" not in session.calls[1]["params"]
+        assert result.raised is None
+        assert sum(t.num_rows for t in result.items) == 1
+        assert result.params("start_cursor") == ["stale-cursor", None]
 
     def test_users_stream_stages_next_cursor_before_yielding_a_finished_page(self) -> None:
-        session = FakeSession(
-            [
-                _list_response([{"id": "u1"}, {"id": "u2"}], has_more=True, next_cursor="c1"),
-                _list_response([{"id": "u3"}], has_more=False, next_cursor=None),
-            ]
-        )
-        manager = _fresh_manager()
-
         with mock.patch(f"{MODULE}.CHUNK_SIZE", 1):
-            stream = _users_stream(cast(requests.Session, session), mock.MagicMock(), manager)
-            first = next(stream)
-            manager.save_state.assert_called_once_with(NotionResumeConfig(next_cursor="c1"))
-            rest = list(stream)
+            result = self._driver().run(
+                "users",
+                [
+                    _scripted_list([{"id": "u1"}, {"id": "u2"}], has_more=True, next_cursor="c1"),
+                    _scripted_list([{"id": "u3"}]),
+                ],
+            )
 
-        assert first.num_rows == 2
-        assert sum(t.num_rows for t in rest) == 1
+        assert result.raised is None
+        assert [t.num_rows for t in result.items] == [2, 1]
+        assert result.saved_states == [NotionResumeConfig(next_cursor="c1")]
 
     def test_permission_groups_stream_pages_through_the_workspace_groups(self) -> None:
-        session = FakeSession([FakeResponse({"object": "user", "bot": {"workspace_id": "ws-1"}})])
-        admin_session = FakeSession(
+        result = self._driver("adm").run(
+            "permission_groups",
             [
-                _list_response([{"object": "group", "id": "g1", "name": "Eng"}], has_more=True, next_cursor="c1"),
-                _list_response([{"object": "group", "id": "g2", "name": "Ops"}], has_more=False, next_cursor=None),
-            ]
+                ScriptedResponse(json={"object": "user", "bot": {"workspace_id": "ws-1"}}),
+                _scripted_list([{"object": "group", "id": "g1", "name": "Eng"}], True, "c1"),
+                _scripted_list([{"object": "group", "id": "g2", "name": "Ops"}]),
+            ],
         )
 
-        tables = list(
-            _permission_groups_stream(
-                cast(requests.Session, session),
-                cast(requests.Session, admin_session),
-                mock.MagicMock(),
-                _fresh_manager(),
-            )
-        )
-
-        assert sum(t.num_rows for t in tables) == 2
-        assert session.calls[0]["url"] == "https://api.notion.com/v1/users/me"
-        assert [call["url"] for call in admin_session.calls] == [
-            "https://api.notion.com/admin/v1/spaces/ws-1/groups",
-            "https://api.notion.com/admin/v1/spaces/ws-1/groups",
+        assert result.raised is None
+        assert sum(t.num_rows for t in result.items) == 2
+        assert result.paths == [
+            "/v1/users/me",
+            "/admin/v1/spaces/ws-1/groups",
+            "/admin/v1/spaces/ws-1/groups",
         ]
-        assert "start_cursor" not in admin_session.calls[0]["params"]
-        assert admin_session.calls[1]["params"]["start_cursor"] == "c1"
+        assert result.params("start_cursor") == [None, None, "c1"]
 
     def test_iter_page_ids_restarts_when_cursor_invalid(self) -> None:
         # A page-id search cursor can expire mid-enumeration on a large workspace, which Notion
@@ -316,38 +306,35 @@ class TestNotion:
             ("comments", _comments_stream, "/v1/comments"),
         ]
     )
-    def test_page_fan_out_resumes_from_saved_queue(self, _name, stream, expected_path) -> None:
+    def test_page_fan_out_resumes_from_saved_queue(self, _name, _stream, expected_path) -> None:
         # On retry the fan-out must consume the persisted page queue instead of re-running the
         # full page search from scratch — restarting from zero was what burned API quota on retries.
-        session = FakeSession([_list_response([{"id": "b1", "has_children": False}], has_more=False, next_cursor=None)])
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = NotionResumeConfig(remaining_page_ids=["p2"])
+        result = self._driver().run(
+            _name,
+            [_scripted_list([{"id": "b1", "has_children": False}])],
+            resume_state=NotionResumeConfig(remaining_page_ids=["p2"]),
+        )
 
-        tables = list(stream(cast(requests.Session, session), mock.MagicMock(), manager))
-
-        assert sum(t.num_rows for t in tables) == 1
+        assert result.raised is None
+        assert sum(t.num_rows for t in result.items) == 1
         # Only the resumed page's fetch runs; no /v1/search re-enumeration.
-        assert len(session.calls) == 1
-        assert session.calls[0]["url"].endswith(expected_path)
+        assert result.paths == [expected_path]
 
     @parameterized.expand([("blocks", _blocks_stream), ("comments", _comments_stream)])
-    def test_pages_without_rows_move_the_queue_and_reach_safe_points(self, _name, stream) -> None:
-        def responses(index: int) -> FakeResponse:
-            if index == 0:
-                return _list_response([{"id": "p1"}, {"id": "p2"}, {"id": "p3"}], has_more=False, next_cursor=None)
-            return _list_response([], has_more=False, next_cursor=None)
-
-        session = FakeSession(responses)
-        manager = _fresh_manager()
-
+    def test_pages_without_rows_move_the_queue_and_reach_safe_points(self, _name, _stream) -> None:
         with mock.patch(f"{MODULE}.EMPTY_PAGE_STAGE_INTERVAL_SECONDS", 0):
-            tables = list(stream(cast(requests.Session, session), mock.MagicMock(), manager))
+            result = self._driver().run(
+                _name,
+                [
+                    _scripted_list([{"id": "p1"}, {"id": "p2"}, {"id": "p3"}]),
+                    *[_scripted_list([]) for _ in range(3)],
+                ],
+            )
 
-        assert tables == []
-        saved = [call.args[0].remaining_page_ids for call in manager.save_state.call_args_list]
-        assert saved == [["p2", "p3"], ["p3"], []]
-        assert manager.safe_point.call_count == 3
+        assert result.raised is None
+        assert result.items == []
+        assert [state.remaining_page_ids for state in result.saved_states] == [["p2", "p3"], ["p3"], []]
+        assert [state.remaining_page_ids for state in result.committed_states] == [["p2", "p3"], ["p3"], []]
 
     def test_a_sparse_page_run_yields_a_partial_chunk_with_its_queue_staged_first(self) -> None:
         def responses(index: int) -> FakeResponse:
@@ -370,19 +357,18 @@ class TestNotion:
     def test_blocks_stream_saves_progress_after_each_yield(self) -> None:
         # After a batch is flushed the in-progress page must be persisted at the head of the queue, so a
         # crash resumes there. CHUNK_SIZE is patched to 1 to force a yield per block.
-        def responses(index: int) -> FakeResponse:
-            if index == 0:
-                return _list_response([{"id": "p1"}, {"id": "p2"}], has_more=False, next_cursor=None)
-            return _list_response([{"id": f"b{index}", "has_children": False}], has_more=False, next_cursor=None)
-
-        session = FakeSession(responses)
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = False
-
         with mock.patch(f"{MODULE}.CHUNK_SIZE", 1):
-            list(_blocks_stream(cast(requests.Session, session), mock.MagicMock(), manager))
+            result = self._driver().run(
+                "blocks",
+                [
+                    _scripted_list([{"id": "p1"}, {"id": "p2"}]),
+                    _scripted_list([{"id": "b1", "has_children": False}]),
+                    _scripted_list([{"id": "b2", "has_children": False}]),
+                ],
+            )
 
-        saved = [call.args[0].remaining_page_ids for call in manager.save_state.call_args_list]
+        assert result.raised is None
+        saved = [state.remaining_page_ids for state in result.saved_states]
         # p1 flushed -> head p1 with p2 queued; p2 flushed -> head p2, nothing left.
         assert saved == [["p1", "p2"], ["p2"]]
 
@@ -527,41 +513,43 @@ class TestNotion:
     def test_comments_stream_skips_rejected_page(self) -> None:
         # Notion 400s the comments fetch for one page; that page is skipped without crashing the
         # sync, and comments for the surviving page still come through.
-        def responses(index: int) -> FakeResponse:
-            if index == 0:
-                return _list_response([{"id": "p1"}, {"id": "p2"}], has_more=False, next_cursor=None)
-            if index == 1:
-                return FakeResponse({}, status_code=400)  # comments for p1 -> rejected
-            return _list_response([{"id": "cm"}], has_more=False, next_cursor=None)  # comments for p2
-
-        session = FakeSession(responses)
         logger = mock.MagicMock()
-        tables = list(_comments_stream(cast(requests.Session, session), logger, _fresh_manager()))
+        result = self._driver().run(
+            "comments",
+            [
+                _scripted_list([{"id": "p1"}, {"id": "p2"}]),
+                ScriptedResponse(status=400, json={}),  # comments for p1 -> rejected
+                _scripted_list([{"id": "cm"}]),  # comments for p2
+            ],
+            logger=logger,
+        )
 
-        total_rows = sum(t.num_rows for t in tables)
+        assert result.raised is None
+        total_rows = sum(t.num_rows for t in result.items)
         assert total_rows == 1
         assert logger.warning.called
-        assert len(session.calls) == 3
+        assert result.paths == ["/v1/search", "/v1/comments", "/v1/comments"]
 
     def test_comments_stream_skips_missing_page(self) -> None:
         # One page is deleted/unshared between search and the comments fetch (404). That page must be
         # skipped without crashing the sync; comments for the surviving page still come through.
-        def responses(index: int) -> FakeResponse:
-            if index == 0:
-                return _list_response([{"id": "p1"}, {"id": "p2"}], has_more=False, next_cursor=None)
-            if index == 1:
-                return FakeResponse({}, status_code=404)  # comments for p1 -> gone
-            return _list_response([{"id": "cm"}], has_more=False, next_cursor=None)  # comments for p2
-
-        session = FakeSession(responses)
         logger = mock.MagicMock()
-        tables = list(_comments_stream(cast(requests.Session, session), logger, _fresh_manager()))
+        result = self._driver().run(
+            "comments",
+            [
+                _scripted_list([{"id": "p1"}, {"id": "p2"}]),
+                ScriptedResponse(status=404, json={}),  # comments for p1 -> gone
+                _scripted_list([{"id": "cm"}]),  # comments for p2
+            ],
+            logger=logger,
+        )
 
-        total_rows = sum(t.num_rows for t in tables)
+        assert result.raised is None
+        total_rows = sum(t.num_rows for t in result.items)
         assert total_rows == 1
         assert logger.warning.called
         # search + comments(p1, 404) + comments(p2)
-        assert len(session.calls) == 3
+        assert result.paths == ["/v1/search", "/v1/comments", "/v1/comments"]
 
     def test_block_children_skips_missing_block(self) -> None:
         # A block that 404s (deleted/unshared) must terminate that branch gracefully, yielding nothing.
@@ -583,17 +571,14 @@ class TestNotion:
     def test_comments_stream_respects_page_cap(self) -> None:
         # First call is the page search (one page, then done); every subsequent /v1/comments
         # call reports another page, so the per-parent cap must stop the scan.
-        def responses(index: int) -> FakeResponse:
-            if index == 0:
-                return _list_response([{"id": "p1"}], has_more=False, next_cursor=None)
-            return _list_response([{"id": "cm"}], has_more=True, next_cursor="next")
-
-        session = FakeSession(responses)
+        responses = [_scripted_list([{"id": "p1"}])]
+        responses.extend(_scripted_list([{"id": "cm"}], True, "next") for _ in range(MAX_CHILD_PAGES_PER_PARENT))
         logger = mock.MagicMock()
-        list(_comments_stream(cast(requests.Session, session), logger, _fresh_manager()))
+        result = self._driver().run("comments", responses, logger=logger)
 
         # One search call plus the capped number of comment-page fetches.
-        assert len(session.calls) == 1 + MAX_CHILD_PAGES_PER_PARENT
+        assert result.raised is None
+        assert len(result.requests) == 1 + MAX_CHILD_PAGES_PER_PARENT
         assert logger.warning.called
 
     @parameterized.expand(
@@ -608,11 +593,11 @@ class TestNotion:
         self, status_code: int, expected_valid: bool, expected_next_step: str | None
     ) -> None:
         # Every refusal has to name a next step: the wizard shows this string and nothing else.
-        session = FakeSession([FakeResponse({}, status_code=status_code)])
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+        with scripted_network(always(ScriptedResponse(status=status_code, json={}))) as network:
             valid, message = validate_credentials("tok", NOTION_VERSION_2026_03_11)
 
         assert valid is expected_valid
+        assert {request.path for request in network.requests_log} == {"/v1/users/me"}
         if expected_valid:
             assert message is None
         else:
@@ -623,15 +608,15 @@ class TestNotion:
     def test_validate_credentials_handles_exception(self) -> None:
         # A connection error repr names the host and the urllib3 internals, none of which the
         # person filling in the token field can act on.
-        with mock.patch(
-            f"{MODULE}.make_tracked_session",
-            side_effect=requests.ConnectionError("HTTPSConnectionPool(host='api.notion.com', port=443)"),
-        ):
+        with scripted_network(
+            always(ConnectionError("HTTPSConnectionPool(host='api.notion.com', port=443)"))
+        ) as network:
             valid, message = validate_credentials("tok", NOTION_VERSION_2026_03_11)
 
         assert valid is False
         assert "Wait a few minutes" in (message or "")
         assert "HTTPSConnectionPool" not in (message or "")
+        assert {request.path for request in network.requests_log} == {"/v1/users/me"}
 
     @parameterized.expand(
         [
@@ -651,13 +636,21 @@ class TestNotion:
         admin_status: int | None,
         expected: str | None,
     ) -> None:
-        public_session = FakeSession([FakeResponse({"bot": {"workspace_id": "ws-1"}}, status_code=me_status)])
-        admin_session = FakeSession([FakeResponse({"results": []}, status_code=admin_status or 200)])
-        with mock.patch(f"{MODULE}.make_tracked_session", side_effect=[public_session, admin_session]):
+        responses = [ScriptedResponse(status=me_status, json={"bot": {"workspace_id": "ws-1"}})]
+        if admin_status is not None:
+            responses.extend(
+                ScriptedResponse(status=admin_status, json={"results": []})
+                for _ in range(4 if admin_status == 429 else 1)
+            )
+        with scripted_network(responses) as network:
             message = check_permission_groups_access("tok", admin_token, NOTION_VERSION_2026_03_11)
 
         assert message == expected
         expected_admin_urls = (
             ["https://api.notion.com/admin/v1/spaces/ws-1/groups?page_size=1"] if admin_status is not None else []
         )
-        assert [call["url"] for call in admin_session.calls] == expected_admin_urls
+        admin_urls = [request.url for request in network.requests_log if request.path.startswith("/admin/")]
+        if admin_status == 429:
+            assert set(admin_urls) == set(expected_admin_urls)
+        else:
+            assert admin_urls == expected_admin_urls

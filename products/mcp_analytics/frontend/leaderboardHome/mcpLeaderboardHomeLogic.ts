@@ -8,17 +8,19 @@ import { normalizeBucket } from 'lib/utils/timeBuckets'
 import { HogQLFilters, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { IntervalType } from '~/types'
 
-import { bucketExpr, mcpDashboardOverviewLogic } from '../mcpDashboardOverviewLogic'
+import { labSqlExpression, modelLab, modelRowLabelsByCalls } from '../aiLabs'
+import { summarizeModelBreakdown } from '../dashboard/modelBreakdown'
+import { bucketExpr, mcpDashboardOverviewLogic, type ModelRow } from '../mcpDashboardOverviewLogic'
 import {
     type BucketedFacetRow,
     buildLabShares,
     buildLabUserShares,
+    buildModelShareSeries,
+    modelRowsFromBuckets,
     buildReliabilitySeries,
     buildShareSeries,
     type LabShare,
     type LabUsersRow,
-    labSqlExpression,
-    modelLab,
     type ReliabilityRow,
     type ReliabilitySeries,
     type ScoreboardMetric,
@@ -39,6 +41,10 @@ const TOOL_CALL_WHERE = `event = '$mcp_tool_call'
 
 const BUCKETED_ROW_LIMIT = 10000
 const WINDOW_ROW_LIMIT = 1000
+
+// The users counts below use distinct_id, not person_id, for the same reason as USERS_QUERY in
+// mcpDashboardOverviewLogic.ts: the person_id join over every person override runs out of memory
+// on large projects.
 
 const labelOf = (valueSql: string): string => `coalesce(nullIf(trim(${valueSql}), ''), 'Unknown')`
 
@@ -69,7 +75,7 @@ const windowFacetQuery = (label: string, onlyErrors = false): string => `
 SELECT
     ${label} AS label,
     count() AS calls,
-    uniq(person_id) AS users,
+    uniq(distinct_id) AS users,
     countIf(toBool(properties.$mcp_is_error)) AS errors
 FROM events
 WHERE ${TOOL_CALL_WHERE}
@@ -82,14 +88,14 @@ LIMIT ${WINDOW_ROW_LIMIT}
 const MODEL_LABEL = propertyLabel('$mcp_llm_model')
 
 const labUsersQuery = `
-SELECT ${labSqlExpression(MODEL_LABEL)} AS lab, uniq(person_id) AS users
+SELECT ${labSqlExpression(MODEL_LABEL)} AS lab, uniq(distinct_id) AS users
 FROM events
 WHERE ${TOOL_CALL_WHERE}
 GROUP BY lab
 `
 
 const namedModelUsersQuery = `
-SELECT uniqIf(person_id, ${MODEL_LABEL} != 'Unknown') AS users
+SELECT uniqIf(distinct_id, ${MODEL_LABEL} != 'Unknown') AS users
 FROM events
 WHERE ${TOOL_CALL_WHERE}
 `
@@ -149,13 +155,17 @@ const toWindowRows = (rows: Row[]): WindowFacetRow[] =>
 export interface mcpLeaderboardHomeLogicValues {
     bucketKeys: string[] // mcpDashboardOverviewLogic
     interval: IntervalType // mcpDashboardOverviewLogic
+    modelRows: ModelRow[] // mcpDashboardOverviewLogic
     queryFilters: HogQLFilters // mcpDashboardOverviewLogic
     facets: LeaderboardFacets
     facetsLoading: boolean
     labSeries: ShareSeries[]
     labShares: LabShare[]
     leaderboardLoading: boolean
+    leaderboardModelRows: ModelRow[]
+    modelRowLabelMap: Map<string, string>
     modelSeries: ShareSeries[]
+    pageModels: string[]
     protocolVersionSeries: ShareSeries[]
     reliabilityFailed: boolean
     reliabilityRows: ReliabilityRow[]
@@ -215,8 +225,19 @@ export interface mcpLeaderboardHomeLogicMeta {
             labShares: LabShare[],
             facets: LeaderboardFacets
         ) => LabShare[]
-        modelSeries: (facets: LeaderboardFacets, bucketKeys: string[]) => ShareSeries[]
+        modelRowLabelMap: (facets: LeaderboardFacets) => Map<string, string>
+        modelSeries: (
+            facets: LeaderboardFacets,
+            bucketKeys: string[],
+            modelRowLabelMap: Map<string, string>
+        ) => ShareSeries[]
+        leaderboardModelRows: (facets: LeaderboardFacets, modelRows: ModelRow[]) => ModelRow[]
         labSeries: (facets: LeaderboardFacets, bucketKeys: string[]) => ShareSeries[]
+        pageModels: (
+            leaderboardModelRows: ModelRow[],
+            modelSeries: ShareSeries[],
+            modelRowLabelMap: Map<string, string>
+        ) => string[]
         protocolVersionSeries: (facets: LeaderboardFacets, bucketKeys: string[]) => ShareSeries[]
         reliabilitySeries: (reliabilityRows: ReliabilityRow[], bucketKeys: string[]) => ReliabilitySeries
     }
@@ -232,7 +253,7 @@ export type mcpLeaderboardHomeLogicType = MakeLogicType<
 export const mcpLeaderboardHomeLogic = kea<mcpLeaderboardHomeLogicType>([
     path(['products', 'mcp_analytics', 'frontend', 'leaderboardHome', 'mcpLeaderboardHomeLogic']),
     connect(() => ({
-        values: [mcpDashboardOverviewLogic, ['queryFilters', 'interval', 'bucketKeys']],
+        values: [mcpDashboardOverviewLogic, ['queryFilters', 'interval', 'bucketKeys', 'modelRows']],
         actions: [mcpDashboardOverviewLogic, ['reloadAll']],
     })),
     actions({
@@ -321,15 +342,28 @@ export const mcpLeaderboardHomeLogic = kea<mcpLeaderboardHomeLogicType>([
                 return usersFailed ? [] : buildLabUserShares(facets.labUsers, facets.namedModelUsers)
             },
         ],
+        // Built from the time chart's rows, which hold every model, unlike the bar chart's capped list.
+        modelRowLabelMap: [
+            (s) => [s.facets],
+            (facets: LeaderboardFacets): Map<string, string> => {
+                const totals = new Map<string, number>()
+                for (const row of facets.model) {
+                    totals.set(row.label, (totals.get(row.label) ?? 0) + row.calls)
+                }
+                return modelRowLabelsByCalls(totals)
+            },
+        ],
         modelSeries: [
-            (s) => [s.facets, s.bucketKeys],
-            (facets: LeaderboardFacets, bucketKeys: string[]): ShareSeries[] =>
-                buildShareSeries(
-                    facets.model,
-                    bucketKeys,
-                    (label) => (label === 'Unknown' ? null : label),
-                    MODEL_SERIES_LIMIT
-                ),
+            (s) => [s.facets, s.bucketKeys, s.modelRowLabelMap],
+            (facets: LeaderboardFacets, bucketKeys: string[], modelRowLabelMap: Map<string, string>): ShareSeries[] =>
+                buildModelShareSeries(facets.model, bucketKeys, modelRowLabelMap),
+        ],
+        leaderboardModelRows: [
+            (s) => [s.facets, s.modelRows],
+            (facets: LeaderboardFacets, modelRows: ModelRow[]): ModelRow[] =>
+                facets.failedFacets.includes('model') || facets.model.length === 0
+                    ? modelRows
+                    : modelRowsFromBuckets(facets.model),
         ],
         labSeries: [
             (s) => [s.facets, s.bucketKeys],
@@ -340,6 +374,13 @@ export const mcpLeaderboardHomeLogic = kea<mcpLeaderboardHomeLogicType>([
                     (label) => (label === 'Unknown' ? null : modelLab(label)),
                     MODEL_SERIES_LIMIT
                 ),
+        ],
+        pageModels: [
+            (s) => [s.leaderboardModelRows, s.modelSeries, s.modelRowLabelMap],
+            (modelRows: ModelRow[], modelSeries: ShareSeries[], modelRowLabelMap: Map<string, string>): string[] => [
+                ...modelSeries.map((series) => series.label),
+                ...summarizeModelBreakdown(modelRows, modelRowLabelMap).rankedModels.map((row) => row.model),
+            ],
         ],
         protocolVersionSeries: [
             (s) => [s.facets, s.bucketKeys],

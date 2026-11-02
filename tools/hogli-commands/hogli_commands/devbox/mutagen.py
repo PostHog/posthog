@@ -35,24 +35,30 @@ _MUTAGEN_VERSION = "0.18.1"
 # devbox connections: a shim on MUTAGEN_SSH_PATH bumps the count so the
 # connection rides out a reset window. _KEEPALIVE_COUNT x interval(10s) is the
 # resulting silence tolerance (~30s, comfortably past the ~26s reset cadence).
+# The shim also turns off Coder's SSH autostart. mutagen redials a lost box forever,
+# and each redial to a stopped box would otherwise queue a template dry run and a start build.
 _SSH_SHIM_DIR = Path.home() / ".hogli" / "mutagen-ssh-shim"
 _KEEPALIVE_COUNT = 3
 _CONNECT_TIMEOUT_SECONDS = 60
 
 # Baked at generation time (see ensure_ssh_shim): only when the ssh/scp target is
 # a devbox (a `coder.*` host -- the sole thing hogli syncs to) do we bump
-# mutagen's count; every other invocation passes through untouched, so a shared
+# mutagen's count and turn off autostart; every other invocation passes through untouched, so a shared
 # daemon's non-devbox syncs are unaffected. Execs the real ssh/scp by absolute
 # path so a shim-dir entry on PATH can never make the shim re-invoke itself.
 _SHIM_TEMPLATE = """#!/usr/bin/env bash
 # Managed by hogli (`hogli devbox:sync`) -- do not edit; regenerated on sync.
 # Raises mutagen's intolerant `-oServerAliveCountMax=1` for devbox (coder.*)
 # connections so the sync survives a Tailscale/DERP path reset instead of dying
-# with a broken pipe. Any non-devbox ssh is passed through unchanged.
+# with a broken pipe, and stops those connections from starting a stopped box.
+# Any non-devbox ssh is passed through unchanged.
 devbox=
 for a in "$@"; do
   case "$a" in coder.*|*@coder.*) devbox=1 ;; esac
 done
+if [ -n "$devbox" ]; then
+  export CODER_SSH_DISABLE_AUTOSTART=true
+fi
 args=()
 for a in "$@"; do
   case "$a" in
@@ -259,12 +265,13 @@ def _write_owner_only(target: Path, content: str) -> None:
 
 
 def ensure_ssh_shim() -> Path:
-    """Write the ssh/scp keepalive-rewriting shims, returning their directory.
+    """Write the ssh/scp shims (keepalive rewrite, no Coder autostart), returning their directory.
 
     Idempotent: each shim is rewritten only when its content (which embeds the
     resolved real-binary path and keepalive count) changes. mutagen invokes both
-    ssh and scp, so both are shimmed; the rewrite is a no-op for any arg that
-    isn't ``-oServerAliveCountMax=``.
+    ssh and scp, so both are shimmed; for a devbox host they rewrite the
+    keepalive and connect-timeout args and set ``CODER_SSH_DISABLE_AUTOSTART``,
+    and any other invocation passes through unchanged.
     """
     _SSH_SHIM_DIR.mkdir(parents=True, exist_ok=True)
     # The daemon execs these scripts, so keep the dir and scripts owner-only: no

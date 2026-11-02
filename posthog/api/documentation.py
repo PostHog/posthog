@@ -26,6 +26,7 @@ from rest_framework_dataclasses.fields import EnumField as DataclassEnumField
 from posthog.enums import LabeledEnumType
 from posthog.models.entity import MathType
 from posthog.models.property import OperatorType, PropertyType
+from posthog.models.property.property import SemverOperator
 from posthog.permissions import APIScopePermission
 from posthog.products import is_product_module
 
@@ -465,17 +466,7 @@ class FeatureFlagFilterPropertyDateSchemaSerializer(_FeatureFlagFilterPropertyBa
 
 class FeatureFlagFilterPropertySemverSchemaSerializer(_FeatureFlagFilterPropertyBaseSerializer):
     operator = serializers.ChoiceField(
-        choices=[
-            "semver_gt",
-            "semver_gte",
-            "semver_lt",
-            "semver_lte",
-            "semver_eq",
-            "semver_neq",
-            "semver_tilde",
-            "semver_caret",
-            "semver_wildcard",
-        ],
+        choices=SemverOperator.choices,
         required=True,
         help_text="Semantic version comparison operator.",
     )
@@ -512,6 +503,16 @@ class FeatureFlagFilterPropertyCohortInSchemaSerializer(_FeatureFlagFilterProper
     value = serializers.JSONField(
         required=True,
         help_text="Cohort comparison value (single or list, depending on usage).",
+    )
+    cohort_deleted = serializers.BooleanField(
+        required=False,
+        help_text="Set to true in responses when the cohort is deleted or does not exist. "
+        "The flag cannot evaluate this condition. Ignored on write.",
+    )
+    cohort_missing = serializers.BooleanField(
+        required=False,
+        help_text="Set to true in responses when no cohort with this id exists in the project, so it cannot be "
+        "restored. `cohort_deleted` is also true. Absent for a soft-deleted cohort. Ignored on write.",
     )
 
 
@@ -854,7 +855,13 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
         is_env_duplicate = env_suffix is not None and (env_suffix, method) in projects_suffixes
 
         org_suffix = _extract_root_suffix(_ORG_PREFIX_RE, path)
-        is_org_duplicate = org_suffix is not None and (org_suffix, method) in projects_suffixes
+        # Sharing a suffix usually means one resource served at both levels. A viewset whose organization
+        # paths are a different resource opts out with `schema_org_paths_are_not_duplicates = True`.
+        is_org_duplicate = (
+            org_suffix is not None
+            and (org_suffix, method) in projects_suffixes
+            and not getattr(callback.cls, "schema_org_paths_are_not_duplicates", False)
+        )
 
         if is_env_duplicate:
             path = _ENVIRONMENTS_PREFIX_RE.sub("/api/environments/{environment_id}/", path, count=1)

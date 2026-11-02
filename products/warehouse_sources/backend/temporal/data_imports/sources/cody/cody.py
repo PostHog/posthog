@@ -9,7 +9,7 @@ from urllib.parse import urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cody.settings import (
@@ -17,7 +17,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cody.setti
     REPORTS_PATH,
     CodyEndpointConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
@@ -85,7 +88,7 @@ def _build_url(
     return f"{CODY_BASE_URL}{config.path}?{urlencode(params)}"
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type(
         (
             CodyRetryableError,

@@ -22,13 +22,20 @@ export function MetricsHistogramQueryNode(props: {
     cachedResults?: AnyResponseType
     context: QueryContext
     attachTo?: LogicWrapper | BuiltLogic
+    /** Set by dashboard tiles and notebooks, which reduce the UI to the data. */
+    embedded?: boolean
 }): JSX.Element | null {
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
     const [key] = useState(() => `MetricsHistogramQueryNode.${uniqueNode++}`)
+    // A dashboard tile passes its saved insight, whose `result` cannot hold a heatmap. Then the node loads the query.
+    const cachedHistogram =
+        typeof props.cachedResults === 'object' && props.cachedResults !== null && 'times' in props.cachedResults
+            ? props.cachedResults
+            : undefined
     const logic = dataNodeLogic({
         query: props.query,
         key,
-        cachedResults: props.cachedResults,
+        cachedResults: cachedHistogram,
         loadPriority,
         onData,
         dataNodeCollectionId: dataNodeCollectionId ?? key,
@@ -42,11 +49,12 @@ export function MetricsHistogramQueryNode(props: {
 
     return (
         // A dashboard tile sets the height, so a minimum would overflow a short tile. Elsewhere the
-        // parent can have no height, and the heatmap then needs the minimum to draw at all.
+        // parent can have no height, and the heatmap then needs the minimum to draw at all. The insight
+        // scene also gets a `dashboardId` when it opens from a tile, so `embedded` must also be set.
         <div
             className={cn(
                 'relative flex flex-col w-full h-full',
-                props.context.insightProps?.dashboardId == null && 'min-h-[200px]'
+                !(props.embedded && props.context.insightProps?.dashboardId != null) && 'min-h-[200px]'
             )}
         >
             {responseError ? (

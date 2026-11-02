@@ -42,6 +42,9 @@ export enum PluginServerMode {
     recordings_blob_ingestion_v2_ml_image_scrub_dlq_replay = 'recordings-blob-ingestion-v2-ml-image-scrub-dlq-replay',
     recordings_blob_ingestion_v2_ml_image_fetch = 'recordings-blob-ingestion-v2-ml-image-fetch',
     recordings_blob_ingestion_v2_ml_image_fetch_retry = 'recordings-blob-ingestion-v2-ml-image-fetch-retry',
+    ai_research_v4_image_fetch = 'ai-research-v4-image-fetch',
+    ai_research_v4_image_fetch_retry = 'ai-research-v4-image-fetch-retry',
+    ai_research_v4_parquet_sink = 'ai-research-v4-parquet-sink',
     cdp_processed_events = 'cdp-processed-events',
     cdp_person_updates = 'cdp-person-updates',
     cdp_data_warehouse_events = 'cdp-data-warehouse-events',
@@ -52,6 +55,7 @@ export enum PluginServerMode {
     cdp_precalculated_filters = 'cdp-precalculated-filters',
     cdp_hogflow_subscription_matcher = 'cdp-hogflow-subscription-matcher',
     cdp_cohort_membership = 'cdp-cohort-membership',
+    cdp_cohort_membership_triggers = 'cdp-cohort-membership-triggers',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
     cdp_cyclotron_worker_email = 'cdp-cyclotron-worker-email',
     cdp_api = 'cdp-api',
@@ -131,6 +135,8 @@ export type CommonConfig = BaseServerConfig & {
     PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS: string
     PERSONHOG_TLS: boolean
     PERSONHOG_TIMEOUT_MS: number
+    /** Per-call deadline on the identity connection; it outlasts identity's own leader attempts. */
+    PERSONHOG_IDENTITY_TIMEOUT_MS: number
     /** Deadline for the identity merge saga call; must exceed the engine's lifecycle_execute_timeout_secs. */
     PERSONHOG_MERGE_TIMEOUT_MS: number
     PERSONHOG_READ_MAX_BYTES: number
@@ -230,17 +236,6 @@ export type CommonConfig = BaseServerConfig & {
     // Takes the buildIntegerMatcherWithPercentage syntax: '2' for team 2 only, '2,*:0.1' for team 2 plus a tenth of
     // everyone else's requests, '*' for all.
     EXTERNAL_REQUEST_PROXY_TEAMS: string
-    // Resolve third-party hostnames as absolute names (with a trailing dot) on the direct route. The resolver then
-    // skips the cluster search domains, so a hostname that does not exist costs one query instead of one per search
-    // domain. A customer-supplied hostname never names a cluster service, so the search domains never help it.
-    EXTERNAL_REQUEST_DNS_ABSOLUTE_LOOKUP: boolean
-    // A process-local cache of hostnames that returned ENOTFOUND on the direct route. 'off' disables it. 'shadow'
-    // still runs every lookup and only counts the lookups the cache would have skipped. 'enforce' fails those lookups
-    // at once with the same ResolutionError. Only ENOTFOUND is cached: a timeout or SERVFAIL can be the resolver's
-    // fault, and caching it would fail healthy destinations while the resolver is under load.
-    EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MODE: string
-    EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_TTL_MS: number
-    EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MAX_ENTRIES: number
 
     // PostHog analytics
     POSTHOG_API_KEY: string
@@ -281,10 +276,6 @@ export type ExternalRequestConfig = Pick<
     | 'EXTERNAL_REQUEST_CONNECTIONS'
     | 'EXTERNAL_REQUEST_H2_CONNECTIONS'
     | 'EXTERNAL_REQUEST_PROXY_TEAMS'
-    | 'EXTERNAL_REQUEST_DNS_ABSOLUTE_LOOKUP'
-    | 'EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MODE'
-    | 'EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_TTL_MS'
-    | 'EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MAX_ENTRIES'
 >
 
 export function getExternalRequestConfig(): ExternalRequestConfig {
@@ -298,14 +289,6 @@ export function getExternalRequestConfig(): ExternalRequestConfig {
         EXTERNAL_REQUEST_CONNECTIONS: Number(process.env.EXTERNAL_REQUEST_CONNECTIONS ?? 500),
         EXTERNAL_REQUEST_H2_CONNECTIONS: Number(process.env.EXTERNAL_REQUEST_H2_CONNECTIONS ?? 8),
         EXTERNAL_REQUEST_PROXY_TEAMS: process.env.EXTERNAL_REQUEST_PROXY_TEAMS ?? '',
-        EXTERNAL_REQUEST_DNS_ABSOLUTE_LOOKUP: process.env.EXTERNAL_REQUEST_DNS_ABSOLUTE_LOOKUP === 'true',
-        EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MODE: process.env.EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MODE ?? 'off',
-        EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_TTL_MS: Number(
-            process.env.EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_TTL_MS ?? 10_000
-        ),
-        EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MAX_ENTRIES: Number(
-            process.env.EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MAX_ENTRIES ?? 10_000
-        ),
     }
 }
 
@@ -373,6 +356,7 @@ export function getDefaultCommonConfig(): CommonConfig {
         PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS: '',
         PERSONHOG_TLS: false,
         PERSONHOG_TIMEOUT_MS: 3000,
+        PERSONHOG_IDENTITY_TIMEOUT_MS: 3000,
         PERSONHOG_MERGE_TIMEOUT_MS: 35_000,
         PERSONHOG_READ_MAX_BYTES: 128 * 1024 * 1024,
         PERSONHOG_WRITE_MAX_BYTES: 4 * 1024 * 1024,
@@ -463,10 +447,6 @@ export function getDefaultCommonConfig(): CommonConfig {
         EXTERNAL_REQUEST_CONNECTIONS: 500,
         EXTERNAL_REQUEST_H2_CONNECTIONS: 8,
         EXTERNAL_REQUEST_PROXY_TEAMS: '',
-        EXTERNAL_REQUEST_DNS_ABSOLUTE_LOOKUP: false,
-        EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MODE: 'off',
-        EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_TTL_MS: 10_000,
-        EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MAX_ENTRIES: 10_000,
 
         // PostHog analytics
         POSTHOG_API_KEY: '',
@@ -477,11 +457,15 @@ export function getDefaultCommonConfig(): CommonConfig {
         // Shared between ingestion and CDP
         CDP_HOG_RUST_VM_EXECUTION_ENABLED: false,
         CDP_HOG_RUST_VM_BATCH_EXECUTION_ENABLED: false,
-        CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS: 30_000,
+        // Above Django's WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS (180s), so ClickHouse ends a slow
+        // audience query before this client gives up and a retry never overlaps a query that still runs.
+        CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS: 185_000,
         TRANSFORMATIONS_HOG_TIMEOUT_MS: 300,
 
         // Event loop yield helper
         EVENT_LOOP_YIELD_THRESHOLD_MS: 200,
+
+        HTTP_SERVER_DRAIN_TIMEOUT_MS: 0,
 
         // Pod termination
         POD_TERMINATION_ENABLED: false,

@@ -3,8 +3,10 @@ import { router } from 'kea-router'
 
 import { IconGear } from '@posthog/icons'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonSelect, LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 
@@ -34,12 +36,17 @@ export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Elem
     const { connectionOptions, connectionOptionsLoading, connectionSelectOptions } =
         useValues(connectionSelectorLogic())
     const { maybeLoadConnectionOptions } = useActions(connectionSelectorLogic())
-    const { setSourceQuery, syncUrlWithQuery } = useActions(logic)
+    const { setSourceQuery, syncUrlWithQuery, setExecutionTarget } = useActions(logic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const hostedTrinoEnabled = !!featureFlags[FEATURE_FLAGS.MANAGED_TRINO_QUERY]
 
     useOnMountEffect(() => {
         maybeLoadConnectionOptions()
     })
-    const connectionSelectorValue = getConnectionSelectorValue(connectionOptionsLoading, selectedConnectionId)
+    const connectionSelectorValue =
+        sourceQuery.source.executionTarget === 'managed_trino'
+            ? 'managed_trino'
+            : getConnectionSelectorValue(connectionOptionsLoading, selectedConnectionId)
     const displayedConnectionSelectOptions = addHiddenSelectedConnectionOption(
         connectionSelectOptions,
         connectionOptions,
@@ -54,6 +61,7 @@ export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Elem
 
     return (
         <LemonSelect
+            data-attr="sql-editor-connection-selector"
             size="small"
             fullWidth
             // min-w-0 lets the flex item shrink past the label's min-content width, and
@@ -63,11 +71,16 @@ export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Elem
             truncateText={{ maxWidthClass: 'max-w-full' }}
             value={connectionSelectorValue}
             onChange={(nextValue) => {
+                if (nextValue === 'managed_trino') {
+                    setExecutionTarget('managed_trino')
+                    return
+                }
                 if (!nextValue || nextValue === POSTHOG_WAREHOUSE) {
                     setSourceQuery({
                         ...sourceQueryWithoutLegacyConnectionId,
                         source: {
                             ...sourceQuery.source,
+                            executionTarget: undefined,
                             connectionId: undefined,
                             sendRawQuery: undefined,
                         },
@@ -93,6 +106,7 @@ export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Elem
                     ...sourceQueryWithoutLegacyConnectionId,
                     source: {
                         ...sourceQuery.source,
+                        executionTarget: undefined,
                         connectionId: nextValue,
                         sendRawQuery: undefined,
                     },
@@ -100,7 +114,26 @@ export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Elem
                 syncUrlWithQuery()
             }}
             options={displayedConnectionSelectOptions.map((group) => ({
-                options: group.options.map(toLemonSelectOption),
+                options: group.options.flatMap((option) => {
+                    const connectionOption = toLemonSelectOption(option)
+                    if (
+                        option.value === POSTHOG_WAREHOUSE &&
+                        (hostedTrinoEnabled || sourceQuery.source.executionTarget === 'managed_trino')
+                    ) {
+                        return [
+                            connectionOption,
+                            {
+                                label: 'PostHog (Trino)',
+                                value: 'managed_trino',
+                                icon: connectionOption.icon,
+                                disabledReason: hostedTrinoEnabled
+                                    ? undefined
+                                    : 'PostHog (Trino) queries are not enabled for this organization',
+                            },
+                        ]
+                    }
+                    return [connectionOption]
+                }),
             }))}
         />
     )

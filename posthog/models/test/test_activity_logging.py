@@ -1,14 +1,45 @@
-from typing import cast
+import json
+from typing import Any, cast
+from uuid import UUID
 
-from django.test import TestCase
+from django.db import models
+from django.test import SimpleTestCase
 
+from parameterized import parameterized
+
+from posthog.models import DataColorTheme, Organization, User
 from posthog.models.activity_logging.activity_log import AuditableScope, Change, describe_change, dict_changes_between
+from posthog.models.utils import ActivityDetailEncoder
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 
-class TeatActivityLog(TestCase):
+class TeatActivityLog(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("model_without_a_branch", DataColorTheme(id=7), {"id": 7}),
+            (
+                "uuid_primary_key",
+                Organization(id=UUID("01890000-0000-0000-0000-000000000001")),
+                {"id": "01890000-0000-0000-0000-000000000001"},
+            ),
+            (
+                "model_with_a_branch",
+                User(id=3, first_name="Ada", email="ada@example.com"),
+                {"first_name": "Ada", "email": "ada@example.com"},
+            ),
+        ]
+    )
+    def test_encoder_serializes_related_model_instances(
+        self, _name: str, instance: models.Model, expected: Any
+    ) -> None:
+        change = Change(type="Dashboard", field="related", action="changed", before=None, after=instance)
+
+        encoded = json.loads(json.dumps(change, cls=ActivityDetailEncoder))
+
+        assert encoded["after"] == expected
+
     def test_dict_changes_between(self):
         changes = dict_changes_between(
             model_type="Plugin",

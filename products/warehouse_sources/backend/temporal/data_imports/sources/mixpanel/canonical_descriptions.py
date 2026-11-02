@@ -62,4 +62,62 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "user": "User who created the annotation.",
         },
     },
+    "funnels": {
+        "description": "Saved funnels — the funnel reports defined in the Mixpanel project, by id and name.",
+        "docs_url": "https://developer.mixpanel.com/reference/funnels-list-saved",
+        "columns": {
+            "funnel_id": "Unique identifier for the saved funnel.",
+            "name": "The funnel's name.",
+        },
+    },
+    "funnel_steps": {
+        "description": "Daily conversion for each step of every saved funnel, over the last 90 days.",
+        "docs_url": "https://developer.mixpanel.com/reference/funnels-query",
+        "columns": {
+            "funnel_id": "Identifier of the saved funnel the step belongs to.",
+            "funnel_name": "Name of the saved funnel the step belongs to.",
+            "date": "Day the funnel conversions are bucketed into, as YYYY-MM-DD.",
+            "step_index": "Zero-based position of the step in the funnel.",
+            "count": "Number of users who converted through this step.",
+            "goal": "Name of the step's event.",
+            "event": "Name of the step's event.",
+            "step_label": "Display label of the step: the event name or the custom event name.",
+            "step_conv_ratio": "Conversion rate from the previous step.",
+            "overall_conv_ratio": "Conversion rate from the first step of the funnel.",
+            "avg_time": "Mean time to convert from the previous step; null for the first step.",
+            "avg_time_from_start": "Mean time to convert from the first step.",
+            "custom_event": "True when the step is a custom event.",
+            "custom_event_id": "Identifier of the custom event, when the step is a custom event.",
+        },
+    },
+    "retention": {
+        "description": (
+            "Daily recurring (compounded) retention across all events: for each day's cohort of active users, "
+            "how many were active again in each following day."
+        ),
+        "docs_url": "https://developer.mixpanel.com/reference/retention-query",
+        "columns": {
+            "date": "Day of the cohort, as YYYY-MM-DD.",
+            "interval_index": "Days since the cohort day. Interval 0 covers activity within one day of the first event.",
+            "count": "Number of users from the cohort who were active in this interval.",
+            "first": "Number of users in the cohort.",
+        },
+    },
+    "lexicon_schemas": {
+        "description": "Lexicon data dictionary: the schema Mixpanel holds for each event and profile, with its property definitions.",
+        "docs_url": "https://developer.mixpanel.com/reference/list-all-schemas-for-project",
+        "columns": {
+            "entityType": "Kind of entity the schema describes: event or profile.",
+            "name": "Name of the entity, for example the event name.",
+            "schemaJson": "Schema of the entity: its description and the type and description of each property.",
+        },
+    },
+    "lookup_tables": {
+        "description": "Lookup tables defined in the Mixpanel project, by id and name.",
+        "docs_url": "https://developer.mixpanel.com/reference/list-lookup-tables",
+        "columns": {
+            "id": "Unique identifier (UUID) of the lookup table.",
+            "name": "The lookup table's name.",
+        },
+    },
 }

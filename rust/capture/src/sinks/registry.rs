@@ -1,14 +1,10 @@
 //! Binds every fixed routing [`Destination`] to its output: a Kafka topic and
-//! the named producer that carries it. Adding an output is a one-place change:
-//! the `target_for` and `is_required` matches are compiler-forced exhaustive,
-//! a test pins `REGISTERED` to the required set, and
-//! [`OutputTable::check_complete`] catches an unwired output at boot instead
-//! of at first produce.
+//! the named producer that carries it.
 
 use std::sync::Arc;
 
 use crate::config::OutputsConfig;
-use crate::pipeline::{Address, Lane, Pipeline};
+use crate::pipeline::{Address, AiLane, AnalyticsLane, BasicLane, PipelineLane, SessionReplayLane};
 use crate::producers::ProducerName;
 
 /// Which configured output a routing decision selects, named by pipeline and
@@ -26,7 +22,6 @@ pub enum Destination {
     Dlq,
     ErrorTrackingMain,
     AiMain,
-    /// Only routed to when the AI overflow valve is armed.
     AiOverflow,
     /// Admin-configured topic copied from `redirect_to_topic`.
     Custom(String),
@@ -35,7 +30,7 @@ pub enum Destination {
 impl Destination {
     /// Every registered always-required output. `check_complete` walks this so
     /// a newly added output is caught at boot rather than at first produce.
-    const REGISTERED: [Destination; 10] = [
+    const REGISTERED: [Destination; 11] = [
         Destination::AnalyticsMain,
         Destination::AnalyticsOverflow,
         Destination::AnalyticsHistorical,
@@ -46,42 +41,29 @@ impl Destination {
         Destination::Dlq,
         Destination::ErrorTrackingMain,
         Destination::AiMain,
+        Destination::AiOverflow,
     ];
 
-    /// `None` marks a pair [`pipeline::resolve`] never produces: no output
-    /// backs it.
-    ///
-    /// [`pipeline::resolve`]: crate::pipeline::resolve
-    pub(crate) fn for_lane(pipeline: Pipeline, lane: Lane) -> Option<Destination> {
-        // Every pair is spelled out so that a new lane, or a change making an
-        // unbacked pair reachable, has to visit this match instead of being
-        // absorbed by a wildcard. Step 13 of OUTPUTS_REFACTOR_PLAN.md types
-        // lanes per pipeline so such pairs cannot be built; drop the `None`
-        // arms and this note then.
-        match (pipeline, lane) {
-            (Pipeline::Analytics, Lane::Main) => Some(Destination::AnalyticsMain),
-            (Pipeline::Analytics, Lane::Overflow) => Some(Destination::AnalyticsOverflow),
-            (Pipeline::Analytics, Lane::Historical) => Some(Destination::AnalyticsHistorical),
-            (Pipeline::Ai, Lane::Main) => Some(Destination::AiMain),
-            (Pipeline::Ai, Lane::Overflow) => Some(Destination::AiOverflow),
-            (Pipeline::Ai, Lane::Historical) => None,
-            (Pipeline::Warnings, Lane::Main) => Some(Destination::ClientWarningsMain),
-            (Pipeline::Warnings, Lane::Overflow | Lane::Historical) => None,
-            (Pipeline::Heatmaps, Lane::Main) => Some(Destination::HeatmapsMain),
-            (Pipeline::Heatmaps, Lane::Overflow | Lane::Historical) => None,
-            (Pipeline::ErrorTracking, Lane::Main) => Some(Destination::ErrorTrackingMain),
-            (Pipeline::ErrorTracking, Lane::Overflow | Lane::Historical) => None,
-            (Pipeline::Replay, Lane::Main) => Some(Destination::SessionReplayMain),
-            (Pipeline::Replay, Lane::Overflow) => Some(Destination::SessionReplayOverflow),
-            (Pipeline::Replay, Lane::Historical) => None,
+    pub(crate) fn for_lane(lane: PipelineLane) -> Destination {
+        match lane {
+            PipelineLane::Analytics(AnalyticsLane::Main) => Destination::AnalyticsMain,
+            PipelineLane::Analytics(AnalyticsLane::Overflow) => Destination::AnalyticsOverflow,
+            PipelineLane::Analytics(AnalyticsLane::Historical) => Destination::AnalyticsHistorical,
+            PipelineLane::Ai(AiLane::Main) => Destination::AiMain,
+            PipelineLane::Ai(AiLane::Overflow) => Destination::AiOverflow,
+            PipelineLane::Warnings(BasicLane::Main) => Destination::ClientWarningsMain,
+            PipelineLane::Heatmaps(BasicLane::Main) => Destination::HeatmapsMain,
+            PipelineLane::ErrorTracking(BasicLane::Main) => Destination::ErrorTrackingMain,
+            PipelineLane::Replay(SessionReplayLane::Main) => Destination::SessionReplayMain,
+            PipelineLane::Replay(SessionReplayLane::Overflow) => Destination::SessionReplayOverflow,
         }
     }
 
-    pub(crate) fn for_address(address: Address) -> Option<Destination> {
+    pub(crate) fn for_address(address: Address) -> Destination {
         match address {
-            Address::Lane { pipeline, lane } => Self::for_lane(pipeline, lane),
-            Address::Dlq => Some(Destination::Dlq),
-            Address::Custom(topic) => Some(Destination::Custom(topic)),
+            Address::Lane(lane) => Self::for_lane(lane),
+            Address::Dlq => Destination::Dlq,
+            Address::Custom(topic) => Destination::Custom(topic),
         }
     }
 
@@ -103,10 +85,10 @@ impl Destination {
             | Destination::SessionReplayOverflow
             | Destination::Dlq
             | Destination::ErrorTrackingMain
-            | Destination::AiMain => true,
-            // The opt-in AI overflow valve and per-event custom topics sit
-            // outside the check.
-            Destination::AiOverflow | Destination::Custom(_) => false,
+            | Destination::AiMain
+            | Destination::AiOverflow => true,
+            // A custom redirect carries its own topic per event.
+            Destination::Custom(_) => false,
         }
     }
 
@@ -151,7 +133,8 @@ pub struct OutputTable<R = ProducerName> {
     pub(crate) dlq: OutputTarget<R>,
     pub(crate) error_tracking: OutputTarget<R>,
     pub(crate) ai_main: OutputTarget<R>,
-    pub(crate) ai_overflow: Option<OutputTarget<R>>,
+    pub(crate) ai_overflow: OutputTarget<R>,
+    pub(crate) has_ai_overflow_lane: bool,
     pub(crate) custom_producer: R,
 }
 
@@ -168,12 +151,7 @@ impl<R> OutputTable<R> {
             Destination::Dlq => Some(&self.dlq),
             Destination::ErrorTrackingMain => Some(&self.error_tracking),
             Destination::AiMain => Some(&self.ai_main),
-            Destination::AiOverflow => match &self.ai_overflow {
-                Some(target) if !target.topic.is_empty() => Some(target),
-                // Callers select this output only when the valve is armed,
-                // i.e. exactly when the topic is set.
-                _ => Some(&self.ai_main),
-            },
+            Destination::AiOverflow => Some(&self.ai_overflow),
             Destination::Custom(_) => None,
         }
     }
@@ -196,7 +174,7 @@ impl<R> OutputTable<R> {
         }
     }
 
-    pub(crate) fn map_producers<T>(&self, mut f: impl FnMut(&R) -> T) -> OutputTable<T> {
+    pub fn map_producers<T>(&self, mut f: impl FnMut(&R) -> T) -> OutputTable<T> {
         let custom_producer = f(&self.custom_producer);
         let mut target = |t: &OutputTarget<R>| OutputTarget {
             topic: Arc::clone(&t.topic),
@@ -213,20 +191,18 @@ impl<R> OutputTable<R> {
             dlq: target(&self.dlq),
             error_tracking: target(&self.error_tracking),
             ai_main: target(&self.ai_main),
-            ai_overflow: self.ai_overflow.as_ref().map(&mut target),
+            ai_overflow: target(&self.ai_overflow),
+            has_ai_overflow_lane: self.has_ai_overflow_lane,
             custom_producer,
         }
     }
 
-    pub fn ai_events_overflow_armed(&self) -> bool {
-        self.ai_overflow
-            .as_ref()
-            .is_some_and(|target| !target.topic.is_empty())
+    pub fn has_ai_overflow_lane(&self) -> bool {
+        self.has_ai_overflow_lane
     }
 
     /// Every registered output must resolve to a non-empty topic. `Custom` is
-    /// excluded because it carries its own topic per event, and the opt-in
-    /// `AiOverflow` valve because unset means routing never selects it.
+    /// excluded because it carries its own topic per event.
     pub fn check_complete(&self) -> anyhow::Result<()> {
         for output in &Destination::REGISTERED {
             anyhow::ensure!(
@@ -240,8 +216,8 @@ impl<R> OutputTable<R> {
     }
 }
 
-impl From<&OutputsConfig> for OutputTable {
-    fn from(config: &OutputsConfig) -> Self {
+impl OutputTable {
+    pub fn new(config: &OutputsConfig, has_ai_overflow_lane: bool) -> Self {
         let target = |topic: &String, producer: ProducerName| OutputTarget {
             topic: Arc::from(topic.as_str()),
             producer,
@@ -272,10 +248,8 @@ impl From<&OutputsConfig> for OutputTable {
             dlq: target(&config.dlq_topic, config.dlq_producer),
             error_tracking: target(&config.error_tracking_topic, config.error_tracking_producer),
             ai_main: target(&config.ai_main_topic, config.ai_main_producer),
-            ai_overflow: config
-                .ai_overflow_topic
-                .as_ref()
-                .map(|topic| target(topic, config.ai_overflow_producer)),
+            ai_overflow: target(&config.ai_overflow_topic, config.ai_overflow_producer),
+            has_ai_overflow_lane,
             custom_producer: config.custom_producer,
         }
     }
@@ -298,7 +272,8 @@ pub(crate) fn test_outputs() -> OutputTable {
         dlq: target("events_plugin_ingestion_dlq"),
         error_tracking: target("error_tracking_events"),
         ai_main: target("ai_events"),
-        ai_overflow: Some(target("ai_events_overflow")),
+        ai_overflow: target("ai_events_overflow"),
+        has_ai_overflow_lane: true,
         custom_producer: ProducerName::Ingestion,
     }
 }
@@ -331,17 +306,6 @@ mod tests {
             registry.topic_for(&Destination::Custom("admin_topic".to_string())),
             "admin_topic"
         );
-    }
-
-    /// An unarmed overflow valve carries no completeness requirement and never
-    /// disarms the AI main lane.
-    #[test]
-    fn unset_ai_overflow_valve_is_unarmed() {
-        let mut registry = test_outputs();
-        registry.ai_overflow = None;
-        assert!(registry.check_complete().is_ok());
-        assert!(!registry.ai_events_overflow_armed());
-        assert_eq!(registry.topic_for(&Destination::AiMain), "ai_events");
     }
 
     #[test]
@@ -382,11 +346,7 @@ mod tests {
         assert!(test_outputs().check_complete().is_ok());
     }
 
-    /// `REGISTERED` is a hand-maintained array while `is_required` is
-    /// compiler-exhaustive; this pins them together. A new variant cannot
-    /// compile without an `is_required` arm, and putting it on the wrong
-    /// side of `REGISTERED` fails here. The all-variants list below is the
-    /// one hand-maintained enumeration left — grow it with the enum.
+    /// The all-variants list below is hand-maintained: grow it with the enum.
     #[test]
     fn registered_is_exactly_the_required_outputs() {
         let all = [
@@ -426,6 +386,7 @@ mod tests {
     #[case("dlq", |r: &mut OutputTable| r.dlq.topic = Arc::from(""))]
     #[case("errortracking-main", |r: &mut OutputTable| r.error_tracking.topic = Arc::from(""))]
     #[case("ai-main", |r: &mut OutputTable| r.ai_main.topic = Arc::from(""))]
+    #[case("ai-overflow", |r: &mut OutputTable| r.ai_overflow.topic = Arc::from(""))]
     fn check_complete_rejects_empty_topic(
         #[case] output_name: &str,
         #[case] blank: fn(&mut OutputTable),

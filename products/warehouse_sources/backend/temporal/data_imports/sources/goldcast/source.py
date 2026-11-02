@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -30,6 +31,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GoldcastSource(SimpleSource[GoldcastSourceConfig]):
+    codebase_detection = detect(env=("^GOLDCAST_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://apidocs.goldcast.io/"
 
@@ -43,7 +46,7 @@ class GoldcastSource(SimpleSource[GoldcastSourceConfig]):
             name=ExternalDataSourceType.GOLDCAST,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Goldcast",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Goldcast API token to sync your virtual event and webinar data into the PostHog Data warehouse.
 
 An org admin can create a personal access token in Goldcast Studio under **Settings → Tokens**. The token is shown only once, so copy it immediately.

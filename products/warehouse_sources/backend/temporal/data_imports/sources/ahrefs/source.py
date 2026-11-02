@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -16,8 +17,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.settings import (
     ENDPOINTS,
+    HISTORY_DAYS,
+    INCREMENTAL_FIELDS,
+    MAX_BACKLINK_ROWS,
+    MAX_KEYWORD_ROWS,
     MAX_PAGE_ROWS,
+    MAX_REFDOMAIN_ROWS,
     NON_RETRYABLE_ERRORS,
+    QUOTA_RETRY_ERROR,
+    RETRYABLE_QUOTA_ERRORS,
+    SITE_METRICS_FIRST_SYNC_DAYS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -35,6 +44,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AhrefsSource(SimpleSource[AhrefsSourceConfig]):
+    codebase_detection = detect(env=("^AHREFS_",), script_hosts=("analytics.ahrefs.com",))
+
     lists_tables_without_credentials = True
     supported_versions = ("v3",)
     default_version = "v3"
@@ -46,6 +57,12 @@ class AhrefsSource(SimpleSource[AhrefsSourceConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return NON_RETRYABLE_ERRORS
+
+    def get_retryable_errors(self) -> set[str]:
+        return set(RETRYABLE_QUOTA_ERRORS)
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        return dict.fromkeys(RETRYABLE_QUOTA_ERRORS, QUOTA_RETRY_ERROR)
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         return CANONICAL_DESCRIPTIONS
@@ -60,7 +77,11 @@ class AhrefsSource(SimpleSource[AhrefsSourceConfig]):
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(
-            ENDPOINTS, {}, names, descriptions={name: endpoint["description"] for name, endpoint in ENDPOINTS.items()}
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=INCREMENTAL_FIELDS.keys(),
+            descriptions={name: endpoint["description"] for name, endpoint in ENDPOINTS.items()},
         )
 
     def validate_credentials(
@@ -75,7 +96,15 @@ class AhrefsSource(SimpleSource[AhrefsSourceConfig]):
         return validate_ahrefs_credentials(config.api_key)
 
     def source_for_pipeline(self, config: AhrefsSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        return ahrefs_source(config.api_key, config.project_id, inputs.schema_name, inputs.team_id, inputs.job_id)
+        return ahrefs_source(
+            config.api_key,
+            config.project_id,
+            inputs.schema_name,
+            inputs.team_id,
+            inputs.job_id,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
+        )
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -84,14 +113,25 @@ class AhrefsSource(SimpleSource[AhrefsSourceConfig]):
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Ahrefs",
             iconPath="/static/services/ahrefs.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption=(
                 "Requires an Ahrefs Lite plan or higher. "
                 "Create an API key in [Account settings > API keys](https://app.ahrefs.com/account/api-keys). "
-                "Syncs use your account's API units. Health scores are free. "
+                "Syncs use your account's API units. Health scores, projects, and Rank Tracker rankings are free. "
                 "Issues and pages each cost 50 units per request. "
+                "Metrics history costs 10 units per metric for each month returned. "
                 f"Each sync imports the latest crawl, with a sample of up to {MAX_PAGE_ROWS} pages. "
-                "Page data requires verified project ownership."
+                "Page data requires verified project ownership. "
+                "Domain Rating, metrics history, daily site metrics, backlinks, organic keywords, and referring domains report on the "
+                "Site Audit project's target. Rank Tracker rankings come from the same project. "
+                f"History tables start {HISTORY_DAYS} days back. "
+                "Daily site metrics cost 150 units for each day. "
+                f"The first sync reads the last {SITE_METRICS_FIRST_SYNC_DAYS} days, and later syncs add each new day. "
+                f"Backlinks import up to {MAX_BACKLINK_ROWS} live links, "
+                f"organic keywords up to {MAX_KEYWORD_ROWS} keywords, and referring domains up to {MAX_REFDOMAIN_ROWS} domains. "
+                "Link intersect tables compare the target with the project's competitors in Ahrefs. "
+                "Brand Radar web pages come from the Brand Radar reports linked to the project. "
+                "The top domains table is free and has 1 million rows."
             ),
             fields=cast(
                 list[FieldType],

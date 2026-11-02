@@ -18,8 +18,9 @@ def reset_unverified_review_policy(config: StamphogRepoConfig) -> list[str]:
     """Put a placeholder's review policy back at the model defaults. Returns the fields it changed.
 
     A placeholder (blank installation) was configured by someone who never proved GitHub access.
-    A label mode with a label nobody uses would otherwise go live, reviewing nothing, the moment
-    the row binds to a real installation and turns on.
+    A mode or label they picked would otherwise go live the moment the row binds to a real
+    installation and turns on: all mode reviews every pull request, and a label nobody uses
+    reviews nothing.
     """
     # Read the defaults off the model so the reset cannot drift from what a fresh row gets.
     config.review_mode = StamphogRepoConfig._meta.get_field("review_mode").get_default()

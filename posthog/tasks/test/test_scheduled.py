@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock
 
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -9,7 +9,7 @@ from posthog.tasks.scheduled import instance_spread_minute, setup_periodic_tasks
 from posthog.tasks.team_llm_gateway_quota import reconcile_llm_gateway_quota_projection
 
 
-class TestScheduledTasks(TestCase):
+class TestScheduledTasks(SimpleTestCase):
     def test_scheduled_tasks(self) -> None:
         """
         `setup_periodic_tasks` may fail silently. This test ensures that it doesn't.

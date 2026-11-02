@@ -2,6 +2,7 @@
 
 import pytest
 
+from django.conf import settings
 from django.db.models import F
 
 from parameterized import parameterized
@@ -73,7 +74,7 @@ class TestApprovalComment:
 
         assert "✅ **Visual changes approved** by @alice" in body
         assert "abc1234" in body  # baseline SHA prefix
-        assert f"/visual_review/runs/{run_with_snapshots.id}" in body
+        assert f"/visual-review/runs/{run_with_snapshots.id}" in body
         assert "1 changed, 1 new, 1 removed." in body
         assert "<img" not in body
         assert "<table" not in body
@@ -403,9 +404,9 @@ class TestApprovalComment:
 
         body = comment_markdown._build_approval_comment_body(run_with_artifacts, repo, None, add_images=True)
 
-        # Each snapshot name links straight to its deep link on the run page
         changed = run_with_artifacts.snapshots.get(identifier="Login/Form")
-        assert f"[`Login/Form`]({comment_markdown._run_url(run_with_artifacts, repo)}?snapshot={changed.id})" in body
+        deep_link = f"{settings.SITE_URL}/project/{repo.team_id}/visual-review/runs/{run_with_artifacts.id}#snapshot={changed.id}"
+        assert f"[`Login/Form`]({deep_link})" in body
 
     def test_build_approval_comment_body_caps_at_eight_and_links_out(self, repo, mocker):
         mocker.patch.object(comment_markdown, "ArtifactStorage", self._fake_storage())
@@ -433,7 +434,7 @@ class TestApprovalComment:
         # 8 of 11 rows rendered, the rest linked out
         assert body.count("<img") == 8 * 2  # before + after per shown row
         assert "…and 3 more" in body
-        assert f"/visual_review/runs/{run.id})" in body
+        assert f"/visual-review/runs/{run.id})" in body
 
     def test_build_approval_comment_body_falls_back_to_text_without_storage(self, repo, run_with_artifacts, mocker):
         # Images requested, but storage yields no URL — fall back to the text summary.
@@ -456,7 +457,7 @@ class TestApprovalComment:
         assert "**Changed**" not in body
         # The comment still summarizes what changed and links to the run
         assert "1 changed, 1 new, 1 removed." in body
-        assert f"/visual_review/runs/{run_with_artifacts.id}" in body
+        assert f"/visual-review/runs/{run_with_artifacts.id}" in body
 
     def test_image_cell_escapes_alt_and_src(self):
         # Both attributes are escaped so a quote in either can't break out of the tag
@@ -622,9 +623,9 @@ class TestReviewPromptComment:
         assert patch_call["path"] == "issues/comments/5001"
         assert "✅ **Visual changes approved**" in patch_call["json"]["body"]
         assert "covered an earlier revision" in patch_call["json"]["body"]
-        assert f"/visual_review/runs/{approved.id}" in patch_call["json"]["body"]
+        assert f"/visual-review/runs/{approved.id}" in patch_call["json"]["body"]
         assert post_call["method"] == "POST"
-        assert f"/visual_review/runs/{run.id}" in post_call["json"]["body"]
+        assert f"/visual-review/runs/{run.id}" in post_call["json"]["body"]
         run.refresh_from_db()
         assert run.metadata["github_comment_id"] == 5002
 

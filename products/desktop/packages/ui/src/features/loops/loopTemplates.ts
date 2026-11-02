@@ -12,7 +12,7 @@ import {
   TestTube,
   Warning,
 } from "@phosphor-icons/react";
-import type { LoopSchemas } from "@posthog/api-client/loops";
+import type { LoopSchemas } from "@posthog/ui/features/loops/loopSchemas";
 import { systemTimezone } from "@posthog/ui/primitives/timezone";
 import {
   type LoopFormValues,

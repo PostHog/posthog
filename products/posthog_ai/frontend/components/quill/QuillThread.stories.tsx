@@ -270,5 +270,5 @@ export const LongRun: Story = {
 }
 export const ComparedWithLemon: Story = {
     args: { streamKey: 'example-quill-compare', skin: 'both' },
-    parameters: { testOptions: { skip: true } },
+    tags: ['test-skip'],
 }

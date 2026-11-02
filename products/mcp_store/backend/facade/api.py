@@ -27,7 +27,14 @@ from products.mcp_store.backend.connector_approvals import (
     consume_connector_approval,
     issue_connector_approval,
 )
-from products.mcp_store.backend.facade.contracts import ActiveInstallation, ConnectorCallOutcome, ConnectorTool
+from products.mcp_store.backend.facade.contracts import (
+    ActiveInstallation,
+    ConnectorCallOutcome,
+    ConnectorTool,
+    SandboxInstallations,
+    UnmountedInstallation,
+    UnmountedInstallationReason,
+)
 from products.mcp_store.backend.gateway import (
     agent_grant_owner_label,
     agent_grant_proxy_path,
@@ -44,8 +51,8 @@ from products.mcp_store.backend.models import (
 from products.mcp_store.backend.policy import (
     GatewayCaller,
     PolicyContext,
-    is_policy_state_allowed,
     is_read_only_connector_tool,
+    legacy_state_for_caller,
 )
 from products.mcp_store.backend.proxy import record_tool_call_audit, resolve_call_decision, validate_installation_auth
 from products.mcp_store.backend.tools import (
@@ -78,26 +85,36 @@ def resolve_member_tool_states(
     unregistered installations fall back to the cached per-tool approval state.
     Rows with `removed_at` set surface as `"do_not_use"` so the agent can't
     call them even if the cached approval state was previously `approved` —
-    if the tool is gone upstream, it's gone. Anything not in the map is
-    treated as `needs_approval` by the caller (explicit opt-in for freshly
-    discovered tools).
+    if the tool is gone upstream, it's gone. Callers resolve missing names
+    through `resolve_member_unlisted_tool_state` before execution.
 
     With `block_locked_approvals`, a `needs_approval` state that an org rule
     locks surfaces as `"do_not_use"`. Use it for callers that approve calls
     on the member's behalf, because the member cannot approve a locked state."""
-    rows = MCPServerInstallationTool.objects.filter(installation_id=installation_id).values(
-        "tool_name", "annotations", "approval_state", "removed_at"
+    rows = list(
+        MCPServerInstallationTool.objects.filter(installation_id=installation_id).values(
+            "tool_name", "annotations", "approval_state", "removed_at", "installation__user_id"
+        )
     )
-    legacy = {row["tool_name"]: ("do_not_use" if row["removed_at"] else row["approval_state"]) for row in rows}
+    owner_id = rows[0]["installation__user_id"] if rows else None
 
     if gateway_server_id is None or user_id is None:
-        return legacy
+        caller_owns_installation = user_id is not None and owner_id == user_id
+        return {
+            row["tool_name"]: (
+                "do_not_use"
+                if row["removed_at"]
+                else legacy_state_for_caller(row["approval_state"], caller_owns_installation=caller_owns_installation)
+            )
+            for row in rows
+        }
 
     context = PolicyContext(
         team_id=team_id,
         caller=GatewayCaller(kind="member", user_id=user_id),
         gateway_server_id=gateway_server_id,
         legacy_rows={row["tool_name"]: row["approval_state"] for row in rows if row["removed_at"] is None},
+        installation_owner_id=owner_id,
     )
     resolved: dict[str, str] = {}
     for row in rows:
@@ -113,31 +130,24 @@ def resolve_member_tool_states(
 def resolve_member_unlisted_tool_state(
     installation_id: str,
     team_id: int,
-    gateway_server_id: uuid.UUID,
+    gateway_server_id: uuid.UUID | None,
     user_id: int,
     tool_name: str,
 ) -> str:
-    """Return the effective state of a tool the installation has no row for.
-
-    The installation re-lists its tools once, so a tool the upstream server
-    added later resolves with its real annotations. Without a row the
-    annotations are unknown, so the tool resolves as if it were destructive.
-    The result is never looser than `needs_approval`, the default for
-    unknown tools."""
+    """Re-list an unknown tool and refuse it unless the server advertises it."""
     installation = MCPServerInstallation.objects.filter(id=installation_id, team_id=team_id).first()
     tool = _registered_tool(installation, tool_name) if installation is not None else None
+    if tool is None or tool.removed_at is not None:
+        return "do_not_use"
+    if gateway_server_id is None:
+        return "do_not_use" if tool.approval_state == "do_not_use" else "needs_approval"
     context = PolicyContext(
         team_id=team_id,
         caller=GatewayCaller(kind="member", user_id=user_id),
         gateway_server_id=gateway_server_id,
         legacy_rows={},
     )
-    if tool is not None and tool.removed_at is None:
-        state = _member_tool_state(context, tool_name, tool.annotations, block_locked_approvals=True)
-    else:
-        as_listed = _member_tool_state(context, tool_name, None, block_locked_approvals=True)
-        as_destructive = _member_tool_state(context, tool_name, {"destructiveHint": True}, block_locked_approvals=True)
-        state = as_destructive if is_policy_state_allowed(as_destructive, as_listed) else as_listed
+    state = _member_tool_state(context, tool_name, tool.annotations, block_locked_approvals=True)
     return state if state == "do_not_use" else "needs_approval"
 
 
@@ -371,6 +381,69 @@ def get_installations_for_sandbox(
     allowed_installation_ids: list[str] | None = None,
     allowed_gateway_server_ids: list[str] | None = None,
 ) -> list[ActiveInstallation]:
+    """The installations ``resolve_installations_for_sandbox`` mounts."""
+    return list(
+        resolve_installations_for_sandbox(
+            team_id,
+            user_id=user_id,
+            include_personal=include_personal,
+            task_origin=task_origin,
+            task_agent_key=task_agent_key,
+            credential_owner_id=credential_owner_id,
+            allowed_installation_ids=allowed_installation_ids,
+            allowed_gateway_server_ids=allowed_gateway_server_ids,
+        ).mounted
+    )
+
+
+def _member_unmounted_reason(
+    installation: MCPServerInstallation,
+    revoked_gateway_server_ids: set[uuid.UUID],
+    allowed_gateway_server_ids: set[str] | None,
+    allowed_installation_ids: set[str] | None,
+) -> UnmountedInstallationReason | None:
+    gateway_server = installation.gateway_server
+    gateway_server_id = gateway_server.id if gateway_server is not None else None
+    if (
+        installation.scope == "shared"
+        and allowed_gateway_server_ids is not None
+        and (gateway_server_id is None or str(gateway_server_id) not in allowed_gateway_server_ids)
+    ):
+        return "not_selected"
+    health_failure: UnmountedInstallationReason | None = None
+    if gateway_server is not None and not gateway_server.is_team_enabled:
+        health_failure = "server_disabled"
+    elif gateway_server_id is not None and gateway_server_id in revoked_gateway_server_ids:
+        health_failure = "revoked"
+    elif not _is_oauth_ready(installation):
+        health_failure = "needs_reconnect"
+    # Healthy unselected installations stay in play until the personal-copy dedup has run.
+    if (
+        health_failure is not None
+        and allowed_installation_ids is not None
+        and str(installation.id) not in allowed_installation_ids
+    ):
+        return "not_selected"
+    return health_failure
+
+
+def _unmounted(installation: MCPServerInstallation, reason: UnmountedInstallationReason) -> UnmountedInstallation:
+    return UnmountedInstallation(
+        id=str(installation.id), name=_resolve_name(installation), scope=installation.scope, reason=reason
+    )
+
+
+def resolve_installations_for_sandbox(
+    team_id: int,
+    *,
+    user_id: int | None = None,
+    include_personal: bool = False,
+    task_origin: str | None = None,
+    task_agent_key: str | None = None,
+    credential_owner_id: int | None = None,
+    allowed_installation_ids: list[str] | None = None,
+    allowed_gateway_server_ids: list[str] | None = None,
+) -> SandboxInstallations:
     """Return MCP installations for sandbox agent use.
 
     Generic tasks retain the legacy team-shared installation behavior. A
@@ -403,7 +476,16 @@ def get_installations_for_sandbox(
     workflow step's connector selection); see ``_mounts_for_agent_run``. It
     binds on both paths: passing ``[]`` mounts no MCP Store servers at all, and
     passing ``None`` leaves the mounts unnarrowed.
+
+    ``unmounted`` lists the enabled member-path installations the run reached but
+    left out, with the reason, so a run can tell its user why a connection is
+    missing. The agent path reports none.
     """
+    allowed_installations = (
+        {str(installation_id) for installation_id in allowed_installation_ids}
+        if allowed_installation_ids is not None
+        else None
+    )
     try:
         base_queryset = MCPServerInstallation.objects.filter(team_id=team_id, is_enabled=True).select_related(
             "template", "gateway_server"
@@ -420,14 +502,15 @@ def get_installations_for_sandbox(
                 team_id=team_id,
                 task_origin=task_origin,
             )
-            return []
+            return SandboxInstallations(mounted=())
 
         agent_key = mapped_agent_key
         agent_account = get_built_in_agent(team_id, agent_key) if agent_key is not None else None
         if agent_key is not None and agent_account is not None and agent_account.status != "active":
-            return []
+            return SandboxInstallations(mounted=())
 
         installations: list[MCPServerInstallation] = []
+        unmounted: list[UnmountedInstallation] = []
         agent_mounts: list[tuple[MCPServiceAccountServerAccess, MCPServerInstallation]] = []
         if agent_key is not None:
             if agent_account is not None:
@@ -444,29 +527,38 @@ def get_installations_for_sandbox(
                         team_id, agent_account, credential_owner_id, allowed_gateway_server_ids
                     )
         else:
-            shared_queryset = base_queryset.filter(scope="shared")
-            shared_queryset = shared_queryset.filter(
-                Q(gateway_server__isnull=True) | Q(gateway_server__is_team_enabled=True)
-            )
-            if allowed_gateway_server_ids is not None:
-                # An explicit allowlist binds here too, so a caller that narrowed its mounts does
-                # not silently get every shared installation while the team waits for the
-                # `mcp-gateway` rollout. An empty list means the run wants no MCP Store servers.
-                shared_queryset = shared_queryset.filter(gateway_server_id__in=allowed_gateway_server_ids)
-            if user_id is not None:
-                shared_queryset = shared_queryset.exclude(gateway_server__member_revocations__user_id=user_id)
             # list() evaluates the lazy querysets here so DB errors hit this handler.
-            installations = list(shared_queryset)
+            candidates = list(base_queryset.filter(scope="shared"))
             if include_personal and user_id is not None:
-                personal_queryset = (
-                    base_queryset.filter(scope="personal", user_id=user_id)
-                    .filter(Q(gateway_server__isnull=True) | Q(gateway_server__is_team_enabled=True))
-                    .exclude(gateway_server__member_revocations__user_id=user_id)
+                candidates.extend(base_queryset.filter(scope="personal", user_id=user_id))
+            revoked_gateway_server_ids: set[uuid.UUID] = (
+                set(
+                    MCPMemberServerRevocation.objects.for_team(team_id)
+                    .filter(user_id=user_id)
+                    .values_list("gateway_server_id", flat=True)
                 )
-                installations.extend(personal_queryset)
+                if user_id is not None
+                else set()
+            )
+            # An explicit allowlist binds here too, so a caller that narrowed its mounts does
+            # not silently get every shared installation while the team waits for the
+            # `mcp-gateway` rollout. An empty list means the run wants no MCP Store servers.
+            allowed_servers = (
+                {str(server_id) for server_id in allowed_gateway_server_ids}
+                if allowed_gateway_server_ids is not None
+                else None
+            )
+            for candidate in candidates:
+                reason = _member_unmounted_reason(
+                    candidate, revoked_gateway_server_ids, allowed_servers, allowed_installations
+                )
+                if reason is None:
+                    installations.append(candidate)
+                else:
+                    unmounted.append(_unmounted(candidate, reason))
     except Exception as e:
         logger.warning("Error fetching MCP installations for sandbox", error=str(e), team_id=team_id)
-        return []
+        return SandboxInstallations(mounted=())
 
     results: list[ActiveInstallation]
     if agent_key is not None:
@@ -476,16 +568,25 @@ def get_installations_for_sandbox(
             else []
         )
     else:
-        ready = [installation for installation in installations if _is_oauth_ready(installation)]
+        ready = installations
         if include_personal and user_id is not None:
             personal_urls = {installation.url for installation in ready if installation.scope == "personal"}
+            unmounted.extend(
+                _unmounted(installation, "replaced_by_personal")
+                for installation in ready
+                if installation.scope != "personal" and installation.url in personal_urls
+            )
             ready = [
                 installation
                 for installation in ready
                 if installation.scope == "personal" or installation.url not in personal_urls
             ]
-        if allowed_installation_ids is not None:
-            allowed_installations = {str(installation_id) for installation_id in allowed_installation_ids}
+        if allowed_installations is not None:
+            unmounted.extend(
+                _unmounted(installation, "not_selected")
+                for installation in ready
+                if str(installation.id) not in allowed_installations
+            )
             ready = [installation for installation in ready if str(installation.id) in allowed_installations]
         results = [_to_info(installation, team_id) for installation in ready]
 
@@ -496,8 +597,9 @@ def get_installations_for_sandbox(
         include_personal=include_personal,
         task_origin=task_origin,
         has_trusted_agent_key=agent_key is not None,
+        unmounted_count=len(unmounted),
     )
-    return results
+    return SandboxInstallations(mounted=tuple(results), unmounted=tuple(unmounted))
 
 
 def get_sandbox_mcp_server_names(
@@ -711,7 +813,9 @@ def call_member_server_tool(
         if gateway_server is not None
         else None
     )
-    decision, block_reason = resolve_call_decision(tool, policy_context)
+    decision, block_reason = resolve_call_decision(
+        tool, policy_context, caller_owns_installation=installation.user_id == user_id
+    )
     pending_approval_token = None
     if block_reason == "needs_approval":
         if policy_context is not None and policy_context.resolve(tool.tool_name, tool.annotations).locked:

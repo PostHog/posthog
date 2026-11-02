@@ -21,8 +21,10 @@ from urllib.parse import quote
 from django.db import transaction
 from django.utils import timezone
 
+from posthog.accessible_teams import AccessibleTeams
 from posthog.models import PersonalAPIKey, Team, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
+from posthog.personal_api_key_minting import mint_personal_api_key
 from posthog.utils import absolute_uri
 
 # Read-only: a leaked credential can only read this one team's skills, nothing else.
@@ -69,19 +71,16 @@ def issue_marketplace_credential(team: Team, user: User, *, rotate: bool) -> Iss
                 existing.save(update_fields=narrowed_fields)
             return IssuedMarketplaceCredential(key=existing, token=None, status="exists")
 
-        raw_token = generate_random_token_personal()
         if existing is None:
-            key = PersonalAPIKey.objects.create(
-                user=user,
+            minted = mint_personal_api_key(
+                user,
                 label=label,
-                secure_value=hash_key_value(raw_token),
-                mask_value=mask_key_value(raw_token),
-                scopes=list(MARKETPLACE_CREDENTIAL_SCOPES),
-                scoped_teams=[team.id],
-                scoped_organizations=[],
+                scopes=MARKETPLACE_CREDENTIAL_SCOPES,
+                teams=AccessibleTeams.for_user(user, [team.id]),
             )
-            return IssuedMarketplaceCredential(key=key, token=raw_token, status="created")
+            return IssuedMarketplaceCredential(key=minted.key, token=minted.value, status="created")
 
+        raw_token = generate_random_token_personal()
         existing.secure_value = hash_key_value(raw_token)
         existing.mask_value = mask_key_value(raw_token)
         existing.last_used_at = None

@@ -25,6 +25,8 @@ class GrafanaIRMEndpointConfig:
     data_selector: str = "results"
     # Credential-like fields dropped from every row before it reaches the warehouse.
     dropped_fields: tuple[str, ...] = ()
+    # Fan-out child: one request per row of this parent endpoint, so credential checks probe the parent.
+    parent: str | None = None
     description: str | None = None
 
 
@@ -35,6 +37,14 @@ GRAFANA_IRM_ENDPOINTS: dict[str, GrafanaIRMEndpointConfig] = {
         path="/api/v1/alert_groups/",
         partition_key="created_at",
         description="OnCall alert groups. Full refresh only: the API lists newest first and states change after creation",
+    ),
+    "alerts": GrafanaIRMEndpointConfig(
+        name="alerts",
+        api="oncall",
+        path="/api/v1/alerts/",
+        partition_key="created_at",
+        parent="alert_groups",
+        description="Individual OnCall alerts with their raw payloads. Fetched per alert group, so large alert histories take longer",
     ),
     "resolution_notes": GrafanaIRMEndpointConfig(
         name="resolution_notes",
@@ -122,6 +132,30 @@ GRAFANA_IRM_ENDPOINTS: dict[str, GrafanaIRMEndpointConfig] = {
         json={"query": {"limit": INCIDENT_PAGE_SIZE, "orderDirection": "ASC"}},
         data_selector="activityItems",
         description="Timeline entries of every incident. Fetched per incident, so large incident histories take longer",
+    ),
+    "incident_membership": GrafanaIRMEndpointConfig(
+        name="incident_membership",
+        api="incident",
+        path="/IncidentsService.GetIncidentMembership",
+        # One row per role a user holds in an incident; `userID` is lifted out of the nested user.
+        primary_keys=("incidentID", "roleID", "userID"),
+        data_selector="assignments",
+        parent="incidents",
+        description="Every person involved in every incident, with their role. Fetched per incident",
+    ),
+    "incident_roles": GrafanaIRMEndpointConfig(
+        name="incident_roles",
+        api="incident",
+        path="/RolesService.GetRoles",
+        primary_keys=("roleID",),
+        data_selector="roles",
+    ),
+    "incident_custom_fields": GrafanaIRMEndpointConfig(
+        name="incident_custom_fields",
+        api="incident",
+        path="/FieldsService.GetFields",
+        primary_keys=("uuid",),
+        data_selector="fields",
     ),
 }
 

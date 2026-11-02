@@ -4,7 +4,7 @@ from typing import Literal, Optional
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=False)
 class MistralAIEndpointConfig:
     name: str
     path: str
@@ -30,6 +30,14 @@ class MistralAIEndpointConfig:
     # Some endpoints let us force ascending creation order so the incremental watermark advances
     # monotonically. (param_name, ascending_value) — e.g. batch jobs accept order_by=created.
     order_by: Optional[tuple[str, str]] = None
+    extra_params: dict[str, str] = field(default_factory=dict)
+    # "page" walks 0-indexed `page`/`page_size` until an empty page. "cursor" is the observability
+    # search feed: a POST whose body nests rows and the next cursor under `data_key`.
+    pagination: Literal["page", "cursor"] = "page"
+    # Fan-out child endpoints: `path` holds a `{parent_id}` placeholder filled from each row of the
+    # parent endpoint, and the parent id is stamped onto child rows under `parent_id_field`.
+    parent: Optional[str] = None
+    parent_id_field: Optional[str] = None
     # How the watermark is persisted for incremental endpoints. "asc" stages the running max after
     # every page (safe only when the API returns rows in ascending creation order); "desc" persists
     # the watermark once at the end of a successful sync, so an endpoint whose page order we can't
@@ -47,8 +55,8 @@ class MistralAIEndpointConfig:
         return [
             {
                 "label": self.incremental_field,
-                # Displayed/treated as a datetime, but the underlying column is a Unix timestamp
-                # (integer seconds), matching Mistral's `created`/`created_at` fields.
+                # Displayed/treated as a datetime. The underlying column is a Unix timestamp (integer
+                # seconds) for the jobs' `created_at`, and an ISO date-time for observability `start_time`.
                 "type": IncrementalFieldType.DateTime,
                 "field": self.incremental_field,
                 "field_type": self.incremental_field_type,
@@ -117,6 +125,63 @@ MISTRAL_AI_ENDPOINTS: dict[str, MistralAIEndpointConfig] = {
         path="/v1/libraries",
         partition_key="created_at",
         should_sync_default=False,
+    ),
+    # Beta. Every entry (messages, function calls, tool executions, handoffs) of each conversation,
+    # in the order appended. /history is a superset of /messages, so only /history is synced. Entry
+    # ids are only documented within a conversation, so the key carries the conversation id.
+    "conversation_entries": MistralAIEndpointConfig(
+        name="conversation_entries",
+        path="/v1/conversations/{parent_id}/history",
+        partition_key="created_at",
+        data_key="entries",
+        paginated=False,
+        primary_keys=["conversation_id", "id"],
+        should_sync_default=False,
+        parent="conversations",
+        parent_id_field="conversation_id",
+    ),
+    # Beta. Documents uploaded to each library, with their processing status. No created-time filter.
+    "library_documents": MistralAIEndpointConfig(
+        name="library_documents",
+        path="/v1/libraries/{parent_id}/documents",
+        partition_key="created_at",
+        primary_keys=["library_id", "id"],
+        should_sync_default=False,
+        extra_params={"sort_by": "created_at", "sort_order": "asc"},
+        parent="libraries",
+        parent_id_field="library_id",
+    ),
+    # Beta. Observability traces (one row per agent/workflow run) with latency, token and error
+    # counts. `from` filters on the trace start time. The feed documents no ordering, so the
+    # watermark is persisted only at the end of a successful run.
+    "traces": MistralAIEndpointConfig(
+        name="traces",
+        path="/v1/observability/traces/search",
+        partition_key="start_time",
+        data_key="traces",
+        page_size=100,
+        primary_keys=["trace_id"],
+        should_sync_default=False,
+        incremental_field="start_time",
+        incremental_field_type=IncrementalFieldType.DateTime,
+        created_after_param="from",
+        sort_mode="desc",
+        pagination="cursor",
+    ),
+    # Beta. Observability spans across every trace. Span ids are only unique within a trace.
+    "spans": MistralAIEndpointConfig(
+        name="spans",
+        path="/v1/observability/spans/search",
+        partition_key="start_time",
+        data_key="spans",
+        page_size=100,
+        primary_keys=["trace_id", "span_id"],
+        should_sync_default=False,
+        incremental_field="start_time",
+        incremental_field_type=IncrementalFieldType.DateTime,
+        created_after_param="from",
+        sort_mode="desc",
+        pagination="cursor",
     ),
 }
 

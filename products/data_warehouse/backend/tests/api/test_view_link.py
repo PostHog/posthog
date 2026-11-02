@@ -11,7 +11,12 @@ from posthog.schema import HogQLQueryResponse
 from posthog.hogql.database.database import Database
 from posthog.hogql.query import HogQLQueryExecutor
 
+from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
+
 from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.data_warehouse.backend.direct_postgres import rename_direct_postgres_join_references
 from products.data_warehouse.backend.presentation.views.view_link import NO_MATCHING_ROWS_MSG
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
@@ -244,6 +249,36 @@ class TestViewLinkQuery(APIBaseTest):
 
         self.assertEqual(DataWarehouseJoin.objects.all().count(), 0)
 
+        logs = ActivityLog.objects.filter(scope="DataWarehouseJoin", item_id=view_link["id"]).order_by("created_at")
+        assert [(log.activity, log.user, (log.detail or {}).get("name")) for log in logs] == [
+            ("created", self.user, "events.some_field"),
+            ("deleted", self.user, "events.some_field"),
+        ]
+
+    def test_table_rename_is_written_to_the_activity_log_of_each_join(self):
+        join = DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="events",
+            source_table_key="uuid",
+            joining_table_name="old_name",
+            joining_table_key="id",
+            field_name="some_field",
+        )
+
+        rename_direct_postgres_join_references(team_id=self.team.id, old_name="old_name", new_name="new_name")
+
+        log = ActivityLog.objects.get(scope="DataWarehouseJoin", item_id=str(join.id), activity="updated")
+        assert log.detail is not None
+        assert log.detail["changes"] == [
+            {
+                "type": "DataWarehouseJoin",
+                "field": "joining_table_name",
+                "action": "changed",
+                "before": "masked",
+                "after": "masked",
+            }
+        ]
+
     def test_list_empty_does_not_build_database(self):
         # An empty list must not eagerly build the full HogQL database, which is a heavy
         # chain of serial Postgres queries that previously ran on every single request.
@@ -323,11 +358,13 @@ class TestViewLinkQuery(APIBaseTest):
             configuration=None,
         )
 
+        # The HogQL database build creates the revenue analytics row on a team's first query.
+        # Create it here so the count below covers only the queries every request makes.
+        get_or_create_team_extension(self.team, TeamRevenueAnalyticsConfig)
+
         # Test that listing joins uses efficient querying
 
-        with self.assertNumQueries(
-            FuzzyInt(19, 21)
-        ):  # depends when the team revenue analytics config cache and instance-setting caches are hit in a test
+        with self.assertNumQueries(FuzzyInt(20, 21)):  # depends when the instance-setting caches are hit in a test
             response = self.client.get(f"/api/environments/{self.team.id}/warehouse_view_links/")
 
         self.assertEqual(response.status_code, 200)
@@ -645,7 +682,9 @@ class TestViewLinkValidation(APIBaseTest):
         data = response.json()
         self.assertEqual(data["attr"], None)
         self.assertEqual(data["code"], "QueryError")
-        self.assertEqual(data["detail"], "Unable to resolve field: nonexistent_field")
+        self.assertTrue(
+            data["detail"].startswith("Unable to resolve field: nonexistent_field. Available fields: "), data["detail"]
+        )
         self.assertEqual(data["type"], "query_error")
         self.assertEqual(
             data["hogql"],

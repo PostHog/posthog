@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,6 +32,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PexelsSource(ResumableSource[PexelsSourceConfig, PexelsResumeConfig]):
+    codebase_detection = detect(env=("^PEXELS_",), npm=("pexels",), rubygems=("pexels",))
+
     api_docs_url = "https://www.pexels.com/api/documentation/"
 
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to
@@ -47,7 +50,7 @@ class PexelsSource(ResumableSource[PexelsSourceConfig, PexelsResumeConfig]):
             name=ExternalDataSourceType.PEXELS,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Pexels",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Pexels API key to pull Pexels stock photo and video catalog data into the PostHog Data warehouse.
 
 Generate an API key from your [Pexels API dashboard](https://www.pexels.com/api/).
@@ -68,6 +71,7 @@ Attribution to Pexels and to the photographer/videographer is required when you 
                     ),
                     SourceFieldInputConfig(
                         name="search_query",
+                        sync_setting=True,
                         label="Search query",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

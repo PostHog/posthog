@@ -98,6 +98,7 @@ describe("createPostHogApiClient", () => {
       options: {
         appVersion: "1.2.3",
         githubConnectFrom: "posthog_mobile",
+        taskClientProvenance: "posthog_mobile",
         userAgent: "posthog/mobile.hog.dev; version: 1.2.3",
       },
     });

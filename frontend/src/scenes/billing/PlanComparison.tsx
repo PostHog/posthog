@@ -10,6 +10,8 @@ import { LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
+import { isCompanionProduct } from 'lib/logic/billing/companionProducts'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProductIcon } from 'scenes/onboarding/shared/utils'
 
@@ -22,7 +24,6 @@ import {
 } from '~/types'
 
 import { convertLargeNumberToWords, getProration } from './billing-utils'
-import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
@@ -364,7 +365,7 @@ export const PlanComparison = ({
                             </th>
                         </tr>
                         {billing?.products
-                            .filter((product) => product.inclusion_only)
+                            .filter((product) => product.inclusion_only && !isCompanionProduct(product))
                             .map((includedProduct) => {
                                 const includedPlans = includedProduct.plans.filter(
                                     (plan) => plan.included_if == 'has_subscription' || plan.current_plan

@@ -47,3 +47,11 @@ print('sha1Hex(\'\'):', sha1Hex(''))
 print('rfc2202 case 1:', sha1HmacChainHex(['\v\v\v\v\v\v\v\v\v\v\v\v\v\v\v\v\v\v\v\v', 'Hi There']))
 print('rfc2202 case 2:', sha1HmacChainHex(['Jefe', 'what do ya want for nothing?']))
 print('rfc2202 case 5:', sha1HmacChainHex(['\f\f\f\f\f\f\f\f\f\f\f\f\f\f\f\f\f\f\f\f', 'Test With Truncation']))
+
+// Svix signature known answer, from the Svix webhook verification docs. The key decodes to bytes
+// that are not valid UTF-8, so a string key would give a different digest.
+let svixKey := 'MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw'
+let svixPayload := 'msg_p5jXN8AQM9LWM0D4loKWxJek.1614265330.{"test": 2432232314}'
+print('sha256HmacBase64Key(svix, \'base64\'):', sha256HmacBase64Key(svixKey, svixPayload, 'base64'))
+print('sha256HmacBase64Key(svix):', sha256HmacBase64Key(svixKey, svixPayload))
+print('sha256HmacBase64Key(unpadded):', sha256HmacBase64Key('YWI', 'data') = sha256HmacBase64Key('YWI=', 'data'))

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LeverSource(ResumableSource[LeverSourceConfig, LeverResumeConfig]):
+    codebase_detection = NOT_DETECTABLE
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://hire.lever.co/developer/documentation"
@@ -49,7 +52,7 @@ class LeverSource(ResumableSource[LeverSourceConfig, LeverResumeConfig]):
             name=ExternalDataSourceType.LEVER,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Lever",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Lever API key to automatically pull your Lever recruiting data into the PostHog Data warehouse.
 
 You can generate an API key in your Lever account under **Settings → Integrations and API → API Credentials**.

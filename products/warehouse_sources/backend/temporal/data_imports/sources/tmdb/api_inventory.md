@@ -23,24 +23,50 @@ scope for this connector.
 
 ## Endpoints
 
-| Schema            | Path                     | Shape               | Primary key |
-| ----------------- | ------------------------ | ------------------- | ----------- |
-| movie_popular     | /movie/popular           | paginated `results` | id          |
-| movie_top_rated   | /movie/top_rated         | paginated `results` | id          |
-| movie_now_playing | /movie/now_playing       | paginated `results` | id          |
-| movie_upcoming    | /movie/upcoming          | paginated `results` | id          |
-| tv_popular        | /tv/popular              | paginated `results` | id          |
-| tv_top_rated      | /tv/top_rated            | paginated `results` | id          |
-| tv_on_the_air     | /tv/on_the_air           | paginated `results` | id          |
-| tv_airing_today   | /tv/airing_today         | paginated `results` | id          |
-| person_popular    | /person/popular          | paginated `results` | id          |
-| trending_movies   | /trending/movie/day      | paginated `results` | id          |
-| trending_tv       | /trending/tv/day         | paginated `results` | id          |
-| trending_people   | /trending/person/day     | paginated `results` | id          |
-| movie_genres      | /genre/movie/list        | single, `genres`    | id          |
-| tv_genres         | /genre/tv/list           | single, `genres`    | id          |
-| languages         | /configuration/languages | single, bare list   | iso_639_1   |
-| countries         | /configuration/countries | single, bare list   | iso_3166_1  |
+| Schema                 | Path                     | Shape               | Primary key |
+| ---------------------- | ------------------------ | ------------------- | ----------- |
+| movie_popular          | /movie/popular           | paginated `results` | id          |
+| movie_top_rated        | /movie/top_rated         | paginated `results` | id          |
+| movie_now_playing      | /movie/now_playing       | paginated `results` | id          |
+| movie_upcoming         | /movie/upcoming          | paginated `results` | id          |
+| tv_popular             | /tv/popular              | paginated `results` | id          |
+| tv_top_rated           | /tv/top_rated            | paginated `results` | id          |
+| tv_on_the_air          | /tv/on_the_air           | paginated `results` | id          |
+| tv_airing_today        | /tv/airing_today         | paginated `results` | id          |
+| person_popular         | /person/popular          | paginated `results` | id          |
+| trending_movies        | /trending/movie/day      | paginated `results` | id          |
+| trending_tv            | /trending/tv/day         | paginated `results` | id          |
+| trending_people        | /trending/person/day     | paginated `results` | id          |
+| movie_genres           | /genre/movie/list        | single, `genres`    | id          |
+| tv_genres              | /genre/tv/list           | single, `genres`    | id          |
+| languages              | /configuration/languages | single, bare list   | iso_639_1   |
+| countries              | /configuration/countries | single, bare list   | iso_3166_1  |
+| discover_movies        | /discover/movie          | paginated `results` | id          |
+| discover_tv            | /discover/tv             | paginated `results` | id          |
+| movie_watch_providers  | /watch/providers/movie   | single, `results`   | provider_id |
+| tv_watch_providers     | /watch/providers/tv      | single, `results`   | provider_id |
+| watch_provider_regions | /watch/providers/regions | single, `results`   | iso_3166_1  |
+
+Both discover tables send `sort_by=vote_count.desc` and `include_adult=false`. Vote counts change
+slowly, so the same 10,000 titles (the 500-page cap) stay in the table from one sync to the next.
+
+## Per-title endpoints (fan-out)
+
+These endpoints run once for each row of their parent. They start disabled because each sync makes
+one request per discover title (up to 10,000), plus one per season for `tv_episodes`. A 404 for one
+title (removed after the listing) is skipped.
+
+| Schema               | Path                                   | Parent          | Row                      | Primary key          |
+| -------------------- | -------------------------------------- | --------------- | ------------------------ | -------------------- |
+| movie_credits        | /movie/{movie_id}/credits              | discover_movies | one per cast/crew credit | movie_id, credit_id  |
+| tv_aggregate_credits | /tv/{series_id}/aggregate_credits      | discover_tv     | one per role or job      | series_id, credit_id |
+| tv_seasons           | /tv/{series_id} (`seasons`)            | discover_tv     | one per season           | series_id, id        |
+| tv_episodes          | /tv/{series_id}/season/{season_number} | tv_seasons      | one per episode          | show_id, id          |
+
+`tv_seasons` reads the season list from the series details, because that is one request per show
+instead of one per season. `tv_episodes` is a two-level fan-out (discover → series details →
+season), which the shared framework cannot checkpoint, so a retry restarts it. The single-level
+fan-outs resume by parent path.
 
 ## Rate limiting
 

@@ -9,6 +9,7 @@ from rest_framework import status
 from social_django.models import UserSocialAuth
 
 from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 from posthog.models import Team, User
 
 from products.review_hog.backend.facade.reviews import (
@@ -85,7 +86,9 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
                 "resolve_skip_reason": "owner_not_opted_in",
             },
         )
-        mock_access.assert_called_once_with(self.team.id, "PostHog/posthog.com")
+        mock_access.assert_called_once_with(
+            self.team.id, "PostHog/posthog.com", source="review_hog", priority=Priority.CRITICAL
+        )
         mock_start.assert_called_once_with(
             pr_url="https://github.com/PostHog/posthog.com/pull/123",
             team_id=self.team.id,

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,6 +32,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CampaynSource(SimpleSource[CampaynSourceConfig]):
+    codebase_detection = detect(env=("^CAMPAYN_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v1",)
     default_version = "v1"
@@ -52,7 +55,7 @@ class CampaynSource(SimpleSource[CampaynSourceConfig]):
             name=ExternalDataSourceType.CAMPAYN,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Campayn",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Campayn subdomain and API key to pull your Campayn email-marketing data into the PostHog Data warehouse.
 
 Your subdomain is the first part of your account host — for `acme.campayn.com`, enter `acme`. You can find and regenerate your API key in your Campayn account settings.""",

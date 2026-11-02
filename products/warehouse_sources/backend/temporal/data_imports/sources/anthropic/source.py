@@ -1,6 +1,7 @@
 from collections import defaultdict
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -9,6 +10,8 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfigType,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.anthropic import (
+    ANTHROPIC_VERSION_2023_06_01,
+    ANTHROPIC_VERSION_2026_10_21,
     AnthropicResumeConfig,
     anthropic_source,
     check_analytics_access,
@@ -42,9 +45,72 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AnthropicSource(ResumableSource[AnthropicSourceConfig, AnthropicResumeConfig]):
+    codebase_detection = detect(
+        env=(
+            "^ANTHROPIC_",
+            "^CLAUDE_CODE_OAUTH_TOKEN$",
+            "^CLAUDE_CODE_USE_BEDROCK$",
+            "^CLAUDE_CODE_USE_VERTEX$",
+            "^CLAUDE_CODE_USE_FOUNDRY$",
+            "^CLAUDE_CODE_USE_ANTHROPIC_AWS$",
+            "^CLAUDE_CODE_USE_MANTLE$",
+        ),
+        npm=(
+            "@anthropic-ai/sdk",
+            "@anthropic-ai/bedrock-sdk",
+            "@anthropic-ai/vertex-sdk",
+            "@anthropic-ai/foundry-sdk",
+            "@anthropic-ai/aws-sdk",
+            "@anthropic-ai/google-cloud-sdk",
+            "@anthropic-ai/claude-agent-sdk",
+            "@anthropic-ai/claude-code",
+            "@anthropic-ai/tokenizer",
+            "@ai-sdk/anthropic",
+            "@ai-sdk/anthropic-aws",
+            "@langchain/anthropic",
+            "@llamaindex/anthropic",
+            "@tanstack/ai-anthropic",
+            "@effect/ai-anthropic",
+            "@genkit-ai/anthropic",
+        ),
+        pypi=(
+            "anthropic",
+            "claude-agent-sdk",
+            "claude-code-sdk",
+            "anthropic-bedrock",
+            "langchain-anthropic",
+            "llama-index-llms-anthropic",
+        ),
+        composer=("anthropic-ai/sdk", "mozex/anthropic-php", "mozex/anthropic-laravel"),
+        go=(
+            "github.com/anthropics/anthropic-sdk-go",
+            "github.com/anthropics/anthropic-cli",
+            "github.com/liushuangls/go-anthropic",
+        ),
+        hex=("anthropix",),
+        maven=(
+            "com.anthropic:anthropic-java",
+            "com.anthropic:anthropic-java-core",
+            "com.anthropic:anthropic-java-client-okhttp",
+            "com.anthropic:anthropic-java-bedrock",
+            "com.anthropic:anthropic-java-vertex",
+            "com.anthropic:anthropic-java-aws",
+            "com.anthropic:anthropic-java-foundry",
+            "com.anthropic:anthropic-java-google-cloud",
+            "com.anthropic:anthropic-java-mcp",
+            "org.springframework.ai:spring-ai-anthropic",
+            "org.springframework.ai:spring-ai-starter-model-anthropic",
+            "org.springframework.ai:spring-ai-anthropic-spring-boot-starter",
+            "dev.langchain4j:langchain4j-anthropic",
+        ),
+        pub=("anthropic_sdk_dart",),
+        rubygems=("anthropic", "ruby-anthropic"),
+        swiftpm=("github.com/anthropics/claudeforfoundationmodels", "github.com/jamesrochabrun/swiftanthropic"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    supported_versions = ("2023-06-01",)
-    default_version = "2023-06-01"
+    supported_versions = (ANTHROPIC_VERSION_2023_06_01, ANTHROPIC_VERSION_2026_10_21)
+    default_version = ANTHROPIC_VERSION_2026_10_21
     api_docs_url = "https://platform.claude.com/docs/en/api/versioning"
 
     @property
@@ -57,7 +123,7 @@ class AnthropicSource(ResumableSource[AnthropicSourceConfig, AnthropicResumeConf
             name=ExternalDataSourceType.ANTHROPIC,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Anthropic",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Anthropic Admin API key to pull your organization's Claude usage, cost, and admin data into the PostHog Data warehouse.
 
 Create an Admin API key (prefixed `sk-ant-admin...`) in your [Anthropic Console](https://console.anthropic.com/settings/admin-keys). Only organization admins can create one, and the Admin API is not available for individual accounts.
@@ -91,6 +157,17 @@ The group, group membership and custom role tables come from the Claude Enterpri
         )
 
         return CANONICAL_DESCRIPTIONS
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        # The report endpoints share one organization rate limit, and Anthropic can ask for a wait of
+        # up to an hour once it is spent. A schedule shorter than that keeps hitting the same limit,
+        # so the generic "short problem on the source's side" copy sends the customer nowhere.
+        return {
+            "HTTP 429 for https://api.anthropic.com": (
+                "Anthropic's API rate limit for your organization ran out before this sync finished. "
+                "Set this table to sync less often, such as every 6 hours, so each run stays within the limit."
+            ),
+        }
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         rbac_group_denied = "This table comes from the Claude Enterprise user management API, which your key can't reach. Reconnect the source with an Admin API key created in claude.ai for all your linked organizations, carrying the read:rbac_groups scope, or turn this table's sync off."
@@ -148,6 +225,7 @@ The group, group membership and custom role tables come from the Claude Enterpri
             AccessFamily.RBAC_GROUPS: check_rbac_group_access,
             AccessFamily.RBAC_ROLES: check_rbac_role_access,
         }
+        resolved_version = self.resolve_api_version(api_version)
         permissions: dict[str, str | None] = dict.fromkeys(endpoints)
         by_family: dict[AccessFamily, list[str]] = defaultdict(list)
         for name in endpoints:
@@ -156,7 +234,7 @@ The group, group membership and custom role tables come from the Claude Enterpri
                 by_family[endpoint_config.access_family].append(name)
         for family, names in by_family.items():
             # Every endpoint in a family needs the same access, so one probe answers for all of them.
-            reason = probes[family](config.api_key)
+            reason = probes[family](config.api_key, resolved_version)
             for name in names:
                 permissions[name] = reason
         return permissions
@@ -168,10 +246,7 @@ The group, group membership and custom role tables come from the Claude Enterpri
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_anthropic_credentials(config.api_key):
-            return True, None
-
-        return False, "Invalid Anthropic Admin API key"
+        return validate_anthropic_credentials(config.api_key, self.resolve_api_version(api_version))
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AnthropicResumeConfig]:
         return ResumableSourceManager[AnthropicResumeConfig](inputs, AnthropicResumeConfig)
@@ -188,6 +263,7 @@ The group, group membership and custom role tables come from the Claude Enterpri
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,

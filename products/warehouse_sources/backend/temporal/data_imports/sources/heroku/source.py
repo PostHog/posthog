@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,6 +32,21 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HerokuSource(ResumableSource[HerokuSourceConfig, HerokuResumeConfig]):
+    codebase_detection = detect(
+        env=("^HEROKU_",),
+        npm=("heroku-client",),
+        go=("github.com/heroku/heroku-go", "github.com/heroku/heroku-http-adapter"),
+        rubygems=(
+            "platform-api",
+            "heroku-bouncer",
+            "heroku-runtime-api",
+            "heroku_hatchet",
+            "omniauth-heroku",
+            "puma-heroku",
+            "rails_on_heroku",
+        ),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("3",)  # Accept header: application/vnd.heroku+json; version=3
     default_version = "3"
@@ -46,7 +62,7 @@ class HerokuSource(ResumableSource[HerokuSourceConfig, HerokuResumeConfig]):
             name=ExternalDataSourceType.HEROKU,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Heroku",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Heroku API key to pull your Heroku platform data (apps, releases, builds, dynos, add-ons, and more) into the PostHog Data warehouse.
 
 You can find your API key in your [Heroku account settings](https://dashboard.heroku.com/account) under **API Key**, or create a long-lived token with the Heroku CLI: `heroku authorizations:create`.

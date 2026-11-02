@@ -18,10 +18,11 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { getToolDefinition } from 'scenes/max/max-constants'
-import { SIDE_PANEL_PANEL_ID, maxLogic } from 'scenes/max/maxLogic'
+import { maxLogic } from 'scenes/max/maxLogic'
 import { createSuggestionGroup } from 'scenes/max/utils'
 import { urls } from 'scenes/urls'
 
+import { SIDE_PANEL_PANEL_ID } from '~/layout/ai/aiPanelIds'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { SidePanelTab } from '~/types'
@@ -35,9 +36,9 @@ interface DropdownTemplateMetadata {
 }
 
 // Remote config has its own dedicated menu item below, so the preset dropdown excludes it.
-type PresetTemplateKey = Exclude<TemplateKey, 'remote-config'>
+export type PresetTemplateKey = Exclude<TemplateKey, 'remote-config'>
 
-const TEMPLATE_METADATA: Record<PresetTemplateKey, DropdownTemplateMetadata> = {
+export const TEMPLATE_METADATA: Record<PresetTemplateKey, DropdownTemplateMetadata> = {
     simple: {
         name: 'Simple flag',
         description: 'On/off for all users',
@@ -60,10 +61,10 @@ const TEMPLATE_METADATA: Record<PresetTemplateKey, DropdownTemplateMetadata> = {
     },
 }
 
-const TEMPLATES: PresetTemplateKey[] = ['simple', 'targeted', 'multivariate', 'targeted-multivariate']
+export const TEMPLATES: PresetTemplateKey[] = ['simple', 'targeted', 'multivariate', 'targeted-multivariate']
 
-const AI_TOOL_DEFINITION = getToolDefinition('create_feature_flag')!
-const AI_SUGGESTIONS = [
+export const AI_TOOL_DEFINITION = getToolDefinition('create_feature_flag')!
+export const AI_SUGGESTIONS = [
     'Create a flag to gradually roll out…',
     'Create a flag that starts at 10% rollout for…',
     'Create a multivariate flag for…',

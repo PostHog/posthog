@@ -12,6 +12,7 @@ route, api/internal.py). Both routes share the handlers in api/ticket_actions.py
 import hashlib
 from typing import Any, cast
 
+from django.conf import settings
 from django.db.models import Q
 from django.http import HttpRequest
 
@@ -94,6 +95,11 @@ def _authenticate_psak_team(request: Request) -> tuple[Team, None] | tuple[None,
 
 def _authenticate_team(request: Request) -> tuple[Team, None] | tuple[None, Response]:
     """Extract Bearer token from Authorization header and validate against team."""
+    # Kill switch (#66179): with legacy tokens off, migrated tokens authenticate as PSAKs
+    # (the deferral above also goes inert) and never reach here; the rest get a plain 401.
+    if not settings.ACCEPT_TEAM_SECRET_TOKENS:
+        return None, Response({"error": "Missing or invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
+
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         return None, Response({"error": "Missing or invalid Authorization header"}, status=status.HTTP_401_UNAUTHORIZED)
@@ -110,6 +116,12 @@ def _authenticate_team(request: Request) -> tuple[Team, None] | tuple[None, Resp
             conversations_enabled=True,
         )
     except (Team.DoesNotExist, Team.MultipleObjectsReturned):
+        return None, Response({"error": "Invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
+
+    # Same 401 as an unknown token: a valid secret token must not outlive its
+    # deactivated or deletion-pending organization.
+    organization = team.organization
+    if not organization.is_active or organization.is_pending_deletion:
         return None, Response({"error": "Invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
 
     TICKET_ACTION_AUTH_COUNTER.labels(auth_method="secret_api_token", http_method=(request.method or "").lower()).inc()

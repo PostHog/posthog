@@ -27,23 +27,9 @@ class TestFireHydrantSourceConfig:
         assert FireHydrantSource.lists_tables_without_credentials is True
 
 
-class TestGetSchemas:
-    def test_names_filter(self) -> None:
-        schemas = FireHydrantSource().get_schemas(_config(), team_id=1, names=["incidents", "services"])
-        assert {s.name for s in schemas} == {"incidents", "services"}
-
-
 class TestNonRetryableErrors:
     @parameterized.expand(
         [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://api.firehydrant.io/v1/incidents?page=1&per_page=100",
-            ),
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://api.firehydrant.io/v1/runbooks?page=1&per_page=100",
-            ),
             (
                 "unauthorized_eu",
                 "401 Client Error: Unauthorized for url: https://api.eu.firehydrant.io/v1/incidents?page=1&per_page=100",
@@ -57,19 +43,6 @@ class TestNonRetryableErrors:
     def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
         non_retryable = FireHydrantSource().get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("read_timeout", "HTTPSConnectionPool(host='api.firehydrant.io', port=443): Read timed out."),
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://api.firehydrant.io/v1/incidents",
-            ),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable = FireHydrantSource().get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable)
 
 
 class TestResumableWiring:

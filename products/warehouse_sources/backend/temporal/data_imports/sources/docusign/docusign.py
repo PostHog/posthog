@@ -1,9 +1,9 @@
 import time
 import datetime as dt
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from typing import Any, Optional
-from urllib.parse import urlencode, urlparse
+from urllib.parse import quote, urlencode, urlparse
 
 import jwt
 import requests
@@ -11,6 +11,9 @@ from requests.auth import HTTPBasicAuth
 from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
+    interruptible_wait,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.docusign.settings import (
@@ -19,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.docusign.s
     DOCUSIGN_ENDPOINTS,
     PAGE_SIZE,
     DocusignEndpointConfig,
+    DocusignFanOutConfig,
 )
 
 # DocuSign runs completely separate demo and production stacks: an integration key only works
@@ -37,6 +41,11 @@ REQUEST_TIMEOUT_SECONDS = 120
 
 # Hard stop so a misbehaving endpoint that keeps advertising `nextUri` can't page forever.
 MAX_PAGES = 20_000
+
+# Per-envelope tables cost one request per envelope against the account's hourly API quota, which
+# the customer's other DocuSign integrations share. Pause once only this fraction of it is left.
+QUOTA_RESERVE_FRACTION = 0.1
+MAX_QUOTA_WAIT_SECONDS = 3600
 
 
 class DocusignAuthError(Exception):
@@ -248,6 +257,24 @@ def _flatten_recipients(envelope: dict[str, Any], parent: dict[str, Any]) -> lis
     return rows
 
 
+def _flatten_custom_fields(envelope: dict[str, Any], parent: dict[str, Any]) -> list[dict[str, Any]]:
+    custom_fields = envelope.get("customFields")
+    if not isinstance(custom_fields, dict):
+        return []
+
+    rows: list[dict[str, Any]] = []
+    for field_type, bucket_key in (("text", "textCustomFields"), ("list", "listCustomFields")):
+        for custom_field in custom_fields.get(bucket_key) or []:
+            if not isinstance(custom_field, dict):
+                continue
+            # The field id is part of the primary key, so fall back to the name when it is absent.
+            field_id = custom_field.get("fieldId") or custom_field.get("name")
+            if not field_id:
+                continue
+            rows.append({**custom_field, **parent, "customFieldType": field_type, "fieldId": str(field_id)})
+    return rows
+
+
 def _flatten_envelope_children(
     endpoint: DocusignEndpointConfig, envelopes: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
@@ -258,14 +285,14 @@ def _flatten_envelope_children(
             continue
         # Carry the parent's timestamps so the child table can be synced incrementally against
         # the same `from_date` window that produced its parent, and partitioned on a stable key.
-        parent = {
-            "envelopeId": str(envelope_id),
-            "envelopeCreatedDateTime": envelope.get("createdDateTime"),
-            "envelopeStatusChangedDateTime": envelope.get("statusChangedDateTime"),
-        }
+        parent = _envelope_parent(envelope)
 
         if endpoint.derived_from_envelopes == "recipients":
             rows.extend(_flatten_recipients(envelope, parent))
+            continue
+
+        if endpoint.derived_from_envelopes == "custom_fields":
+            rows.extend(_flatten_custom_fields(envelope, parent))
             continue
 
         for key in endpoint.envelope_child_keys:
@@ -273,6 +300,71 @@ def _flatten_envelope_children(
             if isinstance(children, list):
                 rows.extend({**child, **parent} for child in children if isinstance(child, dict))
                 break
+    return rows
+
+
+def _quota_wait_seconds(headers: Mapping[str, str], now: float) -> float:
+    """Seconds until DocuSign resets the hourly quota, when the last response left too little of it."""
+    try:
+        remaining = int(headers["X-RateLimit-Remaining"])
+        limit = int(headers["X-RateLimit-Limit"])
+        reset_at = float(headers["X-RateLimit-Reset"])
+    except (KeyError, ValueError):
+        return 0.0
+    if remaining > limit * QUOTA_RESERVE_FRACTION:
+        return 0.0
+    return min(max(reset_at - now, 0.0), MAX_QUOTA_WAIT_SECONDS)
+
+
+def _envelope_parent(envelope: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "envelopeId": str(envelope["envelopeId"]),
+        "envelopeCreatedDateTime": envelope.get("createdDateTime"),
+        "envelopeStatusChangedDateTime": envelope.get("statusChangedDateTime"),
+    }
+
+
+def _shape_envelope_sub_resource(
+    endpoint: DocusignEndpointConfig, body: dict[str, Any], parent: dict[str, Any]
+) -> list[dict[str, Any]]:
+    if endpoint.envelope_sub_resource == "form_data":
+        return [{**body, **parent}]
+
+    if endpoint.envelope_sub_resource == "audit_events":
+        rows: list[dict[str, Any]] = []
+        for index, event in enumerate(body.get("auditEvents") or []):
+            if not isinstance(event, dict):
+                continue
+            # Each event arrives as a list of name/value pairs (logTime, Action, UserName, ...).
+            fields = {
+                str(item["name"]): item.get("value")
+                for item in event.get("eventFields") or []
+                if isinstance(item, dict) and item.get("name")
+            }
+            rows.append({**fields, **parent, "eventIndex": index})
+        return rows
+
+    # DocuSign can list a template once per envelope document it supplied; keep one row per template.
+    templates: dict[str, dict[str, Any]] = {}
+    for template in body.get("templates") or []:
+        if isinstance(template, dict) and template.get("templateId"):
+            templates.setdefault(str(template["templateId"]), {**template, **parent})
+    return list(templates.values())
+
+
+def _shape_fan_out_rows(fan_out: DocusignFanOutConfig, body: dict[str, Any], parent_id: str) -> list[dict[str, Any]]:
+    items = [item for item in (body.get(fan_out.data_key) or []) if isinstance(item, dict)]
+    if not fan_out.flatten_envelope_recipients:
+        return [{**item, fan_out.parent_id_column: parent_id} for item in items]
+
+    rows: list[dict[str, Any]] = []
+    for envelope in items:
+        envelope_id = envelope.get("envelopeId")
+        if not envelope_id:
+            continue
+        for recipient in envelope.get("recipients") or []:
+            if isinstance(recipient, dict):
+                rows.append({**recipient, "envelopeId": str(envelope_id), fan_out.parent_id_column: parent_id})
     return rows
 
 
@@ -304,9 +396,13 @@ def get_rows(
             start_position = resume.start_position
             logger.debug(f"Resuming DocuSign {endpoint_name} from start_position={start_position}")
 
-    def request_page(position: int) -> dict[str, Any]:
-        nonlocal token
-        url = f"{account.base_url}{endpoint.path}?{urlencode(_build_params(endpoint, position, from_date))}"
+    last_headers: Mapping[str, str] = {}
+
+    def request(path: str, params: dict[str, str]) -> dict[str, Any]:
+        nonlocal token, last_headers
+        url = f"{account.base_url}{path}"
+        if params:
+            url = f"{url}?{urlencode(params)}"
 
         def _do() -> requests.Response:
             return api_session.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=REQUEST_TIMEOUT_SECONDS)
@@ -317,6 +413,7 @@ def get_rows(
             token = mint_access_token(auth_session, credentials)
             response = _do()
 
+        last_headers = response.headers
         if not response.ok:
             logger.error(f"DocuSign API error: url={url}, {_error_detail(response)}")
             response.raise_for_status()
@@ -324,13 +421,73 @@ def get_rows(
         body = response.json()
         return body if isinstance(body, dict) else {}
 
+    def pause_if_quota_low() -> None:
+        wait_seconds = _quota_wait_seconds(last_headers, time.time())
+        if wait_seconds > 0:
+            logger.info(f"DocuSign hourly API quota is low, pausing {wait_seconds:.0f}s until it resets")
+            interruptible_wait(wait_seconds, safe_point=resumable_source_manager.safe_point)
+
+    def fan_out_rows(fan_out: DocusignFanOutConfig, parent_id: str) -> Iterator[list[dict[str, Any]]]:
+        path = fan_out.path.format(parent_id=quote(parent_id, safe=""))
+        child_position = 0
+        for _ in range(MAX_PAGES):
+            params = dict(fan_out.params)
+            if fan_out.paginated:
+                params.update({"count": str(PAGE_SIZE), "start_position": str(child_position)})
+
+            pause_if_quota_low()
+            try:
+                body = request(path, params)
+            except requests.HTTPError as e:
+                if e.response is None or e.response.status_code not in fan_out.skip_statuses:
+                    raise
+                logger.warning(f"Skipping DocuSign {endpoint_name} for {parent_id}: status={e.response.status_code}")
+                resumable_source_manager.safe_point()
+                return
+
+            rows = _shape_fan_out_rows(fan_out, body, parent_id)
+            if rows:
+                yield rows
+            else:
+                # The staged cursor is the start of the parent page, so resuming re-reads it whole.
+                resumable_source_manager.safe_point()
+
+            page = body.get(fan_out.data_key) or []
+            if not fan_out.paginated or not page or not _has_next_page(body, page):
+                return
+            child_position += len(page)
+
     for _ in range(MAX_PAGES):
-        body = request_page(start_position)
+        body = request(endpoint.path, _build_params(endpoint, start_position, from_date))
         page = [item for item in (body.get(endpoint.data_key) or []) if isinstance(item, dict)]
 
-        rows = _flatten_envelope_children(endpoint, page) if endpoint.derived_from_envelopes else page
-        if rows:
-            yield rows
+        if endpoint.envelope_sub_resource:
+            for envelope in page:
+                if not envelope.get("envelopeId"):
+                    continue
+                pause_if_quota_low()
+
+                parent = _envelope_parent(envelope)
+                sub_resource_path = (
+                    f"{endpoint.path}/{quote(parent['envelopeId'], safe='')}/{endpoint.envelope_sub_resource}"
+                )
+                sub_rows = _shape_envelope_sub_resource(
+                    endpoint, request(sub_resource_path, endpoint.envelope_sub_resource_params), parent
+                )
+                if sub_rows:
+                    yield sub_rows
+                else:
+                    # The staged cursor is the start of this page, so resuming re-reads it whole.
+                    resumable_source_manager.safe_point()
+        elif endpoint.fan_out:
+            for parent_row in page:
+                parent_id = parent_row.get(endpoint.fan_out.parent_id_key)
+                if parent_id:
+                    yield from fan_out_rows(endpoint.fan_out, str(parent_id))
+        else:
+            rows = _flatten_envelope_children(endpoint, page) if endpoint.derived_from_envelopes else page
+            if rows:
+                yield rows
 
         if not endpoint.supports_pagination or not page or not _has_next_page(body, page):
             break

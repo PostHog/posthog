@@ -8,7 +8,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 from django.core.cache import cache
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from posthog.api.authentication import password_reset_token_generator
@@ -17,9 +17,11 @@ from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.models.oauth import OAuthApplication
+from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_provisioning import OrganizationProvisioning, get_billing_lock_partner
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
-from posthog.models.user import User
+from posthog.models.user import OnboardingSkippedReason, User
 from posthog.scopes import scopes_within_ceiling
 from posthog.tasks.email import send_provisioning_welcome
 
@@ -34,11 +36,7 @@ from ee.api.agentic_provisioning.constants import (
 )
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
 from ee.api.agentic_provisioning.regions import region_to_host
-from ee.api.agentic_provisioning.wizard import (
-    apply_provisioned_onboarding_flags,
-    create_wizard_run,
-    link_github_grant_to_team,
-)
+from ee.api.agentic_provisioning.tokens import user_can_access_team
 
 
 def partner_label(partner: OAuthApplication | None) -> str:
@@ -49,6 +47,12 @@ def partner_label(partner: OAuthApplication | None) -> str:
     if partner is None or not partner.name:
         return "Partner"
     return partner.name
+
+
+def partner_organization_name(partner: OAuthApplication | None, email: str, requested: object = None) -> str:
+    name = requested if isinstance(requested, str) and requested else f"{partner_label(partner)} ({email})"
+    # Organization.name is a varchar(64), so a longer name would fail the insert.
+    return name[:64]
 
 
 def get_callback_url(app: OAuthApplication | None) -> str | None:
@@ -138,7 +142,8 @@ def handle_existing_user(
     touched provisioning, so silently linking it is the takeover.
 
     Consent also picks the project (see agentic_authorize), so nothing the partner sends can
-    select a team for an account it did not create.
+    select a team for an account it did not create. For a partner that pays for its customers,
+    consent picks no project: see get_or_create_partner_organization_team.
     """
     if partner.provisioning.skip_existing_user_consent:
         capture_provisioning_event(
@@ -216,6 +221,108 @@ def require_user_consent(
     }
 
 
+def find_partner_organization(user: User, partner: OAuthApplication) -> Organization | None:
+    # Owned, not just joined: an admin or member of someone else's partner organization would
+    # otherwise put this partner's project, and the partner's bill for it, in that organization.
+    candidates = (
+        Organization.objects.filter(
+            partner_provisioning__application=partner,
+            membership__user=user,
+            membership__level=OrganizationMembership.Level.OWNER,
+        )
+        .exclude(is_active=False)
+        .exclude(is_pending_deletion=True)
+        .order_by("created_at", "id")
+    )
+    # The billing lock is the source of truth for whether the partner still pays: an organization
+    # that pays for itself now, or that left the partner, must not take a new partner project.
+    return next(
+        (organization for organization in candidates if get_billing_lock_partner(organization) == partner),
+        None,
+    )
+
+
+def find_partner_team(user: User, partner: OAuthApplication, organization: Organization) -> Team | None:
+    # Only a project the partner provisioned, so reusing an organization never gives the
+    # partner a project that a user created there.
+    configs = (
+        TeamProvisioningConfig.objects.filter(application=partner, team__organization=organization, team__is_demo=False)
+        .exclude(team__project__is_pending_deletion=True)
+        .select_related("team")
+        .order_by("team_id")
+    )
+    return next((config.team for config in configs if user_can_access_team(user, config.team)), None)
+
+
+class PartnerOrganizationChanged(Exception):
+    pass
+
+
+def get_or_create_partner_organization_team(
+    user: User, partner: OAuthApplication, approved_organization_id: str | None
+) -> tuple[Team, bool]:
+    """Billing works per organization, so the project of a partner that pays for its customers
+    must not go in one of the user's own organizations, where the user would pay for the
+    partner's usage. It goes in an organization the partner pays for: one the user already
+    owns, or a new one.
+
+    approved_organization_id is the organization the consent page showed, or None when it showed
+    a new one.
+    """
+    with transaction.atomic():
+        # Serializes one user's consents, so two concurrent confirms cannot both miss the
+        # organization or project that the other one is creating and each create one.
+        locked_user = User.objects.select_for_update(no_key=True).get(pk=user.pk)
+        organization = find_partner_organization(locked_user, partner)
+        if (str(organization.id) if organization is not None else None) != approved_organization_id:
+            raise PartnerOrganizationChanged
+        if organization is not None:
+            team = find_partner_team(locked_user, partner, organization)
+            if team is None:
+                team = Team.objects.create_with_data(initiating_user=locked_user, organization=organization)
+                TeamProvisioningConfig.objects.create(team=team, application=partner)
+            return team, False
+
+        previous_organization_id = locked_user.current_organization_id
+        previous_team_id = locked_user.current_team_id
+        organization, _, team = Organization.objects.bootstrap(
+            locked_user, name=partner_organization_name(partner, locked_user.email)
+        )
+        # bootstrap makes the new organization current. Switching back keeps `@current` in the
+        # user's personal API keys and OAuth calls on the project they were already using.
+        locked_user.current_organization_id = previous_organization_id
+        locked_user.current_team_id = previous_team_id
+        locked_user.save(update_fields=["current_organization", "current_team"])
+        TeamProvisioningConfig.objects.create(team=team, application=partner)
+        OrganizationProvisioning.objects.create(
+            organization=organization,
+            partner=OrganizationProvisioning.Partner.PROVISIONING_API,
+            application=partner,
+        )
+    return team, True
+
+
+def apply_provisioned_onboarding_flags(user: User, team: Team) -> None:
+    """Keep the app from routing a partner-provisioned account into onboarding on first
+    login. Only applied to unclaimed accounts (never logged in, no password set) so an
+    existing user going through the consent path keeps their onboarding state."""
+    # Bootstrapped accounts store password="" (create_user skips set_password when the
+    # password is None), which Django counts as *usable* — treat it as no password.
+    has_password = bool(user.password) and user.has_usable_password()
+    if user.last_login is not None or has_password:
+        return
+    if user.onboarding_skipped_at is None:
+        user.onboarding_skipped_at = timezone.now()
+    user.onboarding_skipped_reason = OnboardingSkippedReason.PROVISIONED
+    user.onboarding_skipped_organization_id = team.organization_id
+    user.save(
+        update_fields=["onboarding_skipped_at", "onboarding_skipped_reason", "onboarding_skipped_organization_id"]
+    )
+    if not team.completed_snippet_onboarding:
+        team.completed_snippet_onboarding = True
+        team.save(update_fields=["completed_snippet_onboarding"])
+
+
 def handle_new_user(
     request_id: str,
     data: dict,
@@ -235,20 +342,27 @@ def handle_new_user(
         configuration = {}
 
     label = partner_label(partner)
-    org_name = configuration.get("organization_name") or f"{label} ({email})"
+    org_name = partner_organization_name(partner, email, configuration.get("organization_name"))
 
     if signup_refused(email, call_site="agentic_provisioning"):
         capture_provisioning_event("account_request", "access_blocked", partner=partner, region=region)
         raise ProvisioningError(SECURITY_REFUSAL_CODE, SIGNUP_BLOCKED_DETAIL, request_id=request_id, status=403)
 
     try:
-        organization, team, user = User.objects.bootstrap(
-            organization_name=org_name,
-            email=email,
-            password=None,
-            first_name=first_name,
-            is_email_verified=False,
-        )
+        with transaction.atomic():
+            organization, team, user = User.objects.bootstrap(
+                organization_name=org_name,
+                email=email,
+                password=None,
+                first_name=first_name,
+                is_email_verified=False,
+            )
+            TeamProvisioningConfig.objects.get_or_create(team=team, defaults={"application": partner})
+            OrganizationProvisioning.objects.create(
+                organization=organization,
+                partner=OrganizationProvisioning.Partner.PROVISIONING_API,
+                application=partner,
+            )
     except IntegrityError:
         existing = EmailLookupHandler.get_user_by_email(email, is_active=None)
         if existing:
@@ -275,11 +389,6 @@ def handle_new_user(
         team_id=team.id,
     )
 
-    TeamProvisioningConfig.objects.get_or_create(team=team, defaults={"application": partner})
-
-    # Every provisioned account is treated as already onboarded — apply the flags at
-    # bootstrap so the account is covered regardless of which follow-up blocks (if any)
-    # run, rather than only on the GitHub wizard path.
     apply_provisioned_onboarding_flags(user, team)
 
     # Emit the standard signup event so provisioned accounts flow into the shared
@@ -295,29 +404,9 @@ def handle_new_user(
         org_analytics_metadata=organization.get_analytics_metadata(),
     )
 
-    # Optional drop-flow wizard block: link the GitHub grant to the bootstrap team and
-    # enqueue a cloud wizard run in the same call. A wizard failure never fails the
-    # request — the account exists, so the partner gets the account plus a structured
-    # wizard.error and retries via the granular resource actions. Partners that don't
-    # send a wizard block are unaffected (no wizard key, unchanged email behavior).
-    # Grants are region-local, so this request must hit the region that minted the grant.
-    wizard_config = configuration.get("wizard")
-    wizard_payload: dict[str, Any] | None = None
-    wizard_repository: str | None = None
-    if isinstance(wizard_config, dict):
-        wizard_payload = process_wizard_block(partner=partner, user=user, team=team, wizard_config=wizard_config)
-        if "error" not in wizard_payload:
-            wizard_repository = str(wizard_config.get("repository"))
-
-    # Queued after the wizard block so the "we're setting up your repo" email only
-    # sends once the run actually exists; the email still goes out (without the
-    # repository paragraph) when the wizard block failed, since the account is real.
     try:
         reset_token = password_reset_token_generator.make_token(user)
-        if wizard_repository:
-            send_provisioning_welcome.delay(user.id, reset_token, label, repository=wizard_repository)
-        else:
-            send_provisioning_welcome.delay(user.id, reset_token, label)
+        send_provisioning_welcome.delay(user.id, reset_token, label)
     except Exception:
         capture_exception(additional_properties={"user_id": user.id, "step": "provisioning_welcome_email"})
 
@@ -332,63 +421,7 @@ def handle_new_user(
         code_challenge_method=code_challenge_method,
     )
 
-    response_body: dict[str, Any] = {"id": request_id, "type": "oauth", "oauth": {"code": code}}
-    if wizard_payload is not None:
-        response_body["wizard"] = wizard_payload
-    return response_body
-
-
-def process_wizard_block(*, partner: OAuthApplication, user: User, team: Team, wizard_config: dict) -> dict[str, Any]:
-    """Run the bundled drop flow for a freshly bootstrapped account: link the GitHub
-    grant to the team, then enqueue the cloud wizard run.
-
-    Never raises — returns either the run payload ({task_id, run_id, status}) or
-    {"error": {code, message}} for the partner to branch on and retry granularly.
-    """
-    try:
-        # create_wizard_run refuses an ungranted partner anyway, but checking before the grant
-        # is linked keeps a refused request from consuming a single-use grant the partner
-        # would then have to mint again.
-        if not partner.provisioning.can_start_wizard_runs:
-            return {
-                "error": {
-                    "code": "forbidden",
-                    "message": "Starting wizard runs is not enabled for this partner",
-                }
-            }
-
-        grant_id = wizard_config.get("grant_id")
-        installation_id = wizard_config.get("installation_id")
-        repository = wizard_config.get("repository")
-        if not grant_id or not installation_id or not repository:
-            return {
-                "error": {
-                    "code": "invalid_request",
-                    "message": "wizard requires grant_id, installation_id and repository",
-                }
-            }
-
-        link_github_grant_to_team(
-            partner=partner,
-            user=user,
-            team=team,
-            grant_id=str(grant_id),
-            installation_id=str(installation_id),
-        )
-
-        run_payload = create_wizard_run(
-            partner=partner,
-            user_id=user.id,
-            team=team,
-            repository=str(repository),
-            branch=str(wizard_config.get("branch") or "") or None,
-        )
-        return dict(run_payload)
-    except ProvisioningError as exc:
-        return {"error": {"code": exc.code, "message": exc.message}}
-    except Exception:
-        capture_exception(additional_properties={"team_id": team.id, "step": "account_requests_wizard_block"})
-        return {"error": {"code": "run_creation_failed", "message": "Unexpected error starting the wizard run"}}
+    return {"id": request_id, "type": "oauth", "oauth": {"code": code}}
 
 
 def resolve_pending_partner(partner_id: str) -> OAuthApplication | None:

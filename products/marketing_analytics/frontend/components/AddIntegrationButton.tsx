@@ -95,7 +95,9 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
                         : urls.dataWarehouseSourceNew(
                               integrationId,
                               urls.marketingAnalyticsApp(),
-                              'Marketing analytics'
+                              'Marketing analytics',
+                              undefined,
+                              'marketing_analytics_integration_menu'
                           ),
                     onClick: () => handleIntegrateClick(integrationId),
                 })),

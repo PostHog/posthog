@@ -9,6 +9,8 @@ from urllib.parse import quote
 
 import structlog
 
+from posthog.egress.limiter.policies import Priority
+
 if TYPE_CHECKING:
     import requests
 
@@ -16,6 +18,7 @@ if TYPE_CHECKING:
 
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.integrations import IntegrationManager
 from posthog.models.github_integration_base import GitHubIntegrationError
 
 from ..models import Repo
@@ -203,14 +206,14 @@ def _verified_merge_queue_source_pr(
 
 def get_github_integration_for_repo(repo: Repo):
     """Get GitHub integration for the repo's team."""
-    from posthog.models.integration import GitHubIntegration, Integration
+    from posthog.models.integration import GitHubIntegration
 
-    integration = Integration.objects.filter(team_id=repo.team_id, kind="github").first()
+    integration = IntegrationManager.github.oauth.find(repo.team_id)
 
     if not integration:
         raise errors.GitHubIntegrationNotFoundError(f"No GitHub integration found for team {repo.team_id}")
 
-    return GitHubIntegration(integration, source="visual_review")
+    return GitHubIntegration(integration, source="visual_review", priority=Priority.CRITICAL)
 
 
 def _resolve_repo_by_id(github, repo_external_id: int) -> str | None:

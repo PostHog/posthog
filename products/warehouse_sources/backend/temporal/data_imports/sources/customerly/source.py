@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CustomerlySource(ResumableSource[CustomerlySourceConfig, CustomerlyResumeConfig]):
+    codebase_detection = detect(
+        env=("^CUSTOMERLY_",),
+        script_hosts=("widget.customerly.io",),
+        npm=("react-native-customerly",),
+        cocoapods=("Customerly", "CustomerlySDK"),
+    )
+
     api_docs_url = "https://docs.customerly.io/en/collections/5530-api"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -61,7 +69,7 @@ class CustomerlySource(ResumableSource[CustomerlySourceConfig, CustomerlyResumeC
 You can find your access token in your Customerly project under **Project Settings** > **Installation** > **Public API** — see the [Customerly guide](https://docs.customerly.io/en/api/how-to-obtain-your-api-access-token-in-customerly).""",
             iconPath="/static/services/customerly.png",
             docsUrl="https://posthog.com/docs/cdp/sources/customerly",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

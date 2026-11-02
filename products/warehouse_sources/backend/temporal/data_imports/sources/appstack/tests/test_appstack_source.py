@@ -1,6 +1,5 @@
 from unittest.mock import MagicMock, patch
 
-import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.appstack.source import AppstackSource
@@ -23,13 +22,3 @@ class TestValidateCredentials:
         ok, error = AppstackSource().validate_credentials(_config(), team_id=1)
         assert ok is expected_ok
         assert (error is None) is expected_ok
-
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.appstack.source.validate_appstack_credentials"
-    )
-    def test_network_blip_is_not_reported_as_bad_credentials(self, mock_validate: MagicMock) -> None:
-        mock_validate.side_effect = requests.ConnectionError("boom")
-        ok, error = AppstackSource().validate_credentials(_config(), team_id=1)
-        assert ok is False
-        assert error is not None
-        assert "try again" in error

@@ -1,11 +1,11 @@
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from pydantic import BaseModel
 
 from ee.hogai.chat_agent.taxonomy.tools import base_final_answer, get_dynamic_entity_tools
 
 
-class TestDynamicEntityTools(BaseTest):
+class TestDynamicEntityTools(SimpleTestCase):
     def test_get_dynamic_entity_tools_basic(self):
         team_group_types: list[str] = ["organization", "project"]
 
@@ -68,7 +68,7 @@ class TestDynamicEntityTools(BaseTest):
         self.assertIn("property_name", values_fields)
 
 
-class TestFinalAnswerModel(BaseTest):
+class TestFinalAnswerModel(SimpleTestCase):
     class TestAnswerModel(BaseModel):
         value: str
 

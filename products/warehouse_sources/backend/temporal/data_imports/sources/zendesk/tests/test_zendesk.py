@@ -17,6 +17,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     ParentTableRef,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zendesk import (
     ZendeskSourceConfig,
@@ -547,39 +552,21 @@ class TestZendeskResume:
     def _drive(
         self,
         endpoint: str,
-        manager: MagicMock,
-        bodies: Sequence[dict[str, Any] | Response],
+        bodies: Sequence[dict[str, Any]],
         should_use_incremental_field: bool,
-    ) -> list[tuple[str, dict[str, Any]]]:
-        sent: list[tuple[str, dict[str, Any]]] = []
-        responses = iter(bodies)
-
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent.append((request.url, dict(request.params or {})))
-            body = next(responses)
-            return body if isinstance(body, Response) else _make_response(body)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as mock_session_factory:
-            session = mock_session_factory.return_value
-            session.headers = {}
-            session.prepare_request.side_effect = lambda req: req
-            session.send.side_effect = fake_send
-
-            resource = zendesk_source(
-                subdomain="nibbles",
-                api_key="token",
-                email_address="user@example.com",
-                endpoint=endpoint,
-                team_id=1,
-                job_id="job-1",
-                db_incremental_field_last_value=None,
-                should_use_incremental_field=should_use_incremental_field,
-                resumable_source_manager=manager,
-            )
-            list(resource)
-        return sent
+        resume_state: ZendeskResumeConfig | None = None,
+        status_code: int = 200,
+    ) -> DriveResult:
+        driver = SourceDriver(
+            ZendeskSource(),
+            ZendeskSourceConfig(subdomain="nibbles", api_key="token", email_address="user@example.com"),
+        )
+        return driver.run(
+            endpoint,
+            [ScriptedResponse(status=status_code, json=body) for body in bodies],
+            resume_state=resume_state,
+            should_use_incremental_field=should_use_incremental_field,
+        )
 
     @pytest.mark.parametrize("should_use_incremental_field", [False, True], ids=["full_refresh", "incremental"])
     @pytest.mark.parametrize("endpoint", sorted(RESUME_CASES))
@@ -587,49 +574,44 @@ class TestZendeskResume:
         self, endpoint: str, should_use_incremental_field: bool
     ) -> None:
         bodies, expected = RESUME_CASES[endpoint]
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
 
-        sent = self._drive(endpoint, manager, bodies, should_use_incremental_field)
+        result = self._drive(endpoint, bodies, should_use_incremental_field)
 
-        assert len(sent) == 3
-        assert [call.args[0] for call in manager.save_state.call_args_list] == expected
-        manager.load_state.assert_not_called()
+        assert len(result.requests) == 3
+        assert result.saved_states == expected
+        # With no saved state the first request starts from the beginning, not from a saved page.
+        assert result.requests[0].param("cursor") is None
+        assert result.paths[0].startswith("/api/")
 
     @pytest.mark.parametrize("should_use_incremental_field", [False, True], ids=["full_refresh", "incremental"])
     @pytest.mark.parametrize("endpoint", sorted(RESUME_CASES))
     def test_resumed_run_starts_at_the_saved_page(self, endpoint: str, should_use_incremental_field: bool) -> None:
         bodies, expected = RESUME_CASES[endpoint]
         saved = expected[-1]
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = saved
 
-        sent = self._drive(endpoint, manager, bodies[-1:], should_use_incremental_field)
+        result = self._drive(endpoint, bodies[-1:], should_use_incremental_field, resume_state=saved)
 
-        assert len(sent) == 1
-        url, params = sent[0]
+        assert len(result.requests) == 1
+        request = result.requests[0]
         if saved.cursor is not None:
-            assert params["cursor"] == saved.cursor
+            assert request.param("cursor") == saved.cursor
             # The seed `start_time` would restart the export from the watermark, not the cursor.
-            assert "start_time" not in params
+            assert request.param("start_time") is None
         else:
-            assert url == saved.next_url
+            assert request.url == saved.next_url
             # The saved URL carries its own query string; re-sending the seed params duplicates them.
-            assert params == {}
-        manager.save_state.assert_not_called()
+            assert dict(request.query) == {}
+        assert result.saved_states == []
 
     def test_expired_cursor_is_cleared_before_retry(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = ZendeskResumeConfig(cursor="expired")
+        result = self._drive(
+            "tickets",
+            [{"error": "Invalid cursor: cursor has expired"}],
+            False,
+            resume_state=ZendeskResumeConfig(cursor="expired"),
+            status_code=400,
+        )
 
-        with pytest.raises(RuntimeError, match="rejected the saved pagination cursor"):
-            self._drive(
-                "tickets",
-                manager,
-                [_make_response({"error": "Invalid cursor: cursor has expired"}, status_code=400)],
-                False,
-            )
-
-        manager.clear_state.assert_called_once_with()
+        assert isinstance(result.raised, RuntimeError)
+        assert "rejected the saved pagination cursor" in str(result.raised)
+        assert result.final_state is None

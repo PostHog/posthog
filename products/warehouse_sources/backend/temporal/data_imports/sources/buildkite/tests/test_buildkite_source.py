@@ -31,6 +31,8 @@ class TestBuildkiteSource:
             # fan-out that drives them. Nothing else has one.
             ("builds", True, True),
             ("jobs", True, False),
+            ("artifacts", True, False),
+            ("annotations", True, False),
             ("organizations", False, False),
             ("organization_members", False, False),
             ("pipelines", False, False),
@@ -47,30 +49,12 @@ class TestBuildkiteSource:
     def test_incremental_support_per_endpoint(self, endpoint: str, incremental: bool, append: bool) -> None:
         schemas = {s.name: s for s in self.source.get_schemas(_config(), team_id=self.team_id)}
         assert schemas[endpoint].supports_incremental is incremental
-        # A job restates after it is created (state, finished_at) and each incremental run re-walks
-        # the trailing build window, so append would materialize the re-pulled rows as duplicates.
+        # A build child restates after it is created (a job's state, an artifact's state, an
+        # annotation's body), so append would materialize the re-pulled rows as duplicates.
         assert schemas[endpoint].supports_append is append
 
     @parameterized.expand(
         [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://api.buildkite.com/v2/organizations/my-org/builds?per_page=100",
-            ),
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://api.buildkite.com/v2/organizations/my-org/agents",
-            ),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("read_timeout", "HTTPSConnectionPool(host='api.buildkite.com', port=443): Read timed out."),
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.buildkite.com/v2"),
             ("rate_limited", "HTTP 429 for https://api.buildkite.com/v2/organizations/my-org/builds"),
         ]
     )

@@ -3,6 +3,10 @@ from typing import Any
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.capsule_crm.source import CapsuleCRMSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.capsulecrm import (
     CapsuleCRMSourceConfig,
 )
@@ -52,18 +56,13 @@ class TestCapsuleCRMSource:
         assert captured["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
 
     def test_source_for_pipeline_drops_watermark_when_not_incremental(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "tasks"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2026-01-01T00:00:00Z"
-
-        captured: dict[str, Any] = {}
-
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.capsule_crm.source.capsule_crm_source",
-            side_effect=lambda **kwargs: captured.update(kwargs),
-        ):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+        result = SourceDriver(self.source, self.config).run(
+            "parties",
+            [ScriptedResponse(json={"parties": []})],
+            should_use_incremental_field=False,
+            db_incremental_field_last_value="2026-01-01T00:00:00Z",
+        )
 
         # A non-incremental run must not pass a stale watermark through as a `since` filter.
-        assert captured["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert result.requests[0].param("since") is None

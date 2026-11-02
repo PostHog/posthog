@@ -1,0 +1,96 @@
+@layer components {
+    /* Tiles overlap and tilt alternately, then spread flat on hover. Only `transform`
+       moves, so the stack's box never reflows and nothing beside it shifts. */
+    .quill-icon-stack {
+        --icon-stack-size: 1.625rem;
+        --icon-stack-step: 1rem;
+        --icon-stack-spread: 1.4375rem;
+
+        /* The spread anchors the left edge. A container that centers the stack overrides the shift. */
+        --icon-stack-shift: 0px;
+
+        position: relative;
+        display: inline-block;
+        flex-shrink: 0;
+        width: calc(var(--icon-stack-size) + (var(--icon-stack-count) - 1) * var(--icon-stack-step));
+        height: var(--icon-stack-size);
+        isolation: isolate;
+    }
+
+    .quill-icon-stack__slot {
+        --icon-stack-x: calc(var(--icon-stack-index) * var(--icon-stack-step));
+        --icon-stack-tilt: -3deg;
+
+        position: absolute;
+        top: 0;
+        left: 0;
+
+        /* Leftmost on top. */
+        z-index: calc(var(--icon-stack-count) - var(--icon-stack-index));
+        display: flex;
+        transition: transform 180ms cubic-bezier(0.645, 0.045, 0.355, 1);
+        transform: translateX(var(--icon-stack-x)) rotate(var(--icon-stack-tilt));
+    }
+
+    .quill-icon-stack__slot:nth-child(even) {
+        --icon-stack-tilt: 3deg;
+    }
+
+    /* Only the tile lifts. Its slot holds still, so the hover stays at the tile's resting edge. */
+    .quill-icon-stack__slot:is(:has(> [data-active]), :hover:has(> :is(a, button))) {
+        z-index: 20;
+    }
+
+    .quill-icon-stack__slot:is(:has(> [data-active]), :hover:has(> :is(a, button))) > .quill-icon-stack__item {
+        transform: translateY(-4px) rotate(calc(-6deg - var(--icon-stack-tilt))) scale(1.08);
+    }
+
+    /* The ring defaults to the app background. Set `--quill-icon-stack-ring` when the stack
+       sits on another surface (a sidebar, a card) so the ring matches it. */
+    .quill-icon-stack__item {
+        box-sizing: border-box;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: var(--icon-stack-size);
+        height: var(--icon-stack-size);
+        padding: 0;
+        color: var(--background);
+        background: var(--muted-foreground);
+        border: 3px solid var(--quill-icon-stack-ring, var(--background));
+        border-radius: 0.5rem;
+        box-shadow: 0 1px 2px color-mix(in oklab, var(--foreground) 14%, transparent);
+        transition: transform 180ms cubic-bezier(0.645, 0.045, 0.355, 1);
+    }
+
+    /* A product color is mid-tone in both themes, so its glyph stays white. */
+    .quill-icon-stack__item[data-colored] {
+        color: white;
+        background: var(--icon-stack-color);
+    }
+
+    :is(a, button).quill-icon-stack__item {
+        cursor: pointer;
+    }
+
+    .quill-icon-stack__item svg:not([class*='size-']) {
+        flex-shrink: 0;
+        width: 0.8125rem;
+        height: 0.8125rem;
+        pointer-events: none;
+    }
+
+    @media (hover: hover) and (pointer: fine) {
+        .quill-icon-stack:hover .quill-icon-stack__slot {
+            --icon-stack-x: calc(var(--icon-stack-index) * var(--icon-stack-spread) + var(--icon-stack-shift));
+            --icon-stack-tilt: 0deg;
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .quill-icon-stack__slot,
+        .quill-icon-stack__item {
+            transition: none;
+        }
+    }
+}

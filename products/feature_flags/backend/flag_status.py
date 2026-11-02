@@ -8,6 +8,7 @@ import structlog
 from posthog.dataclasses import frozen
 
 from .facade.config import ConfigFormatError
+from .facade.filters import condition_aggregation, condition_rollout_percentage, pinned_variant
 from .models.feature_flag import FeatureFlag
 
 logger = structlog.get_logger(__name__)
@@ -292,18 +293,6 @@ def _sole_reachable_variant(variants: list[dict]) -> str | None:
     return None
 
 
-def _condition_aggregation(flag_level_index: int | None, group: dict) -> int | None:
-    """The group type index a condition aggregates on, or None for person aggregation.
-
-    An absent key falls back to the flag-level value and an explicit null means person
-    aggregation, the same as `effective_aggregation` in
-    `rust/feature-flags/src/flags/flag_property_group.rs`.
-    """
-    if "aggregation_group_type_index" in group:
-        return group.get("aggregation_group_type_index")
-    return flag_level_index
-
-
 # FeatureFlagStatusChecker is used to determine the status of a feature flag for a given user.
 # Eventually, this may be used to automatically archive old flags that are no longer in use.
 #
@@ -421,8 +410,7 @@ class FeatureFlagStatusChecker:
             # A missing rollout_percentage evaluates to 100% at runtime, so it counts as 100 here.
             # This is deliberately looser than effectively_full_rollout / is_group_fully_rolled_out,
             # which require an explicit 100.
-            percentage = group.get("rollout_percentage")
-            percentage = 100 if percentage is None else percentage
+            percentage = condition_rollout_percentage(group)
             max_rollout_percentage = (
                 percentage if max_rollout_percentage is None else max(max_rollout_percentage, percentage)
             )
@@ -497,14 +485,12 @@ class FeatureFlagStatusChecker:
         variant_keys = {variant.get("key") for variant in variants}
         results = set()
         for group in groups[: decider + 1]:
-            # A missing rollout_percentage evaluates to 100% at runtime, matching `get_rollout_summary`.
-            percentage = group.get("rollout_percentage")
-            if percentage is not None and percentage <= 0:
+            if condition_rollout_percentage(group) <= 0:
                 continue
             # The matcher ignores an override naming a variant the flag does not configure, and the
             # distribution decides instead.
-            override = group.get("variant")
-            results.add(override if override in variant_keys else distributed)
+            override = pinned_variant(group, variant_keys)
+            results.add(distributed if override is None else override)
         # `None` is in the set when a path falls through to a distribution that is not itself constant.
         if len(results) != 1:
             return None
@@ -530,13 +516,13 @@ class FeatureFlagStatusChecker:
         """
         groups = flag.conditions
         flag_level_index = flag.aggregation_group_type_index
-        mixed = len({_condition_aggregation(flag_level_index, group) for group in groups}) > 1
+        mixed = len({condition_aggregation(group, flag_level_index) for group in groups}) > 1
         return next(
             (
                 index
                 for index, group in enumerate(groups)
                 if self.is_group_fully_rolled_out(group)
-                and (not mixed or _condition_aggregation(flag_level_index, group) is None)
+                and (not mixed or condition_aggregation(group, flag_level_index) is None)
             ),
             None,
         )

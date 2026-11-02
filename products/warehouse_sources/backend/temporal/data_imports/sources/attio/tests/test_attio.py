@@ -1,20 +1,16 @@
-import copy
-import json
-from collections.abc import Iterable
-from typing import Any, cast
-
 import pytest
-from unittest.mock import MagicMock, patch
-
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.attio.attio import (
     AttioResumeConfig,
-    attio_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.attio.settings import ATTIO_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.attio.source import AttioSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.attio import AttioSourceConfig
 
 
 class TestValidateCredentials:
@@ -30,90 +26,116 @@ class TestValidateCredentials:
         assert "ordinal not in range" not in (msg or "")
 
 
-def _page(endpoint: str, start: int, count: int) -> Response:
+def _page(endpoint: str, start: int, count: int) -> ScriptedResponse:
     primary_key = ATTIO_ENDPOINTS[endpoint].primary_key
     rows = [
         {"id": {"workspace_id": "ws", primary_key: f"row-{i}"}, "created_at": "2024-01-01"}
         for i in range(start, start + count)
     ]
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps({"data": rows}).encode()
-    resp.headers["Content-Type"] = "application/json"
-    return resp
-
-
-def _make_manager(resume: AttioResumeConfig | None = None) -> MagicMock:
-    manager = MagicMock(spec=ResumableSourceManager)
-    manager.can_resume.return_value = resume is not None
-    manager.load_state.return_value = resume
-    return manager
+    return ScriptedResponse(json={"data": rows})
 
 
 class TestAttioResume:
-    def _drive(
-        self, endpoint: str, manager: MagicMock, responses: list[Response]
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        sent: list[dict[str, Any]] = []
-        response_iter = iter(responses)
-
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            # The paginator mutates one request object across pages, so copy what each send carries.
-            sent.append(copy.deepcopy(request.json if request.method == "POST" else request.params))
-            return next(response_iter)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            response = attio_source(
-                api_key="key",
-                endpoint=endpoint,
-                team_id=1,
-                job_id="job",
-                resumable_source_manager=manager,
-            )
-            rows = [row for page in cast(Iterable[list[dict[str, Any]]], response.items()) for row in page]
-        return sent, rows
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(AttioSource(), AttioSourceConfig(api_key="key"))
 
     @pytest.mark.parametrize("endpoint", ["companies", "people", "deals", "notes", "tasks"])
     def test_fresh_run_stages_next_offset_after_each_page(self, endpoint: str) -> None:
         limit = ATTIO_ENDPOINTS[endpoint].page_size
-        manager = _make_manager()
         responses = [_page(endpoint, 0, limit), _page(endpoint, limit, limit), _page(endpoint, 2 * limit, 3)]
 
-        sent, rows = self._drive(endpoint, manager, responses)
+        result = self._driver().run(endpoint, responses)
+        is_post = ATTIO_ENDPOINTS[endpoint].method == "POST"
 
-        assert [request["offset"] for request in sent] == [0, limit, 2 * limit]
-        assert all(request["limit"] == limit for request in sent)
-        assert len(rows) == 2 * limit + 3
-        assert rows[-1][ATTIO_ENDPOINTS[endpoint].primary_key] == f"row-{2 * limit + 2}"
-        assert [call.args[0] for call in manager.save_state.call_args_list] == [
+        assert result.raised is None
+        assert [request.json()["offset"] if is_post else request.param("offset") for request in result.requests] == [
+            offset if is_post else str(offset) for offset in (0, limit, 2 * limit)
+        ]
+        assert all(
+            (request.json()["limit"] if is_post else request.param("limit")) == (limit if is_post else str(limit))
+            for request in result.requests
+        )
+        assert len(result.rows) == 2 * limit + 3
+        assert result.rows[-1][ATTIO_ENDPOINTS[endpoint].primary_key] == f"row-{2 * limit + 2}"
+        assert result.saved_states == [
             AttioResumeConfig(offset=limit),
             AttioResumeConfig(offset=2 * limit),
         ]
-        manager.load_state.assert_not_called()
 
     @pytest.mark.parametrize("endpoint", ["companies", "people", "lists", "notes", "tasks", "workspace_members"])
     def test_resumed_run_starts_from_saved_offset(self, endpoint: str) -> None:
         limit = ATTIO_ENDPOINTS[endpoint].page_size
-        manager = _make_manager(AttioResumeConfig(offset=2 * limit))
         responses = [_page(endpoint, 2 * limit, limit), _page(endpoint, 3 * limit, 1)]
 
-        sent, rows = self._drive(endpoint, manager, responses)
+        result = self._driver().run(endpoint, responses, resume_state=AttioResumeConfig(offset=2 * limit))
+        is_post = ATTIO_ENDPOINTS[endpoint].method == "POST"
 
-        assert [request["offset"] for request in sent] == [2 * limit, 3 * limit]
-        assert rows[0][ATTIO_ENDPOINTS[endpoint].primary_key] == f"row-{2 * limit}"
-        assert [call.args[0] for call in manager.save_state.call_args_list] == [AttioResumeConfig(offset=3 * limit)]
+        assert result.raised is None
+        assert [request.json()["offset"] if is_post else request.param("offset") for request in result.requests] == [
+            offset if is_post else str(offset) for offset in (2 * limit, 3 * limit)
+        ]
+        assert result.rows[0][ATTIO_ENDPOINTS[endpoint].primary_key] == f"row-{2 * limit}"
+        assert result.saved_states == [AttioResumeConfig(offset=3 * limit)]
 
     def test_resumed_query_keeps_sort_order_in_body(self) -> None:
         # Offsets only line up across runs when every run asks for the same order.
-        manager = _make_manager(AttioResumeConfig(offset=500))
+        result = self._driver().run(
+            "companies", [_page("companies", 500, 1)], resume_state=AttioResumeConfig(offset=500)
+        )
 
-        sent, _ = self._drive("companies", manager, [_page("companies", 500, 1)])
+        assert result.raised is None
+        assert [request.json() for request in result.requests] == [
+            {"sorts": [{"attribute": "created_at", "direction": "asc"}], "offset": 500, "limit": 500}
+        ]
 
-        assert sent == [{"sorts": [{"attribute": "created_at", "direction": "asc"}], "offset": 500, "limit": 500}]
+
+def _cursor_page(start: int, count: int, next_cursor: str | None) -> ScriptedResponse:
+    rows = [
+        {"id": {"workspace_id": "ws", "activity_id": f"row-{i}"}, "created_at": "2024-01-01"}
+        for i in range(start, start + count)
+    ]
+    return ScriptedResponse(json={"data": rows, "pagination": {"next_cursor": next_cursor}})
+
+
+class TestAttioCursorPagination:
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(AttioSource(), AttioSourceConfig(api_key="key"))
+
+    @pytest.mark.parametrize(
+        "resume_state, responses, expected_cursors, expected_rows, expected_states",
+        [
+            (
+                None,
+                [_cursor_page(0, 2, "c1"), _cursor_page(2, 2, "c2"), _cursor_page(4, 1, None)],
+                [None, "c1", "c2"],
+                5,
+                [AttioResumeConfig(cursor="c1"), AttioResumeConfig(cursor="c2")],
+            ),
+            (
+                AttioResumeConfig(cursor="c2"),
+                [_cursor_page(4, 2, "c3"), _cursor_page(6, 1, None)],
+                ["c2", "c3"],
+                3,
+                [AttioResumeConfig(cursor="c3")],
+            ),
+        ],
+    )
+    def test_activities_follow_next_cursor_and_stage_it(
+        self,
+        resume_state: AttioResumeConfig | None,
+        responses: list[ScriptedResponse],
+        expected_cursors: list[str | None],
+        expected_rows: int,
+        expected_states: list[AttioResumeConfig],
+    ) -> None:
+        result = self._driver().run("activities", responses, resume_state=resume_state)
+
+        assert result.raised is None
+        assert [request.param("cursor") for request in result.requests] == expected_cursors
+        assert all(request.param("limit") == "500" for request in result.requests)
+        assert all(request.param("offset") is None for request in result.requests)
+        assert len(result.rows) == expected_rows
+        assert "activity_id" in result.rows[0]
+        assert result.saved_states == expected_states

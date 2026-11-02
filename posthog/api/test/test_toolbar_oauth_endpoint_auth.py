@@ -13,6 +13,7 @@ from datetime import timedelta
 from posthog.test.base import APIBaseTest
 
 from django.conf import settings
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -337,7 +338,7 @@ class TestHedgehogConfigOAuthAuth(APIBaseTest):
         assert response.status_code in (401, 403)
 
 
-class TestToolbarOAuthScopesConfig(APIBaseTest):
+class TestToolbarOAuthScopesConfig(SimpleTestCase):
     """Verify TOOLBAR_OAUTH_SCOPES covers every toolbar endpoint scope."""
 
     EXPECTED_SCOPES = [

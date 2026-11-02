@@ -1,19 +1,22 @@
+import { readFileSync } from 'fs'
+import { join } from 'path'
+
+import { parseJSON } from '~/common/utils/json-parse'
+
 import { MAX_USER_AGENT_LENGTH, flattenProperties, parseUserAgent } from './transformation-functions'
 
 const CHROME_UA =
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 
+// The Rust HogVM binding asserts the same cases against its port, so both implementations agree.
+const USER_AGENT_CASES: { label: string; userAgent: string; expected: ReturnType<typeof parseUserAgent> }[] = parseJSON(
+    readFileSync(join(__dirname, '../../../../rust/common/hogvm/node/tests/static/user_agent_cases.json'), 'utf8')
+)
+
 describe('transformation-functions', () => {
     describe('parseUserAgent', () => {
-        it('parses a real user agent', () => {
-            expect(parseUserAgent(CHROME_UA)).toEqual({
-                browser: 'chrome',
-                browserVersion: '120.0.0',
-                os: 'Mac OS',
-                browserType: 'browser',
-                device: '',
-                deviceType: 'Desktop',
-            })
+        it.each(USER_AGENT_CASES)('parses $label', ({ userAgent, expected }) => {
+            expect(parseUserAgent(userAgent)).toEqual(expected)
         })
 
         it.each([

@@ -35,7 +35,7 @@ Inline comments the pull request's author wrote, quoted verbatim — untrusted t
 {% if DIG_DEEPER %}
 Other review perspectives have ALREADY examined this same chunk in this review and reported the problems below. Your job now is to go DEEPER and surface real, high-value issues they MISSED — genuinely NEW problems, not restatements or minor rewordings of these. Do not re-report anything already covered here or in the inline comments above; if you find nothing new, return an empty issues list rather than padding.
 {% else %}
-ReviewHog already surfaced these problems on this chunk's files in earlier reviews of this PR (some are low-priority and were never posted as inline comments, so they won't appear above). They are ALREADY COVERED: do not spend investigation time re-deriving them, and do not report them again. Surface only problems that are NOT already covered here or in the inline comments above.
+PostHog Review already surfaced these problems on this chunk's files in earlier reviews of this PR (some are low-priority and were never posted as inline comments, so they won't appear above). They are ALREADY COVERED: do not spend investigation time re-deriving them, and do not report them again. Surface only problems that are NOT already covered here or in the inline comments above.
 {% endif %}
 
 {{COVERED_FINDINGS|safe}}
@@ -83,6 +83,8 @@ This repository is checked out at this PR's branch, so read any file in full and
 - If something seems unusual, search for precedents before flagging
 - Spend at least 40% of your time exploring before analyzing
 </claude_code_instructions>
+
+{{ CACHE_MARKER|safe }}
 
 <your_review_perspective>
 ## Your review perspective

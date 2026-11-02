@@ -1,5 +1,6 @@
 import requests
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.veeqo import VeeqoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.veeqo.source import VeeqoSource
 
 
@@ -23,3 +24,12 @@ class TestVeeqoSourceNonRetryableErrors:
             assert any(pattern in error_msg for pattern in patterns), (
                 f"HTTPError message '{error_msg}' did not match any non-retryable pattern"
             )
+
+
+class TestVeeqoSourceSchemas:
+    def test_fanout_tables_are_opt_in(self) -> None:
+        schemas = {schema.name: schema for schema in VeeqoSource().get_schemas(VeeqoSourceConfig(api_key="k"), 1)}
+
+        assert not schemas["shipment_tracking_events"].should_sync_default
+        assert not schemas["bundle_contents"].should_sync_default
+        assert schemas["orders"].should_sync_default

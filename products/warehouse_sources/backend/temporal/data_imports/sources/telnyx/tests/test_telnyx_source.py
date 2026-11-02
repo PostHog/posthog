@@ -1,32 +1,14 @@
-from typing import Any
-
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.telnyx import TelnyxSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.telnyx.settings import ENDPOINTS, TELNYX_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.telnyx.source import TelnyxSource
-
-
-def _make_inputs(**overrides: Any) -> SourceInputs:
-    defaults: dict[str, Any] = {
-        "schema_name": "MessagingDetailRecords",
-        "schema_id": "schema-1",
-        "source_id": "source-1",
-        "team_id": 123,
-        "should_use_incremental_field": False,
-        "db_incremental_field_last_value": None,
-        "db_incremental_field_earliest_value": None,
-        "incremental_field": None,
-        "incremental_field_type": None,
-        "job_id": "job-1",
-        "logger": mock.MagicMock(),
-        "reset_pipeline": False,
-    }
-    defaults.update(overrides)
-    return SourceInputs(**defaults)
 
 
 class TestTelnyxSource:
@@ -72,11 +54,12 @@ class TestTelnyxSource:
     def test_source_for_pipeline_partitions_on_stable_field(self, endpoint: str) -> None:
         # Every partition key is a creation/start/invocation timestamp, never an
         # `updated_at`-like field that would rewrite partitions on every sync.
-        with mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.telnyx.source.telnyx_source"):
-            response = self.source.source_for_pipeline(
-                self.config, mock.MagicMock(spec=ResumableSourceManager), _make_inputs(schema_name=endpoint)
-            )
+        driver = SourceDriver(self.source, self.config)
+        response = driver.run(
+            endpoint, always(ScriptedResponse(json={"data": [], "meta": {"total_pages": 1}}))
+        ).response
 
+        assert response is not None
         assert response.partition_mode == "datetime"
         assert response.partition_format == "month"
         assert response.partition_keys == [TELNYX_ENDPOINTS[endpoint].partition_key]

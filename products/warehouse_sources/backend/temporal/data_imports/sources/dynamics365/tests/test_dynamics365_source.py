@@ -1,6 +1,12 @@
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.dynamics365.dynamics365 import (
     INVALID_ORGANIZATION_URL_ERROR,
 )
@@ -20,8 +26,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     Dynamics365SourceConfig,
 )
 
-PROBE_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.dynamics365.source.probe_credentials"
 SOURCE_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.dynamics365.source.dynamics365_source"
+
+
+def _token_response() -> ScriptedResponse:
+    return ScriptedResponse(json={"access_token": "tok-1", "expires_in": 3599, "token_type": "Bearer"})
 
 
 class TestDynamics365Source:
@@ -87,12 +96,12 @@ class TestDynamics365Source:
             assert DYNAMICS365_ENDPOINTS[name].primary_keys[0] in columns
             assert {"createdon", "modifiedon"} <= set(columns)
 
-    @mock.patch(PROBE_PATCH)
-    def test_validate_credentials_accepts_a_working_probe(self, mock_probe: mock.MagicMock) -> None:
-        mock_probe.return_value = (True, 200)
+    def test_validate_credentials_accepts_a_working_probe(self) -> None:
+        with scripted_network([_token_response(), ScriptedResponse()]) as network:
+            result = self.source.validate_credentials(self.config, self.team_id)
 
-        assert self.source.validate_credentials(self.config, self.team_id) == (True, None)
-        assert mock_probe.call_args.args[4] == "v9.2"
+        assert result == (True, None)
+        assert network.requests_log[-1].path == "/api/data/v9.2/accounts"
 
     @pytest.mark.parametrize(
         "status, expected_message",
@@ -104,16 +113,20 @@ class TestDynamics365Source:
             (None, UNREACHABLE_ERROR),
         ],
     )
-    @mock.patch(PROBE_PATCH)
-    def test_validate_credentials_explains_the_failure(
-        self, mock_probe: mock.MagicMock, status: int | None, expected_message: str
-    ) -> None:
-        mock_probe.return_value = (False, status)
+    def test_validate_credentials_explains_the_failure(self, status: int | None, expected_message: str) -> None:
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            if request.method == "POST":
+                return _token_response()
+            if status is None:
+                raise ConnectionResetError("boom")
+            return ScriptedResponse(status=status)
 
-        is_valid, message = self.source.validate_credentials(self.config, self.team_id)
+        with scripted_network(answer) as network:
+            is_valid, message = self.source.validate_credentials(self.config, self.team_id, "Cases")
 
         assert is_valid is False
         assert message == expected_message
+        assert network.requests_log[-1].path == "/api/data/v9.2/incidents"
 
     @pytest.mark.parametrize(
         "schema_name, expected_ok_statuses",
@@ -124,16 +137,17 @@ class TestDynamics365Source:
             ("Cases", (200,)),
         ],
     )
-    @mock.patch(PROBE_PATCH)
     def test_validate_credentials_tolerates_403_only_at_source_create(
-        self, mock_probe: mock.MagicMock, schema_name: str | None, expected_ok_statuses: tuple[int, ...]
+        self, schema_name: str | None, expected_ok_statuses: tuple[int, ...]
     ) -> None:
-        mock_probe.return_value = (True, 200)
+        with scripted_network([_token_response(), ScriptedResponse(status=403)]) as network:
+            is_valid, message = self.source.validate_credentials(self.config, self.team_id, schema_name)
 
-        self.source.validate_credentials(self.config, self.team_id, schema_name)
-
-        assert mock_probe.call_args.kwargs["ok_statuses"] == expected_ok_statuses
-        assert mock_probe.call_args.args[5] == schema_name
+        assert is_valid is (403 in expected_ok_statuses)
+        assert message == (None if is_valid else PERMISSION_ERROR)
+        assert network.requests_log[-1].path == (
+            "/api/data/v9.2/incidents" if schema_name == "Cases" else "/api/data/v9.2/accounts"
+        )
 
     def test_validate_credentials_rejects_a_non_dataverse_environment_url(self) -> None:
         config = Dynamics365SourceConfig(
@@ -174,23 +188,22 @@ class TestDynamics365Source:
         assert kwargs["db_incremental_field_last_value"] == "2024-01-02T03:04:05Z"
         assert kwargs["incremental_field"] == "createdon"
 
-    @mock.patch(SOURCE_PATCH)
-    def test_source_for_pipeline_omits_last_value_on_full_refresh(self, mock_source: mock.MagicMock) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "Accounts"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2024-01-02T03:04:05Z"
+    def test_source_for_pipeline_omits_last_value_on_full_refresh(self) -> None:
+        result = SourceDriver(self.source, self.config).run(
+            "Accounts",
+            [_token_response(), ScriptedResponse(json={"value": []})],
+            should_use_incremental_field=False,
+            db_incremental_field_last_value="2024-01-02T03:04:05Z",
+        )
 
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+        assert result.raised is None
+        assert result.requests[-1].param("$filter") is None
+        assert result.requests[-1].param("$orderby") is None
 
-        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
+    def test_source_for_pipeline_honours_a_pinned_api_version(self) -> None:
+        result = SourceDriver(self.source, self.config).run(
+            "Accounts", [_token_response(), ScriptedResponse(json={"value": []})], api_version="v9.1"
+        )
 
-    @mock.patch(SOURCE_PATCH)
-    def test_source_for_pipeline_honours_a_pinned_api_version(self, mock_source: mock.MagicMock) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "Accounts"
-        inputs.api_version = "v9.1"
-
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        assert mock_source.call_args.kwargs["api_version"] == "v9.1"
+        assert result.raised is None
+        assert result.requests[-1].path == "/api/data/v9.1/accounts"

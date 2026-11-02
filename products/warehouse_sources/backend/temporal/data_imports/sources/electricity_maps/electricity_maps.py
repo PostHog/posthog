@@ -1,9 +1,10 @@
 import re
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
 from dateutil import parser as dateutil_parser
-from requests import Request, Response
+from requests import Request, Response, Session
 from requests.exceptions import RequestException
 
 from posthog.dataclasses import frozen
@@ -19,10 +20,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.electricity_maps.settings import (
     BASE_URL,
+    CARBON_INTENSITY_FORECAST,
+    CARBON_INTENSITY_FORECAST_PATH,
     DEFAULT_HISTORY_DAYS,
-    ENDPOINT_PATHS,
+    NODE_ENDPOINTS,
+    RANGE_ENDPOINT_PATHS,
     REQUEST_TIMEOUT_SECONDS,
     WINDOW_DAYS,
+    ZONES,
+    ZONES_PATH,
 )
 
 # Zone identifiers are short uppercase codes like DE, DK-DK1, US-CAL-CISO. The value goes into a
@@ -41,6 +47,16 @@ def parse_zones(zones: str) -> list[str]:
     parsed: list[str] = []
     for zone in zones.split(","):
         normalized = zone.strip().upper()
+        if normalized and normalized not in parsed:
+            parsed.append(normalized)
+    return parsed
+
+
+def parse_pricing_nodes(pricing_nodes: Optional[str]) -> list[str]:
+    # Node identifiers are vendor-defined (e.g. CORTINA_1_N106), so keep their case as entered.
+    parsed: list[str] = []
+    for node in (pricing_nodes or "").split(","):
+        normalized = node.strip()
         if normalized and normalized not in parsed:
             parsed.append(normalized)
     return parsed
@@ -76,7 +92,7 @@ def initial_window_start(db_incremental_field_last_value: Optional[Any], history
 
 
 class ElectricityMapsRangePaginator(BasePaginator):
-    """Walks fixed datetime windows across every configured zone.
+    """Walks fixed datetime windows across every configured zone (or pricing node).
 
     Iteration is window-major (every zone for a window, then the next window) rather than
     zone-major. The pipeline checkpoints the incremental watermark per batch assuming ascending
@@ -85,9 +101,17 @@ class ElectricityMapsRangePaginator(BasePaginator):
     Window-major bounds that loss to a single window.
     """
 
-    def __init__(self, zones: list[str], initial_start: datetime, until: datetime, window: timedelta) -> None:
+    def __init__(
+        self,
+        zones: list[str],
+        initial_start: datetime,
+        until: datetime,
+        window: timedelta,
+        zone_param: str = "zone",
+    ) -> None:
         super().__init__()
         self._zones = zones
+        self._zone_param = zone_param
         self._until = until
         self._window = window
         self._window_start = self._clamp_start(initial_start)
@@ -104,7 +128,7 @@ class ElectricityMapsRangePaginator(BasePaginator):
     def _set_params(self, request: Request) -> None:
         if request.params is None:
             request.params = {}
-        request.params["zone"] = self._zones[self._zone_index]
+        request.params[self._zone_param] = self._zones[self._zone_index]
         request.params["start"] = _format_datetime(self._window_start)
         request.params["end"] = _format_datetime(self._window_end())
 
@@ -149,7 +173,7 @@ def _get_resource(endpoint: str, should_use_incremental_field: bool) -> Endpoint
         if should_use_incremental_field
         else "replace",
         "endpoint": {
-            "path": ENDPOINT_PATHS[endpoint],
+            "path": RANGE_ENDPOINT_PATHS[endpoint],
             "data_selector": "data",
             "data_selector_required": True,
             "params": {},
@@ -163,6 +187,56 @@ def _get_resource(endpoint: str, should_use_incremental_field: bool) -> Endpoint
     }
 
 
+def _make_session(api_token: str) -> Session:
+    # The auth-token header must never leave the API host, so redirects are refused.
+    return make_tracked_session(headers={"auth-token": api_token}, redact_values=(api_token,), allow_redirects=False)
+
+
+def _get_json(session: Session, path: str, params: Optional[dict[str, str]] = None) -> Any:
+    response = session.get(f"{BASE_URL}{path}", params=params, timeout=REQUEST_TIMEOUT_SECONDS)
+    response.raise_for_status()
+    return response.json()
+
+
+def _iter_carbon_intensity_forecast(
+    api_token: str,
+    zones: list[str],
+    resumable_source_manager: ResumableSourceManager[ElectricityMapsResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    session = _make_session(api_token)
+    for zone in zones:
+        body = _get_json(session, CARBON_INTENSITY_FORECAST_PATH, {"zone": zone})
+        forecast = body.get("forecast")
+        # A full refresh replaces the table, so a malformed response must fail the sync rather than
+        # silently drop this zone's rows.
+        if not isinstance(forecast, list):
+            raise ValueError(f"Electricity Maps returned a forecast response without a forecast list for zone {zone}")
+        # Forecast points carry only the target hour and value; the zone and the forecast's issue
+        # time live on the envelope.
+        updated_at = _coerce_datetime(body.get("updatedAt"))
+        rows = [
+            {
+                **point,
+                "datetime": _coerce_datetime(point.get("datetime")),
+                "zone": body.get("zone") or zone,
+                "updatedAt": updated_at,
+            }
+            for point in forecast
+        ]
+        if rows:
+            yield rows
+        else:
+            resumable_source_manager.safe_point()
+
+
+def _iter_zones(api_token: str) -> Iterator[list[dict[str, Any]]]:
+    body = _get_json(_make_session(api_token), ZONES_PATH)
+    # The response is an object keyed by zone key rather than a list.
+    rows = [{**zone, "zoneKey": zone.get("zoneKey") or zone_key} for zone_key, zone in body.items()]
+    if rows:
+        yield rows
+
+
 def electricity_maps_source(
     api_token: str,
     zones: list[str],
@@ -173,11 +247,28 @@ def electricity_maps_source(
     db_incremental_field_last_value: Optional[Any],
     should_use_incremental_field: bool = False,
     history_days: Optional[int] = None,
+    pricing_nodes: Optional[list[str]] = None,
 ) -> SourceResponse:
-    if endpoint not in ENDPOINT_PATHS:
+    if endpoint not in RANGE_ENDPOINT_PATHS and endpoint not in (CARBON_INTENSITY_FORECAST, ZONES):
         raise ValueError(f"Unknown Electricity Maps endpoint: {endpoint}")
-    if not zones:
-        raise ValueError("No Electricity Maps zones configured")
+
+    if endpoint == ZONES:
+        return SourceResponse(name=endpoint, items=lambda: _iter_zones(api_token), primary_keys=["zoneKey"])
+
+    is_node_endpoint = endpoint in NODE_ENDPOINTS
+    entities = (pricing_nodes or []) if is_node_endpoint else zones
+    if not entities:
+        raise ValueError(f"No Electricity Maps {'pricing nodes' if is_node_endpoint else 'zones'} configured")
+
+    if endpoint == CARBON_INTENSITY_FORECAST:
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: _iter_carbon_intensity_forecast(api_token, zones, resumable_source_manager),
+            primary_keys=["zone", "datetime"],
+            partition_keys=["datetime"],
+            partition_mode="datetime",
+            partition_format="month",
+        )
 
     if history_days is None or history_days <= 0:
         history_days = DEFAULT_HISTORY_DAYS
@@ -187,7 +278,11 @@ def electricity_maps_source(
         db_incremental_field_last_value if should_use_incremental_field else None, history_days, now
     )
     paginator = ElectricityMapsRangePaginator(
-        zones=zones, initial_start=start, until=now, window=timedelta(days=WINDOW_DAYS)
+        zones=entities,
+        initial_start=start,
+        until=now,
+        window=timedelta(days=WINDOW_DAYS),
+        zone_param="node" if is_node_endpoint else "zone",
     )
 
     config: RESTAPIConfig = {
@@ -239,7 +334,7 @@ def electricity_maps_source(
     return SourceResponse(
         name=endpoint,
         items=lambda: resource,
-        primary_keys=["zone", "datetime"],
+        primary_keys=["entityName", "datetime"] if is_node_endpoint else ["zone", "datetime"],
         column_hints=resource.column_hints,
         partition_keys=["datetime"],
         partition_mode="datetime",
@@ -249,9 +344,7 @@ def electricity_maps_source(
 
 
 def validate_credentials(api_token: str, zones: list[str]) -> tuple[bool, str | None]:
-    # Same redirect boundary as the extraction client: the auth-token header must never leave
-    # the API host, so this probe pins to BASE_URL rather than following the session default.
-    session = make_tracked_session(headers={"auth-token": api_token}, redact_values=(api_token,), allow_redirects=False)
+    session = _make_session(api_token)
     # `/carbon-intensity/latest` is the cheapest authenticated call and is available on every
     # plan, so it both proves the token and surfaces per-zone entitlement before the first sync.
     for zone in zones:

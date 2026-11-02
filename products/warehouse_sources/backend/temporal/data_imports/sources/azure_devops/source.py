@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AzureDevOpsSource(ResumableSource[AzureDevOpsSourceConfig, AzureDevOpsResumeConfig]):
+    codebase_detection = detect(
+        env=("^(AZURE_DEVOPS|AZUREDEVOPS)_", "^SYSTEM_ACCESSTOKEN$"),
+        npm=("azure-devops-node-api", "azure-devops-extension-sdk", "azure-devops-extension-api"),
+        pypi=("azure-devops",),
+        go=("github.com/microsoft/azure-devops-go-api/azuredevops",),
+    )
+
     api_docs_url = "https://learn.microsoft.com/en-us/azure/devops/integrate/concepts/rest-api-versioning"
 
     # The legacy label keeps sending api-version 7.1; 7.2 is the current GA stable API.
@@ -81,7 +89,7 @@ class AzureDevOpsSource(ResumableSource[AzureDevOpsSourceConfig, AzureDevOpsResu
 Your organization is the first path segment of your Azure DevOps URL — for `dev.azure.com/myorg` enter `myorg`. Create a personal access token under User settings > Personal access tokens with read scopes for the data you want to sync (Work Items, Code, Build, Project and Team).""",
             iconPath="/static/services/azure_devops.png",
             docsUrl="https://posthog.com/docs/cdp/sources/azure-devops",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

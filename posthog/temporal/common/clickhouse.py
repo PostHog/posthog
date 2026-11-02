@@ -10,7 +10,6 @@ import asyncio
 import datetime as dt
 import contextlib
 import collections.abc
-from string import Formatter
 from urllib.parse import urljoin
 
 from django.conf import settings
@@ -170,6 +169,23 @@ class ClickHouseClientNotConnected(Exception):
         super().__init__("ClickHouseClient is not connected. Are you running in a context manager?")
 
 
+_CLICKHOUSE_ERROR_START = re.compile(r"(?:(?:std::exception|Poco::Exception)\. )?Code: \d+[.,] ")
+# ClickHouse 25+ wraps the error in "__exception__" lines and closes it with "<size> <tag>".
+_CLICKHOUSE_ERROR_TRAILER = re.compile(r"(\r?\n\d+ \w+)?\r?\n__exception__\s*$")
+
+QUERY_LOG_LOOKUP_ATTEMPTS = 5
+QUERY_LOG_LOOKUP_INTERVAL_SECONDS = 3
+
+
+def extract_clickhouse_error(payload: bytes) -> str | None:
+    """Find a ClickHouse error message in bytes that ClickHouse appended to a response."""
+    text = payload.decode("utf-8", errors="replace")
+    match = _CLICKHOUSE_ERROR_START.search(text)
+    if match is None:
+        return None
+    return _CLICKHOUSE_ERROR_TRAILER.sub("", text[match.start() :]).strip()
+
+
 class ClickHouseError(Exception):
     """Base Exception representing anything going wrong with ClickHouse."""
 
@@ -249,6 +265,14 @@ class ClickHouseCheckQueryStatusError(ClickHouseError):
         super().__init__(error_message, query_id=query_id)
 
 
+class ClickHouseUnknownTableError(ClickHouseError):
+    """Exception raised when a table does not exist.
+
+    This should only happen in HogQL batch exports, when users try to select tables that
+    batch exports cannot reach.
+    """
+
+
 def update_query_tags_with_temporal_info(query_tags: typing.Optional[QueryTags] = None):
     """
     Updates query_tags with a temporal workflow's properties.
@@ -294,23 +318,6 @@ def add_log_comment_param(params: dict[str, typing.Any], query_tags: typing.Opti
             param_name = "param_log_comment"
     update_query_tags_with_temporal_info(query_tags)
     params[param_name] = query_tags.to_json()
-
-
-class KeywordOnlyFormatter(Formatter):
-    """Formatter supporting only keyword arguments.
-
-    Positional arguments are unchanged, missing keys are also left unchanged.
-    """
-
-    def get_value(self, key, args, kwargs):
-        if isinstance(key, int):
-            # Returns '{n}' unchanged, where n is a numerical index.
-            return f"{{{key}}}"
-        try:
-            return kwargs[key]
-        except KeyError:
-            # Returns '{key}' unchanged
-            return f"{{{key}}}"
 
 
 class ClickHouseClient:
@@ -412,23 +419,11 @@ class ClickHouseClient:
         if not query_parameters:
             return query
 
-        has_format_placeholders = re.search(r"(?<!{){[^{}]*}(?!})|{{[^{}]*}}", query)
-
         format_parameters = {k: encode_clickhouse_data(v).decode("utf-8") for k, v in query_parameters.items()}
-
-        if has_format_placeholders:
-            # Escape any curly brackets `{` or `}` in the format parameters so they are not parsed
-            # as format placeholders
-            escaped_parameters = {k: v.replace("{", "{{").replace("}", "}}") for k, v in format_parameters.items()}
-            query = query % escaped_parameters
-            # HogQL prints the empty-object sentinel '{}' inline for every property read on the native-JSON
-            # events table, and the formatter would auto-number it to '{0}'. An empty pair is never a placeholder.
-            query = re.sub(r"(?<!\{)\{\}(?!\})", "{{}}", query)
-            query = KeywordOnlyFormatter().format(query, **format_parameters)
-        else:
-            query = query % format_parameters
-
-        return query
+        # HogQL reserves percent placeholders for values and rejects percent signs in identifiers.
+        # Braces can occur in authorized identifiers, so interpreting them here would change the
+        # query after authorization. Leave typed ClickHouse parameters and all other braces intact.
+        return query % format_parameters
 
     def prepare_request_data(self, data: collections.abc.Sequence[typing.Any]) -> bytes | None:
         """Prepare the request data sent by encoding it.
@@ -454,11 +449,48 @@ class ClickHouseClient:
             "TOO_MANY_BYTES": ClickHouseTooManyBytesError,
             "TOO_MANY_SIMULTANEOUS_QUERIES": ClickHouseTooManySimultaneousQueriesError,
             "TIMEOUT_EXCEEDED": ClickHouseQueryTimeoutError,
+            "UNKNOWN_TABLE": ClickHouseUnknownTableError,
         }
         for error_code, exc_class in ERROR_CODE_TO_EXCEPTION.items():
             if error_code in error_message:
                 raise exc_class(error_message, query=query, query_id=query_id)
         raise ClickHouseError(error_message, query=query, query_id=query_id)
+
+    @classmethod
+    def raise_stream_error(
+        cls, error: asyncpa.InvalidMessageFormat, query: str | None = None, query_id: str | None = None
+    ) -> typing.NoReturn:
+        """Raise the ClickHouse error in the unparsed tail of an Arrow stream, or the original error.
+
+        ClickHouse sends the 200 status before the query ends. When the query fails after that,
+        ClickHouse appends the error text to the stream that it already sent.
+        """
+        error_message = extract_clickhouse_error(error.unparsed)
+        if error_message is None:
+            raise error
+        try:
+            cls.raise_clickhouse_error(error_message, query=query, query_id=query_id)
+        except ClickHouseError as clickhouse_error:
+            raise clickhouse_error from error
+
+    async def araise_cut_stream_error(
+        self, error: aiohttp.ClientPayloadError, query: str | None, query_id: str
+    ) -> typing.NoReturn:
+        """Raise the query's error from the query log when the response ended early, or the original error."""
+        for attempt in range(QUERY_LOG_LOOKUP_ATTEMPTS):
+            if attempt:
+                await asyncio.sleep(QUERY_LOG_LOOKUP_INTERVAL_SECONDS)
+            try:
+                status = await self.acheck_query_in_query_log(query_id)
+            except ClickHouseQueryNotFound:
+                continue
+            except ClickHouseCheckQueryStatusError:
+                break
+            except ClickHouseError as clickhouse_error:
+                raise clickhouse_error from error
+            if status != ClickHouseQueryStatus.RUNNING:
+                break
+        raise error
 
     async def acheck_response(self, response, query) -> None:
         """Asynchronously check the HTTP response received from ClickHouse."""
@@ -789,8 +821,8 @@ class ClickHouseClient:
         """
         query = """
                 SELECT type, exception
-                FROM clusterAllReplicas({{cluster_name:String}}, system.query_log)
-                WHERE query_id = {{query_id:String}}
+                FROM clusterAllReplicas({cluster_name:String}, system.query_log)
+                WHERE query_id = {query_id:String}
                     AND event_date >= yesterday() AND event_time >= now() - interval 24 hour
                 FORMAT JSONEachRow
                 """
@@ -854,8 +886,8 @@ class ClickHouseClient:
         """
         query = """
                 SELECT written_rows
-                FROM clusterAllReplicas({{cluster_name:String}}, system.query_log)
-                WHERE query_id = {{query_id:String}}
+                FROM clusterAllReplicas({cluster_name:String}, system.query_log)
+                WHERE query_id = {query_id:String}
                     AND type = 'QueryFinish'
                     AND is_initial_query = 1
                     AND event_date >= yesterday() AND event_time >= now() - interval 24 hour
@@ -895,8 +927,8 @@ class ClickHouseClient:
         """
         query = """
                 SELECT 1
-                FROM clusterAllReplicas({{cluster_name:String}}, system.processes)
-                WHERE query_id = {{query_id:String}}
+                FROM clusterAllReplicas({cluster_name:String}, system.processes)
+                WHERE query_id = {query_id:String}
                     AND NOT is_cancelled
                 LIMIT 1
                 """
@@ -923,7 +955,7 @@ class ClickHouseClient:
         Arguments:
             query_id: The ID of the query to cancel.
         """
-        query = f"KILL QUERY ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' WHERE query_id = {{{{query_id:String}}}}"
+        query = f"KILL QUERY ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' WHERE query_id = {{query_id:String}}"
 
         await self.execute_query(
             query,
@@ -986,14 +1018,20 @@ class ClickHouseClient:
 
         This method makes sense when running with FORMAT ArrowStream, although we currently do not enforce this.
         """
+        query_id = query_id or str(uuid.uuid4())
         async with self.apost_query(
             query, *data, query_parameters=query_parameters, query_id=query_id, external_tables=external_tables
         ) as response:
             reader = asyncpa.AsyncRecordBatchReader(ChunkBytesAsyncStreamIterator(response.content))
-            if on_schema is not None:
-                on_schema(await reader.get_schema())
-            async for batch in reader:
-                yield batch
+            try:
+                if on_schema is not None:
+                    on_schema(await reader.get_schema())
+                async for batch in reader:
+                    yield batch
+            except asyncpa.InvalidMessageFormat as error:
+                self.raise_stream_error(error, query=query, query_id=query_id)
+            except aiohttp.ClientPayloadError as error:
+                await self.araise_cut_stream_error(error, query=query, query_id=query_id)
 
     async def aproduce_query_as_arrow_record_batches(
         self,
@@ -1009,9 +1047,15 @@ class ClickHouseClient:
         This method is intended to be ran as a background task, producing record batches continuously, while other
         downstream consumer tasks process them from the queue.
         """
+        query_id = query_id or str(uuid.uuid4())
         async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
             reader = asyncpa.AsyncRecordBatchProducer(ChunkBytesAsyncStreamIterator(response.content))
-            await reader.produce(queue=queue)
+            try:
+                await reader.produce(queue=queue)
+            except asyncpa.InvalidMessageFormat as error:
+                self.raise_stream_error(error, query=query, query_id=query_id)
+            except aiohttp.ClientPayloadError as error:
+                await self.araise_cut_stream_error(error, query=query, query_id=query_id)
 
     async def __aenter__(self):
         """Enter method part of the AsyncContextManager protocol."""

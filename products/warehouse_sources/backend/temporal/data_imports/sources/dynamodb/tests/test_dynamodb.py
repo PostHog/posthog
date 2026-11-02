@@ -1,123 +1,55 @@
-import json
-import dataclasses
-from collections.abc import Iterable, Iterator
-from typing import Any, cast
+from typing import Any
 
 import pytest
-from unittest import mock
 
-import requests
-from structlog.types import FilteringBoundLogger
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.dynamodb.dynamodb import (
     DynamoDBAPIError,
     DynamoDBClient,
     DynamoDBResumeConfig,
     DynamoDBRetryableError,
     deserialize_value,
-    dynamodb_source,
-    get_rows,
     get_table_schemas,
     list_tables,
     validate_credentials,
     validate_region,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.dynamodb.settings import MAX_RETRY_ATTEMPTS
-
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.dynamodb.dynamodb"
-
-
-@dataclasses.dataclass
-class FakeResponse:
-    status_code: int = 200
-    body: dict[str, Any] = dataclasses.field(default_factory=dict)
-    json_decodable: bool = True
-
-    def json(self) -> dict[str, Any]:
-        if not self.json_decodable:
-            raise ValueError("not json")
-        return self.body
+from products.warehouse_sources.backend.temporal.data_imports.sources.dynamodb.source import DynamoDBSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dynamodb import (
+    DynamoDBSourceConfig,
+)
 
 
-class FakeSession:
-    def __init__(self, responses: list[FakeResponse]) -> None:
-        self.responses = list(responses)
-        self.calls: list[dict[str, Any]] = []
-
-    def post(
-        self,
-        url: str,
-        data: bytes | None = None,
-        headers: dict[str, str] | None = None,
-        timeout: int | None = None,
-    ) -> FakeResponse:
-        self.calls.append({"url": url, "data": data, "headers": headers or {}, "timeout": timeout})
-        if not self.responses:
-            raise AssertionError("FakeSession ran out of queued responses")
-        return self.responses.pop(0)
-
-    def payload(self, index: int) -> dict[str, Any]:
-        raw = self.calls[index]["data"]
-        assert isinstance(raw, bytes)
-        return cast(dict[str, Any], json.loads(raw.decode()))
-
-    def target(self, index: int) -> str:
-        return self.calls[index]["headers"]["X-Amz-Target"]
+def _client() -> DynamoDBClient:
+    return DynamoDBClient(access_key_id="AKIATEST", secret_access_key="secret", region="us-east-1")
 
 
-class FakeResumeManager(ResumableSourceManager[DynamoDBResumeConfig]):
-    def __init__(self, state: DynamoDBResumeConfig | None = None) -> None:
-        self.state = state
-        self.saved: list[DynamoDBResumeConfig] = []
-        self.cleared = False
-
-    def can_resume(self) -> bool:
-        return self.state is not None
-
-    def load_state(self) -> DynamoDBResumeConfig | None:
-        return self.state
-
-    def save_state(self, data: DynamoDBResumeConfig) -> None:
-        self.saved.append(data)
-
-    def clear_state(self) -> None:
-        self.cleared = True
-
-
-def _logger() -> FilteringBoundLogger:
-    return cast(FilteringBoundLogger, mock.MagicMock())
-
-
-def _make_client(
-    responses: list[FakeResponse],
-    region: str = "us-east-1",
-    session_token: str | None = None,
-    api_version: str | None = None,
-) -> tuple[DynamoDBClient, FakeSession]:
-    session = FakeSession(responses)
-    with mock.patch(f"{_MODULE}.make_tracked_session", return_value=session):
-        client = DynamoDBClient(
-            access_key_id="AKIATEST",
-            secret_access_key="secret",
-            region=region,
-            session_token=session_token,
-            api_version=api_version,
-        )
-    return client, session
-
-
-def _error(code: str, status: int = 400, message: str = "boom") -> FakeResponse:
-    return FakeResponse(
-        status_code=status,
-        body={"__type": f"com.amazonaws.dynamodb.v20120810#{code}", "message": message},
+def _driver() -> SourceDriver:
+    return SourceDriver(
+        DynamoDBSource(),
+        DynamoDBSourceConfig(
+            aws_access_key_id="AKIATEST",
+            aws_secret_access_key="secret",
+            aws_region="us-east-1",
+            aws_session_token=None,
+        ),
     )
 
 
-@pytest.fixture(autouse=True)
-def _no_sleep() -> Iterator[None]:
-    with mock.patch("time.sleep"):
-        yield
+def _description(key_schema: list[dict[str, str]] | None = None) -> ScriptedResponse:
+    return ScriptedResponse(json={"Table": {"KeySchema": key_schema or []}})
+
+
+def _error(code: str, status: int = 400, message: str = "boom") -> ScriptedResponse:
+    return ScriptedResponse(
+        status=status,
+        json={"__type": f"com.amazonaws.dynamodb.v20120810#{code}", "message": message},
+    )
 
 
 class TestValidateRegion:
@@ -173,17 +105,20 @@ class TestDeserializeValue:
 
 class TestSigning:
     def test_signature_covers_the_body_so_two_payloads_differ(self) -> None:
-        client, session = _make_client([FakeResponse(), FakeResponse()])
-        client.send("Scan", {"TableName": "users"})
-        client.send("Scan", {"TableName": "orders"})
+        with scripted_network([ScriptedResponse(json={}), ScriptedResponse(json={})]) as network:
+            client = _client()
+            client.send("Scan", {"TableName": "users"})
+            client.send("Scan", {"TableName": "orders"})
 
-        assert session.calls[0]["headers"]["Authorization"] != session.calls[1]["headers"]["Authorization"]
+        assert network.requests_log[0].headers["authorization"] != network.requests_log[1].headers["authorization"]
 
     def test_invalid_region_is_rejected_before_any_request(self) -> None:
-        with mock.patch(f"{_MODULE}.make_tracked_session") as make_session:
+        with scripted_network([]) as network:
             with pytest.raises(ValueError):
                 DynamoDBClient(access_key_id="AKIA", secret_access_key="s", region="evil.com")
-        make_session.assert_not_called()
+
+        assert network.requests_log == []
+        assert network.session_options == []
 
 
 class TestErrorClassification:
@@ -204,34 +139,34 @@ class TestErrorClassification:
     def test_error_codes_are_split_into_retryable_and_permanent(
         self, code: str, status: int, expected_retryable: bool
     ) -> None:
-        client, _ = _make_client([_error(code, status=status)])
-
-        with pytest.raises(DynamoDBAPIError) as exc_info:
-            client.send("Scan", {"TableName": "users"})
+        with scripted_network([_error(code, status=status)]):
+            client = _client()
+            with pytest.raises(DynamoDBAPIError) as exc_info:
+                client.send("Scan", {"TableName": "users"})
 
         assert exc_info.value.code == code
         assert exc_info.value.status_code == status
         assert isinstance(exc_info.value, DynamoDBRetryableError) is expected_retryable
 
     def test_unknown_5xx_is_retryable_even_without_a_known_code(self) -> None:
-        client, _ = _make_client([_error("SomethingNew", status=502)])
-
-        with pytest.raises(DynamoDBRetryableError):
-            client.send("Scan", {"TableName": "users"})
+        with scripted_network([_error("SomethingNew", status=502)]):
+            client = _client()
+            with pytest.raises(DynamoDBRetryableError):
+                client.send("Scan", {"TableName": "users"})
 
     def test_non_json_error_body_still_raises_a_typed_error(self) -> None:
-        client, _ = _make_client([FakeResponse(status_code=400, json_decodable=False)])
-
-        with pytest.raises(DynamoDBAPIError) as exc_info:
-            client.send("Scan", {"TableName": "users"})
+        with scripted_network([ScriptedResponse(status=400, body=b"not json")]):
+            client = _client()
+            with pytest.raises(DynamoDBAPIError) as exc_info:
+                client.send("Scan", {"TableName": "users"})
 
         assert exc_info.value.code == "UnknownError"
 
     def test_error_message_includes_the_code_so_non_retryable_matching_works(self) -> None:
-        client, _ = _make_client([_error("AccessDeniedException", message="no perms")])
-
-        with pytest.raises(DynamoDBAPIError) as exc_info:
-            client.send("Scan", {"TableName": "users"})
+        with scripted_network([_error("AccessDeniedException", message="no perms")]):
+            client = _client()
+            with pytest.raises(DynamoDBAPIError) as exc_info:
+                client.send("Scan", {"TableName": "users"})
 
         assert "AccessDeniedException" in str(exc_info.value)
         assert "no perms" in str(exc_info.value)
@@ -239,93 +174,101 @@ class TestErrorClassification:
 
 class TestRequestRetries:
     def test_retries_are_bounded(self) -> None:
-        client, session = _make_client([_error("ThrottlingException") for _ in range(MAX_RETRY_ATTEMPTS)])
+        with scripted_network([_error("ThrottlingException") for _ in range(MAX_RETRY_ATTEMPTS)]) as network:
+            client = _client()
+            with pytest.raises(DynamoDBRetryableError):
+                client.request("ListTables", {})
 
-        with pytest.raises(DynamoDBRetryableError):
-            client.request("ListTables", {})
-
-        assert len(session.calls) == MAX_RETRY_ATTEMPTS
+        assert len(network.requests_log) == MAX_RETRY_ATTEMPTS
 
     def test_permanent_error_is_not_retried(self) -> None:
-        client, session = _make_client([_error("AccessDeniedException")])
+        with scripted_network([_error("AccessDeniedException")]) as network:
+            client = _client()
+            with pytest.raises(DynamoDBAPIError):
+                client.request("ListTables", {})
 
-        with pytest.raises(DynamoDBAPIError):
-            client.request("ListTables", {})
-
-        assert len(session.calls) == 1
+        assert len(network.requests_log) == 1
 
 
 class TestListTables:
     def test_pagination_follows_last_evaluated_table_name_and_terminates(self) -> None:
-        client, session = _make_client(
+        with scripted_network(
             [
-                FakeResponse(body={"TableNames": ["a", "b"], "LastEvaluatedTableName": "b"}),
-                FakeResponse(body={"TableNames": ["c"]}),
+                ScriptedResponse(json={"TableNames": ["a", "b"], "LastEvaluatedTableName": "b"}),
+                ScriptedResponse(json={"TableNames": ["c"]}),
             ]
-        )
+        ) as network:
+            tables = list_tables(_client())
 
-        assert list_tables(client) == ["a", "b", "c"]
-        assert "ExclusiveStartTableName" not in session.payload(0)
-        assert session.payload(1)["ExclusiveStartTableName"] == "b"
+        assert tables == ["a", "b", "c"]
+        assert "ExclusiveStartTableName" not in network.requests_log[0].json()
+        assert network.requests_log[1].json()["ExclusiveStartTableName"] == "b"
 
 
 class TestGetTableSchemas:
     def test_names_filter_skips_describing_unwanted_tables(self) -> None:
-        client, session = _make_client(
+        with scripted_network(
             [
-                FakeResponse(body={"TableNames": ["users", "orders"]}),
-                FakeResponse(body={"Table": {"KeySchema": [{"AttributeName": "id", "KeyType": "HASH"}]}}),
+                ScriptedResponse(json={"TableNames": ["users", "orders"]}),
+                _description([{"AttributeName": "id", "KeyType": "HASH"}]),
             ]
-        )
-
-        schemas = get_table_schemas(client, names=["orders"])
+        ) as network:
+            schemas = get_table_schemas(_client(), names=["orders"])
 
         assert [schema.name for schema in schemas] == ["orders"]
-        assert [session.target(index) for index in range(len(session.calls))] == [
+        assert [request.headers["x-amz-target"] for request in network.requests_log] == [
             "DynamoDB_20120810.ListTables",
             "DynamoDB_20120810.DescribeTable",
         ]
-        assert session.payload(1)["TableName"] == "orders"
+        assert network.requests_log[1].json()["TableName"] == "orders"
 
 
 class TestGetRows:
     def test_resumes_from_the_saved_cursor(self) -> None:
         saved_key = {"pk": {"S": "user#7"}}
-        client, session = _make_client([FakeResponse(body={"Items": [{"pk": {"S": "user#8"}}]})])
-        manager = FakeResumeManager(DynamoDBResumeConfig(table_name="users", exclusive_start_key=saved_key))
+        result = _driver().run(
+            "users",
+            [_description(), ScriptedResponse(json={"Items": [{"pk": {"S": "user#8"}}]})],
+            resume_state=DynamoDBResumeConfig(table_name="users", exclusive_start_key=saved_key),
+        )
 
-        batches = list(get_rows(client, "users", _logger(), manager))
-
-        assert batches == [[{"pk": "user#8"}]]
-        assert session.payload(0)["ExclusiveStartKey"] == saved_key
+        assert result.raised is None
+        assert result.items == [[{"pk": "user#8"}]]
+        assert result.requests[1].json()["ExclusiveStartKey"] == saved_key
 
     def test_cursor_saved_for_another_table_is_discarded(self) -> None:
-        client, session = _make_client([FakeResponse(body={"Items": []})])
-        manager = FakeResumeManager(
-            DynamoDBResumeConfig(table_name="orders", exclusive_start_key={"order_id": {"S": "1"}})
+        result = _driver().run(
+            "users",
+            [_description(), ScriptedResponse(json={"Items": []})],
+            resume_state=DynamoDBResumeConfig(table_name="orders", exclusive_start_key={"order_id": {"S": "1"}}),
         )
 
-        assert list(get_rows(client, "users", _logger(), manager)) == []
-        assert "ExclusiveStartKey" not in session.payload(0)
+        assert result.raised is None
+        assert result.items == []
+        assert "ExclusiveStartKey" not in result.requests[1].json()
 
     def test_empty_page_with_a_cursor_keeps_scanning(self) -> None:
-        client, _ = _make_client(
+        result = _driver().run(
+            "users",
             [
-                FakeResponse(body={"Items": [], "LastEvaluatedKey": {"pk": {"S": "a"}}}),
-                FakeResponse(body={"Items": [{"pk": {"S": "b"}}]}),
-            ]
+                _description(),
+                ScriptedResponse(json={"Items": [], "LastEvaluatedKey": {"pk": {"S": "a"}}}),
+                ScriptedResponse(json={"Items": [{"pk": {"S": "b"}}]}),
+            ],
         )
 
-        assert list(get_rows(client, "users", _logger(), FakeResumeManager())) == [[{"pk": "b"}]]
+        assert result.raised is None
+        assert result.items == [[{"pk": "b"}]]
+        assert result.requests[2].json()["ExclusiveStartKey"] == {"pk": {"S": "a"}}
 
 
 class TestValidateCredentials:
     def test_valid_credentials_probe_list_tables(self) -> None:
-        session = FakeSession([FakeResponse(body={"TableNames": []})])
-        with mock.patch(f"{_MODULE}.make_tracked_session", return_value=session):
-            assert validate_credentials("AKIA", "secret", "us-east-1") == (True, None)
+        with scripted_network([ScriptedResponse(json={"TableNames": []})]) as network:
+            valid, message = validate_credentials("AKIA", "secret", "us-east-1")
 
-        assert session.target(0) == "DynamoDB_20120810.ListTables"
+        assert (valid, message) == (True, None)
+        assert network.requests_log[0].headers["x-amz-target"] == "DynamoDB_20120810.ListTables"
 
     @pytest.mark.parametrize(
         "code, expected_fragment",
@@ -336,60 +279,49 @@ class TestValidateCredentials:
         ],
     )
     def test_known_failures_map_to_an_actionable_message(self, code: str, expected_fragment: str) -> None:
-        session = FakeSession([_error(code)])
-        with mock.patch(f"{_MODULE}.make_tracked_session", return_value=session):
+        with scripted_network([_error(code)]):
             valid, message = validate_credentials("AKIA", "secret", "us-east-1")
 
         assert valid is False
         assert message is not None and expected_fragment in message
 
     def test_bad_region_fails_without_a_request(self) -> None:
-        with mock.patch(f"{_MODULE}.make_tracked_session") as make_session:
+        with scripted_network([]) as network:
             valid, message = validate_credentials("AKIA", "secret", "not a region")
 
         assert valid is False
         assert message is not None and "valid AWS region" in message
-        make_session.assert_not_called()
+        assert network.requests_log == []
+        assert network.session_options == []
 
     def test_network_failure_reports_a_connectivity_message(self) -> None:
-        session = FakeSession([])
-        with mock.patch(f"{_MODULE}.make_tracked_session", return_value=session):
-            with mock.patch.object(session, "post", side_effect=requests.ConnectionError("nope")):
-                valid, message = validate_credentials("AKIA", "secret", "us-east-1")
+        with scripted_network([ConnectionError("nope")]) as network:
+            valid, message = validate_credentials("AKIA", "secret", "us-east-1")
 
         assert valid is False
         assert message is not None and "Could not reach DynamoDB" in message
+        assert {request.path for request in network.requests_log} == {"/"}
 
 
 class TestDynamoDBSourceResponse:
     def test_response_carries_the_table_key_and_streams_rows(self) -> None:
-        session = FakeSession(
+        result = _driver().run(
+            "users",
             [
-                FakeResponse(
-                    body={
-                        "Table": {
-                            "KeySchema": [
-                                {"AttributeName": "sk", "KeyType": "RANGE"},
-                                {"AttributeName": "pk", "KeyType": "HASH"},
-                            ]
-                        }
-                    }
+                _description(
+                    [
+                        {"AttributeName": "sk", "KeyType": "RANGE"},
+                        {"AttributeName": "pk", "KeyType": "HASH"},
+                    ]
                 ),
-                FakeResponse(body={"Items": [{"pk": {"S": "a"}, "sk": {"N": "1"}}]}),
-            ]
+                ScriptedResponse(json={"Items": [{"pk": {"S": "a"}, "sk": {"N": "1"}}]}),
+            ],
         )
-        with mock.patch(f"{_MODULE}.make_tracked_session", return_value=session):
-            response = dynamodb_source(
-                access_key_id="AKIA",
-                secret_access_key="secret",
-                region="us-east-1",
-                table_name="users",
-                logger=_logger(),
-                resumable_source_manager=FakeResumeManager(),
-            )
 
-        assert response.name == "users"
-        assert response.primary_keys == ["pk", "sk"]
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == "users"
+        assert result.response.primary_keys == ["pk", "sk"]
         # Scan walks partition-hash order, so no sort mode may be claimed.
-        assert response.sort_mode is None
-        assert list(cast("Iterable[Any]", response.items())) == [[{"pk": "a", "sk": 1}]]
+        assert result.response.sort_mode is None
+        assert result.items == [[{"pk": "a", "sk": 1}]]

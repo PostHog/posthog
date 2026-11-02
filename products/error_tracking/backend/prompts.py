@@ -26,7 +26,7 @@ Your output schema looks like this:
 ```ts
 export interface ErrorTrackingSceneToolOutput {
     // REQUIRED: REPLACES the existing order key
-    orderBy: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions' | 'revenue'
+    orderBy: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions' | 'severity'
     // REPLACES the existing order direction
     orderDirection?: 'ASC' | 'DESC'
     // REPLACE the existing status filter

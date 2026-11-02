@@ -64,6 +64,7 @@ from github import (
     CommitProvenance,
     PRData,
     check_team_membership,
+    describe_review_evidence,
     fetch_pr,
     is_in_flight_bot_eyes,
     pr_provenance,
@@ -438,6 +439,9 @@ class Pipeline:
         cc = parse_conventional_commit(pr.title)
         safe_migrations = safe_migration_files(pr.check_runs, file_paths)
         deny = detect_deny_categories(pr.deny_paths, ignored_files=safe_migrations)
+        exception_lifted = bool(POLICY.deny_exceptions) and (
+            detect_deny_categories(pr.deny_paths, ignored_files=safe_migrations, apply_exceptions=False) != deny
+        )
         dep_manifests = dependency_manifests_without_lockfile(file_paths)
         # Deterministic first line for the manifest scripts risk: an edit to
         # scripts/lifecycle/build keys hard-denies rather than resting solely
@@ -474,8 +478,9 @@ class Pipeline:
             and not has_dependency_changes(file_paths)
             and not dep_manifests
             and not owner_exempted
+            and not exception_lifted
         )
-        is_test = test_only(categories) and not owner_exempted
+        is_test = test_only(categories) and not owner_exempted and not exception_lifted
         ownership_resolvers = build_ownership(REPO_ROOT, POLICY.ownership)
         ownership = detect_ownership(file_paths, ownership_resolvers)
 
@@ -539,9 +544,10 @@ class Pipeline:
     def _summarize_assurance(self) -> dict:
         """Deterministic pre-digest of review state for the TRUSTED prompt block.
 
-        Derived only from GitHub review metadata (states, head-ness) — never
-        author-controlled text — so the reviewer gets a trustworthy at-a-glance
-        summary of who has actually vouched for the current head.
+        Derived only from GitHub review metadata (states, head-ness) and the
+        hosted server's external review evidence — never author-controlled text —
+        so the reviewer gets a trustworthy at-a-glance summary of who has
+        actually vouched for the current head.
         """
         pr = self.pr
         # Exclude the author's own reviews: an author commenting on or replying
@@ -577,6 +583,9 @@ class Pipeline:
             "head_commented": len(head_commented_users),
             "unresolved_threads": unresolved_threads,
             "discussion": len(pr.discussion),
+            # A completed external review of this head counts like a current-head review. Its
+            # published findings are review threads, so unresolved_threads above already holds them.
+            "head_review_evidence": pr.completed_review_evidence(),
         }
 
     def _maybe_compute_familiarity(self) -> None:
@@ -1100,6 +1109,8 @@ class Pipeline:
         thumbs = sorted(
             {_sanitize_untrusted(r["user"], max_len=50) for r in self.pr.pr_reactions if r.get("emoji") == "👍"}
         )
+        for completed_review in assurance.get("head_review_evidence") or []:
+            bullets.append(f"{describe_review_evidence(completed_review)}.")
         if head_reviewers:
             bullets.append(f"{', '.join(head_reviewers)} reviewed the current head.")
         elif thumbs:

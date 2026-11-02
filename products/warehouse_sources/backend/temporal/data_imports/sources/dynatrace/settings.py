@@ -45,6 +45,12 @@ class DynatraceEndpointConfig:
     # Endpoint has no listing of its own: Dynatrace requires an `entitySelector` naming a single
     # entity type, so it is read once per type the entity tables cover.
     fans_out_over_entity_types: bool = False
+    # Endpoint has no listing of its own: it is read once per row of this parent endpoint, with the
+    # `{id}` in `path` taking the row's `parent_id_field`, and each row is stamped with that id.
+    parent_endpoint: Optional[str] = None
+    parent_id_field: Optional[str] = None
+    # First-page params added to the parent listing when it is walked for the fan-out.
+    parent_params: dict[str, str] = field(default_factory=dict)
     # Endpoint whose path stands in for this one when probing token scope. The metrics query needs
     # a metric selector a probe has no way to guess, so it borrows the descriptor endpoint's probe
     # — both sit behind `metrics.read`.
@@ -94,8 +100,8 @@ def _entity_endpoint(name: str, entity_type: str) -> DynatraceEndpointConfig:
 # vulnerabilities, entity inventory, metric catalog and values, SLO status, and synthetic
 # availability.
 #
-# Incremental vs full refresh: problems, events, audit logs, metric data points and synthetic
-# executions expose a documented server-side timeframe filter, so only those are marked
+# Incremental vs full refresh: problems, events, audit logs, attacks, metric data points and
+# synthetic executions expose a documented server-side timeframe filter, so only those are marked
 # incremental. The rest are full refresh and dedupe on their primary key.
 DYNATRACE_ENDPOINTS: dict[str, DynatraceEndpointConfig] = {
     "problems": DynatraceEndpointConfig(
@@ -135,6 +141,36 @@ DYNATRACE_ENDPOINTS: dict[str, DynatraceEndpointConfig] = {
         data_key="securityProblems",
         primary_keys=["securityProblemId"],
         page_size=100,
+    ),
+    "security_problem_remediation_items": DynatraceEndpointConfig(
+        name="security_problem_remediation_items",
+        path="/api/v2/securityProblems/{id}/remediationItems",
+        data_key="remediationItems",
+        # An item's id names the affected process group or Kubernetes node, which several security
+        # problems can share.
+        primary_keys=["securityProblemId", "id"],
+        # The endpoint takes no pageSize and returns every item of the problem in one response.
+        page_size=None,
+        parent_endpoint="security_problems",
+        parent_id_field="securityProblemId",
+        # Dynatrace tracks remediation for third-party and Kubernetes (runtime) vulnerabilities
+        # only, so code-level problems have nothing to read.
+        parent_params={"securityProblemSelector": 'vulnerabilityType("THIRD_PARTY","RUNTIME")'},
+        scope_probe_endpoint="security_problems",
+    ),
+    "attacks": DynatraceEndpointConfig(
+        name="attacks",
+        path="/api/v2/attacks",
+        data_key="attacks",
+        primary_keys=["attackId"],
+        page_size=500,
+        supports_time_filter=True,
+        incremental_field="timestamp",
+        default_from="now-30d",
+        extra_params={
+            "fields": "+attackTarget,+request,+entrypoint,+vulnerability,+securityProblem,+attacker,"
+            "+managementZones,+affectedEntities"
+        },
     ),
     "releases": DynatraceEndpointConfig(
         name="releases",
@@ -257,6 +293,8 @@ ENDPOINT_SCOPES: dict[str, str] = {
     "events": "events.read",
     "audit_logs": "auditLogs.read",
     "security_problems": "securityProblems.read",
+    "security_problem_remediation_items": "securityProblems.read",
+    "attacks": "attacks.read",
     "releases": "releases.read",
     "entity_types": "entities.read",
     "hosts": "entities.read",

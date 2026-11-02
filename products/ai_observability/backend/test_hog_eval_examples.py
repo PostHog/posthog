@@ -13,11 +13,12 @@ from parameterized import parameterized
 
 from posthog.schema import LLMTrace, LLMTraceEvent
 
-from posthog.cdp.validation import compile_hog
 from posthog.temporal.ai_observability.evaluation_hog import execute_hog_eval_bytecode
 from posthog.temporal.ai_observability.run_evaluation import run_hog_eval
 from posthog.temporal.ai_observability.run_session_evaluation import build_session_hog_globals
 from posthog.temporal.ai_observability.run_trace_evaluation import build_trace_hog_globals
+
+from products.cdp.backend.validation import compile_hog
 
 EXAMPLES_PATH = Path(__file__).resolve().parents[1] / "frontend" / "evaluations" / "hogEvalExamples.json"
 EXAMPLES: list[dict] = json.loads(EXAMPLES_PATH.read_text())
@@ -270,6 +271,18 @@ class TestHogEvalExamplesBehavior:
         result = run_hog_eval(bytecode, event)
 
         assert result["verdict"] is True
+
+    @parameterized.expand(
+        [("under_limit", "search,search,fetch", True), ("over_limit", ",".join(["search"] * 6), False)]
+    )
+    def test_repeated_tool_calls_limit(self, _name: str, tools_called: str, expected: bool) -> None:
+        bytecode = compile_hog(_get_source("Repeated tool calls"), "destination")
+        event = _make_event()
+        event["properties"]["$ai_tools_called"] = tools_called
+
+        result = run_hog_eval(bytecode, event)
+
+        assert result["verdict"] is expected
 
     def test_refusal_detection_handles_openai_refusal_field(self):
         bytecode = compile_hog(_get_source("Refusal detection"), "destination")

@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 from posthog.cloud_utils import is_cloud
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -40,6 +41,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class HealthchecksSource(
     ResumableSource[HealthchecksSourceConfig, HealthchecksResumeConfig], ValidateDatabaseHostMixin
 ):
+    codebase_detection = detect(env=("^HEALTHCHECKS_",))
+
     supported_versions = ("v3",)
     default_version = "v3"
     api_docs_url = "https://healthchecks.io/docs/api/"
@@ -69,7 +72,7 @@ Create a project-scoped API key under **Project settings > API Access**. A read-
 Leave the base URL blank for Healthchecks.io Cloud, or set it to your instance URL for a self-hosted deployment.""",
             iconPath="/static/services/healthchecks.png",
             docsUrl="https://posthog.com/docs/cdp/sources/healthchecks",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

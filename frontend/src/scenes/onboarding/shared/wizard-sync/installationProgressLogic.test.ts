@@ -16,6 +16,11 @@ import { POSTHOG_INTEGRATION_WORKFLOW_ID, SELF_DRIVING_WORKFLOW_ID } from './wor
 
 // Matches the fixtures' timestamps so sessions read as fresh where intended.
 const NOW = new Date('2026-01-01T00:00:30Z').getTime()
+const USAGE_LIMIT_ERROR = {
+    title: 'AI usage limit reached',
+    detail: 'The setup agent ran out of AI usage before it finished. Your own coding agent can finish the setup from our docs.',
+    kind: 'usage_limit',
+}
 import { TaskRunProgressStep, TaskRunStreamState } from './taskRunStreamLogic'
 
 function taskState(overrides: Partial<TaskRunStreamState> = {}): TaskRunStreamState {
@@ -226,6 +231,20 @@ describe('installationProgressLogic merge', () => {
             ).toEqual({ title: 'Installation failed', detail: 'wizard boom' })
         })
 
+        it('replaces a raw gateway usage limit refusal with a usage limit message', () => {
+            expect(
+                cloudProgress(
+                    taskState({
+                        status: 'failed',
+                        error_message: 'posthog-gateway API error (402) token_cap_exceeded',
+                    }),
+                    [],
+                    'open',
+                    null
+                ).error
+            ).toEqual(USAGE_LIMIT_ERROR)
+        })
+
         it('error detail is null when neither source has a message', () => {
             expect(cloudProgress(taskState({ status: 'failed', error_message: null }), [], 'open', null).error).toEqual(
                 {
@@ -309,6 +328,18 @@ describe('installationProgressLogic merge', () => {
                 title: 'Wizard hit an error',
                 detail: 'wizard boom',
             })
+        })
+
+        it.each([
+            ['token cap', 'API Error: 402 {"error":{"code":"token_cap_exceeded","message":"cap reached"}}', true],
+            ['quota', 'API Error: 402 {"error":{"type":"insufficient_quota"}}', true],
+            ['uppercase code', 'API Error: 402 TOKEN_CAP_EXCEEDED', true],
+            ['prefixed code', 'API Error: 402 my_token_cap_exceeded', false],
+            ['suffixed code', 'API Error: 402 insufficient_quota_v2', false],
+        ])('maps a gateway refusal with a %s to the usage limit message', (_name, message, usageLimit) => {
+            expect(localProgress(session({ run_phase: 'error', error: { message } }), 'open', true).error).toEqual(
+                usageLimit ? USAGE_LIMIT_ERROR : { title: 'Wizard hit an error', detail: message }
+            )
         })
 
         it('error detail is null when the session has no error message', () => {
@@ -645,6 +676,20 @@ describe('installationProgressLogic merge', () => {
             runLocalSessionBookkeeping(done, running, POSTHOG_INTEGRATION_WORKFLOW_ID, actions)
             runLocalSessionBookkeeping(done, running, POSTHOG_INTEGRATION_WORKFLOW_ID, actions)
             expect(actions.reportWizardSyncSessionFinished).toHaveBeenCalledTimes(1)
+        })
+
+        it.each([
+            ['usage limit refusal', 'API Error: 402 token_cap_exceeded', 'usage_limit'],
+            ['different error', 'boom', null],
+        ])('reports the error kind for a %s', (_name, message, errorKind) => {
+            const actions = spyActions()
+            runLocalSessionBookkeeping(
+                fresh({ session_id: `kind-${message}`, run_phase: 'error', error: { message } }),
+                fresh({ session_id: `kind-${message}`, run_phase: 'running' }),
+                POSTHOG_INTEGRATION_WORKFLOW_ID,
+                actions
+            )
+            expect(actions.reportWizardSyncSessionFinished).toHaveBeenCalledWith(expect.objectContaining({ errorKind }))
         })
 
         it.each([

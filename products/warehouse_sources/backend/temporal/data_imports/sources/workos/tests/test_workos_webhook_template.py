@@ -5,8 +5,7 @@ import hashlib
 
 from parameterized import parameterized
 
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
 from products.warehouse_sources.backend.temporal.data_imports.sources.workos.settings import WEBHOOK_EVENT_TO_SCHEMA
 from products.warehouse_sources.backend.temporal.data_imports.sources.workos.webhook_template import template
 

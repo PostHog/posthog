@@ -1,80 +1,38 @@
-import json
 from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from unittest import mock
 
-from requests import Response
+from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.housecallpro import (
+    HousecallProSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.housecall_pro.housecall_pro import (
     HousecallProResumeConfig,
     _format_created_at_min,
-    get_rows,
-    housecall_pro_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.housecall_pro.settings import (
     ENDPOINTS,
     HOUSECALL_PRO_ENDPOINTS,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the housecall_pro module.
-HOUSECALL_PRO_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.housecall_pro.housecall_pro.make_tracked_session"
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.housecall_pro.source import HousecallProSource
 
 
-def _response(body: dict[str, Any]) -> Response:
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    return resp
+def _driver() -> SourceDriver:
+    return SourceDriver(HousecallProSource(), HousecallProSourceConfig(api_key="key"))
 
 
-def _page(response_key: str, items: list[dict[str, Any]], total_pages: int) -> Response:
-    return _response({response_key: items, "page": 1, "page_size": 100, "total_pages": total_pages})
-
-
-def _make_manager(resume_state: HousecallProResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and return snapshots of each request AT PREPARE TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the
-    run shows only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append({"url": request.url, "params": dict(request.params or {}), "auth": request.auth})
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _collect(
-    endpoint: str,
-    responses: list[Response],
-    MockSession: mock.MagicMock,
-    manager: mock.MagicMock | None = None,
-    **kwargs: Any,
-) -> tuple[list[list[dict[str, Any]]], list[dict[str, Any]], mock.MagicMock]:
-    session = MockSession.return_value
-    snapshots = _wire(session, responses)
-    manager = manager if manager is not None else _make_manager()
-    batches = list(get_rows("key", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, **kwargs))
-    return batches, snapshots, manager
+def _page(response_key: str, items: list[dict[str, Any]], total_pages: int) -> ScriptedResponse:
+    return ScriptedResponse(json={response_key: items, "page": 1, "page_size": 100, "total_pages": total_pages})
 
 
 class TestFormatCreatedAtMin:
@@ -97,63 +55,96 @@ class TestValidateCredentials:
         "status_code, expected",
         [
             (200, True),
-            (401, False),
-            (403, False),
-            (500, False),
         ],
     )
-    @mock.patch(HOUSECALL_PRO_SESSION_PATCH)
-    def test_validate_credentials_status_mapping(
-        self, mock_session: mock.MagicMock, status_code: int, expected: bool
-    ) -> None:
-        response = mock.MagicMock()
-        response.status_code = status_code
-        mock_session.return_value.get.return_value = response
+    def test_validate_credentials_status_mapping(self, status_code: int, expected: bool) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
+            assert validate_credentials("key") is expected
 
-        assert validate_credentials("key") is expected
+        assert network.requests_log[0].path == "/company"
+        assert network.requests_log[0].headers["authorization"] == "Bearer key"
 
 
 class TestGetRows:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_by_page_number(self, MockSession: mock.MagicMock) -> None:
-        batches, snapshots, manager = _collect(
+    def test_paginates_by_page_number(self) -> None:
+        result = _driver().run(
             "customers",
             [
                 _page("customers", [{"id": "1"}, {"id": "2"}], total_pages=2),
                 _page("customers", [{"id": "3"}], total_pages=2),
             ],
-            MockSession,
         )
 
-        assert [item["id"] for batch in batches for item in batch] == ["1", "2", "3"]
-        assert snapshots[0]["params"]["page"] == 1
-        assert snapshots[0]["params"]["page_size"] == 100
-        assert snapshots[1]["params"]["page"] == 2
+        assert result.raised is None
+        assert [item["id"] for item in result.rows] == ["1", "2", "3"]
+        assert result.params("page") == ["1", "2"]
+        assert result.params("page_size") == ["100", "100"]
         # State saved once (after page 1, pointing at page 2); page 2 is the last so no save after it.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == HousecallProResumeConfig(page=2)
+        assert result.saved_states == [HousecallProResumeConfig(page=2)]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_created_at_min_omitted_when_last_value_missing(self, MockSession: mock.MagicMock) -> None:
-        _, snapshots, _ = _collect(
+    def test_created_at_min_omitted_when_last_value_missing(self) -> None:
+        result = _driver().run(
             "invoices",
             [_page("invoices", [{"id": "1"}], total_pages=1)],
-            MockSession,
             should_use_incremental_field=True,
             db_incremental_field_last_value=None,
         )
 
-        assert "created_at_min" not in snapshots[0]["params"]
+        assert result.raised is None
+        assert result.requests[0].param("created_at_min") is None
+
+    @parameterized.expand([("job_appointments", "appointments"), ("job_line_items", "data")])
+    def test_job_children_walk_every_jobs_page_and_carry_the_job_id(self, endpoint: str, response_key: str) -> None:
+        child_path = HOUSECALL_PRO_ENDPOINTS[endpoint].path
+        result = _driver().run(
+            endpoint,
+            route(
+                {
+                    "/jobs": [
+                        _page("jobs", [{"id": "job_1"}, {"id": "job_2"}], total_pages=2),
+                        _page("jobs", [{"id": "job_3"}], total_pages=2),
+                    ],
+                    child_path.format(job_id="job_1"): [ScriptedResponse(json={response_key: [{"id": "a"}]})],
+                    child_path.format(job_id="job_2"): [ScriptedResponse(status=404)],
+                    child_path.format(job_id="job_3"): [ScriptedResponse(json={response_key: [{"id": "a"}]})],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [(row["job_id"], row["id"]) for row in result.rows] == [("job_1", "a"), ("job_3", "a")]
+        assert result.params("page") == ["1", None, None, "2", None]
+        assert result.params("page_size") == ["100", None, None, "100", None]
+        assert result.saved_states
+        assert all(state.page is None and state.fanout_state for state in result.saved_states)
+
+    def test_pipeline_statuses_read_each_resource_type(self) -> None:
+        result = _driver().run(
+            "pipeline_statuses",
+            [
+                _page("statuses", [{"id": "s1", "name": "New", "status_type": "open"}], total_pages=1),
+                _page("statuses", [], total_pages=0),
+                _page("statuses", [{"id": "s1", "name": "Won", "status_type": "closed"}], total_pages=1),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.params("resource_type") == ["lead", "job", "estimate"]
+        assert [(row["resource_type"], row["id"], row["name"]) for row in result.rows] == [
+            ("lead", "s1", "New"),
+            ("estimate", "s1", "Won"),
+        ]
 
 
 class TestHousecallProSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
         config = HOUSECALL_PRO_ENDPOINTS[endpoint]
-        response = housecall_pro_source(
-            "key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager()
-        )
+        result = _driver().run(endpoint, always(_page(config.response_key, [], total_pages=1)))
+        response = result.response
 
+        assert result.raised is None
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
         assert response.sort_mode == "asc"

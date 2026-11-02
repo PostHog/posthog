@@ -1,6 +1,10 @@
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.customerly.settings import (
     CUSTOMERLY_ENDPOINTS,
     ENDPOINTS,
@@ -12,7 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 
 
 class TestCustomerlySource:
-    def setup_method(self):
+    def setup_method(self) -> None:
         self.source = CustomerlySource()
         self.team_id = 123
         self.config = CustomerlySourceConfig(access_token="token")
@@ -21,7 +25,7 @@ class TestCustomerlySource:
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.customerly.source.validate_customerly_credentials"
     )
-    def test_validate_credentials(self, mock_validate, is_valid):
+    def test_validate_credentials(self, mock_validate: mock.MagicMock, is_valid: bool) -> None:
         mock_validate.return_value = is_valid
 
         result, error = self.source.validate_credentials(self.config, self.team_id)
@@ -31,11 +35,10 @@ class TestCustomerlySource:
         mock_validate.assert_called_once_with("token")
 
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_source_for_pipeline_plumbs_schema_name(self, endpoint):
-        inputs = mock.MagicMock()
-        inputs.schema_name = endpoint
+    def test_source_for_pipeline_plumbs_schema_name(self, endpoint: str) -> None:
+        result = SourceDriver(self.source, self.config).run(endpoint, [ScriptedResponse(json={"data": []})])
 
-        response = self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        assert response.name == endpoint
-        assert response.primary_keys == [CUSTOMERLY_ENDPOINTS[endpoint].primary_key]
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == endpoint
+        assert result.response.primary_keys == [CUSTOMERLY_ENDPOINTS[endpoint].primary_key]

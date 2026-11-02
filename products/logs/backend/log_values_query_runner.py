@@ -1,4 +1,5 @@
 import datetime as dt
+from functools import cached_property
 from zoneinfo import ZoneInfo
 
 from posthog.schema import IntervalType, LogValueResult, LogValuesQuery, LogValuesQueryResponse
@@ -11,7 +12,6 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.filters.mixins.utils import cached_property
 
 from products.logs.backend.logs_query_runner import LogsQueryRunnerMixin, ilike_pattern
 

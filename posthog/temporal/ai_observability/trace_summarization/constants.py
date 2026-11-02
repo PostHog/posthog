@@ -65,7 +65,10 @@ SCHEDULE_INTERVAL_HOURS = 1  # How often the coordinator runs
 # Coordinator concurrency settings
 # Max teams to process in parallel. A peak-hour run must finish within COORDINATOR_EXECUTION_TIMEOUT_MINUTES,
 # because a run that stops early drops the window for the teams it did not reach.
-DEFAULT_MAX_CONCURRENT_TEAMS = 30
+# Raising this does not make a run finish sooner once the worker's activity slots and the shared
+# ClickHouse budget (CLICKHOUSE_LLM_ANALYTICS_MAX_CONCURRENT_QUERIES) are full. The extra teams only queue,
+# and their queries fail with ConcurrencyLimitExceeded. Size it to that capacity, not to the team count.
+DEFAULT_MAX_CONCURRENT_TEAMS = 20
 
 # The patch id keeps coordinator executions that started with fixed batches deterministic on replay.
 SLIDING_WINDOW_PATCH_ID = "llma-summarization-sliding-window-2026-09"

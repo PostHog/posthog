@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use k8s_awareness::types::ControllerRef;
 use serde::{Deserialize, Serialize};
 
@@ -188,6 +190,18 @@ pub struct HandoffState {
     /// Zero means the record predates the field.
     #[serde(default)]
     pub phase_entered_at_ms: i64,
+    /// A migration's hold: driver-owned, never advanced past Draining.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub held_by: Option<String>,
+    /// Changelog epoch the record was planned under.
+    #[serde(default)]
+    pub config_epoch: u64,
+}
+
+impl HandoffState {
+    pub fn is_held(&self) -> bool {
+        self.held_by.is_some()
+    }
 }
 
 /// State machine for partition handoffs:
@@ -304,6 +318,177 @@ pub struct LeaderInfo {
     pub lease_id: i64,
 }
 
+/// The live changelog target under `{prefix}config/changelog`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChangelogConfig {
+    pub topic: String,
+    pub partitions: u32,
+    /// Monotonic from 1.
+    pub epoch: u64,
+    /// The writer's consumer group; a generation retires only once it has read it to the end.
+    pub writer_group: String,
+    /// Other consumer groups of the changelog, such as the relay's; a
+    /// generation retires only once each of them has read it to the end too.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub retire_groups: Vec<String>,
+    /// Generations some consumer may still be reading.
+    pub draining: Vec<Generation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Generation {
+    pub topic: String,
+    pub partitions: u32,
+    pub epoch: u64,
+}
+
+impl ChangelogConfig {
+    /// A freshly seeded config.
+    pub fn new(topic: &str, partitions: u32) -> Self {
+        Self {
+            topic: topic.to_string(),
+            partitions,
+            epoch: 1,
+            writer_group: String::new(),
+            retire_groups: Vec::new(),
+            draining: Vec::new(),
+        }
+    }
+
+    /// Every consumer group a draining generation waits on before it retires.
+    pub fn gated_groups(&self) -> impl Iterator<Item = &str> {
+        std::iter::once(self.writer_group.as_str())
+            .chain(self.retire_groups.iter().map(String::as_str))
+    }
+
+    pub fn target(&self) -> ChangelogTarget {
+        ChangelogTarget {
+            topic: self.topic.clone(),
+            partitions: self.partitions,
+        }
+    }
+
+    /// A flip raises the epoch. Within an epoch a retire shrinks `draining`, so
+    /// a same-epoch object with more generations is an older one delivered
+    /// late. A `retire_groups` edit also changes the object within an epoch
+    /// and is never adopted from a watch; nothing reads that list from an
+    /// adopted copy, since the coordinator and the control plane read etcd.
+    pub fn supersedes(&self, adopted: &ChangelogConfig) -> bool {
+        self.epoch > adopted.epoch
+            || (self.epoch == adopted.epoch && self.draining.len() < adopted.draining.len())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChangelogTarget {
+    pub topic: String,
+    pub partitions: u32,
+}
+
+/// Sealing is the point of no return: the old topic's ids are re-initialized there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum MigrationPhase {
+    Freezing,
+    Draining,
+    Sealing,
+    Resuming,
+    Complete,
+    Cancelling,
+    Cancelled,
+}
+
+impl MigrationPhase {
+    pub fn may_transition_to(self, next: MigrationPhase) -> bool {
+        matches!(
+            (self, next),
+            (Self::Freezing, Self::Draining)
+                | (Self::Draining, Self::Sealing)
+                | (Self::Sealing, Self::Resuming)
+                | (Self::Resuming, Self::Complete)
+                | (Self::Freezing | Self::Draining, Self::Cancelling)
+                | (Self::Cancelling, Self::Cancelled)
+        )
+    }
+}
+
+/// A request to migrate: the control plane writes it, and the coordinator
+/// starts the saga from it only once the fleet is quiet (`protocol::migration::fleet_quiet`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MigrationRequest {
+    pub id: String,
+    pub from: ChangelogTarget,
+    pub to: ChangelogTarget,
+    pub requested_at_ms: i64,
+    /// When the coordinator first saw it, on the coordinator's clock; the expiry counts from here.
+    #[serde(default)]
+    pub seen_at_ms: Option<i64>,
+    /// Why the coordinator has not started it yet.
+    #[serde(default)]
+    pub waiting: Vec<String>,
+}
+
+impl MigrationRequest {
+    /// The saga record the start creates; its pre-flip deadline counts from `now_ms`.
+    pub fn start(&self, now_ms: i64) -> MigrationState {
+        MigrationState {
+            id: self.id.clone(),
+            from: self.from.clone(),
+            to: self.to.clone(),
+            phase: MigrationPhase::Freezing,
+            created_at_ms: now_ms,
+            phase_entered_at_ms: now_ms,
+            blocking: Vec::new(),
+            cancel_reason: None,
+        }
+    }
+
+    /// The history record of a request that never started.
+    pub fn rejected(&self, reason: &str, now_ms: i64) -> MigrationState {
+        MigrationState {
+            phase: MigrationPhase::Cancelled,
+            created_at_ms: self.requested_at_ms,
+            phase_entered_at_ms: now_ms,
+            blocking: std::iter::once(reason.to_string())
+                .chain(self.waiting.iter().cloned())
+                .collect(),
+            ..self.start(self.requested_at_ms)
+        }
+    }
+}
+
+/// The saga record: only the coordinator creates and advances it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MigrationState {
+    pub id: String,
+    pub from: ChangelogTarget,
+    pub to: ChangelogTarget,
+    pub phase: MigrationPhase,
+    pub created_at_ms: i64,
+    pub phase_entered_at_ms: i64,
+    #[serde(default)]
+    pub blocking: Vec<String>,
+    /// Why the saga was cancelled, recorded by the cancelling write.
+    pub cancel_reason: Option<String>,
+}
+
+/// A changelog consumer group's proof that it has read a draining generation
+/// to its sealed end; retire waits for one from every group the config names.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DrainReport {
+    pub topic: String,
+    pub group: String,
+    pub reported_by: String,
+    pub reported_at_ms: i64,
+}
+
+/// One leader's report of the old partitions it sealed; the flip takes the union.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SealAck {
+    pub migration_id: String,
+    pub pod_name: String,
+    pub sealed: BTreeSet<u32>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -327,6 +512,37 @@ mod tests {
         assert!(h.freeze_quorum.is_none());
         assert_eq!(h.created_at_ms, 0);
         assert_eq!(h.phase_entered_at_ms, 0);
+        assert!(!h.is_held());
+        assert_eq!(h.config_epoch, 0);
+    }
+
+    #[test]
+    fn a_config_supersedes_by_epoch_then_by_retired_generations() {
+        let generation = |epoch| Generation {
+            topic: format!("g{epoch}"),
+            partitions: 64,
+            epoch,
+        };
+        let config = |epoch: u64, generations: &[u64]| ChangelogConfig {
+            epoch,
+            draining: generations.iter().map(|e| generation(*e)).collect(),
+            ..ChangelogConfig::new("g", 128)
+        };
+        let adopted = config(3, &[2]);
+        let cases = [
+            ("a newer epoch", config(4, &[2, 3]), true),
+            ("a retire at the same epoch", config(3, &[]), true),
+            ("the same object", config(3, &[2]), false),
+            (
+                "the pre-retire object delivered late",
+                config(3, &[1, 2]),
+                false,
+            ),
+            ("an older epoch", config(2, &[]), false),
+        ];
+        for (name, candidate, expected) in cases {
+            assert_eq!(candidate.supersedes(&adopted), expected, "{name}");
+        }
     }
 
     #[test]
@@ -399,6 +615,8 @@ mod tests {
             freeze_quorum_ref: None,
             created_at_ms: 0,
             phase_entered_at_ms: 0,
+            held_by: None,
+            config_epoch: 0,
             new_owner_address: None,
         };
         let json = serde_json::to_string(&handoff).unwrap();
@@ -419,6 +637,8 @@ mod tests {
             freeze_quorum_ref: None,
             created_at_ms: 0,
             phase_entered_at_ms: 0,
+            held_by: None,
+            config_epoch: 0,
             new_owner_address: None,
         };
         let json = serde_json::to_string(&handoff).unwrap();
@@ -497,6 +717,20 @@ mod tests {
             (HandoffPhase::Complete, "\"Complete\""),
         ] {
             assert_eq!(serde_json::to_string(&phase).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn a_saga_cancels_only_before_the_seal() {
+        use MigrationPhase::*;
+        for phase in [
+            Freezing, Draining, Sealing, Resuming, Complete, Cancelling, Cancelled,
+        ] {
+            assert_eq!(
+                phase.may_transition_to(Cancelling),
+                matches!(phase, Freezing | Draining),
+                "{phase:?}"
+            );
         }
     }
 }

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 import grpc
 from parameterized import parameterized
@@ -34,7 +34,7 @@ def _make_call_details(
     )
 
 
-class TestWithMetadata(BaseTest):
+class TestWithMetadata(SimpleTestCase):
     @parameterized.expand(
         [
             ("no_existing_metadata", None, [("x-key", "val")], [("x-key", "val")]),
@@ -68,7 +68,7 @@ class TestWithMetadata(BaseTest):
         self.assertEqual(result.timeout, details.timeout)
 
 
-class TestClientNameInterceptor(BaseTest):
+class TestClientNameInterceptor(SimpleTestCase):
     @parameterized.expand(
         [
             ("default_name", "posthog-django"),
@@ -93,7 +93,7 @@ class TestClientNameInterceptor(BaseTest):
         self.assertEqual(metadata["x-client-name"], client_name)
 
 
-class TestConsistencyHeaderInterceptor(BaseTest):
+class TestConsistencyHeaderInterceptor(SimpleTestCase):
     @parameterized.expand(
         [
             (

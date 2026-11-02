@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { IconBolt, IconDownload, IconGear, IconSearch, IconSparkles, IconStar, IconTarget, IconX } from '@posthog/icons'
 import { Badge, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
+import { sceneFileLogic } from 'lib/components/Scenes/sceneFileLogic'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -11,7 +12,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
-import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import {
     SceneMenuBar,
     SceneMenuBarCheckboxItem,
@@ -104,7 +104,7 @@ function WebAnalyticsSceneMenuBarInner(): JSX.Element {
         useActions(webAnalyticsLogic)
     const { exportTriggered } = useActions(shareNudgeLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { projectTreeRefEntry } = useValues(projectTreeDataLogic)
+    const { hasFileItems } = useValues(sceneFileLogic)
     const { currentTeam } = useValues(teamLogic)
     const { achievementsOptOut } = useValues(webAnalyticsAchievementsPreferencesLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -116,7 +116,6 @@ function WebAnalyticsSceneMenuBarInner(): JSX.Element {
     const showQueryEngineToggle = !!featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES]
     const isUsingNewEngine = !!currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables
     const availableTiles = productTab === ProductTab.ANALYTICS ? ANALYTICS_TILES : []
-    const hasFileItems = !!projectTreeRefEntry
 
     const handleToggleEngine = (checked: boolean): void => {
         updateCurrentTeam({

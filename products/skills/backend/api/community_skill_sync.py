@@ -9,6 +9,7 @@ import structlog
 from rest_framework.serializers import ValidationError as DRFValidationError
 
 from posthog.egress.github.transport import github_request
+from posthog.egress.limiter.policies import Priority
 
 from ..marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
 from ..models.community_skills import CommunitySkill, CommunitySkillFile, CommunitySkillKind, CommunitySkillTrustTier
@@ -299,6 +300,7 @@ def sync_community_skills_from_github(registry_url: str = COMMUNITY_SKILLS_REGIS
         source="community_skills",
         installation_id=None,
         timeout=COMMUNITY_SKILLS_SYNC_TIMEOUT_SECONDS,
+        priority=Priority.BATCH,
     )
     response.raise_for_status()
     payload = response.json()

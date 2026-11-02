@@ -8,6 +8,7 @@ export function PipelineNode({
     subtitle,
     state,
     badge,
+    progress,
     selected,
     onSelect,
 }: {
@@ -16,6 +17,7 @@ export function PipelineNode({
     subtitle: string
     state: Evidence
     badge?: ReleaseBadge
+    progress?: ReleaseBadge
     selected: string
     onSelect: (id: string) => void
 }): JSX.Element {
@@ -29,7 +31,10 @@ export function PipelineNode({
             >
                 <strong>{title}</strong>
                 <span className="node-subtitle">{subtitle}</span>
-                <Badge variant={badge?.variant || variants[state]}>{badge?.label || labels[state]}</Badge>
+                <span className="node-badges">
+                    <Badge variant={badge?.variant || variants[state]}>{badge?.label || labels[state]}</Badge>
+                    {progress && <Badge variant={progress.variant}>{progress.label}</Badge>}
+                </span>
             </button>
         </Card>
     )

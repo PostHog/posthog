@@ -6,6 +6,8 @@ from posthog.test.base import (
     flush_persons_and_events,
 )
 
+from django.test import SimpleTestCase
+
 from posthog.schema import (
     CompareFilter,
     EventPropertyFilter,
@@ -58,7 +60,7 @@ class TestWebAnalyticsPropertyValues(ClickhouseDestroyTablesMixin, APIBaseTest):
         assert set(values) == {"US", "UK"}
 
 
-class TestWebAnalyticsAssistantFilters(APIBaseTest):
+class TestWebAnalyticsAssistantFilters(SimpleTestCase):
     def test_filters_validation(self):
         filters = WebAnalyticsAssistantFilters(
             date_from="-7d",

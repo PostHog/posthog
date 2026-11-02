@@ -102,6 +102,7 @@ static INITIAL_PROPERTY_MAP: Lazy<HashMap<&'static str, &'static str>> = Lazy::n
         ("qclid", "$initial_qclid"),
         ("sccid", "$initial_sccid"),
         ("oppref", "$initial_oppref"),
+        ("bfcid", "$initial_bfcid"),
         ("irclid", "$initial_irclid"),
         ("_kx", "$initial__kx"),
     ])

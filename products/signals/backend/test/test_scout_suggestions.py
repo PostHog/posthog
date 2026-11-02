@@ -37,6 +37,7 @@ from products.signals.backend.scout_harness.suggestions import (
     SuggestionSettings,
     TeamActivity,
     dismiss_suggestion,
+    fleet_context,
     mark_generation_failed,
     mark_suggestion_created,
     parse_suggestion_settings,
@@ -45,6 +46,7 @@ from products.signals.backend.scout_harness.suggestions import (
     read_team_activity,
     reserved_scout_names,
     select_teams_to_scan,
+    set_up_team_q,
     stamp_requested,
     team_is_active_enough,
     visible_items,
@@ -264,6 +266,14 @@ class TestSuggestionPersistence(BaseTest):
         visible = visible_items(row, enabled_skill_names={"signals-scout-error-tracking"})
         self.assertEqual([record["skill_name"] for record in visible], ["signals-scout-checkout-drop"])
 
+    @parameterized.expand([("authoring-scouts",), ("exploring-replay-vision-observations",)])
+    def test_companion_skills_are_never_offered_as_picks(self, companion):
+        self.assertNotIn(companion, {name for name, _ in fleet_context(self.team.id).available_canonical})
+        row = persist_suggestion_batch(
+            self.team.id, [_item(skill_name=companion), _custom()], task_run_id=None, model=None, fleet_snapshot=[]
+        )
+        self.assertEqual([record["skill_name"] for record in visible_items(row)], ["signals-scout-checkout-drop"])
+
     def test_failed_generation_keeps_prior_items_and_counts_toward_breaker(self):
         persist_suggestion_batch(self.team.id, [_item()], task_run_id=None, model=None, fleet_snapshot=[])
         row = mark_generation_failed(self.team.id, task_run_id=None)
@@ -335,6 +345,35 @@ class TestPlanSuggestionRuns(BaseTest):
 
         tier_one_only = plan_suggestion_runs(SuggestionSettings(enabled=True, eligibility_tier=1), self.now)
         self.assertEqual([run.team_id for run in tier_one_only], [engaged_overdue.id])
+
+    @parameterized.expand(
+        [
+            ("background_only", [("signals-scout-general", True)], False),
+            ("operational_only", [("signals-scout-inbox-validation", False)], False),
+            (
+                "background_plus_seeded_operational",
+                [("signals-scout-general", True), ("signals-scout-inbox-validation", False)],
+                False,
+            ),
+            ("person_enabled_specialist", [("signals-scout-general", False)], True),
+            (
+                "person_enabled_specialist_plus_operational",
+                [("signals-scout-apm", False), ("signals-scout-inbox-validation", False)],
+                True,
+            ),
+        ]
+    )
+    def test_set_up_ignores_background_and_operational_scouts(self, _name, scouts, expected_set_up):
+        team = self._team("candidate")
+        for skill_name, background in scouts:
+            SignalScoutConfig.objects.create(
+                team=team,
+                skill_name=skill_name,
+                enabled=True,
+                managed_by=SignalScoutConfig.ManagedBy.BACKGROUND if background else SignalScoutConfig.ManagedBy.TEAM,
+            )
+
+        self.assertEqual(Team.objects.filter(set_up_team_q(), id=team.id).exists(), expected_set_up)
 
     def test_a_scout_a_person_created_counts_as_engagement(self):
         # Creation stamps `created_by` but no status transition, so `status_changed_by` stays
@@ -883,6 +922,7 @@ async def test_runner_fails_a_batch_that_validates_down_to_nothing(asuggestion_t
     # The TaskRun must not read as completed when nothing was stored: triage reads its status.
     session.end.assert_awaited_once()
     assert session.end.await_args.kwargs["status"] == "failed"
+    assert session.end.await_args.kwargs["error_type"] == "output_parse_failed"
 
 
 @pytest.mark.asyncio

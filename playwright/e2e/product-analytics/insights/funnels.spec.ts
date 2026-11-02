@@ -141,12 +141,12 @@ test.describe('Funnel insights', () => {
             const step2 = insight.funnels.stepLegend(1)
             await expect(step2).toContainText('10')
             await expect(step2).toContainText(STEP_2)
-            await expect(step2).toContainText('50')
+            await expect(insight.funnels.stepValueLabel(1)).toContainText('50')
 
             const step3 = insight.funnels.stepLegend(2)
             await expect(step3).toContainText('5')
             await expect(step3).toContainText(STEP_3)
-            await expect(step3).toContainText('25')
+            await expect(insight.funnels.stepValueLabel(2)).toContainText('25')
         })
 
         await test.step('hover funnel bar to show tooltip', async () => {
@@ -254,9 +254,7 @@ test.describe('Funnel insights', () => {
             }
             await insight.funnels.waitForChart()
 
-            const step2 = insight.funnels.stepLegend(1)
-            const droppedOffButton = step2.getByTestId('funnel-inspect-dropped-off')
-            await droppedOffButton.click()
+            await insight.funnels.clickStepDropOff(1)
 
             const modal = page.getByTestId('persons-modal')
             await expect(modal).toBeVisible({ timeout: 10000 })
@@ -284,10 +282,8 @@ test.describe('Funnel insights', () => {
             await expect(step2).toBeVisible()
 
             await expect(step2.getByTestId('funnel-inspect-converted')).toHaveCount(1)
-            await expect(step2.getByTestId('funnel-inspect-dropped-off')).toHaveCount(1)
 
-            const droppedOffButton = step2.getByTestId('funnel-inspect-dropped-off')
-            await droppedOffButton.click()
+            await insight.funnels.clickStepDropOff(1)
 
             const modal = page.getByTestId('persons-modal')
             await expect(modal).toBeVisible({ timeout: 10000 })

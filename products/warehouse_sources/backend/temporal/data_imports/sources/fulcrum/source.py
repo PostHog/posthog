@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FulcrumSource(ResumableSource[FulcrumSourceConfig, FulcrumResumeConfig]):
+    codebase_detection = detect(npm=("fulcrum-app",), pypi=("fulcrum",), rubygems=("fulcrum", "tofulcrum"))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"
@@ -50,7 +53,7 @@ class FulcrumSource(ResumableSource[FulcrumSourceConfig, FulcrumResumeConfig]):
             name=ExternalDataSourceType.FULCRUM,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Fulcrum",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Fulcrum API token to sync your Fulcrum (Spatial Networks) field data into the PostHog Data warehouse.
 
 You can create an API token in your [Fulcrum account settings](https://web.fulcrumapp.com/settings/api). API access requires the paid Developer Pack subscription, and each token is scoped to a single organization.""",

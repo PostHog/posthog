@@ -21,6 +21,14 @@ describe('permissionUtils', () => {
             expect(mapPermissionOption({ optionId: 'x', name: '', kind })).toMatchObject(expected)
         })
 
+        it.each(['allow_once', 'reject_once'])('carries the option hint for %s onto the card model', (kind) => {
+            expect(
+                mapPermissionOption({ optionId: 'x', name: 'X', kind, hint: 'The agent keeps working.' })
+            ).toMatchObject({
+                hint: 'The agent keeps working.',
+            })
+        })
+
         it('treats reject_once as a one-click decline that supports optional feedback via customInput', () => {
             expect(
                 mapPermissionOption({ optionId: 'r', name: 'No', kind: 'reject_once', customInput: true })

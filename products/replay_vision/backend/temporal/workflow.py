@@ -270,6 +270,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
             "step": 0,
             "total_steps": len(OBSERVATION_PHASE_ORDER),
             "rasterizer_workflow_id": None,
+            "phase_started_at": None,
         }
 
     @wf.query
@@ -280,12 +281,14 @@ class ApplyScannerWorkflow(PostHogWorkflow):
     def _advance_phase(self, phase: str, rasterizer_workflow_id: str | None = None) -> None:
         self._progress["phase"] = phase
         self._progress["step"] = OBSERVATION_PHASE_INDEX[phase]
+        self._progress["phase_started_at"] = wf.now().timestamp()
         if rasterizer_workflow_id is not None:
             self._progress["rasterizer_workflow_id"] = rasterizer_workflow_id
 
     @wf.run
     async def run(self, inputs: ApplyScannerInputs) -> None:
         workflow_id = wf.info().workflow_id
+        self._progress["phase_started_at"] = wf.now().timestamp()
 
         create_result: CreateObservationOutput = await wf.execute_activity(
             create_observation_activity,

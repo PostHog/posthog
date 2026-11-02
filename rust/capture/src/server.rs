@@ -93,7 +93,6 @@ pub async fn serve(listener: TcpListener, components: CaptureComponents) {
         app,
         server_handle,
         producers,
-        v1_sink_router,
         event_restriction_service: _,
         http1_header_read_timeout_ms,
     } = components;
@@ -229,29 +228,17 @@ pub async fn serve(listener: TcpListener, components: CaptureComponents) {
         graceful.shutdown().await;
         info!("Hyper accept loop (shutdown): graceful shutdown completed");
 
-        // The v0 producers flush is synchronous (rdkafka), so it runs on the
-        // blocking thread pool. V1 sinks already use spawn_blocking internally
-        // (see KafkaSink::flush).
+        // The producers flush is synchronous (rdkafka), so it runs on the
+        // blocking thread pool.
         info!("Flushing sinks...");
-        let legacy_flush = async move {
-            let Some(producers) = producers else {
-                return;
-            };
+        if let Some(producers) = producers {
             let result = tokio::task::spawn_blocking(move || producers.flush()).await;
             match result {
                 Ok(Err(e)) => error!("Producer flush failed: {e:#}"),
                 Err(e) => error!("Producer flush task panicked: {e}"),
                 Ok(Ok(())) => {}
             }
-        };
-        let v1_flush = async {
-            if let Some(ref v1_router) = v1_sink_router {
-                if let Err(e) = v1_router.flush().await {
-                    error!("V1 sink router flush failed: {e:#}");
-                }
-            }
-        };
-        tokio::join!(legacy_flush, v1_flush);
+        }
         info!("Sink flush complete");
 
         // _scope drops here -> ProcessScopeGuard signals WorkCompleted

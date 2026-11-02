@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -26,15 +27,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ramp import RampSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.ramp.ramp import (
     RampResumeConfig,
+    check_endpoint_access,
     ramp_source,
     validate_credentials as validate_ramp_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.ramp.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.backend.temporal.data_imports.sources.ramp.settings import (
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    SHOULD_SYNC_DEFAULT,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class RampSource(ResumableSource[RampSourceConfig, RampResumeConfig]):
+    codebase_detection = detect(env=("^RAMP_",))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://docs.ramp.com/developer-api/v1"
@@ -75,10 +83,12 @@ class RampSource(ResumableSource[RampSourceConfig, RampResumeConfig]):
             label="Ramp",
             caption="""Connect your Ramp account to pull your spend data into the PostHog Data warehouse.
 
-A Ramp admin can create a developer app under Settings > Developer API. Grant it the `transactions:read`, `reimbursements:read`, `users:read`, `cards:read`, and `departments:read` scopes (scopes are fixed at app creation) and enable client credentials, then enter the app's client ID and secret here.""",
+A Ramp admin can create a developer app under Settings > Developer API. Grant it the `transactions:read`, `reimbursements:read`, `users:read`, `cards:read`, and `departments:read` scopes (scopes are fixed at app creation) and enable client credentials, then enter the app's client ID and secret here.
+
+To also sync billing statements, vendors, merchants, bills, or general ledger accounts, grant `billing_statements:read`, `vendors:read`, `merchants:read`, `bills:read`, or `accounting:read` as well.""",
             iconPath="/static/services/ramp.png",
             docsUrl="https://posthog.com/docs/cdp/sources/ramp",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [
@@ -121,12 +131,20 @@ A Ramp admin can create a developer app under Settings > Developer API. Grant it
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, should_sync_default=SHOULD_SYNC_DEFAULT)
 
     def validate_credentials(
         self, config: RampSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
-        return validate_ramp_credentials(config.environment, config.client_id, config.client_secret)
+        return validate_ramp_credentials(config.environment, config.client_id, config.client_secret, schema_name)
+
+    def get_endpoint_permissions(
+        self, config: RampSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
+    ) -> dict[str, str | None]:
+        return {
+            endpoint: check_endpoint_access(config.environment, config.client_id, config.client_secret, endpoint)
+            for endpoint in endpoints
+        }
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[RampResumeConfig]:
         return ResumableSourceManager[RampResumeConfig](inputs, RampResumeConfig)

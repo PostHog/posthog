@@ -1,8 +1,13 @@
+import time_machine
 from unittest import mock
 
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import VersionDeprecation
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.leadfeeder import (
     LeadfeederSourceConfig,
 )
@@ -29,30 +34,6 @@ class TestLeadfeederSource:
     def test_lists_tables_without_credentials(self) -> None:
         # Static endpoint catalog with no I/O, so public docs can render the table list.
         assert self.source.lists_tables_without_credentials is True
-
-    @parameterized.expand(
-        [
-            "401 Client Error: Unauthorized for url: https://api.leadfeeder.com/accounts",
-            "403 Client Error: Forbidden for url: https://api.leadfeeder.com/accounts/1/leads",
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            "429 Client Error: Too Many Requests for url: https://api.leadfeeder.com/accounts/1/visits",
-            "500 Server Error for url: https://api.leadfeeder.com/accounts",
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, other_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable)
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["leads"])
-        assert [s.name for s in schemas] == ["leads"]
 
     @parameterized.expand(
         [
@@ -110,17 +91,20 @@ class TestLeadfeederSource:
         # The resolved source pin reaches the request layer so it builds the right generation's client.
         assert kwargs["api_version"] == LEADFEEDER_API_LEGACY
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder.source.leadfeeder_source")
-    def test_source_for_pipeline_drops_watermark_when_not_incremental(self, mock_source: mock.MagicMock) -> None:
+    @time_machine.travel("2026-07-02", tick=False)
+    def test_source_for_pipeline_drops_watermark_when_not_incremental(self) -> None:
         # A stale watermark must not leak into a full-refresh run.
         config = LeadfeederSourceConfig(api_token="token")
-        inputs = mock.MagicMock()
-        inputs.schema_name = "accounts"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2024-06-01"
+        result = SourceDriver(self.source, config).run(
+            "leads",
+            [
+                ScriptedResponse(json={"data": [{"id": "1", "type": "accounts", "attributes": {}}]}),
+                ScriptedResponse(json={"data": []}),
+            ],
+            api_version=LEADFEEDER_API_LEGACY,
+            should_use_incremental_field=False,
+            db_incremental_field_last_value="2024-06-01",
+        )
 
-        self.source.source_for_pipeline(config, mock.MagicMock(), inputs)
-
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["db_incremental_field_last_value"] is None
-        assert kwargs["start_date_config"] == ""
+        assert result.raised is None
+        assert result.requests[1].param("start_date") == "2025-07-02"

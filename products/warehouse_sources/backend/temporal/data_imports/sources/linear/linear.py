@@ -5,6 +5,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.exceptions_capture import capture_exception
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -27,6 +29,16 @@ LINEAR_MAX_RETRY_ATTEMPTS = 8
 LINEAR_MAX_RETRY_AFTER_SECONDS = 60
 # Stateless backoff used when a 429 carries no usable Retry-After hint.
 _LINEAR_FALLBACK_WAIT = wait_exponential_jitter(initial=1, max=60)
+
+_LINEAR_INVALID_CREDENTIALS_ERROR = (
+    "Linear rejected your connection, which may have expired or been revoked. Reconnect your Linear account, "
+    "then try again."
+)
+_LINEAR_FORBIDDEN_ERROR = (
+    "Your Linear connection can't read this workspace. Reconnect with an account that has access to it, then try again."
+)
+_LINEAR_UNREACHABLE_ERROR = "Couldn't reach Linear to check your connection. Wait a few minutes, then try again."
+_LINEAR_VALIDATION_ERROR = "Couldn't verify your Linear connection. Reconnect your Linear account, then try again."
 
 
 class LinearRetryableError(Exception):
@@ -288,13 +300,39 @@ def validate_credentials(access_token: str) -> tuple[bool, str | None]:
             json={"query": VIEWER_QUERY},
             timeout=10,
         )
-        response.raise_for_status()
-        data = response.json()
+    except requests.exceptions.RequestException:
+        return False, _LINEAR_UNREACHABLE_ERROR
 
-        if "errors" in data:
-            return False, f"Linear API error: {data['errors']}"
-        if "data" in data and data["data"].get("viewer"):
-            return True, None
-        return False, "Could not verify Linear credentials"
-    except Exception as e:
-        return False, str(e)
+    if response.status_code == 401:
+        return False, _LINEAR_INVALID_CREDENTIALS_ERROR
+    if response.status_code == 403:
+        return False, _LINEAR_FORBIDDEN_ERROR
+    if response.status_code == 429 or response.status_code >= 500:
+        return False, _LINEAR_UNREACHABLE_ERROR
+
+    try:
+        data = response.json()
+    except ValueError:
+        data = None
+    if not isinstance(data, dict):
+        data = {}
+
+    if (data.get("data") or {}).get("viewer"):
+        return True, None
+
+    # Linear can report a rejected token as a GraphQL error on a 400 instead of a 401.
+    error_codes = sorted(
+        str((error.get("extensions") or {}).get("code"))
+        for error in data.get("errors") or []
+        if isinstance(error, dict)
+    )
+    if "AUTHENTICATION_ERROR" in error_codes:
+        return False, _LINEAR_INVALID_CREDENTIALS_ERROR
+    if "FORBIDDEN" in error_codes:
+        return False, _LINEAR_FORBIDDEN_ERROR
+
+    capture_exception(
+        Exception(f"Unexpected Linear credential validation response ({response.status_code})"),
+        {"error_codes": error_codes},
+    )
+    return False, _LINEAR_VALIDATION_ERROR

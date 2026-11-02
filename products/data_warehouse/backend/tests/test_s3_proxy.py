@@ -65,18 +65,59 @@ class TestWarehouseS3ProxyBypass(SimpleTestCase):
         with override_settings(BUCKET_URL="s3://some-other-bucket/dlt", DATA_WAREHOUSE_S3_REGION="eu-central-1"):
             assert warehouse_bucket_host() == "some-other-bucket.s3.eu-central-1.amazonaws.com"
 
+    @override_settings(**{**BYPASS_ON, "USE_LOCAL_SETUP": True})
+    def test_delta_options_are_empty_for_a_local_setup(self) -> None:
+        # The in-stack MinIO/SeaweedFS of USE_LOCAL_SETUP is addressed by raw host:port, not a real
+        # DNS name, so neither addressing style nor the proxy bypass apply to it.
+        with patch.dict(os.environ, proxy_env(PROXY)):
+            assert delta_proxy_storage_options() == {}
+
     @parameterized.expand(
         [
-            ("local_setup", {"USE_LOCAL_SETUP": True}, PROXY),
             ("region_unknown", {"DATA_WAREHOUSE_S3_REGION": ""}, PROXY),
             ("bucket_unknown", {"BUCKET_URL": ""}, PROXY),
             ("no_proxy_in_environment", {}, None),
         ]
     )
-    def test_delta_options_are_empty_unless_everything_is_known(
+    def test_proxy_options_are_absent_unless_the_bucket_host_and_proxy_are_both_known(
         self, _name: str, settings_override: dict[str, object], proxy_url: str | None
     ) -> None:
         with override_settings(**{**BYPASS_ON, **settings_override}), patch.dict(os.environ, proxy_env(proxy_url)):
+            options = delta_proxy_storage_options()
+        assert "proxy_url" not in options
+        assert "proxy_excludes" not in options
+
+    @override_settings(**BYPASS_ON)
+    def test_addressing_style_is_forced_even_without_a_proxy(self) -> None:
+        # Regression: addressing style used to be set only as a side effect of the proxy bypass
+        # below, so a deployment with no egress proxy configured (e.g. a dedicated or self-hosted
+        # install) fell back to delta-rs's path-style default and 403'd against a store that
+        # requires virtual-hosted addressing (e.g. Alibaba OSS's "please use virtual hosted style to
+        # access").
+        with patch.dict(os.environ, proxy_env(None)):
+            options = delta_proxy_storage_options()
+        assert options["AWS_S3_ADDRESSING_STYLE"] == "virtual"
+        assert options["virtual_hosted_style_request"] == "true"
+        assert "proxy_url" not in options
+
+    @parameterized.expand(
+        [
+            ("no_proxy", None),
+            ("with_proxy", PROXY),
+        ]
+    )
+    def test_addressing_style_stays_path_style_for_a_dotted_bucket_name(
+        self, _name: str, proxy_url: str | None
+    ) -> None:
+        # Regression: AWS's wildcard TLS cert for its own S3 endpoints covers exactly one hostname
+        # label, so a bucket name with a dot in it (e.g. "warehouse.example") produces a
+        # virtual-hosted hostname with an extra label the cert doesn't cover, and forcing virtual
+        # addressing there breaks certificate validation instead of fixing anything. Path-style
+        # still works for it, so it must stay off the override - with or without a proxy configured.
+        with (
+            override_settings(**{**BYPASS_ON, "BUCKET_URL": "s3://warehouse.example/dlt"}),
+            patch.dict(os.environ, proxy_env(proxy_url)),
+        ):
             assert delta_proxy_storage_options() == {}
 
     @parameterized.expand(

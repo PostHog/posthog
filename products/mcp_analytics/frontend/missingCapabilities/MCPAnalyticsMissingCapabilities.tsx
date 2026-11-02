@@ -155,7 +155,9 @@ function ClientCell({ harness }: { harness: string }): JSX.Element {
     return (
         <span className="flex items-center gap-1.5">
             <HarnessLogo category={harness} className="h-3.5 w-3.5" />
-            <span className="truncate">{harness}</span>
+            <span className="truncate" title={harness}>
+                {harness}
+            </span>
         </span>
     )
 }

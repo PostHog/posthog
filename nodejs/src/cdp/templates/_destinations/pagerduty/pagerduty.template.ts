@@ -2,7 +2,7 @@ import { HogFunctionTemplate } from '~/cdp/types'
 
 export const template: HogFunctionTemplate = {
     free: true,
-    status: 'beta',
+    status: 'stable',
     type: 'destination',
     id: 'template-pagerduty',
     name: 'PagerDuty',

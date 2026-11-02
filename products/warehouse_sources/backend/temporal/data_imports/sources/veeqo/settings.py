@@ -1,6 +1,9 @@
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 # Veeqo defaults to tiny pages (12 on most endpoints, 10 on warehouses), so the page
@@ -9,7 +12,7 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 DEFAULT_PAGE_SIZE = 100
 
 
-@dataclass
+@dataclass  # nosemgrep: prefer-frozen-dataclasses -- pre-existing; new field shifts the backlog finding into diff
 class VeeqoEndpointConfig:
     """Declarative metadata for a single Veeqo list endpoint.
 
@@ -34,6 +37,14 @@ class VeeqoEndpointConfig:
     # one response, so a page-number paginator would refetch the same full list forever
     # once it holds page_size or more rows.
     single_page: bool = False
+    primary_keys: list[str] = field(default_factory=lambda: ["id"])
+    # Veeqo has no list endpoints for returns, stock entries, shipments or bundles. Tables
+    # set to True explode rows that `path` already embeds in each record, so they cost no
+    # extra request.
+    nested: bool = False
+    # Tables that need one request per parent-derived id.
+    fanout: Optional[DependentEndpointConfig] = None
+    default_incremental_field: Optional[str] = None
 
     @property
     def supports_incremental(self) -> bool:
@@ -115,6 +126,57 @@ VEEQO_ENDPOINTS: dict[str, VeeqoEndpointConfig] = {
         name="delivery_methods",
         path="/delivery_methods",
         partition_key="created_at",
+    ),
+    # Returns are embedded in each order (`returns`). `/orders/{id}/returns` documents a
+    # required `sellable_id` query param, so a per-order request can't list them all.
+    "returns": VeeqoEndpointConfig(
+        name="returns",
+        path="/orders",
+        partition_key="created_at",
+        primary_keys=["order_id", "id"],
+        nested=True,
+    ),
+    # Each product embeds its sellables, and each sellable embeds its per-warehouse stock
+    # entries — the same records `/sellables/{id}/warehouses/{id}/stock_entry` returns one
+    # at a time.
+    "stock_entries": VeeqoEndpointConfig(
+        name="stock_entries",
+        path="/products",
+        primary_keys=["sellable_id", "warehouse_id"],
+        nested=True,
+    ),
+    # Shipments are embedded in each order's allocations; Veeqo returns their events from a
+    # per-shipment endpoint only.
+    "shipment_tracking_events": VeeqoEndpointConfig(
+        name="shipment_tracking_events",
+        path="/shipping/tracking_events/{shipment_id}",
+        primary_keys=["shipment_id", "timestamp", "status"],
+        fanout=DependentEndpointConfig(
+            parent_name="orders",
+            resolve_param="shipment_id",
+            resolve_field="shipment_id",
+            include_from_parent=["shipment_id", "order_id"],
+            parent_field_renames={"shipment_id": "shipment_id", "order_id": "order_id"},
+            parent_params={"page_size": DEFAULT_PAGE_SIZE},
+            # A shipment deleted between the orders listing and this request 404s.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    # Bundles ("kits") appear as sellables of type `Kit` on their product; `/kits/{id}`
+    # returns the bundle with its `contents`.
+    "bundle_contents": VeeqoEndpointConfig(
+        name="bundle_contents",
+        path="/kits/{kit_id}",
+        primary_keys=["kit_id", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="products",
+            resolve_param="kit_id",
+            resolve_field="kit_id",
+            include_from_parent=["kit_id", "product_id"],
+            parent_field_renames={"kit_id": "kit_id", "product_id": "product_id"},
+            parent_params={"page_size": DEFAULT_PAGE_SIZE},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
     ),
 }
 

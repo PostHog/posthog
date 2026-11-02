@@ -1,9 +1,15 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.elevenlabs import source as source_module
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.elevenlabs.source import ElevenLabsSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.elevenlabs import (
+    ElevenLabsSourceConfig,
+)
 
 
 class TestElevenLabsSchemas:
@@ -15,6 +21,15 @@ class TestElevenLabsSchemas:
             ("agents", False, False),
             ("voices", False, False),
             ("triage_tickets", False, False),
+            ("models", False, False),
+            ("workspace_members", False, False),
+            ("workspace_groups", False, False),
+            ("tools", False, False),
+            # Executions take a server-side `start_time` filter, so they merge incrementally.
+            ("tool_executions", True, False),
+            ("phone_numbers", False, False),
+            ("batch_calls", False, False),
+            ("subscription", False, False),
         ]
     )
     def test_schema_sync_capabilities(self, endpoint: str, incremental: bool, append: bool) -> None:
@@ -24,44 +39,16 @@ class TestElevenLabsSchemas:
         assert schemas[endpoint].supports_incremental is incremental
         assert schemas[endpoint].supports_append is append
 
-    def test_names_filter_limits_returned_schemas(self) -> None:
-        schemas = ElevenLabsSource().get_schemas(MagicMock(), team_id=1, names=["voices"])
-        assert [s.name for s in schemas] == ["voices"]
-
-
-class TestElevenLabsNonRetryableErrors:
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.elevenlabs.io/v1/history"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.elevenlabs.io/v1/convai/conversations"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed: str) -> None:
-        errors = ElevenLabsSource().get_non_retryable_errors()
-        assert any(key in observed for key in errors)
-
-    @parameterized.expand(
-        [
-            ("read_timeout", "HTTPSConnectionPool(host='api.elevenlabs.io', port=443): Read timed out."),
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.elevenlabs.io/v1/history"),
-        ]
-    )
-    def test_transient_errors_stay_retryable(self, _name: str, observed: str) -> None:
-        errors = ElevenLabsSource().get_non_retryable_errors()
-        assert not any(key in observed for key in errors)
-
 
 class TestElevenLabsPipelinePlumbing:
     def test_source_for_pipeline_drops_watermark_on_full_refresh(self) -> None:
         # When incremental is off, the stored watermark must not leak into the request as a filter.
-        inputs = MagicMock(
-            schema_name="agents",
+        result = SourceDriver(ElevenLabsSource(), ElevenLabsSourceConfig(api_key="sk_test")).run(
+            "history",
+            [ScriptedResponse(json={"history": [], "has_more": False})],
             should_use_incremental_field=False,
             db_incremental_field_last_value=1700000000,
-            incremental_field=None,
         )
-        with patch.object(source_module, "elevenlabs_source") as mocked:
-            ElevenLabsSource().source_for_pipeline(MagicMock(api_key="sk_test"), MagicMock(), inputs)
 
-        _args, kwargs = mocked.call_args
-        assert kwargs["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert result.params("date_after_unix") == [None]

@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -10,10 +12,11 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 # - "cursor": `pageSize`/`cursor` params with a `pageInfo.nextCursor` reference (v4 schedules).
 # - "incident_export": required `start_time`/`end_time` window, chunked client-side (incidents).
 # - "postmortems": required `fromDate`/`toDate`/`limit` window, single request per team.
-PaginationStyle = Literal["none", "offset", "cursor", "incident_export", "postmortems"]
+# - "schedule_rotations": walks each team's v4 schedules and lists the rotations of every schedule.
+PaginationStyle = Literal["none", "offset", "cursor", "incident_export", "postmortems", "schedule_rotations"]
 
 
-@dataclass
+@frozen
 class SquadcastEndpointConfig:
     path: str  # Path under the regional API base URL, e.g. "/v3/services"
     pagination: PaginationStyle = "none"
@@ -22,7 +25,7 @@ class SquadcastEndpointConfig:
     team_param: Optional[str] = None
     # Keys to walk in the response body to reach the list of rows.
     envelope: tuple[str, ...] = ("data",)
-    primary_key: str = "id"
+    primary_keys: tuple[str, ...] = ("id",)
     partition_key: Optional[str] = None  # Stable datetime field used to partition (never a mutable field)
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Credential-bearing row fields dropped before rows are yielded, so live keys never
@@ -77,6 +80,13 @@ SQUADCAST_ENDPOINTS: dict[str, SquadcastEndpointConfig] = {
         pagination="cursor",
         team_param="teamID",
     ),
+    "schedule_rotations": SquadcastEndpointConfig(
+        path="/v4/schedules/{schedule_id}/rotations",
+        pagination="schedule_rotations",
+        team_param="teamID",
+        # Rotation ids are only documented as unique within their schedule.
+        primary_keys=("scheduleID", "id"),
+    ),
     "runbooks": SquadcastEndpointConfig(
         path="/v3/runbooks",
         team_param="owner_id",
@@ -86,6 +96,12 @@ SQUADCAST_ENDPOINTS: dict[str, SquadcastEndpointConfig] = {
         pagination="offset",
         team_param="owner_id",
         envelope=("data", "slos"),
+    ),
+    "squads": SquadcastEndpointConfig(
+        # The response carries `pageInfo`, but the endpoint documents no page size or cursor
+        # params, so we make one request per team and warn if `pageInfo.hasNext` is set.
+        path="/v4/squads",
+        team_param="owner_id",
     ),
     "users": SquadcastEndpointConfig(
         path="/v3/users",

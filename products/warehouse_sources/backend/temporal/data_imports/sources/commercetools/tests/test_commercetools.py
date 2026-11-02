@@ -1,50 +1,49 @@
 from datetime import UTC, date, datetime
-from typing import Any
-from urllib.parse import parse_qs, urlparse
 
 import pytest
-from unittest import mock
-
-import requests
+from unittest.mock import MagicMock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.commercetools.commercetools import (
     MAX_OFFSET,
     PAGE_SIZE,
     CommercetoolsResumeConfig,
-    _build_url,
     _format_last_modified,
     _validate_path_component,
-    commercetools_source,
-    get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.commercetools.settings import (
     COMMERCETOOLS_ENDPOINTS,
     ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.commercetools.source import CommercetoolsSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.commercetools import (
+    CommercetoolsSourceConfig,
+)
 
 
-def _make_manager(resume_state: CommercetoolsResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
+def _driver() -> SourceDriver:
+    return SourceDriver(
+        CommercetoolsSource(),
+        CommercetoolsSourceConfig(
+            region="us-central1.gcp",
+            project_key="proj",
+            client_id="id",
+            client_secret="secret",
+        ),
+    )
 
 
-def _token_response() -> mock.MagicMock:
-    resp = mock.MagicMock()
-    resp.json.return_value = {"access_token": "the-token", "token_type": "Bearer", "expires_in": 172800}
-    resp.status_code = 200
-    resp.ok = True
-    return resp
+def _token_response(token: str = "the-token") -> ScriptedResponse:
+    return ScriptedResponse(json={"access_token": token, "token_type": "Bearer", "expires_in": 172800})
 
 
-def _page_response(items: list[dict[str, Any]]) -> mock.MagicMock:
-    resp = mock.MagicMock()
-    resp.json.return_value = {"limit": PAGE_SIZE, "offset": 0, "count": len(items), "results": items}
-    resp.status_code = 200
-    resp.ok = True
-    return resp
+def _page_response(items: list[dict[str, str]]) -> ScriptedResponse:
+    return ScriptedResponse(json={"limit": PAGE_SIZE, "offset": 0, "count": len(items), "results": items})
 
 
 class TestUrlHelpers:
@@ -54,13 +53,15 @@ class TestUrlHelpers:
             _validate_path_component(value, "test")
 
     def test_build_url_full_refresh(self):
-        url = _build_url("https://api.x.commercetools.com/p", COMMERCETOOLS_ENDPOINTS["orders"], None, 0)
-        query = parse_qs(urlparse(url).query)
-        assert query["limit"] == [str(PAGE_SIZE)]
-        assert query["offset"] == ["0"]
-        assert query["sort"] == ["lastModifiedAt asc"]
-        assert query["withTotal"] == ["false"]
-        assert "where" not in query
+        result = _driver().run("orders", [_token_response(), _page_response([])])
+
+        assert result.raised is None
+        request = result.requests[1]
+        assert request.param("limit") == str(PAGE_SIZE)
+        assert request.param("offset") == "0"
+        assert request.param("sort") == "lastModifiedAt asc"
+        assert request.param("withTotal") == "false"
+        assert request.param("where") is None
 
 
 class TestFormatLastModified:
@@ -78,57 +79,39 @@ class TestFormatLastModified:
 
 
 class TestValidateCredentials:
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.commercetools.commercetools.make_tracked_session"
-    )
-    def test_valid_when_token_mints(self, mock_session):
-        mock_session.return_value.post.return_value = _token_response()
-        assert validate_credentials("us-central1.gcp", "my-project", "id", "secret") is True
+    def test_valid_when_token_mints(self):
+        with scripted_network([_token_response()]) as network:
+            assert validate_credentials("us-central1.gcp", "my-project", "id", "secret") is True
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.commercetools.commercetools.make_tracked_session"
-    )
-    def test_invalid_when_token_mint_fails(self, mock_session):
-        resp = mock.MagicMock()
-        resp.raise_for_status.side_effect = requests.HTTPError("401 Client Error", response=mock.MagicMock())
-        mock_session.return_value.post.return_value = resp
-        assert validate_credentials("us-central1.gcp", "my-project", "id", "secret") is False
+        assert [request.method for request in network.requests_log] == ["POST"]
+        assert [request.path for request in network.requests_log] == ["/oauth/token"]
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.commercetools.commercetools.make_tracked_session"
-    )
-    def test_invalid_project_key_rejected_without_request(self, mock_session):
-        assert validate_credentials("us-central1.gcp", "bad key!", "id", "secret") is False
-        mock_session.return_value.post.assert_not_called()
+    def test_invalid_when_token_mint_fails(self):
+        with scripted_network([ScriptedResponse(status=401)]) as network:
+            assert validate_credentials("us-central1.gcp", "my-project", "id", "secret") is False
+
+        assert [request.path for request in network.requests_log] == ["/oauth/token"]
+
+    def test_invalid_project_key_rejected_without_request(self):
+        with scripted_network([]) as network:
+            assert validate_credentials("us-central1.gcp", "bad key!", "id", "secret") is False
+
+        assert network.requests_log == []
 
 
 class TestGetRows:
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.commercetools.commercetools.make_tracked_session"
-    )
-    def test_paginates_with_offset_until_short_page(self, mock_session):
+    def test_paginates_with_offset_until_short_page(self):
         full_page = [{"id": str(i), "lastModifiedAt": "2024-01-01T00:00:00.000Z"} for i in range(PAGE_SIZE)]
-        mock_session.return_value.post.return_value = _token_response()
-        mock_session.return_value.get.side_effect = [
-            _page_response(full_page),
-            _page_response([{"id": "last", "lastModifiedAt": "2024-01-02T00:00:00.000Z"}]),
-        ]
+        last = {"id": "last", "lastModifiedAt": "2024-01-02T00:00:00.000Z"}
 
-        manager = _make_manager()
-        batches = list(get_rows("us-central1.gcp", "proj", "id", "secret", "orders", mock.MagicMock(), manager))
+        result = _driver().run("orders", [_token_response(), _page_response(full_page), _page_response([last])])
 
-        assert len(batches) == 2
-        manager.save_state.assert_called_once()
-        saved = manager.save_state.call_args.args[0]
-        assert saved.anchor is None
-        assert saved.offset == PAGE_SIZE
-        second_url = mock_session.return_value.get.call_args_list[1].args[0]
-        assert parse_qs(urlparse(second_url).query)["offset"] == [str(PAGE_SIZE)]
+        assert result.raised is None
+        assert result.items == [full_page, [last]]
+        assert result.saved_states == [CommercetoolsResumeConfig(anchor=None, offset=PAGE_SIZE)]
+        assert result.params("offset") == [None, "0", str(PAGE_SIZE)]
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.commercetools.commercetools.make_tracked_session"
-    )
-    def test_reanchors_at_offset_cap(self, mock_session):
+    def test_reanchors_at_offset_cap(self):
         pages = []
         for page_index in range(MAX_OFFSET // PAGE_SIZE):
             pages.append(
@@ -141,122 +124,92 @@ class TestGetRows:
             )
         # After re-anchoring, one short page ends the scan.
         pages.append(_page_response([{"id": "post-anchor", "lastModifiedAt": "2024-01-02T00:00:00.000Z"}]))
-        mock_session.return_value.post.return_value = _token_response()
-        mock_session.return_value.get.side_effect = pages
 
-        manager = _make_manager()
-        batches = list(get_rows("us-central1.gcp", "proj", "id", "secret", "orders", mock.MagicMock(), manager))
+        result = _driver().run("orders", [_token_response(), *pages])
 
-        assert len(batches) == MAX_OFFSET // PAGE_SIZE + 1
-        post_cap_url = mock_session.return_value.get.call_args_list[-1].args[0]
-        query = parse_qs(urlparse(post_cap_url).query)
+        assert result.raised is None
+        assert len(result.items) == MAX_OFFSET // PAGE_SIZE + 1
         # The window re-anchored on the latest lastModifiedAt with offset reset.
-        assert query["where"] == ['lastModifiedAt >= "2024-01-01T00:00:19.000Z"']
-        assert query["offset"] == ["0"]
+        assert result.requests[-1].param("where") == 'lastModifiedAt >= "2024-01-01T00:00:19.000Z"'
+        assert result.requests[-1].param("offset") == "0"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.commercetools.commercetools.make_tracked_session"
-    )
-    def test_non_advancing_anchor_stops_at_cap(self, mock_session):
+    def test_non_advancing_anchor_stops_at_cap(self):
         same_ts = "2024-01-01T00:00:00.000Z"
         pages = [
             _page_response([{"id": f"{p}-{i}", "lastModifiedAt": same_ts} for i in range(PAGE_SIZE)])
             for p in range(MAX_OFFSET // PAGE_SIZE)
         ]
-        mock_session.return_value.post.return_value = _token_response()
-        mock_session.return_value.get.side_effect = [*pages, _page_response([])]
+        logger = MagicMock()
 
-        manager = _make_manager(CommercetoolsResumeConfig(anchor=same_ts, offset=0))
-        logger = mock.MagicMock()
-        batches = list(get_rows("us-central1.gcp", "proj", "id", "secret", "orders", logger, manager))
-
-        # All cap pages yielded, then the scan stops instead of looping.
-        assert len(batches) == MAX_OFFSET // PAGE_SIZE
-        logger.error.assert_called_once()
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.commercetools.commercetools.make_tracked_session"
-    )
-    def test_incremental_starts_from_watermark_anchor(self, mock_session):
-        mock_session.return_value.post.return_value = _token_response()
-        mock_session.return_value.get.return_value = _page_response([])
-
-        manager = _make_manager()
-        list(
-            get_rows(
-                "us-central1.gcp",
-                "proj",
-                "id",
-                "secret",
-                "orders",
-                mock.MagicMock(),
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
-            )
+        result = _driver().run(
+            "orders",
+            [_token_response(), *pages],
+            resume_state=CommercetoolsResumeConfig(anchor=same_ts, offset=0),
+            logger=logger,
         )
 
-        url = mock_session.return_value.get.call_args.args[0]
-        assert parse_qs(urlparse(url).query)["where"] == ['lastModifiedAt >= "2024-01-02T00:00:00.000Z"']
+        # All cap pages yielded, then the scan stops instead of looping.
+        assert result.raised is None
+        assert len(result.items) == MAX_OFFSET // PAGE_SIZE
+        assert len(result.requests) == MAX_OFFSET // PAGE_SIZE + 1
+        logger.error.assert_called_once()
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.commercetools.commercetools.make_tracked_session"
-    )
-    def test_remints_token_on_401(self, mock_session):
-        expired = mock.MagicMock()
-        expired.status_code = 401
-        expired.ok = False
-        mock_session.return_value.post.return_value = _token_response()
-        mock_session.return_value.get.side_effect = [expired, _page_response([{"id": "1"}])]
+    def test_incremental_starts_from_watermark_anchor(self):
+        result = _driver().run(
+            "orders",
+            [_token_response(), _page_response([])],
+            incremental_field="lastModifiedAt",
+            db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
+        )
 
-        manager = _make_manager()
-        batches = list(get_rows("us-central1.gcp", "proj", "id", "secret", "orders", mock.MagicMock(), manager))
+        assert result.raised is None
+        assert result.requests[1].param("where") == 'lastModifiedAt >= "2024-01-02T00:00:00.000Z"'
 
-        assert batches == [[{"id": "1"}]]
-        assert mock_session.return_value.post.call_count == 2
+    def test_remints_token_on_401(self):
+        row = {"id": "1"}
+        result = _driver().run(
+            "orders",
+            [_token_response("first"), ScriptedResponse(status=401), _token_response("second"), _page_response([row])],
+        )
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.commercetools.commercetools.make_tracked_session"
-    )
-    def test_resumes_from_saved_state(self, mock_session):
-        mock_session.return_value.post.return_value = _token_response()
-        mock_session.return_value.get.return_value = _page_response([])
+        assert result.raised is None
+        assert result.items == [[row]]
+        assert result.paths == ["/oauth/token", "/proj/orders", "/oauth/token", "/proj/orders"]
+        assert result.requests[1].headers["authorization"] == "Bearer first"
+        assert result.requests[3].headers["authorization"] == "Bearer second"
 
-        manager = _make_manager(CommercetoolsResumeConfig(anchor="2024-01-01T00:00:00.000Z", offset=1500))
-        list(get_rows("us-central1.gcp", "proj", "id", "secret", "orders", mock.MagicMock(), manager))
+    def test_resumes_from_saved_state(self):
+        result = _driver().run(
+            "orders",
+            [_token_response(), _page_response([])],
+            resume_state=CommercetoolsResumeConfig(anchor="2024-01-01T00:00:00.000Z", offset=1500),
+        )
 
-        url = mock_session.return_value.get.call_args.args[0]
-        query = parse_qs(urlparse(url).query)
-        assert query["where"] == ['lastModifiedAt >= "2024-01-01T00:00:00.000Z"']
-        assert query["offset"] == ["1500"]
+        assert result.raised is None
+        assert result.requests[1].param("where") == 'lastModifiedAt >= "2024-01-01T00:00:00.000Z"'
+        assert result.requests[1].param("offset") == "1500"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.commercetools.commercetools.make_tracked_session"
-    )
-    def test_empty_response_stops_without_saving_state(self, mock_session):
-        mock_session.return_value.post.return_value = _token_response()
-        mock_session.return_value.get.return_value = _page_response([])
+    def test_empty_response_stops_without_saving_state(self):
+        result = _driver().run("orders", [_token_response(), _page_response([])])
 
-        manager = _make_manager()
-        batches = list(get_rows("us-central1.gcp", "proj", "id", "secret", "orders", mock.MagicMock(), manager))
-
-        assert batches == []
-        manager.save_state.assert_not_called()
+        assert result.raised is None
+        assert result.items == []
+        assert result.saved_states == []
 
 
 class TestCommercetoolsSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint):
         config = COMMERCETOOLS_ENDPOINTS[endpoint]
-        response = commercetools_source(
-            "us-central1.gcp", "proj", "id", "secret", endpoint, mock.MagicMock(), _make_manager()
-        )
+        result = _driver().run(endpoint, [_token_response(), _page_response([])])
 
-        assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
-        assert response.sort_mode == "asc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["createdAt"]
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == endpoint
+        assert result.response.primary_keys == [config.primary_key]
+        assert result.response.sort_mode == "asc"
+        assert result.response.partition_mode == "datetime"
+        assert result.response.partition_keys == ["createdAt"]
 
     @pytest.mark.parametrize("config", list(COMMERCETOOLS_ENDPOINTS.values()))
     def test_paths_are_kebab_case_resource_paths(self, config):

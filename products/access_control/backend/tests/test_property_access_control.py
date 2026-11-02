@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
@@ -26,7 +28,7 @@ def _enable_property_access_control(organization: Organization, *, role_based_ac
     organization.save()
 
 
-class TestGetDefaultAccessLevel(BaseTest):
+class TestGetDefaultAccessLevel(SimpleTestCase):
     def test_default_is_read_write(self):
         assert get_default_access_level() == PropertyAccessLevel.READ_WRITE
 

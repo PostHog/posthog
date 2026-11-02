@@ -1,9 +1,9 @@
-from django.test import TestCase
+from django.test import SimpleTestCase
 
 from posthog.sampling import clamp_to_range, sample_on_property, simple_hash
 
 
-class TestSampling(TestCase):
+class TestSampling(SimpleTestCase):
     def test_simple_hash_function(self):
         assert simple_hash("test") == simple_hash("test")
         assert simple_hash("test1") != simple_hash("test2")

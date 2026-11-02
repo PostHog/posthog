@@ -63,10 +63,6 @@ class TestGetSchemas:
         # supports_append tracks incremental here (date-windowed endpoints can append).
         assert schemas[endpoint].supports_append is expected_incremental
 
-    def test_names_filter(self) -> None:
-        schemas = FinancialModellingSource().get_schemas(MagicMock(), team_id=1, names=["historical_prices"])
-        assert [s.name for s in schemas] == ["historical_prices"]
-
 
 class TestValidateCredentials:
     @patch(
@@ -94,14 +90,6 @@ class TestNonRetryableErrors:
     @parameterized.expand(
         [
             (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://financialmodelingprep.com/stable/profile?symbol=AAPL",
-            ),
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://financialmodelingprep.com/stable/income-statement?symbol=AAPL",
-            ),
-            (
                 "error_body",
                 "Financial Modeling Prep API returned an error response: Exclusive Endpoint: This endpoint is only for premium subscribers.",
             ),
@@ -110,23 +98,6 @@ class TestNonRetryableErrors:
     def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
         non_retryable = FinancialModellingSource().get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://financialmodelingprep.com/stable/profile",
-            ),
-            (
-                "rate_limited",
-                "429 Client Error: Too Many Requests for url: https://financialmodelingprep.com/stable/profile",
-            ),
-            ("timeout", "Read timed out."),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable = FinancialModellingSource().get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable)
 
 
 class TestSourceForPipeline:

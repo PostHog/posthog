@@ -7,9 +7,8 @@ from django.core.management import call_command
 
 from parameterized import parameterized
 
-from posthog.cdp.validation import compile_hog as compile_hog_for_check
-
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.validation import compile_hog as compile_hog_for_check
 
 # The powerplatform branch the migration must splice into stale Microsoft Teams functions.
 POWERPLATFORM_BRANCH = "environment.api.powerplatform.com(:443)?/powerautomate/automations/direct/(.*/)?workflows"
@@ -386,7 +385,7 @@ class TestUpdateHogFunctionCode(BaseTest):
         self.assertIn("Failed: 1", output)
         self.assertIn(str(bad_function.id), output)
 
-    @patch("posthog.cdp.validation.compile_hog")
+    @patch("products.cdp.backend.validation.compile_hog")
     def test_invalid_replace_key(self, mock_compile_hog):
         """Test handling of invalid replace key."""
         out = StringIO()
@@ -406,7 +405,7 @@ class TestUpdateHogFunctionCode(BaseTest):
         output = out.getvalue()
         self.assertIn("Invalid replace key provided: None", output)
 
-    @patch("posthog.cdp.validation.compile_hog")
+    @patch("products.cdp.backend.validation.compile_hog")
     def test_no_matching_functions(self, mock_compile_hog):
         """Test when no functions match the criteria."""
         # Delete all LinkedIn functions

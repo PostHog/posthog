@@ -2,7 +2,9 @@ import { AGENT_USE_CASE_SCOPES } from 'lib/agentScopes.generated'
 
 import type { APIScopeAction, APIScopeObject } from '~/types'
 
-export const MAX_API_KEYS_PER_USER = 10 // Same as in posthog/api/personal_api_key.py
+// Fallback when the user has not loaded yet. The real limit comes from the `personal_api_keys`
+// entitlement and travels on the user as `personal_api_keys_limit`.
+export const DEFAULT_MAX_API_KEYS_PER_USER = 10
 
 export type ScopeAccessLevel = 'none' | 'read' | 'write'
 
@@ -215,6 +217,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'heatmap', objectName: 'Heatmap', objectPlural: 'heatmaps' },
     { key: 'hog_flow', objectName: 'Workflow', objectPlural: 'workflows' },
     { key: 'hog_function', objectName: 'Hog function', objectPlural: 'hog functions' },
+    { key: 'inbox', objectName: 'Inbox', objectPlural: 'inbox reports' },
     {
         key: 'ingestion_warning',
         objectName: 'Ingestion warning',
@@ -328,11 +331,17 @@ export const API_SCOPES: APIScope[] = [
         },
     },
     { key: 'signal_scout', objectName: 'Signals agent', objectPlural: 'signals agents' },
+    {
+        key: 'signal_usage',
+        objectName: 'Self-driving usage',
+        objectPlural: 'self-driving usage',
+        disabledActions: ['write'],
+    },
     { key: 'review_hog', objectName: 'PostHog Review', objectPlural: 'PostHog Review reviews' },
     { key: 'stamphog', objectName: 'Stamphog', objectPlural: 'stamphog' },
     { key: 'streamlit_app', objectName: 'Streamlit app', objectPlural: 'Streamlit apps' },
     { key: 'task', objectName: 'Task', objectPlural: 'tasks' },
-    { key: 'today', objectName: 'Today briefing', objectPlural: 'Today briefings' },
+    { key: 'today', objectName: 'Today home', objectPlural: 'Today home' },
     { key: 'user_interview', objectName: 'User interview', objectPlural: 'user interviews' },
     { key: 'vision_alert', objectName: 'Vision alert', objectPlural: 'vision alerts' },
     { key: 'visual_review', objectName: 'Visual review', objectPlural: 'visual reviews' },
@@ -376,6 +385,11 @@ export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
     'loop:write',
     'experiment:read',
     'offline_evaluation_ingestion:write',
+    'billing:read',
+    'replay_scanner:write',
+    'session_recording:read',
+    'hog_flow:read',
+    'hog_flow:write',
 ] as const
 
 export type ProjectSecretAPIKeyAllowedScope = (typeof PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)[number]
@@ -605,9 +619,11 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'data_catalog_approval',
             'mcp_registry',
             'task',
+            'inbox',
             'today',
             'loop',
             'signal_scout',
+            'signal_usage',
             'review_hog',
             'approvals',
             'autoresearch',

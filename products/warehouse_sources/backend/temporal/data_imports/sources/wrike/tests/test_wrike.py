@@ -1,70 +1,23 @@
-import json
-from typing import Any
-
 import pytest
-from unittest import mock
 
-from requests import Response
-
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.wrike import WrikeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.wrike.source import WrikeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.wrike.wrike import (
     WrikeResumeConfig,
     _build_url,
     is_host_valid,
     validate_credentials,
-    wrike_source,
-)
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the wrike module.
-WRIKE_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.wrike.wrike.make_tracked_session"
 )
 
 
-def _response(body: dict[str, Any], status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    return resp
-
-
-def _make_manager(resume_state: WrikeResumeConfig | None = None, can_resume: bool = False) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = can_resume or resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and capture each request's params AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so snapshot a copy when each
-    request is prepared instead of reading it after the run.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        # The client host-pins every request URL (allowed_hosts), so the prepared request must
-        # carry a real Wrike URL rather than a bare MagicMock.
-        prepared = mock.MagicMock()
-        prepared.url = request.url
-        return prepared
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _source(endpoint: str, host: str = "www.wrike.com", **kwargs: Any):
-    manager = kwargs.pop("manager", None) or _make_manager()
-    return wrike_source("token", host, endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
+def _driver(host: str = "www.wrike.com") -> SourceDriver:
+    return SourceDriver(WrikeSource(), WrikeSourceConfig(access_token="token", host=host))
 
 
 class TestIsHostValid:
@@ -114,11 +67,11 @@ class TestBuildUrl:
 
 class TestValidateCredentials:
     def test_rejects_non_wrike_host_without_request(self) -> None:
-        with mock.patch(WRIKE_SESSION_PATCH) as make_session:
+        with scripted_network([]) as network:
             is_valid, error = validate_credentials("token", "evil.com")
         assert is_valid is False
         assert error is not None and "Wrike domain" in error
-        make_session.assert_not_called()
+        assert network.requests_log == []
 
     @pytest.mark.parametrize(
         "status_code, expected_valid, expected_error",
@@ -130,88 +83,72 @@ class TestValidateCredentials:
         ],
     )
     def test_status_mapping(self, status_code: int, expected_valid: bool, expected_error: str | None) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = mock.MagicMock(status_code=status_code)
-        with mock.patch(WRIKE_SESSION_PATCH, return_value=session):
+        with scripted_network(always(ScriptedResponse(status=status_code, json={}))):
             is_valid, error = validate_credentials("token", "www.wrike.com")
         assert is_valid is expected_valid
         assert error == expected_error
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_paginated_endpoint_single_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"kind": "contacts", "data": [{"id": "a"}, {"id": "b"}]})])
-        manager = _make_manager()
+    def test_non_paginated_endpoint_single_page(self) -> None:
+        result = _driver().run(
+            "contacts", [ScriptedResponse(json={"kind": "contacts", "data": [{"id": "a"}, {"id": "b"}]})]
+        )
 
-        rows = _rows(_source("contacts", manager=manager))
+        assert result.rows == [{"id": "a"}, {"id": "b"}]
+        assert len(result.requests) == 1
+        assert result.saved_states == []
 
-        assert rows == [{"id": "a"}, {"id": "b"}]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginated_endpoint_follows_next_page_token(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
+    def test_paginated_endpoint_follows_next_page_token(self) -> None:
+        result = _driver().run(
+            "tasks",
             [
-                _response({"data": [{"id": 1}], "nextPageToken": "tok2"}),
-                _response({"data": [{"id": 2}]}),
+                ScriptedResponse(json={"data": [{"id": 1}], "nextPageToken": "tok2"}),
+                ScriptedResponse(json={"data": [{"id": 2}]}),
             ],
         )
-        manager = _make_manager()
 
-        rows = _rows(_source("tasks", manager=manager))
-
-        assert rows == [{"id": 1}, {"id": 2}]
+        assert result.rows == [{"id": 1}, {"id": 2}]
         # First request carries pageSize; second carries the resume token.
-        assert params[0]["pageSize"] == 1000
-        assert "nextPageToken" not in params[0]
-        assert params[1]["nextPageToken"] == "tok2"
+        assert result.requests[0].param("pageSize") == "1000"
+        assert result.requests[0].param("nextPageToken") is None
+        assert result.requests[1].param("nextPageToken") == "tok2"
         # State saved once, after yielding the first page, before fetching the next.
-        manager.save_state.assert_called_once_with(WrikeResumeConfig(next_page_token="tok2"))
+        assert result.saved_states == [WrikeResumeConfig(next_page_token="tok2")]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_state(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response({"data": [{"id": 3}]})])
-        manager = _make_manager(WrikeResumeConfig(next_page_token="resume_tok"))
+    def test_resumes_from_saved_state(self) -> None:
+        result = _driver().run(
+            "tasks",
+            [ScriptedResponse(json={"data": [{"id": 3}]})],
+            resume_state=WrikeResumeConfig(next_page_token="resume_tok"),
+        )
 
-        rows = _rows(_source("tasks", manager=manager))
+        assert result.rows == [{"id": 3}]
+        assert result.requests[0].param("nextPageToken") == "resume_tok"
 
-        assert rows == [{"id": 3}]
-        assert params[0]["nextPageToken"] == "resume_tok"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_project_dependencies_fan_out_over_projects(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
+    def test_project_dependencies_fan_out_over_projects(self) -> None:
+        result = _driver().run(
+            "project_dependencies",
             [
-                _response({"kind": "folders", "data": [{"id": "P1"}, {"id": "P2"}]}),
-                _response(
-                    {
+                ScriptedResponse(json={"kind": "folders", "data": [{"id": "P1"}, {"id": "P2"}]}),
+                ScriptedResponse(
+                    json={
                         "kind": "dependencies",
                         "data": [{"id": "D1", "predecessorId": "P1", "successorId": "P2"}],
                     }
                 ),
-                _response({"errorDescription": "Folder not found"}, status_code=404),
+                ScriptedResponse(status=404, json={"errorDescription": "Folder not found"}),
             ],
         )
 
-        source_response = _source("project_dependencies")
-        rows = _rows(source_response)
-
-        assert params[0] == {"project": "true"}
-        sent_urls = [call.args[0].url for call in session.prepare_request.call_args_list]
-        assert sent_urls[1].endswith("/api/v4/folders/P1/dependencies")
-        assert sent_urls[2].endswith("/api/v4/folders/P2/dependencies")
-        assert rows == [{"id": "D1", "predecessorId": "P1", "successorId": "P2", "projectId": "P1"}]
+        assert dict(result.requests[0].query) == {"project": ("true",)}
+        assert result.paths[1].endswith("/api/v4/folders/P1/dependencies")
+        assert result.paths[2].endswith("/api/v4/folders/P2/dependencies")
+        assert result.rows == [{"id": "D1", "predecessorId": "P1", "successorId": "P2", "projectId": "P1"}]
 
     def test_rejects_non_wrike_host_before_any_request(self) -> None:
-        with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
-            with pytest.raises(ValueError, match="non-Wrike host"):
-                _source("tasks", host="evil.com")
-        MockSession.assert_not_called()
+        result = _driver(host="evil.com").run("tasks", [])
+
+        assert isinstance(result.raised, ValueError)
+        assert "non-Wrike host" in str(result.raised)
+        assert result.requests == []

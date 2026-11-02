@@ -32,15 +32,6 @@ class TestCustomerIOSourceWebhookResourceMap:
         assert mapping["in_app_events"] == "in_app"
 
 
-class TestCustomerIOSourceGetSchemas:
-    def test_filters_by_names_argument(self):
-        source = CustomerIOSource()
-
-        schemas = source.get_schemas(_config(), team_id=1, names=["broadcasts", "email_events"])
-
-        assert {s.name for s in schemas} == {"broadcasts", "email_events"}
-
-
 class TestCustomerIOSourceWebhookInputsUpdated:
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.source.api_client.enable_webhook"

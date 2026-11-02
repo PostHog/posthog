@@ -1,14 +1,16 @@
 from collections.abc import Callable
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
+from celery.exceptions import Retry
 from parameterized import parameterized
 
 from posthog.models.project import Project
-from posthog.models.remote_config import RemoteConfig
+from posthog.models.remote_config import RemoteConfig, RemoteConfigTokenChangeSyncError
 from posthog.storage.cache_expiry_manager import CacheRefreshCounts
 from posthog.tasks.remote_config import (
     cleanup_stale_remote_config_expiry_tracking_task,
@@ -85,8 +87,14 @@ class TestRemoteConfig(BaseTest):
         update_team_remote_config(self.team.id)
         mock_sync.assert_called_once_with(bypass_recordings_quota_cache=False)
 
+    @patch.object(RemoteConfig, "sync_after_token_change", side_effect=RemoteConfigTokenChangeSyncError)
+    def test_update_team_remote_config_retries_an_incomplete_token_change(self, mock_sync: MagicMock) -> None:
+        with pytest.raises(Retry):
+            update_team_remote_config.apply(args=[self.team.id], kwargs={"old_token": "phc_old_token"})
+        mock_sync.assert_called_once_with("phc_old_token")
 
-class TestRemoteConfigCacheTasks(BaseTest):
+
+class TestRemoteConfigCacheTasks(SimpleTestCase):
     @parameterized.expand(
         [
             (

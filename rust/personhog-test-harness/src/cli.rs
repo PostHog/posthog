@@ -46,6 +46,10 @@ pub enum Command {
     /// seeds, and every database operation is confined to the configured
     /// validation table.
     Traffic(Box<TrafficArgs>),
+    /// Bring up the isolated stack the gate uses, print where it listens
+    /// and which topics it publishes to as one JSON line, and hold it until
+    /// SIGTERM or Ctrl-C. A fixture for tests in other languages.
+    Stack(StackArgs),
 }
 
 #[derive(Args, Clone)]
@@ -148,6 +152,10 @@ pub struct GateArgs {
     /// change per knob. Repeatable.
     #[arg(long = "leader-env", value_parser = parse_env_pair)]
     pub leader_env: Vec<(String, String)>,
+
+    /// Extra KEY=VALUE environment for spawned routers. Repeatable.
+    #[arg(long = "router-env", value_parser = parse_env_pair)]
+    pub router_env: Vec<(String, String)>,
 
     /// Target an already-running stack at this router URL instead of
     /// spawning one. When unset, the harness spawns its own isolated stack
@@ -299,6 +307,54 @@ pub struct GateArgs {
     #[arg(long, default_value_t = false)]
     pub kill_handoff_target: bool,
 
+    /// Migrate the changelog to a fresh topic this long into the traffic phase.
+    #[arg(long, value_parser = humantime::parse_duration)]
+    pub migrate_after: Option<Duration>,
+
+    /// Partition count of the migration's target topic.
+    #[arg(long)]
+    pub migrate_to_partitions: Option<u32>,
+
+    /// SIGKILL the coordinator router once the saga reaches Sealing. Requires --routers >= 3.
+    #[arg(long, default_value_t = false)]
+    pub migrate_kill_coordinator: bool,
+
+    /// SIGKILL the busiest leader once the saga reaches Resuming.
+    #[arg(long, default_value_t = false)]
+    pub migrate_kill_leader: bool,
+
+    /// SIGSTOP the busiest leader once it has drained, then SIGKILL it (lease revoked) at Sealing, so its peers seal its partitions.
+    #[arg(long, default_value_t = false)]
+    pub migrate_kill_leader_at_sealing: bool,
+
+    /// Crash-restart the busiest leader under its own name as soon as the saga is holding; it must seal what it never reloaded.
+    #[arg(long, default_value_t = false)]
+    pub migrate_restart_leader: bool,
+
+    /// SIGSTOP the busiest leader before the request, lease kept: its partitions never drain, so the saga must cancel at the 5s pre-flip deadline and unwind.
+    #[arg(long, default_value_t = false)]
+    pub migrate_stall_leader: bool,
+
+    /// SIGSTOP the busiest leader once it has drained, lease kept: its peers must seal for it after the seal grace and the saga complete. Pair with --migrate-slow-coordinator-ms so the drained holder is observable before Sealing.
+    #[arg(long, default_value_t = false)]
+    pub migrate_stall_leader_at_sealing: bool,
+
+    /// Debounce between the coordinator's migration passes, to widen the flip-to-restart window.
+    #[arg(long)]
+    pub migrate_slow_coordinator_ms: Option<u64>,
+
+    /// Run a second migration this long into the traffic phase.
+    #[arg(long, value_parser = humantime::parse_duration)]
+    pub migrate_again_after: Option<Duration>,
+
+    /// Partition count of the second migration's target topic.
+    #[arg(long)]
+    pub migrate_again_to_partitions: Option<u32>,
+
+    /// SIGSTOP the writer for --writer-pause-duration as the migration starts; the saga must not wait for it.
+    #[arg(long, default_value_t = false)]
+    pub migrate_pause_writer: bool,
+
     /// Leader per-partition cache budget in bytes (CACHE_MEMORY_CAPACITY_BYTES).
     /// Set below the seeded pool's footprint to put the cache under
     /// eviction pressure. Default matches the dev deployment (16 MiB).
@@ -379,6 +435,40 @@ pub struct GateArgs {
     #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
     pub merge_identified_sources: bool,
 
+    /// Publish through the outbox: the spawned identity writes an outbox
+    /// row for every create, attach, merge and delete, `--publishers`
+    /// copies of `personhog-publisher` drain it to two per-run topics, and
+    /// once the outbox is empty the gate asserts that the latest row per
+    /// distinct id on Kafka equals the Postgres mapping, that the merge
+    /// events name exactly the merged sources, and that every mapping is
+    /// tombstoned after the delete leg. Implies --create-via-identity.
+    #[arg(long, default_value_t = false)]
+    pub publish: bool,
+
+    /// Publisher replicas with --publish. Two contend on the claim's
+    /// `SKIP LOCKED`.
+    #[arg(long, default_value_t = 2)]
+    pub publishers: u32,
+
+    /// Distinct id rows one publish pass produces at most
+    /// (LIFECYCLE_PUBLISH_MAX_ROWS_PER_PASS). Small, so a wide merge drains
+    /// across several passes and the pointer cursor is exercised.
+    #[arg(long, default_value_t = 100)]
+    pub publish_rows_per_pass: i64,
+
+    /// Crash-restart (SIGKILL + respawn) one publisher this long into the
+    /// traffic phase. Its in-flight claim rolls back, and whatever it had
+    /// already produced is republished. Requires --publish.
+    #[arg(long, value_parser = humantime::parse_duration)]
+    pub publisher_crash_after: Option<Duration>,
+
+    /// Crash-restart (SIGKILL + respawn) the identity service this long
+    /// into the traffic phase. In-flight merges lose their response and
+    /// settle from the op record; the sweeper re-drives abandoned sagas.
+    /// Requires the identity path.
+    #[arg(long, value_parser = humantime::parse_duration)]
+    pub identity_crash_after: Option<Duration>,
+
     /// Leave the spawned stack running after the gate finishes (for
     /// poking at it manually). Ignored with --external-router-url.
     #[arg(long, default_value_t = false)]
@@ -387,6 +477,68 @@ pub struct GateArgs {
     /// Leave seeded persons in Postgres after the gate finishes.
     #[arg(long, default_value_t = false)]
     pub keep_data: bool,
+
+    /// Directory containing the service binaries. Defaults to the
+    /// workspace target directory for this build profile.
+    #[arg(long)]
+    pub bin_dir: Option<PathBuf>,
+}
+
+#[derive(Args, Clone)]
+pub struct StackArgs {
+    #[arg(long, default_value_t = 1)]
+    pub leaders: u32,
+
+    #[arg(long, default_value_t = 1)]
+    pub routers: u32,
+
+    #[arg(long, default_value_t = 4)]
+    pub partitions: u32,
+
+    #[arg(long, default_value = DEFAULT_PERSONS_DB_URL)]
+    pub persons_db_url: String,
+
+    /// The table set every spawned service uses; see GateArgs.
+    #[arg(long, default_value = "personhog_person_tmp")]
+    pub pg_target_table: String,
+
+    #[arg(long, default_value = "localhost:9092")]
+    pub kafka_hosts: String,
+
+    #[arg(long, default_value = "http://localhost:2379")]
+    pub etcd_endpoints: String,
+
+    /// Also run publisher replicas draining the identity outbox to two
+    /// per-run topics, named in the ready line.
+    #[arg(long, default_value_t = false)]
+    pub publish: bool,
+
+    #[arg(long, default_value_t = 2)]
+    pub publishers: u32,
+
+    #[arg(long, default_value_t = 100)]
+    pub publish_rows_per_pass: i64,
+
+    /// Also run `personhog-parity-monitor` against the publish topics and
+    /// the Node path's topics named below, and put its metrics address in
+    /// the ready line. Requires --publish; the Node topics must exist.
+    #[arg(long, default_value_t = false)]
+    pub monitor: bool,
+
+    /// The Node path's `clickhouse_person_distinct_id` topic the monitor
+    /// compares the publish topic against.
+    #[arg(long)]
+    pub monitor_node_distinct_ids_topic: Option<String>,
+
+    /// The Node path's `person_merge_events` topic.
+    #[arg(long)]
+    pub monitor_node_merge_events_topic: Option<String>,
+
+    /// Also write the ready line's JSON to this file once the stack is up.
+    /// A parent process polls for the file instead of parsing stdout,
+    /// which the logs share.
+    #[arg(long)]
+    pub ready_file: Option<PathBuf>,
 
     /// Directory containing the service binaries. Defaults to the
     /// workspace target directory for this build profile.
@@ -539,6 +691,13 @@ pub struct TrafficArgs {
     )]
     pub chaos_writer_namespace: String,
 
+    #[arg(
+        long,
+        env = "CHAOS_IDENTITY_NAMESPACE",
+        default_value = "personhog-identity"
+    )]
+    pub chaos_identity_namespace: String,
+
     /// etcd endpoints of the stack under test (comma-separated). Enables
     /// the coordinator-targeted scenarios, which resolve the live
     /// election holder; absent, those scenarios are excluded.
@@ -560,14 +719,13 @@ pub struct TrafficArgs {
 
 /// Environment the stack assigns per leader; overriding any of these
 /// would break pod identity or point a spawned leader at the wrong
-/// topic or table, and the resulting run would look like a real result.
+/// table, and the resulting run would look like a real result.
 const RESERVED_LEADER_ENV: &[&str] = &[
     "POD_NAME",
     "GRPC_ADDRESS",
     "METRICS_PORT",
     "ETCD_ENDPOINTS",
     "ETCD_PREFIX",
-    "KAFKA_PERSON_STATE_TOPIC",
     "FALLBACK_TABLE",
     "LIFECYCLE_OP_TABLE",
     "LIFECYCLE_OP_PERSON_TABLE",

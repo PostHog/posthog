@@ -16,7 +16,13 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.batch_exports.backend.models.batch_export import BatchExport
-from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema, RedshiftCopyInputs
+from products.batch_exports.backend.service import (
+    AnyBatchExportModel,
+    BatchExportEventsCustomModel,
+    BatchExportEventsModel,
+    BatchExportSchema,
+    RedshiftCopyInputs,
+)
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.destinations.redshift_batch_export import (
     RedshiftBatchExportInputs,
@@ -165,7 +171,7 @@ async def test_redshift_export_workflow(
     ateam,
     exclude_events,
     table_name,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: AnyBatchExportModel | BatchExportSchema | None,
     generate_test_data,
     data_interval_start,
     data_interval_end,
@@ -181,14 +187,14 @@ async def test_redshift_export_workflow(
     records to the provided Redshift instance.
     """
     if (
-        isinstance(model, BatchExportModel)
+        isinstance(model, AnyBatchExportModel)
         and (model.name == "persons" or model.name == "sessions")
         and exclude_events is not None
     ):
         pytest.skip(f"Unnecessary test case as {model.name} batch export is not affected by 'exclude_events'")
 
     if (
-        isinstance(model, BatchExportModel)
+        isinstance(model, AnyBatchExportModel)
         and (model.name == "persons" or model.name == "sessions")
         and MISSING_REQUIRED_ENV_VARS
     ):
@@ -196,19 +202,17 @@ async def test_redshift_export_workflow(
 
     copy_inputs = _build_copy_inputs(mode, aws_credentials, bucket_name, bucket_region, key_prefix)
 
-    batch_export_schema: BatchExportSchema | None = None
-    batch_export_model: BatchExportModel | None = None
-    if isinstance(model, BatchExportModel):
+    batch_export_model: AnyBatchExportModel | None = None
+    if isinstance(model, AnyBatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_schema = model
+        batch_export_model = BatchExportEventsCustomModel(schema=model)
 
     inputs = RedshiftBatchExportInputs(
         team_id=ateam.pk,
         batch_export_id=str(redshift_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
-        batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
         mode=mode,
         copy_inputs=copy_inputs,
@@ -225,7 +229,7 @@ async def test_redshift_export_workflow(
     assert (
         run.records_completed == len(events_to_export_created)
         or run.records_completed == len(persons_to_export_created)
-        or (isinstance(model, BatchExportModel) and model.name == "sessions" and run.records_completed == 1)
+        or (isinstance(model, AnyBatchExportModel) and model.name == "sessions" and run.records_completed == 1)
     )
 
     sort_key = "event"
@@ -326,7 +330,7 @@ async def test_redshift_export_workflow_handles_insert_activity_non_retryable_er
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
 @pytest.mark.parametrize("mode", ["COPY", "INSERT"], indirect=True)
-@pytest.mark.parametrize("model", [TEST_MODELS[1]])
+@pytest.mark.parametrize("model", [BatchExportEventsModel()])
 async def test_redshift_export_workflow_handles_undefined_function_error(
     clickhouse_client,
     redshift_config,
@@ -336,7 +340,7 @@ async def test_redshift_export_workflow_handles_undefined_function_error(
     ateam,
     exclude_events,
     table_name,
-    model: BatchExportModel,
+    model: AnyBatchExportModel,
     generate_test_data,
     data_interval_start,
     data_interval_end,

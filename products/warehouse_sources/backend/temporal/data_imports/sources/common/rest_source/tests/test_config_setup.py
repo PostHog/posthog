@@ -146,6 +146,21 @@ class TestSetupIncrementalObject:
         with pytest.raises(ValueError, match="Only a single incremental"):
             setup_incremental_object(params)
 
+    def test_param_location_reaches_incremental_param_not_engine(self) -> None:
+        config: IncrementalConfig = {
+            "cursor_path": "modified",
+            "start_param": "variables.since",
+            "param_location": "json",
+        }
+        inc, param, _ = setup_incremental_object({}, config)
+        assert isinstance(inc, Incremental)
+        assert param == IncrementalParam(start="variables.since", end=None, location="json")
+
+    def test_invalid_param_location_raises(self) -> None:
+        config: IncrementalConfig = {"cursor_path": "modified", "start_param": "since", "param_location": "body"}
+        with pytest.raises(ValueError, match="param_location"):
+            setup_incremental_object({}, config)
+
 
 class TestMergeResourceEndpoints:
     def test_default_params_merged_with_resource_params(self) -> None:

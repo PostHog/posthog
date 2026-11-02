@@ -6,4 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class CrispSourceConfig(config.Config):
-    pass
+    website_id: str
+    token_identifier: str
+    token_key: str

@@ -4,14 +4,17 @@ Thin by design: accept ids, return ids, never ORM instances.
 """
 
 from datetime import datetime
+from uuid import UUID
 
 from django.utils import timezone
 
 from posthog.models import Team
 
+from products.annotations.backend import change_feed
+from products.annotations.backend.facade.change_feed import ChangeFeed, ChangeKind, ChangeWindow, KindVisibility
 from products.annotations.backend.models.annotation import Annotation
 
-__all__ = ["create_project_annotation"]
+__all__ = ["create_project_annotation", "list_changes"]
 
 
 def create_project_annotation(
@@ -33,3 +36,23 @@ def create_project_annotation(
         scope=Annotation.Scope.PROJECT,
     )
     return annotation.id
+
+
+def list_changes(
+    *,
+    team_id: int,
+    organization_id: UUID,
+    user_is_staff: bool,
+    window: ChangeWindow,
+    visibility: dict[ChangeKind, KindVisibility],
+    limit: int,
+) -> ChangeFeed:
+    """Recent production changes the caller may see, newest first. A kind missing from `visibility` is left out."""
+    return change_feed.list_changes(
+        team_id=team_id,
+        organization_id=organization_id,
+        user_is_staff=user_is_staff,
+        window=window,
+        visibility=visibility,
+        limit=limit,
+    )

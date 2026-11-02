@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TwentySource(ResumableSource[TwentySourceConfig, TwentyResumeConfig]):
+    codebase_detection = detect(npm=("twenty-sdk", "twenty-client-sdk"))
+
     api_docs_url = "https://docs.twenty.com/developers/extend/api"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -54,6 +57,13 @@ class TwentySource(ResumableSource[TwentySourceConfig, TwentyResumeConfig]):
             HOST_NOT_ALLOWED_ERROR: "The Twenty instance URL is not allowed. Please use a publicly reachable host.",
             HTTP_NOT_ALLOWED_ERROR: "The Twenty instance URL must use HTTPS. Please update the instance URL to use https://.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # Twenty returns this as a 400, not a 5xx, so the shared REST client's retry loop (which
+        # only reissues 408/429/5xx) never catches it in-process — it reaches here on the first
+        # attempt. The code name says the failure is on Twenty's DB, not the request shape, and
+        # Temporal's activity retry recovers once it clears, so keep it out of error tracking as noise.
+        return {"code=TRANSIENT_DATABASE_ERROR"}
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.twenty.canonical_descriptions import (  # noqa: PLC0415
@@ -111,7 +121,7 @@ class TwentySource(ResumableSource[TwentySourceConfig, TwentyResumeConfig]):
             name=ExternalDataSourceType.TWENTY,
             category=DataWarehouseSourceCategory.CRM,
             label="Twenty",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["crm", "sales", "open source", "salesforce"],
             caption="""Enter your Twenty API key to pull your CRM data into the PostHog Data warehouse.
 

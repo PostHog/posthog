@@ -4,8 +4,11 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.similarweb import (
     SimilarwebSourceConfig,
 )
@@ -15,29 +18,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.similarweb
     ENDPOINTS,
     MAX_DOMAINS,
     SIMILARWEB_ENDPOINTS,
+    V5_ENGAGEMENT_PATH,
     VISITS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.similarweb.source import SimilarwebSource
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.similarweb.source"
-
-
-def _inputs(schema_name: str = VISITS, **overrides: Any) -> SourceInputs:
-    defaults: dict[str, Any] = {
-        "schema_name": schema_name,
-        "schema_id": "schema-id",
-        "source_id": "source-id",
-        "team_id": 1,
-        "should_use_incremental_field": False,
-        "db_incremental_field_last_value": None,
-        "db_incremental_field_earliest_value": None,
-        "incremental_field": None,
-        "incremental_field_type": None,
-        "job_id": "job-id",
-        "logger": mock.MagicMock(),
-        "reset_pipeline": False,
-    }
-    return SourceInputs(**{**defaults, **overrides})
 
 
 class TestSimilarwebSource:
@@ -78,8 +64,8 @@ class TestSimilarwebSource:
 
     @parameterized.expand([(name,) for name in ENDPOINTS])
     def test_primary_keys_identify_a_row_across_domains(self, name: str) -> None:
-        manager = mock.MagicMock(spec=ResumableSourceManager)
-        response = self.source.source_for_pipeline(self.config, manager, _inputs(schema_name=name))
+        response = SourceDriver(self.source, self.config).run(name, always(ScriptedResponse(json={}))).response
+        assert response is not None
 
         endpoint = SIMILARWEB_ENDPOINTS[name]
         assert response.name == name
@@ -100,9 +86,15 @@ class TestSimilarwebSource:
     def test_source_for_pipeline_passes_the_resolved_api_version(
         self, _name: str, pin: str | None, expected: str
     ) -> None:
-        manager = mock.MagicMock(spec=ResumableSourceManager)
+        result = SourceDriver(self.source, self.config).run(
+            VISITS, [ScriptedResponse(json={"data": [], "visits": []})], api_version=pin
+        )
 
-        with mock.patch(f"{MODULE}.similarweb_source") as build:
-            self.source.source_for_pipeline(self.config, manager, _inputs(api_version=pin))
-
-        assert build.call_args.kwargs["api_version"] == expected
+        # V5 sends the key in a header to the multi-metric path; the legacy pin keeps the key in the query.
+        if expected == API_VERSION_V5:
+            assert result.paths == [V5_ENGAGEMENT_PATH]
+            assert result.params("api_key") == [None]
+            assert result.requests[0].headers["api-key"] == "key-123"
+        else:
+            assert result.paths != [V5_ENGAGEMENT_PATH]
+            assert result.params("api_key") == ["key-123"]

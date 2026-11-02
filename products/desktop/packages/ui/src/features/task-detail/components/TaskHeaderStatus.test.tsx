@@ -9,14 +9,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // none of which a unit test has. Stubbed at the module boundary, as
 // ChannelItemRow.test.tsx does for the same reason.
 const mocks = vi.hoisted(() => ({
-  bluebird: true,
   status: null as TaskStatusInput | null,
   togglePin: vi.fn(async (_taskId: string) => undefined),
   openExternalUrl: vi.fn(),
   toast: { success: vi.fn(), error: vi.fn() },
-}));
-vi.mock("@posthog/ui/features/feature-flags/useBluebirdFlag", () => ({
-  useBluebirdFlag: () => mocks.bluebird,
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelTaskStatus", () => ({
   useTaskStatusInput: () => mocks.status,
@@ -51,7 +47,6 @@ function renderMarks() {
 
 describe("TaskHeaderStatus", () => {
   beforeEach(() => {
-    mocks.bluebird = true;
     mocks.status = { workspaceMode: "cloud" };
     mocks.togglePin.mockClear();
     mocks.togglePin.mockResolvedValue(undefined);
@@ -63,24 +58,11 @@ describe("TaskHeaderStatus", () => {
   it.each([
     ["needs your input", { needsPermission: true }, "Needs your input"],
     ["a settled session", {}, "All caught up"],
-  ])(
-    "names the state under project-bluebird for %s",
-    (_case, status: TaskStatusInput, label) => {
-      mocks.status = { workspaceMode: "cloud", ...status };
-      renderMark();
+  ])("names the state for %s", (_case, status: TaskStatusInput, label) => {
+    mocks.status = { workspaceMode: "cloud", ...status };
+    renderMark();
 
-      expect(screen.getByRole("img", { name: label })).toBeInTheDocument();
-    },
-  );
-
-  it("keeps the workspace-mode glyph when project-bluebird is off", () => {
-    mocks.bluebird = false;
-    const { container } = renderMark();
-
-    // The mode glyph carries its name in a tooltip rather than a role, so the
-    // dot's absence is what says the old header is still drawn.
-    expect(screen.queryByRole("img")).not.toBeInTheDocument();
-    expect(container.querySelector("svg")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: label })).toBeInTheDocument();
   });
 
   it("moves where the session runs into a badge, so cloud stays silent", () => {

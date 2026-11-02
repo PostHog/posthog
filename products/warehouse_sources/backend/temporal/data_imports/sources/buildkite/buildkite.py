@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
+    Endpoint,
     EndpointResource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -35,9 +36,12 @@ PAGE_SIZE = 100
 # Test Engine suites are the fan-out parent for both Test Engine child tables.
 SUITE_CHILD_ENDPOINTS = ("test_suite_runs", "test_suite_tests")
 
-# Clusters are only a fan-out parent, so the cluster list has no entry in the endpoint catalog and
-# is not offered as a table of its own.
-CLUSTERS_PATH = "/v2/organizations/{organization}/clusters"
+# Builds are the fan-out parent for every per-build child table.
+BUILD_CHILD_ENDPOINTS = ("jobs", "artifacts", "annotations")
+
+# Without `scope=all` the annotations listing returns only build-scoped annotations and drops the
+# job-scoped ones.
+BUILD_CHILD_EXTRA_PARAMS: dict[str, dict[str, Any]] = {"annotations": {"scope": "all"}}
 
 
 @frozen
@@ -56,7 +60,7 @@ class BuildkiteFanoutConfig:
 FANOUT_ENDPOINTS: dict[str, BuildkiteFanoutConfig] = {
     "cluster_queues": BuildkiteFanoutConfig(
         parent_name="clusters",
-        parent_path=CLUSTERS_PATH,
+        parent_path=BUILDKITE_ENDPOINTS["clusters"].path,
         resolve_param="cluster_id",
         resolve_field="id",
         parent_field_renames={"id": "cluster_id"},
@@ -69,6 +73,13 @@ FANOUT_ENDPOINTS: dict[str, BuildkiteFanoutConfig] = {
         parent_field_renames={"slug": "pipeline_slug"},
     ),
     "team_pipelines": BuildkiteFanoutConfig(
+        parent_name="teams",
+        parent_path=BUILDKITE_ENDPOINTS["teams"].path,
+        resolve_param="team_id",
+        resolve_field="id",
+        parent_field_renames={"id": "team_id", "slug": "team_slug"},
+    ),
+    "team_members": BuildkiteFanoutConfig(
         parent_name="teams",
         parent_path=BUILDKITE_ENDPOINTS["teams"].path,
         resolve_param="team_id",
@@ -129,10 +140,10 @@ def _build_initial_params(
 
 
 def _build_created_from(should_use_incremental_field: bool, db_incremental_field_last_value: Any) -> str | None:
-    """Window the parent build walk that drives the jobs fan-out.
+    """Window the parent build walk that drives a per-build fan-out.
 
-    Jobs have no time filter of their own, so the cursor a job row carries is its build's
-    creation time and the window is applied to the builds listing that produced it.
+    Build children have no time filter of their own, so the cursor a child row carries is its
+    build's creation time and the window is applied to the builds listing that produced it.
     """
     if not should_use_incremental_field or not db_incremental_field_last_value:
         return None
@@ -230,7 +241,7 @@ def _fanout_child_resource(endpoint: str, organization: str) -> EndpointResource
 
 
 def _flatten_pipeline_slug(row: dict[str, Any]) -> dict[str, Any]:
-    # The jobs path needs the pipeline slug, which a build nests under `pipeline`; flatten it so
+    # A build child path needs the pipeline slug, which a build nests under `pipeline`; flatten it so
     # both the path binding and include_from_parent can read it off the parent row.
     pipeline = row.get("pipeline")
     row["pipeline_slug"] = pipeline.get("slug") if isinstance(pipeline, dict) else None
@@ -246,25 +257,28 @@ def _builds_parent_resource(organization: str, created_from: str | None) -> Endp
     return resource
 
 
-def _jobs_child_resource(organization: str) -> EndpointResource:
-    return {
-        "name": "jobs",
-        "include_from_parent": ["id", "number", "pipeline_slug", "created_at"],
-        "endpoint": {
-            "path": _bind_organization(BUILDKITE_ENDPOINTS["jobs"].path, organization),
-            "params": {
-                # Both path params bind fields of the same parent build row.
-                "pipeline_slug": {"type": "resolve", "resource": "builds", "field": "pipeline_slug"},
-                "build_number": {"type": "resolve", "resource": "builds", "field": "number"},
-                "per_page": PAGE_SIZE,
-            },
-            # Unlike the other list endpoints, jobs answers with an envelope and paginates on a
-            # cursor URL in the body rather than a Link header.
-            "data_selector": "items",
-            "data_selector_required": True,
-            "paginator": JSONResponsePaginator(next_url_path="links.next"),
-            "response_actions": [{"status_code": 404, "action": "ignore"}],
+def _build_child_resource(endpoint: str, organization: str) -> EndpointResource:
+    endpoint_config: Endpoint = {
+        "path": _bind_organization(BUILDKITE_ENDPOINTS[endpoint].path, organization),
+        "params": {
+            # Both path params bind fields of the same parent build row.
+            "pipeline_slug": {"type": "resolve", "resource": "builds", "field": "pipeline_slug"},
+            "build_number": {"type": "resolve", "resource": "builds", "field": "number"},
+            "per_page": PAGE_SIZE,
+            **BUILD_CHILD_EXTRA_PARAMS.get(endpoint, {}),
         },
+        "data_selector_required": True,
+        "response_actions": [{"status_code": 404, "action": "ignore"}],
+    }
+    if endpoint == "jobs":
+        # Unlike the other list endpoints, jobs answers with an envelope and paginates on a
+        # cursor URL in the body rather than a Link header.
+        endpoint_config["data_selector"] = "items"
+        endpoint_config["paginator"] = JSONResponsePaginator(next_url_path="links.next")
+    return {
+        "name": endpoint,
+        "include_from_parent": ["id", "number", "pipeline_slug", "created_at"],
+        "endpoint": endpoint_config,
         "data_map": rename_parent_fields(
             "builds",
             {
@@ -388,12 +402,15 @@ def buildkite_source(
             _fanout_parent_resource(FANOUT_ENDPOINTS[endpoint], organization),
             _fanout_child_resource(endpoint, organization),
         ]
-    elif endpoint == "jobs":
+    elif endpoint in BUILD_CHILD_ENDPOINTS:
         created_from = _build_created_from(should_use_incremental_field, db_incremental_field_last_value)
-        resources = [_builds_parent_resource(organization, created_from), _jobs_child_resource(organization)]
+        resources = [
+            _builds_parent_resource(organization, created_from),
+            _build_child_resource(endpoint, organization),
+        ]
         # Resume is deliberately off here: the framework rewrites the full set of completed child
         # paths on every parent, which an organization's build list makes quadratic. A retry
-        # re-walks the window and merge dedupes on the job id.
+        # re-walks the window and merge dedupes on the primary key.
         manager = None
     else:
         params = _build_initial_params(

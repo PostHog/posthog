@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 14 enabled ops
+ * PostHog API - MCP 12 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -187,6 +187,9 @@ export const EndpointsLogsRetrieveParams = () => zod.object({
 export const endpointsLogsRetrieveQueryLimitDefault = 50
 export const endpointsLogsRetrieveQueryLimitMax = 500
 
+export const endpointsLogsRetrieveQueryOffsetDefault = 0
+export const endpointsLogsRetrieveQueryOffsetMin = 0
+
 export const EndpointsLogsRetrieveQueryParams = () => zod.object({
     after: zod.iso
         .datetime({ offset: true })
@@ -212,6 +215,11 @@ export const EndpointsLogsRetrieveQueryParams = () => zod.object({
         .max(endpointsLogsRetrieveQueryLimitMax)
         .default(endpointsLogsRetrieveQueryLimitDefault)
         .describe('Maximum number of log entries to return (1-500, default 50).'),
+    offset: zod
+        .number()
+        .min(endpointsLogsRetrieveQueryOffsetMin)
+        .default(endpointsLogsRetrieveQueryOffsetDefault)
+        .describe('Number of log entries to skip before the first returned entry (default 0).'),
     search: zod.string().min(1).optional().describe('Case-insensitive substring search across log messages.'),
 })
 
@@ -252,27 +260,6 @@ export const EndpointsMaterializationStatusRetrieveQueryParams = () => zod.objec
 })
 
 /**
- * Ask AI to rewrite the endpoint's query into a semantically equivalent form that can be materialized. Only applicable to SQL (HogQL) endpoints that currently fail the materialization checks. The suggestion is validated against the live checks before being returned; nothing is saved. Requires the organization's AI data processing approval.
- */
-export const EndpointsMaterializationSuggestionCreateParams = () => zod.object({
-    name: zod.string(),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const EndpointsMaterializationSuggestionCreateBody = () => zod
-    .object({
-        version: zod
-            .number()
-            .nullish()
-            .describe('Endpoint version to suggest a fix for. Defaults to the latest version.'),
-    })
-    .describe('Request body for the AI materialization-fix suggestion action.')
-
-/**
  * Get OpenAPI 3.0 specification for this endpoint. Use this to generate typed SDK clients.
  */
 export const EndpointsOpenapiSpecRetrieveParams = () => zod.object({
@@ -304,6 +291,7 @@ export const endpointsRunCreateBodyDebugDefault = false
 export const endpointsRunCreateBodyFiltersOverrideOneBreakdownFilterOneBreakdownTypeDefault = `event`
 export const endpointsRunCreateBodyFiltersOverrideOneBreakdownFilterOneBreakdownsOneMax = 3
 
+export const endpointsRunCreateBodyFiltersOverrideOneCompareFilterOneCompareDefault = false
 export const endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemOneOperatorDefault = `exact`
 export const endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemOneTypeDefault = `event`
 export const endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemTwoTypeDefault = `person`
@@ -426,6 +414,24 @@ export const EndpointsRunCreateBody = () => zod.object({
                         zod.null(),
                     ])
                     .optional(),
+                compareFilter: zod
+                    .union([
+                        zod.object({
+                            compare: zod
+                                .union([zod.boolean(), zod.null()])
+                                .default(endpointsRunCreateBodyFiltersOverrideOneCompareFilterOneCompareDefault)
+                                .describe('Whether to compare the current date range to a previous date range.'),
+                            compare_to: zod
+                                .union([zod.string(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Period comparison forced onto every insight that supports one. Absent\/null = inherit.'),
                 date_from: zod.union([zod.string(), zod.null()]).optional(),
                 date_to: zod.union([zod.string(), zod.null()]).optional(),
                 explicitDate: zod.union([zod.boolean(), zod.null()]).optional(),
@@ -454,8 +460,60 @@ export const EndpointsRunCreateBody = () => zod.object({
                         ),
                         zod.null(),
                     ])
+                    .optional(),
+                metricVariables: zod
+                    .union([
+                        zod.array(
+                            zod.object({
+                                allValue: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe('The text that All puts in a PromQL query. `.\*` when it is empty.'),
+                                current: zod
+                                    .union([
+                                        zod.object({
+                                            all: zod.union([zod.boolean(), zod.null()]).optional(),
+                                            values: zod
+                                                .array(zod.string())
+                                                .describe(
+                                                    'The selected values. Empty when `all` is true: All stands for every option of the variable.'
+                                                ),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                                customValues: zod
+                                    .union([zod.array(zod.string()), zod.null()])
+                                    .optional()
+                                    .describe('The options when `source` is `custom`.'),
+                                includeAll: zod.union([zod.boolean(), zod.null()]).optional(),
+                                label: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe('Shown in the dashboard filter bar. The name is shown when it is empty.'),
+                                multi: zod.union([zod.boolean(), zod.null()]).optional(),
+                                name: zod
+                                    .string()
+                                    .describe('Letters, digits and underscores. Tiles refer to it as `$name`.'),
+                                query: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'The options query when `source` is `promql` or `sql`. It can refer to other variables. PromQL supports `label_values(label)`, `label_values(selector, label)`, `label_names()`, `metrics(regex)` and `query_result(expr)`. SQL returns the options in its first column.'
+                                    ),
+                                regex: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'RE2 pattern that options must match. When it has a capture group, the option is the first group.'
+                                    ),
+                                source: zod.enum(['custom', 'promql', 'sql', 'textbox']),
+                            })
+                        ),
+                        zod.null(),
+                    ])
                     .optional()
-                    .describe('Metric label matchers ANDed into every metrics tile. Other tiles ignore them.'),
+                    .describe('Variables that metrics tiles refer to as `$name`. Other tiles ignore them.'),
                 properties: zod
                     .union([
                         zod.array(
@@ -492,6 +550,7 @@ export const EndpointsRunCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -556,6 +615,7 @@ export const EndpointsRunCreateBody = () => zod.object({
                                         'in',
                                         'not_in',
                                         'is_cleaned_path_exact',
+                                        'is_cleaned_path_not_exact',
                                         'flag_evaluates_to',
                                         'semver_eq',
                                         'semver_neq',
@@ -615,6 +675,7 @@ export const EndpointsRunCreateBody = () => zod.object({
                                         'in',
                                         'not_in',
                                         'is_cleaned_path_exact',
+                                        'is_cleaned_path_not_exact',
                                         'flag_evaluates_to',
                                         'semver_eq',
                                         'semver_neq',
@@ -676,6 +737,7 @@ export const EndpointsRunCreateBody = () => zod.object({
                                         'in',
                                         'not_in',
                                         'is_cleaned_path_exact',
+                                        'is_cleaned_path_not_exact',
                                         'flag_evaluates_to',
                                         'semver_eq',
                                         'semver_neq',
@@ -734,6 +796,7 @@ export const EndpointsRunCreateBody = () => zod.object({
                                         'in',
                                         'not_in',
                                         'is_cleaned_path_exact',
+                                        'is_cleaned_path_not_exact',
                                         'flag_evaluates_to',
                                         'semver_eq',
                                         'semver_neq',
@@ -792,6 +855,7 @@ export const EndpointsRunCreateBody = () => zod.object({
                                         'in',
                                         'not_in',
                                         'is_cleaned_path_exact',
+                                        'is_cleaned_path_not_exact',
                                         'flag_evaluates_to',
                                         'semver_eq',
                                         'semver_neq',
@@ -821,6 +885,18 @@ export const EndpointsRunCreateBody = () => zod.object({
                                         .optional(),
                                 }),
                                 zod.object({
+                                    cohort_deleted: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                        ),
+                                    cohort_missing: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                        ),
                                     cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                     key: zod
                                         .literal('id')
@@ -857,6 +933,7 @@ export const EndpointsRunCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -915,6 +992,7 @@ export const EndpointsRunCreateBody = () => zod.object({
                                         'in',
                                         'not_in',
                                         'is_cleaned_path_exact',
+                                        'is_cleaned_path_not_exact',
                                         'flag_evaluates_to',
                                         'semver_eq',
                                         'semver_neq',
@@ -973,6 +1051,7 @@ export const EndpointsRunCreateBody = () => zod.object({
                                         'in',
                                         'not_in',
                                         'is_cleaned_path_exact',
+                                        'is_cleaned_path_not_exact',
                                         'flag_evaluates_to',
                                         'semver_eq',
                                         'semver_neq',
@@ -1035,6 +1114,7 @@ export const EndpointsRunCreateBody = () => zod.object({
                                         'in',
                                         'not_in',
                                         'is_cleaned_path_exact',
+                                        'is_cleaned_path_not_exact',
                                         'flag_evaluates_to',
                                         'semver_eq',
                                         'semver_neq',
@@ -1093,6 +1173,7 @@ export const EndpointsRunCreateBody = () => zod.object({
                                         'in',
                                         'not_in',
                                         'is_cleaned_path_exact',
+                                        'is_cleaned_path_not_exact',
                                         'flag_evaluates_to',
                                         'semver_eq',
                                         'semver_neq',
@@ -1196,6 +1277,7 @@ export const EndpointsRunCreateBody = () => zod.object({
                                         'in',
                                         'not_in',
                                         'is_cleaned_path_exact',
+                                        'is_cleaned_path_not_exact',
                                         'flag_evaluates_to',
                                         'semver_eq',
                                         'semver_neq',
@@ -1254,6 +1336,7 @@ export const EndpointsRunCreateBody = () => zod.object({
                                         'in',
                                         'not_in',
                                         'is_cleaned_path_exact',
+                                        'is_cleaned_path_not_exact',
                                         'flag_evaluates_to',
                                         'semver_eq',
                                         'semver_neq',
@@ -1312,6 +1395,7 @@ export const EndpointsRunCreateBody = () => zod.object({
                                         'in',
                                         'not_in',
                                         'is_cleaned_path_exact',
+                                        'is_cleaned_path_not_exact',
                                         'flag_evaluates_to',
                                         'semver_eq',
                                         'semver_neq',
@@ -1370,6 +1454,7 @@ export const EndpointsRunCreateBody = () => zod.object({
                                         'in',
                                         'not_in',
                                         'is_cleaned_path_exact',
+                                        'is_cleaned_path_not_exact',
                                         'flag_evaluates_to',
                                         'semver_eq',
                                         'semver_neq',
@@ -1424,6 +1509,7 @@ export const EndpointsRunCreateBody = () => zod.object({
                                         'in',
                                         'not_in',
                                         'is_cleaned_path_exact',
+                                        'is_cleaned_path_not_exact',
                                         'flag_evaluates_to',
                                         'semver_eq',
                                         'semver_neq',
@@ -1482,6 +1568,7 @@ export const EndpointsRunCreateBody = () => zod.object({
                                         'in',
                                         'not_in',
                                         'is_cleaned_path_exact',
+                                        'is_cleaned_path_not_exact',
                                         'flag_evaluates_to',
                                         'semver_eq',
                                         'semver_neq',
@@ -1536,6 +1623,7 @@ export const EndpointsRunCreateBody = () => zod.object({
                                         'in',
                                         'not_in',
                                         'is_cleaned_path_exact',
+                                        'is_cleaned_path_not_exact',
                                         'flag_evaluates_to',
                                         'semver_eq',
                                         'semver_neq',
@@ -1594,6 +1682,7 @@ export const EndpointsRunCreateBody = () => zod.object({
                                         'in',
                                         'not_in',
                                         'is_cleaned_path_exact',
+                                        'is_cleaned_path_not_exact',
                                         'flag_evaluates_to',
                                         'semver_eq',
                                         'semver_neq',
@@ -1655,6 +1744,7 @@ export const EndpointsRunCreateBody = () => zod.object({
                                         'in',
                                         'not_in',
                                         'is_cleaned_path_exact',
+                                        'is_cleaned_path_not_exact',
                                         'flag_evaluates_to',
                                         'semver_eq',
                                         'semver_neq',
@@ -1720,6 +1810,7 @@ export const EndpointsRunCreateBody = () => zod.object({
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -1790,6 +1881,7 @@ export const EndpointsRunCreateBody = () => zod.object({
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -1855,6 +1947,7 @@ export const EndpointsRunCreateBody = () => zod.object({
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -1919,6 +2012,7 @@ export const EndpointsRunCreateBody = () => zod.object({
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -2031,6 +2125,7 @@ export const EndpointsRunCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -2133,15 +2228,4 @@ export const EndpointsLastExecutionTimesCreateParams = () => zod.object({
 
 export const EndpointsLastExecutionTimesCreateBody = () => zod.object({
     names: zod.array(zod.string()),
-})
-
-/**
- * Get the source code of the live materialization checks, plus the rewrite contract. Lets an agent rewrite a rejected endpoint query itself: fetch these conditions, produce a semantically equivalent query that passes every check, update the endpoint with it, then confirm via materialization_status. The source is read from the running system, so it always matches the checks this instance enforces.
- */
-export const EndpointsMaterializationConditionsRetrieveParams = () => zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
 })

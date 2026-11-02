@@ -1,76 +1,36 @@
-import json
 from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from unittest import mock
-
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bitrise.bitrise import (
     BitriseResumeConfig,
     _build_after_param,
     _to_unix_timestamp,
-    bitrise_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bitrise.settings import (
     BITRISE_ENDPOINTS,
     ENDPOINTS,
 )
-
-# The RESTClient builds its session via make_tracked_session in the rest_client module (bitrise
-# supplies framework auth, not a pre-built session).
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own probe session in the bitrise module.
-BITRISE_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.bitrise.bitrise.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.bitrise.source import BitriseSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bitrise import (
+    BitriseSourceConfig,
 )
 
 
-def _response(body: Any, status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    return resp
+def _driver() -> SourceDriver:
+    return SourceDriver(BitriseSource(), BitriseSourceConfig(api_token="token"))
 
 
-def _make_manager(resume: BitriseResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume is not None
-    manager.load_state.return_value = resume
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response] | Any) -> tuple[list[dict[str, Any]], list[str]]:
-    """Wire a mock session; snapshot each request's query params and URL AT PREPARE TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so a copy must be taken when
-    each request is prepared rather than inspecting the final state.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-    url_snapshots: list[str] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        url_snapshots.append(request.url)
-        prepared = mock.MagicMock()
-        prepared.url = request.url
-        prepared.is_redirect = False
-        return prepared
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots, url_snapshots
-
-
-def _rows(source_response: Any) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any) -> Any:
-    return bitrise_source("token", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, **kwargs)
+def _response(body: Any, status_code: int = 200) -> ScriptedResponse:
+    return ScriptedResponse(status=status_code, json=body)
 
 
 class TestToUnixTimestamp:
@@ -86,7 +46,7 @@ class TestToUnixTimestamp:
             ("not-a-date", None),
         ],
     )
-    def test_conversion(self, value, expected):
+    def test_conversion(self, value: Any, expected: int | None) -> None:
         assert _to_unix_timestamp(value) == expected
 
 
@@ -99,71 +59,81 @@ class TestBuildAfterParam:
             (True, "garbage"),
         ],
     )
-    def test_no_filter_when_not_incremental(self, should_use_incremental_field, last_value):
+    def test_no_filter_when_not_incremental(self, should_use_incremental_field: bool, last_value: Any) -> None:
         assert _build_after_param(should_use_incremental_field, last_value) is None
 
 
 class TestValidateCredentials:
-    @mock.patch(BITRISE_SESSION_PATCH)
-    def test_valid_personal_access_token(self, mock_session):
-        mock_session.return_value.get.return_value = _response({"data": {}})
-        assert validate_credentials("token") is True
+    def test_valid_personal_access_token(self) -> None:
+        with scripted_network([_response({"data": {}})]) as network:
+            assert validate_credentials("token") is True
+
         # /me succeeded, no fallback probe needed.
-        assert mock_session.return_value.get.call_count == 1
+        assert [request.path for request in network.requests_log] == ["/v0.1/me"]
+        assert network.requests_log[0].headers["authorization"] == "token"
 
-    @mock.patch(BITRISE_SESSION_PATCH)
-    def test_invalid_token(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response({"message": "Unauthorized"}, status_code=401),
-            _response({"message": "Unauthorized"}, status_code=401),
-        ]
-        assert validate_credentials("bad") is False
-
-    @mock.patch(BITRISE_SESSION_PATCH)
-    def test_swallows_exceptions(self, mock_session):
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("token") is False
-
-
-class TestApps:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_via_next_anchor_and_saves_state(self, MockSession):
-        session = MockSession.return_value
-        params, _urls = _wire(
-            session,
+    def test_invalid_token(self) -> None:
+        with scripted_network(
             [
-                _response({"data": [{"slug": "app1"}], "paging": {"next": "anchor1"}}),
-                _response({"data": [{"slug": "app2"}], "paging": {}}),
+                _response({"message": "Unauthorized"}, status_code=401),
+                _response({"message": "Unauthorized"}, status_code=401),
+            ]
+        ) as network:
+            assert validate_credentials("bad") is False
+
+        assert [request.path for request in network.requests_log] == ["/v0.1/me", "/v0.1/apps"]
+        assert network.requests_log[1].param("limit") == "1"
+        assert all(request.headers["authorization"] == "bad" for request in network.requests_log)
+
+    def test_swallows_exceptions(self) -> None:
+        with scripted_network(always(ConnectionResetError("boom"))) as network:
+            assert validate_credentials("token") is False
+
+        assert {request.path for request in network.requests_log} == {"/v0.1/me"}
+
+
+class TestFlatCursorListings:
+    @pytest.mark.parametrize(
+        "endpoint, path",
+        [
+            ("apps", "/v0.1/apps"),
+            ("activities", "/v0.1/me/activities"),
+        ],
+    )
+    def test_paginates_via_next_anchor_and_saves_state(self, endpoint: str, path: str) -> None:
+        result = _driver().run(
+            endpoint,
+            [
+                _response({"data": [{"slug": "row1"}], "paging": {"next": "anchor1"}}),
+                _response({"data": [{"slug": "row2"}], "paging": {}}),
             ],
         )
-        manager = _make_manager()
 
-        rows = _rows(_source("apps", manager))
-
-        assert [row["slug"] for row in rows] == ["app1", "app2"]
+        assert result.raised is None
+        assert [row["slug"] for row in result.rows] == ["row1", "row2"]
+        assert result.paths == [path, path]
+        assert result.params("limit") == ["50", "50"]
         # The second page carries the anchor returned by the first.
-        assert params[1]["next"] == "anchor1"
+        assert result.params("next") == [None, "anchor1"]
         # State saved once, after the first page yielded and only while more pages remain.
-        assert [call.args[0] for call in manager.save_state.call_args_list] == [BitriseResumeConfig(next="anchor1")]
+        assert result.saved_states == [BitriseResumeConfig(next="anchor1")]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_anchor(self, MockSession):
-        session = MockSession.return_value
-        params, _urls = _wire(session, [_response({"data": [{"slug": "app3"}], "paging": {}})])
-        manager = _make_manager(BitriseResumeConfig(next="anchor2"))
+    def test_resumes_from_saved_anchor(self) -> None:
+        result = _driver().run(
+            "apps",
+            [_response({"data": [{"slug": "app3"}], "paging": {}})],
+            resume_state=BitriseResumeConfig(next="anchor2"),
+        )
 
-        rows = _rows(_source("apps", manager))
-
-        assert [row["slug"] for row in rows] == ["app3"]
-        assert params[0]["next"] == "anchor2"
+        assert result.raised is None
+        assert [row["slug"] for row in result.rows] == ["app3"]
+        assert result.params("next") == ["anchor2"]
 
 
 class TestBuilds:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fans_out_over_apps_and_injects_app_slug(self, MockSession):
-        session = MockSession.return_value
-        params, urls = _wire(
-            session,
+    def test_fans_out_over_apps_and_injects_app_slug(self) -> None:
+        result = _driver().run(
+            "builds",
             [
                 _response({"data": [{"slug": "app1"}, {"slug": "app2"}], "paging": {}}),
                 _response({"data": [{"slug": "b1", "triggered_at": "2026-01-01T00:00:00Z"}], "paging": {}}),
@@ -171,133 +141,175 @@ class TestBuilds:
             ],
         )
 
-        rows = _rows(_source("builds", _make_manager()))
-
-        assert [(row["slug"], row["app_slug"]) for row in rows] == [("b1", "app1"), ("b2", "app2")]
-        assert urls[1].endswith("/apps/app1/builds")
-        assert urls[2].endswith("/apps/app2/builds")
+        assert result.raised is None
+        assert [(row["slug"], row["app_slug"]) for row in result.rows] == [("b1", "app1"), ("b2", "app2")]
+        assert result.paths[1:] == ["/v0.1/apps/app1/builds", "/v0.1/apps/app2/builds"]
         # The parent app slug binds the path, not the query string.
-        assert params[1]["sort_by"] == "created_at"
-        assert "app_slug" not in params[1]
+        assert result.requests[1].param("sort_by") == "created_at"
+        assert result.requests[1].param("app_slug") is None
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_bookmarked_app(self, MockSession):
-        session = MockSession.return_value
-        params, urls = _wire(
-            session,
+    def test_resumes_from_bookmarked_app(self) -> None:
+        result = _driver().run(
+            "builds",
             [
                 _response({"data": [{"slug": "app1"}, {"slug": "app2"}], "paging": {}}),
                 _response({"data": [{"slug": "b9"}], "paging": {}}),
             ],
-        )
-        manager = _make_manager(
-            BitriseResumeConfig(
+            resume_state=BitriseResumeConfig(
                 fanout_state={
                     "completed": ["/apps/app1/builds"],
                     "current": "/apps/app2/builds",
                     "child_state": {"cursor": "page3"},
                 }
-            )
+            ),
         )
 
-        rows = _rows(_source("builds", manager))
-
         # app1 is skipped entirely; app2 resumes from its saved page anchor.
-        assert [(row["slug"], row["app_slug"]) for row in rows] == [("b9", "app2")]
-        assert not any(url.endswith("/apps/app1/builds") for url in urls)
-        assert urls[1].endswith("/apps/app2/builds")
-        assert params[1]["next"] == "page3"
+        assert result.raised is None
+        assert [(row["slug"], row["app_slug"]) for row in result.rows] == [("b9", "app2")]
+        assert result.paths == ["/v0.1/apps", "/v0.1/apps/app2/builds"]
+        assert result.requests[1].param("next") == "page3"
 
 
 class TestPipelines:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fans_out_over_apps_and_injects_app_slug(self, MockSession):
-        session = MockSession.return_value
-        _params, urls = _wire(
-            session,
+    def test_fans_out_over_apps_and_injects_app_slug(self) -> None:
+        result = _driver().run(
+            "pipelines",
             [
                 _response({"data": [{"slug": "app1"}], "paging": {}}),
                 _response({"data": [{"slug": "p1", "triggered_at": "2026-01-01T00:00:00Z"}], "paging": {}}),
             ],
         )
 
-        rows = _rows(_source("pipelines", _make_manager()))
+        assert result.raised is None
+        assert [(row["slug"], row["app_slug"]) for row in result.rows] == [("p1", "app1")]
+        assert result.paths[1] == "/v0.1/apps/app1/pipelines"
 
-        assert [(row["slug"], row["app_slug"]) for row in rows] == [("p1", "app1")]
-        assert urls[1].endswith("/apps/app1/pipelines")
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_passes_an_rfc3339_after_param(self, MockSession):
-        session = MockSession.return_value
-        params, _urls = _wire(
-            session,
+    def test_incremental_passes_an_rfc3339_after_param(self) -> None:
+        result = _driver().run(
+            "pipelines",
             [
                 _response({"data": [{"slug": "app1"}], "paging": {}}),
                 _response({"data": [], "paging": {}}),
             ],
-        )
-
-        _rows(
-            _source(
-                "pipelines",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 1, 2, tzinfo=UTC),
-            )
+            incremental_field="triggered_at",
+            db_incremental_field_last_value=datetime(2026, 1, 2, tzinfo=UTC),
         )
 
         # Unlike builds, the pipelines filter is a date string rather than a Unix timestamp.
-        assert params[1]["after"] == "2026-01-01T00:00:00Z"
+        assert result.raised is None
+        assert result.requests[1].param("after") == "2026-01-01T00:00:00Z"
 
 
 class TestBranches:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_maps_branch_names_to_rows(self, MockSession):
-        session = MockSession.return_value
-        _params, urls = _wire(
-            session,
+    def test_maps_branch_names_to_rows(self) -> None:
+        result = _driver().run(
+            "branches",
             [
                 _response({"data": [{"slug": "app1"}], "paging": {}}),
                 _response({"data": ["main", "release/1.0"]}),
             ],
         )
 
-        rows = _rows(_source("branches", _make_manager()))
-
-        assert rows == [
+        assert result.raised is None
+        assert result.rows == [
             {"app_slug": "app1", "branch": "main"},
             {"app_slug": "app1", "branch": "release/1.0"},
         ]
-        assert urls[1].endswith("/apps/app1/branches")
+        assert result.paths[1] == "/v0.1/apps/app1/branches"
+
+
+class TestSinglePageAppChildren:
+    @pytest.mark.parametrize(
+        "endpoint, path, expected_limit",
+        [
+            ("archived_builds", "/v0.1/apps/{app}/archived-builds", "1000"),
+            ("build_requests", "/v0.1/apps/{app}/build-requests", None),
+        ],
+    )
+    def test_fans_out_over_apps_with_one_request_per_app(
+        self, endpoint: str, path: str, expected_limit: str | None
+    ) -> None:
+        result = _driver().run(
+            endpoint,
+            [
+                _response({"data": [{"slug": "app1"}, {"slug": "app2"}, {"slug": "gone"}], "paging": {}}),
+                # A paging anchor must not trigger a second request: the endpoint takes no anchor param.
+                _response({"data": [{"slug": "r1"}], "paging": {"next": "ignored"}}),
+                _response({"data": [{"slug": "r2"}, {"slug": "r3"}]}),
+                # An app deleted between enumeration and its fetch must not fail the sync.
+                _response({"message": "Not Found"}, status_code=404),
+            ],
+        )
+
+        assert result.raised is None
+        assert [(row["slug"], row["app_slug"]) for row in result.rows] == [
+            ("r1", "app1"),
+            ("r2", "app2"),
+            ("r3", "app2"),
+        ]
+        assert result.paths[1:] == [path.format(app=app) for app in ("app1", "app2", "gone")]
+        assert [request.param("limit") for request in result.requests[1:]] == [expected_limit] * 3
+        assert all(request.param("app_slug") is None for request in result.requests[1:])
+
+
+class TestAvailableStacks:
+    @pytest.mark.parametrize(
+        "body, expected_rows",
+        [
+            (
+                {
+                    "linux-docker-android-22.04": {
+                        "id": "linux-docker-android-22.04",
+                        "os": "linux",
+                        "status": "stable",
+                    },
+                    "osx-xcode-16.0.x": {"id": "osx-xcode-16.0.x", "os": "macos", "removal-date": "2027-01-01"},
+                },
+                [
+                    {"id": "linux-docker-android-22.04", "os": "linux", "status": "stable"},
+                    {"id": "osx-xcode-16.0.x", "os": "macos", "removal-date": "2027-01-01"},
+                ],
+            ),
+            # The map key stands in for a missing or empty `id`.
+            (
+                {"osx-xcode-edge": {"title": "Xcode edge"}, "linux-edge": {"id": "", "os": "linux"}},
+                [{"title": "Xcode edge", "id": "osx-xcode-edge"}, {"id": "linux-edge", "os": "linux"}],
+            ),
+            # Non-object values are not stacks.
+            ({"osx-xcode-16.0.x": {"id": "osx-xcode-16.0.x"}, "note": "x"}, [{"id": "osx-xcode-16.0.x"}]),
+            ({}, []),
+        ],
+    )
+    def test_explodes_stack_map_into_rows(self, body: dict[str, Any], expected_rows: list[dict[str, Any]]) -> None:
+        result = _driver().run("available_stacks", [_response(body)])
+
+        assert result.raised is None
+        assert result.rows == expected_rows
+        assert result.paths == ["/v0.1/available-stacks"]
 
 
 class TestOrganizationMembers:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fans_out_over_organizations_and_injects_org_slug(self, MockSession):
-        session = MockSession.return_value
-        _params, urls = _wire(
-            session,
+    def test_fans_out_over_organizations_and_injects_org_slug(self) -> None:
+        result = _driver().run(
+            "organization_members",
             [
                 _response({"data": [{"slug": "org1"}, {"slug": "org2"}]}),
-                # The members listing answers with a bare array, not a `data` envelope.
+                # The members listing answers with a bare array, not a data envelope.
                 _response([{"slug": "u1", "username": "ada", "email": "ada@example.com"}]),
                 _response([{"slug": "u2", "username": "grace", "email": "grace@example.com"}]),
             ],
         )
 
-        rows = _rows(_source("organization_members", _make_manager()))
-
-        assert [(row["slug"], row["org_slug"]) for row in rows] == [("u1", "org1"), ("u2", "org2")]
-        assert urls[1].endswith("/organizations/org1/members")
-        assert urls[2].endswith("/organizations/org2/members")
+        assert result.raised is None
+        assert [(row["slug"], row["org_slug"]) for row in result.rows] == [("u1", "org1"), ("u2", "org2")]
+        assert result.paths[1:] == ["/v0.1/organizations/org1/members", "/v0.1/organizations/org2/members"]
 
 
 class TestArtifacts:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fans_out_over_builds_and_injects_parent_identifiers(self, MockSession):
-        session = MockSession.return_value
-        _params, urls = _wire(
-            session,
+    def test_fans_out_over_builds_and_injects_parent_identifiers(self) -> None:
+        result = _driver().run(
+            "artifacts",
             [
                 _response({"data": [{"slug": "app1"}], "paging": {}}),
                 _response({"data": [{"slug": "b1", "triggered_at": "2026-01-01T00:00:00Z"}], "paging": {}}),
@@ -305,9 +317,8 @@ class TestArtifacts:
             ],
         )
 
-        rows = _rows(_source("artifacts", _make_manager()))
-
-        assert rows == [
+        assert result.raised is None
+        assert result.rows == [
             {
                 "slug": "art1",
                 "title": "app.ipa",
@@ -316,45 +327,38 @@ class TestArtifacts:
                 "build_triggered_at": "2026-01-01T00:00:00Z",
             }
         ]
-        assert urls[2].endswith("/apps/app1/builds/b1/artifacts")
+        assert result.paths[2] == "/v0.1/apps/app1/builds/b1/artifacts"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_filters_parent_builds(self, MockSession):
-        session = MockSession.return_value
-        params, _urls = _wire(
-            session,
+    def test_incremental_filters_parent_builds(self) -> None:
+        result = _driver().run(
+            "artifacts",
             [
                 _response({"data": [{"slug": "app1"}], "paging": {}}),
                 _response({"data": [], "paging": {}}),
             ],
+            incremental_field="build_triggered_at",
+            db_incremental_field_last_value=datetime(2026, 1, 2, tzinfo=UTC),
         )
 
-        _rows(
-            _source(
-                "artifacts",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 1, 2, tzinfo=UTC),
-            )
-        )
-
-        # The `after` filter is applied at the parent builds level, not the artifact listing.
-        assert "after" in params[1]
+        # The after filter is applied at the parent builds level, not the artifact listing.
+        assert result.raised is None
+        assert result.requests[1].param("after") is not None
 
 
 class TestUnknownEndpoint:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_raises_value_error(self, _MockSession):
-        with pytest.raises(ValueError):
-            _rows(_source("nope", _make_manager()))
+    def test_raises_value_error(self) -> None:
+        result = _driver().run("nope", [])
+        assert isinstance(result.raised, ValueError)
 
 
 class TestSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
+    def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
         config = BITRISE_ENDPOINTS[endpoint]
-        response = _source(endpoint, _make_manager())
+        result = _driver().run(endpoint, [])
+        response = result.response
 
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
         # Fan-out + newest-first ordering: the watermark must only persist at job end.

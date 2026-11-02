@@ -13,6 +13,7 @@ import { ReplayScannerTab, replayScannerSceneLogic } from '../replayScannerScene
 import { scannerOverviewLogic } from '../scannerOverviewLogic'
 import { ScannerType } from '../types'
 import { RootCausePrompt } from './RootCausePrompt'
+import { ScannerDashboardOffer } from './ScannerDashboardOffer'
 import { ScannerInsightsChart } from './ScannerInsightsChart'
 import { ScannerOverviewFilters } from './ScannerOverviewFilters'
 import { ScannerScoutCard } from './ScannerScoutCard'
@@ -421,6 +422,7 @@ export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Eleme
                     </div>
                 </div>
                 <div className="@container min-w-0 flex flex-col gap-4 order-3 @5xl:col-start-2 @5xl:row-start-2">
+                    <ScannerDashboardOffer scannerId={scannerId} />
                     {firstScanPending ? (
                         <FirstScanPendingPanel scannerId={scannerId} />
                     ) : (

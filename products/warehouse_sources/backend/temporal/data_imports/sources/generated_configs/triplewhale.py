@@ -6,4 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class TripleWhaleSourceConfig(config.Config):
-    pass
+    api_key: str
+    shop: str
+    start_date: str

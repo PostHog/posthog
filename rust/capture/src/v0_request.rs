@@ -174,6 +174,7 @@ pub fn path_is_legacy_endpoint(path: &str) -> bool {
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(test, derive(strum::EnumIter))]
 pub enum DataType {
     AnalyticsMain,
     AnalyticsHistorical,
@@ -181,7 +182,7 @@ pub enum DataType {
     HeatmapMain,
     ExceptionErrorTracking,
     SnapshotMain,
-    /// Dedicated AI lane, mirroring v1's `Destination::AiEvents`. The
+    /// Dedicated AI lane, mirroring v1's `Destination::AiMain`. The
     /// kafka sink maps it to `CAPTURE_OUTPUT_AI_MAIN_TOPIC`, so every
     /// deployment that accepts AI traffic must configure that topic. Like
     /// heatmaps and exceptions, AI events never reroute historical.
@@ -237,10 +238,8 @@ impl DataType {
         }
     }
 
-    /// Pipeline this event flows to, if any. Heatmaps, ingestion warnings,
-    /// and snapshots have their own dedicated topics and consumers; they
-    /// don't share Redis-backed restriction config with any other pipeline,
-    /// so they're not subject to `EventRestrictionService` lookups.
+    /// Restriction pipeline this event is looked up under, if any. Snapshots
+    /// have none here: the recordings endpoint looks them up itself.
     ///
     /// `AiEvents` maps to the `ai` restriction pipeline: an event on the AI
     /// lane is governed by ai-scoped restrictions, the same slice the
@@ -251,7 +250,9 @@ impl DataType {
             Self::AnalyticsMain | Self::AnalyticsHistorical => Some(Pipeline::Analytics),
             Self::AiEvents => Some(Pipeline::Ai),
             Self::ExceptionErrorTracking => Some(Pipeline::ErrorTracking),
-            Self::ClientIngestionWarning | Self::HeatmapMain | Self::SnapshotMain => None,
+            Self::HeatmapMain => Some(Pipeline::Heatmaps),
+            Self::ClientIngestionWarning => Some(Pipeline::ClientWarnings),
+            Self::SnapshotMain => None,
         }
     }
 }

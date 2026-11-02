@@ -191,7 +191,6 @@
         height: 7px;
         background: var(--datasets-preview-accent);
         border-radius: 50%;
-        animation: DatasetsPreview__pulse 1.8s ease-in-out infinite;
     }
 }
 
@@ -241,17 +240,6 @@
 
     50% {
         box-shadow: 0 0 0 4px color-mix(in oklab, var(--datasets-preview-accent) 20%, transparent);
-    }
-}
-
-@keyframes DatasetsPreview__pulse {
-    0%,
-    100% {
-        box-shadow: 0 0 0 0 color-mix(in oklab, var(--datasets-preview-accent) 45%, transparent);
-    }
-
-    50% {
-        box-shadow: 0 0 0 4px color-mix(in oklab, var(--datasets-preview-accent) 0%, transparent);
     }
 }
 

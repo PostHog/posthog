@@ -1,9 +1,7 @@
 import '~/styles'
 import './Exporter.scss'
 
-// The relative path keeps this with the side-effect imports when imports are sorted, so it evaluates
-// before any module that builds a zod schema. See lib/configureZod.
-import '../lib/configureZod'
+import '~/taxonomy/registerCoreFilterDefinitions'
 
 import { createRoot } from 'react-dom/client'
 

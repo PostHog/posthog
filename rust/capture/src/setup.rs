@@ -41,7 +41,6 @@ pub struct LifecycleHandles {
     pub advisory: Option<lifecycle::Handle>,
     pub event_restrictions: Option<lifecycle::Handle>,
     pub ingestion_warnings: Option<lifecycle::Handle>,
-    pub v1_sinks: HashMap<crate::v1::sinks::SinkName, lifecycle::Handle>,
     pub readiness: lifecycle::ReadinessHandler,
     pub liveness: lifecycle::LivenessHandler,
 }
@@ -90,27 +89,6 @@ pub fn register_components(manager: &mut lifecycle::Manager, config: &Config) ->
         None
     };
 
-    let v1_sinks: HashMap<crate::v1::sinks::SinkName, lifecycle::Handle> =
-        if !config.capture_v1_sinks.is_empty() {
-            crate::v1::sinks::parse_sink_names(&config.capture_v1_sinks)
-                .unwrap_or_else(|e| {
-                    panic!(
-                        "fatal: failed to parse CAPTURE_V1_SINKS='{}': {e:#}",
-                        config.capture_v1_sinks
-                    )
-                })
-                .into_iter()
-                .map(|name| {
-                    (
-                        name,
-                        manager.register(name.lifecycle_tag(), sink_opts.clone()),
-                    )
-                })
-                .collect()
-        } else {
-            HashMap::new()
-        };
-
     let readiness = manager.readiness_handler();
     let liveness = manager.liveness_handler();
 
@@ -120,7 +98,6 @@ pub fn register_components(manager: &mut lifecycle::Manager, config: &Config) ->
         advisory,
         event_restrictions,
         ingestion_warnings,
-        v1_sinks,
         readiness,
         liveness,
     }
@@ -131,7 +108,6 @@ pub struct CaptureComponents {
     pub server_handle: lifecycle::Handle,
     /// `None` with the print or noop sink, which produce to no Kafka.
     pub producers: Option<Arc<ProducerRegistry>>,
-    pub v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
     pub event_restriction_service: Option<EventRestrictionService>,
     pub http1_header_read_timeout_ms: Option<u64>,
 }
@@ -147,7 +123,6 @@ pub async fn build_components(
         advisory: advisory_handle,
         event_restrictions: event_restrictions_handle,
         ingestion_warnings: ingestion_warnings_handle,
-        v1_sinks: v1_sink_handles,
         readiness,
         liveness,
     } = handles;
@@ -187,10 +162,11 @@ pub async fn build_components(
 
     // With GLOBAL_RATE_LIMIT_REDIS_URL set, each limiter gets its own client so a slow
     // drain on one cannot eat the other's timeout budget; without it, both share the main client.
+    // Only the per-(token, distinct_id) limiter shards across GLOBAL_RATE_LIMIT_REDIS_SHARDS clusters.
     let ai_byte_limit_enabled = ai_byte_limit_per_second(&config) > 0;
     let rate_limiter_redis = if config.global_rate_limit_enabled {
         Some(
-            GlobalRateLimiter::build_redis_client(&config, redis_client.clone())
+            GlobalRateLimiter::build_redis_shards(&config, redis_client.clone())
                 .await
                 .expect("failed to create rate limiter redis client"),
         )
@@ -212,7 +188,7 @@ pub async fn build_components(
     // source into the limiter, which spawns and manages the refresh task itself.
     let global_rate_limiter_token_distinctid = rate_limiter_redis.as_ref().map(|redis| {
         Arc::new(
-            GlobalRateLimiter::new_token_distinct_id(&config, vec![redis.clone()])
+            GlobalRateLimiter::new_token_distinct_id(&config, redis.clone())
                 .expect("failed to create global rate limiter"),
         )
     });
@@ -313,10 +289,10 @@ pub async fn build_components(
         !config.outputs.ai_main_topic.is_empty(),
         "invalid configuration: CAPTURE_OUTPUT_AI_MAIN_TOPIC must not be empty",
     );
-    let ai_events_overflow_enabled = ai_events_overflow_valve(&config);
+    let ai_events_overflow_enabled = ai_events_overflow_limiter_enabled(&config);
     info!(
         ai_main_topic = %config.outputs.ai_main_topic,
-        ai_overflow_topic = ?config.outputs.ai_overflow_topic,
+        ai_overflow_topic = %config.outputs.ai_overflow_topic,
         ai_events_overflow_enabled,
         "AI events topic routing"
     );
@@ -369,15 +345,6 @@ pub async fn build_components(
         )
     });
 
-    let v1_sink_router = if !config.capture_v1_sinks.is_empty() {
-        Some(
-            create_v1_sink_router(&config, &env, v1_sink_handles)
-                .unwrap_or_else(|e| panic!("fatal: v1 sink router creation failed: {e:#}")),
-        )
-    } else {
-        None
-    };
-
     let ingestion_warning_emitter =
         create_ingestion_warning_emitter(&config, ingestion_warnings_handle).await;
 
@@ -409,10 +376,8 @@ pub async fn build_components(
         ai_events_overflow_limiter,
         ai_byte_rate_limiter,
         replay_overflow_limiter,
-        v1_sink_router.clone(),
         config.capture_v1_scatter_gather_min_batch,
         config.ai_gateway_signing_secret.clone(),
-        ai_events_overflow_enabled,
         ingestion_warning_emitter,
     );
 
@@ -425,30 +390,18 @@ pub async fn build_components(
         app,
         server_handle: server,
         producers: producers.map(Arc::new),
-        v1_sink_router,
         event_restriction_service,
         http1_header_read_timeout_ms: config.http1_header_read_timeout_ms,
     }
 }
 
-/// The AI overflow valve: an unset or empty
-/// `CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC` means AI events never
-/// overflow. Import mode refuses an armed valve at boot: non-AI import events
-/// can't overflow because historical rerouting takes precedence no matter how
-/// the deployment is configured, but nothing structural protects AI
-/// imports, so an armed valve would silently break the imports-never-overflow
-/// guarantee.
-fn ai_events_overflow_valve(config: &Config) -> bool {
-    let armed = config
-        .outputs
-        .ai_overflow_topic
-        .as_deref()
-        .is_some_and(|topic| !topic.is_empty());
+fn ai_events_overflow_limiter_enabled(config: &Config) -> bool {
+    let enabled = config.ai_events_overflow_enabled;
     assert!(
-        !(armed && matches!(config.capture_mode, CaptureMode::Import)),
-        "invalid configuration: CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC must be unset in import mode; imports must never overflow"
+        !(enabled && matches!(config.capture_mode, CaptureMode::Import)),
+        "invalid configuration: AI_EVENTS_OVERFLOW_ENABLED must be false in import mode; imports must never overflow"
     );
-    armed
+    enabled
 }
 
 /// The AI byte budget this deployment enforces, or `0` to skip building the
@@ -485,48 +438,6 @@ fn warn_if_ai_ceiling_exceeds_producer_cap(config: &Config, producer_message_max
     }
 }
 
-/// Every v1 sink whose `message_max_bytes` sits at or below the AI ceiling,
-/// sorted by sink name so the result is stable to assert on.
-fn v1_sinks_below_ai_ceiling(
-    config: &Config,
-    sinks_cfg: &crate::v1::sinks::Sinks,
-) -> Vec<(crate::v1::sinks::SinkName, u32)> {
-    let ceiling = config.ai_max_event_bytes;
-    // `0` disables the ceiling, so there is no ordering to be wrong about.
-    if ceiling == 0 {
-        return Vec::new();
-    }
-    let mut offenders: Vec<(crate::v1::sinks::SinkName, u32)> = sinks_cfg
-        .configs
-        .iter()
-        .filter(|(_, cfg)| ceiling >= cfg.kafka.message_max_bytes as u64)
-        .map(|(name, cfg)| (*name, cfg.kafka.message_max_bytes))
-        .collect();
-    offenders.sort_by_key(|(name, _)| name.as_str());
-    offenders
-}
-
-/// The v1-sink counterpart to [`warn_if_ai_ceiling_exceeds_producer_cap`].
-///
-/// That check reads `KAFKA_INGESTION_PRODUCER_MESSAGE_MAX_BYTES`, which governs only the
-/// v0 producer. Every v1 sink carries its own `message_max_bytes`
-/// (`CAPTURE_V1_SINK_<NAME>_KAFKA_MESSAGE_MAX_BYTES`, default 1MB), so a
-/// deployment whose AI traffic runs on a v1 sink can pass the v0 check with a
-/// correctly-raised cap on a producer it never uses, and still have every event
-/// between the sink cap and the ceiling refused by the broker.
-fn warn_if_ai_ceiling_exceeds_v1_sink_caps(config: &Config, sinks_cfg: &crate::v1::sinks::Sinks) {
-    for (name, message_max_bytes) in v1_sinks_below_ai_ceiling(config, sinks_cfg) {
-        warn!(
-            sink = name.as_str(),
-            ai_max_event_bytes = config.ai_max_event_bytes,
-            message_max_bytes,
-            "AI_MAX_EVENT_BYTES is at or above this v1 sink's MESSAGE_MAX_BYTES; \
-             events between the sink cap and the ceiling are built and then \
-             refused by the producer"
-        );
-    }
-}
-
 /// Warns when a token sending full-size AI events would be limited on nearly
 /// every one of them, because the window budget cannot fit even a single event
 /// at the deployment's ceiling. Both sides come from config, so the check stays
@@ -548,64 +459,6 @@ fn warn_if_ai_byte_budget_below_max_event(config: &Config) {
              a token sending full-size events will be limited on nearly every event"
         );
     }
-}
-
-/// Builds the v1 sink router. The dedicated AI topics are
-/// deployment-level config (`CAPTURE_OUTPUT_AI_MAIN_TOPIC` and `CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC`),
-/// so they are injected into every sink config here; the overwrite is
-/// unconditional so a stray per-sink `TOPIC_AI`/`TOPIC_AI_OVERFLOW` env var
-/// cannot diverge from the shared policy.
-fn create_v1_sink_router(
-    config: &Config,
-    sink_env: &HashMap<String, String>,
-    handles: HashMap<crate::v1::sinks::SinkName, lifecycle::Handle>,
-) -> anyhow::Result<Arc<crate::v1::sinks::Router>> {
-    let mut sinks_cfg = crate::v1::sinks::load_sinks_from(&config.capture_v1_sinks, sink_env)
-        .context("failed to parse CAPTURE_V1_SINKS")?;
-    sinks_cfg
-        .validate()
-        .context("v1 sink config validation failed")?;
-
-    for cfg in sinks_cfg.configs.values_mut() {
-        cfg.kafka.topic_ai = config.outputs.ai_main_topic.clone();
-        cfg.kafka.topic_ai_overflow = config.outputs.ai_overflow_topic.clone();
-    }
-
-    warn_if_ai_ceiling_exceeds_v1_sink_caps(config, &sinks_cfg);
-
-    let mut sink_map: HashMap<crate::v1::sinks::SinkName, Box<dyn crate::v1::sinks::sink::Sink>> =
-        HashMap::new();
-
-    for (name, cfg) in sinks_cfg.configs {
-        let handle = handles
-            .get(&name)
-            .cloned()
-            .with_context(|| format!("missing lifecycle handle for v1 sink '{name}'"))?;
-
-        let producer = crate::v1::sinks::kafka::producer::KafkaProducer::new(
-            name,
-            &cfg.kafka,
-            handle.clone(),
-            config.capture_mode.as_tag(),
-        )
-        .with_context(|| format!("failed to create v1 kafka producer for sink '{name}'"))?;
-
-        let kafka_sink = crate::v1::sinks::kafka::sink::KafkaSink::new(
-            name,
-            Arc::new(producer),
-            cfg,
-            config.capture_mode,
-            handle,
-        );
-        sink_map.insert(name, Box::new(kafka_sink));
-    }
-
-    let router = crate::v1::sinks::Router::new(sinks_cfg.default, sink_map);
-    info!(
-        sinks = config.capture_v1_sinks.as_str(),
-        "V1 sink router initialized"
-    );
-    Ok(Arc::new(router))
 }
 
 async fn create_output_registry(
@@ -635,7 +488,7 @@ async fn create_output(
 
     // Runs before any producer connects, so a blank topic refuses boot
     // immediately instead of after a broker connect attempt.
-    let outputs = OutputTable::from(&config.outputs);
+    let outputs = OutputTable::new(&config.outputs, config.capture_mode.has_ai_overflow_lane());
     if config.outputs_completeness_check_enabled {
         outputs.check_complete()?;
     } else {
@@ -711,9 +564,9 @@ const WARNINGS_KAFKA_MESSAGE_TIMEOUT_MS: u32 = 5_000;
 const WARNINGS_TYPE_BUDGET_PERIOD: Duration = Duration::from_secs(1);
 const WARNINGS_TYPE_BUDGET_BURST: NonZeroU32 = NonZeroU32::new(60).unwrap();
 
-/// Build the dedicated, warnings-only Kafka config. Reuses only the
-/// destination cluster (`hosts`/`tls`) from capture's main Kafka config;
-/// everything else is the fixed fire-and-forget policy (client id, acks,
+/// Build the dedicated, warnings-only Kafka config. `hosts`/`tls` come from
+/// `CAPTURE_INGESTION_WARNINGS_KAFKA_{HOSTS,TLS}`; everything else is the
+/// fixed fire-and-forget policy (client id, acks,
 /// retries, linger, queue depth, message timeout) plus the two tunable limits
 /// (`queue_mib`, `message_max_bytes`). `..Default::default()` supplies the
 /// shared-crate defaults (compression codec, empty client rack) and — critically
@@ -748,9 +601,8 @@ fn build_warnings_kafka_config(
 /// dedicated, warnings-only `common_kafka::config::KafkaConfig` (fire-and-forget
 /// acks/retries, a small queue) with `observe_delivery` as its delivery
 /// callback. Its destination (hosts/TLS/topic) comes entirely from
-/// `CAPTURE_INGESTION_WARNINGS_KAFKA_{HOSTS,TLS,TOPIC}`; it no longer borrows
-/// anything from capture's main event config (the v0 `KAFKA_*` block), so
-/// retiring that block cannot silently misroute or mute it. When built, a
+/// `CAPTURE_INGESTION_WARNINGS_KAFKA_{HOSTS,TLS,TOPIC}`, never from capture's
+/// main event config. When built, a
 /// background task heartbeats the advisory lifecycle handle, sweeps the
 /// throttle's per-key state, and flushes the producer once at shutdown.
 ///
@@ -996,12 +848,13 @@ mod tests {
             .expect("runtime")
     }
 
-    struct AiValveInput {
+    struct AiLimiterInput {
         capture_mode: &'static str,
+        enabled: Option<&'static str>,
         overflow_topic: Option<&'static str>,
     }
 
-    fn ai_valve_config(input: &AiValveInput) -> Config {
+    fn ai_limiter_config(input: &AiLimiterInput) -> Config {
         let mut cfg_env: HashMap<String, String> = [
             ("REDIS_URL", "redis://localhost:6379/"),
             ("CAPTURE_MODE", input.capture_mode),
@@ -1013,6 +866,12 @@ mod tests {
         .into_iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect();
+        if let Some(enabled) = input.enabled {
+            cfg_env.insert(
+                "AI_EVENTS_OVERFLOW_ENABLED".to_string(),
+                enabled.to_string(),
+            );
+        }
         if let Some(topic) = input.overflow_topic {
             cfg_env.insert(
                 "CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC".to_string(),
@@ -1023,41 +882,37 @@ mod tests {
     }
 
     #[rstest]
-    #[case::events_set(
-        AiValveInput {
+    #[case::events_enabled(
+        AiLimiterInput {
             capture_mode: "events",
-            overflow_topic: Some("events_plugin_ingestion_ai_overflow"),
+            enabled: Some("true"),
+            overflow_topic: None,
         },
         true
     )]
-    #[case::events_unset(
-        AiValveInput {
+    #[case::events_topic_without_flag(
+        AiLimiterInput {
             capture_mode: "events",
-            overflow_topic: None,
+            enabled: None,
+            overflow_topic: Some("events_plugin_ingestion_ai_overflow"),
         },
         false
     )]
-    #[case::import_unset(
-        AiValveInput {
+    #[case::import_disabled(
+        AiLimiterInput {
             capture_mode: "import",
-            overflow_topic: None,
+            enabled: Some("false"),
+            overflow_topic: Some("events_plugin_ingestion_ai_overflow"),
         },
         false
     )]
-    #[case::import_empty(
-        AiValveInput {
-            capture_mode: "import",
-            overflow_topic: Some(""),
-        },
-        false
-    )]
-    fn ai_events_overflow_valve_arms_only_on_a_set_topic(
-        #[case] input: AiValveInput,
-        #[case] expected_armed: bool,
+    fn ai_events_overflow_limiter_follows_only_the_flag(
+        #[case] input: AiLimiterInput,
+        #[case] expected_enabled: bool,
     ) {
         assert_eq!(
-            ai_events_overflow_valve(&ai_valve_config(&input)),
-            expected_armed
+            ai_events_overflow_limiter_enabled(&ai_limiter_config(&input)),
+            expected_enabled
         );
     }
 
@@ -1132,71 +987,30 @@ mod tests {
             "the error must name the AI byte knob, not the shared one, got: {err}"
         );
 
-        // The shared window is valid here, so the token+distinct_id limiter is
-        // unaffected by the AI byte knob being wrong.
+        let err = match GlobalRateLimiter::new_token_distinct_id(&config, vec![]) {
+            Ok(_) => panic!("an empty redis instance list must not build a limiter"),
+            Err(err) => err,
+        };
         assert!(
-            GlobalRateLimiter::new_token_distinct_id(&config, vec![]).is_err(),
-            "an empty redis instance list still fails, but not on the window"
+            !err.to_string().contains("WINDOW_INTERVAL_SECS"),
+            "the token+distinct_id limiter must not fail on a window, got: {err}"
         );
     }
 
     #[test]
     #[should_panic(expected = "imports must never overflow")]
-    fn ai_events_overflow_valve_rejects_armed_valve_in_import_mode() {
-        ai_events_overflow_valve(&ai_valve_config(&AiValveInput {
+    fn ai_events_overflow_limiter_is_refused_in_import_mode() {
+        ai_events_overflow_limiter_enabled(&ai_limiter_config(&AiLimiterInput {
             capture_mode: "import",
-            overflow_topic: Some("events_plugin_ingestion_ai_overflow"),
+            enabled: Some("true"),
+            overflow_topic: None,
         }));
-    }
-
-    #[test]
-    fn create_v1_sink_router_fails_on_invalid_config() {
-        let cfg_env: HashMap<String, String> = [
-            ("REDIS_URL", "redis://localhost:6379/"),
-            ("CAPTURE_MODE", "events"),
-            (
-                "CAPTURE_OUTPUT_ANALYTICS_MAIN_TOPIC",
-                "events_plugin_ingestion",
-            ),
-            ("CAPTURE_V1_SINKS", "msk"),
-        ]
-        .into_iter()
-        .map(|(k, v)| (k.to_string(), v.to_string()))
-        .collect();
-        let config: Config =
-            envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config");
-
-        let mut manager = lifecycle::Manager::builder("test")
-            .with_trap_signals(false)
-            .with_prestop_check(false)
-            .build();
-        let handles: HashMap<crate::v1::sinks::SinkName, lifecycle::Handle> =
-            crate::v1::sinks::parse_sink_names(&config.capture_v1_sinks)
-                .unwrap()
-                .into_iter()
-                .map(|name| {
-                    (
-                        name,
-                        manager.register(name.lifecycle_tag(), lifecycle::ComponentOptions::new()),
-                    )
-                })
-                .collect();
-
-        let err = create_v1_sink_router(&config, &HashMap::new(), handles)
-            .err()
-            .expect("should fail with invalid config");
-        let msg = format!("{err:#}");
-        assert!(
-            msg.contains("msk"),
-            "error should name the failing sink: {msg}"
-        );
     }
 
     #[test]
     fn warnings_kafka_config_is_isolated_from_main_producer_tuning() {
         let cfg = build_warnings_kafka_config("broker:9092".to_string(), true, 16, 1_048_576);
 
-        // Reuses only the destination cluster from the main config.
         assert_eq!(cfg.kafka_hosts, "broker:9092");
         assert!(cfg.kafka_tls);
 
@@ -1388,62 +1202,6 @@ mod tests {
             ai_ceiling_exceeds_producer_cap(&config, producer_cap),
             expected
         );
-    }
-
-    /// The v0 check above reads `KAFKA_INGESTION_PRODUCER_MESSAGE_MAX_BYTES`, which a
-    /// v1-sink-only deployment never produces through. capture-ai is exactly
-    /// that shape, so without this the AI ceiling is checked against a producer
-    /// the deployment does not use while the sink that does the producing keeps
-    /// its 1MB default.
-    #[rstest::rstest]
-    #[case::sink_at_default_is_flagged(8_388_608, 1_000_000, true)]
-    #[case::sink_raised_above_ceiling_is_clear(8_388_608, 10_485_760, false)]
-    #[case::equal_still_flags(1_000_000, 1_000_000, true)]
-    #[case::disabled_ceiling_never_flags(0, 1_000_000, false)]
-    fn ai_ceiling_is_checked_against_each_v1_sink_cap(
-        #[case] ceiling: u64,
-        #[case] sink_cap: u32,
-        #[case] expected_flagged: bool,
-    ) {
-        let cfg_env: HashMap<String, String> = [
-            ("REDIS_URL", "redis://localhost:6379/"),
-            ("CAPTURE_MODE", "ai"),
-            (
-                "CAPTURE_OUTPUT_ANALYTICS_MAIN_TOPIC",
-                "events_plugin_ingestion_ai",
-            ),
-        ]
-        .into_iter()
-        .map(|(k, v)| (k.to_string(), v.to_string()))
-        .collect();
-        let mut config: Config =
-            envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config");
-        config.ai_max_event_bytes = ceiling;
-        // Raised well above the ceiling, so a v0-only check would say "clear"
-        // and any flag below must have come from the v1 sink.
-        let v0_producer_cap = 20_971_520;
-
-        let mut sink_cfg = crate::v1::sinks::Config {
-            produce_timeout: std::time::Duration::from_secs(30),
-            kafka: crate::v1::test_utils::test_kafka_config(),
-        };
-        sink_cfg.kafka.message_max_bytes = sink_cap;
-        let sinks_cfg = crate::v1::sinks::Sinks {
-            default: crate::v1::sinks::SinkName::Ws,
-            configs: [(crate::v1::sinks::SinkName::Ws, sink_cfg)]
-                .into_iter()
-                .collect(),
-        };
-
-        assert!(
-            !ai_ceiling_exceeds_producer_cap(&config, v0_producer_cap),
-            "v0 producer is raised, so only the v1 sink can be the offender"
-        );
-        let offenders = v1_sinks_below_ai_ceiling(&config, &sinks_cfg);
-        assert_eq!(offenders.is_empty(), !expected_flagged);
-        if expected_flagged {
-            assert_eq!(offenders[0].1, sink_cap);
-        }
     }
 
     /// Import deployments never build the AI byte limiter, however the knob is

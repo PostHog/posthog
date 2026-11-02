@@ -209,4 +209,50 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             location="Location of the asset.",
         ),
     },
+    "task_slas": {
+        "description": "An SLA attached to a task, with its stage and timings (ServiceNow `task_sla` table).",
+        "docs_url": "https://www.servicenow.com/docs/r/zurich/it-service-management/service-level-management/r_TaskSLATable.html",
+        "columns": _columns(
+            task="Task the SLA is attached to.",
+            sla="SLA definition that this record measures.",
+            stage="Stage of the SLA (In progress, Cancelled, Paused or Completed).",
+            start_time="Date and time the SLA started.",
+            end_time="Date and time the SLA stopped.",
+            planned_end_time="Breach time of the SLA, adjusted for the pause duration.",
+            original_breach_time="Breach time calculated when the SLA was first attached.",
+            percentage="Actual elapsed percentage of the SLA, less the pause duration.",
+            business_percentage="Elapsed percentage of the SLA within the schedule, less the pause duration.",
+            time_left="Actual time left before the SLA breaches.",
+            business_time_left="Time left within the schedule before the SLA breaches.",
+            has_breached="Whether the SLA has breached.",
+        ),
+    },
+    "metric_instances": {
+        "description": "One recorded instance of a metric for a record, such as the time an incident spent in a state (ServiceNow `metric_instance` table).",
+        "docs_url": "https://www.servicenow.com/docs/r/platform-administration/c_MetricInstance.html",
+        "columns": _columns(
+            definition="Metric definition that this instance was gathered for.",
+            id="Record that the metric was gathered for, such as an incident.",
+            duration="Time duration of a field value duration metric.",
+        ),
+    },
+    "choices": {
+        "description": "Labels and translations for the options of choice fields, such as incident state or priority (ServiceNow `sys_choice` table).",
+        "docs_url": "https://www.servicenow.com/docs/r/7LhbZn3yz3Q58qhjZoU9iQ/sMi0DDDxrZWOPH4WDRIIww",
+        "columns": _columns(
+            name="Table that the choice applies to.",
+            element="Field that the choice applies to.",
+            language="BCP 47 code of the language of the choice.",
+            value="Stored value of the choice, the same in every language.",
+            label="Label of the choice in this language.",
+            sequence="Number that sets the display order of the choice.",
+        ),
+    },
+    "service_offerings": {
+        "description": "An offering of a service from the service portfolio, referenced by incidents and change requests (ServiceNow `service_offering` table).",
+        "docs_url": "https://www.servicenow.com/docs/r/MlbQAgTiiiMOLOw9T36wJg/c2lHegE0bXtcpy2WSy_nog",
+        "columns": _columns(
+            name="Name of the service offering.",
+        ),
+    },
 }

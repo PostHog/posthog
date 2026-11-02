@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ShortioSource(SimpleSource[ShortioSourceConfig]):
+    codebase_detection = detect(env=("^SHORTIO_", "^SHORT_IO_API_KEY$"), npm=("@short.io/client-node",))
+
     api_docs_url = "https://developers.short.io"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -48,7 +51,7 @@ class ShortioSource(SimpleSource[ShortioSourceConfig]):
             name=ExternalDataSourceType.SHORTIO,
             category=DataWarehouseSourceCategory.ADVERTISING,
             label="Shortio",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Short.io API key to pull your branded-link domains into the PostHog Data warehouse.
 
 Create an API key under **Integrations & API** in your [Short.io dashboard](https://app.short.io/settings/integrations/api-key). Paste the secret key value.

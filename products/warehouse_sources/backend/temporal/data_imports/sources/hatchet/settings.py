@@ -41,6 +41,11 @@ class HatchetEndpointConfig:
     # time-window settings describe the parent workflow-runs listing we fan out over, and each child
     # row carries `workflow_run_id` / `workflow_run_created_at` from its parent run.
     fan_out_path: Optional[str] = None
+    # "offset" pages with `limit`/`offset`. "since" pages by advancing the `since` window to the last
+    # row's timestamp, for endpoints with no offset param. "none" is one unpaginated response.
+    pagination: Literal["offset", "since", "none"] = "offset"
+    # Row fields hashed into a synthetic `id`, for rows the API returns without an identifier.
+    synthetic_id_fields: tuple[str, ...] = ()
 
 
 # `since` is required on the workflow-runs/tasks endpoint even for a full refresh. Retention windows
@@ -63,6 +68,15 @@ _FAN_OUT_INCREMENTAL_FIELDS: list[IncrementalField] = [
         "label": "workflow_run_created_at",
         "type": IncrementalFieldType.DateTime,
         "field": "workflow_run_created_at",
+        "field_type": IncrementalFieldType.DateTime,
+    },
+]
+
+_LOG_INCREMENTAL_FIELDS: list[IncrementalField] = [
+    {
+        "label": "createdAt",
+        "type": IncrementalFieldType.DateTime,
+        "field": "createdAt",
         "field_type": IncrementalFieldType.DateTime,
     },
 ]
@@ -151,6 +165,42 @@ HATCHET_ENDPOINTS: dict[str, HatchetEndpointConfig] = {
         partition_key="created_at",
         incremental_fields=[],
         extra_params={"orderByField": "createdAt", "orderByDirection": "ASC"},
+    ),
+    # Cron triggers of the tenant's workflows. No time filter, and the expression and enabled flag can
+    # change, so full refresh only. Paged by creation time so an edit can't shift rows between pages.
+    "crons": HatchetEndpointConfig(
+        name="crons",
+        path="/api/v1/tenants/{tenant}/workflows/crons",
+        partition_key="created_at",
+        incremental_fields=[],
+        extra_params={"orderByField": "createdAt", "orderByDirection": "ASC"},
+    ),
+    # Users with access to the tenant. The API returns every member in one response.
+    "tenant_members": HatchetEndpointConfig(
+        name="tenant_members",
+        path="/api/v1/tenants/{tenant}/members",
+        partition_key="created_at",
+        incremental_fields=[],
+        pagination="none",
+    ),
+    # Log lines emitted by tasks. The endpoint has no offset param, so pages advance the `since` window.
+    "logs": HatchetEndpointConfig(
+        name="logs",
+        path="/api/v1/stable/tenants/{tenant}/logs",
+        partition_key="createdAt",
+        incremental_fields=_LOG_INCREMENTAL_FIELDS,
+        default_incremental_field="createdAt",
+        supports_time_window=True,
+        default_lookback_days=30,
+        # A log line's createdAt is its insert transaction's start time, so a line can commit after a
+        # newer one was read. Re-read a short trailing window; merge dedupes on the synthetic id.
+        incremental_lookback=timedelta(minutes=5),
+        page_size=1000,
+        pagination="since",
+        # Log lines carry no id. A batch of lines shares one insert timestamp, so the message and
+        # metadata are part of the key.
+        synthetic_id_fields=("createdAt", "taskExternalId", "retryCount", "level", "message", "metadata"),
+        extra_params={"order_by_direction": "ASC"},
     ),
     # State-transition history of every task in a run. The API returns all of a run's events in one
     # response (no pagination), so this fans out once per workflow run.

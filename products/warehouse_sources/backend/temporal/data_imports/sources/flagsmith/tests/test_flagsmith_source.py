@@ -1,6 +1,7 @@
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
 from products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.source import FlagsmithSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flagsmith import (
@@ -21,11 +22,6 @@ class TestFlagsmithSource:
     def test_base_url_is_a_connection_host_field(self):
         # Retargeting the API URL must force re-entry of the API key (credential exfiltration guard).
         assert self.source.connection_host_fields == ["base_url"]
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["features"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "features"
 
     @pytest.mark.parametrize(
         "status, schema_name, expected_valid",
@@ -111,9 +107,8 @@ class TestFlagsmithSource:
 
     def test_source_for_pipeline_rejects_invalid_base_url(self):
         config = FlagsmithSourceConfig(api_key="org-key", base_url="https://user@evil.example.com")
-        inputs = mock.MagicMock()
-        inputs.schema_name = "features"
-        inputs.team_id = self.team_id
+        result = SourceDriver(self.source, config).run("features", [])
 
-        with pytest.raises(ValueError, match="Invalid Flagsmith API URL"):
-            self.source.source_for_pipeline(config, mock.MagicMock(), inputs)
+        assert isinstance(result.raised, ValueError)
+        assert str(result.raised) == "Invalid Flagsmith API URL"
+        assert result.requests == []

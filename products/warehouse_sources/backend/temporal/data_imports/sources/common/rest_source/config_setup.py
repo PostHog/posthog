@@ -12,12 +12,14 @@ from .auth import APIKeyAuth, AuthConfigBase, BearerTokenAuth, HttpBasicAuth, OA
 from .exceptions import IgnoreResponseException
 from .jsonpath_utils import find_values
 from .paginators import (
+    PARAM_LOCATIONS,
     BasePaginator,
     HeaderLinkPaginator,
     JSONResponseCursorPaginator,
     JSONResponsePaginator,
     OffsetPaginator,
     PageNumberPaginator,
+    ParamLocation,
     SinglePagePaginator,
     single_entity_path,
 )
@@ -59,6 +61,7 @@ AUTH_MAP: dict[AuthType, type[AuthConfigBase]] = {
 class IncrementalParam(NamedTuple):
     start: str
     end: Optional[str]
+    location: ParamLocation = "query"
 
 
 class Incremental:
@@ -178,12 +181,18 @@ def setup_incremental_object(
 
     if incremental_config:
         convert = parse_convert_or_deprecated_transform(incremental_config)
-        config = exclude_keys(incremental_config, {"start_param", "end_param", "convert", "transform"})
+        location = incremental_config.get("param_location") or "query"
+        if location not in PARAM_LOCATIONS:
+            raise ValueError(f"Invalid incremental param_location: {location!r}. Use 'query' or 'json'")
+        config = exclude_keys(
+            incremental_config, {"start_param", "end_param", "param_location", "convert", "transform"}
+        )
         return (
             Incremental(**config),
             IncrementalParam(
                 start=incremental_config["start_param"],
                 end=incremental_config.get("end_param"),
+                location=cast(ParamLocation, location),
             ),
             convert,
         )

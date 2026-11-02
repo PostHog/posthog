@@ -1,6 +1,5 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { getNextSurveyStep } from 'posthog-js/dist/surveys-preview'
 import { useState } from 'react'
 
 import { IconGear } from '@posthog/icons'
@@ -15,10 +14,12 @@ import {
 } from 'scenes/surveys/survey-appearance/SurveyAppearanceSections'
 import { CommonProps } from 'scenes/surveys/survey-appearance/types'
 
-import { AvailableFeature, SurveyQuestionBranchingType, SurveyType } from '~/types'
+import { AvailableFeature, SurveyType } from '~/types'
 
 import { SurveyAppearancePreview } from '../SurveyAppearancePreview'
+import { getNextPreviewPageIndex } from '../surveyPreviewNavigation'
 import { surveysLogic } from '../surveysLogic'
+import { clampPreviewPageIndex, getIntroScreenPageOptions } from '../utils'
 
 type PreviewScreenSize = 'mobile' | 'tablet' | 'desktop'
 
@@ -37,6 +38,7 @@ function SurveyPreview({
     const [surveyPreviewBackground, setSurveyPreviewBackground] = useState<'light' | 'dark'>('light')
 
     const currentDimensions = screenDimensions[activeScreenSize]
+    const effectivePageIndex = clampPreviewPageIndex(selectedPageIndex, survey)
     return (
         <div className="flex flex-[1.5] flex-col items-center justify-start rounded overflow-hidden gap-2">
             <LemonTabs
@@ -59,9 +61,10 @@ function SurveyPreview({
                         <LemonSelect
                             onChange={(pageIndex) => setSelectedPageIndex(pageIndex)}
                             className="whitespace-nowrap max-w-fit"
-                            value={selectedPageIndex || 0}
+                            value={effectivePageIndex}
                             id="survey-preview-question-select"
                             options={[
+                                ...getIntroScreenPageOptions(survey),
                                 ...survey.questions.map((question, index) => ({
                                     label: `${index + 1}. ${question.question || 'Untitled Question'}`,
                                     value: index,
@@ -100,21 +103,15 @@ function SurveyPreview({
             >
                 <SurveyAppearancePreview
                     survey={survey}
-                    previewPageIndex={selectedPageIndex || 0}
+                    previewPageIndex={effectivePageIndex}
                     positionStyles={{
                         position: 'absolute',
                     }}
                     onPreviewSubmit={(response) => {
-                        const nextStep = getNextSurveyStep(survey, selectedPageIndex, response)
-                        if (
-                            nextStep === SurveyQuestionBranchingType.End &&
-                            !survey.appearance?.displayThankYouMessage
-                        ) {
-                            return
+                        const nextPageIndex = getNextPreviewPageIndex(survey, effectivePageIndex, response)
+                        if (nextPageIndex !== null) {
+                            setSelectedPageIndex?.(nextPageIndex)
                         }
-                        setSelectedPageIndex?.(
-                            nextStep === SurveyQuestionBranchingType.End ? survey.questions.length : nextStep
-                        )
                     }}
                 />
             </div>

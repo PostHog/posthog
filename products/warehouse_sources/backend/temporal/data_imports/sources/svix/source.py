@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -27,6 +28,17 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SvixSource(ResumableSource[SvixSourceConfig, SvixResumeConfig]):
+    codebase_detection = detect(
+        env=("^SVIX_",),
+        npm=("svix",),
+        pypi=("svix",),
+        cargo=("svix", "svix-ksuid"),
+        composer=("svix/svix",),
+        go=("github.com/svix/svix-webhooks",),
+        maven=("com.svix:svix", "com.svix.kotlin:svix-kotlin"),
+        rubygems=("svix",),
+    )
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://docs.svix.com"
@@ -43,7 +55,7 @@ class SvixSource(ResumableSource[SvixSourceConfig, SvixResumeConfig]):
             name=ExternalDataSourceType.SVIX,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Svix",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Svix API key to pull your webhook platform data into the PostHog Data warehouse.
 
 You can create an API key under **Settings → API Access** in the [Svix dashboard](https://dashboard.svix.com/). The region is encoded in the key (the `sk_` prefix), so use the key for the environment you want to sync. The key grants read access to your applications and event types.

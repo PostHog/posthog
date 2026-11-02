@@ -282,26 +282,19 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         blank=True,
         help_text="When an estimate was last attempted, success or failure. Backs off the refresher on scanners whose estimate query keeps failing.",
     )
-
-    search_suggestions = models.JSONField(
-        default=list,
-        blank=True,
-        help_text="Example searches drawn from recent observations, shown on the Search tab's empty state.",
-    )
-    search_suggestions_watermark = models.DateTimeField(
+    filter_error = models.TextField(
         null=True,
         blank=True,
-        help_text="created_at of the newest observation the suggestions were drawn from.",
+        help_text="Why the scanner's recording filter cannot run, from the last sweep or estimate that tried it. Cleared when the filter changes or a sweep runs it.",
     )
-    search_suggestions_generated_at = models.DateTimeField(null=True, blank=True)
-    search_last_viewed_at = models.DateTimeField(
+    filter_error_at = models.DateTimeField(
         null=True,
         blank=True,
-        help_text="When the Search tab last asked for this scanner's suggestions. Only viewed scanners refresh.",
+        help_text="When the filter error was recorded. Sweeps skip the scanner until it is a few hours old, then try the filter again.",
     )
 
     # Written with the prompt by every path that sets one, see `prompt_questions`; inline scanners keep only a
-    # template's question. Not version-tracked: it restates the prompt and changes nothing about how the scanner scans.
+    # built-in scan's question. Not version-tracked: it restates the prompt and changes nothing about how the scanner scans.
     prompt_question = models.TextField(
         blank=True,
         default="",
@@ -334,6 +327,11 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         validators=[MinValueValidator(1)],
         help_text="Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap.",
     )
+    free_only = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text="Run only while the organization has free credits left this billing period, so the scanner never adds spend.",
+    )
     limit_notified_period_start = models.DateTimeField(
         null=True,
         blank=True,
@@ -361,6 +359,13 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
     admission_credits_since_refresh = models.PositiveIntegerField(
         default=0,
         help_text="Credits admitted since the last admission-budget refresh. Every refresh resets this to the admitting cost, or to zero on a refusal.",
+    )
+
+    # A plain id rather than a foreign key, so that this product holds no constraint on the dashboards table.
+    dashboard_id = models.BigIntegerField(
+        null=True,
+        blank=True,
+        help_text="Dashboard created for this scanner from Replay Vision. Can point at a dashboard the user later deleted.",
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -432,6 +437,8 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
     # Written by sweeps and the read meter through queryset updates; a stale full save must not clobber them.
     _MACHINE_OWNED_FIELDS = (
         "estimate_attempted_at",
+        "filter_error",
+        "filter_error_at",
         "last_swept_at",
         "last_seen_session_id",
         "deep_swept_through",
@@ -445,10 +452,6 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         "admission_budget_refreshed_at",
         "admission_budget_period_start",
         "admission_credits_since_refresh",
-        "search_suggestions",
-        "search_suggestions_watermark",
-        "search_suggestions_generated_at",
-        "search_last_viewed_at",
     )
 
     def save(self, *args, **kwargs) -> None:
@@ -494,7 +497,12 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
                         # A config edit must not wait out a backoff the old config earned.
                         self.estimated_at = None
                         self.estimate_attempted_at = None
-                        extra_fields.extend(["estimated_at", "estimate_attempted_at"])
+                        # The filter changed, so the old filter's error no longer applies.
+                        self.filter_error = None
+                        self.filter_error_at = None
+                        extra_fields.extend(
+                            ["estimated_at", "estimate_attempted_at", "filter_error", "filter_error_at"]
+                        )
                     if track_enabled and not old.enabled and self.enabled:
                         # Re-enabling restarts the sweep from now — don't backfill (and bill) the disabled gap.
                         self.last_swept_at = initial_watermark()
@@ -538,6 +546,10 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         `experiment_exposure` inside `query` for the same reason.
         """
         return apply_experiment_targeting(self.recordings_query(), self.experiment_scope())
+
+    @property
+    def has_spend_ceiling(self) -> bool:
+        return self.credit_limit is not None or self.free_only
 
     def __str__(self) -> str:
         return f"{self.name} ({self.scanner_type})"

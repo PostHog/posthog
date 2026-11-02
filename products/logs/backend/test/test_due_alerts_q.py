@@ -34,6 +34,22 @@ class TestDueAlertsQ(BaseTest):
                 {"state": State.FIRING, "snooze_until": FUTURE},
                 True,
             ),
+            (
+                "platform_owned_inside_the_shadow",
+                {"owner": "platform", "owner_changed_at": NOW - timedelta(days=6)},
+                True,
+            ),
+            (
+                "platform_owned_after_the_shadow",
+                {"owner": "platform", "owner_changed_at": NOW - timedelta(days=8)},
+                False,
+            ),
+            ("platform_owned_without_a_cutover_time", {"owner": "platform", "owner_changed_at": None}, False),
+            (
+                "source_owned_long_after_a_rollback",
+                {"owner": "source", "owner_changed_at": NOW - timedelta(days=30)},
+                True,
+            ),
         ]
     )
     def test_due_alerts_q(self, _name: str, overrides: dict, expected_due: bool) -> None:

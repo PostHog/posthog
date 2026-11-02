@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ChameleonSource(ResumableSource[ChameleonSourceConfig, ChameleonResumeConfig]):
+    codebase_detection = detect(
+        script_hosts=("fast.chameleon.io", "fast.trychameleon.com"), npm=("@chamaeleonidae/chmln",)
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = ("v3",)
@@ -51,7 +56,7 @@ class ChameleonSource(ResumableSource[ChameleonSourceConfig, ChameleonResumeConf
             name=ExternalDataSourceType.CHAMELEON,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Chameleon",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Chameleon API secret to automatically pull your Chameleon data into the PostHog Data warehouse.
 
 You can generate an account-specific API secret in your [Chameleon account settings](https://app.chameleon.io/settings/tokens). The secret is only shown once, so copy it when you create it.""",

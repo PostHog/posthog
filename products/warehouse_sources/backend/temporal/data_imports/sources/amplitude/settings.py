@@ -29,6 +29,7 @@ EVENT_TYPES_ENDPOINT = "event_types"
 EVENT_PROPERTIES_ENDPOINT = "event_properties"
 USER_PROPERTIES_ENDPOINT = "user_properties"
 EVENT_CATEGORIES_ENDPOINT = "event_categories"
+GROUP_PROPERTIES_ENDPOINT = "group_properties"
 
 TAXONOMY_EVENT_PATH = "/api/2/taxonomy/event"
 
@@ -122,6 +123,14 @@ AMPLITUDE_ENDPOINTS: dict[str, AmplitudeEndpointConfig] = {
         name=EVENT_CATEGORIES_ENDPOINT,
         path="/api/2/taxonomy/category",
         primary_keys=["id"],
+        data_selector="data",
+    ),
+    # Without `group_type` Amplitude returns the shared group properties of the tracking plan,
+    # where each name is unique. Per-group-type overrides are not listed.
+    GROUP_PROPERTIES_ENDPOINT: AmplitudeEndpointConfig(
+        name=GROUP_PROPERTIES_ENDPOINT,
+        path="/api/2/taxonomy/group-property",
+        primary_keys=["group_property"],
         data_selector="data",
     ),
 }

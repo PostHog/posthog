@@ -1,9 +1,9 @@
-from collections.abc import Iterable
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
-from unittest.mock import Mock, patch
+import time_machine
+from unittest.mock import patch
 
 import requests_mock
 from requests.exceptions import HTTPError
@@ -12,12 +12,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.qdrant import QdrantSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.qdrant.qdrant import (
     QdrantResumeConfig,
-    qdrant_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.qdrant.source import QdrantSource
@@ -25,6 +28,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.qdrant.sou
 ACCOUNT_ID = "00000000-0000-4000-8000-000000000001"
 ACCOUNTS_URL = "https://api.cloud.qdrant.io/api/account/v1/accounts"
 CLUSTERS_URL = f"https://api.cloud.qdrant.io/api/cluster/v1/accounts/{ACCOUNT_ID}/clusters"
+PROVIDERS_PATH = f"/api/platform/v1/accounts/{ACCOUNT_ID}/cloud-providers"
+METERINGS_PATH = f"/api/metering/v1/accounts/{ACCOUNT_ID}/meterings"
+PACKAGES_PATH = f"/api/booking/v1/accounts/{ACCOUNT_ID}/packages"
+HYBRID_ENV = "00000000-0000-4000-8000-0000000000e1"
+CLUSTER_A = "00000000-0000-4000-8000-00000000000a"
+CLUSTER_B = "00000000-0000-4000-8000-00000000000b"
 
 
 @pytest.fixture
@@ -32,78 +41,252 @@ def config() -> QdrantSourceConfig:
     return QdrantSourceConfig(api_key="fake-management-key", account_id=ACCOUNT_ID)
 
 
-@pytest.fixture
-def manager() -> Mock:
-    result = Mock(spec=ResumableSourceManager)
-    result.can_resume.return_value = False
-    return result
-
-
-def sync_items(response: SourceResponse) -> Iterable[Any]:
-    items = response.items()
-    assert isinstance(items, Iterable)
-    return items
+def drive(config: QdrantSourceConfig, schema_name: str, script: Script, **inputs: Any) -> DriveResult:
+    return SourceDriver(QdrantSource(), config).run(schema_name, script, **inputs)
 
 
 @pytest.mark.parametrize("resume", [None, QdrantResumeConfig(cursor="saved-token")])
 @pytest.mark.parametrize("body", [{"items": []}, {}, {"items": [], "nextPageToken": ""}])
 def test_resume_and_empty_terminal_page(
-    config: QdrantSourceConfig, manager: Mock, resume: QdrantResumeConfig | None, body: dict[str, Any]
+    config: QdrantSourceConfig, resume: QdrantResumeConfig | None, body: dict[str, Any]
 ) -> None:
-    manager.can_resume.return_value = True
-    manager.load_state.return_value = resume
+    result = drive(config, "clusters", [ScriptedResponse(json=body)], resume_state=resume)
+
+    assert result.raised is None
+    assert result.rows == []
+    assert len(result.requests) == 1
+    assert result.paths == [urlsplit(CLUSTERS_URL).path]
+    assert result.params("pageSize") == ["100"]
+    assert result.params("pageToken") == (["saved-token"] if resume else [None])
+    assert result.saved_states == []
+
+
+def test_empty_page_with_cursor_continues(config: QdrantSourceConfig) -> None:
+    result = drive(
+        config,
+        "clusters",
+        [
+            ScriptedResponse(json={"items": [], "nextPageToken": "next"}),
+            ScriptedResponse(json={"items": [{"id": "last"}]}),
+        ],
+    )
+
+    assert result.items == [[{"id": "last"}]]
+    assert len(result.requests) == 2
+    assert result.saved_states == [QdrantResumeConfig(cursor="next")]
+
+
+def test_repeated_cursor_fails(config: QdrantSourceConfig) -> None:
+    result = drive(
+        config,
+        "clusters",
+        [ScriptedResponse(json={"items": [{"id": "first"}], "nextPageToken": "repeated"})],
+        resume_state=QdrantResumeConfig(cursor="repeated"),
+    )
+
+    assert isinstance(result.raised, ValueError)
+    assert "pagination is not advancing" in str(result.raised)
+    assert len(result.requests) == 1
+
+
+@pytest.mark.parametrize(
+    "schema_name,url,paginated",
+    [
+        (None, ACCOUNTS_URL, False),
+        ("clusters", CLUSTERS_URL, True),
+        ("backups", f"https://api.cloud.qdrant.io/api/cluster/backup/v1/accounts/{ACCOUNT_ID}/backups", True),
+        (
+            "backup_schedules",
+            f"https://api.cloud.qdrant.io/api/cluster/backup/v1/accounts/{ACCOUNT_ID}/backup_schedules",
+            True,
+        ),
+        (
+            "backup_restores",
+            f"https://api.cloud.qdrant.io/api/cluster/backup/v1/accounts/{ACCOUNT_ID}/backup_restores",
+            True,
+        ),
+        ("cloud_providers", f"https://api.cloud.qdrant.io{PROVIDERS_PATH}", False),
+        ("cloud_provider_regions", f"https://api.cloud.qdrant.io{PROVIDERS_PATH}", False),
+        ("metering_entries", f"https://api.cloud.qdrant.io{METERINGS_PATH}", False),
+        ("cluster_usage_metrics", CLUSTERS_URL, True),
+        ("cluster_inference_metrics", CLUSTERS_URL, True),
+        ("packages", f"https://api.cloud.qdrant.io{PROVIDERS_PATH}", False),
+        ("account_members", f"https://api.cloud.qdrant.io/api/account/v1/accounts/{ACCOUNT_ID}/members", False),
+        ("invoices", f"https://api.cloud.qdrant.io/api/billing/v1/accounts/{ACCOUNT_ID}/invoices", False),
+    ],
+)
+def test_credentials_make_one_probe(
+    config: QdrantSourceConfig, schema_name: str | None, url: str, paginated: bool
+) -> None:
     with requests_mock.Mocker() as http:
-        http.get(CLUSTERS_URL, json=body)
-        assert list(sync_items(qdrant_source(config, "clusters", 1, "job", manager))) == []
-        assert http.call_count == 1
-        expected = {"pageSize": ["100"]}
-        if resume:
-            expected["pageToken"] = ["saved-token"]
-        assert parse_qs(urlsplit(http.request_history[0].url).query) == expected
-        manager.save_state.assert_not_called()
-
-
-def test_empty_page_with_cursor_continues(config: QdrantSourceConfig, manager: Mock) -> None:
-    with requests_mock.Mocker() as http:
-        http.get(
-            CLUSTERS_URL,
-            [
-                {"json": {"items": [], "nextPageToken": "next"}},
-                {"json": {"items": [{"id": "last"}]}},
-            ],
-        )
-        assert list(sync_items(qdrant_source(config, "clusters", 1, "job", manager))) == [[{"id": "last"}]]
-        assert http.call_count == 2
-        manager.save_state.assert_called_once_with(QdrantResumeConfig(cursor="next"))
-
-
-def test_repeated_cursor_fails(config: QdrantSourceConfig, manager: Mock) -> None:
-    manager.can_resume.return_value = True
-    manager.load_state.return_value = QdrantResumeConfig(cursor="repeated")
-    with requests_mock.Mocker() as http:
-        http.get(CLUSTERS_URL, json={"items": [{"id": "first"}], "nextPageToken": "repeated"})
-        with pytest.raises(ValueError, match="pagination is not advancing"):
-            list(sync_items(qdrant_source(config, "clusters", 1, "job", manager)))
-        assert http.call_count == 1
-
-
-@pytest.mark.parametrize("schema_name", [None, "clusters", "backups", "backup_schedules", "backup_restores"])
-def test_credentials_make_one_probe(config: QdrantSourceConfig, schema_name: str | None) -> None:
-    with requests_mock.Mocker() as http:
-        body: dict[str, Any]
-        if schema_name is None:
-            url = ACCOUNTS_URL
-            body = {"items": [{"id": ACCOUNT_ID}]}
-        else:
-            service = "cluster" if schema_name == "clusters" else "cluster/backup"
-            url = f"https://api.cloud.qdrant.io/api/{service}/v1/accounts/{ACCOUNT_ID}/{schema_name}"
-            body = {"items": [], "nextPageToken": "unused"}
+        body: dict[str, Any] = {"items": [{"id": ACCOUNT_ID}]} if schema_name is None else {"items": []}
         http.get(url, json=body)
         assert validate_credentials(config, schema_name) == (True, None)
         assert http.call_count == 1
         request = http.request_history[0]
         assert request.headers["Authorization"] == "apikey fake-management-key"
-        assert parse_qs(urlsplit(request.url).query) == ({"pageSize": ["1"]} if schema_name else {})
+        assert parse_qs(urlsplit(request.url).query) == ({"pageSize": ["1"]} if paginated else {})
+
+
+@pytest.mark.parametrize(
+    "schema_name,script,expected_paths,expected_rows",
+    [
+        (
+            "cloud_provider_regions",
+            [
+                ScriptedResponse(json={"items": [{"id": "aws"}, {"id": "hybrid"}]}),
+                ScriptedResponse(json={"items": [{"id": "us-west-1", "provider": "aws"}]}),
+                ScriptedResponse(status=403, json={"code": 7, "message": "permission denied"}),
+            ],
+            [PROVIDERS_PATH, f"{PROVIDERS_PATH}/aws/regions", f"{PROVIDERS_PATH}/hybrid/regions"],
+            [{"id": "us-west-1", "provider": "aws", "cloud_provider_id": "aws"}],
+        ),
+        (
+            "metering_entries",
+            [
+                ScriptedResponse(json={"items": [{"year": 2026, "month": 9}, {"year": 2026, "month": 10}]}),
+                ScriptedResponse(json={"items": [{"billableEntityId": "booking-1", "amountMillicents": "10"}]}),
+                ScriptedResponse(json={"items": []}),
+            ],
+            [METERINGS_PATH, f"{METERINGS_PATH}/2026/9", f"{METERINGS_PATH}/2026/10"],
+            [{"billableEntityId": "booking-1", "amountMillicents": "10"}],
+        ),
+    ],
+)
+def test_fanout_binds_parent_rows_into_child_paths(
+    config: QdrantSourceConfig,
+    schema_name: str,
+    script: Script,
+    expected_paths: list[str],
+    expected_rows: list[dict[str, Any]],
+) -> None:
+    result = drive(config, schema_name, script)
+
+    assert result.raised is None
+    assert result.paths == expected_paths
+    assert result.rows == expected_rows
+
+
+@time_machine.travel("2026-10-31T12:00:00Z", tick=False)
+@pytest.mark.parametrize(
+    "inputs,expected_since",
+    [
+        ({}, "2026-10-24T12:00:00Z"),
+        (
+            {"incremental_field": "timestamp", "db_incremental_field_last_value": "2026-10-31T10:00:00Z"},
+            "2026-10-31T09:00:00Z",
+        ),
+        (
+            {"incremental_field": "timestamp", "db_incremental_field_last_value": "2026-01-01T00:00:00Z"},
+            "2026-10-24T12:00:00Z",
+        ),
+    ],
+)
+def test_cluster_usage_metrics_explode_per_cluster(
+    config: QdrantSourceConfig, inputs: dict[str, Any], expected_since: str
+) -> None:
+    point = {"timestamp": "2026-10-31T11:00:00Z", "value": 0.5}
+    result = drive(
+        config,
+        "cluster_usage_metrics",
+        [
+            ScriptedResponse(json={"items": [{"id": CLUSTER_A}, {"id": CLUSTER_B}]}),
+            ScriptedResponse(json={"cpu": [point], "rps": [], "nodes": [{"nodeId": "node-0", "ram": [point]}]}),
+            ScriptedResponse(status=404, json={"code": 5, "message": "cluster not found"}),
+        ],
+        **inputs,
+    )
+
+    assert result.raised is None
+    assert result.paths == [
+        urlsplit(CLUSTERS_URL).path,
+        f"/api/monitoring/v1/accounts/{ACCOUNT_ID}/cluster/{CLUSTER_A}/usage-metrics",
+        f"/api/monitoring/v1/accounts/{ACCOUNT_ID}/cluster/{CLUSTER_B}/usage-metrics",
+    ]
+    assert result.params("since") == [None, expected_since, expected_since]
+    assert result.params("until") == [None, "2026-10-31T12:00:00Z", "2026-10-31T12:00:00Z"]
+    assert result.response is not None and result.response.supports_resume is False
+    assert result.rows == [
+        {"cluster_id": CLUSTER_A, "node_id": "", "metric": "cpu", **point},
+        {"cluster_id": CLUSTER_A, "node_id": "node-0", "metric": "ram", **point},
+    ]
+
+
+def test_packages_fan_out_over_every_provider_region(config: QdrantSourceConfig) -> None:
+    result = drive(
+        config,
+        "packages",
+        [
+            ScriptedResponse(json={"items": [{"id": "aws"}, {"id": "hybrid"}]}),
+            ScriptedResponse(json={"items": [{"id": "us-east-1", "provider": "aws"}]}),
+            ScriptedResponse(json={"items": [{"id": "pkg-1", "name": "small"}]}),
+            ScriptedResponse(json={"items": [{"id": HYBRID_ENV, "provider": "openshift"}]}),
+            ScriptedResponse(json={"items": [{"id": "pkg-1", "name": "small"}]}),
+        ],
+    )
+
+    assert result.raised is None
+    assert result.paths == [
+        PROVIDERS_PATH,
+        f"{PROVIDERS_PATH}/aws/regions",
+        PACKAGES_PATH,
+        f"{PROVIDERS_PATH}/hybrid/regions",
+        PACKAGES_PATH,
+    ]
+    package_queries = [query for query, path in zip(result.queries, result.paths) if path == PACKAGES_PATH]
+    statuses = ("PACKAGE_STATUS_ACTIVE", "PACKAGE_STATUS_DEACTIVATED")
+    assert package_queries == [
+        {"cloudProviderId": ("aws",), "cloudProviderRegionId": ("us-east-1",), "statuses": statuses},
+        {"cloudProviderId": ("hybrid",), "cloudProviderRegionId": (HYBRID_ENV,), "statuses": statuses},
+    ]
+    assert result.rows == [
+        {"id": "pkg-1", "name": "small", "cloud_provider_id": "aws", "cloud_provider_region_id": "us-east-1"},
+        {"id": "pkg-1", "name": "small", "cloud_provider_id": "hybrid", "cloud_provider_region_id": HYBRID_ENV},
+    ]
+
+
+@time_machine.travel("2026-10-31T12:00:00Z", tick=False)
+@pytest.mark.parametrize(
+    "inputs,expected_since",
+    [
+        ({}, "2026-10-24T00:00:00Z"),
+        (
+            {"incremental_field": "timestamp", "db_incremental_field_last_value": "2026-10-31T00:00:00Z"},
+            "2026-10-31T00:00:00Z",
+        ),
+    ],
+)
+def test_cluster_inference_metrics_explode_per_model(
+    config: QdrantSourceConfig, inputs: dict[str, Any], expected_since: str
+) -> None:
+    point = {"timestamp": "2026-10-31T00:00:00Z", "value": 1200}
+    result = drive(
+        config,
+        "cluster_inference_metrics",
+        [
+            ScriptedResponse(json={"items": [{"id": CLUSTER_A}, {"id": CLUSTER_B}]}),
+            ScriptedResponse(json={"models": [{"inferenceModelId": "model-1", "values": [point]}]}),
+            ScriptedResponse(json={}),
+        ],
+        **inputs,
+    )
+
+    assert result.raised is None
+    assert result.params("since") == [None, expected_since, expected_since]
+    assert result.params("interval") == [None, "INFERENCE_METRICS_INTERVAL_DAY", "INFERENCE_METRICS_INTERVAL_DAY"]
+    assert result.rows == [{"cluster_id": CLUSTER_A, "inference_model_id": "model-1", **point}]
+
+
+def test_account_members_flatten_user(config: QdrantSourceConfig) -> None:
+    user = {"id": "user-1", "email": "member@example.com", "createdAt": "2026-01-01T00:00:00Z"}
+    result = drive(
+        config,
+        "account_members",
+        [ScriptedResponse(json={"items": [{"accountMember": user, "isOwner": True}, {"accountMember": user}]})],
+    )
+
+    assert result.raised is None
+    assert result.rows == [{**user, "isOwner": True}, {**user, "isOwner": False}]
 
 
 @pytest.mark.parametrize("body", [{"items": []}, {"items": [{"id": "another-account"}]}])
@@ -147,15 +330,18 @@ def test_credentials_map_http_errors(config: QdrantSourceConfig, status: int, ex
 
 
 @pytest.mark.parametrize("status", [400, 401, 403])
-def test_sync_http_errors_are_not_retried(config: QdrantSourceConfig, manager: Mock, status: int) -> None:
-    with requests_mock.Mocker() as http:
-        http.get(CLUSTERS_URL, status_code=status, json={"code": status, "message": "authentication failed"})
-        with pytest.raises(HTTPError) as error:
-            list(sync_items(qdrant_source(config, "clusters", 1, "job", manager)))
-        assert http.call_count == 1
-        assert error_message_matches(str(error.value), QdrantSource().get_non_retryable_errors()) == (
-            status in (401, 403)
-        )
+def test_sync_http_errors_are_not_retried(config: QdrantSourceConfig, status: int) -> None:
+    result = drive(
+        config,
+        "clusters",
+        [ScriptedResponse(status=status, json={"code": status, "message": "authentication failed"})],
+    )
+
+    assert isinstance(result.raised, HTTPError)
+    assert len(result.requests) == 1
+    assert error_message_matches(str(result.raised), QdrantSource().get_non_retryable_errors()) == (
+        status in (401, 403)
+    )
 
 
 @pytest.mark.parametrize("status", [429, 500])
@@ -179,11 +365,14 @@ def test_other_probe_error_propagates(config: QdrantSourceConfig) -> None:
             validate_credentials(config)
 
 
-def test_invalid_sync_settings_fail_before_request(config: QdrantSourceConfig, manager: Mock) -> None:
-    with requests_mock.Mocker() as http:
-        with pytest.raises(ValueError, match="Unknown Qdrant table"):
-            qdrant_source(config, "unknown", 1, "job", manager)
-        config.account_id = "../account"
-        with pytest.raises(ValueError, match="valid Qdrant account ID"):
-            qdrant_source(config, "clusters", 1, "job", manager)
-        assert not http.called
+def test_invalid_sync_settings_fail_before_request(config: QdrantSourceConfig) -> None:
+    unknown_table = drive(config, "unknown", [])
+    assert isinstance(unknown_table.raised, ValueError)
+    assert "Unknown Qdrant table" in str(unknown_table.raised)
+    assert unknown_table.requests == []
+
+    config.account_id = "../account"
+    bad_account = drive(config, "clusters", [])
+    assert isinstance(bad_account.raised, ValueError)
+    assert "valid Qdrant account ID" in str(bad_account.raised)
+    assert bad_account.requests == []

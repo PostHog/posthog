@@ -56,6 +56,16 @@ _CUSTOM_FIELD_COLUMNS = {
     "account_id": "Identifier of the Kommo account the field belongs to.",
 }
 
+_FIELD_GROUP_COLUMNS = {
+    "id": "Identifier of the field group. The predefined main group is `default` on every entity.",
+    "name": "Field group name as shown in the entity card.",
+    "sort": "Position of the group in the entity card.",
+    "entity_type": "Entity the group belongs to (leads, contacts, or companies).",
+    "is_predefined": "Whether the group is a built-in group. Built-in groups cannot be deleted.",
+    "type": "Group type: custom_field_group for field groups, linked_group for product groups.",
+    "fields": "Identifiers of the custom fields shown in the group.",
+}
+
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "Leads": {
         "description": "A sales opportunity moving through a Kommo pipeline, with its stage, price, and owner.",
@@ -187,6 +197,32 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "account_id": "Identifier of the Kommo account the list belongs to.",
         },
     },
+    "CatalogElements": {
+        "description": "An element of a Kommo list (catalog), such as a product in a product list.",
+        "docs_url": "https://developers.kommo.com/reference/get-list-elements",
+        "columns": {
+            "id": "Unique identifier of the list element.",
+            "catalog_id": "Identifier of the list the element belongs to.",
+            "name": "Element name.",
+            "created_by": "Identifier of the user who created the element.",
+            "updated_by": "Identifier of the user who last changed the element.",
+            "created_at": "When the element was created, as a Unix timestamp.",
+            "updated_at": "When the element was last changed, as a Unix timestamp.",
+            "is_deleted": "Whether the element is deleted.",
+            "custom_fields_values": "Custom field values as a list of {field_id, field_name, field_code, field_type, values}.",
+            "account_id": "Identifier of the Kommo account the element belongs to.",
+        },
+    },
+    "CatalogCustomFields": {
+        "description": "Custom field definitions available on the elements of a Kommo list (catalog).",
+        "docs_url": "https://developers.kommo.com/reference/custom-fields-list-of-list",
+        "columns": {
+            **_CUSTOM_FIELD_COLUMNS,
+            "catalog_id": "Identifier of the list the field belongs to.",
+            "entity_type": "Entity the field belongs to. Always catalogs for list fields.",
+            "remind": "Reminder setting for birthday fields: never, day, week, or month before the date.",
+        },
+    },
     "LeadCustomFields": {
         "description": "Custom field definitions available on leads.",
         "docs_url": "https://developers.kommo.com/reference/custom-field-by-entity",
@@ -201,6 +237,21 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "Custom field definitions available on companies.",
         "docs_url": "https://developers.kommo.com/reference/custom-field-by-entity",
         "columns": _CUSTOM_FIELD_COLUMNS,
+    },
+    "LeadCustomFieldGroups": {
+        "description": "Groups that organize the custom fields of leads into tabs of the lead card.",
+        "docs_url": "https://developers.kommo.com/reference/list-of-entity-field-groups",
+        "columns": _FIELD_GROUP_COLUMNS,
+    },
+    "ContactCustomFieldGroups": {
+        "description": "Groups that organize the custom fields of contacts into tabs of the contact card.",
+        "docs_url": "https://developers.kommo.com/reference/list-of-entity-field-groups",
+        "columns": _FIELD_GROUP_COLUMNS,
+    },
+    "CompanyCustomFieldGroups": {
+        "description": "Groups that organize the custom fields of companies into tabs of the company card.",
+        "docs_url": "https://developers.kommo.com/reference/list-of-entity-field-groups",
+        "columns": _FIELD_GROUP_COLUMNS,
     },
     "LeadTags": {
         "description": "Tags that can be applied to leads.",

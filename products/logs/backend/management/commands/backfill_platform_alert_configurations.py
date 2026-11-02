@@ -1,16 +1,26 @@
-from typing import Any
+from collections.abc import Collection
+from uuid import UUID
 
-from django.core.management.base import BaseCommand
+from products.alerts_platform.backend.facade.backfill_command import PlatformBackfillCommand
+from products.logs.backend.platform_alert_backfill import (
+    BackfillCounts,
+    backfill_platform_alert_configurations,
+    disable_platform_alert_configurations,
+)
 
-from products.logs.backend.platform_alert_backfill import backfill_platform_alert_configurations
 
-
-class Command(BaseCommand):
+class Command(PlatformBackfillCommand):
     help = "Copy logs alert configurations into the skeleton shared alert tables."
+    source_name = "logs"
+    # Logs samples whole teams, because one query checks a cohort of a team's alerts.
+    sample_unit = "team"
 
-    def add_arguments(self, parser: Any) -> None:
-        parser.add_argument("--team-id", type=int, default=None, help="Copy one team's configurations only.")
+    def backfill(
+        self, *, team_id: int | None, sample_percent: int, alert_ids: Collection[UUID] | None
+    ) -> BackfillCounts:
+        return backfill_platform_alert_configurations(
+            team_id=team_id, sample_percent=sample_percent, alert_ids=alert_ids
+        )
 
-    def handle(self, *args: Any, **options: Any) -> None:
-        counts = backfill_platform_alert_configurations(team_id=options["team_id"])
-        self.stdout.write(f"Created {counts.created}, updated {counts.updated}")
+    def disable(self, *, team_id: int | None, alert_ids: Collection[UUID] | None) -> int:
+        return disable_platform_alert_configurations(team_id=team_id, alert_ids=alert_ids)

@@ -1,13 +1,17 @@
-import json
 from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from unittest import mock
-
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lemonsqueezy import (
+    LemonSqueezySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.lemon_squeezy.lemon_squeezy import (
     LemonSqueezyResumeConfig,
     LemonSqueezyUntrustedURLError,
@@ -18,7 +22,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lemon_sque
     create_webhook,
     delete_webhook,
     get_external_webhook_info,
-    lemon_squeezy_source,
     sync_webhook_events,
     validate_credentials,
 )
@@ -26,12 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lemon_sque
     ALL_WEBHOOK_EVENTS,
     BASE_URL,
 )
-
-# The source builds its own tracked session (capture-disabled, host-pinned) for the sync client,
-# validate_credentials, and the webhook management helpers.
-LEMON_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.lemon_squeezy.lemon_squeezy.make_tracked_session"
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.lemon_squeezy.source import LemonSqueezySource
 
 
 def _json_api_item(resource_id: str, created_at: str, **attributes: Any) -> dict[str, Any]:
@@ -42,47 +40,12 @@ def _json_api_item(resource_id: str, created_at: str, **attributes: Any) -> dict
     }
 
 
-def _response(items: list[dict[str, Any]], next_link: str | None) -> Response:
-    body = {"data": items, "links": {"next": next_link} if next_link else {}}
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    return resp
+def _page(items: list[dict[str, Any]], next_link: str | None = None) -> ScriptedResponse:
+    return ScriptedResponse(json={"data": items, "links": {"next": next_link} if next_link else {}})
 
 
-def _make_manager(resume_state: LemonSqueezyResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session, snapshotting each request AT PREPARE TIME (params/url mutate across pages)."""
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append({"url": request.url, "params": dict(request.params or {}), "headers": request.headers or {}})
-        # The prepared URL must be a real string: the client host-pins every request URL, so a
-        # MagicMock here would blow up `urlsplit` in the allowed-host check.
-        prepared = mock.MagicMock()
-        prepared.url = request.url
-        return prepared
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any):
-    return lemon_squeezy_source(
-        "test-api-key", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, **kwargs
-    )
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _driver() -> SourceDriver:
+    return SourceDriver(LemonSqueezySource(), LemonSqueezySourceConfig(api_key="test-api-key"))
 
 
 class TestParseDatetime:
@@ -108,92 +71,77 @@ class TestFlatten:
 
 
 class TestValidateCredentials:
-    @mock.patch(LEMON_SESSION_PATCH)
-    def test_probes_users_me_with_json_api_headers(self, mock_session):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
+    def test_probes_users_me_with_json_api_headers(self) -> None:
+        with scripted_network([ScriptedResponse()]) as network:
+            assert validate_credentials("key") is True
 
-        validate_credentials("key")
-
-        call = mock_session.return_value.get.call_args
-        assert call.args[0] == "https://api.lemonsqueezy.com/v1/users/me"
-        assert call.kwargs["headers"]["Authorization"] == "Bearer key"
-        assert call.kwargs["headers"]["Accept"] == "application/vnd.api+json"
+        assert len(network.requests_log) == 1
+        request = network.requests_log[0]
+        assert request.url == "https://api.lemonsqueezy.com/v1/users/me"
+        assert request.headers["authorization"] == "Bearer key"
+        assert request.headers["accept"] == "application/vnd.api+json"
 
 
 class TestPagination:
-    @mock.patch(LEMON_SESSION_PATCH)
-    def test_follows_links_next_and_drops_original_params(self, MockSession):
-        session = MockSession.return_value
-        requests_seen = _wire(
-            session,
+    def test_follows_links_next_and_drops_original_params(self) -> None:
+        next_url = f"{BASE_URL}/v1/stores?page%5Bnumber%5D=2"
+        result = _driver().run(
+            "stores",
             [
-                _response(
+                _page(
                     [_json_api_item("1", "2024-05-02T00:00:00Z"), _json_api_item("2", "2024-05-01T00:00:00Z")],
-                    "https://api.lemonsqueezy.com/v1/orders?page%5Bnumber%5D=2",
+                    next_url,
                 ),
-                _response([_json_api_item("3", "2024-04-30T00:00:00Z")], None),
+                _page([_json_api_item("3", "2024-04-30T00:00:00Z")]),
             ],
         )
 
-        manager = _make_manager()
-        rows = _rows(_source("orders", manager))
-
-        assert [row["id"] for row in rows] == ["1", "2", "3"]
-        assert requests_seen[0]["url"] == "https://api.lemonsqueezy.com/v1/orders"
-        assert requests_seen[0]["params"] == {"page[size]": 100}
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["1", "2", "3"]
+        assert result.requests[0].path == "/v1/stores"
+        assert result.requests[0].param("page[size]") == "100"
         # The next-page URL is self-contained; original params are dropped.
-        assert requests_seen[1]["url"] == "https://api.lemonsqueezy.com/v1/orders?page%5Bnumber%5D=2"
-        assert requests_seen[1]["params"] == {}
+        assert result.requests[1].url == next_url
+        assert result.requests[1].param("page[size]") is None
         # State is saved only while a next page exists.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == LemonSqueezyResumeConfig(
-            next_url="https://api.lemonsqueezy.com/v1/orders?page%5Bnumber%5D=2"
+        assert result.saved_states == [LemonSqueezyResumeConfig(next_url=next_url)]
+
+    def test_resumes_from_saved_state(self) -> None:
+        resume_url = f"{BASE_URL}/v1/stores?page%5Bnumber%5D=5"
+        result = _driver().run(
+            "stores",
+            [_page([_json_api_item("9", "2024-05-01T00:00:00Z")])],
+            resume_state=LemonSqueezyResumeConfig(next_url=resume_url),
         )
 
-    @mock.patch(LEMON_SESSION_PATCH)
-    def test_resumes_from_saved_state(self, MockSession):
-        session = MockSession.return_value
-        requests_seen = _wire(session, [_response([_json_api_item("9", "2024-05-01T00:00:00Z")], None)])
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["9"]
+        assert result.requests[0].url == resume_url
+        assert result.requests[0].param("page[size]") is None
 
-        resume_url = "https://api.lemonsqueezy.com/v1/orders?page%5Bnumber%5D=5"
-        rows = _rows(_source("orders", _make_manager(LemonSqueezyResumeConfig(next_url=resume_url))))
-
-        assert [row["id"] for row in rows] == ["9"]
-        assert requests_seen[0]["url"] == resume_url
-        assert requests_seen[0]["params"] == {}
-
-    @mock.patch(LEMON_SESSION_PATCH)
-    def test_incremental_stops_once_page_predates_watermark(self, MockSession):
-        session = MockSession.return_value
-        requests_seen = _wire(
-            session,
+    def test_incremental_stops_once_page_predates_watermark(self) -> None:
+        result = _driver().run(
+            "order_items",
             [
                 # Page 1 straddles the watermark: keep paging.
-                _response(
+                _page(
                     [_json_api_item("3", "2024-05-03T00:00:00Z"), _json_api_item("2", "2024-04-30T00:00:00Z")],
-                    "https://api.lemonsqueezy.com/v1/orders?page%5Bnumber%5D=2",
+                    f"{BASE_URL}/v1/order-items?page%5Bnumber%5D=2",
                 ),
                 # Page 2 is entirely older than the watermark: stop despite a next link.
-                _response(
+                _page(
                     [_json_api_item("1", "2024-04-29T00:00:00Z")],
-                    "https://api.lemonsqueezy.com/v1/orders?page%5Bnumber%5D=3",
+                    f"{BASE_URL}/v1/order-items?page%5Bnumber%5D=3",
                 ),
             ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2024-05-01T00:00:00Z",
         )
 
-        manager = _make_manager()
-        rows = _rows(
-            _source(
-                "orders",
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value="2024-05-01T00:00:00Z",
-            )
-        )
-
-        assert len(requests_seen) == 2
+        assert result.raised is None
+        assert len(result.requests) == 2
         # Boundary rows older than the watermark are re-yielded; merge on id dedupes them.
-        assert [row["id"] for row in rows] == ["3", "2", "1"]
+        assert [row["id"] for row in result.rows] == ["3", "2", "1"]
 
 
 class TestWebhookTableTransformer:
@@ -238,37 +186,32 @@ class TestWebhookTableTransformer:
         assert _webhook_table_transformer(table).num_rows == 0
 
 
-def _webhook_api_response(status_code: int, body: dict[str, Any] | None = None) -> mock.MagicMock:
-    response = mock.MagicMock(status_code=status_code)
-    response.json.return_value = body or {}
-    response.raise_for_status.return_value = None
-    return response
-
-
-def _list_response(items: list[dict[str, Any]]) -> mock.MagicMock:
-    return _webhook_api_response(200, {"data": items, "links": {}})
+def _list_response(items: list[dict[str, Any]]) -> ScriptedResponse:
+    return _page(items)
 
 
 class TestWebhookManagement:
-    @mock.patch(LEMON_SESSION_PATCH)
-    def test_create_webhook_creates_one_per_store_with_shared_secret(self, mock_session):
-        session = mock_session.return_value
-        session.get.return_value = _list_response(
+    def test_create_webhook_creates_one_per_store_with_shared_secret(self) -> None:
+        with scripted_network(
             [
-                {"type": "stores", "id": "1", "attributes": {}},
-                {"type": "stores", "id": "2", "attributes": {}},
+                _list_response(
+                    [
+                        {"type": "stores", "id": "1", "attributes": {}},
+                        {"type": "stores", "id": "2", "attributes": {}},
+                    ]
+                ),
+                ScriptedResponse(status=201),
+                ScriptedResponse(status=201),
             ]
-        )
-        session.post.return_value = _webhook_api_response(201)
-
-        result = create_webhook("key", "https://us.posthog.com/webhooks/abc")
+        ) as network:
+            result = create_webhook("key", "https://us.posthog.com/webhooks/abc")
 
         assert result.success is True
         secret = result.extra_inputs["signing_secret"]
         assert 6 <= len(secret) <= 40
 
-        assert session.post.call_count == 2
-        payloads = [call.kwargs["json"] for call in session.post.call_args_list]
+        assert [request.method for request in network.requests_log] == ["GET", "POST", "POST"]
+        payloads = [request.json() for request in network.requests_log[1:]]
         assert {p["data"]["relationships"]["store"]["data"]["id"] for p in payloads} == {"1", "2"}
         for payload in payloads:
             attributes = payload["data"]["attributes"]
@@ -277,119 +220,126 @@ class TestWebhookManagement:
             # A single secret across stores — the hog function only stores one.
             assert attributes["secret"] == secret
 
-    @mock.patch(LEMON_SESSION_PATCH)
-    def test_create_webhook_fails_without_stores(self, mock_session):
-        mock_session.return_value.get.return_value = _list_response([])
-
-        result = create_webhook("key", "https://us.posthog.com/webhooks/abc")
+    def test_create_webhook_fails_without_stores(self) -> None:
+        with scripted_network([_list_response([])]) as network:
+            result = create_webhook("key", "https://us.posthog.com/webhooks/abc")
 
         assert result.success is False
         assert "manually" in (result.error or "")
+        assert [request.method for request in network.requests_log] == ["GET"]
 
-    @mock.patch(LEMON_SESSION_PATCH)
-    def test_create_webhook_succeeds_when_any_store_succeeds(self, mock_session):
-        session = mock_session.return_value
-        session.get.return_value = _list_response(
+    def test_create_webhook_succeeds_when_any_store_succeeds(self) -> None:
+        with scripted_network(
             [
-                {"type": "stores", "id": "1", "attributes": {}},
-                {"type": "stores", "id": "2", "attributes": {}},
+                _list_response(
+                    [
+                        {"type": "stores", "id": "1", "attributes": {}},
+                        {"type": "stores", "id": "2", "attributes": {}},
+                    ]
+                ),
+                ScriptedResponse(status=201),
+                ScriptedResponse(status=422),
             ]
-        )
-        session.post.side_effect = [_webhook_api_response(201), _webhook_api_response(422)]
-
-        result = create_webhook("key", "https://us.posthog.com/webhooks/abc")
+        ) as network:
+            result = create_webhook("key", "https://us.posthog.com/webhooks/abc")
 
         assert result.success is True
         assert "signing_secret" in result.extra_inputs
+        assert [request.method for request in network.requests_log] == ["GET", "POST", "POST"]
 
-    @mock.patch(LEMON_SESSION_PATCH)
-    def test_delete_webhook_removes_only_matching_urls(self, mock_session):
-        session = mock_session.return_value
-        session.get.return_value = _list_response(
+    def test_delete_webhook_removes_only_matching_urls(self) -> None:
+        with scripted_network(
             [
-                {"type": "webhooks", "id": "10", "attributes": {"url": "https://us.posthog.com/webhooks/abc"}},
-                {"type": "webhooks", "id": "11", "attributes": {"url": "https://elsewhere.example.com"}},
+                _list_response(
+                    [
+                        {"type": "webhooks", "id": "10", "attributes": {"url": "https://us.posthog.com/webhooks/abc"}},
+                        {"type": "webhooks", "id": "11", "attributes": {"url": "https://elsewhere.example.com"}},
+                    ]
+                ),
+                ScriptedResponse(status=204),
             ]
-        )
-        session.delete.return_value = _webhook_api_response(204)
-
-        result = delete_webhook("key", "https://us.posthog.com/webhooks/abc")
+        ) as network:
+            result = delete_webhook("key", "https://us.posthog.com/webhooks/abc")
 
         assert result.success is True
-        session.delete.assert_called_once()
-        assert "/v1/webhooks/10" in session.delete.call_args.args[0]
+        assert [request.method for request in network.requests_log] == ["GET", "DELETE"]
+        assert network.requests_log[1].path == "/v1/webhooks/10"
 
-    @mock.patch(LEMON_SESSION_PATCH)
-    def test_get_external_webhook_info(self, mock_session):
-        session = mock_session.return_value
-        session.get.return_value = _list_response(
+    def test_get_external_webhook_info(self) -> None:
+        with scripted_network(
             [
-                {
-                    "type": "webhooks",
-                    "id": "10",
-                    "attributes": {
-                        "url": "https://us.posthog.com/webhooks/abc",
-                        "events": ["order_created"],
-                        "created_at": "2024-05-01T00:00:00Z",
-                    },
-                },
+                _list_response(
+                    [
+                        {
+                            "type": "webhooks",
+                            "id": "10",
+                            "attributes": {
+                                "url": "https://us.posthog.com/webhooks/abc",
+                                "events": ["order_created"],
+                                "created_at": "2024-05-01T00:00:00Z",
+                            },
+                        },
+                    ]
+                )
             ]
-        )
-
-        info = get_external_webhook_info("key", "https://us.posthog.com/webhooks/abc")
+        ):
+            info = get_external_webhook_info("key", "https://us.posthog.com/webhooks/abc")
 
         assert info.exists is True
         assert info.enabled_events == ["order_created"]
 
-    @mock.patch(LEMON_SESSION_PATCH)
-    def test_get_external_webhook_info_not_found(self, mock_session):
-        mock_session.return_value.get.return_value = _list_response([])
-
-        info = get_external_webhook_info("key", "https://us.posthog.com/webhooks/abc")
+    def test_get_external_webhook_info_not_found(self) -> None:
+        with scripted_network([_list_response([])]):
+            info = get_external_webhook_info("key", "https://us.posthog.com/webhooks/abc")
 
         assert info.exists is False
 
-    @mock.patch(LEMON_SESSION_PATCH)
-    def test_sync_webhook_events_merges_missing_events(self, mock_session):
-        session = mock_session.return_value
-        session.get.return_value = _list_response(
+    def test_sync_webhook_events_merges_missing_events(self) -> None:
+        with scripted_network(
             [
-                {
-                    "type": "webhooks",
-                    "id": "10",
-                    "attributes": {
-                        "url": "https://us.posthog.com/webhooks/abc",
-                        "events": ["order_created", "custom_extra_event"],
-                    },
-                },
+                _list_response(
+                    [
+                        {
+                            "type": "webhooks",
+                            "id": "10",
+                            "attributes": {
+                                "url": "https://us.posthog.com/webhooks/abc",
+                                "events": ["order_created", "custom_extra_event"],
+                            },
+                        },
+                    ]
+                ),
+                ScriptedResponse(),
             ]
-        )
-        session.patch.return_value = _webhook_api_response(200)
-
-        result = sync_webhook_events("key", "https://us.posthog.com/webhooks/abc", ["order_created", "order_refunded"])
+        ) as network:
+            result = sync_webhook_events(
+                "key", "https://us.posthog.com/webhooks/abc", ["order_created", "order_refunded"]
+            )
 
         assert result.success is True
-        payload = session.patch.call_args.kwargs["json"]
+        assert [request.method for request in network.requests_log] == ["GET", "PATCH"]
+        payload = network.requests_log[1].json()
         # Desired events are added; manually-added extras are preserved.
         assert payload["data"]["attributes"]["events"] == ["custom_extra_event", "order_created", "order_refunded"]
 
-    @mock.patch(LEMON_SESSION_PATCH)
-    def test_sync_webhook_events_skips_patch_when_already_subscribed(self, mock_session):
-        session = mock_session.return_value
-        session.get.return_value = _list_response(
+    def test_sync_webhook_events_skips_patch_when_already_subscribed(self) -> None:
+        with scripted_network(
             [
-                {
-                    "type": "webhooks",
-                    "id": "10",
-                    "attributes": {"url": "https://us.posthog.com/webhooks/abc", "events": ["order_created"]},
-                },
+                _list_response(
+                    [
+                        {
+                            "type": "webhooks",
+                            "id": "10",
+                            "attributes": {"url": "https://us.posthog.com/webhooks/abc", "events": ["order_created"]},
+                        },
+                    ]
+                )
             ]
-        )
-
-        result = sync_webhook_events("key", "https://us.posthog.com/webhooks/abc", ["order_created"])
+        ) as network:
+            result = sync_webhook_events("key", "https://us.posthog.com/webhooks/abc", ["order_created"])
 
         assert result.success is True
-        session.patch.assert_not_called()
+        assert [request.method for request in network.requests_log] == ["GET"]
 
 
 class TestCredentialLeakHardening:

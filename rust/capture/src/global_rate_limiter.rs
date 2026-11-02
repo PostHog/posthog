@@ -99,6 +99,13 @@ pub fn ai_byte_limit_window(config: &Config) -> (u64, &'static str) {
     }
 }
 
+/// Writer and optional replica URL of one limiter Redis cluster.
+#[derive(Debug, PartialEq)]
+struct RedisClusterUrls<'a> {
+    writer: &'a str,
+    reader: Option<&'a str>,
+}
+
 pub struct GlobalRateLimiter {
     limiter: Box<dyn CommonGlobalRateLimiter>,
     dry_run: bool,
@@ -420,14 +427,83 @@ impl GlobalRateLimiter {
         self.limiter.is_custom_key(key)
     }
 
+    /// Clients for the per-(token, distinct_id) limiter, one per shard in shard order. Without
+    /// `GLOBAL_RATE_LIMIT_REDIS_URL` the limiter shares the main client.
+    pub async fn build_redis_shards(
+        config: &Config,
+        shared_redis: Arc<dyn Client + Send + Sync>,
+    ) -> anyhow::Result<Vec<Arc<dyn Client + Send + Sync>>> {
+        let clusters = Self::redis_shard_urls(config)?;
+        if clusters.is_empty() {
+            return Ok(vec![shared_redis]);
+        }
+        if clusters.len() > 1 {
+            info!(
+                shards = clusters.len(),
+                "Global rate limiter sharding keys across Redis clusters"
+            );
+        }
+        let mut clients = Vec::with_capacity(clusters.len());
+        for cluster in clusters {
+            clients.push(Self::connect_redis(config, cluster).await?);
+        }
+        Ok(clients)
+    }
+
+    /// Client for a limiter that never shards (the AI byte limiter): the first cluster, or the
+    /// main client without `GLOBAL_RATE_LIMIT_REDIS_URL`.
     pub async fn build_redis_client(
         config: &Config,
         shared_redis: Arc<dyn Client + Send + Sync>,
     ) -> anyhow::Result<Arc<dyn Client + Send + Sync>> {
-        let Some(ref writer_url) = config.global_rate_limit_redis_url else {
-            return Ok(shared_redis);
-        };
+        match Self::first_cluster_urls(config) {
+            Some(cluster) => Self::connect_redis(config, cluster).await,
+            None => Ok(shared_redis),
+        }
+    }
 
+    fn first_cluster_urls(config: &Config) -> Option<RedisClusterUrls<'_>> {
+        config
+            .global_rate_limit_redis_url
+            .as_deref()
+            .map(|writer| RedisClusterUrls {
+                writer,
+                reader: config.global_rate_limit_redis_reader_url.as_deref(),
+            })
+    }
+
+    /// The order of the returned clusters is the routing table, so every pod must list them the same way.
+    fn redis_shard_urls(config: &Config) -> anyhow::Result<Vec<RedisClusterUrls<'_>>> {
+        let first = Self::first_cluster_urls(config);
+        match config.global_rate_limit_redis_shards {
+            1 => Ok(first.into_iter().collect()),
+            2 => {
+                let Some(first) = first else {
+                    anyhow::bail!(
+                        "GLOBAL_RATE_LIMIT_REDIS_SHARDS=2 requires GLOBAL_RATE_LIMIT_REDIS_URL"
+                    );
+                };
+                let Some(writer) = config.global_rate_limit_redis_shard_1_url.as_deref() else {
+                    anyhow::bail!(
+                        "GLOBAL_RATE_LIMIT_REDIS_SHARDS=2 requires GLOBAL_RATE_LIMIT_REDIS_SHARD_1_URL"
+                    );
+                };
+                Ok(vec![
+                    first,
+                    RedisClusterUrls {
+                        writer,
+                        reader: config.global_rate_limit_redis_shard_1_reader_url.as_deref(),
+                    },
+                ])
+            }
+            n => anyhow::bail!("GLOBAL_RATE_LIMIT_REDIS_SHARDS must be 1 or 2, got {n}"),
+        }
+    }
+
+    async fn connect_redis(
+        config: &Config,
+        cluster: RedisClusterUrls<'_>,
+    ) -> anyhow::Result<Arc<dyn Client + Send + Sync>> {
         let response_timeout = config
             .global_rate_limit_redis_response_timeout_ms
             .unwrap_or(config.redis_response_timeout_ms);
@@ -445,11 +521,11 @@ impl GlobalRateLimiter {
             Some(Duration::from_millis(connection_timeout))
         };
 
-        if let Some(ref reader_url) = config.global_rate_limit_redis_reader_url {
+        if let Some(reader_url) = cluster.reader {
             info!("Global rate limiter using read/write split Redis client");
             let rw_config = common_redis::ReadWriteClientConfig::new(
-                writer_url.clone(),
-                reader_url.clone(),
+                cluster.writer.to_string(),
+                reader_url.to_string(),
                 common_redis::CompressionConfig::disabled(),
                 common_redis::RedisValueFormat::default(),
                 response_timeout,
@@ -459,7 +535,7 @@ impl GlobalRateLimiter {
         } else {
             Ok(Arc::new(
                 common_redis::RedisClient::with_config(
-                    writer_url.clone(),
+                    cluster.writer.to_string(),
                     common_redis::CompressionConfig::disabled(),
                     common_redis::RedisValueFormat::default(),
                     response_timeout,
@@ -705,6 +781,76 @@ mod tests {
     use std::collections::HashSet;
     use std::sync::Mutex;
     use std::time::Duration;
+
+    fn shard_config(extra: &[(&str, &str)]) -> Config {
+        let env: HashMap<String, String> = [
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("CAPTURE_MODE", "events"),
+            (
+                "CAPTURE_OUTPUT_ANALYTICS_MAIN_TOPIC",
+                "events_plugin_ingestion",
+            ),
+        ]
+        .iter()
+        .chain(extra.iter())
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        envconfig::Envconfig::init_from_hashmap(&env).expect("test config")
+    }
+
+    #[rstest]
+    #[case::no_dedicated_redis(&[], &[])]
+    #[case::shard_1_ignored_until_enabled(
+        &[
+            ("GLOBAL_RATE_LIMIT_REDIS_URL", "redis://a"),
+            ("GLOBAL_RATE_LIMIT_REDIS_SHARD_1_URL", "redis://b"),
+        ],
+        &[("redis://a", None)],
+    )]
+    #[case::two_shards_in_order(
+        &[
+            ("GLOBAL_RATE_LIMIT_REDIS_SHARDS", "2"),
+            ("GLOBAL_RATE_LIMIT_REDIS_URL", "redis://a"),
+            ("GLOBAL_RATE_LIMIT_REDIS_READER_URL", "redis://a-replica"),
+            ("GLOBAL_RATE_LIMIT_REDIS_SHARD_1_URL", "redis://b"),
+            ("GLOBAL_RATE_LIMIT_REDIS_SHARD_1_READER_URL", "redis://b-replica"),
+        ],
+        &[("redis://a", Some("redis://a-replica")), ("redis://b", Some("redis://b-replica"))],
+    )]
+    fn redis_shard_urls_follow_the_shard_count(
+        #[case] env: &[(&str, &str)],
+        #[case] want: &[(&str, Option<&str>)],
+    ) {
+        let config = shard_config(env);
+        let got: Vec<(&str, Option<&str>)> = GlobalRateLimiter::redis_shard_urls(&config)
+            .expect("valid shard config")
+            .into_iter()
+            .map(|c| (c.writer, c.reader))
+            .collect();
+        assert_eq!(got, want);
+    }
+
+    #[rstest]
+    #[case::shard_1_url_missing(
+        &[("GLOBAL_RATE_LIMIT_REDIS_SHARDS", "2"), ("GLOBAL_RATE_LIMIT_REDIS_URL", "redis://a")],
+        "GLOBAL_RATE_LIMIT_REDIS_SHARD_1_URL",
+    )]
+    #[case::first_url_missing(
+        &[("GLOBAL_RATE_LIMIT_REDIS_SHARDS", "2"), ("GLOBAL_RATE_LIMIT_REDIS_SHARD_1_URL", "redis://b")],
+        "requires GLOBAL_RATE_LIMIT_REDIS_URL",
+    )]
+    #[case::unsupported_count(&[("GLOBAL_RATE_LIMIT_REDIS_SHARDS", "3")], "must be 1 or 2")]
+    fn redis_shard_urls_reject_an_incomplete_shard_config(
+        #[case] env: &[(&str, &str)],
+        #[case] expected: &str,
+    ) {
+        let err = GlobalRateLimiter::redis_shard_urls(&shard_config(env))
+            .expect_err("invalid shard config must fail startup");
+        assert!(
+            err.to_string().contains(expected),
+            "expected {expected:?} in {err}"
+        );
+    }
 
     type CallLog = Arc<Mutex<Vec<&'static str>>>;
 

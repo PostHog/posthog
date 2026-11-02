@@ -6,8 +6,13 @@ import pytest
 from unittest import mock
 
 import pyarrow as pa
-import requests
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gitea import GiteaSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitea.gitea import (
     GiteaResumeConfig,
     _make_webhook_dedupe_transformer,
@@ -21,11 +26,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gitea.gite
     update_repo_webhook_events,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.gitea.source import GiteaSource
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.gitea.gitea"
 
 BASE_URL = "https://gitea.example.com"
 REPO = "owner/repo"
+
+
+def _driver() -> SourceDriver:
+    return SourceDriver(GiteaSource(), GiteaSourceConfig(base_url=BASE_URL, access_token="tok", repository=REPO))
 
 
 def _make_manager(resume_state: GiteaResumeConfig | None = None) -> mock.MagicMock:
@@ -94,67 +104,52 @@ class TestValidateCredentials:
             (302, False, "redirected"),
         ],
     )
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_status_mapping(self, mock_session, status_code, expected_valid, expected_error_fragment):
-        mock_session.return_value.get.return_value = _response({"message": "boom"}, status_code=status_code)
-
-        is_valid, error = validate_credentials(BASE_URL, "tok", REPO)
+    def test_status_mapping(self, status_code: int, expected_valid: bool, expected_error_fragment: str | None) -> None:
+        with scripted_network([ScriptedResponse(status=status_code, json={"message": "boom"})]) as network:
+            is_valid, error = validate_credentials(BASE_URL, "tok", REPO)
 
         assert is_valid is expected_valid
         if expected_error_fragment:
             assert expected_error_fragment in (error or "")
-        url = mock_session.return_value.get.call_args.args[0]
-        assert url == f"{BASE_URL}/api/v1/repos/{REPO}"
+        assert [request.url for request in network.requests_log] == [f"{BASE_URL}/api/v1/repos/{REPO}"]
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_session_carries_token_header_and_never_redirects(self, mock_session):
-        mock_session.return_value.get.return_value = _response({})
+    def test_session_carries_token_header_and_never_redirects(self) -> None:
+        with scripted_network([ScriptedResponse(json={})]) as network:
+            validate_credentials(BASE_URL, "tok", REPO)
 
-        validate_credentials(BASE_URL, "tok", REPO)
-
-        kwargs = mock_session.call_args.kwargs
+        kwargs = network.session_options[0]
         assert kwargs["headers"]["Authorization"] == "token tok"
         assert kwargs["allow_redirects"] is False
         assert kwargs["redact_values"] == ("tok",)
 
 
 class TestGetRows:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_paginates_via_link_header_and_saves_state_after_yield(self, mock_session):
-        page_2_url = f"{BASE_URL}/api/v1/repos/{REPO}/issues?limit=50&page=2"
-        mock_session.return_value.get.side_effect = [
-            _response([{"id": 1}], headers={"Link": f'<{page_2_url}>; rel="next"'}),
-            _response([{"id": 2}]),
-        ]
-        manager = _make_manager()
-
-        rows_iter = get_rows(BASE_URL, "tok", REPO, "issues", mock.MagicMock(), manager)
-        first_batch = next(rows_iter)
-
-        # State is saved AFTER the batch is yielded, so a crash re-yields it (merge dedupes).
-        assert first_batch == [{"id": 1}]
-        assert manager.save_state.call_count == 0
-
-        assert next(rows_iter) == [{"id": 2}]
-        assert [call.args[0].next_url for call in manager.save_state.call_args_list] == [page_2_url]
-
-        with pytest.raises(StopIteration):
-            next(rows_iter)
-        # The last page has no next link — no state saved for it.
-        assert manager.save_state.call_count == 1
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_resumes_from_saved_url(self, mock_session):
-        resume_url = f"{BASE_URL}/api/v1/repos/{REPO}/issues?limit=50&page=7"
-        mock_session.return_value.get.return_value = _response([])
-
-        list(
-            get_rows(
-                BASE_URL, "tok", REPO, "issues", mock.MagicMock(), _make_manager(GiteaResumeConfig(next_url=resume_url))
-            )
+    def test_paginates_via_link_header_and_saves_state_after_yield(self) -> None:
+        page_2_url = f"{BASE_URL}/api/v1/repos/{REPO}/releases?limit=50&page=2"
+        result = _driver().run(
+            "releases",
+            [
+                ScriptedResponse(json=[{"id": 1}], headers={"Link": f'<{page_2_url}>; rel="next"'}),
+                ScriptedResponse(json=[{"id": 2}]),
+            ],
         )
 
-        assert mock_session.return_value.get.call_args.args[0] == resume_url
+        assert result.raised is None
+        assert result.items == [[{"id": 1}], [{"id": 2}]]
+        # State is saved AFTER the batch is yielded, so a crash re-yields it (merge dedupes).
+        assert result.saved_states == [GiteaResumeConfig(next_url=page_2_url)]
+        assert result.committed_states == [GiteaResumeConfig(next_url=page_2_url)]
+        # The last page has no next link — no state saved for it.
+        assert result.urls == [f"{BASE_URL}/api/v1/repos/{REPO}/releases?limit=50", page_2_url]
+
+    def test_resumes_from_saved_url(self) -> None:
+        resume_url = f"{BASE_URL}/api/v1/repos/{REPO}/releases?limit=50&page=7"
+        result = _driver().run(
+            "releases", [ScriptedResponse(json=[])], resume_state=GiteaResumeConfig(next_url=resume_url)
+        )
+
+        assert result.raised is None
+        assert result.urls == [resume_url]
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_pull_requests_never_send_since(self, mock_session):
@@ -189,48 +184,58 @@ class TestGetRows:
             "https://gitea.example.com:8443/api/v1/repos/owner/repo/issues?page=2",
         ],
     )
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_off_origin_link_header_url_is_rejected(self, mock_session, evil_next_url):
-        mock_session.return_value.get.return_value = _response(
-            [{"id": 1}], headers={"Link": f'<{evil_next_url}>; rel="next"'}
+    def test_off_origin_link_header_url_is_rejected(self, evil_next_url: str) -> None:
+        result = _driver().run(
+            "releases", [ScriptedResponse(json=[{"id": 1}], headers={"Link": f'<{evil_next_url}>; rel="next"'})]
         )
 
-        with pytest.raises(ValueError, match="not on the configured instance"):
-            list(get_rows(BASE_URL, "tok", REPO, "issues", mock.MagicMock(), _make_manager()))
+        assert isinstance(result.raised, ValueError)
+        assert "not on the configured instance" in str(result.raised)
 
         # The poisoned URL is never fetched.
-        assert mock_session.return_value.get.call_count == 1
+        assert len(result.requests) == 1
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_off_origin_resume_url_is_rejected(self, mock_session):
-        manager = _make_manager(GiteaResumeConfig(next_url="https://evil.example.com/api/v1/x"))
-
-        with pytest.raises(ValueError, match="not on the configured instance"):
-            list(get_rows(BASE_URL, "tok", REPO, "issues", mock.MagicMock(), manager))
-
-        mock_session.return_value.get.assert_not_called()
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_commits_are_flattened(self, mock_session):
-        mock_session.return_value.get.return_value = _response(
-            [
-                {
-                    "sha": "abc",
-                    "created": "2024-01-01T00:00:00Z",
-                    "commit": {
-                        "message": "fix: thing",
-                        "author": {"name": "Alice", "email": "alice@example.com", "date": "2024-01-01T00:00:00Z"},
-                        "committer": {"name": "Bob", "email": "bob@example.com", "date": "2024-01-01T00:00:00Z"},
-                    },
-                    "author": {"id": 7, "login": "alice"},
-                    "committer": None,
-                }
-            ]
+    def test_off_origin_resume_url_is_rejected(self) -> None:
+        result = _driver().run(
+            "releases", [], resume_state=GiteaResumeConfig(next_url="https://evil.example.com/api/v1/x")
         )
 
-        batches = list(get_rows(BASE_URL, "tok", REPO, "commits", mock.MagicMock(), _make_manager()))
+        assert isinstance(result.raised, ValueError)
+        assert "not on the configured instance" in str(result.raised)
+        assert result.requests == []
 
-        row = batches[0][0]
+    def test_commits_are_flattened(self) -> None:
+        result = _driver().run(
+            "commits",
+            [
+                ScriptedResponse(
+                    json=[
+                        {
+                            "sha": "abc",
+                            "created": "2024-01-01T00:00:00Z",
+                            "commit": {
+                                "message": "fix: thing",
+                                "author": {
+                                    "name": "Alice",
+                                    "email": "alice@example.com",
+                                    "date": "2024-01-01T00:00:00Z",
+                                },
+                                "committer": {
+                                    "name": "Bob",
+                                    "email": "bob@example.com",
+                                    "date": "2024-01-01T00:00:00Z",
+                                },
+                            },
+                            "author": {"id": 7, "login": "alice"},
+                            "committer": None,
+                        }
+                    ]
+                )
+            ],
+        )
+
+        assert result.raised is None
+        row = result.rows[0]
         assert row["message"] == "fix: thing"
         assert row["author_name"] == "Alice"
         assert row["author_email"] == "alice@example.com"
@@ -250,79 +255,72 @@ class TestGetRows:
                 {"total_count": 3, "workflow_runs": [{"id": 1}]},
                 {},
             ),
+            (
+                "workflow_jobs",
+                {"total_count": 3, "jobs": [{"id": 1}, {"id": 2}]},
+                {"total_count": 3, "jobs": [{"id": 3}]},
+                {},
+            ),
+            ("tags", [{"id": 3}, {"id": 2}], [{"id": 1}], {"X-Total-Count": "3"}),
+            ("collaborators", [{"id": 1}, {"id": 2}], [{"id": 3}], {"X-Total-Count": "3"}),
         ],
     )
     @mock.patch(f"{_MODULE}.PAGE_SIZE", 2)
-    @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_total_count_pagination_pages_by_number_without_link_header(
-        self, mock_session, endpoint, page_1, page_2, headers
-    ):
-        mock_session.return_value.get.side_effect = [
-            _response(page_1, headers=headers),
-            _response(page_2, headers=headers),
-        ]
-        manager = _make_manager()
+        self, endpoint: str, page_1: Any, page_2: Any, headers: dict[str, str]
+    ) -> None:
+        result = _driver().run(
+            endpoint,
+            [ScriptedResponse(json=page_1, headers=headers), ScriptedResponse(json=page_2, headers=headers)],
+        )
 
-        batches = list(get_rows(BASE_URL, "tok", REPO, endpoint, mock.MagicMock(), manager))
-
-        assert sorted(row["id"] for batch in batches for row in batch) == [1, 2, 3]
+        assert result.raised is None
+        assert sorted(row["id"] for row in result.rows) == [1, 2, 3]
         # The total is covered after page 2, so no third request goes out.
-        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
+        urls = result.urls
         assert len(urls) == 2
         assert "page=2" in urls[1]
-        assert [call.args[0].next_url for call in manager.save_state.call_args_list] == [urls[1]]
+        assert result.saved_states == [GiteaResumeConfig(next_url=urls[1])]
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_workflow_runs_not_found_raises_actions_unavailable(self, mock_session):
-        not_found = _response({"message": "Not Found"}, status_code=404)
-        not_found.raise_for_status.side_effect = requests.HTTPError("404 Client Error", response=not_found)
-        mock_session.return_value.get.return_value = not_found
+    @pytest.mark.parametrize(
+        "endpoint, expected_error",
+        [
+            ("workflow_runs", "Gitea Actions runs are unavailable"),
+            ("workflow_jobs", "Gitea Actions jobs are unavailable"),
+        ],
+    )
+    def test_actions_endpoint_not_found_raises_actions_unavailable(self, endpoint: str, expected_error: str) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(status=404, json={"message": "Not Found"})])
 
-        with pytest.raises(ValueError, match="Gitea Actions runs are unavailable"):
-            list(get_rows(BASE_URL, "tok", REPO, "workflow_runs", mock.MagicMock(), _make_manager()))
+        assert isinstance(result.raised, ValueError)
+        assert expected_error in str(result.raised)
 
 
 class TestFanOut:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_timeline_fans_out_over_issues_in_one_unpaged_request_each(self, mock_session):
+    def test_timeline_fans_out_over_issues_in_one_unpaged_request_each(self) -> None:
         issues_page_2 = f"{BASE_URL}/api/v1/repos/{REPO}/issues?limit=50&page=2"
-        deleted_issue = _response({"message": "Not Found"}, status_code=404)
-        deleted_issue.raise_for_status.side_effect = requests.HTTPError("404 Client Error", response=deleted_issue)
-        responses = {
-            f"/repos/{REPO}/issues?": [
-                _response([{"number": 1}, {"number": 2}], headers={"Link": f'<{issues_page_2}>; rel="next"'}),
-                _response([{"number": 3}]),
+        result = _driver().run(
+            "issue_timeline",
+            [
+                ScriptedResponse(
+                    json=[{"number": 1}, {"number": 2}], headers={"Link": f'<{issues_page_2}>; rel="next"'}
+                ),
+                ScriptedResponse(json=[{"id": 10}, {"id": 11}], headers={"X-Total-Count": "2"}),
+                ScriptedResponse(status=404, json={"message": "Not Found"}),
+                ScriptedResponse(json=[{"number": 3}]),
+                ScriptedResponse(json=[{"id": 30}]),
             ],
-            f"/repos/{REPO}/issues/1/timeline": [_response([{"id": 10}, {"id": 11}], headers={"X-Total-Count": "2"})],
-            f"/repos/{REPO}/issues/2/timeline": [deleted_issue],
-            f"/repos/{REPO}/issues/3/timeline": [_response([{"id": 30}])],
-        }
-
-        def get(url, timeout):
-            return next(responses[key].pop(0) for key in responses if key in url)
-
-        mock_session.return_value.get.side_effect = get
-        manager = _make_manager()
-
-        batches = list(
-            get_rows(
-                BASE_URL,
-                "tok",
-                REPO,
-                "issue_timeline",
-                mock.MagicMock(),
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
-            )
+            incremental_field="updated_at",
+            db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
         )
 
-        assert [row for batch in batches for row in batch] == [
+        assert result.raised is None
+        assert result.rows == [
             {"id": 10, "issue_number": 1},
             {"id": 11, "issue_number": 1},
             {"id": 30, "issue_number": 3},
         ]
-        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
+        urls = result.urls
         timeline_urls = [url for url in urls if "/timeline" in url]
         assert len(timeline_urls) == 3
         # Gitea drops rows from a timeline page after paging, and its X-Total-Count is the
@@ -333,29 +331,19 @@ class TestFanOut:
         assert all("since=2024-01-02T00%3A00%3A00Z" in url for url in [urls[0], *timeline_urls])
         assert "type=issues" in urls[0]
         # State points at the next parent page once every child of the current one is yielded.
-        assert [call.args[0].next_url for call in manager.save_state.call_args_list] == [issues_page_2]
+        assert result.saved_states == [GiteaResumeConfig(next_url=issues_page_2)]
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_resume_starts_from_saved_parent_page(self, mock_session):
+    def test_resume_starts_from_saved_parent_page(self) -> None:
         resume_url = f"{BASE_URL}/api/v1/repos/{REPO}/pulls?limit=50&page=4"
-        mock_session.return_value.get.side_effect = [
-            _response([{"number": 9}]),
-            _response([{"id": 90}]),
-        ]
-
-        batches = list(
-            get_rows(
-                BASE_URL,
-                "tok",
-                REPO,
-                "reviews",
-                mock.MagicMock(),
-                _make_manager(GiteaResumeConfig(next_url=resume_url)),
-            )
+        result = _driver().run(
+            "reviews",
+            [ScriptedResponse(json=[{"number": 9}]), ScriptedResponse(json=[{"id": 90}])],
+            resume_state=GiteaResumeConfig(next_url=resume_url),
         )
 
-        assert batches == [[{"id": 90, "pull_request_number": 9}]]
-        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
+        assert result.raised is None
+        assert result.items == [[{"id": 90, "pull_request_number": 9}]]
+        urls = result.urls
         assert urls[0] == resume_url
         # Gitea drops other users' pending reviews after paging, so reviews are fetched unpaged.
         assert urls[1] == f"{BASE_URL}/api/v1/repos/{REPO}/pulls/9/reviews"
@@ -419,92 +407,97 @@ class TestWebhookDedupeTransformer:
 
 
 class TestWebhookManagement:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_create_posts_gitea_hook_and_returns_secret(self, mock_session):
-        mock_session.return_value.post.return_value = _response({"id": 5}, status_code=201)
-
-        result = create_repo_webhook(BASE_URL, "tok", REPO, "https://ph.example/webhook", ["issues"], "s3cret")
+    def test_create_posts_gitea_hook_and_returns_secret(self) -> None:
+        with scripted_network([ScriptedResponse(status=201, json={"id": 5})]) as network:
+            result = create_repo_webhook(BASE_URL, "tok", REPO, "https://ph.example/webhook", ["issues"], "s3cret")
 
         assert result.success is True
         # Gitea never echoes the secret back — it must flow to the hog function via extra_inputs.
         assert result.extra_inputs == {"signing_secret": "s3cret"}
-        call = mock_session.return_value.post.call_args
-        assert call.args[0] == f"{BASE_URL}/api/v1/repos/{REPO}/hooks"
-        payload = call.kwargs["json"]
+        request = network.requests_log[0]
+        assert request.method == "POST"
+        assert request.url == f"{BASE_URL}/api/v1/repos/{REPO}/hooks"
+        payload = request.json()
         assert payload["type"] == "gitea"
         assert payload["events"] == ["issues"]
         assert payload["config"] == {"url": "https://ph.example/webhook", "content_type": "json", "secret": "s3cret"}
 
     @pytest.mark.parametrize("status_code", [403, 404])
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_create_permission_error_returns_failed_result(self, mock_session, status_code):
-        mock_session.return_value.post.return_value = _response({}, status_code=status_code)
-
-        result = create_repo_webhook(BASE_URL, "tok", REPO, "https://ph.example/webhook", ["issues"], "s3cret")
+    def test_create_permission_error_returns_failed_result(self, status_code: int) -> None:
+        with scripted_network([ScriptedResponse(status=status_code, json={})]):
+            result = create_repo_webhook(BASE_URL, "tok", REPO, "https://ph.example/webhook", ["issues"], "s3cret")
 
         assert result.success is False
         assert "manually" in (result.error or "")
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_delete_matches_hook_by_url(self, mock_session):
-        mock_session.return_value.get.return_value = _response(
+    def test_delete_matches_hook_by_url(self) -> None:
+        with scripted_network(
             [
-                {"id": 1, "config": {"url": "https://other.example/hook"}},
-                {"id": 2, "config": {"url": "https://ph.example/webhook"}},
+                ScriptedResponse(
+                    json=[
+                        {"id": 1, "config": {"url": "https://other.example/hook"}},
+                        {"id": 2, "config": {"url": "https://ph.example/webhook"}},
+                    ]
+                ),
+                ScriptedResponse(status=204),
             ]
-        )
-        mock_session.return_value.delete.return_value = _response(None, status_code=204)
-
-        result = delete_repo_webhook(BASE_URL, "tok", REPO, "https://ph.example/webhook")
+        ) as network:
+            result = delete_repo_webhook(BASE_URL, "tok", REPO, "https://ph.example/webhook")
 
         assert result.success is True
-        assert mock_session.return_value.delete.call_args.args[0] == f"{BASE_URL}/api/v1/repos/{REPO}/hooks/2"
+        assert network.requests_log[1].method == "DELETE"
+        assert network.requests_log[1].url == f"{BASE_URL}/api/v1/repos/{REPO}/hooks/2"
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_delete_with_no_matching_hook_is_success(self, mock_session):
-        mock_session.return_value.get.return_value = _response([])
-
-        result = delete_repo_webhook(BASE_URL, "tok", REPO, "https://ph.example/webhook")
+    def test_delete_with_no_matching_hook_is_success(self) -> None:
+        with scripted_network([ScriptedResponse(json=[])]) as network:
+            result = delete_repo_webhook(BASE_URL, "tok", REPO, "https://ph.example/webhook")
 
         assert result.success is True
-        mock_session.return_value.delete.assert_not_called()
+        assert [request.method for request in network.requests_log] == ["GET"]
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_update_events_merges_additively(self, mock_session):
+    def test_update_events_merges_additively(self) -> None:
         # A user-subscribed event (push) must survive the reconcile PATCH.
-        mock_session.return_value.get.return_value = _response(
-            [{"id": 2, "config": {"url": "https://ph.example/webhook"}, "events": ["push", "issues"]}]
-        )
-        mock_session.return_value.patch.return_value = _response({}, status_code=200)
-
-        result = update_repo_webhook_events(BASE_URL, "tok", REPO, "https://ph.example/webhook", ["pull_request"])
-
-        assert result.success is True
-        assert mock_session.return_value.patch.call_args.kwargs["json"] == {
-            "events": ["issues", "pull_request", "push"]
-        }
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_update_events_skips_write_when_already_covered(self, mock_session):
-        mock_session.return_value.get.return_value = _response(
-            [{"id": 2, "config": {"url": "https://ph.example/webhook"}, "events": ["issues", "pull_request"]}]
-        )
-
-        result = update_repo_webhook_events(BASE_URL, "tok", REPO, "https://ph.example/webhook", ["issues"])
+        with scripted_network(
+            [
+                ScriptedResponse(
+                    json=[{"id": 2, "config": {"url": "https://ph.example/webhook"}, "events": ["push", "issues"]}]
+                ),
+                ScriptedResponse(json={}),
+            ]
+        ) as network:
+            result = update_repo_webhook_events(BASE_URL, "tok", REPO, "https://ph.example/webhook", ["pull_request"])
 
         assert result.success is True
-        mock_session.return_value.patch.assert_not_called()
+        assert network.requests_log[1].method == "PATCH"
+        assert network.requests_log[1].json() == {"events": ["issues", "pull_request", "push"]}
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_webhook_info_found_and_missing(self, mock_session):
-        mock_session.return_value.get.return_value = _response(
-            [{"id": 2, "config": {"url": "https://ph.example/webhook"}, "events": ["issues"], "active": True}]
-        )
+    def test_update_events_skips_write_when_already_covered(self) -> None:
+        with scripted_network(
+            [
+                ScriptedResponse(
+                    json=[
+                        {
+                            "id": 2,
+                            "config": {"url": "https://ph.example/webhook"},
+                            "events": ["issues", "pull_request"],
+                        }
+                    ]
+                )
+            ]
+        ) as network:
+            result = update_repo_webhook_events(BASE_URL, "tok", REPO, "https://ph.example/webhook", ["issues"])
 
-        info = get_repo_webhook_info(BASE_URL, "tok", REPO, "https://ph.example/webhook")
+        assert result.success is True
+        assert [request.method for request in network.requests_log] == ["GET"]
+
+    def test_webhook_info_found_and_missing(self) -> None:
+        hook = {"id": 2, "config": {"url": "https://ph.example/webhook"}, "events": ["issues"], "active": True}
+        with scripted_network([ScriptedResponse(json=[hook]), ScriptedResponse(json=[hook])]) as network:
+            info = get_repo_webhook_info(BASE_URL, "tok", REPO, "https://ph.example/webhook")
+            missing = get_repo_webhook_info(BASE_URL, "tok", REPO, "https://nope.example/webhook")
+
         assert info.exists is True
         assert info.status == "active"
         assert info.enabled_events == ["issues"]
-
-        missing = get_repo_webhook_info(BASE_URL, "tok", REPO, "https://nope.example/webhook")
         assert missing.exists is False
+        assert [request.method for request in network.requests_log] == ["GET", "GET"]

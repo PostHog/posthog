@@ -10,7 +10,7 @@ name: Master CI Alerts
 # A workflow is read as one lane per trigger event, each with its own streak and thresholds.
 # Backend CI has two: master push (the per-commit checks) and the hourly scheduled run (the test
 # matrices). Without the second lane a broken matrix never pages, because the push lane it shares
-# a workflow with stays green.
+# a workflow with stays green. Both Backend CI lanes run on Depot CI and are read from there.
 #
 # The script owns the whole flow: it recomputes master health from the GitHub
 # API every tick and reconciles a single Slack incident (Slack is the source of
@@ -18,12 +18,13 @@ name: Master CI Alerts
 # state to race or lose). See .github/scripts/ci-alerts-devex.js.
 
 on:
-    # Reconcile ~a minute after master CI finishes; GitHub throttles the cron below to ~hourly under
-    # load. A reconcile reads all gating workflows anyway, so one hook on Backend CI (the long-pole on
-    # ~every push) suffices.
+    # Reconcile soon after master CI finishes; GitHub throttles the cron below to ~hourly under load.
+    # A reconcile reads all gating workflows anyway, so one hook on the long pole suffices. Backend CI
+    # runs on Depot CI and has no GitHub run to hook, so the hook is on Security, the slowest GitHub
+    # workflow that runs on every master push.
     # branches:[master] skips PR completions; cron stays a backstop.
     workflow_run:
-        workflows: ['Backend CI']
+        workflows: ['Security']
         types: [completed]
         branches: [master]
     schedule:
@@ -66,10 +67,10 @@ env:
     # Frontend CI is split the same way: jest runs hourly, while typecheck, format and bundle size
     # run on every push. For Node.js, Dagster, Python and MCP the whole suite is on the cron, so
     # their push lane only proves the run dispatched and the scheduled lane carries the coverage.
-    SCHEDULED_GATING_WORKFLOWS: 'ci-frontend.yml,ci-nodejs.yml,ci-dagster.yml,ci-python.yml,ci-mcp.yml'
-    # Backend CI's hourly run is on Depot CI (.depot/workflows/ci-backend.yml), so GitHub has no
-    # runs for that lane. The reconcile job writes its runs to DEPOT_SCHEDULED_RUNS_FILE first.
-    DEPOT_SCHEDULED_GATING_WORKFLOW: 'ci-backend.yml'
+    SCHEDULED_GATING_WORKFLOWS: 'ci-backend.yml,ci-frontend.yml,ci-nodejs.yml,ci-dagster.yml,ci-python.yml,ci-mcp.yml'
+    # Workflows that run on Depot CI, so GitHub has no runs for their lanes. The reconcile job
+    # writes each of their lanes to DEPOT_RUNS_DIR first, as <workflow file>-<event>.json.
+    DEPOT_WORKFLOWS: 'ci-backend.yml'
     # A scheduled lane produces one run an hour, so it needs its own arms: the push streak of 5
     # would take 5 hours to trip, while the push wall-clock arm of 60 minutes pages on a single
     # flaky run held for one tick. Two red ticks in a row, or red across two ticks, is the honest
@@ -80,11 +81,7 @@ env:
 
 jobs:
     check-master:
-        # Only reconcile on the master run completions the alerter reads
-        # (branches:[master] already scopes the trigger to master).
-        if: >-
-            github.event_name != 'workflow_run' ||
-            github.event.workflow_run.event == 'push'
+        if: github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push'
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         steps:
@@ -93,7 +90,7 @@ jobs:
                   persist-credentials: false
                   sparse-checkout: |
                       .github/scripts/ci-alerts-devex.js
-                      .github/scripts/depot_scheduled_runs.py
+                      .github/scripts/depot_backend_runs.py
                   sparse-checkout-cone-mode: false
 
             # Both Depot steps are capped, so a slow Depot API cannot use up the job's
@@ -102,16 +99,24 @@ jobs:
               continue-on-error: true
               timeout-minutes: 1
 
-            # A failed read leaves no file, and the script then treats the lane as unreadable.
-            - name: Read the hourly Backend CI runs from Depot CI
+            # A failed read leaves no file, and the script then treats that lane as unreadable.
+            # A merge-queue burst can start a dozen master push runs inside one run's duration, so
+            # the push window is wider than the hourly one.
+            - name: Read the Backend CI lanes from Depot CI
               id: depot-runs
               continue-on-error: true
-              timeout-minutes: 1
+              timeout-minutes: 2
               env:
                   DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
+                  GH_TOKEN: ${{ github.token }}
+                  RUNS_DIR: ${{ runner.temp }}/depot-runs
               run: |
-                  python3 .github/scripts/depot_scheduled_runs.py gate-runs > "$RUNNER_TEMP/runs.json"
-                  mv "$RUNNER_TEMP/runs.json" "$RUNNER_TEMP/depot-backend-scheduled-runs.json"
+                  mkdir -p "$RUNS_DIR"
+                  # Each lane is read on its own, so one unreadable lane does not hide the other.
+                  status=0
+                  python3 .github/scripts/depot_backend_runs.py gate-runs --trigger push --limit 40 --out "$RUNS_DIR/ci-backend.yml-push.json" || status=1
+                  python3 .github/scripts/depot_backend_runs.py gate-runs --trigger schedule --limit 12 --out "$RUNS_DIR/ci-backend.yml-schedule.json" || status=1
+                  exit "$status"
 
             # Ticks list runs for every gating workflow (dozens of calls at worst)
             # exactly when master push volume peaks, so read through the posthog-tests App
@@ -136,7 +141,7 @@ jobs:
                   # variable rather than a secret, because this repo sits two under GitHub's cap of
                   # 100 secrets; the script masks the value so a public log cannot leak it.
                   DIAGNOSIS_WEBHOOK_URL: ${{ vars.MASTER_RED_DIAGNOSIS_WEBHOOK_URL }}
-                  DEPOT_SCHEDULED_RUNS_FILE: ${{ runner.temp }}/depot-backend-scheduled-runs.json
+                  DEPOT_RUNS_DIR: ${{ runner.temp }}/depot-runs
               with:
                   github-token: ${{ steps.app-token.outputs.token || github.token }}
                   script: |
@@ -147,5 +152,5 @@ jobs:
             - name: Report a failed Depot read
               if: always() && steps.depot-runs.outcome == 'failure'
               run: |
-                  echo "::error::The scheduled Backend CI lane could not be read from Depot CI"
+                  echo "::error::A Backend CI lane could not be read from Depot CI"
                   exit 1

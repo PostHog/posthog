@@ -10,6 +10,7 @@ from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides im
 )
 from posthog.hogql.database.schema.groups import join_with_group_n_table
 from posthog.hogql.database.schema.groups_revenue_analytics import join_with_groups_revenue_analytics_table
+from posthog.hogql.database.schema.metrics import join_metrics_with_metric_series_table
 from posthog.hogql.database.schema.person_distinct_id_overrides import join_with_person_distinct_id_overrides_table
 from posthog.hogql.database.schema.person_distinct_ids import join_with_person_distinct_ids_table
 from posthog.hogql.database.schema.persons import join_with_persons_table
@@ -71,6 +72,7 @@ RESOLVERS: dict[str, LazyJoinResolver] = {
     tags.PERSON_DISTINCT_ID_OVERRIDES: join_with_person_distinct_id_overrides_table,
     tags.GROUP_N: join_with_group_n_table,
     tags.GROUPS_REVENUE_ANALYTICS: join_with_groups_revenue_analytics_table,
+    tags.METRICS_TO_METRIC_SERIES: join_metrics_with_metric_series_table,
     tags.PERSONS_REVENUE_ANALYTICS: join_with_persons_revenue_analytics_table,
     tags.EVENTS_TO_SESSIONS_V1: join_events_table_to_sessions_table,
     tags.EVENTS_TO_SESSIONS_V2: join_events_table_to_sessions_table_v2,

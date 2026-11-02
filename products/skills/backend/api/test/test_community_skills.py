@@ -4,6 +4,8 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -510,7 +512,7 @@ class TestCommunitySkillFeatureFlagGate(APIBaseTest):
         self.assertEqual(response.status_code, expected_status, response.content)
 
 
-class TestSkillTemplateRendering(APIBaseTest):
+class TestSkillTemplateRendering(SimpleTestCase):
     @parameterized.expand(
         [
             ("no metadata", None, False),

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CastAiSource(ResumableSource[CastAiSourceConfig, CastAiResumeConfig]):
+    codebase_detection = detect(env=("^(CAST_AI|CASTAI)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.cast.ai/docs/api-access"
 
@@ -104,7 +107,7 @@ class CastAiSource(ResumableSource[CastAiSourceConfig, CastAiResumeConfig]):
             caption="Import Kubernetes cost and savings reports from your CAST AI organization.",
             docsUrl="https://posthog.com/docs/cdp/sources/cast-ai",
             iconPath="/static/services/cast_ai.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["kubernetes", "finops", "k8s"],
             fields=cast(
                 list[FieldType],

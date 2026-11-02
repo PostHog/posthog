@@ -44,7 +44,7 @@ describe("resolvePosthogPiModelCatalog", () => {
       expect.objectContaining({
         provider: "posthog",
         id: "claude-opus-5",
-        thinkingLevels: expect.arrayContaining(["off", "high", "xhigh"]),
+        thinkingLevels: ["minimal", "low", "medium", "high", "xhigh", "max"],
       }),
     ]);
   });

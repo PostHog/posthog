@@ -2,9 +2,10 @@ import {
     ExperimentEventExposureConfig,
     ExperimentExposureConfig,
     ExperimentExposureCriteria,
+    HogQLQueryModifiers,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { Experiment } from '~/types'
+import { Experiment, PropertyFilterType, PropertyOperator } from '~/types'
 
 /**
  * The flag exposure event contract for experiments. Mirrors the backend chokepoint
@@ -25,7 +26,6 @@ import { Experiment } from '~/types'
 export const EXPOSURE_DEFAULT_EVENT = '$feature_flag_called'
 export const EXPERIMENT_EXPOSURE_EVENT = '$experiment_exposure'
 export const EXPOSURE_FEATURE_FLAG_RESPONSE_PROPERTY = '$feature_flag_response'
-export const EXPOSURE_FEATURE_FLAG_PROPERTY = '$feature_flag'
 
 /**
  * The event an experiment's default exposure is actually counted on, as resolved by the backend
@@ -37,6 +37,17 @@ export function resolvedExposureEvent(
     fallbackEvent: string = EXPOSURE_DEFAULT_EVENT
 ): string {
     return experiment.resolved_exposure_event || fallbackEvent
+}
+
+/**
+ * Whether the experiment's analysis excludes test accounts. Mirrors the backend's
+ * `resolve_filter_test_accounts`: criteria without the key mean the default, not an opt-out. An
+ * experiment stored before creation set the key has none, and so does one whose criteria an
+ * update replaced without it. A surface that reads absence as false counts different people than
+ * the results do.
+ */
+export function resolveFilterTestAccounts(exposureCriteria: ExperimentExposureCriteria | null | undefined): boolean {
+    return exposureCriteria?.filterTestAccounts ?? true
 }
 
 export function exposureEventLabel(event: string): string {
@@ -54,6 +65,69 @@ function isEventConfig(config: ExperimentExposureConfig): config is ExperimentEv
 
 export function isDefaultExposureConfig(config: ExperimentExposureConfig): boolean {
     return isEventConfig(config) && config.event === EXPOSURE_DEFAULT_EVENT
+}
+
+/** Whether the operator matches the values its positive form does not. Keep in sync with
+ * `_NEGATIVE_OPERATOR_COMPLEMENTS` in `posthog/hogql/property.py`. */
+function isOperatorNegated(operator: PropertyOperator): boolean {
+    return [
+        PropertyOperator.IsNot,
+        PropertyOperator.NotIn,
+        PropertyOperator.IsNotSet,
+        PropertyOperator.NotIContains,
+        PropertyOperator.NotIContainsMulti,
+        PropertyOperator.NotRegex,
+        PropertyOperator.NotStartsWith,
+        PropertyOperator.NotEndsWith,
+        PropertyOperator.NotBetween,
+        PropertyOperator.IsCleanedPathNotExact,
+        PropertyOperator.SemverNeq,
+    ].includes(operator)
+}
+
+/**
+ * Whether a negated filter in the config leaves out single events while the experiment still counts
+ * the person or group that sent them. Event, session and element properties can change from one event
+ * to the next. Person properties can too when the team reads them from the events: an event sent before
+ * the person identified has no `email`, and a negated filter keeps an event without a value. A cohort
+ * filter, and a person filter read from the persons table, leave out the whole person. When the flag
+ * counts groups, the group still counts through its other persons. `$feature_flag` names the flag of a
+ * flag call event, not a trait of the user. A group-aggregated experiment counts each group by
+ * `$group_<index>`, so a filter on that key leaves out the whole group.
+ */
+export function hasNegatedEventFilter(
+    config: ExperimentExposureConfig | undefined,
+    groupTypeIndex: number | null | undefined,
+    personsOnEventsMode: HogQLQueryModifiers['personsOnEventsMode']
+): boolean {
+    if (!config || config.kind === NodeKind.ExperimentWarehouseNativeExposureConfig) {
+        return false
+    }
+    const groupKey = groupTypeIndex != null ? `$group_${groupTypeIndex}` : null
+    const aggregatesByGroup = groupKey !== null
+    const personFilterVaries =
+        aggregatesByGroup ||
+        personsOnEventsMode === 'person_id_override_properties_on_events' ||
+        personsOnEventsMode === 'person_id_no_override_properties_on_events'
+    return (config.properties ?? []).some((property) => {
+        switch (property.type) {
+            case PropertyFilterType.Event:
+                return (
+                    property.key !== '$feature_flag' &&
+                    property.key !== groupKey &&
+                    isOperatorNegated(property.operator)
+                )
+            case PropertyFilterType.Session:
+            case PropertyFilterType.Element:
+                return isOperatorNegated(property.operator)
+            case PropertyFilterType.Person:
+                return personFilterVaries && isOperatorNegated(property.operator)
+            case PropertyFilterType.Cohort:
+                return aggregatesByGroup && isOperatorNegated(property.operator)
+            default:
+                return false
+        }
+    })
 }
 
 /**

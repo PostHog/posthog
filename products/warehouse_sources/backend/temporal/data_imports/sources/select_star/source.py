@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SelectStarSource(ResumableSource[SelectStarSourceConfig, SelectStarResumeConfig]):
+    codebase_detection = detect(env=("^(SELECT_STAR|SELECTSTAR)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.selectstar.com/select-star-api/overview"
 
@@ -105,7 +108,7 @@ class SelectStarSource(ResumableSource[SelectStarSourceConfig, SelectStarResumeC
             name=ExternalDataSourceType.SELECTSTAR,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Select Star",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Enter your Select Star API token to pull your data catalog into the PostHog Data warehouse.\n\n"
                 "Create a token in Select Star under **Account Settings > Client API Token > Manage API Tokens "

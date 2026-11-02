@@ -4,6 +4,10 @@ on:
     push:
         branches:
             - master
+    # Catches private master up when the run for the last push failed and no newer push follows.
+    schedule:
+        - cron: '4,19,34,49 * * * *'
+    workflow_dispatch:
 
 concurrency:
     group: private-sync
@@ -17,6 +21,10 @@ jobs:
         if: github.repository == 'PostHog/posthog' && vars.PRIVATE_SYNC_PAUSED != 'true'
         runs-on: ubuntu-24.04
         timeout-minutes: 10
+        # The environment holds the app key and admits only master runs, so a branch workflow cannot read it.
+        environment:
+            name: posthog-private-sync
+            deployment: false
         permissions:
             contents: read
         steps:
@@ -42,10 +50,25 @@ jobs:
 
             # 1:1 mirror: replays posthog's existing signed commits — no new commit, so
             # signing enforcement on posthog-private is unaffected.
+            # GitHub can start a push run long after its push, so push the current master tip
+            # rather than the triggering commit, and never force: a stale run must not move
+            # private master back.
             - name: Mirror master and tags to posthog-private
               env:
                   PRIVATE_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
+                  git fetch origin "+refs/heads/master:refs/remotes/origin/master"
+                  target="$(git rev-parse refs/remotes/origin/master)"
                   git remote add private "https://x-access-token:${PRIVATE_TOKEN}@github.com/PostHog/posthog-private.git"
-                  git push private "HEAD:refs/heads/master" --force
+                  if ! git push private "${target}:refs/heads/master"; then
+                      private_tip="$(git ls-remote --exit-code private refs/heads/master)"
+                      private_tip="${private_tip%%[[:space:]]*}"
+                      # A rejected push only means success if private master already contains the target.
+                      if ! git merge-base --is-ancestor "${target}" "${private_tip}" 2>/dev/null; then
+                          # This log is public, so it never prints the private tip, which can be a private-only commit.
+                          echo "::error::posthog-private master has commits that public master ${target} lacks; refusing to overwrite them."
+                          exit 1
+                      fi
+                      echo "posthog-private master already contains ${target}; nothing to push."
+                  fi
                   git push private "refs/tags/*:refs/tags/*" --force

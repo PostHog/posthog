@@ -340,7 +340,9 @@ def manual_suggestions_workflow_id(team_id: int) -> str:
 
 
 @async_to_sync
-async def start_manual_scout_suggestions_run(client: Client, *, team_id: int, acting_user_id: int | None = None) -> str:
+async def start_manual_scout_suggestions_run(
+    client: Client, *, team_id: int, acting_user_id: int | None = None, onboarding: bool = False
+) -> str:
     """Dispatch one on-demand suggestion scan for a team, bypassing the planner and its cap.
 
     Single-flight at the Temporal server: `ALLOW_DUPLICATE` lets the stable id be reused once the
@@ -349,21 +351,27 @@ async def start_manual_scout_suggestions_run(client: Client, *, team_id: int, ac
     planner state, so the coordinator treats it as this window's refresh instead of dispatching a
     second scan for the same team on its next tick.
     """
-    workflow_id = manual_suggestions_workflow_id(team_id)
+    workflow_id = f"scout-suggestions-onboarding-{team_id}" if onboarding else manual_suggestions_workflow_id(team_id)
     settings = read_suggestion_settings()
-    await client.start_workflow(
-        RunScoutSuggestionsWorkflow.run,
-        RunScoutSuggestionsInput(
-            team_id=team_id,
-            settings_json=_settings_to_json(settings),
-            triggered_by="manual",
-            acting_user_id=acting_user_id,
-        ),
-        id=workflow_id,
-        task_queue=django_settings.VIDEO_EXPORT_TASK_QUEUE,
-        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-        id_conflict_policy=WorkflowIDConflictPolicy.FAIL,
-    )
+    try:
+        await client.start_workflow(
+            RunScoutSuggestionsWorkflow.run,
+            RunScoutSuggestionsInput(
+                team_id=team_id,
+                settings_json=_settings_to_json(settings),
+                triggered_by="manual",
+                acting_user_id=acting_user_id,
+            ),
+            id=workflow_id,
+            task_queue=django_settings.VIDEO_EXPORT_TASK_QUEUE,
+            id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE
+            if onboarding
+            else WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING if onboarding else WorkflowIDConflictPolicy.FAIL,
+        )
+    except WorkflowAlreadyStartedError:
+        if not onboarding:
+            raise
     try:
         await database_sync_to_async(stamp_requested, thread_sensitive=False)([team_id])
     except Exception:

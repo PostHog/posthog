@@ -1,3 +1,7 @@
+from collections.abc import Mapping
+from typing import Any, Optional
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -9,7 +13,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
     PostgresSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
+    _DATABASE_NOT_FOUND_VALIDATION_ERROR,
+    PostgresSource,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _NEON_POOLED_HOST_CDC_ERROR = (
@@ -17,6 +24,12 @@ _NEON_POOLED_HOST_CDC_ERROR = (
     "direct host instead — remove the '-pooler' suffix (e.g. "
     "ep-cool-darkness-123456.us-east-2.aws.neon.tech) — and make sure logical replication is "
     "enabled in your Neon project settings."
+)
+
+# Each Neon branch has its own databases, and the default one is neondb, not postgres.
+_NEON_DATABASE_NOT_FOUND_ERROR = (
+    "That database doesn't exist on this Neon branch. Copy the database name from the Connect dialog "
+    "in your Neon Console, then try again."
 )
 
 
@@ -37,12 +50,23 @@ _NEON_HOST_CAPTION = (
 
 @SourceRegistry.register
 class NeonSource(PostgresSource):
+    codebase_detection = detect(
+        env=("^NEON_",),
+        npm=("@neondatabase/serverless", "@neondatabase/api-client", "neonctl", "neon"),
+        pypi=("neon-api",),
+    )
+
     def __init__(self):
         super().__init__(source_name="Neon")
 
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.NEON
+
+    @property
+    def credential_kind(self) -> str | None:
+        # Without this, the source inherits the kind of `PostgresSource`.
+        return "neon"
 
     @staticmethod
     def _adjust_field(field: FieldType) -> FieldType:
@@ -86,8 +110,7 @@ class NeonSource(PostgresSource):
         config: PostgresSourceConfig,
         management_mode: str,
         tables: list[str],
-        slot_name: str | None = None,
-        publication_name: str | None = None,
+        setup: Mapping[str, Any],
         require_ssl: bool = True,
         team_id: int | None = None,
     ) -> list[str]:
@@ -99,8 +122,22 @@ class NeonSource(PostgresSource):
             config,
             management_mode=management_mode,
             tables=tables,
-            slot_name=slot_name,
-            publication_name=publication_name,
+            setup=setup,
             require_ssl=require_ssl,
             team_id=team_id,
         )
+
+    def validate_credentials(
+        self,
+        config: PostgresSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
+        require_ssl: bool = False,
+    ) -> tuple[bool, str | None]:
+        success, error = super().validate_credentials(
+            config, team_id, schema_name=schema_name, api_version=api_version, require_ssl=require_ssl
+        )
+        if not success and error == _DATABASE_NOT_FOUND_VALIDATION_ERROR:
+            return False, _NEON_DATABASE_NOT_FOUND_ERROR
+        return success, error

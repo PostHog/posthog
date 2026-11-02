@@ -1,6 +1,6 @@
 import dataclasses
 from collections.abc import Iterable, Iterator
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional, cast
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.callrail.settings import (
@@ -35,6 +35,10 @@ CALLRAIL_BASE_URL = "https://api.callrail.com/v3"
 # forever. 250 rows/page * this cap bounds a single endpoint sync.
 MAX_PAGES = 100_000
 
+# CallRail deletes communication records after 25 months and rejects a date range that reaches past
+# that, so date windows start at the first whole month inside it.
+RETENTION_MONTHS = 24
+
 
 @dataclasses.dataclass(frozen=True)
 class CallRailResumeConfig:
@@ -47,6 +51,8 @@ class CallRailResumeConfig:
     # Fan-out progress for an endpoint reached once per parent row: which parents are done, which
     # one was in flight, and that parent's page cursor. Shape owned by the shared fan-out helper.
     fanout_state: Optional[dict[str, Any]] = None
+    # First day (YYYY-MM-DD) of the next monthly window to fetch, for a report endpoint.
+    window_start: Optional[str] = None
 
 
 def _get_headers(api_key: str) -> dict[str, str]:
@@ -114,6 +120,40 @@ def _format_start_date(value: Any) -> str | None:
     if isinstance(value, str) and value:
         return value[:10]
     return None
+
+
+def _parse_cursor_date(value: Any) -> date | None:
+    formatted = _format_start_date(value)
+    return date.fromisoformat(formatted) if formatted else None
+
+
+def _retention_start(today: date) -> date:
+    month_index = today.year * 12 + today.month - 1 - RETENTION_MONTHS
+    return date(month_index // 12, month_index % 12 + 1, 1)
+
+
+def _reporting_today() -> date:
+    """Today's date in the earliest timezone on Earth (UTC-12).
+
+    Reports use the account's timezone, so UTC's date can be a day ahead of the account's. Asking
+    for that day returns a zero-filled row that would move the watermark past a still-partial month.
+    """
+    return (datetime.now(UTC) - timedelta(hours=12)).date()
+
+
+@dataclasses.dataclass(frozen=True)
+class _MonthWindow:
+    first_day: date
+    last_day: date
+
+
+def _month_windows(start: date, today: date) -> Iterator[_MonthWindow]:
+    """Yield each calendar month from `start` up to and including today, clipped at today."""
+    window_start = start.replace(day=1)
+    while window_start <= today:
+        next_start = (window_start + timedelta(days=32)).replace(day=1)
+        yield _MonthWindow(first_day=window_start, last_day=min(next_start - timedelta(days=1), today))
+        window_start = next_start
 
 
 def resolve_account_id(api_key: str, team_id: int, job_id: str, account_id: str | None = None) -> str:
@@ -209,6 +249,70 @@ def _fanout_rows(
     )
 
 
+def _report_rows(
+    api_key: str,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[CallRailResumeConfig],
+    resolved_account_id: str,
+    resume_window_start: Optional[str],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    """Fetch a vendor-computed report one calendar month per request, oldest month first.
+
+    A timeseries report holds at most 200 data points and a summary report covers its whole date
+    range, so a month is the unit that keeps both complete and gives summary rows a period. An
+    incremental sync starts again at the watermark's month, because the newest month is still
+    partial when it is read. The merge replaces its rows on the primary key.
+    """
+    config = CALLRAIL_ENDPOINTS[endpoint]
+    today = _reporting_today()
+    start = _retention_start(today)
+    if resume_window_start is not None:
+        start = max(start, date.fromisoformat(resume_window_start))
+    elif should_use_incremental_field:
+        watermark = _parse_cursor_date(db_incremental_field_last_value)
+        if watermark is not None:
+            start = max(start, watermark.replace(day=1))
+
+    for window in _month_windows(start, today):
+        window_start, window_end = window.first_day, window.last_day
+        rest_config: RESTAPIConfig = {
+            "client": _client_config(api_key),
+            "resources": [
+                {
+                    "name": endpoint,
+                    "endpoint": {
+                        "path": config.path.replace("{account_id}", resolved_account_id),
+                        "params": {
+                            **config.extra_params,
+                            "start_date": window_start.isoformat(),
+                            "end_date": window_end.isoformat(),
+                        },
+                        "data_selector": config.response_key,
+                        "paginator": SinglePagePaginator(),
+                    },
+                }
+            ],
+        }
+        rows = [row for page in rest_api_resource(rest_config, team_id, job_id, None) for row in page]
+        if config.report == "summary":
+            period = {"period_start": window_start.isoformat(), "period_end": window_end.isoformat()}
+            rows = [{**row, **period} for row in rows]
+
+        next_start = window_end + timedelta(days=1)
+        if next_start <= today:
+            resumable_source_manager.save_state(
+                CallRailResumeConfig(account_id=resolved_account_id, window_start=next_start.isoformat())
+            )
+        if rows:
+            yield rows
+        else:
+            resumable_source_manager.safe_point()
+
+
 def get_rows(
     api_key: str,
     endpoint: str,
@@ -243,13 +347,33 @@ def get_rows(
         )
         return
 
+    if config.report is not None:
+        yield from _report_rows(
+            api_key=api_key,
+            endpoint=endpoint,
+            team_id=team_id,
+            job_id=job_id,
+            resumable_source_manager=resumable_source_manager,
+            resolved_account_id=resolved_account_id,
+            resume_window_start=resume.window_start if resume is not None else None,
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=db_incremental_field_last_value,
+        )
+        return
+
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resume is not None and resume.page is not None:
         initial_paginator_state = {"page": resume.page}
 
+    params: dict[str, Any] = {"per_page": PER_PAGE, **_sort_params(config), **config.extra_params}
+    if config.retention_window:
+        today = datetime.now(UTC).date()
+        params["start_date"] = _retention_start(today).isoformat()
+        params["end_date"] = today.isoformat()
+
     endpoint_config: Endpoint = {
         "path": config.path.replace("{account_id}", resolved_account_id),
-        "params": {"per_page": PER_PAGE, **_sort_params(config)},
+        "params": params,
         # Key the list lives under in the JSON envelope; a missing key reads as an empty page and
         # ends pagination, matching the API's "no more data" signal.
         "data_selector": config.response_key,

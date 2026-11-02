@@ -13,7 +13,14 @@ from google.cloud import bigquery
 from posthog.models.integration import Integration
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
-from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
+from products.batch_exports.backend.service import (
+    AnyBatchExportModel,
+    BatchExportEventsCustomModel,
+    BatchExportEventsModel,
+    BatchExportPersonsModel,
+    BatchExportSchema,
+    BatchExportSessionsModel,
+)
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     BigQueryInsertInputs,
     bigquery_default_fields,
@@ -64,8 +71,7 @@ async def _run_activity(
     table_id: str,
     dataset_id: str,
     use_json_type: bool = False,
-    batch_export_model: BatchExportModel | None = None,
-    batch_export_schema: BatchExportSchema | None = None,
+    batch_export_model: AnyBatchExportModel | None = None,
     exclude_events: list[str] | None = None,
     include_events: list[str] | None = None,
     sort_key: str = "event",
@@ -85,7 +91,6 @@ async def _run_activity(
         exclude_events=exclude_events,
         include_events=include_events,
         use_json_type=use_json_type,
-        batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
         batch_export_id=str(uuid.uuid4()),
         integration_id=integration.id if integration is not None else None,
@@ -106,7 +111,6 @@ async def _run_activity(
             run_id=None,
             backfill_details=None,
             batch_export_model=insert_inputs.batch_export_model,
-            batch_export_schema=insert_inputs.batch_export_schema,
             destination_default_fields=bigquery_default_fields(),
         ),
     )
@@ -123,7 +127,7 @@ async def _run_activity(
         date_ranges=[(data_interval_start, data_interval_end)],
         exclude_events=exclude_events,
         include_events=include_events,
-        batch_export_model=batch_export_model or batch_export_schema,
+        batch_export_model=batch_export_model,
         use_json_type=use_json_type,
         min_ingested_timestamp=min_ingested_timestamp,
         sort_key=sort_key,
@@ -179,7 +183,7 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
     exclude_events,
     bigquery_dataset,
     use_json_type,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: AnyBatchExportModel | BatchExportSchema | None,
     generate_test_data,
     data_interval_start,
     data_interval_end,
@@ -196,15 +200,14 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
     * Are not duplicates of other events that are in the same batch.
     * Do not have an event name contained in the batch export's `exclude_events`.
     """
-    if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
+    if isinstance(model, AnyBatchExportModel) and model.name == "persons" and exclude_events is not None:
         pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
-    batch_export_schema: BatchExportSchema | None = None
-    batch_export_model: BatchExportModel | None = None
-    if isinstance(model, BatchExportModel):
+    batch_export_model: AnyBatchExportModel | None = None
+    if isinstance(model, AnyBatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_schema = model
+        batch_export_model = BatchExportEventsCustomModel(schema=model)
 
     sort_key = "event"
     if batch_export_model is not None:
@@ -224,7 +227,6 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
         data_interval_end=data_interval_end,
         exclude_events=exclude_events,
         use_json_type=use_json_type,
-        batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
         bigquery_config=bigquery_config,
         sort_key=sort_key,
@@ -235,7 +237,7 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
 @pytest.mark.parametrize(
     "model",
     [
-        BatchExportModel(name="sessions", schema=None),
+        BatchExportSessionsModel(),
     ],
 )
 async def test_insert_into_bigquery_activity_from_stage_inserts_sessions_data_into_bigquery_table(
@@ -246,7 +248,7 @@ async def test_insert_into_bigquery_activity_from_stage_inserts_sessions_data_in
     exclude_events,
     bigquery_dataset,
     use_json_type,
-    model: BatchExportModel,
+    model: AnyBatchExportModel,
     generate_test_data,
     data_interval_start,
     data_interval_end,
@@ -290,9 +292,7 @@ async def test_insert_into_bigquery_activity_from_stage_inserts_sessions_data_in
 @pytest.mark.parametrize(
     "model",
     [
-        BatchExportModel(
-            name="events",
-            schema=None,
+        BatchExportEventsModel(
             filters=[
                 {"key": "$browser", "operator": "exact", "type": "event", "value": ["Chrome"]},
                 {"key": "$os", "operator": "exact", "type": "event", "value": ["Mac OS X"]},
@@ -335,7 +335,7 @@ async def test_insert_into_bigquery_activity_from_stage_inserts_data_into_bigque
     exclude_events,
     bigquery_dataset,
     use_json_type,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: AnyBatchExportModel | BatchExportSchema | None,
     generate_test_data,
     data_interval_start,
     data_interval_end,
@@ -354,15 +354,14 @@ async def test_insert_into_bigquery_activity_from_stage_inserts_data_into_bigque
     * Are not duplicates of other events that are in the same batch.
     * Do not have an event name contained in the batch export's `exclude_events`.
     """
-    if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
+    if isinstance(model, AnyBatchExportModel) and model.name == "persons" and exclude_events is not None:
         pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
-    batch_export_schema: BatchExportSchema | None = None
-    batch_export_model: BatchExportModel | None = None
-    if isinstance(model, BatchExportModel):
+    batch_export_model: AnyBatchExportModel | None = None
+    if isinstance(model, AnyBatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_schema = model
+        batch_export_model = BatchExportEventsCustomModel(schema=model)
 
     await _run_activity(
         activity_environment,
@@ -377,7 +376,6 @@ async def test_insert_into_bigquery_activity_from_stage_inserts_data_into_bigque
         include_events=None,
         use_json_type=use_json_type,
         batch_export_model=batch_export_model,
-        batch_export_schema=batch_export_schema,
         bigquery_config=bigquery_config,
         sort_key="event",
     )
@@ -393,7 +391,7 @@ async def test_insert_into_bigquery_activity_from_stage_inserts_data_into_bigque
     exclude_events,
     bigquery_dataset,
     use_json_type,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: AnyBatchExportModel | BatchExportSchema | None,
     generate_test_data,
     data_interval_start,
     data_interval_end,
@@ -404,15 +402,14 @@ async def test_insert_into_bigquery_activity_from_stage_inserts_data_into_bigque
     For this test we mock the `check_for_query_permissions_on_table` method to assert the
     behavior of the activity function when lacking query permissions in BigQuery.
     """
-    if isinstance(model, BatchExportModel) and model.name == "persons":
+    if isinstance(model, AnyBatchExportModel) and model.name == "persons":
         pytest.skip("Unnecessary test case as person batch export requires query permissions")
 
-    batch_export_schema: BatchExportSchema | None = None
-    batch_export_model: BatchExportModel | None = None
-    if isinstance(model, BatchExportModel):
+    batch_export_model: AnyBatchExportModel | None = None
+    if isinstance(model, AnyBatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_schema = model
+        batch_export_model = BatchExportEventsCustomModel(schema=model)
 
     with (
         unittest.mock.patch(
@@ -433,7 +430,6 @@ async def test_insert_into_bigquery_activity_from_stage_inserts_data_into_bigque
             include_events=None,
             use_json_type=use_json_type,
             batch_export_model=batch_export_model,
-            batch_export_schema=batch_export_schema,
             bigquery_config=bigquery_config,
             sort_key="event",
         )
@@ -459,7 +455,7 @@ async def test_insert_into_bigquery_activity_from_stage_merges_persons_data_in_f
     run of the activity. We expect the new entries to have replaced the old ones in BigQuery after
     the second run.
     """
-    model = BatchExportModel(name="persons", schema=None)
+    model = BatchExportPersonsModel()
     table_id = f"test_insert_activity_mutability_table_persons_{ateam.pk}"
 
     await _run_activity(
@@ -535,7 +531,7 @@ async def test_insert_into_bigquery_activity_from_stage_merges_sessions_data_in_
     run of the activity. We expect the new entries to have replaced the old ones in BigQuery after
     the second run with the same time range.
     """
-    model = BatchExportModel(name="sessions", schema=None)
+    model = BatchExportSessionsModel()
     table_id = f"test_insert_activity_mutability_table_sessions_{ateam.pk}"
 
     result = await _run_activity(
@@ -639,7 +635,7 @@ async def test_insert_into_bigquery_activity_from_stage_handles_person_new_colum
     To replicate this situation we first export the data with the original
     schema, then delete a column in the destination and then rerun the export.
     """
-    model = BatchExportModel(name="persons", schema=None)
+    model = BatchExportPersonsModel()
     table_id = f"test_insert_activity_migration_table_{ateam.pk}"
 
     await _run_activity(
@@ -734,7 +730,7 @@ async def test_insert_into_bigquery_activity_from_stage_handles_datetime_to_int(
     To replicate this situation we first export the data to create the table, then alter
     'created_at' to be of type INT64, and then rerun the export.
     """
-    model = BatchExportModel(name="persons", schema=None)
+    model = BatchExportPersonsModel()
     table_id = f"test_insert_activity_migration_table_{ateam.pk}"
 
     await _run_activity(
@@ -802,7 +798,7 @@ async def test_insert_into_bigquery_activity_creates_tables_with_the_right_parti
     compatibility, this may change in the future), and the consumer table to not be
     partitioned.
     """
-    model = BatchExportModel(name="events", schema=None)
+    model = BatchExportEventsModel()
     table_id = f"test_insert_activity_partitioning_{ateam.pk}"
 
     with (

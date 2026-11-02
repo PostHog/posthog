@@ -1,7 +1,7 @@
-import { useActions } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 
-import { IconCalendar, IconEllipsis } from '@posthog/icons'
-import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
+import { IconCalendar, IconEllipsis, IconInfo } from '@posthog/icons'
+import { LemonButton, LemonMenu, Tooltip } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
@@ -15,9 +15,14 @@ import {
     isNumericBIField,
 } from 'products/business_intelligence/frontend/biEditorTypes'
 
+import { biMemberFieldKey } from './biMemberAliases'
+import { biMemberAliasesLogic } from './biMemberAliasesLogic'
+
 function FieldTypeGlyph({ field, measure }: { field: BIField; measure: boolean }): JSX.Element {
     const glyph =
-        field.type === 'date' || field.type === 'datetime' ? (
+        field.localDefinition?.kind === 'expression' ? (
+            'ƒ'
+        ) : field.type === 'date' || field.type === 'datetime' ? (
             <IconCalendar />
         ) : measure || ['integer', 'float', 'decimal'].includes(field.type) ? (
             '#'
@@ -44,12 +49,26 @@ export function BIDataPaneField({
     field,
     measure,
     path = [],
+    description,
 }: {
     field: BIField
     measure: boolean
     path?: string[]
+    description?: string
 }): JSX.Element {
-    const { addFieldToShelf, editLocalField } = useActions(biEditorLogic)
+    const editor = useMountedLogic(biEditorLogic)
+    const { config } = useValues(editor)
+    const { edit } = useActions(biMemberAliasesLogic({ tabId: editor.props.tabId }))
+    const aliasItem = {
+        label: 'Edit display aliases',
+        onClick: () =>
+            edit(
+                field,
+                config.memberAliases?.find((entry) => biMemberFieldKey(entry.field) === biMemberFieldKey(field))
+                    ?.aliases ?? []
+            ),
+    }
+    const { addFieldToShelf, editLocalField, editCalculatedField, removeLocalField } = useActions(biEditorLogic)
     const addField = (field: BIField): void => {
         const target = getBIDropTarget(field, 'rows')
         addFieldToShelf(target.field, target.shelf)
@@ -60,7 +79,7 @@ export function BIDataPaneField({
                 key={field.id}
                 type="button"
                 draggable
-                title={field.name}
+                title={field.localDefinition ? `${field.name} · worksheet-local field` : field.name}
                 className={cn(
                     'flex h-6 w-full min-w-0 cursor-grab items-center gap-1 rounded px-1 text-left text-xs hover:bg-fill-highlight-100',
                     'focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent'
@@ -81,30 +100,56 @@ export function BIDataPaneField({
                 <span className="truncate">
                     {path.length ? field.name.slice(path.join('.').length + 1) : field.name}
                 </span>
+                {description && (
+                    <Tooltip title={description}>
+                        <IconInfo className="shrink-0 text-secondary" aria-label={description} />
+                    </Tooltip>
+                )}
             </button>
             {(field.localDefinition || isNumericBIField(field) || ['string', 'boolean'].includes(field.type)) && (
                 <LemonMenu
                     items={
-                        field.localDefinition
+                        field.localDefinition?.kind === 'expression'
                             ? [
+                                  aliasItem,
+                                  { label: 'Edit calculated field', onClick: () => editCalculatedField(field) },
                                   {
-                                      label: 'Edit local definition',
-                                      onClick: () => editLocalField(field, field.localDefinition!.kind),
+                                      label: 'Delete field and all uses',
+                                      status: 'danger',
+                                      onClick: () => removeLocalField(field.id),
                                   },
                               ]
-                            : [
-                                  { label: 'Group categories', onClick: () => editLocalField(field, 'groups') },
-                                  ...(isNumericBIField(field)
-                                      ? [{ label: 'Create numeric bins', onClick: () => editLocalField(field, 'bins') }]
-                                      : []),
-                              ]
+                            : field.localDefinition
+                              ? [
+                                    aliasItem,
+                                    {
+                                        label: 'Edit local definition',
+                                        onClick: () =>
+                                            editLocalField(
+                                                field,
+                                                field.localDefinition?.kind === 'bins' ? 'bins' : 'groups'
+                                            ),
+                                    },
+                                ]
+                              : [
+                                    aliasItem,
+                                    { label: 'Group categories', onClick: () => editLocalField(field, 'groups') },
+                                    ...(isNumericBIField(field)
+                                        ? [
+                                              {
+                                                  label: 'Create numeric bins',
+                                                  onClick: () => editLocalField(field, 'bins'),
+                                              },
+                                          ]
+                                        : []),
+                                ]
                     }
                 >
                     <LemonButton
                         size="xxsmall"
                         icon={<IconEllipsis />}
                         aria-label={`Options for ${field.name}`}
-                        className="shrink-0 opacity-0 group-hover/bi-field:opacity-100 focus:opacity-100"
+                        className="shrink-0"
                     />
                 </LemonMenu>
             )}

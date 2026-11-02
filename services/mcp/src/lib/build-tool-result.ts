@@ -2,6 +2,7 @@ import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 
 import { type DiscoveryHint, type DiscoveryHintKind, getDiscoveryHint, isEmptyToolResult } from '@/lib/discovery-hints'
 import { estimateTokens } from '@/lib/estimate-tokens'
+import { getNextPageHint } from '@/lib/next-page-hint'
 import { formatResponse } from '@/lib/response'
 import { isPrepareConfirmedActionResult } from '@/tools/confirmed-action-runtime'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY, POSTHOG_TEXT_PROJECTION_KEY } from '@/tools/types'
@@ -242,6 +243,10 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         if (discoveryHint) {
             footers.push(discoveryHint.text)
         }
+        const nextPageHint = getNextPageHint(toolName, rawResult)
+        if (nextPageHint) {
+            footers.push(nextPageHint)
+        }
     }
 
     if (includeRenderNote && hasUiResource && !useJson) {
@@ -257,7 +262,7 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         structuredContentOnly,
         footers,
         discoveryHint: discoveryHint?.kind,
-        resultEmpty: isEmptyToolResult(handlerResult),
+        resultEmpty: isEmptyToolResult(handlerResult, toolName),
     })
     if (hasUiResource && !suppressStructuredContent) {
         payload.structuredContent = structuredContent as Record<string, unknown>

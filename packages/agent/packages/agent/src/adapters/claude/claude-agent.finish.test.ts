@@ -100,6 +100,7 @@ describe("ClaudeAcpAgent.buildRequestFinish", () => {
     expect(mocks.updateTaskRun).toHaveBeenCalledWith("task-1", "run-1", {
       status: "failed",
       error_message: "blocked on missing credentials",
+      error_type: "agent_declined",
     });
   });
 
@@ -109,6 +110,7 @@ describe("ClaudeAcpAgent.buildRequestFinish", () => {
 
     expect(mocks.updateTaskRun).toHaveBeenCalledWith("task-1", "run-1", {
       status: "failed",
+      error_type: "agent_declined",
     });
   });
 

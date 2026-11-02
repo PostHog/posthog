@@ -7,7 +7,8 @@ class GridlyEndpointConfig:
     # Record and column ids are unique within a view, and a Gridly source targets exactly one
     # view, so `id` is unique table-wide. Project, database, grid and view ids are global: each one
     # is retrievable on its own via `GET /v1/<resource>/<id>`.
-    primary_keys: list[str] = field(default_factory=lambda: ["id"])
+    # A record history entry has no id of its own, so that table has no primary key.
+    primary_keys: list[str] | None = field(default_factory=lambda: ["id"])
     should_sync_default: bool = True
     description: str | None = None
     # Hierarchy endpoints are listed once per parent row. `parent_id_param` is the query param that
@@ -60,6 +61,34 @@ GRIDLY_ENDPOINTS: dict[str, GridlyEndpointConfig] = {
         description="Views of every Gridly grid, with the owning gridId. Full refresh only.",
         parent="grids",
         parent_id_param="gridId",
+    ),
+    # Listed once per grid, like views. Gridly serves this API on the Team and Enterprise plans only.
+    "branches": GridlyEndpointConfig(
+        name="branches",
+        should_sync_default=False,
+        description="Branches of every Gridly grid, with the owning gridId. Needs a Gridly Team or Enterprise plan. Full refresh only.",
+        parent="grids",
+        parent_id_param="gridId",
+    ),
+    "dependencies": GridlyEndpointConfig(
+        name="dependencies",
+        description="Column dependencies of the configured Gridly view. Each one maps a source column to a target column. Full refresh only.",
+    ),
+    # An execution id is only documented under its automation
+    # (`GET /v1/automations/{automationId}/executions/{id}`), so the key includes the automation.
+    "automation_executions": GridlyEndpointConfig(
+        name="automation_executions",
+        primary_keys=["automationId", "id"],
+        should_sync_default=False,
+        description="Run history of every automation of the configured Gridly view, with the owning automationId. Full refresh only.",
+    ),
+    # One request per record on every sync, and Gridly serves this API on the Enterprise plan only,
+    # so it is off by default.
+    "record_histories": GridlyEndpointConfig(
+        name="record_histories",
+        primary_keys=None,
+        should_sync_default=False,
+        description="Change history of every record of the configured Gridly view, with the owning recordId. Makes one request per record on every sync. Needs a Gridly Enterprise plan. Full refresh only.",
     ),
 }
 

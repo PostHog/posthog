@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -27,6 +30,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.raygun.ray
 from products.warehouse_sources.backend.temporal.data_imports.sources.raygun.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    METRICS_ENDPOINTS,
+    METRICS_INCREMENTAL_LOOKBACK_SECONDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -39,11 +44,65 @@ Grant the token these read scopes for the tables you want to sync:
 - `customers:read` — Customers
 - `rum.sessions:read` — Sessions
 - `rum.pages:read` — Pages
+- `cr.errors:read` — Error instances
+- `deployments:read` and `cr.errors:read` — Deployment error groups
+- `metrics:errors` — Error metrics
+- `metrics:pages` — Page metrics
 """
 
 
 @SourceRegistry.register
 class RaygunSource(ResumableSource[RaygunSourceConfig, RaygunResumeConfig]):
+    codebase_detection = detect(
+        env=("^RAYGUN_", "^SS_RAYGUN_APP_KEY$", "^SS_CUSTOM_RAYGUN_APP_KEY$"),
+        script_hosts=("cdn.raygun.io",),
+        npm=(
+            "raygun",
+            "raygun4js",
+            "raygun4reactnative",
+            "raygun-apm",
+            "@raygun.io/aws-lambda",
+            "@raygun.io/webpack-plugin",
+            "@raygun.io/mcp-server-raygun",
+            "ember-cli-raygun",
+            "grunt-raygun-deployment",
+            "gulp-raygun-sourcemaps",
+        ),
+        pypi=("raygun4py",),
+        cocoapods=("raygun4apple", "Raygun4iOS"),
+        composer=(
+            "mindscape/raygun4php",
+            "silverstripe/raygun",
+            "davibennun/laravel-raygun",
+            "magenizr/magento2-raygun",
+        ),
+        go=("github.com/MindscapeHQ/raygun4go",),
+        hex=("raygun",),
+        maven=(
+            "com.raygun:raygun4android",
+            "com.mindscapehq:core",
+            "com.mindscapehq:webprovider",
+            "com.mindscapehq:webproviderjakarta",
+            "com.mindscapehq:raygun4java-play2",
+            "com.mindscapehq.raygun4java:core",
+            "com.mindscapehq.raygun4java:webprovider",
+            "com.mindscapehq.android:raygun4android",
+            "com.midtrans:raygun-spring-boot-starter",
+        ),
+        pub=("raygun4flutter", "raygun_cli"),
+        rubygems=(
+            "raygun4ruby",
+            "raygun-apm",
+            "raygun-apm-rails",
+            "raygun-apm-sidekiq",
+            "capistrano-raygun-deployment",
+            "rake-raygun-deployment",
+            "fluent-plugin-raygun",
+        ),
+        swiftpm=("github.com/mindscapehq/raygun4apple",),
+        alternative_to=(ProductKey.ERROR_TRACKING,),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v3",)
     default_version = "v3"
@@ -75,9 +134,15 @@ class RaygunSource(ResumableSource[RaygunSourceConfig, RaygunResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Raygun exposes no server-side "updated since" filter, so every endpoint is full refresh —
-        # no endpoint declares incremental fields, so none support incremental/append sync.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        # Incremental endpoints re-read rows at the watermark (metric buckets, the last page of error
+        # instances), so append would duplicate them; they merge on their primary keys instead.
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=[name for name, fields in INCREMENTAL_FIELDS.items() if fields],
+            default_incremental_lookback_seconds=dict.fromkeys(METRICS_ENDPOINTS, METRICS_INCREMENTAL_LOOKBACK_SECONDS),
+        )
 
     def validate_credentials(
         self,
@@ -117,7 +182,9 @@ class RaygunSource(ResumableSource[RaygunSourceConfig, RaygunResumeConfig]):
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
-            db_incremental_field_last_value=None,  # every Raygun endpoint is full refresh
+            db_incremental_field_last_value=(
+                inputs.db_incremental_field_last_value if inputs.should_use_incremental_field else None
+            ),
         )
 
     @property
@@ -126,7 +193,7 @@ class RaygunSource(ResumableSource[RaygunSourceConfig, RaygunResumeConfig]):
             name=ExternalDataSourceType.RAYGUN,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Raygun",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=RAYGUN_CAPTION,
             iconPath="/static/services/raygun.png",
             docsUrl="https://posthog.com/docs/cdp/sources/raygun",

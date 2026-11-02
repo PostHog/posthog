@@ -13,6 +13,7 @@ import { METRIC_MARKDOWN_MAX_LENGTH } from '../common'
 import { definitionField } from '../dataCatalogMetricSceneLogic'
 import type { DataCatalogMetricApi } from '../generated/api.schemas'
 import { MetricMarkdownEditorField } from './MetricMarkdownEditorField'
+import { ResultCell } from './ResultCell'
 import { RunMetricWithAIButton } from './RunMetricWithAIButton'
 import { Section } from './Section'
 
@@ -280,18 +281,11 @@ function ResultsTable({ results }: { results: unknown }): JSX.Element {
                 columns={keys.map((columnKey) => ({
                     title: columnKey,
                     key: columnKey,
-                    render: (_: unknown, row: Record<string, unknown>) => formatCell(row[columnKey]),
+                    render: (_: unknown, row: Record<string, unknown>) => <ResultCell value={row[columnKey]} />,
                 }))}
                 size="small"
             />
         )
     }
     return <CodeSnippet language={Language.JSON}>{JSON.stringify(results, null, 2)}</CodeSnippet>
-}
-
-function formatCell(value: unknown): string {
-    if (value == null) {
-        return ''
-    }
-    return typeof value === 'object' ? JSON.stringify(value) : String(value)
 }

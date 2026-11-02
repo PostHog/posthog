@@ -36,12 +36,6 @@ class TestSourceVersions:
         assert source.supported_versions == (EZOFFICEINVENTORY_API_VERSION_V1, EZOFFICEINVENTORY_API_VERSION_V2)
 
 
-class TestGetSchemas:
-    def test_names_filter(self) -> None:
-        schemas = EZOfficeInventorySource().get_schemas(_config(), team_id=1, names=["assets", "members"])
-        assert {s.name for s in schemas} == {"assets", "members"}
-
-
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         ("transport_result", "expected_ok"),

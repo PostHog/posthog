@@ -1,4 +1,4 @@
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from posthog.schema import ExperimentDataWarehouseNode
 
@@ -8,7 +8,7 @@ from posthog.hogql.parser import parse_select
 from products.experiments.backend.hogql_queries.metric_source import MetricSourceInfo
 
 
-class TestHogQLInjectionPrevention(BaseTest):
+class TestHogQLInjectionPrevention(SimpleTestCase):
     """Verify that user-controlled table_name and timestamp_field from
     ExperimentDataWarehouseNode cannot inject arbitrary HogQL when used
     in experiment query templates via placeholders."""

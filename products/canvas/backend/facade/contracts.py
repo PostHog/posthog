@@ -270,6 +270,7 @@ class CanvasCapabilityWidening:
     network_origins_added: list[str]
     state_scopes_added: list[str]
     actions_added: list[str]
+    tools_added: list[str]
     connectors_added: list[dict[str, Any]]
 
 

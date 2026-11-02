@@ -19,9 +19,10 @@ import { ExperimentExposureCriteria, ExperimentExposureQueryResponse } from '~/q
 
 import { EXPERIMENT_VARIANT_MULTIPLE } from 'products/experiments/frontend/constants'
 import {
-    SAMPLE_RATIO_MISMATCH_DESCRIPTION,
     getTotalExposures,
     hasSampleRatioMismatch,
+    sampleRatioLine,
+    serverSampleRatioFinding,
 } from 'products/experiments/frontend/health/exposureHealth'
 import { useHealthFindingReporting } from 'products/experiments/frontend/health/useHealthFindingReporting'
 
@@ -135,6 +136,7 @@ export function Exposures(): JSX.Element {
         experiment,
         excludedVariants,
         resolvedExposureEvent,
+        healthUi,
     } = useValues(experimentLogic)
     const { openExposureCriteriaModal } = useActions(exposureCriteriaModalLogic)
     const { refreshExperimentResults } = useActions(experimentLogic)
@@ -167,14 +169,28 @@ export function Exposures(): JSX.Element {
 
     // Detect sample ratio mismatch (p < 0.001 is significant)
     const hasSRM = hasSampleRatioMismatch(exposures)
+    const srmLine = sampleRatioLine(exposures, healthUi === 'panel')
 
     // The open panel says "No exposures yet" for a draft and after a failed exposure query too.
     // Only a launched experiment with an answer that holds no exposure is the zero-exposure state.
     // The answer holds a series for every configured variant, with zero counts, so only the total tells.
     const hasZeroExposures = !isExperimentDraft && !exposuresLoading && exposures != null && totalExposures === 0
 
+    // With the health panel, its row reports the finding as shown. The card reports the same finding, so that opening
+    // the card's evidence counts against the panel's "shown" event and not a second one.
+    const srmFinding = healthUi === 'panel' ? serverSampleRatioFinding(exposures) : undefined
     const { reportOpened: reportSrmOpened } = useHealthFindingReporting(
-        hasSRM && !isExperimentDraft && !exposuresLoading ? { code: 'srm' } : null
+        hasSRM && !isExperimentDraft && !exposuresLoading
+            ? srmFinding
+                ? {
+                      code: 'srm',
+                      subcode: srmFinding.subcode ?? undefined,
+                      severity: srmFinding.severity,
+                      reason: srmFinding.reason ?? undefined,
+                  }
+                : { code: 'srm' }
+            : null,
+        !srmFinding
     )
     // The collapsed header shows the total only, so the zero-exposure state is on screen in the open panel alone.
     const { reportOpened: reportZeroExposuresOpened, reportActedOn: reportZeroExposuresActedOn } =
@@ -243,8 +259,8 @@ export function Exposures(): JSX.Element {
                                         ))}
                                     </div>
                                 )}
-                                {hasSRM && (
-                                    <Tooltip title={SAMPLE_RATIO_MISMATCH_DESCRIPTION}>
+                                {srmLine?.tone === 'warning' && (
+                                    <Tooltip title={srmLine.tooltip}>
                                         <IconWarning className="text-warning text-lg" />
                                     </Tooltip>
                                 )}
@@ -478,16 +494,14 @@ export function Exposures(): JSX.Element {
                                             },
                                         ]}
                                     />
-                                    {exposures?.sample_ratio_mismatch != null && (
+                                    {srmLine && exposures?.sample_ratio_mismatch != null && (
                                         <div className="flex items-center gap-1 text-xs mt-2">
-                                            {hasSRM ? (
+                                            {srmLine.tone === 'warning' ? (
                                                 <>
-                                                    <Tooltip title={SAMPLE_RATIO_MISMATCH_DESCRIPTION}>
+                                                    <Tooltip title={srmLine.tooltip}>
                                                         <span className="flex items-center gap-1 text-warning cursor-pointer">
                                                             <IconWarning className="text-sm" />
-                                                            <span className="font-semibold">
-                                                                Sample ratio mismatch detected
-                                                            </span>
+                                                            <span className="font-semibold">{srmLine.label}</span>
                                                         </span>
                                                     </Tooltip>
                                                     <span className="text-muted">
@@ -496,12 +510,10 @@ export function Exposures(): JSX.Element {
                                                 </>
                                             ) : (
                                                 <>
-                                                    <Tooltip title="No sample ratio mismatch detected. The difference between actual and expected exposures is within normal random variation.">
+                                                    <Tooltip title={srmLine.tooltip}>
                                                         <span className="flex items-center gap-1 text-success cursor-pointer">
                                                             <IconCheckCircle className="text-sm" />
-                                                            <span>
-                                                                Exposure distribution matches rollout percentages
-                                                            </span>
+                                                            <span>{srmLine.label}</span>
                                                         </span>
                                                     </Tooltip>
                                                     <span className="text-muted">

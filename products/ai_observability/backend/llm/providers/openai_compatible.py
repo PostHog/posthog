@@ -1,7 +1,7 @@
 """Custom OpenAI-compatible provider for the unified LLM client.
 
-Unlike the fixed-URL adapters built on ``OpenAICompatibleByokAdapter`` (MiniMax,
-Zeabur), this provider talks to a user-configured endpoint: the base URL lives in
+Unlike the fixed-URL adapters built on ``OpenAICompatibleByokAdapter`` (such as
+MiniMax), this provider talks to a user-configured endpoint: the base URL lives in
 the provider key's ``encrypted_config`` next to the API key. It is BYOK-only.
 
 The base URL is user-controlled input that our servers send an Authorization

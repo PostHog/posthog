@@ -1,7 +1,7 @@
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import requests
 from parameterized import parameterized
@@ -15,13 +15,35 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.care_quali
     _build_url,
     _fetch,
     _get_headers,
-    care_quality_commission_source,
     get_rows,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.care_quality_commission.settings import (
     CQC_ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.care_quality_commission.source import (
+    CareQualityCommissionSource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common import boundary_checkpoint
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.carequalitycommission import (
+    CareQualityCommissionSourceConfig,
+)
+
+
+def _driver(partner_code: str | None = "PC") -> SourceDriver:
+    return SourceDriver(
+        CareQualityCommissionSource(), CareQualityCommissionSourceConfig(api_key="key", partner_code=partner_code)
+    )
+
+
+def _rows(result: DriveResult) -> list[dict[str, Any]]:
+    return [row for table in result.items for row in table.to_pylist()]
 
 
 class _FakeResumableManager:
@@ -134,72 +156,74 @@ class TestGetRowsFanOut:
         # The bookmark advances to page 2 after page 1 completes so a crash resumes mid-stream.
         assert CQCResumeConfig(page=2) in manager.saved
 
-    def test_paginates_when_total_pages_missing(self, monkeypatch: Any) -> None:
+    def test_paginates_when_total_pages_missing(self) -> None:
         # The API omits totalPages: don't trust the fallback to terminate after page 1 — keep
         # paging until an empty page is returned.
-        pages = {
-            f"{CQC_BASE_URL}/providers?page=1&perPage=500&partnerCode=PC": {
-                "providers": [{"providerId": "1-A"}],
-            },
-            f"{CQC_BASE_URL}/providers/1-A?partnerCode=PC": {"providerId": "1-A"},
-            f"{CQC_BASE_URL}/providers?page=2&perPage=500&partnerCode=PC": {
-                "providers": [{"providerId": "1-B"}],
-            },
-            f"{CQC_BASE_URL}/providers/1-B?partnerCode=PC": {"providerId": "1-B"},
-            f"{CQC_BASE_URL}/providers?page=3&perPage=500&partnerCode=PC": {"providers": []},
-        }
-        rows = _collect(_FakeResumableManager(), monkeypatch, pages)
-        assert rows == [{"providerId": "1-A"}, {"providerId": "1-B"}]
+        result = _driver().run(
+            "providers",
+            [
+                ScriptedResponse(json={"providers": [{"providerId": "1-A"}]}),
+                ScriptedResponse(json={"providerId": "1-A"}),
+                ScriptedResponse(json={"providers": [{"providerId": "1-B"}]}),
+                ScriptedResponse(json={"providerId": "1-B"}),
+                ScriptedResponse(json={"providers": []}),
+            ],
+        )
+        assert result.raised is None
+        assert _rows(result) == [{"providerId": "1-A"}, {"providerId": "1-B"}]
+        assert result.params("page") == ["1", None, "2", None, "3"]
 
-    def test_record_without_id_raises(self, monkeypatch: Any) -> None:
+    def test_record_without_id_raises(self) -> None:
         # A list record missing its id field is an API contract violation — fail fast with a
         # KeyError rather than silently dropping the row.
-        pages = {
-            f"{CQC_BASE_URL}/providers?page=1&perPage=500&partnerCode=PC": {
-                "providers": [{"name": "no id"}],
-                "totalPages": 1,
-            },
-        }
-        with pytest.raises(KeyError):
-            _collect(_FakeResumableManager(), monkeypatch, pages)
+        result = _driver().run(
+            "providers", [ScriptedResponse(json={"providers": [{"name": "no id"}], "totalPages": 1})]
+        )
+        assert isinstance(result.raised, KeyError)
+        assert result.paths == ["/public/v1/providers"]
 
-    def test_resume_skips_already_synced_pages(self, monkeypatch: Any) -> None:
+    def test_resume_skips_already_synced_pages(self) -> None:
         # Saved state says page 2; page 1 must not be fetched again.
-        pages = {
-            f"{CQC_BASE_URL}/providers?page=2&perPage=500&partnerCode=PC": {
-                "providers": [{"providerId": "1-B"}],
-                "totalPages": 2,
-            },
-            f"{CQC_BASE_URL}/providers/1-B?partnerCode=PC": {"providerId": "1-B"},
-        }
-        manager = _FakeResumableManager(CQCResumeConfig(page=2))
-        rows = _collect(manager, monkeypatch, pages)
-        assert rows == [{"providerId": "1-B"}]
+        result = _driver().run(
+            "providers",
+            [
+                ScriptedResponse(json={"providers": [{"providerId": "1-B"}], "totalPages": 2}),
+                ScriptedResponse(json={"providerId": "1-B"}),
+            ],
+            resume_state=CQCResumeConfig(page=2),
+        )
+        assert result.raised is None
+        assert _rows(result) == [{"providerId": "1-B"}]
+        assert result.paths == ["/public/v1/providers", "/public/v1/providers/1-B"]
+        assert result.params("page") == ["2", None]
 
-    def test_omits_partner_code_when_absent(self, monkeypatch: Any) -> None:
-        pages = {
-            f"{CQC_BASE_URL}/providers?page=1&perPage=500": {
-                "providers": [{"providerId": "1-A"}],
-                "totalPages": 1,
-            },
-            f"{CQC_BASE_URL}/providers/1-A": {"providerId": "1-A"},
-        }
-        rows = _collect(_FakeResumableManager(), monkeypatch, pages, partner_code=None)
-        assert rows == [{"providerId": "1-A"}]
+    def test_omits_partner_code_when_absent(self) -> None:
+        result = _driver(partner_code=None).run(
+            "providers",
+            [
+                ScriptedResponse(json={"providers": [{"providerId": "1-A"}], "totalPages": 1}),
+                ScriptedResponse(json={"providerId": "1-A"}),
+            ],
+        )
+        assert result.raised is None
+        assert _rows(result) == [{"providerId": "1-A"}]
+        assert result.params("partnerCode") == [None, None]
 
 
 class TestGetRowsInspectionAreas:
-    def test_unpaginated_endpoint_fetches_a_single_page(self, monkeypatch: Any) -> None:
+    def test_unpaginated_endpoint_fetches_a_single_page(self) -> None:
         # The taxonomy endpoint ignores page/perPage and re-serves the whole table, so a request
         # for page 2 would duplicate every row forever. Only page 1 is registered here, so a
         # second fetch fails the test.
-        pages = {
-            f"{CQC_BASE_URL}/inspection-areas?partnerCode=PC": {
-                "inspectionAreas": [{"inspectionAreaId": "IA-1"}, {"inspectionAreaId": "IA-2"}],
-            },
-        }
-        rows = _collect(_FakeResumableManager(), monkeypatch, pages, endpoint="inspection_areas")
-        assert rows == [{"inspectionAreaId": "IA-1"}, {"inspectionAreaId": "IA-2"}]
+        result = _driver().run(
+            "inspection_areas",
+            [ScriptedResponse(json={"inspectionAreas": [{"inspectionAreaId": "IA-1"}, {"inspectionAreaId": "IA-2"}]})],
+        )
+        assert result.raised is None
+        assert _rows(result) == [{"inspectionAreaId": "IA-1"}, {"inspectionAreaId": "IA-2"}]
+        assert result.paths == ["/public/v1/inspection-areas"]
+        assert result.params("page") == [None]
+        assert result.params("perPage") == [None]
 
     @pytest.mark.parametrize(
         "endpoint,collection,id_field,org_id",
@@ -208,57 +232,64 @@ class TestGetRowsInspectionAreas:
             ("location_inspection_areas", "locations", "locationId", "1-L"),
         ],
     )
-    def test_nested_rows_carry_the_parent_id(
-        self, monkeypatch: Any, endpoint: str, collection: str, id_field: str, org_id: str
-    ) -> None:
-        pages = {
-            f"{CQC_BASE_URL}/{collection}?page=1&perPage=500&partnerCode=PC": {
-                collection: [{id_field: org_id}],
-                "totalPages": 1,
-            },
-            f"{CQC_BASE_URL}/{collection}/{org_id}/inspection-areas?partnerCode=PC": {
-                "inspectionAreas": [
-                    {"inspectionAreaId": "IA-1", "status": "Active"},
-                    {"inspectionAreaId": "IA-2", "status": "Superseded"},
-                ]
-            },
-        }
-        rows = _collect(_FakeResumableManager(), monkeypatch, pages, endpoint=endpoint)
+    def test_nested_rows_carry_the_parent_id(self, endpoint: str, collection: str, id_field: str, org_id: str) -> None:
+        result = _driver().run(
+            endpoint,
+            [
+                ScriptedResponse(json={collection: [{id_field: org_id}], "totalPages": 1}),
+                ScriptedResponse(
+                    json={
+                        "inspectionAreas": [
+                            {"inspectionAreaId": "IA-1", "status": "Active"},
+                            {"inspectionAreaId": "IA-2", "status": "Superseded"},
+                        ]
+                    }
+                ),
+            ],
+        )
+        assert result.raised is None
+        assert result.paths == [f"/public/v1/{collection}", f"/public/v1/{collection}/{org_id}/inspection-areas"]
         # The same inspectionAreaId recurs across organisations, so the parent id has to land on
         # the row for the composite primary key to identify it.
-        assert rows == [
+        assert _rows(result) == [
             {id_field: org_id, "inspectionAreaId": "IA-1", "status": "Active"},
             {id_field: org_id, "inspectionAreaId": "IA-2", "status": "Superseded"},
         ]
 
-    def test_organisation_without_inspection_areas_is_skipped(self, monkeypatch: Any) -> None:
+    def test_organisation_without_inspection_areas_is_skipped(self) -> None:
         # Most organisations have no inspected areas, so an empty or absent list is routine — it
         # must not stop the sweep over the remaining organisations.
-        pages = {
-            f"{CQC_BASE_URL}/providers?page=1&perPage=500&partnerCode=PC": {
-                "providers": [{"providerId": "1-A"}, {"providerId": "1-B"}, {"providerId": "1-C"}],
-                "totalPages": 1,
-            },
-            f"{CQC_BASE_URL}/providers/1-A/inspection-areas?partnerCode=PC": {"inspectionAreas": []},
-            f"{CQC_BASE_URL}/providers/1-B/inspection-areas?partnerCode=PC": {},
-            f"{CQC_BASE_URL}/providers/1-C/inspection-areas?partnerCode=PC": {
-                "inspectionAreas": [{"inspectionAreaId": "IA-1"}]
-            },
-        }
-        rows = _collect(_FakeResumableManager(), monkeypatch, pages, endpoint="provider_inspection_areas")
-        assert rows == [{"providerId": "1-C", "inspectionAreaId": "IA-1"}]
+        result = _driver().run(
+            "provider_inspection_areas",
+            [
+                ScriptedResponse(
+                    json={
+                        "providers": [{"providerId": "1-A"}, {"providerId": "1-B"}, {"providerId": "1-C"}],
+                        "totalPages": 1,
+                    }
+                ),
+                ScriptedResponse(json={"inspectionAreas": []}),
+                ScriptedResponse(json={}),
+                ScriptedResponse(json={"inspectionAreas": [{"inspectionAreaId": "IA-1"}]}),
+            ],
+        )
+        assert result.raised is None
+        assert result.paths == [
+            "/public/v1/providers",
+            "/public/v1/providers/1-A/inspection-areas",
+            "/public/v1/providers/1-B/inspection-areas",
+            "/public/v1/providers/1-C/inspection-areas",
+        ]
+        assert _rows(result) == [{"providerId": "1-C", "inspectionAreaId": "IA-1"}]
 
 
 class TestSourceResponse:
     @parameterized.expand([("providers", ["providerId"]), ("locations", ["locationId"])])
     def test_response_shape(self, endpoint: str, expected_keys: list[str]) -> None:
-        response = care_quality_commission_source(
-            api_key="key",
-            partner_code="PC",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+        result = _driver().run(endpoint, [ScriptedResponse(json={endpoint: []})])
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == expected_keys
         # Partition on the stable registration date so partitions never rewrite.
@@ -273,13 +304,17 @@ class TestSourceResponse:
         ]
     )
     def test_inspection_area_responses_are_unpartitioned(self, endpoint: str, expected_keys: list[str]) -> None:
-        response = care_quality_commission_source(
-            api_key="key",
-            partner_code="PC",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
+        collection = (
+            "inspectionAreas"
+            if endpoint == "inspection_areas"
+            else "providers"
+            if endpoint == "provider_inspection_areas"
+            else "locations"
         )
+        result = _driver().run(endpoint, [ScriptedResponse(json={collection: []})])
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.primary_keys == expected_keys
         # Inspection-area rows carry no stable creation date, so there is nothing safe to
         # partition on — `endDate` and the retirement dates both move when CQC retires an area.
@@ -290,15 +325,18 @@ class TestSourceResponse:
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
     def test_status_mapping(self, _name: str, status: int, expected: bool) -> None:
-        response = MagicMock()
-        response.status_code = status
-        session = MagicMock()
-        session.get.return_value = response
-        with patch.object(cqc, "make_tracked_session", lambda **kwargs: session):
+        with scripted_network([ScriptedResponse(status=status)]) as network:
             assert cqc.validate_credentials("key", "PC") is expected
+        assert len(network.requests_log) == 1
+        request = network.requests_log[0]
+        assert request.path == "/public/v1/providers"
+        assert request.param("page") == "1"
+        assert request.param("perPage") == "1"
+        assert request.param("partnerCode") == "PC"
+        assert request.headers["ocp-apim-subscription-key"] == "key"
+        assert network.session_options == [{"redact_values": ("key",), "allow_redirects": False}]
 
     def test_network_error_is_invalid(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        with patch.object(cqc, "make_tracked_session", lambda **kwargs: session):
+        with scripted_network(always(requests.ConnectionError("boom"))) as network:
             assert cqc.validate_credentials("key", "PC") is False
+        assert {request.path for request in network.requests_log} == {"/public/v1/providers"}

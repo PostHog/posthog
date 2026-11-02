@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, override_settings
 
 from posthog.storage.auth_token_cache_verifier import AuthTokenVerificationResult
 from posthog.tasks.auth_token_cache_verification import LOCK_KEY, verify_and_fix_auth_token_cache_task
@@ -8,7 +8,7 @@ from posthog.tasks.test.utils import PushGatewayTaskTestMixin
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
-class TestVerifyAndFixAuthTokenCacheTask(PushGatewayTaskTestMixin, TestCase):
+class TestVerifyAndFixAuthTokenCacheTask(PushGatewayTaskTestMixin, SimpleTestCase):
     @patch("posthog.storage.auth_token_cache_verifier.verify_and_fix_auth_token_cache")
     @patch("posthog.redis.get_client")
     def test_runs_verification(self, mock_get_client: MagicMock, mock_verify: MagicMock) -> None:
@@ -90,7 +90,7 @@ class TestVerifyAndFixAuthTokenCacheTask(PushGatewayTaskTestMixin, TestCase):
 
 
 @override_settings(FLAGS_REDIS_URL=None)
-class TestVerifyAndFixAuthTokenCacheTaskDisabled(TestCase):
+class TestVerifyAndFixAuthTokenCacheTaskDisabled(SimpleTestCase):
     @patch("posthog.redis.get_client")
     def test_skips_when_no_redis_url(self, mock_get_client: MagicMock) -> None:
         verify_and_fix_auth_token_cache_task()

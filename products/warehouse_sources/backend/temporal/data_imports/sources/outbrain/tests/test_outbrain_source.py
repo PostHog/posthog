@@ -1,6 +1,12 @@
+from base64 import b64encode
+
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.outbrain import (
     OutbrainSourceConfig,
 )
@@ -20,15 +26,18 @@ class TestOutbrainSource:
             (False, False),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.outbrain.source.validate_outbrain_credentials"
-    )
-    def test_validate_credentials(self, mock_validate, mock_return, expected_valid):
-        mock_validate.return_value = mock_return
-
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+    def test_validate_credentials(self, mock_return: bool, expected_valid: bool) -> None:
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.outbrain.outbrain.cache"
+        ) as mock_cache:
+            mock_cache.get.return_value = None
+            response = ScriptedResponse(json={"OB-TOKEN-V1": "tok"} if mock_return else {"message": "nope"})
+            with scripted_network([response]) as network:
+                is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is expected_valid
         if not expected_valid:
             assert error_message == "Invalid Outbrain credentials"
-        mock_validate.assert_called_once_with("u@x.com", "pw")
+        assert [request.path for request in network.requests_log] == ["/amplify/v0.1/login"]
+        credentials = b64encode(b"u@x.com:pw").decode()
+        assert network.requests_log[0].headers["authorization"] == f"Basic {credentials}"

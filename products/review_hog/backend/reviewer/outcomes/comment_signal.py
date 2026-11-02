@@ -16,7 +16,7 @@ from products.review_hog.backend.reviewer.constants import (
     REPORTED_LEVELS,
     finding_heading,
 )
-from products.review_hog.backend.reviewer.tools.github_client import is_app_bot_author
+from products.review_hog.backend.reviewer.tools.github_client import matches_app_bot
 
 
 def _is_bot(user: dict[str, Any] | None) -> bool:
@@ -49,7 +49,11 @@ def find_finding_comment(
 
 
 def engagement_method(
-    *, comment: dict[str, Any], review_comments: list[dict[str, Any]], reactions: list[dict[str, Any]]
+    *,
+    comment: dict[str, Any],
+    review_comments: list[dict[str, Any]],
+    reactions: list[dict[str, Any]],
+    app_login: str | None,
 ) -> str | None:
     """How the finding's thread was engaged, or None if it wasn't. All results map to `reacted`.
 
@@ -62,8 +66,8 @@ def engagement_method(
     ReviewHog's own replies are the exception and never count: it publishes the finding comment, so
     treating its own follow-up as engagement would let the feature grade its own homework. A fix it
     lands itself still shows up, as a commit in the post-review compare that the judge rules on —
-    engagement is not where that belongs. Note `is_app_bot_author` can only single out our bot when
-    `REVIEWHOG_GITHUB_BOT_LOGIN` is set. Unset, local runs fall back to "any bot", which ignores
+    engagement is not where that belongs. Note `matches_app_bot` can only single out our bot when
+    the `GITHUB_APP_SLUG` instance setting is set. Unset, local runs fall back to "any bot", which ignores
     every bot reply, and production trusts no bot, which counts our own replies as agent replies.
 
     A human reply beats an agent one when both are present, and a reaction beats both: it is the
@@ -72,7 +76,7 @@ def engagement_method(
     thread it queues, so counting it would mark each of those findings ``reacted`` and keep the judge
     from ruling on the fix that followed.
     """
-    if any(not is_app_bot_author(reaction.get("user")) for reaction in reactions):
+    if any(not matches_app_bot(reaction.get("user"), app_login) for reaction in reactions):
         return "comment_reaction"
     comment_id = comment.get("id")
     if comment_id is None:
@@ -80,6 +84,6 @@ def engagement_method(
     replies = [rc for rc in review_comments if rc.get("in_reply_to_id") == comment_id]
     if any(not _is_bot(rc.get("user")) for rc in replies):
         return "comment_reply"
-    if any(not is_app_bot_author(rc.get("user")) for rc in replies):
+    if any(not matches_app_bot(rc.get("user"), app_login) for rc in replies):
         return "comment_reply_agent"
     return None

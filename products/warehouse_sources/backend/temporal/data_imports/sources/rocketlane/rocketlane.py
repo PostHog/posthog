@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from requests import Request, Response
 
@@ -8,27 +8,36 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.rocketlane.settings import ROCKETLANE_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.rocketlane.settings import (
+    PAGE_SIZE,
+    ROCKETLANE_ENDPOINTS,
+    RocketlaneEndpointConfig,
+)
 
 ROCKETLANE_BASE_URL = "https://api.rocketlane.com/api/1.0"
-# The list endpoints cap `pageSize` at 100 (values above the cap fall back to 100), so 100 minimises
-# round trips.
-PAGE_SIZE = 100
 # Cheap endpoint used to confirm an api-key is genuine. The key is account-wide, so one probe
 # validates access to every list endpoint.
 DEFAULT_PROBE_PATH = "/users"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass  # nosemgrep: prefer-frozen-dataclasses -- pre-existing; new field shifts the backlog finding into diff
 class RocketlaneResumeConfig:
     # Opaque cursor for the next page. Rocketlane returns a `nextPageToken` alongside `hasMore`; a
     # crashed full-refresh sync resumes from the last token it persisted. Note: Rocketlane tokens are
     # only valid for ~15 minutes, so a long-stalled resume may need to restart from the first page —
     # merge dedupes on the primary key either way.
     page_token: Optional[str] = None
+    # Fan-out endpoints checkpoint the parents already synced and the child cursor of the one in
+    # progress, in the shape the shared fan-out framework produces.
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 def _headers() -> dict[str, str]:
@@ -96,6 +105,74 @@ class RocketlaneCursorPaginator(BasePaginator):
         return "RocketlaneCursorPaginator()"
 
 
+def _client_config(api_key: str) -> ClientConfig:
+    return {
+        "base_url": ROCKETLANE_BASE_URL,
+        "headers": _headers(),
+        # Rocketlane expects the raw key in an `api-key` header — framework auth redacts it.
+        "auth": {"type": "api_key", "api_key": api_key, "name": "api-key", "location": "header"},
+        "paginator": RocketlaneCursorPaginator(),
+    }
+
+
+def _source_response(endpoint: str, config: RocketlaneEndpointConfig, resource: Resource) -> SourceResponse:
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: resource,
+        primary_keys=config.primary_keys,
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="month" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+        column_hints=resource.column_hints,
+    )
+
+
+def _fanout_source(
+    api_key: str,
+    endpoint: str,
+    config: RocketlaneEndpointConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[RocketlaneResumeConfig],
+) -> SourceResponse:
+    assert config.fanout is not None
+
+    initial_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.fanout_state:
+            initial_state = resume.fanout_state
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state:
+            resumable_source_manager.save_state(RocketlaneResumeConfig(fanout_state=state))
+
+    resource = build_dependent_resource(
+        endpoint_configs=ROCKETLANE_ENDPOINTS,
+        child_endpoint=endpoint,
+        fanout=config.fanout,
+        client_config=_client_config(api_key),
+        path_format_values={},
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+        parent_endpoint_extra={"data_selector": "data", "data_selector_required": True},
+        # Explicit, because the framework reads a path ending in a placeholder (`?projectId={projectId}`)
+        # as a single-entity fetch and would otherwise stop after the first page.
+        child_endpoint_extra={
+            "data_selector": "data",
+            "data_selector_required": True,
+            "paginator": RocketlaneCursorPaginator(),
+        },
+        page_size_param="pageSize",
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_state,
+    )
+    return _source_response(endpoint, config, cast(Resource, resource))
+
+
 def rocketlane_source(
     api_key: str,
     endpoint: str,
@@ -106,14 +183,11 @@ def rocketlane_source(
 ) -> SourceResponse:
     config = ROCKETLANE_ENDPOINTS[endpoint]
 
+    if config.fanout is not None:
+        return _fanout_source(api_key, endpoint, config, team_id, job_id, resumable_source_manager)
+
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": ROCKETLANE_BASE_URL,
-            "headers": _headers(),
-            # Rocketlane expects the raw key in an `api-key` header — framework auth redacts it.
-            "auth": {"type": "api_key", "api_key": api_key, "name": "api-key", "location": "header"},
-            "paginator": RocketlaneCursorPaginator(),
-        },
+        "client": _client_config(api_key),
         "resource_defaults": {},
         "resources": [
             {
@@ -152,17 +226,7 @@ def rocketlane_source(
         initial_paginator_state=initial_paginator_state,
     )
 
-    return SourceResponse(
-        name=endpoint,
-        items=lambda: resource,
-        primary_keys=config.primary_keys,
-        partition_count=1,
-        partition_size=1,
-        partition_mode="datetime" if config.partition_key else None,
-        partition_format="month" if config.partition_key else None,
-        partition_keys=[config.partition_key] if config.partition_key else None,
-        column_hints=resource.column_hints,
-    )
+    return _source_response(endpoint, config, resource)
 
 
 def check_access(api_key: str, path: str = DEFAULT_PROBE_PATH) -> tuple[int, Optional[str]]:

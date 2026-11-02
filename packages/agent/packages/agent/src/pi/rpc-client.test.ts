@@ -9,6 +9,7 @@ import {
   createRuntimeMcpServers,
   createRuntimeMcpStdioServers,
 } from "./rpc-client";
+import { safePiEnvironment } from "./rpc-environment";
 
 function taskContext(cwd: string): TaskContext {
   return {
@@ -133,7 +134,16 @@ describe("createPiRpcClient", () => {
     ).toBeUndefined();
   });
 
-  it("passes requested extensions privately and enables Electron's Node mode", async () => {
+  it("passes requested extensions and opt-in environment to the Pi child", async () => {
+    const childEnvironment = safePiEnvironment({
+      POSTHOG_ORCHESTRATION: "1",
+      PRIVATE_KEY: "secret",
+    });
+    expect(safePiEnvironment(childEnvironment)).toEqual({
+      POSTHOG_ORCHESTRATION: "1",
+    });
+
+    vi.stubEnv("POSTHOG_ORCHESTRATION", "1");
     const directory = await mkdtemp(join(tmpdir(), "pi-electron-node-mode-"));
     const hostPath = join(directory, "host.mjs");
     const capturePath = join(directory, "capture.txt");
@@ -146,6 +156,7 @@ const bootstrap = JSON.parse(readFileSync(3, "utf8"));
 closeSync(3);
 writeFileSync(${JSON.stringify(capturePath)}, JSON.stringify({
   nodeMode: process.env.ELECTRON_RUN_AS_NODE ?? "",
+  orchestration: process.env.POSTHOG_ORCHESTRATION ?? "",
   extensions: bootstrap.extensions,
   apiKey: bootstrap.providerOptions.apiKey,
 }));
@@ -165,6 +176,7 @@ process.stdin.resume();
         await expect(readFile(capturePath, "utf8")).resolves.toBe(
           JSON.stringify({
             nodeMode: "1",
+            orchestration: "1",
             extensions: ["repository-tools"],
             apiKey: "proxy-key",
           }),
@@ -173,6 +185,7 @@ process.stdin.resume();
     } finally {
       await client.stop();
       await rm(directory, { recursive: true });
+      vi.unstubAllEnvs();
     }
   });
 

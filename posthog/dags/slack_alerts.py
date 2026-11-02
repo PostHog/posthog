@@ -114,6 +114,8 @@ ASSET_NAME_PREFIX_OWNERS: tuple[tuple[str, JobOwners], ...] = (
     ("inbox_report_", JobOwners.TEAM_SELF_DRIVING),
     ("inbox_signal_", JobOwners.TEAM_SELF_DRIVING),
     ("inbox_ranking_", JobOwners.TEAM_SELF_DRIVING),
+    ("inbox_user_", JobOwners.TEAM_SELF_DRIVING),
+    ("inbox_activity_", JobOwners.TEAM_SELF_DRIVING),
 )
 
 

@@ -133,8 +133,10 @@ class TestHogFlowCancelBatchJob(APIBaseTest):
             f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow.id}/batch_jobs/{batch_job_id}/cancel/"
         )
 
-    def test_cancel_active_batch_job_flags_run_and_marks_cancelled(self):
-        batch_job = self._create_batch_job("active")
+    # A waiting run's resolver is parked on its realtime cohort, so stopping it goes through the worker too.
+    @parameterized.expand([("active",), ("waiting",)])
+    def test_cancel_running_batch_job_flags_run_and_marks_cancelled(self, job_status):
+        batch_job = self._create_batch_job(job_status)
 
         with patch(CANCEL_BATCH_PROXY, return_value=_cdp_response(marked=5)) as mock_cancel:
             response = self._cancel(batch_job.id)

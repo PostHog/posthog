@@ -11,6 +11,8 @@ from django.db.models import F, Q
 
 import structlog
 
+from posthog.egress.limiter.policies import Priority
+
 if TYPE_CHECKING:
     from posthog.models.integration import GitHubIntegration
 
@@ -360,7 +362,7 @@ def _get_coauthor_trailer(user_id: int, installation_id: str) -> str | None:
     ).first()
     if user_integration is None:
         return None
-    return UserGitHubIntegration(user_integration).coauthor_trailer
+    return UserGitHubIntegration(user_integration, source="visual_review", priority=Priority.NORMAL).coauthor_trailer
 
 
 def _commit_baseline_to_github(

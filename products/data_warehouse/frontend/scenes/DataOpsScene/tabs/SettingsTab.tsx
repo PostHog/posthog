@@ -19,6 +19,10 @@ import type {
     WarehouseStatusResponseStateEnumApi,
 } from 'products/data_warehouse/frontend/generated/api.schemas'
 
+import { dataWarehouseSceneLogic } from '../dataWarehouseSceneLogic'
+import { TrinoConnectionDetails } from './TrinoConnectionDetails'
+import { trinoCombinedStatus } from './trinoWarehouseStatus'
+import type { TrinoCombinedState } from './trinoWarehouseStatus'
 import { warehouseProvisioningLogic } from './warehouseProvisioningLogic'
 
 function stateToTagType(state: WarehouseStatusResponseStateEnumApi): 'success' | 'warning' | 'danger' | 'default' {
@@ -35,6 +39,17 @@ function stateToTagType(state: WarehouseStatusResponseStateEnumApi): 'success' |
         default:
             return 'default'
     }
+}
+
+function combinedStateToTagType(state: TrinoCombinedState): 'success' | 'warning' | 'danger' | 'default' {
+    if (state === 'not_enabled' || state === 'unavailable') {
+        return 'warning'
+    }
+    return stateToTagType(state)
+}
+
+function combinedStateLabel(state: TrinoCombinedState): string {
+    return state.replaceAll('_', ' ').toUpperCase()
 }
 
 function ConnectionDetails({ connection }: { connection: WarehouseConnectionApi }): JSX.Element {
@@ -129,11 +144,14 @@ export function SettingsTab(): JSX.Element {
         scope: RestrictionScope.Organization,
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
+    const { dataOpsVariant } = useValues(dataWarehouseSceneLogic)
+    const isTrino = dataOpsVariant === 'trino'
 
     const hasWarehouse = warehouseStatus && warehouseStatus.state !== 'deleted'
     const isReady = warehouseStatus?.state === 'ready'
     const isFailed = warehouseStatus?.state === 'failed'
     const showProvisionForm = !hasWarehouse || isFailed
+    const trinoStatus = isTrino && warehouseStatus ? trinoCombinedStatus(warehouseStatus) : null
 
     return (
         <div className="mt-4 space-y-4 max-w-160">
@@ -204,11 +222,19 @@ export function SettingsTab(): JSX.Element {
                                 and ending with a letter or number.
                             </p>
                         )}
-                        {databaseName &&
-                        isValidDatabaseName &&
-                        !databaseNameChecking &&
-                        databaseNameAvailable === true &&
-                        warehouseDomain ? (
+                        {isTrino ? (
+                            (!databaseName ||
+                                (isValidDatabaseName && (databaseNameChecking || databaseNameAvailable === true))) && (
+                                <p className="text-muted text-xs mt-1">
+                                    Your warehouse name is used in your connection host and catalog. Connection details
+                                    appear here once the warehouse is ready.
+                                </p>
+                            )
+                        ) : databaseName &&
+                          isValidDatabaseName &&
+                          !databaseNameChecking &&
+                          databaseNameAvailable === true &&
+                          warehouseDomain ? (
                             <p className="text-muted text-xs mt-1">
                                 Your warehouse will be available at{' '}
                                 <code>
@@ -275,12 +301,12 @@ export function SettingsTab(): JSX.Element {
                 </div>
             ) : (
                 <div className="space-y-4">
-                    {isInProgress && (
+                    {(trinoStatus ? trinoStatus.inProgress : isInProgress) && (
                         <LemonBanner type={deprovisionTakingLong ? 'warning' : 'info'}>
                             <div className="flex items-center gap-2">
                                 <Spinner />
                                 <span>
-                                    {warehouseStatus?.status_message ||
+                                    {(trinoStatus ? trinoStatus.message : warehouseStatus?.status_message) ||
                                         (warehouseStatus?.state === 'deleting'
                                             ? 'Deprovisioning in progress...'
                                             : 'Provisioning in progress...')}
@@ -295,24 +321,53 @@ export function SettingsTab(): JSX.Element {
                         </LemonBanner>
                     )}
 
+                    {trinoStatus && !trinoStatus.inProgress && trinoStatus.message && (
+                        <LemonBanner type={trinoStatus.state === 'failed' ? 'error' : 'warning'}>
+                            {trinoStatus.message}
+                        </LemonBanner>
+                    )}
+
                     <div className="border rounded px-4 pt-4 pb-3 space-y-2">
                         <div className="flex items-center justify-between">
                             <h3 className="mb-0">Status</h3>
-                            <LemonTag type={stateToTagType(warehouseStatus!.state)}>
-                                {warehouseStatus!.state.toUpperCase()}
-                            </LemonTag>
+                            {trinoStatus ? (
+                                <LemonTag type={combinedStateToTagType(trinoStatus.state)}>
+                                    {combinedStateLabel(trinoStatus.state)}
+                                </LemonTag>
+                            ) : (
+                                <LemonTag type={stateToTagType(warehouseStatus!.state)}>
+                                    {warehouseStatus!.state.toUpperCase()}
+                                </LemonTag>
+                            )}
                         </div>
 
-                        {warehouseStatus!.ready_at && (
+                        {(trinoStatus ? trinoStatus.readyAt : warehouseStatus!.ready_at) && (
                             <p className="text-muted text-xs">
-                                Ready since: {new Date(warehouseStatus!.ready_at).toLocaleString()}
+                                Ready since:{' '}
+                                {new Date(
+                                    (trinoStatus ? trinoStatus.readyAt : warehouseStatus!.ready_at)!
+                                ).toLocaleString()}
                             </p>
                         )}
                     </div>
 
-                    {isReady && teamOnboarded && warehouseStatus?.connection && (
-                        <ConnectionDetails connection={warehouseStatus.connection} />
-                    )}
+                    {isTrino
+                        ? isReady &&
+                          teamOnboarded &&
+                          trinoStatus?.state === 'ready' &&
+                          (warehouseStatus?.trino?.connection ? (
+                              <TrinoConnectionDetails
+                                  connection={warehouseStatus.trino.connection}
+                                  schemaName={teamSchemaName}
+                              />
+                          ) : (
+                              <p className="text-muted text-xs mb-0">
+                                  Connection details are temporarily unavailable. Refresh to try again.
+                              </p>
+                          ))
+                        : isReady &&
+                          teamOnboarded &&
+                          warehouseStatus?.connection && <ConnectionDetails connection={warehouseStatus.connection} />}
 
                     {isReady && !teamOnboarded && adminRestrictionReason && (
                         <div className="border rounded p-4 space-y-3">
@@ -396,8 +451,9 @@ export function SettingsTab(): JSX.Element {
                                 onClick={() => {
                                     LemonDialog.open({
                                         title: 'Reset root password?',
-                                        description:
-                                            'This will generate a new password and invalidate the current one. Make sure to save the new password.',
+                                        description: isTrino
+                                            ? 'This will generate a new password and invalidate the current one. The new password can take up to five minutes to apply. Make sure to save it.'
+                                            : 'This will generate a new password and invalidate the current one. Make sure to save the new password.',
                                         primaryButton: {
                                             children: 'Reset password',
                                             onClick: () => resetPassword(),

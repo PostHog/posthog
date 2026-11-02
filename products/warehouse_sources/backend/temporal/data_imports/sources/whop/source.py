@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -8,6 +9,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfigType,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    UNVERSIONED_API_VERSION,
     ExternalWebhookInfo,
     FieldType,
     ResumableSource,
@@ -30,19 +32,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.web
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.whop import WhopSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.whop import whop as api_client
 from products.warehouse_sources.backend.temporal.data_imports.sources.whop.settings import (
-    ENDPOINTS,
     INCREMENTAL_FIELDS,
     MERGE_ONLY_ENDPOINTS,
     RESOURCE_TO_EVENT_PREFIX,
     SCHEMA_TO_WEBHOOK_EVENTS,
-    WEBHOOK_SCHEMA_NAMES,
     WHOP_API_KEYS_URL,
+    WHOP_API_VERSION_2025_01_01,
+    WHOP_API_VERSION_2026_10_29_8,
+    WHOP_API_VERSIONS,
+    endpoints_for,
+    webhook_schema_names_for,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.whop.whop import WhopResumeConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 
 @SourceRegistry.register
@@ -50,15 +55,42 @@ class WhopSource(
     ResumableSource[WhopSourceConfig, WhopResumeConfig],
     WebhookSource[WhopSourceConfig],
 ):
+    codebase_detection = detect(
+        env=("^WHOP_", "^NEXT_PUBLIC_WHOP_"),
+        script_hosts=("cdn.whop.com",),
+        npm=(
+            "@whop/api",
+            "@whop-apps/sdk",
+            "@whop/sdk",
+            "@whop/react",
+            "@whop/checkout",
+            "@whop/embedded-components-react-js",
+            "@whop/elements",
+            "@whop/elements-react",
+        ),
+        pypi=("whop-sdk", "whop"),
+        go=("github.com/whopio/whopsdk-go",),
+        swiftpm=(
+            "github.com/whopio/whop-ios-react-native-kit",
+            "github.com/whopio/whopsdk-checkout-swift",
+            "github.com/whopio/whopsdk-elements-swift",
+        ),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    # Whop's dated `Api-Version-Date` header pins the Experimental API. The stable `/api/v1`
-    # endpoints this source calls are served on the unversioned contract when the header is omitted,
-    # so no version is sent and none is declared.
+    supported_versions = WHOP_API_VERSIONS
+    default_version = WHOP_API_VERSION_2026_10_29_8
     api_docs_url = "https://docs.whop.com/developer/api/versioning"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.WHOP
+
+    def _api_version_date(self, api_version: str | None) -> str:
+        pinned = self.resolve_api_version(api_version)
+        # Rows created before the source declared versions carry the unversioned label until the
+        # pinning migration moves them. They always ran on Whop's original contract.
+        return WHOP_API_VERSION_2025_01_01 if pinned == UNVERSIONED_API_VERSION else pinned
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -86,9 +118,9 @@ class WhopSource(
                             f"Create a company API key in the [Developer tab]({WHOP_API_KEYS_URL}) of your Whop "
                             "dashboard. Grant it read access to the resources you want to sync: "
                             "`company:basic:read`, `member:basic:read`, `payment:basic:read`, "
-                            "`access_pass:basic:read`, `plan:basic:read`, `promo_code:basic:read` and "
-                            "`invoice:basic:read`, plus `developer:manage_webhook` if you want PostHog to "
-                            "register the webhook for you."
+                            "`access_pass:basic:read`, `plan:basic:read`, `promo_code:basic:read`, "
+                            "`invoice:basic:read` and `social_account:read`, plus `developer:manage_webhook` if "
+                            "you want PostHog to register the webhook for you."
                         ),
                         secret=True,
                     ),
@@ -103,14 +135,16 @@ class WhopSource(
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             webhookSetupCaption=(
                 "PostHog tries to register a Whop webhook for you using your API key, which needs the "
                 "`developer:manage_webhook` permission.\n\n"
                 "**Manual setup** (only needed if automatic registration failed):\n\n"
                 f"1. Go to the [Developer tab]({WHOP_API_KEYS_URL}) in your Whop dashboard\n"
                 "2. Click **Create Webhook** and paste the webhook URL shown below\n"
-                "3. Set the API version to **v1**\n"
+                "3. Set the API version date to the version this source syncs with. It is shown as the source "
+                "default under **Vendor API version** on any table's **Configuration** tab. For "
+                f"{WHOP_API_VERSION_2025_01_01}, leave the API version date empty\n"
                 "4. Select the payment, membership, member, product, entry, invoice, refund, dispute, "
                 "setup intent, and shipment events matching the tables you sync\n"
                 "5. Copy the webhook secret into the field below so PostHog can verify deliveries"
@@ -152,6 +186,9 @@ class WhopSource(
                 "Whop rejected the request for this table, so it can't sync. Turn off syncing for this "
                 "table, then re-enable the sync."
             ),
+            "is not available on API version": (
+                "This table isn't available on the Whop API version this source uses. Turn off syncing for this table."
+            ),
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -172,12 +209,13 @@ class WhopSource(
     ) -> list[SourceSchema]:
         # Endpoints with no `created_at` sort option page newest-first and stop at the watermark,
         # which re-yields boundary rows that only a merge on `id` can dedupe.
+        pinned = self._api_version_date(api_version)
         return build_endpoint_schemas(
-            ENDPOINTS,
+            endpoints_for(pinned),
             INCREMENTAL_FIELDS,
             names,
             merge_only=MERGE_ONLY_ENDPOINTS,
-            supports_webhooks=WEBHOOK_SCHEMA_NAMES,
+            supports_webhooks=webhook_schema_names_for(pinned),
         )
 
     def validate_credentials(
@@ -190,7 +228,9 @@ class WhopSource(
         if not config.company_id.startswith("biz_"):
             return False, "Whop company IDs start with `biz_`. Copy the ID from your Whop dashboard URL."
 
-        is_valid, status = api_client.validate_credentials(config.api_key, config.company_id)
+        is_valid, status = api_client.validate_credentials(
+            config.api_key, config.company_id, self._api_version_date(api_version)
+        )
         if is_valid:
             return True, None
         if status == 403:
@@ -229,7 +269,9 @@ class WhopSource(
     def create_webhook(
         self, config: WhopSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> WebhookCreationResult:
-        return api_client.create_webhook(config.api_key, config.company_id, webhook_url)
+        return api_client.create_webhook(
+            config.api_key, config.company_id, webhook_url, self._api_version_date(api_version)
+        )
 
     def get_desired_webhook_events(
         self, config: WhopSourceConfig, eligible_schema_names: list[str]
@@ -245,17 +287,23 @@ class WhopSource(
         api_version: str | None = None,
     ) -> WebhookSyncResult:
         desired_events = self.get_desired_webhook_events(config, eligible_schema_names) or []
-        return api_client.sync_webhook_events(config.api_key, config.company_id, webhook_url, desired_events)
+        return api_client.sync_webhook_events(
+            config.api_key, config.company_id, webhook_url, desired_events, self._api_version_date(api_version)
+        )
 
     def get_external_webhook_info(
         self, config: WhopSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> ExternalWebhookInfo | None:
-        return api_client.get_external_webhook_info(config.api_key, config.company_id, webhook_url)
+        return api_client.get_external_webhook_info(
+            config.api_key, config.company_id, webhook_url, self._api_version_date(api_version)
+        )
 
     def delete_webhook(
         self, config: WhopSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> WebhookDeletionResult:
-        return api_client.delete_webhook(config.api_key, config.company_id, webhook_url)
+        return api_client.delete_webhook(
+            config.api_key, config.company_id, webhook_url, self._api_version_date(api_version)
+        )
 
     def source_for_pipeline(
         self,
@@ -266,6 +314,7 @@ class WhopSource(
         return api_client.whop_source(
             api_key=config.api_key,
             company_id=config.company_id,
+            api_version=self._api_version_date(inputs.api_version),
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,

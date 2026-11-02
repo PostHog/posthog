@@ -242,6 +242,7 @@ func TestRunRowBinary(t *testing.T) {
 	input := encodeRowBinaryChunks(
 		[]rowBinaryRow{
 			{json: `{"a":1,"b":2}`, keys: []string{"a"}},
+			{json: "", keys: []string{"a"}},
 			{json: `{"a":1,"b":2}`, keys: []string{"a"}},
 			{json: `{"a":1,"b":2}`, keys: []string{"b"}},
 			{json: "{\n\"a\":1,\t\"b\":\"x\\ny\"}", keys: []string{"a"}},
@@ -258,6 +259,7 @@ func TestRunRowBinary(t *testing.T) {
 	}
 	assert.Equal(t, []string{
 		`{"b":2}`,
+		"",
 		`{"b":2}`,
 		`{"a":1}`,
 		`{"b":"x\ny"}`,

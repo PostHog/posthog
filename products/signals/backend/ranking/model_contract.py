@@ -71,7 +71,8 @@ def head_lifts(scores: Mapping[str, float], metadata: Mapping[str, Any]) -> dict
 
 
 def trained_head_files(metadata: Mapping[str, Any], known_heads: Collection[str]) -> dict[str, str]:
-    """The `<head>.ubj` object name per head the candidate fit, of the heads in `known_heads`.
+    """The model file per head the candidate fit, of the heads in `known_heads`: `<head>.ubj` for a
+    per-head booster, and the one shared `model.onnx` for every head of an ONNX model.
 
     Every trained head is scored, readable or not. A rare head never clears `min_holdout_positives`
     on one day's holdout, and the pooled newborn grade over many days is the only read that can

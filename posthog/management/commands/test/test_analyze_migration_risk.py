@@ -2,10 +2,10 @@ from io import StringIO
 
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import SimpleTestCase
 
 
-class TestAnalyzeMigrationRisk(TestCase):
+class TestAnalyzeMigrationRisk(SimpleTestCase):
     def test_check_missing_migrations_when_none_needed(self):
         """Should return empty string when no migrations are needed."""
         from posthog.management.commands.analyze_migration_risk import Command

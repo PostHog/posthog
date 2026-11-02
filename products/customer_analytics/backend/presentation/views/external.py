@@ -27,6 +27,7 @@ import hashlib
 from typing import Any, cast
 from uuid import UUID
 
+from django.conf import settings
 from django.db.models import Q
 from django.http import HttpRequest
 
@@ -150,7 +151,13 @@ class ExternalAccountProjectSecretAPIKeyAuthentication(ProjectSecretAPIKeyAuthen
 
     def authenticate(self, request: HttpRequest | Request) -> tuple[Any, None] | None:
         result = super().authenticate(request)
-        if result is None or not _customer_analytics_enabled(self.project_secret_api_key.team):
+        if result is None:
+            return None
+        team = self.project_secret_api_key.team
+        # These AllowAny views never run ActiveOrganizationPermission, so organization
+        # state must be enforced here or a key outlives its deactivated organization.
+        organization = team.organization
+        if not organization.is_active or organization.is_pending_deletion or not _customer_analytics_enabled(team):
             return None
         return result
 
@@ -183,6 +190,11 @@ class ExternalAccountPersonalKeyAccess(TeamAndOrgViewSetMixin, GenericViewSet):
 
 def _authenticate_team(request: Request) -> tuple[Team, None] | tuple[None, Response]:
     """Extract Bearer token from Authorization header and validate against a team."""
+    # Kill switch (#66179): with legacy tokens off, migrated tokens authenticate as PSAKs
+    # (the deferral also goes inert) and never reach here; the rest get a plain 401.
+    if not settings.ACCEPT_TEAM_SECRET_TOKENS:
+        return None, Response({"error": "Missing or invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
+
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         return None, Response({"error": "Missing or invalid Authorization header"}, status=status.HTTP_401_UNAUTHORIZED)
@@ -198,9 +210,10 @@ def _authenticate_team(request: Request) -> tuple[Team, None] | tuple[None, Resp
     except (Team.DoesNotExist, Team.MultipleObjectsReturned):
         return None, Response({"error": "Invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
 
-    # Same 401 as an unknown token: a valid secret token for a team without customer
-    # analytics enabled must not be usable to read account data.
-    if not _customer_analytics_enabled(team):
+    # Same 401 as an unknown token: a valid secret token for a blocked organization or a
+    # team without customer analytics enabled must not be usable to read account data.
+    organization = team.organization
+    if not organization.is_active or organization.is_pending_deletion or not _customer_analytics_enabled(team):
         return None, Response({"error": "Invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
 
     TeamSecretTokenAuthentication.record_activity_actor(None)
@@ -638,19 +651,25 @@ class ExternalAccountCustomPropertiesView(APIView):
     PATCH /api/customer_analytics/external/account/custom_property_values — Set an account's custom
     property values, addressing each property by its definition id (UUID).
 
-    Authenticated via Bearer token (team secret_api_token) in the Authorization header.
+    Accepts the team secret_api_token or a project secret API key with the ``account:write``
+    scope as a Bearer token.
     """
 
-    authentication_classes: list = []
+    authentication_classes = [ExternalAccountProjectSecretAPIKeyAuthentication]
     permission_classes = [AllowAny]
-    throttle_classes = [ExternalAccountBurstThrottle, ExternalAccountSustainedThrottle]
+    throttle_classes = [
+        ExternalAccountBurstThrottle,
+        ExternalAccountSustainedThrottle,
+        ExternalAccountTeamBurstThrottle,
+        ExternalAccountTeamSustainedThrottle,
+    ]
 
     @extend_schema(request=ExternalAccountCustomPropertiesSerializer, responses={200: OpenApiTypes.OBJECT})
     def patch(self, request: Request) -> Response:
-        team, error = _authenticate_team(request)
+        team, error = _authenticate_team_for_update(request)
         if error:
             return error
 
         assert team is not None
-        ACCOUNT_ACTION_AUTH_COUNTER.labels(auth_method="secret_api_token", http_method="patch").inc()
+        ACCOUNT_ACTION_AUTH_COUNTER.labels(auth_method=_get_auth_method_label(request), http_method="patch").inc()
         return handle_account_set_properties(request, team)

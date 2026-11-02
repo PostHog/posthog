@@ -7,7 +7,9 @@ from unittest import TestCase
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.auth import SharingAccessTokenAuthentication
 from posthog.models import SharingConfiguration
+from posthog.test.authentication_checks import covers_authentication
 
 from products.notebooks.backend.models import Notebook
 from products.notebooks.backend.util import (
@@ -683,6 +685,7 @@ class TestNotebookSharingGrantsInsightAccess(APIBaseTest):
             [self.referenced_insight.id, self.unreferenced_insight.id],
         )
 
+    @covers_authentication(SharingAccessTokenAuthentication)
     def test_anonymous_request_with_share_token_can_load_referenced_insight(self) -> None:
         self.client.logout()
         response = self.client.get(

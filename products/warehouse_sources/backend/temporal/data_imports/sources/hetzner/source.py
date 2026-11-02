@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -39,6 +40,17 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HetznerSource(ResumableSource[HetznerSourceConfig, HetznerResumeConfig]):
+    codebase_detection = detect(
+        env=("^HETZNER_", "^HCLOUD_TOKEN$"),
+        pypi=("hcloud",),
+        go=(
+            "github.com/hetznercloud/hcloud-go",
+            "github.com/hetznercloud/hcloud-cloud-controller-manager",
+            "github.com/hetznercloud/packer-plugin-hcloud",
+            "gitlab.com/hetznercloud/fleeting-plugin-hetzner",
+        ),
+    )
+
     # get_schemas iterates a static endpoint catalog with no I/O, so the table list is safe to
     # publish in the public docs.
     lists_tables_without_credentials = True
@@ -56,7 +68,7 @@ class HetznerSource(ResumableSource[HetznerSourceConfig, HetznerResumeConfig]):
             name=ExternalDataSourceType.HETZNER,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Hetzner Cloud",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter a Hetzner Cloud API token to sync your Hetzner Cloud project into the PostHog Data warehouse.
 
 Create a token under **Security > API tokens** in the [Hetzner Cloud Console](https://console.hetzner.cloud/). A `Read` token is enough. Each token is scoped to a single project, so connect one source per project you want to sync.""",

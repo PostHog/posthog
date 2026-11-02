@@ -1,6 +1,7 @@
 import json
 from urllib.parse import parse_qs, urlparse
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
@@ -69,6 +70,9 @@ def _url_router(routes):
     return handle
 
 
+pytestmark = pytest.mark.usefixtures("pin_oauth_urls")
+
+
 class TestProbeMCPServer(SimpleTestCase):
     def _probe(self, *, post_routes, get_routes=None, scope_allowlist=None, shared_client_id=None):
         post_router = _url_router(post_routes)
@@ -83,8 +87,8 @@ class TestProbeMCPServer(SimpleTestCase):
         with (
             patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None)),
             patch("products.mcp_store.backend.probe.pinned_request", side_effect=pinned_router) as pinned,
-            patch("products.mcp_store.backend.oauth.requests.post", side_effect=post_router) as post,
-            patch("products.mcp_store.backend.oauth.requests.get", side_effect=get_router) as get,
+            patch("products.mcp_store.backend.oauth.httpx.Client.post", side_effect=post_router) as post,
+            patch("products.mcp_store.backend.oauth.httpx.Client.get", side_effect=get_router) as get,
         ):
             result = probe_mcp_server(SERVER_URL, scope_allowlist, shared_client_id)
         return result, post, get, pinned

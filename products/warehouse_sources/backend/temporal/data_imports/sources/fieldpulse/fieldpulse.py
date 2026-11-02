@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    PageNumberPaginator,
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
@@ -28,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fieldpulse
     AUTH_ERROR,
     BASE_URL,
     ENDPOINTS,
+    ENDPOINTS_WITHOUT_DOCUMENTED_PAGING,
     PAGE_SIZE,
     PRIMARY_KEYS,
 )
@@ -47,6 +49,26 @@ def _normalize_rate_limit_header(response: Response, *args: object, **kwargs: ob
         # The shared client parses epoch resets under the X-RateLimit-Reset header.
         response.headers["X-RateLimit-Reset"] = response.headers["RateLimit-Reset"]
     return response
+
+
+class RepeatedPagePaginator(PageNumberPaginator):
+    """Stops when the API returns the same page again.
+
+    An endpoint that ignores `page` returns its first page for each request, so the usual
+    stop on an empty page never occurs.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(base_page=1, total_path=None)
+        self._previous_page: list[Any] | None = None
+
+    def update_state(self, response: Response, data: list[Any] | None = None) -> None:
+        if data and data == self._previous_page:
+            # The client yields this list after this call, so emptying it drops the duplicate rows.
+            data.clear()
+        else:
+            self._previous_page = list(data) if data else None
+        super().update_state(response, data)
 
 
 def _session(api_key: str) -> Session:
@@ -117,10 +139,15 @@ def fieldpulse_source(
             )
         resumable_source_manager.safe_point()
 
+    paginator: PaginatorConfig = (
+        RepeatedPagePaginator()
+        if endpoint in ENDPOINTS_WITHOUT_DOCUMENTED_PAGING
+        else cast(PaginatorConfig, {"type": "page_number", "base_page": 1, "total_path": None})
+    )
     client_config: ClientConfig = {
         "base_url": BASE_URL,
         "auth": {"type": "api_key", "name": "x-api-key", "api_key": api_key, "location": "header"},
-        "paginator": cast(PaginatorConfig, {"type": "page_number", "base_page": 1, "total_path": None}),
+        "paginator": paginator,
         "allow_redirects": False,
         "session": _session(api_key),
         "request_timeout": REQUEST_TIMEOUT,

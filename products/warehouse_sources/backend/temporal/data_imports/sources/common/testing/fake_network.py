@@ -23,11 +23,16 @@ from urllib3.connection import HTTPConnection, HTTPSConnection
 from posthog.dataclasses import frozen
 from posthog.security import url_validation
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import (
+    observe_tracked_sessions,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 # A run stops at one of these limits, because the source would not stop by itself.
 _CLOCK_LIMIT_SECONDS = 4 * 3600.0
 _REQUEST_LIMIT = 40
+# A scripted run ends when its script runs out, so the limit only stops a script that never does.
+SCRIPTED_REQUEST_LIMIT = 2000
 
 _SOURCES_PACKAGE = "products.warehouse_sources.backend.temporal.data_imports.sources"
 _UNSET = object()
@@ -103,9 +108,12 @@ def _parse_request(origin: str, sent: bytes, read_timeout: Any) -> RecordedReque
 class FakeNetwork:
     """Answers every HTTP request through its responder, and records what the source did."""
 
-    def __init__(self, responder: Responder) -> None:
+    def __init__(self, responder: Responder, request_limit: int = _REQUEST_LIMIT) -> None:
         self.responder = responder
+        self._request_limit = request_limit
         self.requests_log: list[RecordedRequest] = []
+        # The keyword arguments of each `make_tracked_session` call, in order.
+        self.session_options: list[dict[str, Any]] = []
         self.elapsed = 0.0
         self.requests = 0
         self.unbounded_requests = 0
@@ -139,7 +147,7 @@ class FakeNetwork:
         self.requests += 1
         self._run_without_progress += 1
         self.longest_run_without_progress = max(self.longest_run_without_progress, self._run_without_progress)
-        if self.requests > _REQUEST_LIMIT:
+        if self.requests > self._request_limit:
             raise RunStopped("request limit")
 
         request = _parse_request(origin, sent, read_timeout)
@@ -197,7 +205,7 @@ class _FakeSocket:
         sent, self._sent = self._sent, b""
         try:
             return self._network.respond(self._origin, sent, self._read_timeout)
-        except (TimeoutError, RunStopped) as error:
+        except (Exception, RunStopped) as error:
             # A real socket fails at the first read, and not when `http.client` wraps it.
             return _FailingStream(error)
 
@@ -284,9 +292,9 @@ def _waits_on_the_fake_clock(sleep: Callable[[float], None]) -> Iterator[None]:
 
 
 @contextlib.contextmanager
-def fake_environment(responder: Responder) -> Iterator[FakeNetwork]:
+def fake_environment(responder: Responder, request_limit: int = _REQUEST_LIMIT) -> Iterator[FakeNetwork]:
     """Route HTTP to a `FakeNetwork`, block every other connection, and make each wait advance a fake clock."""
-    network = FakeNetwork(responder)
+    network = FakeNetwork(responder, request_limit)
     redis = _MemoryRedis()
 
     def connect(connection: Any) -> None:
@@ -338,6 +346,7 @@ def fake_environment(responder: Responder) -> Iterator[FakeNetwork]:
         mock.patch.object(asyncio, "sleep", async_sleep),
         mock.patch.object(ResumableSourceManager, "_get_redis", memory_redis),
         *(mock.patch.object(module, name, sleep) for module, name in _sleep_aliases()),
+        observe_tracked_sessions(network.session_options.append),
         _waits_on_the_fake_clock(sleep),
     ]
     with contextlib.ExitStack() as stack:

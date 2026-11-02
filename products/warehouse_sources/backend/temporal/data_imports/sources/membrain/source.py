@@ -1,6 +1,7 @@
 import re
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -40,6 +41,8 @@ SUBDOMAIN_REGEX = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$")
 
 @SourceRegistry.register
 class MembrainSource(ResumableSource[MembrainSourceConfig, MembrainResumeConfig]):
+    codebase_detection = detect(env=("^MEMBRAIN_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"
@@ -62,7 +65,7 @@ class MembrainSource(ResumableSource[MembrainSourceConfig, MembrainResumeConfig]
             name=ExternalDataSourceType.MEMBRAIN,
             category=DataWarehouseSourceCategory.CRM,
             label="Membrain",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Membrain API key and account subdomain to sync your CRM data, including companies, contacts, prospects, sales projects, and tickets, into the PostHog Data warehouse.
 
 A Membrain admin can create an API key under **System Setup → Membrain API**. Your subdomain is the first part of your Membrain URL. For `acme.membrain.com` the subdomain is `acme`.""",

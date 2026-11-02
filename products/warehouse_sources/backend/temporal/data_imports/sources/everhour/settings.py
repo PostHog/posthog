@@ -75,6 +75,20 @@ EVERHOUR_ENDPOINTS: dict[str, EverhourEndpointConfig] = {
         primary_keys=["project_id", "id"],
         include_parent_id_as="project_id",
     ),
+    "sections": EverhourEndpointConfig(
+        name="sections",
+        fan_out="project",
+        path_template="/projects/{parent_id}/sections",
+        # Section ids are global (GET /sections/{id}) and every section already names its `project`.
+    ),
+    "custom_fields": EverhourEndpointConfig(
+        name="custom_fields",
+        fan_out="project",
+        path_template="/projects/{parent_id}/fields",
+        # Fields are configured per project, and nothing documents an id as unique to one project.
+        primary_keys=["project_id", "id"],
+        include_parent_id_as="project_id",
+    ),
     "time_records": EverhourEndpointConfig(
         name="time_records",
         fan_out="none",

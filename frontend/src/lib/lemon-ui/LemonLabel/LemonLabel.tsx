@@ -4,10 +4,6 @@ import clsx from 'clsx'
 
 import { IconInfo } from '@posthog/icons'
 
-import { PayGateIcon } from 'lib/components/PayGateMini/PayGateButton'
-
-import { AvailableFeature } from '~/types'
-
 import { Link, LinkProps } from '../Link'
 import { Tooltip } from '../Tooltip'
 
@@ -20,7 +16,6 @@ export interface LemonLabelProps extends Pick<
     showOptional?: boolean
     onExplanationClick?: () => void
     htmlFor?: string
-    premiumFeature?: AvailableFeature
 }
 
 export function LemonLabel({
@@ -31,7 +26,6 @@ export function LemonLabel({
     onExplanationClick,
     infoLink,
     htmlFor,
-    premiumFeature,
     ...props
 }: LemonLabelProps): JSX.Element {
     return (
@@ -47,18 +41,21 @@ export function LemonLabel({
             ) : null}
 
             {info ? (
-                <Tooltip title={info} interactive>
+                <Tooltip title={info} interactive openOnClick={!infoLink}>
                     {infoLink ? (
                         <Link to={infoLink} target="_blank" className="inline-flex">
                             <IconInfo className="text-xl text-secondary shrink-0" />
                         </Link>
                     ) : (
-                        <IconInfo className="text-xl text-secondary shrink-0" />
+                        <IconInfo
+                            className="text-xl text-secondary shrink-0"
+                            // The icon sits inside the <label>, so a click would also activate the
+                            // htmlFor control and toggle a checkbox the reader only wanted explained
+                            onClick={(e) => e.preventDefault()}
+                        />
                     )}
                 </Tooltip>
             ) : null}
-
-            {premiumFeature && <PayGateIcon feature={premiumFeature} />}
         </label>
     )
 }

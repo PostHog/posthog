@@ -28,7 +28,7 @@ from products.data_modeling.backend.logic.freshness import (
 )
 from products.data_modeling.backend.logic.node_suspension import merged_suspension_state
 from products.data_modeling.backend.models.dag import DAG
-from products.data_modeling.backend.models.edge import Edge
+from products.data_modeling.backend.models.edge import NON_SCHEDULING_EDGES, Edge
 from products.data_modeling.backend.models.node import SAVED_QUERY_NODE_TYPES, Node, NodeType
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
 
@@ -260,7 +260,9 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
     nodes = list(Node.objects.filter(dag=dag).exclude(saved_query__deleted=True))
     edges = [
         (str(source_id), str(target_id))
-        for source_id, target_id in Edge.objects.filter(dag=dag).values_list("source_id", "target_id")
+        for source_id, target_id in Edge.objects.filter(dag=dag)
+        .exclude(NON_SCHEDULING_EDGES)
+        .values_list("source_id", "target_id")
     ]
 
     schedulable = {str(node.id) for node in nodes if node.type in SAVED_QUERY_NODE_TYPES}

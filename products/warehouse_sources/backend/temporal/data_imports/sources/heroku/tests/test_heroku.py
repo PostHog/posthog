@@ -1,173 +1,111 @@
-import json
 import datetime as dt
 from typing import Any
 
-import pytest
-from unittest import mock
-
 import requests
 from parameterized import parameterized
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.heroku import HerokuSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.heroku.heroku import (
     HEROKU_API_ACCEPT,
     HerokuResumeConfig,
     _month_window,
-    heroku_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.heroku.settings import (
     DEFAULT_PAGE_SIZE,
     HEROKU_ENDPOINTS,
 )
-
-# heroku_source builds the client session (capture=False) via make_tracked_session in the heroku
-# module, and validate_credentials builds its probe session there too — one patch covers both.
-SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.heroku.heroku.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.heroku.source import HerokuSource
 
 INITIAL_RANGE = f"id ..; order=asc,max={DEFAULT_PAGE_SIZE}"
 
 
+def _driver() -> SourceDriver:
+    return SourceDriver(HerokuSource(), HerokuSourceConfig(api_key="key"))
+
+
 def _response(
     status_code: int = 200, json_data: list[dict[str, Any]] | None = None, next_range: str | None = None
-) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(json_data if json_data is not None else []).encode()
-    if next_range:
-        resp.headers["Next-Range"] = next_range
-    return resp
-
-
-def _make_manager(resume: HerokuResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume is not None
-    manager.load_state.return_value = resume
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response] | Any) -> tuple[list[dict[str, Any]], list[str]]:
-    """Wire a mock session; capture each request's headers and URL AT PREPARE TIME.
-
-    The Range header is mutated in place on the shared request across pages, so snapshot a copy
-    when each request is prepared rather than inspecting the final state.
-    """
-    session.headers = {}
-    header_snapshots: list[dict[str, Any]] = []
-    url_snapshots: list[str] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        header_snapshots.append(dict(request.headers or {}))
-        url_snapshots.append(request.url)
-        prepared = mock.MagicMock()
-        prepared.url = request.url
-        prepared.is_redirect = False
-        return prepared
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return header_snapshots, url_snapshots
-
-
-def _rows(source_response: Any) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _source(endpoint: str, manager: mock.MagicMock) -> Any:
-    return heroku_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
+) -> ScriptedResponse:
+    return ScriptedResponse(
+        status=status_code,
+        json=json_data if json_data is not None else [],
+        headers={"Next-Range": next_range} if next_range else {},
+    )
 
 
 class TestPagination:
-    @mock.patch(SESSION_PATCH)
-    def test_follows_next_range_header_until_absent(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        headers, _urls = _wire(
-            session,
-            [
-                _response(206, [{"id": "a"}], next_range="id ]a..; order=asc,max=1000"),
-                _response(200, [{"id": "b"}]),
-            ],
+    def test_follows_next_range_header_until_absent(self) -> None:
+        next_range = "id ]a..; order=asc,max=1000"
+        result = _driver().run(
+            "apps",
+            [_response(206, [{"id": "a"}], next_range=next_range), _response(200, [{"id": "b"}])],
         )
 
-        rows = _rows(_source("apps", _make_manager()))
+        assert result.raised is None
+        assert result.rows == [{"id": "a"}, {"id": "b"}]
+        assert [request.headers["range"] for request in result.requests] == [INITIAL_RANGE, next_range]
+        assert all(request.headers["accept"] == HEROKU_API_ACCEPT for request in result.requests)
 
-        assert rows == [{"id": "a"}, {"id": "b"}]
-        assert headers[0]["Range"] == INITIAL_RANGE
-        assert headers[1]["Range"] == "id ]a..; order=asc,max=1000"
-        assert session.headers.get("Accept") == HEROKU_API_ACCEPT
+    def test_resumes_top_level_from_saved_cursor(self) -> None:
+        cursor = "id ]a..; order=asc,max=1000"
+        result = _driver().run(
+            "apps", [_response(200, [{"id": "b"}])], resume_state=HerokuResumeConfig(next_range=cursor)
+        )
 
-    @mock.patch(SESSION_PATCH)
-    def test_resumes_top_level_from_saved_cursor(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        headers, _urls = _wire(session, [_response(200, [{"id": "b"}])])
-        manager = _make_manager(HerokuResumeConfig(next_range="id ]a..; order=asc,max=1000"))
-
-        rows = _rows(_source("apps", manager))
-
-        assert rows == [{"id": "b"}]
-        assert headers[0]["Range"] == "id ]a..; order=asc,max=1000"
+        assert result.raised is None
+        assert result.rows == [{"id": "b"}]
+        assert result.requests[0].headers["range"] == cursor
 
 
 class TestRetries:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 502)])
-    @mock.patch("time.sleep")
-    @mock.patch(SESSION_PATCH)
-    def test_retries_transient_statuses_then_succeeds(
-        self, _name: str, status_code: int, MockSession: mock.MagicMock, _sleep: mock.MagicMock
-    ) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(status_code), _response(200, [{"id": "a"}])])
+    def test_retries_transient_statuses_then_succeeds(self, _name: str, status_code: int) -> None:
+        result = _driver().run("apps", [_response(status_code), _response(200, [{"id": "a"}])])
 
-        rows = _rows(_source("apps", _make_manager()))
-
-        assert rows == [{"id": "a"}]
-        assert session.send.call_count == 2
+        assert result.raised is None
+        assert result.rows == [{"id": "a"}]
+        assert len(result.requests) == 2
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
-    @mock.patch(SESSION_PATCH)
-    def test_credential_errors_raise_without_retry(
-        self, _name: str, status_code: int, MockSession: mock.MagicMock
-    ) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(status_code)])
+    def test_credential_errors_raise_without_retry(self, _name: str, status_code: int) -> None:
+        result = _driver().run("apps", [_response(status_code)])
 
-        with pytest.raises(requests.HTTPError):
-            _rows(_source("apps", _make_manager()))
-
-        assert session.send.call_count == 1
+        assert isinstance(result.raised, requests.HTTPError)
+        assert len(result.requests) == 1
 
 
 class TestFanOut:
-    @mock.patch(SESSION_PATCH)
-    def test_resumes_from_bookmarked_app_with_saved_cursor(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        headers, urls = _wire(
-            session,
+    def test_resumes_from_bookmarked_app_with_saved_cursor(self) -> None:
+        saved_cursor = "id ]rel-1..; order=asc,max=1000"
+        result = _driver().run(
+            "releases",
             [
                 _response(200, [{"id": "app-1"}, {"id": "app-2"}, {"id": "app-3"}]),
                 _response(200, [{"id": "rel-2"}]),
                 _response(200, [{"id": "rel-3"}]),
             ],
-        )
-        saved_cursor = "id ]rel-1..; order=asc,max=1000"
-        manager = _make_manager(
-            HerokuResumeConfig(
+            resume_state=HerokuResumeConfig(
                 fanout_state={
                     "completed": ["/apps/app-1/releases"],
                     "current": "/apps/app-2/releases",
                     "child_state": {"next_range": saved_cursor},
                 }
-            )
+            ),
         )
 
-        rows = _rows(_source("releases", manager))
-
-        assert rows == [{"id": "rel-2"}, {"id": "rel-3"}]
+        assert result.raised is None
+        assert result.rows == [{"id": "rel-2"}, {"id": "rel-3"}]
         # The already-completed app is never re-fetched.
-        assert "https://api.heroku.com/apps/app-1/releases" not in urls
+        assert "https://api.heroku.com/apps/app-1/releases" not in result.urls
         # The resumed app starts from the saved cursor; the next app starts from a fresh first page.
-        assert headers[1]["Range"] == saved_cursor
-        assert headers[2]["Range"] == INITIAL_RANGE
+        assert result.requests[1].headers["range"] == saved_cursor
+        assert result.requests[2].headers["range"] == INITIAL_RANGE
 
 
 class TestTeamMonthlyUsage:
@@ -223,36 +161,34 @@ class TestSensitiveFieldRedaction:
             ),
         ]
     )
-    @mock.patch(SESSION_PATCH)
     def test_capability_urls_never_reach_the_warehouse(
-        self, _name: str, endpoint: str, row: dict[str, Any], expected: dict[str, Any], MockSession: mock.MagicMock
+        self, _name: str, endpoint: str, row: dict[str, Any], expected: dict[str, Any]
     ) -> None:
-        session = MockSession.return_value
         parent_pages = [_response(200, [{"id": "app-1"}])] if HEROKU_ENDPOINTS[endpoint].fan_out_parent else []
-        _wire(session, [*parent_pages, _response(200, [row])])
+        result = _driver().run(endpoint, [*parent_pages, _response(200, [row])])
 
-        rows = _rows(_source(endpoint, _make_manager()))
-
-        assert rows == [expected]
+        assert result.raised is None
+        assert result.rows == [expected]
 
 
 class TestValidateCredentials:
     @parameterized.expand([("valid", 200, True), ("unauthorized", 401, False)])
-    @mock.patch(SESSION_PATCH)
-    def test_maps_account_probe_status(
-        self, _name: str, status_code: int, expected: bool, MockSession: mock.MagicMock
-    ) -> None:
-        MockSession.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        assert validate_credentials("key") is expected
+    def test_maps_account_probe_status(self, _name: str, status_code: int, expected: bool) -> None:
+        with scripted_network([ScriptedResponse(status=status_code)]) as network:
+            assert validate_credentials("key") is expected
+
+        assert network.requests_log[0].path == "/account"
 
 
 class TestSourceResponse:
     @parameterized.expand([(name,) for name in HEROKU_ENDPOINTS])
-    @mock.patch(SESSION_PATCH)
-    def test_source_response_matches_endpoint_settings(self, endpoint: str, MockSession: mock.MagicMock) -> None:
-        response = _source(endpoint, _make_manager())
+    def test_source_response_matches_endpoint_settings(self, endpoint: str) -> None:
+        result = _driver().run(endpoint, [_response()])
+        response = result.response
         config = HEROKU_ENDPOINTS[endpoint]
 
+        assert result.raised is None
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
         if config.partition_key:

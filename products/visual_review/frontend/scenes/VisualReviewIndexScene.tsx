@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { NotFound } from 'lib/components/NotFound'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -16,17 +17,25 @@ export const scene: SceneExport = {
     productKey: ProductKey.VISUAL_REVIEW,
 }
 
-// /visual_review is a pure forwarder, so this renders only while the repo list is in flight,
-// or when it failed and there is nothing to forward to. The forward itself lives in the logic.
+// This scene is a pure forwarder, so it renders only while the lookup is in flight,
+// or when the lookup failed and there is nothing to forward to. The forward itself lives in the logic.
 export function VisualReviewIndexScene(): JSX.Element {
-    const { reposLoadFailed } = useValues(visualReviewIndexSceneLogic)
-    const { loadRepos } = useActions(visualReviewIndexSceneLogic)
+    const { forwardFailure, forwardRoute } = useValues(visualReviewIndexSceneLogic)
+    const { forward } = useActions(visualReviewIndexSceneLogic)
+
+    if (forwardFailure === 'not_found') {
+        return <NotFound object={forwardRoute?.kind === 'run' ? 'visual review run' : 'visual review repo'} />
+    }
 
     return (
         <SceneContent>
             <SceneTitleSection name="Visual review" resourceType={{ type: 'visual_review' }} />
-            {reposLoadFailed ? (
-                <LemonBanner type="error" action={{ children: 'Try again', onClick: loadRepos }} className="max-w-2xl">
+            {forwardFailure === 'load_failed' && forwardRoute ? (
+                <LemonBanner
+                    type="error"
+                    action={{ children: 'Try again', onClick: () => forward(forwardRoute) }}
+                    className="max-w-2xl"
+                >
                     Couldn't load your connected repos.
                 </LemonBanner>
             ) : (

@@ -1,79 +1,35 @@
-import json
 from datetime import UTC, date, datetime
 from typing import Any
 
-from unittest import mock
-
 from parameterized import parameterized
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rootly import RootlySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.rootly.rootly import (
     ROOTLY_BASE_URL,
-    RootlyResumeConfig,
     _build_url,
     _clamp_future_value_to_now,
     _format_incremental_value,
     probe_credentials,
-    rootly_source,
 )
-
-# The REST client builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# probe_credentials builds its own tracked session in the rootly module.
-ROOTLY_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.rootly.rootly.make_tracked_session"
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.rootly.source import RootlySource
 
 
-def _response(items: list[dict[str, Any]] | None, next_url: str | None = None, *, drop_data: bool = False) -> Response:
+def _response(
+    items: list[dict[str, Any]] | None, next_url: str | None = None, *, drop_data: bool = False
+) -> ScriptedResponse:
     body: dict[str, Any] = {"links": {"next": next_url}}
     if not drop_data:
         body["data"] = items or []
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    return resp
+    return ScriptedResponse(json=body)
 
 
-def _make_manager(resume_state: RootlyResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and return a list capturing each request's url/params AT SEND TIME.
-
-    ``request.params`` is mutated in place across pages and the next-URL paginator rewrites
-    ``request.url``, so inspecting the request after the run shows only the final state —
-    snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append({"url": request.url, "params": dict(request.params or {})})
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _source(endpoint: str = "incidents", manager: mock.MagicMock | None = None, **kwargs: Any):
-    return rootly_source(
-        api_key="rootly_test",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="j",
-        resumable_source_manager=manager if manager is not None else _make_manager(),
-        **kwargs,
-    )
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _driver() -> SourceDriver:
+    return SourceDriver(RootlySource(), RootlySourceConfig(api_key="rootly_test"))
 
 
 class TestBuildUrl:
@@ -100,29 +56,26 @@ class TestClampFutureValueToNow:
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_links_next_and_flattens(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_follows_links_next_and_flattens(self) -> None:
         second = "https://api.rootly.com/v1/incidents?page%5Bnumber%5D=2"
-        snapshots = _wire(
-            session,
+
+        result = _driver().run(
+            "incidents",
             [
                 _response([{"id": "1", "type": "incidents", "attributes": {"title": "A"}}], next_url=second),
                 _response([{"id": "2", "type": "incidents", "attributes": {"title": "B"}}]),
             ],
         )
 
-        rows = _rows(_source())
-
-        assert rows == [
+        assert result.rows == [
             {"id": "1", "type": "incidents", "title": "A"},
             {"id": "2", "type": "incidents", "title": "B"},
         ]
-        assert snapshots[0]["url"] == f"{ROOTLY_BASE_URL}/incidents"
-        assert snapshots[0]["params"] == {"page[size]": 100}
+        assert result.urls[0].split("?")[0] == f"{ROOTLY_BASE_URL}/incidents"
+        assert result.requests[0].param("page[size]") == "100"
         # The next-page URL is self-contained; the original params must not be re-appended.
-        assert snapshots[1]["url"] == second
-        assert snapshots[1]["params"] == {}
+        assert result.urls[1] == second
+        assert set(result.queries[1]) == {"page[number]"}
 
     @parameterized.expand(
         [
@@ -131,15 +84,12 @@ class TestPagination:
             ("missing_data_key", True),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_collection_yields_nothing(self, _name: str, drop_data: bool, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([], drop_data=drop_data)])
+    def test_empty_collection_yields_nothing(self, _name: str, drop_data: bool) -> None:
+        result = _driver().run("incidents", [_response([], drop_data=drop_data)])
 
-        manager = _make_manager()
-        assert _rows(_source(manager=manager)) == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
+        assert result.rows == []
+        assert len(result.requests) == 1
+        assert result.saved_states == []
 
 
 class TestIncrementalParams:
@@ -150,32 +100,31 @@ class TestIncrementalParams:
                 "incidents",
                 True,
                 datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-                {"page[size]": 100, "sort": "updated_at", "filter[updated_at][gt]": "2026-03-04T02:58:14+00:00"},
+                {"page[size]": "100", "sort": "updated_at", "filter[updated_at][gt]": "2026-03-04T02:58:14+00:00"},
             ),
             (
                 "incremental_first_sync_sorts_without_filter",
                 "incidents",
                 True,
                 None,
-                {"page[size]": 100, "sort": "updated_at"},
+                {"page[size]": "100", "sort": "updated_at"},
             ),
             (
                 "incremental_disabled_has_no_sort_or_filter",
                 "incidents",
                 False,
                 datetime(2026, 3, 4),
-                {"page[size]": 100},
+                {"page[size]": "100"},
             ),
             (
                 "full_refresh_endpoint_never_sorts_or_filters",
                 "users",
                 True,
                 datetime(2026, 3, 4, tzinfo=UTC),
-                {"page[size]": 100},
+                {"page[size]": "100"},
             ),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_initial_request_params(
         self,
         _name: str,
@@ -183,26 +132,18 @@ class TestIncrementalParams:
         should_use_incremental_field: bool,
         last_value: Any,
         expected_params: dict[str, Any],
-        MockSession,
     ) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response([{"id": "1", "attributes": {}}])])
+        inputs: dict[str, Any] = {"db_incremental_field_last_value": last_value}
+        if should_use_incremental_field:
+            inputs["incremental_field"] = "updated_at"
 
-        _rows(
-            _source(
-                endpoint=endpoint,
-                should_use_incremental_field=should_use_incremental_field,
-                db_incremental_field_last_value=last_value,
-                incremental_field="updated_at",
-            )
-        )
+        result = _driver().run(endpoint, [_response([{"id": "1", "attributes": {}}])], **inputs)
 
-        assert snapshots[0]["params"] == expected_params
+        assert {name: values[0] for name, values in result.queries[0].items()} == expected_params
 
 
 class TestProbeCredentials:
     @parameterized.expand([("ok", 200), ("unauthorized", 401), ("forbidden", 403)])
-    @mock.patch(ROOTLY_SESSION_PATCH)
-    def test_returns_status_code(self, _name: str, status_code: int, MockSession) -> None:
-        MockSession.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        assert probe_credentials("rootly_test", "incidents") == status_code
+    def test_returns_status_code(self, _name: str, status_code: int) -> None:
+        with scripted_network([ScriptedResponse(status=status_code)]):
+            assert probe_credentials("rootly_test", "incidents") == status_code

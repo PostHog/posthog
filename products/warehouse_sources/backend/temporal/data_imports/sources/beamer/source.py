@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BeamerSource(ResumableSource[BeamerSourceConfig, BeamerResumeConfig]):
+    codebase_detection = detect(script_hosts=("app.getbeamer.com",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v0",)
     default_version = "v0"
@@ -49,7 +52,7 @@ class BeamerSource(ResumableSource[BeamerSourceConfig, BeamerResumeConfig]):
             name=ExternalDataSourceType.BEAMER,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Beamer",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Beamer API key to sync your changelog posts, feature requests, comments, votes, reactions, and NPS responses into the PostHog Data warehouse.
 
 You can find your API key in your [Beamer account settings](https://app.getbeamer.com/settings#api). Beamer sends it in the `Beamer-Api-Key` header.

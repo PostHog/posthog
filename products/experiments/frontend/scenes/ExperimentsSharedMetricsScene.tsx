@@ -77,7 +77,7 @@ export function ExperimentsSharedMetricsScene(): JSX.Element {
                                 {stringWithWBR(sharedMetric.name, 17)}
                                 {isLegacySharedMetric(sharedMetric) && (
                                     <Tooltip
-                                        title="This metric uses the legacy engine, so some features and improvements may be missing."
+                                        title="This metric uses the legacy engine, so it can no longer be edited."
                                         docLink="https://posthog.com/docs/experiments/new-experimentation-engine"
                                     >
                                         <LemonTag type="warning" className="ml-1">
@@ -145,6 +145,11 @@ export function ExperimentsSharedMetricsScene(): JSX.Element {
                                     fullWidth
                                     size="small"
                                     icon={<IconCopy />}
+                                    disabledReason={
+                                        isLegacySharedMetric(sharedMetric)
+                                            ? 'Legacy shared metrics can no longer be duplicated'
+                                            : undefined
+                                    }
                                     onClick={() => {
                                         router.actions.push(urls.experimentsSharedMetric(sharedMetric.id, 'duplicate'))
                                     }}

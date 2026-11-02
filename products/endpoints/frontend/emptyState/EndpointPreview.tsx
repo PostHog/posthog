@@ -43,9 +43,9 @@ export function EndpointPreview(): JSX.Element {
                         className="EndpointPreview__row EndpointPreview__row--hero"
                     >
                         <span className="EndpointPreview__copy">
-                            <span className="EndpointPreview__name">active-users-daily</span>
+                            <span className="EndpointPreview__name">example-daily-users</span>
                             <span className="EndpointPreview__path">
-                                /api/projects/2/endpoints/active-users-daily/run
+                                /api/projects/:project_id/endpoints/example-daily-users/run
                             </span>
                         </span>
                         <span className="EndpointPreview__swap EndpointPreview__mat">
@@ -56,8 +56,10 @@ export function EndpointPreview(): JSX.Element {
                     </label>
                     <div className="EndpointPreview__row">
                         <span className="EndpointPreview__copy">
-                            <span className="EndpointPreview__name">revenue-by-plan</span>
-                            <span className="EndpointPreview__path">/api/projects/2/endpoints/revenue-by-plan/run</span>
+                            <span className="EndpointPreview__name">example-revenue</span>
+                            <span className="EndpointPreview__path">
+                                /api/projects/:project_id/endpoints/example-revenue/run
+                            </span>
                         </span>
                         <span className="EndpointPreview__mat EndpointPreview__mat--live">Materialized</span>
                         <span className="EndpointPreview__switch EndpointPreview__switch--on" aria-hidden="true" />
@@ -84,7 +86,7 @@ export function EndpointPreview(): JSX.Element {
                 <div className="EndpointPreview__screen">
                     <div className="EndpointPreview__line">
                         <span className="EndpointPreview__prompt-char">$</span> curl
-                        us.posthog.com/api/projects/2/endpoints/active-users-daily/run
+                        us.posthog.com/api/projects/:project_id/endpoints/example-daily-users/run
                     </div>
                     <div className="EndpointPreview__line EndpointPreview__response">
                         {'{ "results": [["2026-07-28", 4102], ["2026-07-27", 3987], …] }'}
@@ -104,7 +106,7 @@ export function EndpointPreview(): JSX.Element {
 
             <div className="EndpointPreview__spark">
                 <div className="EndpointPreview__spark-head">
-                    <span className="EndpointPreview__spark-title">p95 latency · active-users-daily · 7 days</span>
+                    <span className="EndpointPreview__spark-title">p95 latency · example-daily-users · 7 days</span>
                     <LemonTag size="small">example data</LemonTag>
                 </div>
 

@@ -46,17 +46,17 @@ class TestOAuthApplicationAdmin(BaseTest):
             redirect_uris="https://example.com/callback",
             algorithm="RS256",
         )
-        assert app.provisioning.can_use_github_grants is False
+        assert app.provisioning.can_issue_deep_links is False
 
-        form = self._provisioning_form(app, provisioning_can_use_github_grants="on")
+        form = self._provisioning_form(app, provisioning_can_issue_deep_links="on")
         assert form.is_valid(), form.errors
         form.save()
 
         app.refresh_from_db()
         granted = app.provisioning
-        assert granted.can_use_github_grants is True
+        assert granted.can_issue_deep_links is True
         # Unticked boxes stay off rather than picking up a default.
-        assert granted.can_start_wizard_runs is False
+        assert granted.skip_existing_user_consent is False
 
     def _rate_limit_app(self) -> OAuthApplication:
         return OAuthApplication.objects.create(
@@ -92,6 +92,92 @@ class TestOAuthApplicationAdmin(BaseTest):
         form.save()
         app.refresh_from_db()
         assert app.provisioning.rate_limits == {"account_requests": -1}
+
+    @parameterized.expand(
+        [
+            ("public_partner_pays", OAuthApplication.CLIENT_PUBLIC, None, True, {}, "pays_for_customers", True),
+            (
+                "client_secret_partner_pays",
+                OAuthApplication.CLIENT_CONFIDENTIAL,
+                None,
+                True,
+                {},
+                "pays_for_customers",
+                True,
+            ),
+            (
+                "public_partner_creates_accounts",
+                OAuthApplication.CLIENT_PUBLIC,
+                None,
+                True,
+                {},
+                "can_create_accounts",
+                True,
+            ),
+            (
+                "private_key_jwt_partner",
+                OAuthApplication.CLIENT_CONFIDENTIAL,
+                "https://example.com/.well-known/jwks.json",
+                True,
+                {},
+                "pays_for_customers",
+                False,
+            ),
+            # Never authenticates through provisioning auth, like the HMAC-signed Stripe Projects app.
+            (
+                "not_a_provisioning_partner",
+                OAuthApplication.CLIENT_CONFIDENTIAL,
+                None,
+                False,
+                {},
+                "pays_for_customers",
+                False,
+            ),
+            # Already refused at runtime, like a CIMD partner whose metadata dropped its key. Staff must
+            # still be able to save it, for example to switch it off.
+            (
+                "already_paying_without_a_key",
+                OAuthApplication.CLIENT_PUBLIC,
+                None,
+                True,
+                {"pays_for_customers": True},
+                "pays_for_customers",
+                False,
+            ),
+        ]
+    )
+    def test_partner_that_must_sign_needs_a_private_key(
+        self,
+        name: str,
+        client_type: str,
+        jwks_uri: str | None,
+        is_partner: bool,
+        stored_config: dict,
+        ticked_capability: str,
+        expects_error: bool,
+    ) -> None:
+        app = OAuthApplication.objects.create(
+            name=f"Signing App {name}",
+            client_id=f"signing_client_id_{name}",
+            client_secret="secret",
+            client_type=client_type,
+            jwks_uri=jwks_uri,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            is_provisioning_partner=is_partner,
+            _provisioning_config=stored_config,
+        )
+        fields = {f"provisioning_{ticked_capability}": "on"}
+        if is_partner:
+            fields["is_provisioning_partner"] = "on"
+        if jwks_uri:
+            fields["jwks_uri"] = jwks_uri
+
+        form = self._provisioning_form(app, **fields)
+
+        assert form.is_valid() is not expects_error, form.errors
+        assert (f"provisioning_{ticked_capability}" in form.errors) is expects_error
 
     @parameterized.expand(
         [

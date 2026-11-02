@@ -1,5 +1,3 @@
-import pytest
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.loops import LoopsSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.loops.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.loops.source import LoopsSource
@@ -10,19 +8,6 @@ class TestLoopsSource:
         self.source = LoopsSource()
         self.team_id = 123
         self.config = LoopsSourceConfig(api_key="test-key")
-
-    @pytest.mark.parametrize(
-        "raised_message",
-        [
-            # requests raises `<status> Client Error: <reason> for url: <url>`; the sync matcher
-            # is a substring check, so the keys must classify these as non-retryable.
-            "401 Client Error: Unauthorized for url: https://app.loops.so/api/v1/campaigns?perPage=50",
-            "403 Client Error: Forbidden for url: https://app.loops.so/api/v1/lists",
-        ],
-    )
-    def test_auth_errors_are_non_retryable(self, raised_message: str) -> None:
-        keys = self.source.get_non_retryable_errors().keys()
-        assert any(key in raised_message for key in keys)
 
     def test_get_schemas_all_full_refresh(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)

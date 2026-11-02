@@ -44,7 +44,13 @@ class TestFramerSource:
             logger=inputs.logger,
         )
 
-    def test_pool_exhausted_stays_retryable(self) -> None:
-        observed_error = "Framer API error POOL_EXHAUSTED: busy"
+    @parameterized.expand(
+        [
+            ("Framer API error POOL_EXHAUSTED: busy",),
+            ("Framer API error INTERNAL: Navigation failed: connection",),
+            ("Framer API error SERVER_BUSY: Framer is very busy right now. Please try again in a few minutes.",),
+        ]
+    )
+    def test_transient_channel_errors_stay_retryable(self, observed_error: str) -> None:
         assert not any(key in observed_error for key in FramerSource().get_non_retryable_errors())
         assert any(key in observed_error for key in FramerSource().get_retryable_errors())

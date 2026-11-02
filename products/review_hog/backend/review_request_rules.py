@@ -8,20 +8,12 @@
 The checks are small functions so every trigger can call the same ones.
 """
 
-from django.db import models
-
 from posthog.dataclasses import frozen
 
+from products.review_hog.backend.facade.enums import ReviewRequestRefusal
 from products.review_hog.backend.models import ReviewReport, ReviewUserSettings
 from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL
 from products.review_hog.backend.reviewer.review_state import published_heads_by_mode
-
-
-class ReviewRequestRefusal(models.TextChoices):
-    """Why a request is refused. Clients show a reason per code."""
-
-    FLASH_AFTER_FULL = "flash_after_full", "Standard after a published Deep review"
-    RESOLUTION_NOT_OPTED_IN = "resolution_not_opted_in", "The pull request owner has not opted in to resolution"
 
 
 @frozen
@@ -42,6 +34,17 @@ class ResolutionGate:
 
 def full_review_published(report: ReviewReport | None) -> bool:
     return report is not None and REVIEW_MODE_FULL in published_heads_by_mode(report)
+
+
+def trigger_review_mode(team_id: int, repository: str, pr_number: int) -> str:
+    """The mode a label or Inbox trigger starts: Standard, or Deep once the pull request has a Deep review.
+
+    A Standard request after a published Deep review is dropped, so without the Deep case the trigger
+    would do nothing on such a pull request.
+    """
+    # Repository casing can differ per trigger, like the report lookup in `request_pr_review`.
+    report = ReviewReport.objects.for_team(team_id).filter(repository__iexact=repository, pr_number=pr_number).first()
+    return REVIEW_MODE_FULL if full_review_published(report) else REVIEW_MODE_FLASH
 
 
 def flash_refusal(report: ReviewReport | None, review_mode: str) -> ReviewRequestRefusal | None:

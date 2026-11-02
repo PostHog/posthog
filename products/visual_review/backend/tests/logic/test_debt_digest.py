@@ -130,9 +130,9 @@ class TestLead:
             # The page opens on the team's own rows, so a shared repo does not bury them.
             (
                 "Open flakiness overview",
-                f"{settings.SITE_URL}/project/7/visual_review/repos/abc/flakiness#teams=team-devex",
+                f"{settings.SITE_URL}/project/7/visual-review/repos/abc/flakiness#teams=team-devex",
             ),
-            ("Open snapshots", f"{settings.SITE_URL}/project/7/visual_review/repos/abc/snapshots"),
+            ("Open snapshots", f"{settings.SITE_URL}/project/7/visual-review/repos/abc/snapshots"),
         ]
 
     def test_the_fallback_text_says_what_the_blocks_say(self) -> None:
@@ -164,7 +164,7 @@ class TestThreadReplies:
         buttons = _all_buttons(messages)
         assert [button["text"]["text"] for button in buttons] == ["Extend or fix", "Fix or quarantine"]
         assert all(
-            button["url"] == f"{settings.SITE_URL}/project/7/visual_review/repos/abc/storybook/snapshots/{_IDENTIFIER}"
+            button["url"] == f"{settings.SITE_URL}/project/7/visual-review/repos/abc/storybook/snapshots/{_IDENTIFIER}"
             for button in buttons
         )
 
@@ -176,7 +176,7 @@ class TestThreadReplies:
 
         messages = debt_digest.thread_messages(_repo(), digest, _MONDAY)
 
-        assert _all_buttons(messages)[0]["url"] == f"{settings.SITE_URL}/project/7/visual_review/repos/abc/snapshots"
+        assert _all_buttons(messages)[0]["url"] == f"{settings.SITE_URL}/project/7/visual-review/repos/abc/snapshots"
 
     def test_the_last_reply_says_when_the_next_digest_comes(self) -> None:
         messages = debt_digest.thread_messages(_repo(), _team_digest(expiring=1, pileups=1), _MONDAY)
@@ -192,7 +192,7 @@ class TestThreadReplies:
                 "",
                 "Expires *Wednesday*",
                 [f"*{_STORY_ID}* storybook · light and dark"],
-                [f"{settings.SITE_URL}/project/7/visual_review/repos/abc/flakiness#preset=quarantined&q={_STORY_ID}"],
+                [f"{settings.SITE_URL}/project/7/visual-review/repos/abc/flakiness#preset=quarantined&q={_STORY_ID}"],
             ),
             # A webkit identifier puts the theme before the browser suffix, so the search has to
             # drop both to match the two variants.
@@ -200,15 +200,15 @@ class TestThreadReplies:
                 "--webkit",
                 "Expires *Wednesday*",
                 [f"*{_STORY_ID}--webkit* storybook · light and dark"],
-                [f"{settings.SITE_URL}/project/7/visual_review/repos/abc/flakiness#preset=quarantined&q={_STORY_ID}"],
+                [f"{settings.SITE_URL}/project/7/visual-review/repos/abc/flakiness#preset=quarantined&q={_STORY_ID}"],
             ),
             (
                 "",
                 "Expires *Thursday*",
                 [f"*{_STORY_ID}--light* storybook", f"*{_STORY_ID}--dark* storybook"],
                 [
-                    f"{settings.SITE_URL}/project/7/visual_review/repos/abc/storybook/snapshots/{_STORY_ID}--light",
-                    f"{settings.SITE_URL}/project/7/visual_review/repos/abc/storybook/snapshots/{_STORY_ID}--dark",
+                    f"{settings.SITE_URL}/project/7/visual-review/repos/abc/storybook/snapshots/{_STORY_ID}--light",
+                    f"{settings.SITE_URL}/project/7/visual-review/repos/abc/storybook/snapshots/{_STORY_ID}--dark",
                 ],
             ),
         ],
@@ -282,7 +282,7 @@ class TestMaintainersMessage:
             ("Open file", f"https://github.com/PostHog/posthog/blob/HEAD/{_SOURCE_PATH}"),
             (
                 "Open snapshot",
-                f"{settings.SITE_URL}/project/7/visual_review/repos/abc/storybook/snapshots/{_ABSENT_IDENTIFIER}",
+                f"{settings.SITE_URL}/project/7/visual-review/repos/abc/storybook/snapshots/{_ABSENT_IDENTIFIER}",
             ),
         ]
         # The path stays readable in the message, because it is what somebody types into owners.yaml.
@@ -370,7 +370,7 @@ class TestRendering:
         line = debt_digest._pileup_line(_repo(), "storybook", "scenes/Button--dark", 4)
 
         assert line.startswith("Tolerated 4 times in 30 days · scenes/Button--dark (storybook)")
-        assert line.endswith("/project/7/visual_review/repos/abc/storybook/snapshots/scenes%2FButton--dark")
+        assert line.endswith("/project/7/visual-review/repos/abc/storybook/snapshots/scenes%2FButton--dark")
 
     @pytest.mark.parametrize(
         "identifier,reason,links_to_the_snapshot",
@@ -709,7 +709,7 @@ class TestCollectAndSend:
                 "products.visual_review.backend.logic.debt_digest.resolve_path_owners",
                 return_value=_ownership({_SOURCE_PATH: "team-one", _OTHER_PATH: "team-two", _PRODUCT_PATH: "team-two"}),
             ),
-            patch("products.visual_review.backend.logic.team_channels.Integration") as integration,
+            patch("products.visual_review.backend.logic.team_channels.IntegrationManager") as manager,
             patch("products.visual_review.backend.logic.team_channels.SlackIntegration") as slack,
             patch(
                 "products.visual_review.backend.logic.team_channels.fetch_channel_map",
@@ -724,7 +724,7 @@ class TestCollectAndSend:
             ) as post,
             patch("products.visual_review.backend.logic.team_channels.post_message") as thread_post,
         ):
-            integration.objects.filter.return_value.first.return_value = MagicMock()
+            manager.slack.oauth.find.return_value = MagicMock()
             slack.return_value.client.conversations_info.return_value = {"channel": {"id": "C1"}}
             debt_digest.send_debt_digest(repo, mode=debt_digest.MODE_LIVE)
 

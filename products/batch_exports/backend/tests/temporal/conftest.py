@@ -2,6 +2,7 @@ import uuid
 import random
 import asyncio
 import datetime as dt
+from collections.abc import AsyncIterator
 
 import pytest
 
@@ -26,6 +27,7 @@ from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import configure_logger
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
+from posthog.temporal.tests.utils.logger import restored_structlog_config
 
 from products.batch_exports.backend.facade.api import delete_batch_exports_for_teams
 from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
@@ -194,9 +196,11 @@ async def temporal_client():
 
 
 @pytest_asyncio.fixture(autouse=True, scope="module", loop_scope="module")
-async def configure_logger_auto() -> None:
+async def configure_logger_auto() -> AsyncIterator[None]:
     """Configure logger when running in a Temporal activity environment."""
-    configure_logger(cache_logger_on_first_use=False)
+    with restored_structlog_config():
+        configure_logger(cache_logger_on_first_use=False)
+        yield
 
 
 @pytest.fixture
@@ -222,19 +226,6 @@ def exclude_events(request) -> list[str] | None:
     By decorating a test function with @pytest.mark.parametrize("exclude_events", ..., indirect=True)
     it's possible to set the exclude_events that will be used to create a BatchExport.
     Any list of event names can be used, or None (the default).
-    """
-    try:
-        return request.param
-    except AttributeError:
-        return None
-
-
-@pytest.fixture
-def batch_export_schema(request) -> dict | None:
-    """A parametrizable fixture to configure a batch export schema.
-
-    By decorating a test function with @pytest.mark.parametrize("batch_export_schema", ..., indirect=True)
-    it's possible to set the batch_export_schema that will be used to create a BatchExport.
     """
     try:
         return request.param

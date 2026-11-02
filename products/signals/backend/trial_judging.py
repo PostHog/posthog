@@ -19,7 +19,8 @@ from products.signals.backend.trial_judging_types import (
     TrialRunEvidence,
 )
 
-JUDGE_PROMPT_VERSION = "sandbox-4"
+# Bump for model, effort or prompt changes so a trial cannot mix judge configurations.
+JUDGE_PROMPT_VERSION = "sandbox-5"
 MAX_JUDGE_OUTPUT_CHARACTERS = 64_000
 MAX_QUOTE_JSON_DEPTH = 2
 

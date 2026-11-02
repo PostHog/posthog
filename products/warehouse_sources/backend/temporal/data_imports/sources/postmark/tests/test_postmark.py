@@ -1,13 +1,23 @@
 import json
 from typing import Any
 
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postmark import (
+    PostmarkSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postmark.postmark import (
     POSTMARK_BASE_URL,
     WEBHOOK_AUTH_ERROR,
@@ -27,15 +37,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postmark.s
     WEBHOOK_SCHEMA_NAMES,
     WEBHOOK_SECRET_HEADER,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.postmark.source import PostmarkSource
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the postmark module.
-POSTMARK_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.postmark.postmark.make_tracked_session"
-)
-# Webhook management builds its session through the same module-level helper.
-WEBHOOK_SESSION_PATCH = POSTMARK_SESSION_PATCH
+# Webhook management builds its session through a module-level helper in the postmark module.
+POSTMARK_LOGGER_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.postmark.postmark.logger"
 
 
 def _response(body: dict[str, Any], *, status: int = 200) -> Response:
@@ -79,6 +86,16 @@ def _source(endpoint: str, manager: mock.MagicMock):
     return postmark_source("test-token", endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
 
 
+def _run(endpoint: str, script: Script, **inputs: Any) -> DriveResult:
+    return SourceDriver(PostmarkSource(), PostmarkSourceConfig(server_token="test-token")).run(
+        endpoint, script, **inputs
+    )
+
+
+def _list_response(endpoint: str, rows: list[dict[str, Any]] | None = None) -> ScriptedResponse:
+    return ScriptedResponse(json={POSTMARK_ENDPOINTS[endpoint].data_key: rows or [], "TotalCount": len(rows or [])})
+
+
 class TestValidateCredentials:
     @parameterized.expand(
         [
@@ -88,45 +105,50 @@ class TestValidateCredentials:
             ("server_500", 500, False),
         ]
     )
-    @mock.patch(POSTMARK_SESSION_PATCH)
-    def test_validate_credentials(self, _name: str, status_code: int, expected: bool, mock_session: mock.MagicMock):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        # The status flows back to the caller so it can distinguish rejection causes.
-        assert validate_credentials("test-token") == (expected, status_code)
+    def test_validate_credentials(self, _name: str, status_code: int, expected: bool):
+        # A 500 is retried by the real request stack, so every try gets the same answer.
+        with scripted_network(always(ScriptedResponse(status=status_code, json={}))) as network:
+            # The status flows back to the caller so it can distinguish rejection causes.
+            assert validate_credentials("test-token") == (expected, status_code)
 
         # The probe session masks the token by value so it never lands in a captured HTTP sample.
-        assert mock_session.call_args.kwargs["redact_values"] == ("test-token",)
+        assert network.session_options[0]["redact_values"] == ("test-token",)
         # The token is carried in the X-Postmark-Server-Token header against /message-streams.
-        get_args, get_kwargs = mock_session.return_value.get.call_args
-        assert get_args[0] == f"{POSTMARK_BASE_URL}/message-streams"
-        assert get_kwargs["headers"]["X-Postmark-Server-Token"] == "test-token"
+        request = network.requests_log[0]
+        assert request.url == f"{POSTMARK_BASE_URL}/message-streams"
+        assert request.headers["x-postmark-server-token"] == "test-token"
 
 
 class TestOffsetPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_offset(self, MockSession):
-        session = MockSession.return_value
-        params = _wire(session, [_response({"TotalCount": 501, "Messages": [{"MessageID": "m501"}]})])
+    def test_resumes_from_saved_offset(self):
+        result = _run(
+            "messages_outbound",
+            [ScriptedResponse(json={"TotalCount": 501, "Messages": [{"MessageID": "m501"}]})],
+            resume_state=PostmarkResumeConfig(next_offset=500),
+        )
 
-        manager = _make_manager(PostmarkResumeConfig(next_offset=500))
-        _rows(_source("messages_outbound", manager))
+        assert result.params("offset")[0] == "500"
 
-        assert params[0]["offset"] == 500
+    def test_a_run_with_no_saved_state_starts_from_the_first_page(self):
+        result = _run("messages_outbound", [_list_response("messages_outbound")])
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.postmark.postmark.logger")
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_at_10k_window_and_warns(self, MockSession, mock_logger):
-        session = MockSession.return_value
+        assert result.params("offset")[0] == "0"
+
+    @mock.patch(POSTMARK_LOGGER_PATCH)
+    def test_stops_at_10k_window_and_warns(self, mock_logger):
         # Every page is full, so pagination would continue forever if not for the window cap.
         full_page = [{"MessageID": f"m{i}", "ReceivedAt": "2026-01-01T00:00:00Z"} for i in range(500)]
-        params = _wire(session, lambda *a, **k: _response({"TotalCount": 99999, "Messages": full_page}))
 
-        _rows(_source("messages_outbound", _make_manager()))
+        result = _run(
+            "messages_outbound",
+            lambda _request: ScriptedResponse(json={"TotalCount": 99999, "Messages": full_page}),
+        )
 
         # 10,000 / 500 = 20 pages, then the loop terminates at the window boundary.
-        assert session.send.call_count == POSTMARK_MAX_WINDOW // 500
+        assert len(result.requests) == POSTMARK_MAX_WINDOW // 500
         mock_logger.warning.assert_called_once()
-        assert params[-1]["offset"] + params[-1]["count"] == POSTMARK_MAX_WINDOW
+        last = result.requests[-1]
+        assert int(last.param("offset") or 0) + int(last.param("count") or 0) == POSTMARK_MAX_WINDOW
 
 
 class TestEndpointDataKeys:
@@ -134,30 +156,31 @@ class TestEndpointDataKeys:
         [
             ("messages_outbound", "Messages", "MessageID"),
             ("messages_inbound", "InboundMessages", "MessageID"),
-            ("bounces", "Bounces", "ID"),
+            ("opens", "Opens", "MessageID"),
             ("templates", "Templates", "TemplateId"),
             ("message_streams", "MessageStreams", "ID"),
+            ("bounces", "Bounces", "ID"),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_reads_correct_data_key(self, endpoint: str, data_key: str, primary_key: str, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response({data_key: [{primary_key: "x1"}], "TotalCount": 1})])
+    def test_reads_correct_data_key(self, endpoint: str, data_key: str, primary_key: str):
+        result = _run(endpoint, [ScriptedResponse(json={data_key: [{primary_key: "x1"}], "TotalCount": 1})])
 
-        rows = _rows(_source(endpoint, _make_manager()))
-
-        assert [r[primary_key] for r in rows] == ["x1"]
+        assert [r[primary_key] for r in result.rows] == ["x1"]
 
 
 class TestSourceResponseShape:
     @parameterized.expand([(name,) for name in ENDPOINTS])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_source_response_shape(self, endpoint: str, _MockSession):
-        response = _source(endpoint, _make_manager())
+    def test_source_response_shape(self, endpoint: str):
+        response = _run(endpoint, [_list_response(endpoint)]).response
 
+        assert response is not None
+        self._assert_shape(endpoint, response)
+
+    @staticmethod
+    def _assert_shape(endpoint: str, response: Any) -> None:
         config = POSTMARK_ENDPOINTS[endpoint]
         assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
+        assert response.primary_keys == config.primary_keys
 
         if config.partition_key:
             assert response.partition_mode == "datetime"
@@ -169,15 +192,11 @@ class TestSourceResponseShape:
 
 
 class TestRetryable:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_401_does_not_retry_and_raises(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response({}, status=401)])
+    def test_401_does_not_retry_and_raises(self):
+        result = _run("message_streams", [ScriptedResponse(status=401, json={})])
 
-        with pytest.raises(Exception):
-            _rows(_source("message_streams", _make_manager()))
-
-        assert session.send.call_count == 1
+        assert result.raised is not None
+        assert len(result.requests) == 1
 
 
 def _bounce(bounce_id: int, **overrides: Any) -> dict[str, Any]:
@@ -248,42 +267,31 @@ class TestWebhookItemsWiring:
         assert webhook_manager.get_items.call_args.kwargs["table_transformer"] is _webhook_table_transformer
 
     @parameterized.expand([(name,) for name in ENDPOINTS if name not in WEBHOOK_SCHEMA_NAMES])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_webhook_endpoints_never_consult_the_webhook_manager(self, endpoint: str, MockSession):
+    def test_non_webhook_endpoints_never_consult_the_webhook_manager(self, endpoint: str):
         # Only bounces has a matching Postmark trigger; the rest must keep polling regardless
-        # of whether a webhook function exists for the source.
-        _wire(MockSession.return_value, lambda *a, **k: _response({POSTMARK_ENDPOINTS[endpoint].data_key: []}))
-        webhook_manager = mock.MagicMock()
-        webhook_manager.webhook_enabled = mock.AsyncMock(return_value=True)
+        # of whether a webhook function exists for the source. Consulting the manager would read
+        # the database, which the driver blocks, so a clean run shows it was never consulted.
+        result = _run(endpoint, [_list_response(endpoint, [{POSTMARK_ENDPOINTS[endpoint].primary_keys[0]: "x1"}])])
 
-        _rows(
-            postmark_source(
-                "test-token",
-                endpoint,
-                team_id=1,
-                job_id="j",
-                resumable_source_manager=_make_manager(),
-                webhook_source_manager=webhook_manager,
-            )
-        )
-
-        webhook_manager.webhook_enabled.assert_not_awaited()
-        webhook_manager.get_items.assert_not_called()
+        assert result.raised is None
+        assert len(result.rows) == 1
 
 
 class TestWebhookManagement:
-    @mock.patch(WEBHOOK_SESSION_PATCH)
-    def test_create_webhook_subscribes_bounce_triggers_with_a_secret_header(self, mock_session):
-        session = mock_session.return_value
-        session.get.return_value = _response({"Webhooks": []})
-        session.post.return_value = _response({"ID": 42, "Url": "https://ph.example/webhook"})
-
-        result = create_webhook("test-token", "https://ph.example/webhook")
+    def test_create_webhook_subscribes_bounce_triggers_with_a_secret_header(self):
+        with scripted_network(
+            [
+                ScriptedResponse(json={"Webhooks": []}),
+                ScriptedResponse(json={"ID": 42, "Url": "https://ph.example/webhook"}),
+            ]
+        ) as network:
+            result = create_webhook("test-token", "https://ph.example/webhook")
 
         assert result.success is True
         secret = result.extra_inputs["signing_secret"]
         assert secret
-        body = session.post.call_args.kwargs["json"]
+        assert [request.method for request in network.requests_log] == ["GET", "POST"]
+        body = network.requests_log[1].json()
         assert body["Url"] == "https://ph.example/webhook"
         assert body["MessageStream"] == WEBHOOK_MESSAGE_STREAM
         # Postmark signs nothing, so the shared secret header is the only proof of origin.
@@ -295,109 +303,107 @@ class TestWebhookManagement:
         }
         assert all(not trigger["IncludeContent"] for trigger in body["Triggers"].values())
         # Webhook objects echo the secret back, so they stay out of HTTP sample capture.
-        assert mock_session.call_args.kwargs["capture"] is False
-        assert mock_session.call_args.kwargs["redact_values"] == ("test-token",)
+        assert network.session_options[0]["capture"] is False
+        assert network.session_options[0]["redact_values"] == ("test-token",)
 
-    @mock.patch(WEBHOOK_SESSION_PATCH)
-    def test_create_webhook_updates_an_existing_url_instead_of_duplicating(self, mock_session):
-        session = mock_session.return_value
-        session.get.return_value = _response({"Webhooks": [{"ID": 7, "Url": "https://ph.example/webhook"}]})
-        session.put.return_value = _response({"ID": 7, "Url": "https://ph.example/webhook"})
-
-        result = create_webhook("test-token", "https://ph.example/webhook")
+    def test_create_webhook_updates_an_existing_url_instead_of_duplicating(self):
+        with scripted_network(
+            [
+                ScriptedResponse(json={"Webhooks": [{"ID": 7, "Url": "https://ph.example/webhook"}]}),
+                ScriptedResponse(json={"ID": 7, "Url": "https://ph.example/webhook"}),
+            ]
+        ) as network:
+            result = create_webhook("test-token", "https://ph.example/webhook")
 
         assert result.success is True
-        session.post.assert_not_called()
-        assert session.put.call_args.args[0] == f"{POSTMARK_BASE_URL}/webhooks/7"
+        assert [request.method for request in network.requests_log] == ["GET", "PUT"]
+        assert network.requests_log[1].url == f"{POSTMARK_BASE_URL}/webhooks/7"
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
-    @mock.patch(WEBHOOK_SESSION_PATCH)
-    def test_create_webhook_surfaces_a_token_problem(self, _name: str, status: int, mock_session):
-        session = mock_session.return_value
-        session.get.return_value = _response({"Webhooks": []})
-        session.post.return_value = _response({}, status=status)
-
-        result = create_webhook("test-token", "https://ph.example/webhook")
+    def test_create_webhook_surfaces_a_token_problem(self, _name: str, status: int):
+        with scripted_network([ScriptedResponse(json={"Webhooks": []}), ScriptedResponse(status=status, json={})]):
+            result = create_webhook("test-token", "https://ph.example/webhook")
 
         assert result.success is False
         assert result.error == WEBHOOK_AUTH_ERROR
 
-    @mock.patch(WEBHOOK_SESSION_PATCH)
-    def test_create_webhook_treats_a_200_with_an_error_code_as_a_failure(self, mock_session):
+    def test_create_webhook_treats_a_200_with_an_error_code_as_a_failure(self):
         # Postmark reports API failures in the body, so response.ok alone would report success.
-        session = mock_session.return_value
-        session.get.return_value = _response({"Webhooks": []})
-        session.post.return_value = _response({"ErrorCode": 401, "Message": "Not allowed"})
-
-        result = create_webhook("test-token", "https://ph.example/webhook")
+        with scripted_network(
+            [
+                ScriptedResponse(json={"Webhooks": []}),
+                ScriptedResponse(json={"ErrorCode": 401, "Message": "Not allowed"}),
+            ]
+        ):
+            result = create_webhook("test-token", "https://ph.example/webhook")
 
         assert result.success is False
         assert "Not allowed" in (result.error or "")
 
-    @mock.patch(WEBHOOK_SESSION_PATCH)
-    def test_get_external_webhook_info_reports_enabled_triggers(self, mock_session):
-        mock_session.return_value.get.return_value = _response(
-            {
-                "Webhooks": [
-                    {
-                        "ID": 7,
-                        "Url": "https://ph.example/webhook",
-                        "MessageStream": "outbound",
-                        "Triggers": {
-                            "Bounce": {"Enabled": True},
-                            "SpamComplaint": {"Enabled": True},
-                            "Open": {"Enabled": False},
-                        },
+    def test_get_external_webhook_info_reports_enabled_triggers(self):
+        with scripted_network(
+            [
+                ScriptedResponse(
+                    json={
+                        "Webhooks": [
+                            {
+                                "ID": 7,
+                                "Url": "https://ph.example/webhook",
+                                "MessageStream": "outbound",
+                                "Triggers": {
+                                    "Bounce": {"Enabled": True},
+                                    "SpamComplaint": {"Enabled": True},
+                                    "Open": {"Enabled": False},
+                                },
+                            }
+                        ]
                     }
-                ]
-            }
-        )
-
-        info = get_external_webhook_info("test-token", "https://ph.example/webhook")
+                )
+            ]
+        ):
+            info = get_external_webhook_info("test-token", "https://ph.example/webhook")
 
         assert info.exists is True
         assert info.url == "https://ph.example/webhook"
         assert set(info.enabled_events or []) == {"Bounce", "SpamComplaint"}
 
-    @mock.patch(WEBHOOK_SESSION_PATCH)
-    def test_get_external_webhook_info_ignores_other_urls(self, mock_session):
-        mock_session.return_value.get.return_value = _response(
-            {"Webhooks": [{"ID": 7, "Url": "https://someone-else.example/hook"}]}
-        )
-
-        info = get_external_webhook_info("test-token", "https://ph.example/webhook")
+    def test_get_external_webhook_info_ignores_other_urls(self):
+        with scripted_network(
+            [ScriptedResponse(json={"Webhooks": [{"ID": 7, "Url": "https://someone-else.example/hook"}]})]
+        ):
+            info = get_external_webhook_info("test-token", "https://ph.example/webhook")
 
         assert info.exists is False
         assert info.error is None
 
-    @mock.patch(WEBHOOK_SESSION_PATCH)
-    def test_delete_webhook_removes_the_matching_webhook(self, mock_session):
-        session = mock_session.return_value
-        session.get.return_value = _response({"Webhooks": [{"ID": 7, "Url": "https://ph.example/webhook"}]})
-        session.delete.return_value = _response({"ErrorCode": 0, "Message": "Webhook 7 removed."})
-
-        result = delete_webhook("test-token", "https://ph.example/webhook")
-
-        assert result.success is True
-        assert session.delete.call_args.args[0] == f"{POSTMARK_BASE_URL}/webhooks/7"
-
-    @mock.patch(WEBHOOK_SESSION_PATCH)
-    def test_delete_webhook_is_idempotent_when_already_gone(self, mock_session):
-        session = mock_session.return_value
-        session.get.return_value = _response({"Webhooks": []})
-
-        result = delete_webhook("test-token", "https://ph.example/webhook")
+    def test_delete_webhook_removes_the_matching_webhook(self):
+        with scripted_network(
+            [
+                ScriptedResponse(json={"Webhooks": [{"ID": 7, "Url": "https://ph.example/webhook"}]}),
+                ScriptedResponse(json={"ErrorCode": 0, "Message": "Webhook 7 removed."}),
+            ]
+        ) as network:
+            result = delete_webhook("test-token", "https://ph.example/webhook")
 
         assert result.success is True
-        session.delete.assert_not_called()
+        assert [request.method for request in network.requests_log] == ["GET", "DELETE"]
+        assert network.requests_log[1].url == f"{POSTMARK_BASE_URL}/webhooks/7"
 
-    @mock.patch(WEBHOOK_SESSION_PATCH)
-    def test_delete_webhook_reports_a_failure(self, mock_session):
-        session = mock_session.return_value
-        session.get.return_value = _response({"Webhooks": [{"ID": 7, "Url": "https://ph.example/webhook"}]})
-        session.delete.return_value = _response({"ErrorCode": 501, "Message": "Webhook not found."}, status=422)
+    def test_delete_webhook_is_idempotent_when_already_gone(self):
+        with scripted_network([ScriptedResponse(json={"Webhooks": []})]) as network:
+            result = delete_webhook("test-token", "https://ph.example/webhook")
 
-        result = delete_webhook("test-token", "https://ph.example/webhook")
+        assert result.success is True
+        assert [request.method for request in network.requests_log] == ["GET"]
+
+    def test_delete_webhook_reports_a_failure(self):
+        with scripted_network(
+            [
+                ScriptedResponse(json={"Webhooks": [{"ID": 7, "Url": "https://ph.example/webhook"}]}),
+                ScriptedResponse(status=422, json={"ErrorCode": 501, "Message": "Webhook not found."}),
+            ]
+        ):
+            result = delete_webhook("test-token", "https://ph.example/webhook")
 
         assert result.success is False
         assert "Webhook not found." in (result.error or "")

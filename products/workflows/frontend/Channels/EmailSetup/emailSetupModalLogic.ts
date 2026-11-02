@@ -36,6 +36,7 @@ export interface EmailSenderFormType {
     name: string
     provider: 'ses' | 'maildev'
     mail_from_subdomain?: string
+    reply_to?: string
 }
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i
@@ -61,6 +62,7 @@ const getEmailSenderFromIntegration = (integration: IntegrationType): EmailSende
         name: integration.config?.name ?? '',
         provider: integration.config?.provider ?? 'ses',
         mail_from_subdomain: integration.config?.mail_from_subdomain,
+        reply_to: integration.config?.reply_to ?? '',
     }
 }
 
@@ -189,15 +191,16 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
             },
         ],
     }),
-    forms(({ actions, values }) => ({
+    forms(({ actions, values, props }) => ({
         emailSender: {
             defaults: {
                 provider: 'ses',
                 email: '',
                 name: '',
                 mail_from_subdomain: 'feedback',
+                reply_to: '',
             } as EmailSenderFormType,
-            errors: ({ email, name, provider, mail_from_subdomain }) => {
+            errors: ({ email, name, provider, mail_from_subdomain, reply_to }) => {
                 let emailError = undefined
                 if (!email) {
                     emailError = 'Email is required'
@@ -213,9 +216,12 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
                         values.savedIntegration === null && !mail_from_subdomain
                             ? 'MAIL FROM subdomain is required for new senders'
                             : undefined,
+                    reply_to: reply_to && !EMAIL_REGEX.test(reply_to) ? 'Invalid email format' : undefined,
                 }
             },
             submit: async (config) => {
+                // A new sender stays open after Continue so the user can set up DNS.
+                const isUpdate = !!values.savedIntegration
                 try {
                     let integration: IntegrationType
                     if (values.savedIntegration) {
@@ -231,6 +237,9 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
                     actions.loadIntegrations()
                     actions.setSavedIntegration(integration)
                     actions.verifyDomain()
+                    if (isUpdate) {
+                        props.onComplete(integration.id)
+                    }
                     return config
                 } catch (error) {
                     if (error instanceof ApiError || (error && typeof error === 'object' && 'detail' in error)) {

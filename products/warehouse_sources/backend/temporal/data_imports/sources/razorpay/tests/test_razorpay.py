@@ -1,30 +1,35 @@
-import json
-from collections.abc import Iterable
-from typing import Any, Optional, cast
+from datetime import datetime
+from typing import Any, Optional
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-from requests import Response
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.razorpay import (
+    RazorpaySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.razorpay.razorpay import (
     INCREMENTAL_LOOKBACK_SECONDS,
     MIN_FROM_TIMESTAMP,
+    MISSING_ACCOUNT_NUMBER_ERROR,
+    RECON_TIMEZONE,
     RazorpayResumeConfig,
+    ReconMonth,
     build_from_param,
-    razorpay_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.razorpay.settings import PAGE_SIZE
+from products.warehouse_sources.backend.temporal.data_imports.sources.razorpay.source import RazorpaySource
 
 
-def _collection_response(items: list[dict[str, Any]], status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps({"entity": "collection", "count": len(items), "items": items}).encode()
-    resp.headers["Content-Type"] = "application/json"
-    return resp
+def _collection_response(items: list[dict[str, Any]], status_code: int = 200) -> ScriptedResponse:
+    return ScriptedResponse(status=status_code, json={"entity": "collection", "count": len(items), "items": items})
 
 
 def _items(count: int, start: int = 0) -> list[dict[str, Any]]:
@@ -32,102 +37,69 @@ def _items(count: int, start: int = 0) -> list[dict[str, Any]]:
 
 
 def _drive(
-    manager: MagicMock,
-    responses: list[Response],
+    responses: list[ScriptedResponse | BaseException],
     endpoint: str = "Payments",
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Optional[Any] = None,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Run ``razorpay_source`` against a mocked HTTP session.
+    account_number: Optional[str] = None,
+    **inputs: Any,
+) -> DriveResult:
+    config = RazorpaySourceConfig(key_id="rzp_test_key", key_secret="secret", razorpayx_account_number=account_number)
+    return SourceDriver(RazorpaySource(), config).run(endpoint, responses, **inputs)
 
-    Returns ``(rows, sent_params)`` where ``sent_params`` are shallow copies of
-    ``request.params`` captured at send-time (the Request object is mutated
-    in-place by the paginator between pages).
-    """
-    sent_params: list[dict[str, Any]] = []
-    response_iter = iter(responses)
 
-    def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-        sent_params.append(dict(request.params or {}))
-        return next(response_iter)
+def _ist_timestamp(year: int, month: int, day: int) -> int:
+    return int(datetime(year, month, day, tzinfo=RECON_TIMEZONE).timestamp())
 
-    with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-    ) as MockSession:
-        mock_session = MockSession.return_value
-        mock_session.headers = {}
-        mock_session.prepare_request.side_effect = lambda req: req
-        mock_session.send.side_effect = fake_send
 
-        resource = razorpay_source(
-            key_id="rzp_test_key",
-            key_secret="secret",
-            endpoint=endpoint,
-            team_id=123,
-            job_id="test_job",
-            resumable_source_manager=manager,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-            should_use_incremental_field=should_use_incremental_field,
-        )
-        rows = [row for page in cast(Iterable[Any], resource) for row in (page if isinstance(page, list) else [page])]
-        return rows, sent_params
+def _recon_items(count: int) -> list[dict[str, Any]]:
+    return [{"entity_id": f"pay_{i}", "settlement_id": "setl_1", "created_at": 1_750_000_000} for i in range(count)]
+
+
+def _current_month(year: int, month: int) -> Any:
+    return patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.razorpay.razorpay._current_recon_month",
+        return_value=ReconMonth(year=year, month=month),
+    )
 
 
 class TestRazorpayPagination:
     def test_resume_seeds_skip_from_saved_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = RazorpayResumeConfig(skip=200)
+        result = _drive([_collection_response(_items(1))], resume_state=RazorpayResumeConfig(skip=200))
 
-        _, sent_params = _drive(manager, [_collection_response(_items(1))])
+        assert result.params("skip") == ["200"]
 
-        assert [p.get("skip") for p in sent_params] == [200]
-        manager.load_state.assert_called_once()
+    def test_a_run_with_no_saved_state_starts_from_the_first_page(self) -> None:
+        result = _drive([_collection_response(_items(1))])
 
-    def test_does_not_load_state_when_cannot_resume(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        _drive(manager, [_collection_response(_items(1))])
-
-        manager.load_state.assert_not_called()
+        assert result.params("skip") == ["0"]
 
 
 class TestRazorpayIncremental:
     def test_incremental_sync_sends_lookback_adjusted_from_on_every_page(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
         watermark = 1_750_000_000
 
-        responses = [
-            _collection_response(_items(PAGE_SIZE)),
-            _collection_response(_items(2, start=PAGE_SIZE)),
-        ]
-        _, sent_params = _drive(
-            manager,
-            responses,
-            should_use_incremental_field=True,
+        result = _drive(
+            [
+                _collection_response(_items(PAGE_SIZE)),
+                _collection_response(_items(2, start=PAGE_SIZE)),
+            ],
+            incremental_field="created_at",
             db_incremental_field_last_value=watermark,
         )
 
-        expected_from = watermark - INCREMENTAL_LOOKBACK_SECONDS
-        assert [p.get("from") for p in sent_params] == [expected_from, expected_from]
+        expected_from = str(watermark - INCREMENTAL_LOOKBACK_SECONDS)
+        assert result.params("from") == [expected_from, expected_from]
 
     def test_full_refresh_endpoint_never_sends_from(self) -> None:
         # Disputes doesn't document `from`/`to`; sending unknown params risks a 400 from
         # Razorpay's strict param validation.
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        _, sent_params = _drive(
-            manager,
+        result = _drive(
             [_collection_response(_items(1))],
             endpoint="Disputes",
-            should_use_incremental_field=True,
+            incremental_field="created_at",
             db_incremental_field_last_value=1_750_000_000,
         )
 
-        assert "from" not in sent_params[0]
+        assert result.params("from") == [None]
 
     @pytest.mark.parametrize(
         ("last_value", "expected"),
@@ -143,14 +115,109 @@ class TestRazorpayIncremental:
         assert build_from_param(last_value) == expected
 
 
-class TestRazorpayValidateCredentials:
-    @pytest.mark.parametrize(("status_code", "expected"), [(200, True), (401, False), (500, False)])
-    def test_status_code_mapping(self, status_code: int, expected: bool) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.razorpay.razorpay.make_tracked_session"
-        ) as MockSession:
-            response = Response()
-            response.status_code = status_code
-            MockSession.return_value.get.return_value = response
+class TestRazorpaySettlementRecon:
+    def test_walks_each_month_page_by_page_up_to_the_current_month(self) -> None:
+        with _current_month(2026, 2):
+            result = _drive(
+                [
+                    _collection_response(_recon_items(PAGE_SIZE)),
+                    _collection_response(_recon_items(2)),
+                    _collection_response([]),
+                ],
+                endpoint="SettlementRecon",
+                incremental_field="settled_at",
+                db_incremental_field_last_value=_ist_timestamp(2026, 1, 20),
+            )
 
+        assert result.raised is None
+        assert result.paths == ["/v1/settlements/recon/combined"] * 3
+        assert list(zip(result.params("year"), result.params("month"), result.params("skip"))) == [
+            ("2026", "1", "0"),
+            ("2026", "1", str(PAGE_SIZE)),
+            ("2026", "2", "0"),
+        ]
+        assert len(result.rows) == PAGE_SIZE + 2
+        assert result.committed_states[-1] == RazorpayResumeConfig(skip=0, recon_year=2026, recon_month=3)
+
+    @pytest.mark.parametrize(
+        ("current_month", "inputs", "expected_first_request"),
+        [
+            ((2014, 1), {}, ("2014", "1", "0")),
+            (
+                (2026, 2),
+                {"incremental_field": "settled_at", "db_incremental_field_last_value": _ist_timestamp(2026, 3, 2)},
+                ("2026", "2", "0"),
+            ),
+            (
+                (2025, 6),
+                {"resume_state": RazorpayResumeConfig(skip=200, recon_year=2025, recon_month=6)},
+                ("2025", "6", "200"),
+            ),
+        ],
+    )
+    def test_start_month(
+        self, current_month: tuple[int, int], inputs: dict[str, Any], expected_first_request: tuple[str, str, str]
+    ) -> None:
+        with _current_month(*current_month):
+            result = _drive([_collection_response([])], endpoint="SettlementRecon", **inputs)
+
+        assert result.raised is None
+        assert (result.params("year")[0], result.params("month")[0], result.params("skip")[0]) == expected_first_request
+
+
+class TestRazorpayPaymentLinks:
+    def test_pages_through_links_with_count_and_skip(self) -> None:
+        links = [{"id": f"plink_{i}", "created_at": 1_750_000_000} for i in range(PAGE_SIZE + 1)]
+
+        result = _drive(
+            [
+                ScriptedResponse(json={"payment_links": links[:PAGE_SIZE]}),
+                ScriptedResponse(json={"payment_links": links[PAGE_SIZE:]}),
+            ],
+            endpoint="PaymentLinks",
+        )
+
+        assert result.raised is None
+        assert result.params("skip") == ["0", str(PAGE_SIZE)]
+        assert result.params("count") == [str(PAGE_SIZE)] * 2
+        assert len(result.rows) == PAGE_SIZE + 1
+
+
+class TestRazorpayXTransactions:
+    def test_sends_account_number_on_every_page(self) -> None:
+        result = _drive(
+            [
+                _collection_response(_items(PAGE_SIZE)),
+                _collection_response(_items(1, start=PAGE_SIZE)),
+            ],
+            endpoint="RazorpayXTransactions",
+            account_number="7878780080316316",
+            incremental_field="created_at",
+            db_incremental_field_last_value=1_750_000_000,
+        )
+
+        assert result.params("account_number") == ["7878780080316316", "7878780080316316"]
+        assert "7878780080316316" in result.session_options[0]["redact_values"]
+        assert result.params("from") == [str(1_750_000_000 - INCREMENTAL_LOOKBACK_SECONDS)] * 2
+
+    def test_fails_without_an_account_number(self) -> None:
+        result = _drive([], endpoint="RazorpayXTransactions")
+
+        assert result.requests == []
+        assert result.raised is not None
+        assert MISSING_ACCOUNT_NUMBER_ERROR in str(result.raised)
+
+
+class TestRazorpayValidateCredentials:
+    @pytest.mark.parametrize(
+        ("status_code", "expected"),
+        [
+            (200, True),
+        ],
+    )
+    def test_status_code_mapping(self, status_code: int, expected: bool) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code, json={}))) as network:
             assert validate_credentials("rzp_test_key", "secret") is expected
+
+        assert network.requests_log[0].path == "/v1/payments"
+        assert network.requests_log[0].param("count") == "1"

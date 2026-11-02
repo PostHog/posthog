@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 8 enabled ops
+ * PostHog API - MCP 13 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -44,6 +44,12 @@ export const BusinessKnowledgeDocumentsSearchListParams = () => zod.object({
 })
 
 export const BusinessKnowledgeDocumentsSearchListQueryParams = () => zod.object({
+    library_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Limit retrieval to sources in this library. Pass the same id to repository search and file read. Omit to search every ready source.'
+        ),
     limit: zod.number().optional().describe('Maximum number of ranked chunks to return. Defaults to 10, capped at 20.'),
     query: zod
         .string()
@@ -55,6 +61,95 @@ export const BusinessKnowledgeDocumentsSearchListQueryParams = () => zod.object(
         .optional()
         .describe(
             'When true, rerank search results with a listwise LLM pass for better relevance. Defaults to false (RRF order only). Falls back to RRF order on rerank failure.'
+        ),
+})
+
+/**
+ * Libraries in this project. The default library is first.
+ * @summary List business knowledge libraries
+ */
+export const BusinessKnowledgeLibrariesListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * @summary Create a business knowledge library
+ */
+export const BusinessKnowledgeLibrariesCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const businessKnowledgeLibrariesCreateBodyNameMax = 255
+
+export const BusinessKnowledgeLibrariesCreateBody = () => zod.object({
+    name: zod.string().max(businessKnowledgeLibrariesCreateBodyNameMax).describe('Name for the new library.'),
+})
+
+/**
+ * @summary Get a business knowledge library
+ */
+export const BusinessKnowledgeLibrariesRetrieveParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Send only the fields you want to change. `source_ids` replaces every source in the library. `repos` replaces this environment's repositories and leaves repositories that only another environment allows.
+ * @summary Rename a library or replace its sources and repositories
+ */
+export const BusinessKnowledgeLibrariesPartialUpdateParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const businessKnowledgeLibrariesPartialUpdateBodyNameMax = 255
+
+export const BusinessKnowledgeLibrariesPartialUpdateBody = () => zod.object({
+    name: zod
+        .string()
+        .max(businessKnowledgeLibrariesPartialUpdateBodyNameMax)
+        .optional()
+        .describe('New name. Omit to keep the current name.'),
+    source_ids: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'Replaces every source in this library. Omit to leave sources unchanged. An empty list removes them all.'
+        ),
+    repos: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            "Replaces this environment's repositories in the library. Omit to leave them unchanged. Repositories only another environment allows stay."
+        ),
+})
+
+/**
+ * Removes the library and its links. Sources, documents, and selected repositories stay.
+ * @summary Delete a business knowledge library
+ */
+export const BusinessKnowledgeLibrariesDestroyParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -71,6 +166,12 @@ export const BusinessKnowledgeRepositoriesFileRetrieveParams = () => zod.object(
 })
 
 export const BusinessKnowledgeRepositoriesFileRetrieveQueryParams = () => zod.object({
+    library_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Require the repository to be in this library. Pass the same id used for document search and repository search. Omit to read any selected repository.'
+        ),
     path: zod.string().min(1).describe('File path returned by the repository search.'),
     repo: zod.string().min(1).describe('owner\/repo to read. It must already be selected.'),
 })
@@ -88,6 +189,12 @@ export const BusinessKnowledgeRepositoriesSearchParams = () => zod.object({
 })
 
 export const BusinessKnowledgeRepositoriesSearchQueryParams = () => zod.object({
+    library_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Limit the search to repositories in this library. Pass the same id to document search and file read. Omit to search every selected repository.'
+        ),
     query: zod.string().min(1).describe('File names, path fragments, or identifiers to match. Not a full sentence.'),
     repo: zod
         .string()
@@ -110,6 +217,7 @@ export const BusinessKnowledgeSourcesListQueryParams = () => zod.object({
         .enum(['human', 'learned'])
         .optional()
         .describe('Filter by who added the source: human (you added it) or learned (from a resolved support ticket).'),
+    library_id: zod.string().optional().describe('Return only sources in this library. Do not combine with unfiled.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod.string().optional().describe('Case-insensitive substring match against the source name and URL.'),
@@ -117,6 +225,10 @@ export const BusinessKnowledgeSourcesListQueryParams = () => zod.object({
         .enum(['file', 'text', 'url'])
         .optional()
         .describe('Filter to a single source type (text, url, or file).'),
+    unfiled: zod
+        .boolean()
+        .optional()
+        .describe('When true, return only sources that are in no library. Do not combine with library_id.'),
 })
 
 export const BusinessKnowledgeSourcesCreateParams = () => zod.object({
@@ -182,6 +294,12 @@ export const BusinessKnowledgeSourcesPartialUpdateBody = () => zod
             .optional()
             .describe(
                 "When true, this source's content is injected into every support reply prompt as general context."
+            ),
+        library_ids: zod
+            .array(zod.string())
+            .optional()
+            .describe(
+                'Replaces the libraries this source belongs to. Omit to leave membership unchanged. An empty list removes it from every library.'
             ),
     })
     .describe(

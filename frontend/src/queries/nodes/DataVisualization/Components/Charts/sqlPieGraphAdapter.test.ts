@@ -68,6 +68,8 @@ describe('sqlPieGraphAdapter', () => {
                 { label: 'alpha', value: 7, color: getSeriesColor(0) },
                 { label: 'beta', value: 3, color: getSeriesColor(1) },
             ])
+            yData[0].settings = { display: { color: '#123456' } }
+            expect(buildPieSlices(xData, yData).map((slice) => slice.color)).toEqual(['#123456', '#123456'])
         })
 
         it('treats a non-finite value as zero instead of making the whole label non-finite', () => {

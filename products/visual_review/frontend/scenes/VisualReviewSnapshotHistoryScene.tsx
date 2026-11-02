@@ -3,6 +3,7 @@ import { useState } from 'react'
 
 import { LemonBanner, LemonButton, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -11,13 +12,16 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { QuarantineAction } from '../components/QuarantineAction'
 import type { OnQuarantine } from '../components/QuarantineModal'
 import { SnapshotChangeBadge, hasSnapshotChangeBadge } from '../components/SnapshotChangeBadge'
+import { VisualReviewSceneTitle } from '../components/VisualReviewSceneTitle'
 import { VisualReviewTabs } from '../components/VisualReviewTabs'
+import { VisualReviewTrail } from '../components/VisualReviewTrail'
 import type { QuarantinedIdentifierEntryApi, SnapshotHistoryEntryApi } from '../generated/api.schemas'
+import { repoFullNameFromParams, runPath, splitRepoFullName } from '../lib/repoPaths'
+import { mergeQueueBatchLeaderPrNumber } from '../lib/runPredicates'
 import {
     ThemePair,
     VisualReviewSnapshotHistorySceneLogicProps,
@@ -27,8 +31,10 @@ import {
 export const scene: SceneExport = {
     component: VisualReviewSnapshotHistoryScene,
     logic: visualReviewSnapshotHistorySceneLogic,
-    paramsToProps: ({ params: { repoId, runType, identifier } }): VisualReviewSnapshotHistorySceneLogicProps => ({
-        repoId: repoId || '',
+    paramsToProps: ({
+        params: { repoOwner, repoName, runType, identifier },
+    }): VisualReviewSnapshotHistorySceneLogicProps => ({
+        repoFullName: repoFullNameFromParams(repoOwner, repoName),
         runType: runType ? decodeURIComponent(runType) : '',
         identifier: identifier ? decodeURIComponent(identifier) : '',
     }),
@@ -93,8 +99,8 @@ function ThemePane({
 // Deep link into the run with the identifier's snapshot pre-selected. The run scene
 // reads `snapshot` from the URL hash (see `urlToAction` in visualReviewRunSceneLogic),
 // not from the query string — using `?` here would land on the run overview instead.
-function runUrl(entry: SnapshotHistoryEntryApi): string {
-    return `${urls.visualReviewRun(entry.run_id)}#snapshot=${encodeURIComponent(entry.snapshot_id)}`
+function runUrl(entry: SnapshotHistoryEntryApi, repoFullName: string): string {
+    return `${runPath(entry.run_id, repoFullName)}#snapshot=${encodeURIComponent(entry.snapshot_id)}`
 }
 
 function HistoryRow({
@@ -106,12 +112,12 @@ function HistoryRow({
     pair: ThemePair
     isCurrent: boolean
     isLast: boolean
-    repoFullName: string | null
+    repoFullName: string
 }): JSX.Element {
     const entry = pair.primary
     const reason = REASON_TAGS[entry.result] ?? { label: entry.result, type: 'default' as const }
-    const prUrl = entry.pr_number && repoFullName ? `https://github.com/${repoFullName}/pull/${entry.pr_number}` : null
-    const commitUrl = repoFullName ? `https://github.com/${repoFullName}/commit/${entry.commit_sha}` : null
+    const prUrl = entry.pr_number ? `https://github.com/${repoFullName}/pull/${entry.pr_number}` : null
+    const commitUrl = `https://github.com/${repoFullName}/commit/${entry.commit_sha}`
     const showPair = pair.primaryTheme !== null
 
     return (
@@ -136,7 +142,7 @@ function HistoryRow({
                 </div>
 
                 <div className="flex items-center gap-2 flex-wrap text-xs text-muted mb-2">
-                    <Link to={runUrl(entry)} className="font-mono text-default">
+                    <Link to={runUrl(entry, repoFullName)} className="font-mono text-default">
                         {entry.branch}
                     </Link>
                     {prUrl && (
@@ -148,13 +154,9 @@ function HistoryRow({
                         </>
                     )}
                     <span>·</span>
-                    {commitUrl ? (
-                        <Link to={commitUrl} target="_blank" className="font-mono">
-                            {entry.commit_sha.slice(0, 8)}
-                        </Link>
-                    ) : (
-                        <span className="font-mono">{entry.commit_sha.slice(0, 8)}</span>
-                    )}
+                    <Link to={commitUrl} target="_blank" className="font-mono">
+                        {entry.commit_sha.slice(0, 8)}
+                    </Link>
                     {hasSnapshotChangeBadge(entry) && (
                         <>
                             <span>·</span>
@@ -164,12 +166,12 @@ function HistoryRow({
                 </div>
 
                 <div className={`grid gap-2 ${showPair ? 'grid-cols-2' : 'grid-cols-1 w-1/2'}`}>
-                    <Link to={runUrl(pair.primary)} className="contents">
+                    <Link to={runUrl(pair.primary, repoFullName)} className="contents">
                         <ThemePane entry={pair.primary} theme={pair.primaryTheme} />
                     </Link>
                     {showPair &&
                         (pair.partner ? (
-                            <Link to={runUrl(pair.partner)} className="contents">
+                            <Link to={runUrl(pair.partner, repoFullName)} className="contents">
                                 <ThemePane entry={pair.partner} theme={pair.partnerTheme} />
                             </Link>
                         ) : (
@@ -181,128 +183,150 @@ function HistoryRow({
     )
 }
 
-function QuarantineSection({
+interface QuarantineVariant {
+    identifier: string
+    label: string | null
+    quarantineEntry: QuarantinedIdentifierEntryApi | null
+    onUnquarantine: () => void
+}
+
+function QuarantineBanner({
     identifier,
     label,
     quarantineEntry,
-    isQuarantined,
     onQuarantine,
     onUnquarantine,
-    runType,
+    repoFullName,
 }: {
     identifier: string
-    runType: string
-    label?: string | null
-    quarantineEntry: QuarantinedIdentifierEntryApi | null
-    isQuarantined: boolean
+    repoFullName: string
+    label: string | null
+    quarantineEntry: QuarantinedIdentifierEntryApi
     onQuarantine: OnQuarantine
     onUnquarantine: () => void
 }): JSX.Element {
-    if (isQuarantined && quarantineEntry) {
-        const expires = quarantineEntry.expires_at ? new Date(quarantineEntry.expires_at) : null
-        const sourceRun = quarantineEntry.source_run ?? null
-        const openConfirmation = (): void => {
-            LemonDialog.open({
-                title: `Unquarantine ${label ? `(${label})` : 'this identifier'}?`,
-                description:
-                    'This identifier will be gated on again in future runs. ' +
-                    "Branches that haven't merged the fix may get blocked.",
-                primaryButton: {
-                    children: 'Unquarantine',
-                    status: 'danger',
-                    onClick: onUnquarantine,
-                },
-                secondaryButton: { children: 'Cancel' },
-            })
-        }
-        return (
-            <LemonBanner
-                type="warning"
-                // No `action` here — extend lives inline below so the user can
-                // see "what was wrong" first (the source-run link) before
-                // choosing to extend or unquarantine.
-            >
-                <div className="text-sm flex flex-col gap-1">
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <span className="font-semibold">Quarantined{label && ` (${label})`}</span>
-                        <span>— {quarantineEntry.reason || 'no reason given'}</span>
-                        {expires && (
-                            <>
-                                <span aria-hidden>·</span>
-                                <span>
-                                    until {expires.toLocaleDateString()}{' '}
-                                    <span className="text-muted">({dayjs(expires).fromNow()})</span>
-                                </span>
-                            </>
-                        )}
-                        {!expires && (
-                            <>
-                                <span aria-hidden>·</span>
-                                <span className="text-muted">no expiry set</span>
-                            </>
-                        )}
-                        {quarantineEntry.created_by && (
-                            <>
-                                <span aria-hidden>·</span>
-                                <ProfilePicture user={quarantineEntry.created_by} size="xs" showName />
-                            </>
-                        )}
-                    </div>
-                    {sourceRun && (
-                        <div className="text-xs text-muted flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                            <span>Originally failed on</span>
-                            <Link
-                                to={urls.visualReviewRun(sourceRun.id)}
-                                className="font-mono text-default"
-                                data-attr="visual-review-quarantine-source-run"
-                            >
-                                {sourceRun.commit_sha.slice(0, 8)}
-                            </Link>
-                            <span aria-hidden>·</span>
-                            <span className="font-mono">{sourceRun.branch}</span>
-                            {sourceRun.pr_number && (
-                                <>
-                                    <span aria-hidden>·</span>
-                                    <span className="font-mono">PR #{sourceRun.pr_number}</span>
-                                </>
-                            )}
-                            <span aria-hidden>·</span>
-                            <TZLabel time={sourceRun.created_at} />
-                        </div>
+    const expires = quarantineEntry.expires_at ? new Date(quarantineEntry.expires_at) : null
+    const sourceRun = quarantineEntry.source_run ?? null
+    const batchLeaderPrNumber = sourceRun ? mergeQueueBatchLeaderPrNumber(sourceRun.branch) : null
+    const pullUrl = (prNumber: number): string => `https://github.com/${repoFullName}/pull/${prNumber}`
+    const openConfirmation = (): void => {
+        LemonDialog.open({
+            title: `Unquarantine ${label ? `(${label})` : 'this identifier'}?`,
+            description:
+                'This identifier will be gated on again in future runs. ' +
+                "Branches that haven't merged the fix may get blocked.",
+            primaryButton: {
+                children: 'Unquarantine',
+                status: 'danger',
+                onClick: onUnquarantine,
+            },
+            secondaryButton: { children: 'Cancel' },
+        })
+    }
+    return (
+        <LemonBanner type="warning">
+            <div className="text-sm flex flex-col gap-1">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span>
+                        <span className="font-semibold">Quarantined{label && ` (${label})`}:</span>{' '}
+                        {quarantineEntry.reason || 'no reason given'}
+                    </span>
+                    <span aria-hidden>·</span>
+                    {expires ? (
+                        <span>
+                            until {expires.toLocaleDateString()}{' '}
+                            <span className="text-muted">({dayjs(expires).fromNow()})</span>
+                        </span>
+                    ) : (
+                        <span className="text-muted">no expiry set</span>
                     )}
-                    <div className="flex items-center gap-2 pt-1">
-                        <QuarantineAction
-                            identifier={identifier}
-                            onQuarantine={onQuarantine}
-                            mode="extend"
-                            triggerLabel={label ? `Extend (${label})` : 'Extend quarantine'}
-                            initialReason={quarantineEntry.reason}
-                            initialExpiresAt={quarantineEntry.expires_at}
-                            sourceRunId={sourceRun?.id ?? null}
-                        />
+                    {quarantineEntry.created_by && (
+                        <>
+                            <span aria-hidden>·</span>
+                            <ProfilePicture user={quarantineEntry.created_by} size="xs" showName />
+                        </>
+                    )}
+                </div>
+                {sourceRun && (
+                    <div className="text-xs text-muted flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                        {batchLeaderPrNumber ? (
+                            <span>
+                                Failed in the merge queue with{' '}
+                                <Link
+                                    to={pullUrl(batchLeaderPrNumber)}
+                                    target="_blank"
+                                    className="font-mono"
+                                    data-attr="visual-review-quarantine-merge-queue-pr"
+                                >
+                                    #{batchLeaderPrNumber}
+                                </Link>
+                            </span>
+                        ) : (
+                            <>
+                                <span>Failed on</span>
+                                <span className="font-mono">{sourceRun.branch}</span>
+                            </>
+                        )}
+                        <span aria-hidden>·</span>
+                        <Link
+                            to={`https://github.com/${repoFullName}/commit/${sourceRun.commit_sha}`}
+                            target="_blank"
+                            className="font-mono"
+                        >
+                            {sourceRun.commit_sha.slice(0, 8)}
+                        </Link>
+                        {sourceRun.pr_number && (
+                            <>
+                                <span aria-hidden>·</span>
+                                <Link
+                                    to={pullUrl(sourceRun.pr_number)}
+                                    target="_blank"
+                                    data-attr="visual-review-quarantine-source-pr"
+                                >
+                                    {batchLeaderPrNumber ? (
+                                        'All PRs tested'
+                                    ) : (
+                                        <span className="font-mono">#{sourceRun.pr_number}</span>
+                                    )}
+                                </Link>
+                            </>
+                        )}
+                        <span aria-hidden>·</span>
+                        <TZLabel time={sourceRun.created_at} />
+                    </div>
+                )}
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                    {sourceRun && (
                         <LemonButton
                             type="secondary"
                             size="small"
-                            status="danger"
-                            onClick={openConfirmation}
-                            data-attr="visual-review-history-unquarantine"
+                            to={runPath(sourceRun.id, repoFullName)}
+                            data-attr="visual-review-quarantine-source-run"
                         >
-                            Unquarantine
+                            View run
                         </LemonButton>
-                    </div>
+                    )}
+                    <QuarantineAction
+                        identifier={identifier}
+                        onQuarantine={onQuarantine}
+                        mode="extend"
+                        triggerLabel={label ? `Extend (${label})` : 'Extend quarantine'}
+                        initialReason={quarantineEntry.reason}
+                        initialExpiresAt={quarantineEntry.expires_at}
+                        sourceRunId={sourceRun?.id ?? null}
+                    />
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        status="danger"
+                        onClick={openConfirmation}
+                        data-attr="visual-review-history-unquarantine"
+                    >
+                        Unquarantine
+                    </LemonButton>
                 </div>
-            </LemonBanner>
-        )
-    }
-    return (
-        <div className="flex items-center justify-end">
-            <QuarantineAction
-                identifier={identifier}
-                onQuarantine={onQuarantine}
-                triggerLabel={label ? `Quarantine (${label})` : undefined}
-                runType={runType}
-            />
-        </div>
+            </div>
+        </LemonBanner>
     )
 }
 
@@ -319,6 +343,7 @@ export function VisualReviewSnapshotHistoryScene(): JSX.Element {
     const {
         repo,
         repoLoading,
+        repoNotFound,
         history,
         historyLoading,
         identifier,
@@ -326,7 +351,7 @@ export function VisualReviewSnapshotHistoryScene(): JSX.Element {
         primaryTheme,
         siblingIdentifier,
         runType,
-        repoId,
+        repoFullName: pathRepoFullName,
         quarantineEntry,
         quarantineEntryLoading,
         siblingQuarantineEntry,
@@ -336,17 +361,45 @@ export function VisualReviewSnapshotHistoryScene(): JSX.Element {
         visualReviewSnapshotHistorySceneLogic
     ) as any
 
-    const repoFullName = repo?.repo_full_name ?? null
+    const repoFullName: string = repo?.repo_full_name ?? pathRepoFullName
     const firstSeen = history.length > 0 ? history[history.length - 1].created_at : null
     const baselineUpdates = Math.max(0, history.length - 1)
-    const isQuarantined = !!quarantineEntry
-    const isSiblingQuarantined = !!siblingQuarantineEntry
     const hasThemePair = primaryTheme !== null && siblingIdentifier !== null
+    const loadedVariants: QuarantineVariant[] = []
+    if (!quarantineEntryLoading) {
+        loadedVariants.push({
+            identifier,
+            label: hasThemePair ? primaryTheme : null,
+            quarantineEntry,
+            onUnquarantine: unquarantineIdentifier,
+        })
+    }
+    if (hasThemePair && !siblingQuarantineEntryLoading) {
+        loadedVariants.push({
+            identifier: siblingIdentifier,
+            label: primaryTheme === 'light' ? 'dark' : 'light',
+            quarantineEntry: siblingQuarantineEntry,
+            onUnquarantine: unquarantineSibling,
+        })
+    }
+
+    if (repoNotFound) {
+        return <NotFound object="visual review repo" />
+    }
 
     return (
         <SceneContent>
-            <SceneTitleSection name={identifier} resourceType={{ type: 'visual_review' }} />
-            {repoId && <VisualReviewTabs activeKey="snapshots" repoId={repoId} />}
+            <VisualReviewSceneTitle repoFullName={pathRepoFullName} activeTab="snapshots" />
+            <VisualReviewTabs activeKey="snapshots" repoFullName={pathRepoFullName} />
+            <VisualReviewTrail
+                crumbs={[
+                    {
+                        label: 'Snapshots',
+                        to: urls.visualReviewSnapshotOverview(...splitRepoFullName(pathRepoFullName)),
+                    },
+                    { label: identifier },
+                ]}
+            />
 
             <div className="w-full max-w-4xl mx-auto flex flex-col gap-4">
                 <div className="border rounded bg-bg-light flex flex-wrap items-center gap-x-10 gap-y-3 px-4 py-3">
@@ -365,58 +418,46 @@ export function VisualReviewSnapshotHistoryScene(): JSX.Element {
                         label={baselineUpdates === 1 ? 'Baseline update' : 'Baseline updates'}
                     />
                     <Stat value={firstSeen ? dayjs(firstSeen).fromNow() : '–'} label="First captured" />
-                    {repoFullName && (
-                        <Stat
-                            value={
-                                <Link
-                                    to={`https://github.com/${repoFullName}`}
-                                    target="_blank"
-                                    className="font-mono text-default"
-                                >
-                                    {repoFullName}
-                                </Link>
-                            }
-                            label="Repo"
-                        />
-                    )}
+                    <Stat
+                        value={
+                            <Link
+                                to={`https://github.com/${repoFullName}`}
+                                target="_blank"
+                                className="font-mono text-default"
+                            >
+                                {repoFullName}
+                            </Link>
+                        }
+                        label="Repo"
+                    />
+                    <div className="ml-auto flex flex-wrap items-center gap-2">
+                        {loadedVariants
+                            .filter((variant) => !variant.quarantineEntry)
+                            .map((variant) => (
+                                <QuarantineAction
+                                    key={variant.identifier}
+                                    identifier={variant.identifier}
+                                    onQuarantine={quarantineIdentifier}
+                                    triggerLabel={variant.label ? `Quarantine (${variant.label})` : undefined}
+                                    runType={runType}
+                                />
+                            ))}
+                    </div>
                 </div>
 
-                {hasThemePair ? (
-                    <div className="grid grid-cols-2 gap-2">
-                        {!quarantineEntryLoading && (
-                            <QuarantineSection
-                                identifier={identifier}
-                                runType={runType}
-                                label={primaryTheme}
-                                quarantineEntry={quarantineEntry}
-                                isQuarantined={isQuarantined}
+                {loadedVariants.map(
+                    (variant) =>
+                        variant.quarantineEntry && (
+                            <QuarantineBanner
+                                key={variant.identifier}
+                                identifier={variant.identifier}
+                                repoFullName={repoFullName}
+                                label={variant.label}
+                                quarantineEntry={variant.quarantineEntry}
                                 onQuarantine={quarantineIdentifier}
-                                onUnquarantine={unquarantineIdentifier}
+                                onUnquarantine={variant.onUnquarantine}
                             />
-                        )}
-                        {!siblingQuarantineEntryLoading && (
-                            <QuarantineSection
-                                identifier={siblingIdentifier}
-                                runType={runType}
-                                label={primaryTheme === 'light' ? 'dark' : 'light'}
-                                quarantineEntry={siblingQuarantineEntry}
-                                isQuarantined={isSiblingQuarantined}
-                                onQuarantine={quarantineIdentifier}
-                                onUnquarantine={unquarantineSibling}
-                            />
-                        )}
-                    </div>
-                ) : (
-                    !quarantineEntryLoading && (
-                        <QuarantineSection
-                            identifier={identifier}
-                            runType={runType}
-                            quarantineEntry={quarantineEntry}
-                            isQuarantined={isQuarantined}
-                            onQuarantine={quarantineIdentifier}
-                            onUnquarantine={unquarantineIdentifier}
-                        />
-                    )
+                        )
                 )}
 
                 {historyLoading || repoLoading ? (

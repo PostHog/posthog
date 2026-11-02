@@ -6,7 +6,18 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import requests
+from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.skio import SkioSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.skio.skio import (
     SkioAPIError,
     SkioResumeConfig,
@@ -14,6 +25,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.skio.skio 
     _format_timestamp,
     get_rows,
     validate_credentials,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.skio.source import SkioSource
+
+# Verbatim message shape `requests`/urllib3 raise for a read timeout or a dropped connection
+# against the live host; both are the transient failures `_post_query` retries.
+READ_TIMEOUT = requests.ReadTimeout(
+    "HTTPSConnectionPool(host='graphql.skio.com', port=443): Read timed out. (read timeout=60.0)"
+)
+CONNECTION_ERROR = requests.ConnectionError(
+    "HTTPSConnectionPool(host='graphql.skio.com', port=443): Max retries exceeded with url: /v1/graphql"
 )
 
 TOKEN = "test-token"
@@ -23,15 +44,8 @@ TOKEN = "test-token"
 INVALID_TOKEN_BODY = {"errors": [{"message": "Invalid response from authorization hook"}]}
 
 
-def _response(payload: dict[str, Any], status_code: int = 200) -> MagicMock:
-    response = MagicMock()
-    response.status_code = status_code
-    response.json.return_value = payload
-    if status_code >= 400:
-        response.raise_for_status.side_effect = requests.HTTPError(f"{status_code} Client Error", response=response)
-    else:
-        response.raise_for_status.return_value = None
-    return response
+def _response(payload: dict[str, Any], status_code: int = 200) -> ScriptedResponse:
+    return ScriptedResponse(status=status_code, json=payload)
 
 
 def _rows(start: int, count: int, field: str = "updatedAt") -> list[dict[str, Any]]:
@@ -52,31 +66,8 @@ def _manager(resume: SkioResumeConfig | None = None) -> MagicMock:
     return manager
 
 
-def _run(
-    session: MagicMock,
-    endpoint: str = "subscriptions",
-    manager: MagicMock | None = None,
-    **kwargs: Any,
-) -> tuple[list[list[dict[str, Any]]], MagicMock]:
-    manager = manager if manager is not None else _manager()
-    with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.skio.skio.make_tracked_session",
-        return_value=session,
-    ):
-        batches = list(
-            get_rows(
-                api_token=TOKEN,
-                endpoint=endpoint,
-                logger=MagicMock(),
-                resumable_source_manager=manager,
-                **kwargs,
-            )
-        )
-    return batches, manager
-
-
-def _request_variables(session: MagicMock, call_index: int) -> dict[str, Any]:
-    return session.post.call_args_list[call_index].kwargs["json"]["variables"]
+def _run(script: Script, endpoint: str = "subscriptions", **kwargs: Any) -> DriveResult:
+    return SourceDriver(SkioSource(), SkioSourceConfig(api_token=TOKEN)).run(endpoint, script, **kwargs)
 
 
 class TestSkioTransport:
@@ -138,77 +129,66 @@ class TestSkioTransport:
         assert _build_where(incremental_field, last_value, cursor) == expected
 
     def test_incremental_request_filters_and_orders_on_cursor_field(self) -> None:
-        session = MagicMock()
-        session.post.side_effect = [_response(_page(_rows(0, 3)))]
-
-        _run(
-            session,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
+        result = _run(
+            [_response(_page(_rows(0, 3)))],
             incremental_field="updatedAt",
+            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
         )
 
-        variables = _request_variables(session, 0)
+        variables = result.requests[0].json()["variables"]
         assert variables["where"] == {"updatedAt": {"_gte": "2026-01-01T00:00:00+00:00"}}
         assert variables["orderBy"] == [{"updatedAt": "asc"}, {"id": "asc"}]
 
     def test_empty_first_page_yields_nothing(self) -> None:
-        session = MagicMock()
-        session.post.side_effect = [_response(_page([]))]
+        result = _run([_response(_page([]))])
 
-        batches, manager = _run(session)
-
-        assert batches == []
-        manager.save_state.assert_not_called()
+        assert result.items == []
+        assert result.saved_states == []
 
     def test_graphql_errors_raise_with_verbatim_api_message(self) -> None:
-        session = MagicMock()
-        session.post.side_effect = [_response(INVALID_TOKEN_BODY)]
+        result = _run([_response(INVALID_TOKEN_BODY)])
 
-        with pytest.raises(SkioAPIError, match="Invalid response from authorization hook"):
-            _run(session)
+        assert isinstance(result.raised, SkioAPIError)
+        assert "Invalid response from authorization hook" in str(result.raised)
 
     def test_http_error_propagates_for_transport_retry_classification(self) -> None:
-        session = MagicMock()
-        session.post.side_effect = [_response({}, status_code=403)]
+        result = _run([_response({}, status_code=403)])
 
-        with pytest.raises(requests.HTTPError):
-            _run(session)
+        assert isinstance(result.raised, requests.HTTPError)
+
+    @parameterized.expand([("read_timeout", READ_TIMEOUT), ("connection_error", CONNECTION_ERROR)])
+    def test_transient_network_error_is_retried_then_succeeds(self, _name: str, error: BaseException) -> None:
+        # The GraphQL endpoint is queried over POST, which the tracked session's transport-level
+        # retry does not cover (it only retries idempotent methods), so a read timeout or dropped
+        # connection must be retried by the source itself or it fails the whole import attempt on
+        # the first blip.
+        result = _run([error, _response(_page(_rows(0, 1)))])
+
+        assert result.raised is None
+        assert result.rows == _rows(0, 1)
+
+    @parameterized.expand([("read_timeout", READ_TIMEOUT), ("connection_error", CONNECTION_ERROR)])
+    def test_transient_network_error_that_keeps_failing_matches_retryable_errors(
+        self, _name: str, error: BaseException
+    ) -> None:
+        result = _run(always(error))
+
+        assert isinstance(result.raised, type(error))
+        assert error_message_matches(str(result.raised), SkioSource().get_retryable_errors())
 
 
 class TestValidateCredentials:
-    def _validate(self, session: MagicMock) -> tuple[bool, str | None]:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.skio.skio.make_tracked_session",
-            return_value=session,
-        ):
-            return validate_credentials(TOKEN)
-
     def test_valid_token(self) -> None:
-        session = MagicMock()
-        session.post.return_value = _response(_page(_rows(0, 1)))
-
-        assert self._validate(session) == (True, None)
+        with scripted_network(always(_response(_page(_rows(0, 1))))):
+            assert validate_credentials(TOKEN) == (True, None)
 
     def test_invalid_token_maps_to_user_message(self) -> None:
-        session = MagicMock()
-        session.post.return_value = _response(INVALID_TOKEN_BODY)
-
-        assert self._validate(session) == (False, "Invalid Skio API token")
-
-    def test_connection_error_reports_unreachable(self) -> None:
-        session = MagicMock()
-        session.post.side_effect = requests.ConnectionError("boom")
-
-        valid, message = self._validate(session)
-        assert valid is False
-        assert message == "Could not connect to the Skio API"
+        with scripted_network(always(_response(INVALID_TOKEN_BODY))):
+            assert validate_credentials(TOKEN) == (False, "Invalid Skio API token")
 
     def test_other_graphql_error_surfaces_message(self) -> None:
-        session = MagicMock()
-        session.post.return_value = _response({"errors": [{"message": "query is not in any of the allowlists"}]})
-
-        valid, message = self._validate(session)
+        with scripted_network(always(_response({"errors": [{"message": "query is not in any of the allowlists"}]}))):
+            valid, message = validate_credentials(TOKEN)
         assert valid is False
         assert message is not None and "query is not in any of the allowlists" in message
 

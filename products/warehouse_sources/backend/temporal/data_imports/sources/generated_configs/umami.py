@@ -6,4 +6,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class UmamiSourceConfig(config.Config):
-    pass
+    host: str | None = None
+    api_key: str | None = None
+    username: str | None = None
+    password: str | None = None

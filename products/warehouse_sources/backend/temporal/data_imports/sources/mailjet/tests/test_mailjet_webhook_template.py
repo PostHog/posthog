@@ -4,8 +4,7 @@ import hashlib
 
 from parameterized import parameterized
 
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.settings import MAILJET_WEBHOOK_EVENTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.webhook_template import template
 

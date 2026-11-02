@@ -10,6 +10,12 @@ Reference: https://docs.mem0.ai/api-reference
   pagination or timestamp filters), so it's full refresh only.
 - ``events``: GET /v1/events/ — ``{count, next, previous, results}`` envelope followed via the
   ``next`` URL. No documented timestamp filters, so full refresh only.
+- ``memory_history``: GET /v1/memories/{memory_id}/history/ — a bare array per memory, fanned out
+  over the memories listing. The child has no filters, so incremental syncs bound the fan-out by
+  filtering the memories listing on ``updated_at`` instead.
+- ``organizations``: GET /api/v1/orgs/organizations/ — a bare array, no pagination.
+- ``projects``: GET /api/v1/orgs/organizations/{org_id}/projects/ — a bare array per organization,
+  fanned out over the organizations listing.
 """
 
 from dataclasses import dataclass, field
@@ -32,11 +38,12 @@ DEFAULT_VERSION = MEM0_API_VERSION_V3
 MEMORIES_ENDPOINT = "memories"
 ENTITIES_ENDPOINT = "entities"
 EVENTS_ENDPOINT = "events"
+MEMORY_HISTORY_ENDPOINT = "memory_history"
+ORGANIZATIONS_ENDPOINT = "organizations"
+PROJECTS_ENDPOINT = "projects"
 
-_DATETIME_INCREMENTAL_FIELD_NAMES = ("updated_at", "created_at")
 
-
-def _datetime_incremental_fields() -> list[IncrementalField]:
+def _datetime_incremental_fields(*names: str) -> list[IncrementalField]:
     return [
         {
             "label": name,
@@ -44,7 +51,7 @@ def _datetime_incremental_fields() -> list[IncrementalField]:
             "field": name,
             "field_type": IncrementalFieldType.DateTime,
         }
-        for name in _DATETIME_INCREMENTAL_FIELD_NAMES
+        for name in names
     ]
 
 
@@ -68,7 +75,7 @@ MEM0_ENDPOINTS: dict[str, Mem0EndpointConfig] = {
         path="/v3/memories/",
         method="POST",
         partition_key="created_at",
-        incremental_fields=_datetime_incremental_fields(),
+        incremental_fields=_datetime_incremental_fields("updated_at", "created_at"),
         page_size=100,
     ),
     ENTITIES_ENDPOINT: Mem0EndpointConfig(
@@ -84,6 +91,28 @@ MEM0_ENDPOINTS: dict[str, Mem0EndpointConfig] = {
         method="GET",
         partition_key="created_at",
         should_sync_default=False,
+    ),
+    # Opt-in: one request per memory, so it costs far more API calls than the memories table.
+    MEMORY_HISTORY_ENDPOINT: Mem0EndpointConfig(
+        name=MEMORY_HISTORY_ENDPOINT,
+        path="/v1/memories/{memory_id}/history/",
+        method="GET",
+        partition_key="created_at",
+        incremental_fields=_datetime_incremental_fields("created_at"),
+        should_sync_default=False,
+    ),
+    ORGANIZATIONS_ENDPOINT: Mem0EndpointConfig(
+        name=ORGANIZATIONS_ENDPOINT,
+        path="/api/v1/orgs/organizations/",
+        method="GET",
+        primary_keys=["org_id"],
+    ),
+    PROJECTS_ENDPOINT: Mem0EndpointConfig(
+        name=PROJECTS_ENDPOINT,
+        path="/api/v1/orgs/organizations/{org_id}/projects/",
+        method="GET",
+        # Project rows carry no org id, so the fan-out adds it and the key includes it.
+        primary_keys=["org_id", "project_id"],
     ),
 }
 

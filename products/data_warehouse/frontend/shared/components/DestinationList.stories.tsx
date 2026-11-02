@@ -11,6 +11,7 @@ const WAREHOUSE: ExternalDataDestinationApi = {
     config: {},
     integration: null,
     is_posthog_warehouse: true,
+    status: 'healthy',
     created_at: '2026-08-20T10:00:00Z',
     updated_at: '2026-08-25T10:00:00Z',
     created_by: null,
@@ -23,6 +24,7 @@ const POSTGRES: ExternalDataDestinationApi = {
     config: { database: 'analytics', schema: 'customer_sync' },
     integration: 1,
     is_posthog_warehouse: false,
+    status: 'healthy',
     created_at: '2026-08-24T10:00:00Z',
     updated_at: '2026-08-26T14:00:00Z',
     created_by: null,
@@ -44,6 +46,22 @@ BothSelected.args = {
     selectedIds: [POSTGRES.id, WAREHOUSE.id],
     onToggle: () => {},
     onEdit: () => {},
+}
+
+export const FailingAndPaused = Template.bind({})
+FailingAndPaused.args = {
+    ...BothSelected.args,
+    destinations: [
+        WAREHOUSE,
+        { ...POSTGRES, status: 'failing', latest_error: 'Customer Postgres: Could not connect to the database.' },
+        {
+            ...POSTGRES,
+            id: 'paused-postgres',
+            name: 'Reporting Postgres',
+            status: 'paused',
+            latest_error: 'Reporting Postgres: Destination configuration error. The database does not exist.',
+        },
+    ],
 }
 
 export const OnlyOneLeft = Template.bind({})

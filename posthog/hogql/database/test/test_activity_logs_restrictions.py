@@ -122,8 +122,7 @@ class TestActivityLogsSqlRestrictions(BaseTest):
         self.assertIn(activities, bound)
 
     def test_loop_rows_are_hidden_entirely(self):
-        # The viewset allows loops per user from live RBAC. No system.loops table exists to defer
-        # that to, so SQL drops the scope rather than leak another user's personal loop config.
+        # Matches the viewset: legacy loop rows can hold another user's personal loop config.
         self._set_audit_logs_feature(limit=30, unit="days")
 
         hogql, _ = self._print(dialect="hogql")

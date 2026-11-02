@@ -134,8 +134,8 @@ TASKS_AGENT_PROXY_CORS_ORIGINS: list[str] = [
 TASKS_AGENT_PROXY_INGEST_URL: str | None = os.getenv("TASKS_AGENT_PROXY_INGEST_URL") or None
 
 # Browser-facing base URL of the agent-proxy for the live-stream read leg, per environment (e.g.
-# https://agent-proxy.us.posthog.com). The stream_token endpoint returns it to clients only when this
-# is set AND the read-via-proxy flag is enabled for the user; unset means clients read from Django.
+# https://agent-proxy.us.posthog.com). The stream_token endpoint returns it to clients when this is
+# set; unset means clients read from Django.
 TASKS_AGENT_PROXY_PUBLIC_URL: str | None = os.getenv("TASKS_AGENT_PROXY_PUBLIC_URL") or None
 
 # In-cluster base URL of the agent-proxy for backend consumers (e.g. the Temporal worker relaying a
@@ -149,12 +149,6 @@ TASKS_AGENT_PROXY_INTERNAL_URL: str | None = os.getenv("TASKS_AGENT_PROXY_INTERN
 # callback requires a matching X-Agent-Proxy-Secret header. Provision the same value to Django and the
 # agent-proxy in production; unset (local/CI) disables the check.
 AGENT_PROXY_CALLBACK_SECRET: str | None = os.getenv("AGENT_PROXY_CALLBACK_SECRET") or None
-
-# The GitHub App's bot login (`<app slug>[bot]`) ReviewHog posts as. When set, the marker-based
-# idempotency scans only trust comments/reviews authored by this exact identity — otherwise any
-# installed bot could paste a public marker and suppress a publish (or get its comment PATCHed).
-# Unset trusts no author in production, and any Bot-typed author in local development and tests.
-REVIEWHOG_GITHUB_BOT_LOGIN: str = get_from_env("REVIEWHOG_GITHUB_BOT_LOGIN", "")
 
 # These are legacy values only kept around for backwards compatibility with self hosted versions
 SALT_KEY = get_list(os.getenv("SALT_KEY", "0123456789abcdefghijklmnopqrstuvwxyz"))

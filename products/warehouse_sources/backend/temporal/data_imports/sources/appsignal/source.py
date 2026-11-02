@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,21 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AppsignalSource(ResumableSource[AppsignalSourceConfig, AppsignalResumeConfig]):
+    codebase_detection = detect(
+        env=("^APPSIGNAL_",),
+        npm=("@appsignal/nodejs", "@appsignal/javascript"),
+        pypi=("appsignal",),
+        hex=("appsignal", "appsignal_phoenix"),
+        rubygems=(
+            "appsignal",
+            "appsignal-mongo",
+            "appsignal-moped",
+            "appsignal-opentelemetry",
+            "appsignal-redis",
+            "appsignal-tire",
+        ),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -64,7 +80,7 @@ class AppsignalSource(ResumableSource[AppsignalSourceConfig, AppsignalResumeConf
 Your personal API token is in your [AppSignal personal settings](https://appsignal.com/users/edit) under "API key". The app ID is the identifier in your app's AppSignal URL: `https://appsignal.com/<organization>/sites/<app ID>`.""",
             iconPath="/static/services/appsignal.png",
             docsUrl="https://posthog.com/docs/cdp/sources/appsignal",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["apm", "error tracking", "monitoring"],
             fields=cast(
                 list[FieldType],

@@ -1,0 +1,99 @@
+diff --git a/floating-ui-react/components/FloatingRootStore.js b/floating-ui-react/components/FloatingRootStore.js
+index 8fb20046bfb360ba4346f4889888dec0d0bf0539..25ac2ae9f54884a8f0447106d022d4ab96eb7475 100644
+--- a/floating-ui-react/components/FloatingRootStore.js
++++ b/floating-ui-react/components/FloatingRootStore.js
+@@ -4,6 +4,8 @@ Object.defineProperty(exports, "__esModule", {
+   value: true
+ });
+ exports.FloatingRootStore = void 0;
++var _react = require("react");
++var _shim = require("use-sync-external-store/shim");
+ var _store = require("@base-ui/utils/store");
+ var _createEventEmitter = require("../utils/createEventEmitter");
+ var _utils = require("../utils");
+@@ -40,6 +42,13 @@ class FloatingRootStore extends _store.ReactStore {
+     this.syncOnly = syncOnly;
+   }
+ 
++  // The selector shim retains a full snapshot, including a closed popup's DOM.
++  useState(key, a1, a2, a3) {
++    const selector = this.selectors[key];
++    const getSelection = _react.useCallback(() => selector(this.getSnapshot(), a1, a2, a3), [this, selector, a1, a2, a3]);
++    return (0, _shim.useSyncExternalStore)(this.subscribe, getSelection, getSelection);
++  }
++
+   /**
+    * Syncs the event used by hover logic to distinguish hover-open from click-like interaction.
+    */
+diff --git a/floating-ui-react/components/FloatingRootStore.mjs b/floating-ui-react/components/FloatingRootStore.mjs
+index 94b43928a84001be7bf3494b4ba9b6455582594d..25673142688d1927580a22b38da58153d1f0e679 100644
+--- a/floating-ui-react/components/FloatingRootStore.mjs
++++ b/floating-ui-react/components/FloatingRootStore.mjs
+@@ -1,3 +1,5 @@
++import * as React from 'react';
++import { useSyncExternalStore } from 'use-sync-external-store/shim';
+ import { ReactStore } from '@base-ui/utils/store';
+ import { createEventEmitter } from "../utils/createEventEmitter.mjs";
+ import { isClickLikeEvent } from "../utils.mjs";
+@@ -34,6 +36,13 @@ export class FloatingRootStore extends ReactStore {
+     this.syncOnly = syncOnly;
+   }
+ 
++  // The selector shim retains a full snapshot, including a closed popup's DOM.
++  useState(key, a1, a2, a3) {
++    const selector = this.selectors[key];
++    const getSelection = React.useCallback(() => selector(this.getSnapshot(), a1, a2, a3), [this, selector, a1, a2, a3]);
++    return useSyncExternalStore(this.subscribe, getSelection, getSelection);
++  }
++
+   /**
+    * Syncs the event used by hover logic to distinguish hover-open from click-like interaction.
+    */
+diff --git a/floating-ui-react/hooks/useFloating.js b/floating-ui-react/hooks/useFloating.js
+index 7bdfd0b459d3a05afa98241d9e9d629a2bd1cb1c..e9dffdd7893aaf73aabff97fa90d3c2d9f6d6fe6 100644
+--- a/floating-ui-react/hooks/useFloating.js
++++ b/floating-ui-react/hooks/useFloating.js
+@@ -82,11 +82,18 @@ function useBaseUIFloating(options) {
+     }
+   }, [domReferenceElement]);
+   (0, _useIsoLayoutEffect.useIsoLayoutEffect)(() => {
+-    store.context.dataRef.current.floatingContext = context;
++    const dataRef = store.context.dataRef;
++    dataRef.current.floatingContext = context;
+     const node = tree?.nodesRef.current.find(n => n.id === nodeId);
+     if (node) {
+       node.context = context;
+     }
++    return () => {
++      // The root store outlives the floating element, so a stale context retains the detached popup.
++      if (dataRef.current.floatingContext === context) {
++        dataRef.current.floatingContext = undefined;
++      }
++    };
+   });
+   return React.useMemo(() => ({
+     ...position,
+diff --git a/floating-ui-react/hooks/useFloating.mjs b/floating-ui-react/hooks/useFloating.mjs
+index 44fa4b5199a9d419d47a8091e16a6244e74b1997..e946673346f0493c16bd0703775bc0926f84d36b 100644
+--- a/floating-ui-react/hooks/useFloating.mjs
++++ b/floating-ui-react/hooks/useFloating.mjs
+@@ -76,11 +76,18 @@ export function useBaseUIFloating(options) {
+     }
+   }, [domReferenceElement]);
+   useIsoLayoutEffect(() => {
+-    store.context.dataRef.current.floatingContext = context;
++    const dataRef = store.context.dataRef;
++    dataRef.current.floatingContext = context;
+     const node = tree?.nodesRef.current.find(n => n.id === nodeId);
+     if (node) {
+       node.context = context;
+     }
++    return () => {
++      // The root store outlives the floating element, so a stale context retains the detached popup.
++      if (dataRef.current.floatingContext === context) {
++        dataRef.current.floatingContext = undefined;
++      }
++    };
+   });
+   return React.useMemo(() => ({
+     ...position,

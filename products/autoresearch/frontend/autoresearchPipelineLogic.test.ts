@@ -8,6 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { initKeaTests } from '~/test/init'
 
 import {
+    PROPERTY_CLEANUP_POLL_INTERVAL_MS,
     SCORE_RUN_POLL_INTERVAL_MS,
     TRAINING_RUN_POLL_INTERVAL_MS,
     autoresearchPipelineLogic,
@@ -204,6 +205,36 @@ describe('autoresearchPipelineLogic', () => {
             ])
             expect(logic.cache.disposables.registry.has('trainingPoll')).toBe(false)
             expect(mockModelsList.mock.calls.length).toBeGreaterThan(modelLoads)
+        } finally {
+            logic.unmount()
+            jest.useRealTimers()
+        }
+    })
+
+    it('reloads runs while a person property cleanup is live, then stops', async () => {
+        jest.clearAllMocks()
+        jest.useFakeTimers()
+        initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.AUTORESEARCH], { [FEATURE_FLAGS.AUTORESEARCH]: true })
+        mockRetrieve.mockResolvedValue({ id: 'pipeline-1', name: 'Model' })
+        mockModelsList.mockResolvedValue({ results: [], next: null })
+        mockTrainingRunsList.mockResolvedValue({ results: [], next: null })
+        const cleanup = { id: 'cleanup-1', run_type: 'property_cleanup' } as const
+        mockRunsList
+            .mockResolvedValueOnce({ results: [makeScoreRun({ ...cleanup, status: 'running' })], next: null })
+            .mockResolvedValue({ results: [makeScoreRun({ ...cleanup, status: 'completed' })], next: null })
+        const logic = autoresearchPipelineLogic({ id: 'pipeline-1' })
+        try {
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadRunsSuccess'])
+            expect(logic.cache.disposables.registry.has('cleanupPoll')).toBe(true)
+
+            await expectLogic(logic, () =>
+                jest.advanceTimersByTime(PROPERTY_CLEANUP_POLL_INTERVAL_MS)
+            ).toDispatchActions(['loadRuns', 'loadRunsSuccess'])
+            expect(logic.values.latestPropertyCleanupRun?.status).toEqual('completed')
+            expect(logic.cache.disposables.registry.has('cleanupPoll')).toBe(false)
         } finally {
             logic.unmount()
             jest.useRealTimers()

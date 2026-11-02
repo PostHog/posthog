@@ -183,7 +183,7 @@ fn setup_ai_test_router() -> Router {
         false,
         0.0_f32,
         26_214_400,       // 25MB default for AI endpoint
-        983_040,          // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        983_040,          // ai_max_event_bytes (960KB)
         None,             // body_chunk_read_timeout_ms
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
@@ -192,10 +192,8 @@ fn setup_ai_test_router() -> Router {
         None,             // ai_events_overflow_limiter
         None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
-        None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
         None,             // ai_gateway_signing_secret
-        false,            // ai_events_overflow_enabled
         None,             // ingestion_warning_emitter
     )
 }
@@ -240,7 +238,7 @@ fn setup_ai_router_collecting_warnings() -> (Router, Arc<CollectingEmitter>) {
         false,
         0.0_f32,
         26_214_400,
-        983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        983_040, // ai_max_event_bytes (960KB)
         None,
         256,
         10 * 1024 * 1024,
@@ -249,10 +247,8 @@ fn setup_ai_router_collecting_warnings() -> (Router, Arc<CollectingEmitter>) {
         None,
         None, // ai_byte_rate_limiter
         None,
-        None,
         8,
         None,
-        false,
         warning_emitter,
     );
 
@@ -1152,10 +1148,8 @@ async fn test_request_body_exceeds_110_percent_limit_returns_413() {
         "$ai_model": "test"
     });
 
-    // Create a blob that's just barely over 25MB
-    // This will result in a request body that exceeds 27.5MB (110% limit)
-    // once multipart overhead is added
-    let large_blob = vec![0u8; (25 * 1024 * 1024) + (3 * 1024 * 1024)]; // 28MB
+    // 28 MiB alone exceeds the 27.5 MiB body limit (110% of 25 MiB).
+    let large_blob = vec![0u8; (25 * 1024 * 1024) + (3 * 1024 * 1024)];
 
     let form = Form::new()
         .part(
@@ -1184,7 +1178,6 @@ async fn test_request_body_exceeds_110_percent_limit_returns_413() {
     )
     .await;
 
-    // Axum's DefaultBodyLimit returns 413 Payload Too Large when the body exceeds the limit
     assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
 }
 
@@ -1290,7 +1283,7 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         false,
         0.0_f32,
         26_214_400,       // 25MB default for AI endpoint
-        983_040,          // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        983_040,          // ai_max_event_bytes (960KB)
         None,             // body_chunk_read_timeout_ms
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
@@ -1299,10 +1292,8 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         None,             // ai_events_overflow_limiter
         None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
-        None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
         None,             // ai_gateway_signing_secret
-        false,            // ai_events_overflow_enabled
         None,             // ingestion_warning_emitter
     );
 
@@ -1960,7 +1951,7 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         false,            // is_mirror_deploy
         0.0,              // verbose_sample_percent
         26_214_400,       // ai_max_sum_of_parts_bytes
-        983_040,          // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        983_040,          // ai_max_event_bytes (960KB)
         None,             // body_chunk_read_timeout_ms
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
@@ -1969,10 +1960,8 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         None,             // ai_events_overflow_limiter
         None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
-        None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
         None,             // ai_gateway_signing_secret
-        false,            // ai_events_overflow_enabled
         None,             // ingestion_warning_emitter
     );
 
@@ -2027,7 +2016,7 @@ fn setup_ai_test_router_with_byte_limiter() -> (Router, CapturingSink) {
         false,            // is_mirror_deploy
         0.0,              // verbose_sample_percent
         26_214_400,       // ai_max_sum_of_parts_bytes
-        983_040,          // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        983_040,          // ai_max_event_bytes (960KB)
         None,             // body_chunk_read_timeout_ms
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
@@ -2035,12 +2024,10 @@ fn setup_ai_test_router_with_byte_limiter() -> (Router, CapturingSink) {
         None,             // overflow_limiter
         None,             // ai_events_overflow_limiter
         Some(byte_limiter),
-        None,  // replay_overflow_limiter
-        None,  // v1_sink_router
-        8,     // capture_v1_scatter_gather_min_batch
-        None,  // ai_gateway_signing_secret
-        false, // ai_events_overflow_enabled
-        None,  // ingestion_warning_emitter
+        None, // replay_overflow_limiter
+        8,    // capture_v1_scatter_gather_min_batch
+        None, // ai_gateway_signing_secret
+        None, // ingestion_warning_emitter
     );
 
     (router, sink_clone)
@@ -2290,7 +2277,7 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         false,
         0.0_f32,
         26_214_400,
-        983_040,          // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        983_040,          // ai_max_event_bytes (960KB)
         None,             // body_chunk_read_timeout_ms
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
@@ -2299,10 +2286,8 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         None,             // ai_events_overflow_limiter
         None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
-        None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
         None,             // ai_gateway_signing_secret
-        false,            // ai_events_overflow_enabled
         None,             // ingestion_warning_emitter
     );
 
@@ -2395,21 +2380,11 @@ async fn test_ai_endpoint_quota_limiter_returns_billing_limit_error_message() {
 // ============================================================================
 // OverflowLimiter coverage for the AI endpoint
 // ============================================================================
-//
-// These tests exercise the shared `stamp_overflow_reason` helper invoked in
-// `ai_handler` immediately after `build_kafka_event`. Pre-refactor the
-// OverflowLimiter check happened inside the kafka sink; now it's a pipeline
-// concern stamped into `ProcessedEventMetadata::overflow_reason`. Since AI
-// bypasses `events::analytics::process_events`, these tests are the
-// regression guard for `capture-ai-prod-us` (which runs with
-// `OVERFLOW_ENABLED=true` + `OVERFLOW_PRESERVE_PARTITION_LOCALITY=true`).
+// `ai_handler` calls `stamp_overflow_reason` with the AI lane's limiter, which setup builds only when both `OVERFLOW_ENABLED` and `AI_EVENTS_OVERFLOW_ENABLED` are set.
 
 const AI_OVERFLOW_TEST_TOKEN: &str = "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3";
 
-/// Variant of `setup_ai_test_router_with_capturing_sink` that wires a real
-/// `OverflowLimiter` into the router's AI lane — where AI-endpoint events land,
-/// so it is the limiter they consult. Existing helpers still pass `None`; this
-/// one opts in to exercise the governor path.
+/// AI-mode router with `ai_events_overflow_limiter` as the AI lane's limiter.
 fn setup_ai_test_router_with_overflow_limiter(
     ai_events_overflow_limiter: Arc<OverflowLimiter>,
 ) -> (Router, CapturingSink) {
@@ -2449,7 +2424,7 @@ fn setup_ai_test_router_with_overflow_limiter(
         false,
         0.0_f32,
         26_214_400,
-        983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        983_040, // ai_max_event_bytes (960KB)
         None,
         256,
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
@@ -2458,10 +2433,8 @@ fn setup_ai_test_router_with_overflow_limiter(
         Some(ai_events_overflow_limiter),
         None, // ai_byte_rate_limiter
         None, // replay_overflow_limiter
-        None, // v1_sink_router
         8,    // capture_v1_scatter_gather_min_batch
         None, // ai_gateway_signing_secret
-        true, // ai_events_overflow_enabled
         None, // ingestion_warning_emitter
     );
 
@@ -2470,17 +2443,13 @@ fn setup_ai_test_router_with_overflow_limiter(
 
 #[tokio::test]
 async fn test_ai_event_with_hot_key_stamps_force_limited_reason() {
-    // Configure the OverflowLimiter to force-route the specific
-    // `token:distinct_id` key. `per_second`/`burst` are generous so only the
-    // explicit `keys_to_reroute` entry triggers — this isolates the
-    // ForceLimited branch from the RateLimited branch.
     let hot_distinct_id = "user_hot_key";
     let hot_key = format!("{AI_OVERFLOW_TEST_TOKEN}:{hot_distinct_id}");
     let overflow_limiter = Arc::new(OverflowLimiter::new(
         NonZeroU32::new(1_000).unwrap(),
         NonZeroU32::new(1_000).unwrap(),
         Some(hot_key),
-        true, // preserve_locality (matches capture-ai-prod-us config)
+        true,
     ));
 
     let (router, sink) = setup_ai_test_router_with_overflow_limiter(overflow_limiter);
@@ -2509,8 +2478,6 @@ async fn test_ai_event_with_hot_key_stamps_force_limited_reason() {
 
 #[tokio::test]
 async fn test_ai_event_with_cold_key_leaves_overflow_reason_none() {
-    // Governor is wide open and no keys_to_reroute — the helper must leave
-    // `overflow_reason` as None so the sink uses the default topic.
     let overflow_limiter = Arc::new(OverflowLimiter::new(
         NonZeroU32::new(1_000).unwrap(),
         NonZeroU32::new(1_000).unwrap(),
@@ -2534,10 +2501,7 @@ async fn test_ai_event_with_cold_key_leaves_overflow_reason_none() {
 }
 
 #[tokio::test]
-async fn test_ai_endpoint_without_overflow_limiter_is_parity_with_pre_refactor() {
-    // `capture-ai-*` with `OVERFLOW_ENABLED=false` (or setups without a
-    // limiter configured at all) must behave exactly as before: reason stays
-    // None. This pins the `None` short-circuit inside `stamp_overflow_reason`.
+async fn test_ai_endpoint_without_ai_limiter_stamps_no_reason() {
     let (router, sink) = setup_ai_test_router_with_capturing_sink();
     let test_client = TestClient::new(router);
 
@@ -2591,7 +2555,7 @@ fn ai_router(
         false,
         0.0_f32,
         26_214_400,
-        983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        983_040, // ai_max_event_bytes (960KB)
         None,
         256,
         10 * 1024 * 1024,
@@ -2600,11 +2564,9 @@ fn ai_router(
         None, // ai_events_overflow_limiter
         None, // ai_byte_rate_limiter
         None,
-        None,
         8,
         Some(GW_SECRET.to_string()),
-        false, // ai_events_overflow_enabled
-        None,  // ingestion_warning_emitter
+        None, // ingestion_warning_emitter
     );
     (router, sink_clone)
 }

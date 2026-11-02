@@ -35,7 +35,7 @@ describe('InternalCaptureService', () => {
               [
                 "http://localhost:8010/capture",
                 {
-                  "body": "{"api_key":"token","timestamp":"2025-01-01T00:00:00.000Z","distinct_id":"distinct-id","sent_at":"2025-01-01T00:00:00.000Z","event":"event-name","properties":{"capture_internal":true}}",
+                  "body": "{"api_key":"token","timestamp":"2025-01-01T00:00:00.000Z","distinct_id":"distinct-id","sent_at":"2025-01-01T00:00:00.000Z","event":"event-name","properties":{"$geoip_disable":true,"capture_internal":true}}",
                   "headers": {
                     "Content-Type": "application/json",
                   },
@@ -45,6 +45,17 @@ describe('InternalCaptureService', () => {
             ]
         `
         )
+    })
+
+    it.each([
+        ['a client ip', { $ip: '203.0.113.7' }, { $ip: '203.0.113.7' }],
+        ['a caller opt-in', { $geoip_disable: false }, { $geoip_disable: false }],
+    ])('leaves geoip to the event when it has %s', async (_name, properties, expected) => {
+        await service.capture({ team_token: 'token', event: 'event-name', distinct_id: 'distinct-id', properties })
+        expect(parseJSON(mockInternalFetch.mock.calls[0][1].body).properties).toEqual({
+            ...expected,
+            capture_internal: true,
+        })
     })
 
     it('should allow some overrides', async () => {
@@ -64,6 +75,7 @@ describe('InternalCaptureService', () => {
               "distinct_id": "distinct-id",
               "event": "event-name",
               "properties": {
+                "$geoip_disable": true,
                 "capture_internal": true,
                 "foo": "bar",
               },

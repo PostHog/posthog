@@ -11,12 +11,12 @@ from rest_framework.response import Response
 
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.cdp.validation import HogFunctionFiltersSerializer
 from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 
+from products.cdp.backend.presentation.serializers import HogFunctionFiltersSerializer
 from products.workflows.backend.facade.contracts import WorkflowTemplate, WorkflowTemplateNotFound
 from products.workflows.backend.facade.enums import HogFlowTemplateExitCondition, HogFlowTemplateScope
 from products.workflows.backend.facade.templates import (
@@ -29,7 +29,9 @@ from products.workflows.backend.facade.templates import (
     list_templates,
     update_template,
 )
+from products.workflows.backend.facade.workflows import SUPPORTED_ACTION_TYPES, WORKFLOW_SAFE_INTERNAL_EVENTS
 from products.workflows.backend.presentation.views.hog_flow_fields import (
+    HogFlowActionTypeField,
     HogFlowMaskingSerializer,
     HogFlowVariableSerializer,
 )
@@ -83,7 +85,10 @@ class HogFlowTemplateActionSerializer(serializers.Serializer):
     created_at = serializers.IntegerField(required=False)
     updated_at = serializers.IntegerField(required=False)
     filters = HogFunctionFiltersSerializer(required=False, default=None, allow_null=True)
-    type = serializers.CharField(max_length=100)
+    type = HogFlowActionTypeField(
+        choices=SUPPORTED_ACTION_TYPES,
+        help_text="One of: " + " | ".join(SUPPORTED_ACTION_TYPES) + ".",
+    )
     config = serializers.JSONField()
     output_variable = serializers.JSONField(required=False, allow_null=True)
 
@@ -94,11 +99,34 @@ class HogFlowTemplateActionSerializer(serializers.Serializer):
     def validate(self, data):
         trigger_is_function = False
         if data.get("type") == "trigger":
-            if data.get("config", {}).get("type") in ["webhook", "manual", "tracking_pixel", "schedule"]:
+            trigger_type = data.get("config", {}).get("type")
+            if trigger_type in ["webhook", "manual", "tracking_pixel"]:
                 trigger_is_function = True
-            elif data.get("config", {}).get("type") == "event":
+            elif trigger_type == "schedule":
+                # The schedule itself lives on a separate row, so the trigger carries nothing to validate.
+                pass
+            elif trigger_type == "cohort":
+                # The cohort is checked when a workflow made from this template goes live.
+                pass
+            elif trigger_type in ["event", "internal-event"]:
                 filters = data.get("config", {}).get("filters", {})
                 if filters:
+                    if trigger_type == "internal-event":
+                        filters["source"] = "internal-events"
+                        events = filters.get("events")
+                        disallowed = sorted(
+                            {
+                                event["id"]
+                                for event in (events if isinstance(events, list) else [])
+                                if isinstance(event, dict)
+                                and isinstance(event.get("id"), str)
+                                and event["id"] not in WORKFLOW_SAFE_INTERNAL_EVENTS
+                            }
+                        )
+                        if disallowed:
+                            raise serializers.ValidationError(
+                                {"filters": f"These events cannot trigger a workflow: {', '.join(disallowed)}."}
+                            )
                     serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
                     serializer.is_valid(raise_exception=True)
                     data["config"]["filters"] = serializer.validated_data

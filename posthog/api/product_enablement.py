@@ -22,7 +22,8 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.team import TEAM_CONFIG_ADMIN_FIELDS_SET, conversations_settings_as_dict
+from posthog.api.team.conversations_settings import conversations_settings_as_dict
+from posthog.api.team.team_config import TEAM_CONFIG_ADMIN_FIELDS_SET
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import OrganizationMembership, User
 from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, log_activity

@@ -2,8 +2,7 @@ import hmac
 import json
 import hashlib
 
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
 from products.warehouse_sources.backend.temporal.data_imports.sources.attentive.webhook_template import template
 
 SOURCE_ID = "source_test_123"

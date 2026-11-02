@@ -12,6 +12,7 @@ from rest_framework.exceptions import Throttled, ValidationError
 from posthog.hogql.constants import DEFAULT_DATA_CATALOG_RETURNED_ROWS
 from posthog.hogql.errors import ExposedHogQLError
 
+from posthog.api.query import CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS
 from posthog.api.services.query import process_query_dict
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
@@ -186,19 +187,20 @@ class TestMetricRunPreparation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("exposed_hogql", ExposedHogQLError("no such table"), ValidationError),
-            ("exposed_clickhouse", ExposedCHQueryError("memory limit"), ValidationError),
-            ("concurrency", ConcurrencyLimitExceeded("too many"), Throttled),
-            ("unexpected", RuntimeError("engine bug"), RuntimeError),
+            ("exposed_hogql", ExposedHogQLError("no such table"), ValidationError, None),
+            ("exposed_clickhouse", ExposedCHQueryError("memory limit"), ValidationError, None),
+            ("concurrency", ConcurrencyLimitExceeded("too many"), Throttled, CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS),
+            ("unexpected", RuntimeError("engine bug"), RuntimeError, None),
         ]
     )
     def test_engine_exceptions_keep_their_http_semantics(
-        self, _name: str, engine_error: Exception, expected: type[Exception]
+        self, _name: str, engine_error: Exception, expected: type[Exception], expected_wait: int | None
     ) -> None:
         metric = upsert_metric(team=self.team, user=self.user, name="prep", description="d", definition=_HOGQL)
         with patch(_PROCESS_QUERY, side_effect=engine_error):
-            with self.assertRaises(expected):
+            with self.assertRaises(expected) as raised:
                 run_metric(team=self.team, metric=metric, user=self.user)
+        assert getattr(raised.exception, "wait", None) == expected_wait
         metric.refresh_from_db()
         assert metric.last_run_at is None
 

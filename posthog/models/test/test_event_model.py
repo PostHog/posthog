@@ -16,7 +16,7 @@ from posthog.models.property.util import build_selector_regex
 from posthog.test.test_journeys import journeys_for
 
 
-class TestSelectors(BaseTest):
+class TestSelectors(SimpleTestCase):
     def test_selector_splitting(self):
         selector1 = Selector("div > span > a")
         selector2 = Selector("div span > a")

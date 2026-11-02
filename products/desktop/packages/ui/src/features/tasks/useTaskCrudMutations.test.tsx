@@ -210,6 +210,17 @@ describe("useCreateTask.invalidateTasks", () => {
       filters: { originProduct: "slack" },
       expectedLength: 0,
     },
+    { name: "pinned list", filters: { pinned: true }, expectedLength: 0 },
+    {
+      name: "list showing desktop sources",
+      filters: { sources: ["posthog_desktop", "posthog_mobile"] },
+      expectedLength: 1,
+    },
+    {
+      name: "list hiding desktop sources",
+      filters: { sources: ["slack"] },
+      expectedLength: 0,
+    },
   ])(
     "seeds the $name with the new task ($expectedLength entr(y/ies))",
     ({ filters, expectedLength }) => {

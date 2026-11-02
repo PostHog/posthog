@@ -4,11 +4,11 @@ from typing import Literal
 from prometheus_client import Counter
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationManager
 from posthog.otel_metrics import OtelInstrumentFactory
 
 from products.review_hog.backend.automatic_review_rules import AutomaticReviewReason, decide_automatic_review
-from products.review_hog.backend.models import ReviewReport
+from products.review_hog.backend.models import ReviewReport, ReviewUserSettings
 from products.review_hog.backend.ownership import RepositoryOwner, RepositoryOwnership, RepositoryRef
 from products.review_hog.backend.pr_owner import is_active_member
 from products.review_hog.backend.review_request_rules import full_review_published
@@ -23,6 +23,8 @@ AuthoredPRReviewOutcome = Literal[
     "bot_no_connector",
     "not_opted_in",
     "full_review_published",
+    "draft_skipped",
+    "label_skipped",
     "started",
 ]
 
@@ -37,17 +39,15 @@ AUTHORED_PR_REVIEW_TOTAL = Counter(
 )
 
 
-def _observe_dispatch(outcome: AuthoredPRReviewOutcome) -> None:
+def observe_dispatch(outcome: AuthoredPRReviewOutcome) -> None:
     AUTHORED_PR_REVIEW_TOTAL.labels(outcome=outcome).inc()
     _otel.record_counter_twin(AUTHORED_PR_REVIEW_TOTAL, 1, {"outcome": outcome})
 
 
 def connector_user_id(*, team_id: int, installation_id: str) -> int | None:
     """The active member who connected the installation to the project. Bot pull requests run as them."""
-    creator_ids = Integration.objects.filter(
-        team_id=team_id, kind="github", integration_id=installation_id, created_by__isnull=False
-    ).values_list("created_by_id", flat=True)
-    for creator_id in creator_ids:
+    rows = IntegrationManager.github.oauth.list(team_id, external_id=installation_id)
+    for creator_id in (row.created_by_id for row in rows if row.created_by_id is not None):
         if is_active_member(team_id=team_id, user_id=creator_id):
             return creator_id
     return None
@@ -62,20 +62,16 @@ class AutomaticDispatch:
 
 
 def plan_automatic_review(
-    repository: RepositoryRef, owner: RepositoryOwner | None, *, author_login: str
+    repository: RepositoryRef, owner: RepositoryOwner | None, *, author_login: str, draft: bool = False
 ) -> AutomaticDispatch:
     """Whether a push gets an automatic Flash review, in which project, and as which user."""
     # These clients pull in the signals product; planning a webhook must not load it at import.
-    from products.signals.backend.report_generation.resolve_reviewers import (  # noqa: PLC0415
-        resolve_org_github_login_to_users,
-    )
+    from products.signals.backend.facade.report_reviewers import org_user_ids_by_github_login  # noqa: PLC0415
 
     if owner is None:
         return AutomaticDispatch(outcome="repository_not_added")
     team_id = owner.team_id
-    has_integration = Integration.objects.filter(
-        team_id=team_id, kind="github", integration_id=owner.installation_id
-    ).exists()
+    has_integration = IntegrationManager.github.oauth.exists(team_id, external_id=owner.installation_id)
     if not has_integration:
         logger.warning(
             "Team %s has no GitHub integration for installation %s; skipping automatic review of %s",
@@ -84,10 +80,14 @@ def plan_automatic_review(
             repository.full_name,
         )
         return AutomaticDispatch(outcome="installation_mismatch", team_id=team_id)
-    author = resolve_org_github_login_to_users(team_id, [author_login]).get(author_login.strip().lower())
+    author_id = org_user_ids_by_github_login(team_id=team_id, github_logins=[author_login]).get(
+        author_login.strip().lower()
+    )
     # An inactive user cannot act: every user-scoped sandbox credential of the run would fail. So an
     # inactive author counts as unmapped, and unmapped authors follow the project's bot rule.
-    author_user_id = author.id if author is not None and is_active_member(team_id=team_id, user_id=author.id) else None
+    author_user_id = (
+        author_id if author_id is not None and is_active_member(team_id=team_id, user_id=author_id) else None
+    )
     decision = decide_automatic_review(
         team_id, repository, owner.row, author_user_id=author_user_id, author_login=author_login
     )
@@ -101,6 +101,12 @@ def plan_automatic_review(
         if run_as_user_id is None:
             return AutomaticDispatch(outcome="bot_no_connector", team_id=team_id)
         return AutomaticDispatch(outcome="started", team_id=team_id, run_as_user_id=run_as_user_id)
+    if (
+        draft
+        and author_user_id is not None
+        and not ReviewUserSettings.load_preferences(team_id, author_user_id).review_drafts
+    ):
+        return AutomaticDispatch(outcome="draft_skipped", team_id=team_id)
     return AutomaticDispatch(outcome="started", team_id=team_id, run_as_user_id=author_user_id)
 
 
@@ -140,6 +146,8 @@ class AuthoredPRReview:
     pr_number: int
     head_sha: str
     github_repo_id: int | None = None
+    draft: bool = False
+    skip_agent_review: bool = False
 
     @property
     def ref(self) -> RepositoryRef:
@@ -153,13 +161,19 @@ class AuthoredPRReview:
         from products.review_hog.backend.temporal.client import start_review_pr_workflow  # noqa: PLC0415
         from products.review_hog.backend.temporal.types import TRIGGER_AUTOMATIC  # noqa: PLC0415
 
+        if self.skip_agent_review:
+            observe_dispatch("label_skipped")
+            return
         dispatch = plan_automatic_review(
-            self.ref, RepositoryOwnership.find(self.ref, backfill=True), author_login=self.author_login
+            self.ref,
+            RepositoryOwnership.find(self.ref, backfill=True),
+            author_login=self.author_login,
+            draft=self.draft,
         )
         if dispatch.team_id is None or dispatch.run_as_user_id is None:
             # Most pushes get no automatic review, so the counter carries the signal and the logs
             # stay quiet.
-            _observe_dispatch(dispatch.outcome)
+            observe_dispatch(dispatch.outcome)
             return
         report = (
             ReviewReport.objects.for_team(dispatch.team_id)
@@ -167,7 +181,7 @@ class AuthoredPRReview:
             .first()
         )
         if full_review_published(report):
-            _observe_dispatch("full_review_published")
+            observe_dispatch("full_review_published")
             return
         start_review_pr_workflow(
             pr_url=f"https://github.com/{self.repository}/pull/{self.pr_number}",
@@ -183,4 +197,4 @@ class AuthoredPRReview:
             github_repo_id=self.github_repo_id,
         )
         # After the start, so a retried task cannot count a dispatch it never made.
-        _observe_dispatch("started")
+        observe_dispatch("started")

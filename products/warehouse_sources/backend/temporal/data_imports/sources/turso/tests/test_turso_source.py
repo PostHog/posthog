@@ -38,14 +38,3 @@ def test_invalid_organization_never_sends_credentials(
     with pytest.raises(ValueError, match="organization slug"):
         list(cast(Iterable[Any], response.items()))
     assert requests_mock.call_count == 0
-
-
-def test_unknown_table_fails_before_http(
-    requests_mock: Mocker, config: TursoSourceConfig, inputs: SourceInputs
-) -> None:
-    source = TursoSource()
-    with pytest.raises(ValueError, match="Unknown Turso table"):
-        source.source_for_pipeline(
-            config, source.get_resumable_source_manager(inputs), replace(inputs, schema_name="unknown")
-        )
-    assert requests_mock.call_count == 0

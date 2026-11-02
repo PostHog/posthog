@@ -68,5 +68,10 @@
         "key": "input_relevance",
         "label": "Input relevance",
         "source": "// Check that key terms from each generation input appear in its output\nfor (let i, item in evaluation_events) {\n    if (item.event == '$ai_generation') {\n        let words := splitByString(' ', item.input_text)\n        let key_terms := []\n        for (let j, word in words) {\n            if (length(word) >= 5) {\n                key_terms := arrayPushBack(key_terms, word)\n            }\n        }\n        if (length(key_terms) > 0) {\n            let found := 0\n            for (let j, term in key_terms) {\n                if (item.output_text ilike concat('%', term, '%')) {\n                    found := found + 1\n                }\n            }\n            let ratio := found / length(key_terms)\n            print(concat(toString(found), '/', toString(length(key_terms)), ' key terms found'))\n            if (ratio < 0.3) {\n                print('Output may not be relevant to the input')\n                return false\n            }\n        }\n    }\n}\nreturn true"
+    },
+    {
+        "key": "repeated_tool_calls",
+        "label": "Repeated tool calls",
+        "source": "// Fail a trace where the same tool is called more often than expected\n// Raise the limit for tools that legitimately poll or retry\nlet max_calls_per_tool := 5\nlet counts := {}\nfor (let i, item in evaluation_events) {\n    let called := splitByString(',', toString(ifNull(item.properties.$ai_tools_called, '')))\n    for (let j, raw in called) {\n        let tool := trim(raw)\n        if (length(tool) > 0) {\n            counts[tool] := ifNull(counts[tool], 0) + 1\n        }\n    }\n}\nlet repeated := []\nfor (let tool, count in counts) {\n    if (count > max_calls_per_tool) {\n        repeated := arrayPushBack(repeated, concat(tool, ' (', toString(count), ' calls)'))\n    }\n}\nif (length(repeated) > 0) {\n    print(concat('Called more than ', toString(max_calls_per_tool), ' times: ', arrayStringConcat(repeated, ', ')))\n    return false\n}\nreturn true"
     }
 ]

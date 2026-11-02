@@ -64,15 +64,17 @@ export function flattenSeriesRows(series: ReducibleSeries[], reducers: MetricsRe
 }
 
 /** The unit a panel renders with. The explicit display override always wins;
- * without one, the shared ingested unit applies — but only when every series
- * that carries a unit agrees. A mixed-unit result gets no unit rather than
- * one series' values mislabeled with another's. */
+ * without one, the shared ingested unit applies, but only when every series
+ * carries that same unit. A series with no unit counts as a different unit, because
+ * a unitless count beside an `ms` duration is not in milliseconds. A mixed-unit
+ * result gets no unit rather than one series' values mislabeled with another's. */
 export function seriesUnit(series: ReducibleSeries[], displayUnit: string | undefined): string | undefined {
     if (displayUnit) {
         return displayUnit
     }
-    const units = new Set(series.map((s) => s.unit).filter((u): u is string => !!u))
-    return units.size === 1 ? [...units][0] : undefined
+    const units = new Set(series.map((s) => s.unit || undefined))
+    const [shared] = units
+    return units.size === 1 ? shared : undefined
 }
 
 /** A persisted `legendCalcs` list is user input from a saved insight: it can

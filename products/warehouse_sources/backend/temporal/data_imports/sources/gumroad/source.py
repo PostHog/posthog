@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GumroadSource(ResumableSource[GumroadSourceConfig, GumroadResumeConfig]):
+    codebase_detection = detect(env=("^GUMROAD_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"
@@ -109,7 +112,8 @@ class GumroadSource(ResumableSource[GumroadSourceConfig, GumroadResumeConfig]):
             results[name] = (
                 None
                 if probed[path]
-                else f"Your Gumroad access token is missing the {endpoint_config.required_scope} scope."
+                else endpoint_config.permission_error
+                or f"Your Gumroad access token is missing the {endpoint_config.required_scope} scope."
             )
         return results
 
@@ -142,11 +146,12 @@ class GumroadSource(ResumableSource[GumroadSourceConfig, GumroadResumeConfig]):
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Gumroad",
             caption=(
-                "Import sales, products, payouts, subscribers, reviews, offer codes, versions, and "
-                "custom fields from your Gumroad account.\n\n"
+                "Import sales, products, payouts, subscribers, reviews, offer codes, versions, custom "
+                "fields, emails, workflows, and annual earnings from your Gumroad account.\n\n"
                 "Create an application under Settings > Advanced > Applications, then generate an "
                 "access token for it. The token needs the `view_sales`, `view_payouts`, and "
-                "`view_public` scopes."
+                "`view_public` scopes. Emails and workflows also need `edit_emails`, and earnings need "
+                "`view_tax_data` and a US-based account."
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/gumroad",
             iconPath="/static/services/gumroad.png",
@@ -164,5 +169,5 @@ class GumroadSource(ResumableSource[GumroadSourceConfig, GumroadResumeConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
         )

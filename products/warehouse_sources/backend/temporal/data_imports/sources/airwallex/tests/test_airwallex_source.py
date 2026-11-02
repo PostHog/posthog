@@ -1,39 +1,18 @@
-from typing import Any
-
-from unittest import mock
-
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
 from products.warehouse_sources.backend.temporal.data_imports.sources.airwallex.source import AirwallexSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-
-SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.airwallex.source"
-
-
-class _Config:
-    client_id = "cid"
-    api_key = "key"
-    environment = "live"
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.airwallex import (
+    AirwallexSourceConfig,
+)
 
 
-def _inputs(**overrides: Any) -> SourceInputs:
-    defaults: dict[str, Any] = {
-        "schema_name": "FinancialTransactions",
-        "schema_id": "schema-1",
-        "source_id": "source-1",
-        "team_id": 1,
-        "should_use_incremental_field": False,
-        "db_incremental_field_last_value": None,
-        "db_incremental_field_earliest_value": None,
-        "incremental_field": None,
-        "incremental_field_type": None,
-        "job_id": "job-1",
-        "logger": mock.MagicMock(),
-        "reset_pipeline": False,
-    }
-    defaults.update(overrides)
-    return SourceInputs(**defaults)
+def _driver() -> SourceDriver:
+    return SourceDriver(AirwallexSource(), AirwallexSourceConfig(client_id="cid", api_key="key", environment="live"))
 
 
 class TestAirwallexSource:
@@ -42,6 +21,7 @@ class TestAirwallexSource:
             ("settlements_track_settled_at", "Settlements", "settled_at"),
             ("beneficiaries_track_created_at", "Beneficiaries", "created_at"),
             ("transactions_track_created_at", "FinancialTransactions", "created_at"),
+            ("disputes_track_updated_at", "PaymentDisputes", "updated_at"),
         ]
     )
     def test_incremental_cursor_matches_the_field_the_filter_bounds(
@@ -54,28 +34,30 @@ class TestAirwallexSource:
         assert schemas[endpoint].supports_incremental is True
         assert [f["field"] for f in schemas[endpoint].incremental_fields] == [expected]
 
-    @mock.patch(f"{SOURCE_MODULE}.airwallex_source")
-    def test_source_for_pipeline_passes_the_watermark_when_incremental(self, mock_source) -> None:
-        inputs = _inputs(should_use_incremental_field=True, db_incremental_field_last_value=123)
+    def test_source_for_pipeline_passes_the_watermark_when_incremental(self) -> None:
+        result = _driver().run(
+            "FinancialTransactions",
+            [ScriptedResponse(status=201, json={"token": "tok"}), ScriptedResponse(json={"items": []})],
+            incremental_field="created_at",
+            db_incremental_field_last_value=123,
+        )
 
-        AirwallexSource().source_for_pipeline(_Config(), mock.MagicMock(), inputs)  # type: ignore[arg-type]
-
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["endpoint"] == "FinancialTransactions"
-        assert kwargs["db_incremental_field_last_value"] == 123
-        assert kwargs["environment"] == "live"
+        assert result.raised is None
+        assert result.paths == ["/api/v1/authentication/login", "/api/v1/financial_transactions"]
+        assert result.requests[1].param("from_created_at") == "1970-01-01T00:02:03Z"
+        assert result.requests[1].origin == "https://api.airwallex.com"
 
     @parameterized.expand([("stored_pin_wins", "2025-06-30", "2025-06-30"), ("no_pin_defaults", None, "2026-07-17")])
-    @mock.patch(f"{SOURCE_MODULE}.airwallex_source")
-    def test_source_for_pipeline_resolves_the_api_version(
-        self, _name: str, pinned: str | None, expected: str, mock_source
-    ) -> None:
+    def test_source_for_pipeline_resolves_the_api_version(self, _name: str, pinned: str | None, expected: str) -> None:
         # A source created against an older version must keep calling that version.
-        inputs = _inputs(api_version=pinned)
+        result = _driver().run(
+            "FinancialTransactions",
+            [ScriptedResponse(status=201, json={"token": "tok"}), ScriptedResponse(json={"items": []})],
+            api_version=pinned,
+        )
 
-        AirwallexSource().source_for_pipeline(_Config(), mock.MagicMock(), inputs)  # type: ignore[arg-type]
-
-        assert mock_source.call_args.kwargs["api_version"] == expected
+        assert result.raised is None
+        assert result.requests[1].headers["x-api-version"] == expected
 
     def test_the_api_key_field_is_marked_secret(self) -> None:
         # A non-secret credential field is stored and returned in the clear by the serializer.

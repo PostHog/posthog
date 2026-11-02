@@ -44,10 +44,17 @@ PERSONHOG_DJANGO_REQUEST_COUNT = Counter(
 )
 
 
+_FACADE_SERVICE = "personhog.service.v1.PersonHogService"
+
+
 def _method_name(client_call_details: grpc.ClientCallDetails) -> str:
-    # client_call_details.method is like "/personhog.service.v1.PersonHogService/GetPerson"
+    # "/personhog.service.v1.PersonHogService/GetPerson" -> "GetPerson", the label dashboards were built
+    # on. Another service keeps its short name: the facade and the lifecycle service both have DeletePersons.
     method: str = client_call_details.method or "unknown"
-    return method.rsplit("/", 1)[-1]
+    service, _, name = method.strip("/").rpartition("/")
+    if not service or service == _FACADE_SERVICE:
+        return name or "unknown"
+    return f"{service.rsplit('.', 1)[-1]}/{name}"
 
 
 def _grpc_error_type(code: grpc.StatusCode) -> str:
@@ -163,6 +170,13 @@ _RETRYABLE_CODES = frozenset(
 # not an application-level failure, so unlike INTERNAL in general it's always safe to retry.
 _DESERIALIZATION_FAILURE_DETAILS = "Exception deserializing response!"
 
+# Must match DB_TIMEOUT_METADATA_KEY in rust/personhog-common/src/grpc.rs.
+_DB_TIMEOUT_METADATA_KEY = "x-db-timeout"
+
+# Must match SEMANTIC_REFUSAL_METADATA_KEY in rust/personhog-common/src/grpc.rs: a FAILED_PRECONDITION
+# carrying it is a final answer about the request itself, not a routing race that clears on retry.
+SEMANTIC_REFUSAL_METADATA_KEY = "x-semantic-refusal"
+
 
 def _is_retryable(code: grpc.StatusCode | None, details: str | None, codes: Collection[grpc.StatusCode]) -> bool:
     if code is None:
@@ -172,12 +186,16 @@ def _is_retryable(code: grpc.StatusCode | None, details: str | None, codes: Coll
     return code == grpc.StatusCode.INTERNAL and details == _DESERIALIZATION_FAILURE_DETAILS
 
 
+def _is_db_timeout(call: grpc.Call) -> bool:
+    return any(key == _DB_TIMEOUT_METADATA_KEY for key, _ in call.trailing_metadata() or ())
+
+
 def is_transient_rpc_error(exc: BaseException, codes: Collection[grpc.StatusCode] = _RETRYABLE_CODES) -> bool:
     """Whether ``exc``, or the error it was raised from, is a gRPC failure with a status in ``codes``.
 
     Follows ``__cause__`` so a caller that wrapped the RpcError (``personhog_call(reraise_as=...)``)
     still classifies the underlying transport failure. ``codes`` defaults to the in-process
-    RetryInterceptor policy; a caller that retries at a slower tier passes its own set.
+    RetryInterceptor's code set. A caller that retries at a slower tier passes its own set.
     """
     current: BaseException | None = exc
     while current is not None:
@@ -191,20 +209,49 @@ def is_transient_rpc_error(exc: BaseException, codes: Collection[grpc.StatusCode
     return False
 
 
+def semantic_refusal_reason(exc: BaseException) -> str | None:
+    """The reason slug of a definitive FAILED_PRECONDITION refusal, or None for any other error.
+
+    Follows ``__cause__`` like ``is_transient_rpc_error``. Any reason is final, so a caller never retries
+    under the same op_id; it branches on the slug instead of the message. The identity server emits
+    ``op_id_reused`` (the op_id belongs to a different request); the leader's own refusals pass through
+    the saga unchanged.
+    """
+    current: BaseException | None = exc
+    while current is not None:
+        if isinstance(current, grpc.RpcError):
+            code = getattr(current, "code", None)
+            trailing = getattr(current, "trailing_metadata", None)
+            if not callable(code) or not callable(trailing) or code() != grpc.StatusCode.FAILED_PRECONDITION:
+                return None
+            for key, value in trailing() or ():
+                if key == SEMANTIC_REFUSAL_METADATA_KEY:
+                    return value if isinstance(value, str) else value.decode()
+            return None
+        current = current.__cause__
+    return None
+
+
 class RetryInterceptor(grpc.UnaryUnaryClientInterceptor):
     """Retries transient gRPC errors with jittered backoff.
 
     Covers five failure modes:
     - UNAVAILABLE: client-to-router connection failure
     - ABORTED: HTTP/2 stream reset during router deploys
-    - DEADLINE_EXCEEDED: transient timeout (event loop saturation, brief backend slowness)
+    - DEADLINE_EXCEEDED: transient timeout (event loop saturation, brief backend slowness), but not a
+      Postgres statement or lock timeout, which personhog marks with ``_DB_TIMEOUT_METADATA_KEY``
     - UNKNOWN: catch-all for transient failures that don't map to a specific code
     - INTERNAL, but only the client-side response deserialization failure (see
       ``_DESERIALIZATION_FAILURE_DETAILS``) - INTERNAL otherwise stays terminal here since personhog
-      also maps DB-level conditions (lock timeouts, a read-only primary) to it, and those must not be
-      hammered with a fast in-process retry.
+      also maps DB-level conditions (a deadlock, a read-only primary) to it.
+
+    DB-level conditions, timeouts included, must not be hammered with a fast in-process retry.
 
     Sits outside MetricsInterceptor so each attempt gets its own per-call metrics.
+
+    grpcio's continuation returns a failed call as an ``RpcError`` instead of raising it. The
+    interceptor reads the status from that returned object. It returns a terminal error unchanged.
+    The grpcio channel then raises that error from ``.result()``.
     """
 
     def __init__(
@@ -226,32 +273,31 @@ class RetryInterceptor(grpc.UnaryUnaryClientInterceptor):
         delay_ms = self._initial_backoff_ms
 
         while True:
-            try:
-                return continuation(client_call_details, request)
-            except grpc.RpcError as exc:
-                code = exc.code()
-                details_fn = getattr(exc, "details", None)
-                details = details_fn() if callable(details_fn) else None
-                error_type = _grpc_error_type(code) if code else "Unknown"
-                retryable = _is_retryable(code, details, _RETRYABLE_CODES)
+            outcome = continuation(client_call_details, request)
+            code = outcome.code()
+            if code == grpc.StatusCode.OK:
+                return outcome
 
-                if not retryable or attempt == self._max_retries:
-                    PERSONHOG_TERMINAL_ERRORS_TOTAL.labels(
-                        method=method, client=self._client_name, error_type=error_type
-                    ).inc()
-                    raise
+            error_type = _grpc_error_type(code)
+            retryable = _is_retryable(code, outcome.details(), _RETRYABLE_CODES) and not _is_db_timeout(outcome)
 
-                PERSONHOG_RETRIES_TOTAL.labels(method=method, client=self._client_name, error_type=error_type).inc()
+            if not retryable or attempt == self._max_retries:
+                PERSONHOG_TERMINAL_ERRORS_TOTAL.labels(
+                    method=method, client=self._client_name, error_type=error_type
+                ).inc()
+                return outcome
 
-                logger.warning(
-                    "personhog_grpc_retry",
-                    method=method,
-                    attempt=attempt + 1,
-                    max_retries=self._max_retries,
-                    error_type=error_type,
-                )
+            PERSONHOG_RETRIES_TOTAL.labels(method=method, client=self._client_name, error_type=error_type).inc()
 
-                base = delay_ms / 2
-                time.sleep((base + random.uniform(0, base)) / 1000)
-                delay_ms = min(delay_ms * 2, self._max_backoff_ms)
-                attempt += 1
+            logger.warning(
+                "personhog_grpc_retry",
+                method=method,
+                attempt=attempt + 1,
+                max_retries=self._max_retries,
+                error_type=error_type,
+            )
+
+            base = delay_ms / 2
+            time.sleep((base + random.uniform(0, base)) / 1000)
+            delay_ms = min(delay_ms * 2, self._max_backoff_ms)
+            attempt += 1

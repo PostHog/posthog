@@ -4,6 +4,7 @@ from .organization_resource_access import OrganizationResourceAccess
 from .property_access_control import PropertyAccessControl
 from .role import Role, RoleMembership
 from .role_external_reference import RoleExternalReference
+from .team_access_control_config import TeamAccessControlConfig
 
 __all__ = [
     "AccessControl",
@@ -13,4 +14,5 @@ __all__ = [
     "Role",
     "RoleExternalReference",
     "RoleMembership",
+    "TeamAccessControlConfig",
 ]

@@ -1,6 +1,8 @@
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -21,7 +23,7 @@ from posthog.hogql_queries.endpoints.endpoints_usage_table import EndpointsUsage
 from posthog.hogql_queries.endpoints.endpoints_usage_trends import EndpointsUsageTrendsQueryRunner
 
 
-class TestSafeFloat(APIBaseTest):
+class TestSafeFloat(SimpleTestCase):
     @parameterized.expand(
         [
             (None, 0.0),

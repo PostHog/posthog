@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlus, IconSearch } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonSkeleton, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonSkeleton, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import {
     REVIEW_SKILL_KIND_LABELS,
@@ -57,26 +57,19 @@ export function ReviewSkillsPanel(): JSX.Element {
                 <div className="flex max-w-160 min-w-0 flex-col gap-1">
                     <div className="flex flex-wrap items-center gap-2">
                         <h3 className="m-0 text-base font-semibold">Review skills</h3>
-                        <LemonTag type="highlight" size="small">
-                            Deep reviews only
-                        </LemonTag>
                     </div>
                     <p className="m-0 text-xs text-secondary">
-                        Skills tell a Deep review what to look for and what to publish. Standard uses its own fixed set
-                        and reads none of these. Switch a skill on or off for the Deep reviews you start.
+                        Choose what your Deep reviews check. Editing skill text changes it for the whole project.
                     </p>
                 </div>
-                <span className="text-xs text-secondary">Kept counts: your last 10 Deep reviews</span>
+                <span className="text-xs text-secondary">Last 10 Deep reviews</span>
             </header>
             <div className="hidden grid-cols-[minmax(0,1fr)_minmax(0,16rem)] gap-3 border-t border-primary px-4 py-1.5 text-xxs font-semibold uppercase tracking-wide text-secondary @min-[48rem]:grid">
                 <span>Skill</span>
-                <span>Mine</span>
+                <span>My preference</span>
             </div>
 
-            <SkillGroupHeader
-                title="Perspectives"
-                rule="the angles a Deep review reads the code from · several can run · at least one stays on"
-            />
+            <SkillGroupHeader title="Perspectives" rule="Choose at least one" />
             {perspectives === null ? (
                 <div className="px-4 py-2">
                     <LemonSkeleton className="h-12 w-full" />
@@ -123,7 +116,7 @@ export function ReviewSkillsPanel(): JSX.Element {
             />
             <SingleActiveSkillGroup
                 title="Resolution criteria"
-                note="Used only when Resolve is on for you"
+                note="Used when you allow fix commits"
                 skills={resolutionSkills}
                 onSelect={selectResolutionSkill}
                 dataAttr="review-hog-resolution-mine"
@@ -157,13 +150,13 @@ export function ReviewSkillsPanel(): JSX.Element {
                         Use an existing skill
                     </LemonButton>
                 </LemonMenu>
-                <span className="text-xs text-secondary">
-                    How the pipeline uses skills:{' '}
-                    <Link onClick={() => openPipelineDetail()} data-attr="review-hog-skills-pipeline-detail">
-                        Activity › Detailed view
-                    </Link>
-                    .
-                </span>
+                <Link
+                    className="text-xs"
+                    onClick={() => openPipelineDetail()}
+                    data-attr="review-hog-skills-pipeline-detail"
+                >
+                    How a review uses skills
+                </Link>
             </footer>
         </section>
     )

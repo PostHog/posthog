@@ -8,11 +8,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
     Endpoint,
     EndpointResource,
 )
@@ -27,7 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.roark.sett
 ROARK_BASE_URL = "https://api.roark.ai/v1"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class RoarkResumeConfig:
     # Cursor (`after`) pointing at the next page to fetch for the cursor-paginated endpoints. `None`
     # means "start at the first page". Saved after a page is yielded so a crash resumes from the next
@@ -35,6 +39,8 @@ class RoarkResumeConfig:
     after: str | None = None
     # Offset of the next page to fetch for the offset-paginated endpoints.
     offset: int | None = None
+    # Child paths already fetched, for the endpoints that make one request per parent row.
+    completed: list[str] | None = None
 
 
 class RoarkCursorPaginator(BasePaginator):
@@ -148,6 +154,86 @@ def _base_params(config: RoarkEndpointConfig) -> dict[str, Any]:
     return params
 
 
+def _explode_transcript(item: dict[str, Any]) -> list[dict[str, Any]]:
+    """Reshape one call transcript into one row per entry, in spoken order."""
+    participants = {p.get("id"): p for p in item.get("participants") or [] if isinstance(p, dict)}
+    return [
+        {
+            **entry,
+            "callId": item.get("callId"),
+            "entryIndex": index,
+            "transcriptionSource": item.get("transcriptionSource"),
+            "participant": participants.get(entry.get("participantId")),
+        }
+        for index, entry in enumerate(item.get("entries") or [])
+        if isinstance(entry, dict)
+    ]
+
+
+def _source_response(config: RoarkEndpointConfig, resource: Any) -> SourceResponse:
+    return SourceResponse(
+        name=config.name,
+        items=lambda: resource,
+        primary_keys=config.primary_keys,
+        sort_mode=config.sort_mode,
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="month" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+        column_hints=resource.column_hints,
+    )
+
+
+def _fanout_source(
+    config: RoarkEndpointConfig,
+    api_key: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[RoarkResumeConfig],
+) -> SourceResponse:
+    assert config.fanout is not None
+    parent_config = ROARK_ENDPOINTS[config.fanout.parent_name]
+
+    client_config: ClientConfig = {
+        "base_url": ROARK_BASE_URL,
+        "headers": {"Accept": "application/json"},
+        "auth": {"type": "bearer", "token": api_key},
+    }
+
+    initial_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.completed:
+            initial_state = {"completed": resume.completed, "current": None, "child_state": None}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Every child endpoint is a single page, so the completed parents are the whole state.
+        if state is not None:
+            resumable_source_manager.save_state(RoarkResumeConfig(completed=state.get("completed")))
+
+    resource: Any = build_dependent_resource(
+        endpoint_configs=ROARK_ENDPOINTS,
+        child_endpoint=config.name,
+        fanout=dataclasses.replace(config.fanout, parent_params=_base_params(parent_config)),
+        client_config=client_config,
+        path_format_values={},
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+        parent_endpoint_extra={"paginator": RoarkCursorPaginator(), "data_selector": "data"},
+        child_endpoint_extra={"paginator": SinglePagePaginator(), "data_selector": "data"},
+        # The parent params carry the page size, and the child endpoints accept none.
+        page_size_param=None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_state,
+    )
+    if config.name == "call_transcript":
+        resource = resource.add_map(_explode_transcript)
+
+    return _source_response(config, resource)
+
+
 def roark_source(
     api_key: str,
     endpoint: str,
@@ -157,6 +243,9 @@ def roark_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = ROARK_ENDPOINTS[endpoint]
+
+    if config.fanout is not None:
+        return _fanout_source(config, api_key, team_id, job_id, resumable_source_manager)
 
     paginator: BasePaginator
     data_selector: Optional[str]
@@ -224,18 +313,7 @@ def roark_source(
         initial_paginator_state=initial_paginator_state,
     )
 
-    return SourceResponse(
-        name=endpoint,
-        items=lambda: resource,
-        primary_keys=config.primary_keys,
-        sort_mode=config.sort_mode,
-        partition_count=1,
-        partition_size=1,
-        partition_mode="datetime" if config.partition_key else None,
-        partition_format="month" if config.partition_key else None,
-        partition_keys=[config.partition_key] if config.partition_key else None,
-        column_hints=resource.column_hints,
-    )
+    return _source_response(config, resource)
 
 
 def validate_credentials(api_key: str) -> bool:

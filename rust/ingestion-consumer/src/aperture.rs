@@ -1,11 +1,11 @@
 //! Deterministic aperture: ring-slice candidate selection.
 //!
-//! Every dispatcher sorts the full worker set into the same ring, takes the
-//! slice starting at `peer_index * ring_len / peer_count`, and routes its
-//! unpinned groups only within that slice (via the configured selection
+//! Every consumer sorts the full worker set into the same ring, takes the
+//! slice starting at `peer_index * ring_len / peer_count`, and places its
+//! requests only within that slice (via the configured selection
 //! strategy). Because peers agree on both the ring order (same EndpointSlices,
 //! same sort) and their own indices ([`k8s_awareness::PeerTracker`]), the
-//! slices tile the ring without any coordination — each dispatcher talks to
+//! slices tile the ring without any coordination, so each consumer talks to
 //! a handful of workers instead of the whole pool, which is what keeps
 //! sub-batches consolidated. Modeled on Finagle's deterministic aperture.
 //!
@@ -111,8 +111,7 @@ mod tests {
     #[test]
     fn test_width_floored_so_slices_cover_an_oversized_ring() {
         // 2 peers x configured width 3 over 8 workers: unfloored slices would
-        // be spaced 4 apart and leave positions 3 and 7 with zero unpinned
-        // traffic. The ceil(8/2)=4 floor widens each slice just enough that
+        // be spaced 4 apart and leave positions 3 and 7 with no traffic. The ceil(8/2)=4 floor widens each slice just enough that
         // the union covers the whole ring.
         let ring = ring(8);
         let mut seen = HashSet::new();

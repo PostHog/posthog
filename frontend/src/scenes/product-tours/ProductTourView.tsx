@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { IconCode, IconCursorClick, IconDocument, IconTrash } from '@posthog/icons'
+import { IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -49,72 +49,10 @@ import {
 } from '~/types'
 
 import { ProductTourStatsSummary } from './components/ProductTourStatsSummary'
-import { LaunchValidationIssue, LaunchValidationIssueType, productTourLogic } from './productTourLogic'
+import { productTourDialogHandlers } from './productTourDialogHandlers'
+import { productTourLogic } from './productTourLogic'
 import { getProductTourStatus, isAnnouncement, isProductTourRunning, productToursLogic } from './productToursLogic'
-
-const ISSUE_CONFIG: Record<
-    LaunchValidationIssueType,
-    { icon: JSX.Element; label: string; instruction: string; docsLink?: string }
-> = {
-    missing_element: {
-        icon: <IconCursorClick />,
-        label: 'Missing target element',
-        instruction:
-            'Click "Select element in Toolbar" to choose an element on your page, or "Remove element" to position the step as a simple pop-up.',
-        docsLink: 'https://posthog.com/docs/product-tours/element-selection#automatic-element-targeting',
-    },
-    missing_selector: {
-        icon: <IconCode />,
-        label: 'Missing CSS selector',
-        instruction:
-            'Enter a CSS selector in the step settings, or click "Remove element" to position the step as a simple pop-up.',
-        docsLink: 'https://posthog.com/docs/product-tours/element-selection#manual-element-targeting',
-    },
-}
-
-function formatStepList(stepNumbers: number[]): string {
-    if (stepNumbers.length === 1) {
-        return `Step ${stepNumbers[0]}`
-    }
-    return `Steps ${stepNumbers.slice(0, -1).join(', ')} and ${stepNumbers[stepNumbers.length - 1]}`
-}
-
-function LaunchValidationContent({ issues }: { issues: LaunchValidationIssue[] }): JSX.Element {
-    return (
-        <div className="flex flex-col gap-2">
-            {issues.map((issue) => {
-                const config = ISSUE_CONFIG[issue.type]
-                return (
-                    <div
-                        key={issue.type}
-                        className="flex items-start gap-3 p-3 rounded-lg bg-warning-highlight border border-warning"
-                    >
-                        <span className="text-warning text-lg mt-0.5">{config.icon}</span>
-                        <div className="flex flex-col items-start gap-2">
-                            <div className="flex flex-col gap-0.5 text-sm">
-                                <span className="font-medium">
-                                    {formatStepList(issue.stepNumbers)}: {config.label}
-                                </span>
-                                <span className="text-muted">{config.instruction}</span>
-                            </div>
-                            {config.docsLink && (
-                                <LemonButton
-                                    size="small"
-                                    type="primary"
-                                    icon={<IconDocument />}
-                                    targetBlank
-                                    to={config.docsLink}
-                                >
-                                    Read the docs
-                                </LemonButton>
-                            )}
-                        </div>
-                    </div>
-                )
-            })}
-        </div>
-    )
-}
+import { QuillProductTourViewActions } from './QuillProductTourViewActions'
 
 export function ProductTourView({ id }: { id: string }): JSX.Element {
     const {
@@ -140,6 +78,14 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
 
     const [tabKey, setTabKey] = useState(() => (router.values.searchParams.activity ? 'history' : 'overview'))
     const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const { handleLaunch, handleStop, handleResume } = productTourDialogHandlers({
+        launchValidationIssues,
+        editingProductTour,
+        launchProductTour,
+        stopProductTour,
+        resumeProductTour,
+    })
 
     if (productTourLoading || !productTour) {
         return <LemonSkeleton />
@@ -230,122 +176,33 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
                 resourceType={{ type: 'product_tour' }}
                 isLoading={productTourLoading}
                 actions={
-                    <>
-                        <LemonButton type="secondary" size="small" onClick={() => openToolbarModal('preview')}>
-                            Preview
-                        </LemonButton>
-                        <LemonButton type="secondary" size="small" onClick={() => editingProductTour(true)}>
-                            Edit
-                        </LemonButton>
-                        {status === ProgressStatus.Draft && (
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                onClick={() => {
-                                    if (launchValidationIssues.length > 0) {
-                                        LemonDialog.open({
-                                            title: 'Tour not ready to launch',
-                                            content: <LaunchValidationContent issues={launchValidationIssues} />,
-                                            maxWidth: 600,
-                                            primaryButton: {
-                                                children: 'Edit tour',
-                                                type: 'secondary',
-                                                onClick: () => editingProductTour(true),
-                                                size: 'small',
-                                            },
-                                            secondaryButton: {
-                                                children: 'Cancel',
-                                                type: 'tertiary',
-                                                size: 'small',
-                                            },
-                                        })
-                                        return
-                                    }
-                                    LemonDialog.open({
-                                        title: 'Launch this product tour?',
-                                        content: (
-                                            <div className="text-sm text-secondary">
-                                                The tour will immediately start displaying to users matching the display
-                                                conditions.
-                                            </div>
-                                        ),
-                                        primaryButton: {
-                                            children: 'Launch',
-                                            type: 'primary',
-                                            onClick: launchProductTour,
-                                            size: 'small',
-                                        },
-                                        secondaryButton: {
-                                            children: 'Cancel',
-                                            type: 'tertiary',
-                                            size: 'small',
-                                        },
-                                    })
-                                }}
-                            >
-                                Launch
+                    todayRailNav ? (
+                        <QuillProductTourViewActions id={id} productTour={productTour} />
+                    ) : (
+                        <>
+                            <LemonButton type="secondary" size="small" onClick={() => openToolbarModal('preview')}>
+                                Preview
                             </LemonButton>
-                        )}
-                        {isRunning && (
-                            <LemonButton
-                                type="secondary"
-                                status="danger"
-                                size="small"
-                                onClick={() => {
-                                    LemonDialog.open({
-                                        title: 'Stop this product tour?',
-                                        content: (
-                                            <div className="text-sm text-secondary">
-                                                The tour will no longer be displayed to users.
-                                            </div>
-                                        ),
-                                        primaryButton: {
-                                            children: 'Stop',
-                                            type: 'primary',
-                                            onClick: stopProductTour,
-                                            size: 'small',
-                                        },
-                                        secondaryButton: {
-                                            children: 'Cancel',
-                                            type: 'tertiary',
-                                            size: 'small',
-                                        },
-                                    })
-                                }}
-                            >
-                                Stop
+                            <LemonButton type="secondary" size="small" onClick={() => editingProductTour(true)}>
+                                Edit
                             </LemonButton>
-                        )}
-                        {status === ProgressStatus.Complete && !productTour.archived && (
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                onClick={() => {
-                                    LemonDialog.open({
-                                        title: 'Resume this product tour?',
-                                        content: (
-                                            <div className="text-sm text-secondary">
-                                                Once resumed, the tour will be visible to your users again.
-                                            </div>
-                                        ),
-                                        primaryButton: {
-                                            children: 'Resume',
-                                            type: 'primary',
-                                            onClick: resumeProductTour,
-                                            size: 'small',
-                                        },
-                                        secondaryButton: {
-                                            children: 'Cancel',
-                                            type: 'tertiary',
-                                            size: 'small',
-                                        },
-                                    })
-                                }}
-                            >
-                                Resume
-                            </LemonButton>
-                        )}
-                    </>
+                            {status === ProgressStatus.Draft && (
+                                <LemonButton type="primary" size="small" onClick={handleLaunch}>
+                                    Launch
+                                </LemonButton>
+                            )}
+                            {isRunning && (
+                                <LemonButton type="secondary" status="danger" size="small" onClick={handleStop}>
+                                    Stop
+                                </LemonButton>
+                            )}
+                            {status === ProgressStatus.Complete && !productTour.archived && (
+                                <LemonButton type="secondary" size="small" onClick={handleResume}>
+                                    Resume
+                                </LemonButton>
+                            )}
+                        </>
+                    )
                 }
             />
 

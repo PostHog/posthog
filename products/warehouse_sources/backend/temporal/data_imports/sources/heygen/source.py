@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HeyGenSource(ResumableSource[HeyGenSourceConfig, HeyGenResumeConfig]):
+    codebase_detection = detect(env=("^(HEY_GEN|HEYGEN)_",), npm=("@heygen/streaming-avatar",))
+
     supported_versions = ("v3",)
     default_version = "v3"
     api_docs_url = "https://developers.heygen.com/endpoint-version-comparison"
@@ -54,7 +57,7 @@ class HeyGenSource(ResumableSource[HeyGenSourceConfig, HeyGenResumeConfig]):
             caption=(
                 "Create an API key in [HeyGen settings](https://app.heygen.com/developers/api). "
                 "Grant read scopes for the tables you select: `videos:read`, `translations:read`, "
-                "`video_agent:read`, `avatars:read`, `voices:read`, `templates:read`, and `account:read`. "
+                "`video_agent:read`, `lipsync:read`, `avatars:read`, `voices:read`, `templates:read`, and `account:read`. "
                 "Avatar and voice tables include your private resources."
             ),
             iconPath="/static/services/heygen.png",
@@ -72,7 +75,7 @@ class HeyGenSource(ResumableSource[HeyGenSourceConfig, HeyGenResumeConfig]):
                     )
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )
 
     def get_schemas(

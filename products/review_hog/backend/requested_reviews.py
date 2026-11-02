@@ -6,16 +6,21 @@ requester and checked their access to the project.
 """
 
 import logging
-from enum import StrEnum
 
-from django.db import models
-
-from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration
 
+from products.review_hog.backend.facade.contracts import (
+    RUN_MODE_FLASH,
+    RUN_MODE_RESOLVE_ONLY,
+    RUN_MODE_REVIEW,
+    RUN_MODE_REVIEW_ONLY,
+    PRReviewRequestOutcome,
+)
+from products.review_hog.backend.facade.enums import PRReviewRequestStatus, ResolveSkipReason, ReviewRequestRefusal
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
-from products.review_hog.backend.review_request_rules import ResolutionGate, ReviewRequestRefusal, flash_refusal
+from products.review_hog.backend.review_request_rules import ResolutionGate, flash_refusal
 from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL
 from products.review_hog.backend.reviewer.persistence import lift_review_tier_for_joined_trigger
 from products.review_hog.backend.reviewer.review_state import review_already_published
@@ -29,66 +34,6 @@ from products.review_hog.backend.temporal.client import (
 from products.review_hog.backend.temporal.types import TRIGGER_UI, resolve_pr_workflow_id, review_pr_workflow_id
 
 logger = logging.getLogger(__name__)
-
-# What the trigger runs. The default 'review' includes the resolution stage when the pull request
-# owner's `resolve_comments` setting is on; the others are the split button's explicit variants.
-# Flash never resolves comments because it must not write code.
-RUN_MODE_REVIEW = "review"
-RUN_MODE_REVIEW_ONLY = "review_only"
-RUN_MODE_RESOLVE_ONLY = "resolve_only"
-RUN_MODE_FLASH = "flash"
-RUN_MODES = (RUN_MODE_REVIEW, RUN_MODE_REVIEW_ONLY, RUN_MODE_RESOLVE_ONLY, RUN_MODE_FLASH)
-
-
-class PRReviewRequestStatus(StrEnum):
-    STARTED = "started"
-    JOINED_RUNNING_REVIEW = "joined_running_review"
-    ALREADY_REVIEWED = "already_reviewed"
-    # The request cannot start a run as asked: the repository, the pull request or its state.
-    INVALID = "invalid"
-    # The requested mode is not available in this project.
-    NOT_ALLOWED = "not_allowed"
-    # The pull request's review cycle is busy, so the request is refused rather than queued.
-    BUSY = "busy"
-    # A review rule refuses the request for this pull request; `refusal` says which.
-    REFUSED = "refused"
-
-
-class ResolveSkipReason(models.TextChoices):
-    """Why an accepted request runs no resolution stage."""
-
-    RUN_MODE_EXCLUDES_RESOLVE = "run_mode_excludes_resolve", "The run mode never resolves comments"
-    OWNER_NOT_OPTED_IN = "owner_not_opted_in", "The pull request owner has not opted in to resolution"
-    ALREADY_REVIEWED = "already_reviewed", "No run starts, because the head already has a review in this mode"
-
-
-@frozen
-class PRReviewRequestOutcome:
-    status: PRReviewRequestStatus
-    workflow_id: str = ""
-    # Written for the requester. Built from the repository name, the PR number and fixed text only.
-    error: str = ""
-    refusal: ReviewRequestRefusal | None = None
-    repository: str = ""
-    pr_number: int | None = None
-    head_sha: str | None = None
-    # None for a resolve-only run, which reviews nothing.
-    review_mode: str | None = None
-    # None until the first run of the pull request creates the report.
-    report_id: str | None = None
-    resolve_skip_reason: ResolveSkipReason | None = None
-
-    @property
-    def started(self) -> bool:
-        return self.status in (
-            PRReviewRequestStatus.STARTED,
-            PRReviewRequestStatus.JOINED_RUNNING_REVIEW,
-            PRReviewRequestStatus.ALREADY_REVIEWED,
-        )
-
-    @property
-    def resolve_will_run(self) -> bool:
-        return self.started and self.resolve_skip_reason is None
 
 
 def fetch_pr_metadata(github: GitHubIntegration, owner: str, repo: str, pr_number: int) -> PRMetadata:
@@ -159,7 +104,9 @@ def request_pr_review(
     repository = f"{owner}/{repo}"
     # Checked synchronously (one GitHub API call) so an inaccessible repo errors here, in the UI —
     # asynchronously the fetch activity would fail before the report row exists, showing nothing.
-    github = GitHubIntegration.first_for_team_repository(team_id, repository)
+    github = GitHubIntegration.first_for_team_repository(
+        team_id, repository, source="review_hog", priority=Priority.CRITICAL
+    )
     if github is None:
         return PRReviewRequestOutcome(
             status=PRReviewRequestStatus.INVALID,

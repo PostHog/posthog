@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DopplerSource(ResumableSource[DopplerSourceConfig, DopplerResumeConfig]):
+    codebase_detection = detect(env=("^DOPPLER_",), npm=("@dopplerhq/node-sdk",), pypi=("doppler-sdk",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -45,7 +48,7 @@ class DopplerSource(ResumableSource[DopplerSourceConfig, DopplerResumeConfig]):
             name=ExternalDataSourceType.DOPPLER,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Doppler",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter a Doppler API token to pull your Doppler projects, configs, and activity logs into the PostHog Data warehouse for audit and change tracking. Secret values are never synced.
 
 Use a [personal token](https://docs.doppler.com/docs/personal-tokens) or a [service account token](https://docs.doppler.com/docs/service-accounts) with read access to the workplace and the projects you want to sync.""",

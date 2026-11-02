@@ -363,13 +363,17 @@ class _FoldState:
         if isinstance(null_count, int) and not isinstance(null_count, bool):
             self.null_count = (self.null_count or 0) + null_count
         min_value = stats.get("minValues", {}).get(name)
-        if min_value is not None:
-            parsed = _parse_log_value(self.delta_type, min_value)
-            self.min_value = parsed if self.min_value is None else min(self.min_value, parsed)
         max_value = stats.get("maxValues", {}).get(name)
+        self.include(
+            _parse_log_value(self.delta_type, min_value) if min_value is not None else None,
+            _parse_log_value(self.delta_type, max_value) if max_value is not None else None,
+        )
+
+    def include(self, min_value: Any, max_value: Any) -> None:
+        if min_value is not None:
+            self.min_value = min_value if self.min_value is None else min(self.min_value, min_value)
         if max_value is not None:
-            parsed = _parse_log_value(self.delta_type, max_value)
-            self.max_value = parsed if self.max_value is None else max(self.max_value, parsed)
+            self.max_value = max_value if self.max_value is None else max(self.max_value, max_value)
 
 
 def _fold_commit_stats(
@@ -411,17 +415,16 @@ def _fold_commit_stats(
         # scan re-derives them instead.
         if not isinstance(delta_type, str) and (stored.min_value is not None or stored.max_value is not None):
             return None
-        states[name] = _FoldState(
-            delta_type=delta_type,
-            null_count=stored.null_count,
-            min_value=_parse_stored_value(delta_type, stored.min_value) if stored.min_value is not None else None,
-            max_value=_parse_stored_value(delta_type, stored.max_value) if stored.max_value is not None else None,
-        )
+        states[name] = _FoldState(delta_type=delta_type, null_count=stored.null_count, min_value=None, max_value=None)
     if len(row_counts) != 1:
         return None
     row_count = row_counts.pop()
 
-    for version in range(base_version + 1, delta_version + 1):
+    # Stats and stored bounds parse under the current schema, but an older file or the stored row
+    # carries its bounds in the type of its own time. Newest first, a commit that changed the schema
+    # stops the fold before anything older is parsed; every aggregate here ignores order.
+    for version in range(delta_version, base_version, -1):
+        added_stats: list[str] = []
         for action in read_commit_actions(version):
             kinds = set(action) - _NEUTRAL_ACTIONS
             if not kinds:
@@ -431,13 +434,22 @@ def _fold_commit_stats(
             add = action["add"]
             if not add.get("dataChange", True) or not add.get("stats"):
                 return None
-            stats = json.loads(add["stats"], parse_float=Decimal)
+            added_stats.append(add["stats"])
+        for raw_stats in added_stats:
+            stats = json.loads(raw_stats, parse_float=Decimal)
             num_records = stats.get("numRecords")
             if not isinstance(num_records, int) or isinstance(num_records, bool):
                 return None
             row_count += num_records
             for name, state in states.items():
                 state.fold(stats, name)
+
+    for name, state in states.items():
+        stored = existing[name]
+        state.include(
+            _parse_stored_value(state.delta_type, stored.min_value) if stored.min_value is not None else None,
+            _parse_stored_value(state.delta_type, stored.max_value) if stored.max_value is not None else None,
+        )
 
     return row_count, {
         name: _ColumnStat(

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,12 +33,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.recall_ai.
 from products.warehouse_sources.backend.temporal.data_imports.sources.recall_ai.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    USAGE_ENDPOINT,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class RecallAISource(ResumableSource[RecallAISourceConfig, RecallAIResumeConfig]):
+    codebase_detection = detect(env=("^(RECALL_AI|RECALLAI)_",), npm=("@recallai/desktop-sdk",))
+
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
     # Recall.ai versions per resource (/api/v1/ for bots and artifacts, /api/v2/ for
     # calendars) with no workspace-wide version to pin, so the framework's unversioned
@@ -70,7 +74,8 @@ class RecallAISource(ResumableSource[RecallAISourceConfig, RecallAIResumeConfig]
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        # Usage re-reads restated days, which only a merge on `date` keeps unique.
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=(USAGE_ENDPOINT,))
 
     def validate_credentials(
         self,
@@ -122,7 +127,7 @@ class RecallAISource(ResumableSource[RecallAISourceConfig, RecallAIResumeConfig]
             name=ExternalDataSourceType.RECALLAI,
             category=DataWarehouseSourceCategory.COMMUNICATION,
             label="Recall.ai",
-            caption="Sync meeting bots, recordings, transcripts, participant events, and calendar data from Recall.ai.",
+            caption="Sync meeting bots, recordings, transcripts, participant events, calendar data, and bot usage from Recall.ai.",
             docsUrl="https://posthog.com/docs/cdp/sources/recall-ai",
             iconPath="/static/services/recall_ai.png",
             keywords=["meetings", "call recording", "transcripts", "bots"],
@@ -153,5 +158,5 @@ class RecallAISource(ResumableSource[RecallAISourceConfig, RecallAIResumeConfig]
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
         )

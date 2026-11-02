@@ -5,7 +5,6 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { HogDebug } from 'scenes/debug/HogDebug'
-import { MarketingAnalyticsOverview } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsOverview/MarketingAnalyticsOverview'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
@@ -13,6 +12,13 @@ import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { InsightViz, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { WebOverview } from '~/queries/nodes/WebOverview/WebOverview'
 import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
+import {
+    isDataTableNode,
+    isDataVisualizationNode,
+    isInsightVizNode,
+    isMetricsQuery,
+    isWebOverviewQuery,
+} from '~/queries/schema/node-guards'
 import {
     AnyResponseType,
     DashboardFilter,
@@ -31,21 +37,21 @@ import { MetricsHistogramQueryNode, MetricsQueryNode } from 'products/metrics/fr
 import { DataTableVisualization } from '../nodes/DataVisualization/DataVisualization'
 import { SavedInsight } from '../nodes/SavedInsight/SavedInsight'
 import {
-    isDataTableNode,
-    isDataVisualizationNode,
     isEndpointsUsageOverviewQuery,
     isEndpointsUsageTrendsQuery,
     isHogQuery,
-    isInsightVizNode,
     isMarketingAnalyticsAggregatedQuery,
     isMetricsHistogramQuery,
-    isMetricsQuery,
     isSavedInsightNode,
-    isWebOverviewQuery,
     isWebVitalsPathBreakdownQuery,
     isWebVitalsQuery,
 } from '../utils'
 
+const MarketingAnalyticsOverview = lazyWithRetry(() =>
+    import('scenes/web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsOverview/MarketingAnalyticsOverview').then(
+        (m) => ({ default: m.MarketingAnalyticsOverview })
+    )
+)
 const WebVitals = lazyWithRetry(() =>
     import('~/queries/nodes/WebVitals/WebVitals').then((m) => ({ default: m.WebVitals }))
 )
@@ -191,6 +197,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 query={query}
                 cachedResults={props.cachedResults}
                 context={queryContext}
+                embedded={embedded}
                 editMode={!!editMode && !readOnly}
                 setQuery={setQuery as unknown as (query: MetricsQuery) => void}
             />
@@ -202,6 +209,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 query={query}
                 cachedResults={props.cachedResults}
                 context={queryContext}
+                embedded={embedded}
             />
         )
     } else if (isEndpointsUsageOverviewQuery(query)) {
@@ -234,13 +242,15 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         )
     } else if (isMarketingAnalyticsAggregatedQuery(query)) {
         component = (
-            <MarketingAnalyticsOverview
-                attachTo={props.attachTo}
-                query={query}
-                cachedResults={props.cachedResults}
-                context={queryContext}
-                uniqueKey={uniqueKey}
-            />
+            <Suspense fallback={<Spinner />}>
+                <MarketingAnalyticsOverview
+                    attachTo={props.attachTo}
+                    query={query}
+                    cachedResults={props.cachedResults}
+                    context={queryContext}
+                    uniqueKey={uniqueKey}
+                />
+            </Suspense>
         )
     } else if (isWebVitalsQuery(query)) {
         component = (

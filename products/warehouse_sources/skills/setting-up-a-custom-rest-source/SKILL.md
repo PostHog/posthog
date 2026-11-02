@@ -20,7 +20,7 @@ per-source Python. The manifest is a `RESTAPIConfig`: the same shape that powers
 incremental cursors for you. Your job is to author a correct manifest and prove it against live data before creating
 the source.
 
-This is an **alpha** capability. Caps: at most 50 resources per manifest, and at most 5 Custom sources per project.
+This is a **beta** capability. Caps: at most 50 resources per manifest, and at most 5 Custom sources per project.
 
 ## When to use this skill
 

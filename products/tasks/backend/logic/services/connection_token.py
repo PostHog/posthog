@@ -14,6 +14,7 @@ from cryptography.hazmat.primitives import serialization
 
 from products.tasks.backend.feature_flags import run_stream_presence_gated, run_stream_thin_tail
 from products.tasks.backend.logic.services.sandbox_config import SANDBOX_TTL_SECONDS
+from products.tasks.backend.redis import run_uses_dedicated_stream
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
@@ -45,6 +46,7 @@ class SandboxEventIngestTokenPayload:
     presence_gated: bool = False
     thin_tail: bool = False
     origin_product: str | None = None
+    stream_generation: str | None = None
 
 
 @dataclass(frozen=True)
@@ -266,6 +268,7 @@ def create_sandbox_event_ingest_token(
     ttl: timedelta = SANDBOX_EVENT_INGEST_TOKEN_TTL,
     *,
     sandbox_id: str | None = None,
+    stream_generation: str | None = None,
 ) -> str:
     """
     Create a run-scoped JWT token for sandbox-to-Django live event ingest.
@@ -273,6 +276,8 @@ def create_sandbox_event_ingest_token(
     This token intentionally carries no user identity and grants one capability:
     appending ordered live events for this task run.
     """
+    from products.tasks.backend.logic.stream.redis_stream import get_task_run_stream_generation
+
     active_sandbox_id = sandbox_id or (task_run.state or {}).get("sandbox_id")
     if not isinstance(active_sandbox_id, str) or not active_sandbox_id:
         raise ValueError("Task run has no active sandbox identity")
@@ -287,6 +292,8 @@ def create_sandbox_event_ingest_token(
             "presence_gated": presence_gated,
             "thin_tail": thin_tail,
             "origin_product": task_run.task.origin_product,
+            "stream_generation": stream_generation
+            or get_task_run_stream_generation(str(task_run.id), run_uses_dedicated_stream(task_run.state)),
         },
     )
 
@@ -301,6 +308,7 @@ def validate_sandbox_event_ingest_token(token: str) -> SandboxEventIngestTokenPa
     presence_gated = payload.get("presence_gated", False)
     thin_tail = payload.get("thin_tail", False)
     origin_product = payload.get("origin_product")
+    stream_generation = payload.get("stream_generation")
 
     if not isinstance(run_id, str) or not isinstance(task_id, str) or type(team_id) is not int:
         raise jwt.InvalidTokenError("Sandbox event ingest token has invalid claims")
@@ -312,6 +320,8 @@ def validate_sandbox_event_ingest_token(token: str) -> SandboxEventIngestTokenPa
         raise jwt.InvalidTokenError("Sandbox event ingest token has invalid claims")
     if origin_product is not None and not isinstance(origin_product, str):
         raise jwt.InvalidTokenError("Sandbox event ingest token has invalid claims")
+    if "stream_generation" in payload and (not isinstance(stream_generation, str) or not stream_generation):
+        raise jwt.InvalidTokenError("Sandbox event ingest token has invalid claims")
 
     return SandboxEventIngestTokenPayload(
         run_id=run_id,
@@ -321,6 +331,7 @@ def validate_sandbox_event_ingest_token(token: str) -> SandboxEventIngestTokenPa
         presence_gated=presence_gated,
         thin_tail=thin_tail,
         origin_product=origin_product,
+        stream_generation=stream_generation,
     )
 
 

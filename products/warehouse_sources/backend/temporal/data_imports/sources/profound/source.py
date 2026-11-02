@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -7,7 +8,11 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -35,6 +40,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ProfoundSource(ResumableSource[ProfoundSourceConfig, ProfoundResumeConfig]):
+    codebase_detection = detect(env=("^PROFOUND_API_KEY$",), npm=("@profoundai/client", "next-aeo"), pypi=("profound",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Profound versions purely by URL path segment (`/v1/...`, `/v2/...`) — no version header or
     # account setting. The source already reads the newer v2 report surface (`/v2/reports/*`)
@@ -43,6 +50,9 @@ class ProfoundSource(ResumableSource[ProfoundSourceConfig, ProfoundResumeConfig]
     # settings.py). v2 is the default so new sources record the surface they actually sync.
     supported_versions = ("v1", "v2")
     default_version = "v2"
+    # Profound is phasing out its V1 report endpoints with no sunset date yet. The `v1` label never
+    # called them, but it names the version being retired, so it is flagged for existing pins.
+    deprecated_versions = (VersionDeprecation(version="v1", sunset_at=None),)
     api_docs_url = "https://docs.tryprofound.com/rest-api/introduction"
 
     @property
@@ -55,7 +65,7 @@ class ProfoundSource(ResumableSource[ProfoundSourceConfig, ProfoundResumeConfig]
             name=ExternalDataSourceType.PROFOUND,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Profound",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Sync your Profound answer engine data into the PostHog Data warehouse, so you can join brand visibility and citations to your product and web analytics.
 
 Create an API key under **Settings** then **API keys** in Profound. The API is available on Enterprise plans, and Profound has to enable it for your organization first.""",

@@ -3,8 +3,10 @@ from typing import Optional
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openalex import (
     OpenalexSourceConfig,
 )
@@ -17,37 +19,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.openalex.s
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.openalex.source"
 
 
-def _inputs(schema_name: str) -> SourceInputs:
-    return SourceInputs(
-        schema_name=schema_name,
-        schema_id="schema-1",
-        source_id="source-1",
-        team_id=1,
-        should_use_incremental_field=False,
-        db_incremental_field_last_value=None,
-        db_incremental_field_earliest_value=None,
-        incremental_field=None,
-        incremental_field_type=None,
-        job_id="job-1",
-        logger=MagicMock(),
-        reset_pipeline=False,
-    )
-
-
 class TestOpenalexSource:
     def setup_method(self) -> None:
         self.source = OpenalexSource()
         self.config = OpenalexSourceConfig(api_key="key")
 
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_only_works_advertises_incremental_sync(self, endpoint: str) -> None:
-        # OpenAlex gates its updated/created date filters behind a paid plan, so `works` is the
-        # only table with a usable server-side timestamp filter.
+    def test_only_works_and_locations_advertise_incremental_sync(self, endpoint: str) -> None:
+        # OpenAlex gates its updated/created date filters behind a paid plan, so only the free
+        # `publication_date` and `ingested_at` filters give a usable server-side timestamp filter.
         schema = next(s for s in self.source.get_schemas(self.config, team_id=1) if s.name == endpoint)
+        expected_fields = {"works": ["publication_date"], "locations": ["ingested_at"]}
 
-        if endpoint == "works":
+        if endpoint in expected_fields:
             assert schema.supports_incremental is True
-            assert [f["field"] for f in schema.incremental_fields] == ["publication_date"]
+            assert [f["field"] for f in schema.incremental_fields] == expected_fields[endpoint]
         else:
             assert schema.supports_incremental is False
             assert schema.incremental_fields == []
@@ -58,8 +44,6 @@ class TestOpenalexSource:
     @pytest.mark.parametrize(
         "observed_error",
         [
-            "401 Client Error: Unauthorized for url: https://api.openalex.org/works?per_page=200",
-            "403 Client Error: Forbidden for url: https://api.openalex.org/works?per_page=200",
             "400 Client Error: Bad Request for url: https://api.openalex.org/works?per_page=200",
         ],
     )
@@ -72,26 +56,29 @@ class TestOpenalexSource:
             ("works", "works-scope"),
             ("authors", "authors-scope"),
             ("awards", "awards-scope"),
+            ("locations", "locations-scope"),
             ("topics", None),
             ("institutions", None),
         ],
     )
-    @patch(f"{SOURCE_MODULE}.openalex_source")
-    def test_each_table_gets_its_own_filter(
-        self, mock_openalex_source: MagicMock, endpoint: str, expected_filter: Optional[str]
-    ) -> None:
+    def test_each_table_gets_its_own_filter(self, endpoint: str, expected_filter: Optional[str]) -> None:
         # Sending the works filter to another entity would be rejected as an invalid filter field.
         config = OpenalexSourceConfig(
             api_key="key",
             works_filter="works-scope",
             authors_filter="authors-scope",
             awards_filter="awards-scope",
+            locations_filter="locations-scope",
         )
 
-        self.source.source_for_pipeline(config, MagicMock(spec=ResumableSourceManager), _inputs(endpoint))
+        result = SourceDriver(self.source, config).run(
+            endpoint,
+            [ScriptedResponse(json={"meta": {"count": 1, "next_cursor": None}, "results": [{"id": "W1"}]})],
+        )
 
-        assert mock_openalex_source.call_args.kwargs["entity_filter"] == expected_filter
-        assert mock_openalex_source.call_args.kwargs["endpoint"] == endpoint
+        assert result.raised is None
+        assert result.paths == [f"/{endpoint}"]
+        assert result.requests[0].param("filter") == expected_filter
 
     @patch(f"{SOURCE_MODULE}.validate_openalex_credentials")
     def test_validate_credentials_probes_every_configured_filter(self, mock_validate: MagicMock) -> None:
@@ -105,4 +92,5 @@ class TestOpenalexSource:
             "works": "works-scope",
             "authors": None,
             "awards": "awards-scope",
+            "locations": None,
         }

@@ -11,10 +11,6 @@ class TestFinageSource:
         self.source = FinageSource()
         self.team_id = 123
 
-    def test_get_schemas_names_filter(self):
-        schemas = self.source.get_schemas(self._config(), self.team_id, names=["aggregates"])
-        assert [s.name for s in schemas] == ["aggregates"]
-
     @pytest.mark.parametrize(
         "status,schema_name,expected_valid",
         [

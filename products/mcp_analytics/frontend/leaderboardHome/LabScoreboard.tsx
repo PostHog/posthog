@@ -3,14 +3,25 @@ import { Card, CardContent, Skeleton, ToggleGroup, ToggleGroupItem } from '@post
 import { TileDecorations } from 'lib/components/TileDecorations/TileDecorations'
 import { formatPercentage } from 'lib/utils/numbers'
 
+import { labMark } from '../brandMarks'
+import { BrandMark } from '../components/BrandMark'
+import { formatNumber } from '../dashboard/formatters'
 import { leadingLabs, type LabShare, type ScoreboardMetric } from './leaderboardShares'
 import { LoadErrorMessage } from './LoadErrorMessage'
 
 const PODIUM_SIZE = 3
 
-const METRICS: { value: ScoreboardMetric; label: string; caption: string }[] = [
-    { value: 'calls', label: 'Calls', caption: 'of calls from models that name themselves' },
-    { value: 'users', label: 'Users', caption: 'of users who called with a model from this lab' },
+const METRICS: { value: ScoreboardMetric; label: string; caption: (count: string, total: string) => string }[] = [
+    {
+        value: 'calls',
+        label: 'Calls',
+        caption: (count, total) => `${count} of ${total} calls from models that name themselves`,
+    },
+    {
+        value: 'users',
+        label: 'Users',
+        caption: (count, total) => `${count} of ${total} users called with a model from this lab`,
+    },
 ]
 
 export function LabScoreboard({
@@ -69,16 +80,21 @@ export function LabScoreboard({
                 <LoadErrorMessage />
             ) : (
                 <div className="grid min-w-0 grid-cols-1 gap-4 @min-[40rem]/mcp-overview:grid-cols-3">
-                    {podium.map(({ lab, share }) => (
+                    {podium.map(({ lab, share, count, total }) => (
                         <div key={lab} className="relative">
                             <TileDecorations badge={leaders.includes(lab) ? 'winner' : null} />
                             <Card size="sm" className="h-full" data-attr="mcp-leaderboard-lab-tile">
                                 <CardContent className="flex flex-col gap-1">
-                                    <span className="text-sm text-secondary">{lab}</span>
+                                    <span className="flex items-center gap-1.5 text-sm font-semibold text-secondary">
+                                        <BrandMark name={labMark(lab)} className="size-4 text-primary" />
+                                        {lab}
+                                    </span>
                                     <span className="text-3xl font-semibold tabular-nums text-primary">
                                         {formatPercentage(share, { compact: true })}
                                     </span>
-                                    <span className="text-xs text-secondary">{caption}</span>
+                                    <span className="text-xs text-secondary tabular-nums">
+                                        {caption?.(formatNumber(count), formatNumber(total))}
+                                    </span>
                                 </CardContent>
                             </Card>
                         </div>

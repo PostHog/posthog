@@ -15,11 +15,6 @@ class TestFastlySource:
         # get_schemas iterates a static endpoint catalog with no I/O, so the public docs render tables.
         assert self.source.lists_tables_without_credentials is True
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["services"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "services"
-
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [

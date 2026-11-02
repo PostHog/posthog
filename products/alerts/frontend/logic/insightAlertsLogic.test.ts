@@ -6,10 +6,11 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightsApi } from 'scenes/insights/utils/api'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { Node, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ChartDisplayType, HogFunctionType, InsightLogicProps, InsightShortId } from '~/types'
+import { ChartDisplayType, HogFunctionType, InsightLogicProps, InsightModel, InsightShortId } from '~/types'
 
 import type { AlertType } from '../types'
 import {
@@ -42,6 +43,21 @@ const FUNNEL_QUERY = {
 const METRICS_QUERY = {
     kind: NodeKind.MetricsQuery,
     clauses: [{ name: 'a', metricName: 'queue.depth', aggregation: 'avg' }],
+}
+
+const funnelWithViz = (funnelVizType?: string): Node & { source: Record<string, any> } => ({
+    ...FUNNEL_QUERY,
+    source: { ...FUNNEL_QUERY.source, funnelsFilter: { funnelVizType } },
+})
+
+const SQL_QUERY = {
+    kind: NodeKind.DataVisualizationNode,
+    source: { kind: NodeKind.HogQLQuery, query: 'SELECT count() FROM events' },
+}
+
+const RETENTION_QUERY = {
+    kind: NodeKind.InsightVizNode,
+    source: { kind: NodeKind.RetentionQuery, retentionFilter: {} },
 }
 
 describe('insightAlertsLogic', () => {
@@ -89,6 +105,31 @@ describe('insightAlertsLogic', () => {
         await expectLogic(alertsLogic).toFinishAllListeners().toMatchValues({ alerts: inlineAlerts })
         expect(listSpy).not.toHaveBeenCalled()
         expect(hogFunctionsListSpy).not.toHaveBeenCalled()
+    })
+
+    it('reloads alerts after the insight saves', async () => {
+        const updateSpy = jest
+            .spyOn(insightsApi, 'update')
+            .mockResolvedValue({ ...createEmptyInsight(Insight42), id: 42 } as InsightModel)
+        const insightLogicProps: InsightLogicProps = {
+            dashboardItemId: Insight42,
+            dashboardId: 1,
+            cachedInsight: {
+                ...createEmptyInsight(Insight42),
+                id: 42,
+                query: API_QUERY,
+                alerts: [{ id: 'alert-a', name: 'Inline' }] as AlertType[],
+            },
+        }
+        mountInsightStack(insightLogicProps)
+        const alertsLogic = insightAlertsLogic({ insightId: 42, insightLogicProps, deferInitialAlertsLoad: true })
+        alertsLogic.mount()
+
+        insightLogic(insightLogicProps).actions.saveInsight()
+
+        await expectLogic(alertsLogic).toDispatchActions(['loadAlerts', 'loadAlertsSuccess'])
+        expect(listSpy).toHaveBeenCalled()
+        updateSpy.mockRestore()
     })
 
     it('does not fetch on a deferred mount when the cached insight has no alerts field', async () => {
@@ -276,11 +317,14 @@ describe('insightAlertsLogic', () => {
     })
 
     it.each([
-        { metricsEnabled: true, expectedWarning: false },
-        { metricsEnabled: false, expectedWarning: true },
+        { name: 'metrics', query: METRICS_QUERY, metricsEnabled: true, expectedWarning: false },
+        { name: 'metrics', query: METRICS_QUERY, metricsEnabled: false, expectedWarning: false },
+        { name: 'flow funnel', query: funnelWithViz('flow'), metricsEnabled: false, expectedWarning: false },
+        { name: 'SQL', query: SQL_QUERY, metricsEnabled: false, expectedWarning: false },
+        { name: 'retention', query: RETENTION_QUERY, metricsEnabled: true, expectedWarning: true },
     ])(
-        'with metrics flag $metricsEnabled, a metrics query on an insight with alerts sets the deletion warning to $expectedWarning',
-        async ({ metricsEnabled, expectedWarning }) => {
+        'with metrics flag $metricsEnabled, a $name query on an insight with alerts sets the deletion warning to $expectedWarning',
+        async ({ query, metricsEnabled, expectedWarning }) => {
             featureFlagLogic.mount()
             featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.METRICS]: metricsEnabled })
             const insightLogicProps: InsightLogicProps = {
@@ -288,7 +332,7 @@ describe('insightAlertsLogic', () => {
                 cachedInsight: {
                     ...createEmptyInsight(Insight42),
                     id: 42,
-                    query: METRICS_QUERY,
+                    query,
                     alerts: [{ id: 'alert-a' }] as AlertType[],
                 },
             }
@@ -297,7 +341,7 @@ describe('insightAlertsLogic', () => {
             alertsLogic.mount()
 
             await expectLogic(alertsLogic, () => {
-                insightVizDataLogic(insightLogicProps).actions.setQuery(METRICS_QUERY)
+                insightVizDataLogic(insightLogicProps).actions.setQuery(query)
             }).toDispatchActions(['setShouldShowAlertDeletionWarning'])
             expect(alertsLogic.values.shouldShowAlertDeletionWarning).toBe(expectedWarning)
         }
@@ -367,30 +411,27 @@ describe('areAlertsSupportedForInsight', () => {
     })
 
     it('supports steps and trends funnels but not time-to-convert or flow', () => {
-        const withViz = (funnelVizType?: string): Record<string, any> => ({
-            ...FUNNEL_QUERY,
-            source: { ...FUNNEL_QUERY.source, funnelsFilter: { funnelVizType } },
-        })
-        expect(areAlertsSupportedForInsight(withViz('steps'))).toBe(true)
-        expect(areAlertsSupportedForInsight(withViz('trends'))).toBe(true)
-        expect(areAlertsSupportedForInsight(withViz('time_to_convert'))).toBe(false)
-        expect(areAlertsSupportedForInsight(withViz('flow'))).toBe(false)
+        expect(areAlertsSupportedForInsight(funnelWithViz('steps'))).toBe(true)
+        expect(areAlertsSupportedForInsight(funnelWithViz('trends'))).toBe(true)
+        expect(areAlertsSupportedForInsight(funnelWithViz('time_to_convert'))).toBe(false)
+        expect(areAlertsSupportedForInsight(funnelWithViz('flow'))).toBe(false)
     })
 
-    it.each<[string, ChartDisplayType | undefined, boolean]>([
-        ['line graph', ChartDisplayType.ActionsLineGraph, true],
-        ['default display', undefined, true],
-        ['bold number', ChartDisplayType.BoldNumber, false],
-        ['bar value', ChartDisplayType.ActionsBarValue, false],
-    ])('reports anomaly support for %s trends', (_name, display, expected) => {
-        const query = {
-            ...API_QUERY,
-            source: {
-                ...API_QUERY.source,
-                trendsFilter: display ? { display } : null,
-            },
-        }
-        expect(areAnomalyAlertsSupportedForInsight(query)).toBe(expected)
+    const trendsWithDisplay = (display?: ChartDisplayType): Record<string, any> => ({
+        ...API_QUERY,
+        source: { ...API_QUERY.source, trendsFilter: display ? { display } : null },
+    })
+
+    it.each<[string, Record<string, any>, boolean]>([
+        ['line graph trends', trendsWithDisplay(ChartDisplayType.ActionsLineGraph), true],
+        ['default display trends', trendsWithDisplay(), true],
+        ['bold number trends', trendsWithDisplay(ChartDisplayType.BoldNumber), false],
+        ['bar value trends', trendsWithDisplay(ChartDisplayType.ActionsBarValue), false],
+        ['SQL', SQL_QUERY, true],
+        ['funnel', FUNNEL_QUERY, false],
+        ['metrics', METRICS_QUERY, false],
+    ])('reports anomaly support for %s with the metrics flag on', (_name, query, expected) => {
+        expect(areAnomalyAlertsSupportedForInsight(query, { metricsAlertsEnabled: true })).toBe(expected)
     })
 })
 
@@ -407,10 +448,6 @@ describe('alertsUnsupportedReason', () => {
     // A time-to-convert/flow funnel is itself a funnel, so the generic "funnel insights are supported"
     // copy reads as a contradiction; the reason should name the real cause instead.
     it('gives a funnel-viz-specific reason for time-to-convert / flow funnels', () => {
-        const funnelWithViz = (funnelVizType: string): Record<string, any> => ({
-            ...FUNNEL_QUERY,
-            source: { ...FUNNEL_QUERY.source, funnelsFilter: { funnelVizType } },
-        })
         for (const viz of ['time_to_convert', 'flow']) {
             const reason = alertsUnsupportedReason({}, funnelWithViz(viz))
             expect(reason).toContain('conversion rate')

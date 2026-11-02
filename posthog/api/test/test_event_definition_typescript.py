@@ -15,8 +15,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from posthog.test.base import APIBaseTest, BaseTest
+from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
+
+from django.test import SimpleTestCase
 
 from rest_framework import status
 
@@ -286,7 +288,7 @@ posthog.capture("a'a\\\\'b\\"c>?>%}}%%>c<[[?${{%}}cake'", {
             self.snapshot.assert_match(self._strip_dynamic_timestamp(ts_content))
 
 
-class TestTypeScriptGeneratorOptionalInTypes(BaseTest):
+class TestTypeScriptGeneratorOptionalInTypes(SimpleTestCase):
     def test_optional_in_types_generates_optional_marker(self):
         generator = TypeScriptGenerator()
         event = MagicMock()

@@ -1,6 +1,6 @@
 from collections.abc import Callable
 
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from hogql_parser import parse_string_literal_text as parse_string_cpp
 from hogql_parser_rs import parse_string_literal_text as parse_string_rust
@@ -12,7 +12,7 @@ from posthog.hogql.errors import SyntaxError
 def parse_string_test_factory(backend: HogQLParserBackend):
     parse_string: Callable[[str], str] = parse_string_rust if backend.startswith("rust") else parse_string_cpp
 
-    class TestParseString(BaseTest):
+    class TestParseString(SimpleTestCase):
         def test_quote_types(self):
             self.assertEqual(parse_string("`asd`"), "asd")
             self.assertEqual(parse_string("'asd'"), "asd")

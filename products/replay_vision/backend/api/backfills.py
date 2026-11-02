@@ -24,6 +24,7 @@ from posthog.permissions import is_scout_sandbox_request
 from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 
 from products.replay_vision.backend.billing import observation_credits_for_model
+from products.replay_vision.backend.consent import AI_CONSENT_REQUIRED_CODE, is_ai_data_processing_approved
 from products.replay_vision.backend.models.replay_observation import IN_FLIGHT_STATUSES, ObservationStatus
 from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, ReplayScanner, ScannerType
 from products.replay_vision.backend.models.replay_scanner_backfill import (
@@ -342,6 +343,14 @@ class ReplayScannerBackfillViewSet(
         )
         return Response(response.data)
 
+    def _require_ai_consent(self) -> None:
+        # Each tick skips dispatch without consent, so a backfill accepted here would sit running and scan nothing.
+        if not is_ai_data_processing_approved(self.team.id):
+            raise ValidationError(
+                "Your organization needs to allow AI analysis before you run a Replay Vision backfill.",
+                code=AI_CONSENT_REQUIRED_CODE,
+            )
+
     @extend_schema(request=BackfillCreateSerializer, responses={201: ReplayScannerBackfillSerializer})
     def create(self, request: Request, **kwargs: Any) -> Response:
         """Create a backfill: freeze the scanner config, enumerate the exact candidate set, start the tick schedule.
@@ -351,6 +360,7 @@ class ReplayScannerBackfillViewSet(
         settled sessions between estimate and confirm can nudge total_count slightly.
         """
         scanner = self._scanner_for_url()
+        self._require_ai_consent()
         window = BackfillCreateSerializer(data=request.data)
         window.is_valid(raise_exception=True)
         window_start, window_end = self._clamped_window(window.validated_data)
@@ -423,6 +433,7 @@ class ReplayScannerBackfillViewSet(
     def resume(self, request: Request, **kwargs: Any) -> Response:
         """Restart a backfill that paused when the monthly quota ran out."""
         backfill = self.get_object()
+        self._require_ai_consent()
         updated = ReplayScannerBackfill.objects.filter(pk=backfill.pk, status=BackfillStatus.PAUSED_QUOTA).update(
             status=BackfillStatus.RUNNING
         )
