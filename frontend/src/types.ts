@@ -5370,6 +5370,7 @@ export interface AppContext {
     /** The project the URL asked for, as an id or a token, when the server refused to switch to it. */
     project_access_denied?: string | null
     livestream_host?: string
+    batch_export_google_cloud_organization_id?: string
     oauth_application?: OAuthApplicationPublicMetadata
     /** Server-resolved MCP scopes for OAuth consent when the client omits `scope`. */
     oauth_mcp_consent?: OAuthMcpConsentContext

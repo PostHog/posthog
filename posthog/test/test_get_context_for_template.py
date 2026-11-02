@@ -186,7 +186,11 @@ class TestShouldDeferAppContext(SimpleTestCase):
 class TestGetContextForTemplate(APIBaseTest):
     def test_get_context_for_template(self):
         with (
-            self.settings(STRIPE_PUBLIC_KEY=None, PERSISTED_FEATURE_FLAGS=["the_persisted_flags"]),
+            self.settings(
+                STRIPE_PUBLIC_KEY=None,
+                PERSISTED_FEATURE_FLAGS=["the_persisted_flags"],
+                BATCH_EXPORT_GOOGLE_CLOUD_ORGANIZATION_ID="123456789012",
+            ),
             mock.patch("posthog.settings.CLOUD_DEPLOYMENT", "LOCAL"),
         ):
             actual = get_context_for_template(
@@ -208,6 +212,7 @@ class TestGetContextForTemplate(APIBaseTest):
                 "persisted_feature_flags": ["the_persisted_flags", "warehouse-person-properties"],
                 "anonymous": False,
                 "run_mode": "LOCAL",
+                "batch_export_google_cloud_organization_id": "123456789012",
             },
             "posthog_bootstrap": {},
             "posthog_js_uuid_version": "v7",

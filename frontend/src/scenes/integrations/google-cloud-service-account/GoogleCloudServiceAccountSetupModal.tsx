@@ -4,6 +4,7 @@ import { Form } from 'kea-forms'
 import { LemonBanner, LemonTabs, LemonButton, Link, LemonFileInput, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import IconGoogleCloud from 'public/services/google-cloud.png'
@@ -20,6 +21,7 @@ export const GoogleCloudServiceAccountSetupModal = (
     const { currentOrganization } = useValues(organizationLogic)
     const { serviceAccountMode, isGoogleCloudServiceAccountIntegrationSubmitting } = useValues(logic)
     const { setServiceAccountMode, submitGoogleCloudServiceAccountIntegration } = useActions(logic)
+    const googleCloudOrganizationId = getAppContext()?.batch_export_google_cloud_organization_id
 
     return (
         <LemonModal
@@ -97,6 +99,29 @@ export const GoogleCloudServiceAccountSetupModal = (
                                         description.
                                     </p>
                                 </div>
+                                {googleCloudOrganizationId && (
+                                    <LemonBanner type="info">
+                                        <div className="flex flex-col gap-2">
+                                            <p className="m-0">
+                                                If your Google Cloud organization restricts access to external
+                                                identities, you may need an exception to grant PostHog access. PostHog's
+                                                organization principal set is:
+                                            </p>
+                                            <code className="break-all" translate="no">
+                                                {`is:principalSet://cloudresourcemanager.googleapis.com/organizations/${googleCloudOrganizationId}`}
+                                            </code>
+                                            <p className="m-0">
+                                                <Link
+                                                    to="https://posthog.com/docs/data-pipelines/batch-exports/bigquery#domain-restricted-sharing"
+                                                    target="_blank"
+                                                >
+                                                    Read more details about domain-restricted sharing in our
+                                                    documentation
+                                                </Link>
+                                            </p>
+                                        </div>
+                                    </LemonBanner>
+                                )}
                                 <div className="flex gap-3 items-start">
                                     <span className="bg-primary-highlight text-primary-alt rounded-full w-5 h-5 flex items-center justify-center text-xs font-semibold shrink-0 mt-0.5">
                                         2
