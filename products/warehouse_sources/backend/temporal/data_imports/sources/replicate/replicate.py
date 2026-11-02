@@ -8,6 +8,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     make_tracked_session,
     retry_with_deadline,
@@ -27,7 +29,7 @@ class ReplicateRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class ReplicateResumeConfig:
     # Full next-page URL returned by the API (carries the opaque cursor and any created_after filter).
     # None means "start the endpoint from its first page".
@@ -199,17 +201,23 @@ def _is_skippable_child_error(error: requests.HTTPError) -> bool:
     return error.response is not None and error.response.status_code in (403, 404)
 
 
-def _parse_model_ref(value: Any) -> tuple[str, str] | None:
-    """Parse `owner/name` or `owner/name:version_id` into (owner, name)."""
+@frozen(order=True)
+class ModelRef:
+    owner: str
+    name: str
+
+
+def _parse_model_ref(value: Any) -> ModelRef | None:
+    """Parse `owner/name` or `owner/name:version_id` into a model reference."""
     if not isinstance(value, str):
         return None
     owner, sep, name = value.split(":", 1)[0].partition("/")
     if not sep or not owner or not name or "/" in name:
         return None
-    return owner, name
+    return ModelRef(owner=owner, name=name)
 
 
-def _referenced_models(row: dict[str, Any]) -> list[tuple[str, str]]:
+def _referenced_models(row: dict[str, Any]) -> list[ModelRef]:
     release = row.get("current_release")
     output = row.get("output")
     candidates = [
@@ -227,7 +235,7 @@ def _get_model_version_rows(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[ReplicateResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
-    models: set[tuple[str, str]] = set()
+    models: set[ModelRef] = set()
     for parent_path in ("/deployments", "/trainings"):
         for page, _ in _walk_pages(session, f"{REPLICATE_BASE_URL}{parent_path}", headers, logger):
             for item in page:
@@ -239,7 +247,8 @@ def _get_model_version_rows(
     resume_url = _sanitize_next_url(resume.next_url) if resume is not None else None
 
     # Sorted, so a resumed run can skip every model that sorts before the saved one.
-    for owner, name in sorted(models):
+    for model in sorted(models):
+        owner, name = model.owner, model.name
         parent = f"{owner}/{name}"
         url = f"{REPLICATE_BASE_URL}/models/{quote(owner, safe='')}/{quote(name, safe='')}/versions"
         if resume_parent is not None and parent <= resume_parent:
