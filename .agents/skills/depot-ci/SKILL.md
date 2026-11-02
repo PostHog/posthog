@@ -7,7 +7,7 @@ description: >
   `depot ci run`, debugging Depot CI runs with `depot ci run list`, `depot ci status`,
   `depot ci logs`, `depot ci diagnose`, or `depot ci ssh`, inspecting test results with
   `depot tests` or run artifacts with `depot ci artifacts`, checking workflow compatibility,
-  running Depot CI on Entire repositories, or understanding Depot CI capabilities. Also use when the user mentions .depot/ directory,
+  or understanding Depot CI capabilities. Also use when the user mentions .depot/ directory,
   depot ci commands, or asks about running GitHub Actions workflows on Depot's infrastructure
   without GitHub-hosted runners. Also use when comparing what Depot CI and GitHub Actions
   report for a skipped, empty-matrix or continue-on-error job, or when working out whether a

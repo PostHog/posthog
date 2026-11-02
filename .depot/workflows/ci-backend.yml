@@ -116,8 +116,9 @@ on:
 concurrency:
     # PRs: one group per event; cancel-superseded-runs cancels stale runs. Push: per-SHA so master
     # pushes never cancel each other (check-migrations always completes). A `depot ci run` (event
-    # `api`) from an unpushed branch has ref refs/heads/master, so it gets its own group instead of
-    # queueing behind the hourly master run.
+    # `api`) from an unpushed branch has ref refs/heads/master. Each such run is a one-off test of
+    # a local patch with nothing to deduplicate, so it gets a per-run group instead of queueing
+    # behind the hourly master run.
     group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.event_name == 'pull_request' && format('pr-{0}-{1}-{2}', github.event.pull_request.number, github.event.pull_request.head.sha, github.event.pull_request.updated_at) || github.event_name == 'api' && format('api-{0}', github.run_id) || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 env:
@@ -4478,7 +4479,7 @@ jobs:
             (needs.django.result != 'skipped' || needs.turbo-tests.result != 'skipped') &&
             (
             github.event_name == 'schedule' ||
-            (github.event_name != 'pull_request' && github.event_name != 'push' && github.ref == 'refs/heads/master') ||
+            (github.event_name != 'pull_request' && github.event_name != 'push' && github.event_name != 'api' && github.ref == 'refs/heads/master') ||
             (github.event_name == 'pull_request' &&
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog')
             )

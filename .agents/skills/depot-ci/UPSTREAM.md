@@ -13,7 +13,7 @@ Upstream also ships `agents/openai.yaml`, `assets/` icons and `references/test-s
 
 - `references/posthog-check-run-semantics.md`, which upstream has no equivalent of.
 - In `SKILL.md`, the three sections between PostHog-local comment markers (one under the intro, one under "Parallel Steps" recording that GitHub Actions now has its own `parallel:` keyword, and one under "Test Results and Timing-Based Splitting" that replaces upstream's splitting sentences and its link to `references/test-splitting.md`), and the two sentences appended to the frontmatter `description`.
-- Three pointers to the unvendored `references/entire.md` are removed: the first line under "Getting Started" and the last clause of the forge paragraph in `SKILL.md`, and the last sentence of the Entire paragraph in `references/migration.md`.
+- Entire mentions that lead to the unvendored `references/entire.md` are removed: "running Depot CI on Entire repositories" in the frontmatter `description`, the first line under "Getting Started" and the last clause of the forge paragraph in `SKILL.md`, and the last sentence of the Entire paragraph in `references/migration.md`.
 - In `references/oidc.md`, the trust policy JSON as reflowed by the repo formatter.
 - Three code fences tagged `text` to satisfy markdownlint MD040, which the pre-commit hook enforces: the directory tree in `SKILL.md` and `references/migration.md`, and the SPIFFE id in `references/oidc.md`. Upstream leaves them untagged, so a resync reintroduces the error.
 - One of two consecutive blank lines after the runner label table in `references/github-actions-compatibility.md`, which markdownlint MD012 rejects.

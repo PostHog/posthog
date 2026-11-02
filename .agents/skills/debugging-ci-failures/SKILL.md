@@ -365,6 +365,8 @@ depot ci run --workflow .depot/workflows/ci-backend.yml --job <job>
 ```
 
 - `<job>` is `repo-checks` or `sdk-major-guard`. The CLI adds the `changes` job that they need.
+- A CLI run skips the `repo-checks` steps that run only on pull requests: "Check deleted migrations", "Check for new files under ee/", and the base-diff part of "Lint product structure".
+  A green run proves nothing about those steps, so fix them with their local commands only.
 - Do not use `check-migrations` or `check-openapi-types`.
   `check-migrations` checks out the repository a second time, after the patch step.
   `check-openapi-types` fails on any unstaged diff, and the patch step leaves the patch unstaged.
@@ -373,14 +375,14 @@ depot ci run --workflow .depot/workflows/ci-backend.yml --job <job>
 - Never run another job this way without approval.
   A CLI run has the event `api`, so `changes` marks every path as changed.
   The `django` and `turbo-tests` jobs then run their full matrices with no test selection.
-- The run posts its check runs to GitHub on the commit at `HEAD`, which can be a PR head.
-  Its result comes from code that is not in that commit, so tell the user that a red or green check on the PR can come from your run.
+- The run posts its check runs to GitHub on the commit at `HEAD`, and its result comes from code that is not in that commit.
+  When `HEAD` is the head commit of an open PR, ask the user before every run, because the run can turn a check on that PR green or red.
 - The patch includes only tracked files. Run `git add` on new files first.
 
 After each run:
 
 1. Poll `depot ci status <run-id>` in a bounded loop until the run is no longer queued or running.
-   `depot ci status --wait` needs CLI 2.102.19 or later, and the flox lock pins 2.102.9.
+   `depot ci status --wait` needs CLI 2.102.19 or later, so check `depot --version` before you use it.
 2. On failure, run `depot ci diagnose --job <job-id> --output json`.
    It returns grouped failures, a possible fix and its evidence lines.
    The diagnosis is AI-generated, so confirm it against `depot ci logs <attempt-id>` before you act on it.
