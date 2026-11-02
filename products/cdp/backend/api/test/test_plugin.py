@@ -1084,7 +1084,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             )
         url = f"/api/environments/{self.team.pk}/plugin_configs/{plugin_config.id}/logs/"
 
-        first_page = self.client.get(url, {"limit": 2, "search": ""}).json()
+        first_page = self.client.get(url, {"limit": "2", "search": ""}).json()
         second_page = self.client.get(url, {"limit": 2, "offset": 2}).json()
         past_the_end = self.client.get(url, {"limit": 2, "offset": 5}).json()
 
