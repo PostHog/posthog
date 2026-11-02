@@ -420,10 +420,23 @@ describe('log-record-avro', () => {
             expect(decoded[0].bytes_uncompressed).toBe(789)
         })
 
-        it('rejects promise for invalid buffer', async () => {
-            const invalidBuffer = Buffer.from('not avro data')
-
-            await expect(decodeLogRecords(invalidBuffer)).rejects.toThrow()
+        it.each([
+            [
+                'bytes that are not a container',
+                () => Promise.resolve(Buffer.from('not avro data')),
+                'invalid magic bytes',
+            ],
+            [
+                'a trailing block count past 2^53',
+                async () =>
+                    Buffer.concat([
+                        await encodeLogRecords(LOG_RECORD_SCHEMA, 'zstandard', [createRecord()]),
+                        Buffer.from([0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x20]),
+                    ]),
+                'potential precision loss',
+            ],
+        ])('rejects promise for %s', async (_name, build, message) => {
+            await expect(decodeLogRecords(await build())).rejects.toThrow(message)
         })
     })
 
