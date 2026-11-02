@@ -21,7 +21,6 @@ import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { formatCreditsRange } from '../utils/credits'
 import { quotaBannerState } from '../utils/quotaProjection'
-import { LegacyExperimentTargetingBanner } from './components/LegacyExperimentTargetingBanner'
 import { ScannerObservationsTable } from './components/ScannerObservationsTable'
 import { ScannerOverview } from './components/ScannerOverview'
 import { replayScannerLogic } from './replayScannerLogic'
@@ -118,7 +117,6 @@ export function ReplayScannerSceneComponent(): JSX.Element {
 
             <IngestionLimitBanner />
             <QuotaBanner />
-            {experimentScanners && <LegacyExperimentTargetingBanner scanner={scanner} />}
 
             <LemonTabs
                 // Only an experiment scanner has a Variants tab, so a stale ?tab=variants falls back.

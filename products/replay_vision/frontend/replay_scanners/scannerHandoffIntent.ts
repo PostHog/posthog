@@ -1,3 +1,6 @@
+import { NodeKind, type RecordingsQuery } from '~/queries/schema/schema-general'
+
+import type { GoalDraftSpend } from './replayScannerLogic'
 import type { ScannerFormValues } from './types'
 
 const SCANNER_HANDOFF_INTENT_KEY = 'replay-vision.scanner-handoff-intent'
@@ -54,18 +57,32 @@ export function consumeScannerHandoffIntent(): ScannerHandoffIntent | null {
 const SCANNER_GOAL_DRAFT_INTENT_KEY = 'replay-vision.scanner-goal-draft-intent'
 const SCANNER_GOAL_DRAFT_INTENT_TTL_MS = 60_000
 
+/** The query is the person's own filter, so the draft keeps it rather than picking its own sessions. */
+export interface ScannerGoalDraftIntent {
+    goal: string
+    query?: RecordingsQuery
+    spend?: GoalDraftSpend
+    source?: string
+}
+
 /** One-shot "draft this goal now" from an in-app click, kept out of the URL so a link cannot
  * start a draft on its own. Returns false when storage is unavailable. */
-export function markScannerGoalDraftIntent(goal: string): boolean {
+export function markScannerGoalDraftIntent(
+    intent: ScannerGoalDraftIntent,
+    { ttlMs = SCANNER_GOAL_DRAFT_INTENT_TTL_MS }: { ttlMs?: number } = {}
+): boolean {
     try {
-        sessionStorage.setItem(SCANNER_GOAL_DRAFT_INTENT_KEY, JSON.stringify({ goal, at: Date.now() }))
+        sessionStorage.setItem(
+            SCANNER_GOAL_DRAFT_INTENT_KEY,
+            JSON.stringify({ ...intent, expiresAt: Date.now() + ttlMs })
+        )
         return true
     } catch {
         return false
     }
 }
 
-export function consumeScannerGoalDraftIntent(): string | null {
+export function consumeScannerGoalDraftIntent(): ScannerGoalDraftIntent | null {
     try {
         const raw = sessionStorage.getItem(SCANNER_GOAL_DRAFT_INTENT_KEY)
         sessionStorage.removeItem(SCANNER_GOAL_DRAFT_INTENT_KEY)
@@ -73,14 +90,33 @@ export function consumeScannerGoalDraftIntent(): string | null {
             return null
         }
         const parsed = JSON.parse(raw)
-        if (typeof parsed?.goal !== 'string' || typeof parsed.at !== 'number') {
+        if (typeof parsed?.goal !== 'string' || typeof parsed.expiresAt !== 'number') {
             return null
         }
-        if (Date.now() - parsed.at > SCANNER_GOAL_DRAFT_INTENT_TTL_MS) {
+        if (Date.now() > parsed.expiresAt) {
             return null
         }
-        return parsed.goal.trim() || null
+        const goal = parsed.goal.trim()
+        if (!goal) {
+            return null
+        }
+        return {
+            goal,
+            query: parsed.query?.kind === NodeKind.RecordingsQuery ? parsed.query : undefined,
+            spend: isGoalDraftSpend(parsed.spend) ? parsed.spend : undefined,
+            source: typeof parsed.source === 'string' ? parsed.source : undefined,
+        }
     } catch {
         return null
     }
+}
+
+function isGoalDraftSpend(value: unknown): value is GoalDraftSpend {
+    if (typeof value !== 'object' || value === null) {
+        return false
+    }
+    return (
+        ('freeOnly' in value && value.freeOnly === true) ||
+        ('monthlyCreditBudget' in value && typeof value.monthlyCreditBudget === 'number')
+    )
 }
