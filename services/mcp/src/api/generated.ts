@@ -133055,6 +133055,7 @@ export namespace Schemas {
     export type BusinessKnowledgeSourcesDocumentsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 5000
      */
     limit?: number;
     /**
