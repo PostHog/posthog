@@ -45,6 +45,22 @@ describe('support macros', () => {
     })
 
     test.each([
+        [
+            '[Email](mailto:{{customer.email}})',
+            { ...ctx, customer: { ...ctx.customer, email: 'jane@example.com' } },
+            '<p><a href="mailto:jane%40example.com">Email</a></p>\n',
+        ],
+        [
+            '[Profile]({{customer.name}})',
+            { ...ctx, customer: { ...ctx.customer, name: 'javascript:alert(1)' } },
+            '<p><a href="javascript%3Aalert(1)">Profile</a></p>\n',
+        ],
+        ['Hi \uE0005\uE001 {{customer.first_name}}', ctx, '<p>Hi 5 Jane</p>\n'],
+    ])('renders the edge case %s', (body, context, expected) => {
+        expect(renderMacro(body, context)).toBe(expected)
+    })
+
+    test.each([
         ['refund', ['refund', 'refund-partial', 'Refund policy']],
         ['ref', ['refund-partial', 'refund', 'Refund policy']],
         ['policy', ['Refund policy']],

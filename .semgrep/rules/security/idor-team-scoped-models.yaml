@@ -477,6 +477,7 @@ rules:
                               |SigningSecret
                               |Ticket
                               |TicketView
+                              |TicketMacro
                               |TicketViewFavorite
                               |ZendeskImportJob
                               |ReviewQueue
@@ -972,6 +973,7 @@ rules:
                         |SigningSecret
                         |Ticket
                         |TicketView
+                        |TicketMacro
                         |TicketViewFavorite
                         |ZendeskImportJob
                         |ReviewQueue
@@ -1306,6 +1308,7 @@ rules:
                         |Threshold
                         |Ticket
                         |TicketView
+                        |TicketMacro
                         |TraceReview
                         |TraceReviewScore
                         |TracesRetentionRule
