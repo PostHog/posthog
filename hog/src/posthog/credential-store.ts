@@ -13,14 +13,34 @@ export interface PersonalApiKeyCredential {
     apiKey: string
 }
 
-export type StoredCredential = PersonalApiKeyCredential
+// What `hog auth login` gets from the OAuth device grant. The access token is scoped to one project.
+export interface OAuthCredential {
+    type: 'oauth'
+    host: string
+    projectId: string
+    accessToken: string
+    refreshToken: string
+    // Epoch milliseconds after which the access token stops working.
+    expiresAt: number
+    scopes: string[]
+    // A random id the login keeps for life. The refresh token changes on each renewal, so it can't
+    // name the login.
+    loginId: string
+}
+
+export type StoredCredential = PersonalApiKeyCredential | OAuthCredential
 
 // The part of a login the credential store keeps.
 export interface PersonalApiKeySecret {
     apiKey: string
 }
 
-export type StoredSecret = PersonalApiKeySecret
+export interface OAuthSecret {
+    accessToken: string
+    refreshToken: string
+}
+
+export type StoredSecret = PersonalApiKeySecret | OAuthSecret
 
 export type StoreKind = 'keychain' | 'file' | 'memory'
 
@@ -49,7 +69,13 @@ export function hostKey(host: string): string {
 // A stored value hog doesn't recognize, such as one a later version wrote, reads as no login.
 function parseSecret(value: unknown): StoredSecret | undefined {
     const item = value as Record<string, unknown> | null
-    return typeof item?.apiKey === 'string' ? { apiKey: item.apiKey } : undefined
+    if (typeof item?.apiKey === 'string') {
+        return { apiKey: item.apiKey }
+    }
+    if (typeof item?.accessToken === 'string' && typeof item.refreshToken === 'string') {
+        return { accessToken: item.accessToken, refreshToken: item.refreshToken }
+    }
+    return undefined
 }
 
 function parseJson(text: string): unknown {

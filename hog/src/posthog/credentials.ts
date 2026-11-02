@@ -5,15 +5,19 @@ import type { Env, Runtime } from '@/core/runtime'
 
 import { FileStore } from './credential-store'
 import { readLogin } from './logins'
+import { freshOAuthCredential } from './oauth'
 import { readSettings } from './settings'
 
 // posthog-cli falls back to this host when neither --host nor the credentials name one.
 export const DEFAULT_HOST = 'https://us.i.posthog.com'
 
 export interface Credentials {
-    apiKey: string
+    // A personal API key or an OAuth access token, sent as a bearer token.
+    token: string
     projectId: string
     host: string
+    // Stays the same for the whole login, unlike OAuth tokens, which change on each renewal.
+    loginKey?: string
 }
 
 // `store` is what `hog auth login` saved. `posthog-cli-file` is posthog-cli's credentials file, which
@@ -21,15 +25,19 @@ export interface Credentials {
 export type CredentialSource = 'env' | 'dotenv-file' | 'store' | 'posthog-cli-file'
 
 export type ResolvedCredentials = Credentials & {
+    kind: 'personal_api_key' | 'oauth'
     source: CredentialSource
     // Set when the source is the store.
     store?: 'keychain' | 'file'
     // The file the credentials came from, when they came from one.
     path?: string
+    scopes?: string[]
+    expiresAt?: number
 }
 
 interface RawCredentials {
-    apiKey: string
+    kind: 'personal_api_key' | 'oauth'
+    token: string
     projectId: string
     host: string | undefined
 }
@@ -44,7 +52,7 @@ function fromLookup(lookup: (name: string) => string | undefined): RawCredential
     if (!apiKey || !projectId) {
         return undefined
     }
-    return { apiKey, projectId, host: lookup('HOG_HOST') || undefined }
+    return { kind: 'personal_api_key', token: apiKey, projectId, host: lookup('HOG_HOST') || undefined }
 }
 
 function parseDotenv(contents: string, path: string): Map<string, string> {
@@ -127,7 +135,7 @@ export function checkHost(host: string): string | undefined {
 }
 
 function validate(raw: RawCredentials, host: string): Credentials {
-    const keyError = checkApiKey(raw.apiKey)
+    const keyError = raw.kind === 'personal_api_key' ? checkApiKey(raw.token) : undefined
     if (keyError) {
         throw new HogError(
             'invalid_credentials',
@@ -147,7 +155,7 @@ function validate(raw: RawCredentials, host: string): Credentials {
     if (hostError) {
         throw new HogError('invalid_credentials', hostError)
     }
-    return { apiKey: raw.apiKey, projectId: raw.projectId, host }
+    return { token: raw.token, projectId: raw.projectId, host }
 }
 
 export function posthogCliCredentialsPath(runtime: Runtime): string {
@@ -165,12 +173,7 @@ export async function resolveCredentials(
     // open the keychain or renew a token, like telemetry for a command that needed no credentials.
     options: { host?: string; dotenvFile?: string; configHost?: string; includeStore?: boolean }
 ): Promise<ResolvedCredentials> {
-    const withHost = (
-        raw: RawCredentials,
-        source: CredentialSource,
-        extra: Pick<ResolvedCredentials, 'store' | 'path'> = {}
-    ): ResolvedCredentials => {
-        const host = options.host ?? raw.host ?? DEFAULT_HOST
+    const checkConfigHost = (host: string): void => {
         const { configHost } = options
         if (options.host === undefined && configHost !== undefined && !sameOrigin(configHost, host)) {
             throw new HogError(
@@ -180,7 +183,15 @@ export async function resolveCredentials(
                 EXIT_USAGE
             )
         }
-        return { ...validate(raw, host), source, ...extra }
+    }
+    const withHost = (
+        raw: RawCredentials,
+        source: CredentialSource,
+        extra: Pick<ResolvedCredentials, 'store' | 'path' | 'scopes' | 'expiresAt' | 'loginKey'> = {}
+    ): ResolvedCredentials => {
+        const host = options.host ?? raw.host ?? DEFAULT_HOST
+        checkConfigHost(host)
+        return { ...validate(raw, host), kind: raw.kind, source, ...extra }
     }
 
     const fromEnv = fromLookup((name) => runtime.env[name] || undefined)
@@ -210,13 +221,34 @@ export async function resolveCredentials(
         const hosts = options.host !== undefined ? [options.host] : [options.configHost, settings.host]
         for (const host of new Set(hosts)) {
             const login = host === undefined ? undefined : await readLogin(runtime, settings, host)
-            if (login) {
-                const { credential: stored, store } = login
-                return withHost({ apiKey: stored.apiKey, projectId: stored.projectId, host: stored.host }, 'store', {
+            if (!login) {
+                continue
+            }
+            const { credential: stored, store } = login
+            // Before a renewal, so hog never renews a token it then refuses to send.
+            checkConfigHost(stored.host)
+            const credential = stored.type === 'oauth' ? await freshOAuthCredential(runtime, store, stored) : stored
+            const oauth = credential.type === 'oauth'
+            return withHost(
+                {
+                    kind: credential.type,
+                    token: oauth ? credential.accessToken : credential.apiKey,
+                    projectId: credential.projectId,
+                    host: credential.host,
+                },
+                'store',
+                {
                     store: store.kind,
                     path: store instanceof FileStore ? store.path : undefined,
-                })
-            }
+                    ...(oauth
+                        ? {
+                              scopes: credential.scopes,
+                              expiresAt: credential.expiresAt,
+                              loginKey: credential.loginId,
+                          }
+                        : {}),
+                }
+            )
         }
     }
 
@@ -230,8 +262,9 @@ export async function resolveCredentials(
             stored = undefined
         }
         if (stored && typeof stored.token === 'string' && stored.env_id !== undefined) {
-            const raw = {
-                apiKey: stored.token,
+            const raw: RawCredentials = {
+                kind: 'personal_api_key',
+                token: stored.token,
                 projectId: String(stored.env_id),
                 host: typeof stored.host === 'string' ? stored.host : undefined,
             }

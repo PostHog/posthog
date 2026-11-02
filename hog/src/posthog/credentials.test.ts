@@ -90,7 +90,7 @@ describe('resolveCredentials', () => {
         ],
     ] as const)('%s', async (_name, env, files, dotenvFile, host, apiKey, projectId, expectedHost) => {
         const credentials = await resolveCredentials(fakeRuntime({ env, files }), { dotenvFile, host })
-        expect(credentials).toMatchObject({ apiKey, projectId, host: expectedHost })
+        expect(credentials).toMatchObject({ token: apiKey, projectId, host: expectedHost })
     })
 
     test.each([
@@ -137,28 +137,28 @@ describe('resolveCredentials', () => {
             { ...settings(EU, { [EU]: 'keychain' }), [POSTHOG_CLI_FILE]: STORED },
             { [EU]: login('phx_eu') },
             {},
-            { apiKey: 'phx_eu', host: EU, source: 'store', store: 'keychain' },
+            { token: 'phx_eu', host: EU, source: 'store', store: 'keychain' },
         ],
         [
             'posthog.json picks the stored login for its host',
             settings(US, { [EU]: 'keychain', [US]: 'keychain' }),
             { [EU]: login('phx_eu'), [US]: login('phx_us') },
             { configHost: `${EU}/` },
-            { apiKey: 'phx_eu', host: EU },
+            { token: 'phx_eu', host: EU },
         ],
         [
             '--host picks the stored login for that host',
             settings(US, { [EU]: 'keychain', [US]: 'keychain' }),
             { [EU]: login('phx_eu'), [US]: login('phx_us') },
             { host: EU },
-            { apiKey: 'phx_eu', host: EU },
+            { token: 'phx_eu', host: EU },
         ],
         [
             'a later file login to another host keeps the keychain login',
             settings(US, { [EU]: 'keychain', [US]: 'file' }),
             { [EU]: login('phx_eu') },
             { configHost: EU },
-            { apiKey: 'phx_eu', host: EU, store: 'keychain' },
+            { token: 'phx_eu', host: EU, store: 'keychain' },
         ],
         [
             'a login in the file store',
@@ -168,7 +168,7 @@ describe('resolveCredentials', () => {
             },
             {},
             {},
-            { apiKey: 'phx_file', source: 'store', store: 'file', path: '/home/test/.config/hog/credentials.json' },
+            { token: 'phx_file', source: 'store', store: 'file', path: '/home/test/.config/hog/credentials.json' },
         ],
         [
             'a posthog.json host without a login of its own',

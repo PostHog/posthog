@@ -17,14 +17,28 @@ export interface StoredLogin {
 }
 
 function splitLogin(credential: StoredCredential, store: KeychainStore | FileStore): [StoredSecret, LoginRecord] {
+    const { projectId } = credential
+    if (credential.type === 'personal_api_key') {
+        return [{ apiKey: credential.apiKey }, { store: store.kind, type: credential.type, projectId }]
+    }
+    const { accessToken, refreshToken, expiresAt, scopes, loginId } = credential
     return [
-        { apiKey: credential.apiKey },
-        { store: store.kind, type: credential.type, projectId: credential.projectId },
+        { accessToken, refreshToken },
+        { store: store.kind, type: credential.type, projectId, expiresAt, scopes, loginId },
     ]
 }
 
-function joinLogin(host: string, record: LoginRecord, secret: StoredSecret): StoredCredential {
-    return { type: record.type, host, projectId: record.projectId, apiKey: secret.apiKey }
+// A secret of the wrong kind for its record, such as one an older hog wrote, reads as no login.
+function joinLogin(host: string, record: LoginRecord, secret: StoredSecret): StoredCredential | undefined {
+    const { projectId } = record
+    if (record.type === 'personal_api_key' && 'apiKey' in secret) {
+        return { type: record.type, host, projectId, apiKey: secret.apiKey }
+    }
+    if (record.type === 'oauth' && 'accessToken' in secret) {
+        const { expiresAt, scopes, loginId } = record
+        return { type: record.type, host, projectId, expiresAt, scopes, loginId, ...secret }
+    }
+    return undefined
 }
 
 export async function readLogin(
@@ -38,7 +52,8 @@ export async function readLogin(
     }
     const store = openStore(runtime, record.store)
     const secret = await store.read(host)
-    return secret ? { credential: joinLogin(hostKey(host), record, secret), store } : undefined
+    const credential = secret && joinLogin(hostKey(host), record, secret)
+    return credential ? { credential, store } : undefined
 }
 
 // Writes the secrets first, so settings.json never names a login whose secrets aren't stored yet.

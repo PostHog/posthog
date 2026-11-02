@@ -111,7 +111,7 @@ export async function apiConnection(
     // The saved project can belong to another organization, so an organization override drops it.
     const projectId = scope.projectId ?? (scope.organizationId ? undefined : credentials.projectId)
     return {
-        apiKey: credentials.apiKey,
+        apiKey: credentials.token,
         host: credentials.host,
         ...(projectId ? { projectId } : {}),
         ...(scope.organizationId ? { organizationId: scope.organizationId } : {}),

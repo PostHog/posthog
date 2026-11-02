@@ -53,7 +53,7 @@ function loggedInResult(loggedIn: LoggedIn): LoginResult {
 
 async function finish(ctx: Context, approval: Approval): Promise<LoginResult> {
     const { host, apiKey, projectId, scopes } = approval
-    const loggedIn = await saveLogin(ctx.runtime, { apiKey, projectId, host })
+    const loggedIn = await saveLogin(ctx.runtime, { type: 'personal_api_key', apiKey, projectId, host })
     return loggedInResult({ ...loggedIn, scopes })
 }
 
@@ -61,7 +61,9 @@ async function keyLogin(ctx: Context, prompts: Prompts): Promise<LoginResult> {
     const host = await prompts.text('PostHog host', { initialValue: REGIONS.us, validate: checkHost })
     const projectId = await prompts.text('Project ID, the number in your project URL', { validate: checkProjectId })
     const apiKey = await prompts.password('Personal API key', { validate: checkApiKey })
-    return loggedInResult(await saveLogin(ctx.runtime, { apiKey, projectId, host: host.replace(/\/+$/, '') }))
+    return loggedInResult(
+        await saveLogin(ctx.runtime, { type: 'personal_api_key', apiKey, projectId, host: host.replace(/\/+$/, '') })
+    )
 }
 
 export default defineCommand({

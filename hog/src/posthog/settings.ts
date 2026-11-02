@@ -6,14 +6,18 @@ import { hostKey } from './credential-store'
 export type StoreChoice = 'keychain' | 'file'
 
 // What settings.json keeps about the login to one host: everything except its secrets.
-export interface LoginRecord {
+interface LoginRecordBase {
     // hog probes the keychain only at login, because a probe can open a dialog. Each host keeps its
     // own answer, so a login over SSH that had to use the file doesn't hide a keychain login to
     // another host.
     store: StoreChoice
-    type: 'personal_api_key'
     projectId: string
 }
+
+export type LoginRecord =
+    | (LoginRecordBase & { type: 'personal_api_key' })
+    // `expiresAt` is in epoch milliseconds, for the access token.
+    | (LoginRecordBase & { type: 'oauth'; expiresAt: number; scopes: string[]; loginId: string })
 
 // What `hog auth login` decided, kept so later runs don't decide again. Nothing in it is secret.
 export interface HogSettings {
@@ -32,12 +36,22 @@ function settingsPath(runtime: Runtime): string {
 // A record hog doesn't recognize, such as one a later version wrote, reads as no login.
 function parseLoginRecord(value: unknown): LoginRecord | undefined {
     const item = value as Record<string, unknown> | null
+    if ((item?.store !== 'keychain' && item?.store !== 'file') || typeof item.projectId !== 'string') {
+        return undefined
+    }
+    const { store, projectId } = item
+    if (item.type === 'personal_api_key') {
+        return { store, type: 'personal_api_key', projectId }
+    }
     if (
-        (item?.store === 'keychain' || item?.store === 'file') &&
-        item.type === 'personal_api_key' &&
-        typeof item.projectId === 'string'
+        item.type === 'oauth' &&
+        typeof item.expiresAt === 'number' &&
+        typeof item.loginId === 'string' &&
+        Array.isArray(item.scopes) &&
+        item.scopes.every((scope) => typeof scope === 'string')
     ) {
-        return { store: item.store, type: item.type, projectId: item.projectId }
+        const { expiresAt, loginId } = item
+        return { store, type: 'oauth', projectId, expiresAt, scopes: item.scopes, loginId }
     }
     return undefined
 }

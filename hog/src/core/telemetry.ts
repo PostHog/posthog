@@ -216,7 +216,7 @@ export class Telemetry {
             return undefined
         }
         const key = createHash('sha256')
-            .update(`${credentials.host}\n${credentials.projectId}\n${credentials.apiKey}`)
+            .update(`${credentials.host}\n${credentials.projectId}\n${credentials.loginKey ?? credentials.token}`)
             .digest('hex')
         let cache: Record<string, CachedIdentity> = {}
         try {
@@ -234,6 +234,10 @@ export class Telemetry {
             return cached
         }
         const identity = await this.lookup(credentials)
+        // Entries old enough to be looked up again anyway are dropped, so logins that ended don't pile up.
+        cache = Object.fromEntries(
+            Object.entries(cache).filter(([, entry]) => now - (entry.checkedAt ?? 0) < 30 * DAY_MS)
+        )
         cache[key] = { ...identity, checkedAt: now }
         try {
             await this.runtime.writePrivateFile(path, JSON.stringify(cache))
@@ -247,7 +251,7 @@ export class Telemetry {
         const get = async (path: string): Promise<Record<string, any> | undefined> => {
             try {
                 const response = await this.runtime.fetch(new URL(path, credentials.host), {
-                    headers: { Authorization: `Bearer ${credentials.apiKey}` },
+                    headers: { Authorization: `Bearer ${credentials.token}` },
                     signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS),
                 })
                 return response.ok ? ((await response.json()) as Record<string, any>) : undefined

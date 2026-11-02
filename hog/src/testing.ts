@@ -58,6 +58,15 @@ function fakePrompts(answers: string[]): Prompts {
     }
 }
 
+// Requests carry JSON, except OAuth requests, which are form encoded.
+function parseBody(body: string): unknown {
+    try {
+        return JSON.parse(body)
+    } catch {
+        return Object.fromEntries(new URLSearchParams(body))
+    }
+}
+
 function memorySecrets(items: Record<string, string>): Secrets {
     return {
         get: async (name) => items[name] ?? null,
@@ -143,7 +152,7 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
         },
         fetch: (async (input: string | URL | Request, init?: RequestInit) => {
             const url = String(input)
-            const body = init?.body === undefined ? undefined : JSON.parse(String(init.body))
+            const body = init?.body === undefined ? undefined : parseBody(String(init.body))
             requests.push({ method: init?.method ?? 'GET', url, body })
             const reply = options.respond?.(url, body) ?? { status: 500, body: { detail: 'no fake response' } }
             const text = typeof reply.body === 'string' ? reply.body : JSON.stringify(reply.body)
@@ -192,6 +201,13 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
         },
         writePrivateFile: async (path, contents) => {
             files[path] = contents
+        },
+        createFile: async (path, contents) => {
+            if (path in files) {
+                return false
+            }
+            files[path] = contents
+            return true
         },
         removeFile: async (path) => {
             delete files[path]

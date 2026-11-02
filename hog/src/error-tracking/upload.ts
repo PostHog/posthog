@@ -164,7 +164,7 @@ export class SymbolSetClient {
             response = await this.runtime.fetch(url, {
                 method,
                 headers: {
-                    Authorization: `Bearer ${this.credentials.apiKey}`,
+                    Authorization: `Bearer ${this.credentials.token}`,
                     'Content-Type': 'application/json',
                     'User-Agent': USER_AGENT,
                 },

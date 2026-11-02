@@ -14,7 +14,9 @@ type Method = 'GET' | 'POST' | 'PATCH' | 'DELETE'
 export interface HttpRequest {
     method: Method
     body?: unknown
-    apiKey?: string
+    // Sent form encoded instead of `body`, as the OAuth endpoints expect.
+    form?: Record<string, string>
+    token?: string
     timeoutMs?: number
 }
 
@@ -28,9 +30,12 @@ export interface HttpResponse {
 // Sends one JSON request to PostHog. Any failure before the whole body arrives, including the
 // deadline, is a `network_error`, so callers handle a dropped connection in one place.
 export async function sendRequest(fetchFn: RuntimeFetch, url: URL, request: HttpRequest): Promise<HttpResponse> {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json', 'User-Agent': USER_AGENT }
-    if (request.apiKey) {
-        headers.Authorization = `Bearer ${request.apiKey}`
+    const headers: Record<string, string> = {
+        'Content-Type': request.form ? 'application/x-www-form-urlencoded' : 'application/json',
+        'User-Agent': USER_AGENT,
+    }
+    if (request.token) {
+        headers.Authorization = `Bearer ${request.token}`
     }
     let response: Response
     let text: string
@@ -38,7 +43,11 @@ export async function sendRequest(fetchFn: RuntimeFetch, url: URL, request: Http
         response = await fetchFn(url, {
             method: request.method,
             headers,
-            body: request.body === undefined ? undefined : JSON.stringify(request.body),
+            body: request.form
+                ? new URLSearchParams(request.form).toString()
+                : request.body === undefined
+                  ? undefined
+                  : JSON.stringify(request.body),
             timeoutMs: request.timeoutMs ?? REQUEST_TIMEOUT_MS,
         })
         text = await response.text()
@@ -110,7 +119,7 @@ export class PostHogApi {
         const response = await sendRequest(this.fetchFn, this.url(path), {
             method,
             body,
-            apiKey: this.credentials.apiKey,
+            token: this.credentials.token,
         })
         if (response.text && response.json === undefined) {
             throw new HogError(
