@@ -183,8 +183,7 @@ impl EscapedMatchers {
     }
 }
 
-/// The declined URLs in any spelling, so that a copy the rewrite cannot replace, such as one a selector writes with CSS
-/// hex escapes, still fails the block.
+/// Finds a declined URL in a spelling the rewrite cannot replace, such as with CSS hex escapes, so it fails the block.
 struct DeclinedSpellings {
     urls: AhoCorasick,
     targets: Vec<usize>,

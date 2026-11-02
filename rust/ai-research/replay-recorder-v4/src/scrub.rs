@@ -318,20 +318,35 @@ pub fn escaped_matches(patterns: &AhoCorasick, bytes: &[u8]) -> Vec<(usize, (usi
             end += 1;
         }
         if css_escape {
+            let decoded = |position: usize| {
+                let next = unit(bytes, position);
+                let character = char::from_u32(next.ch).unwrap_or(char::REPLACEMENT_CHARACTER);
+                (character, next.len)
+            };
             let mut text = String::new();
-            let mut spans: Vec<(usize, usize)> = Vec::new();
             let mut position = open + 1;
             while position < end {
-                let next = unit(bytes, position);
-                text.push(char::from_u32(next.ch).unwrap_or(char::REPLACEMENT_CHARACTER));
-                spans.resize(text.len(), (position, position + next.len));
-                position += next.len;
+                let (character, length) = decoded(position);
+                text.push(character);
+                position += length;
             }
-            for found in patterns.find_iter(&text) {
-                matches.push((
-                    found.pattern().as_usize(),
-                    (spans[found.start()].0, spans[found.end() - 1].1),
-                ));
+            let found: Vec<(usize, usize, usize)> = patterns
+                .find_iter(&text)
+                .map(|found| (found.pattern().as_usize(), found.start(), found.end()))
+                .collect();
+            // A second walk maps each match to its bytes, because a per-character index costs many times the string.
+            let (mut text_at, mut position, mut next, mut start) = (0, open + 1, 0, open + 1);
+            while next < found.len() && position < end {
+                if text_at == found[next].1 {
+                    start = position;
+                }
+                let (character, length) = decoded(position);
+                text_at += character.len_utf8();
+                position += length;
+                if text_at == found[next].2 {
+                    matches.push((found[next].0, (start, position)));
+                    next += 1;
+                }
             }
         }
         at = end + 1;
@@ -573,5 +588,23 @@ mod tests {
                 "{input}"
             );
         }
+    }
+
+    #[test]
+    fn finds_a_url_through_css_escapes_and_names_its_stored_bytes() {
+        let urls =
+            AhoCorasick::new(["https://a.example.com/p", "https://b.example.com/q"]).unwrap();
+        let bytes = r#"{"plain":"https://a.example.com/p","css":"é https\\3a //a.example.com/p https:\\/\\/b.example.com\\/q"}"#;
+        let found: Vec<(usize, &str)> = escaped_matches(&urls, bytes.as_bytes())
+            .into_iter()
+            .map(|(pattern, (start, end))| (pattern, &bytes[start..end]))
+            .collect();
+        assert_eq!(
+            found,
+            [
+                (0, r"https\\3a //a.example.com/p"),
+                (1, r"https:\\/\\/b.example.com\\/q")
+            ]
+        );
     }
 }
