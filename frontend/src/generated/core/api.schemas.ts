@@ -4932,7 +4932,7 @@ export interface CITrustPolicyRequestApi {
     readonly can_approve: boolean
     /** Names of the organization admins and owners who can approve, when the current user cannot. */
     readonly approvers: readonly string[]
-    readonly requested_by: UserBasicApi
+    readonly requested_by: UserBasicApi | null
     /** The client the request came through, for example hog. */
     readonly requested_via: string
     /**
@@ -4944,7 +4944,7 @@ export interface CITrustPolicyRequestApi {
     readonly created_at: string
     /** When a pending request stops being approvable. */
     readonly expires_at: string
-    readonly resolved_by: UserBasicApi
+    readonly resolved_by: UserBasicApi | null
     /**
      * When an admin approved or rejected the request.
      * @nullable
