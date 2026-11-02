@@ -31,7 +31,7 @@ from posthog.auth import (
 )
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
-from posthog.exceptions import Conflict, EnterpriseFeatureException, PaidFeatureException
+from posthog.exceptions import Conflict, EnterpriseFeatureException, InsufficientScope, PaidFeatureException
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, is_enforcement_disable_request
 from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Project, Team, User
 from posthog.models.oauth import OAuthAccessToken
@@ -944,6 +944,14 @@ class APIScopePermission(ScopeBasePermission):
         missing_scopes = [scope for scope in missing_scopes if scope not in legacy_covered]
         if missing_scopes:
             self.message = f"API key missing required scope '{missing_scopes[0]}'"
+            # Internal scopes cannot be granted at consent, so a challenge naming one could never succeed.
+            if (
+                isinstance(authenticator, OAuthAccessTokenAuthentication)
+                and authenticator.access_token.supports_step_up
+                and scope_object != "INTERNAL"
+                and not action_targets_internal
+            ):
+                raise InsufficientScope(detail=self.message, required_scopes=required_scopes)
             return False
 
         for required_scope, legacy_scope in legacy_covered.items():

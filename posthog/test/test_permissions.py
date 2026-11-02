@@ -1033,6 +1033,46 @@ class TestOAuthAccessTokenAPIScopePermission(BaseTest):
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json()["detail"], "API key missing required scope 'feature_flag:write'")
 
+    @parameterized.expand(
+        [
+            (
+                "step_up",
+                True,
+                "GET",
+                "persons/cohorts/?person_id=1",
+                "API key missing required scope 'person:read'",
+                'Bearer error="insufficient_scope", scope="person:read cohort:read"',
+            ),
+            (
+                "no_step_up",
+                False,
+                "GET",
+                "persons/cohorts/?person_id=1",
+                "API key missing required scope 'person:read'",
+                None,
+            ),
+            (
+                "step_up_internal_scope",
+                True,
+                "POST",
+                "signals/scout/scratchpad/forget/",
+                "API key missing required scope 'signal_scratchpad_internal:write'",
+                None,
+            ),
+        ]
+    )
+    def test_missing_scope_challenge_names_every_required_scope(
+        self, _name, supports_step_up, method, path, expected_detail, expected_challenge
+    ):
+        self.access_token.supports_step_up = supports_step_up
+        self.access_token.save()
+
+        response = self._do_request(f"/api/projects/{self.team.id}/{path}", method=method)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["detail"], expected_detail)
+        self.assertEqual(response.headers.get("WWW-Authenticate"), expected_challenge)
+
     def test_allows_action_with_required_scopes(self):
         """OAuth token can access endpoints that match its scopes"""
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/my_flags")
