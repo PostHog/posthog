@@ -301,6 +301,32 @@ describe('emailTemplaterLogic', () => {
         })
     })
 
+    describe('custom sender', () => {
+        it('clearing the custom sender sends one update without the name, address, or reply-to', () => {
+            const onChange = jest.fn()
+            logic = emailTemplaterLogic(
+                makeProps({
+                    value: {
+                        ...DEFAULT_EMAIL_TEMPLATE,
+                        from: { integrationId: 1, name: 'Support', email: 'support@example.com' },
+                        replyTo: 'team@example.com',
+                    },
+                    onChange,
+                    layout: 'inline',
+                })
+            )
+            logic.mount()
+
+            logic.actions.clearCustomSender()
+
+            expect(onChange).toHaveBeenCalledTimes(1)
+            expect(onChange.mock.calls[0][0]).toMatchObject({
+                from: { integrationId: 1, name: undefined, email: undefined },
+                replyTo: '',
+            })
+        })
+    })
+
     describe('html-only emails', () => {
         it('loads a design wrapping the html so the canvas shows the email instead of starting blank', () => {
             const loadDesign = jest.fn()
