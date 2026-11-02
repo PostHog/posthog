@@ -1,6 +1,8 @@
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { LazyLoader } from '~/common/utils/lazy-loader'
 
+import { DeadlineSlots } from '../../utils/deadline-slots'
+
 type OrganizationMemberSnapshot = {
     verifiedEmails: ReadonlySet<string>
     unverifiedEmails: ReadonlySet<string>
@@ -15,25 +17,17 @@ const REFRESH_AGE_MS = MAX_SNAPSHOT_AGE_MS - 1_000
 // send in the worker's batch, which waits for this invocation to finish. The deadline counts the wait for
 // a pooled connection too; the statement timeout also stops the query on the server.
 const LOOKUP_TIMEOUT_MS = 3_000
+// A lookup past its deadline still waits in the common pool until it gets a connection, so at most this many
+// are open at once. A check waiting for a slot holds nothing and fails at its deadline.
+const MAX_OPEN_LOOKUPS = 5
+
+type MemberRow = { team_id: number; email: string; is_email_verified: boolean }
 
 const normalizeEmail = (email: string): string => email.trim().toLowerCase()
 
-async function withinLookupDeadline<T>(lookup: Promise<T>): Promise<T> {
-    let timer: NodeJS.Timeout | undefined
-    const deadline = new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error('The organization member lookup timed out')), LOOKUP_TIMEOUT_MS)
-    })
-    // A lookup that loses the race can still fail later, after nobody waits for it.
-    lookup.catch(() => undefined)
-    try {
-        return await Promise.race([lookup, deadline])
-    } finally {
-        clearTimeout(timer)
-    }
-}
-
 export class OrganizationMembersService {
     private snapshots: LazyLoader<OrganizationMemberSnapshot>
+    private lookupSlots = new DeadlineSlots(MAX_OPEN_LOOKUPS)
 
     constructor(
         private postgres: PostgresRouter,
@@ -74,26 +68,7 @@ export class OrganizationMembersService {
 
     private async loadSnapshots(teamIds: string[]): Promise<Record<string, OrganizationMemberSnapshot>> {
         const expiresAt = this.now() + MAX_SNAPSHOT_AGE_MS
-        // Only an explicit false deactivates an organization, matching the web middleware.
-        const tag = 'fetch-sandbox-team-organization-members'
-        const { rows } = await withinLookupDeadline(
-            this.postgres.transaction(PostgresUse.COMMON_WRITE, tag, async (tx) => {
-                await this.postgres.query(tx, `SET LOCAL statement_timeout = ${LOOKUP_TIMEOUT_MS}`, undefined, tag)
-                return await this.postgres.query<{ team_id: number; email: string; is_email_verified: boolean }>(
-                    tx,
-                    `SELECT team.id AS team_id, users.email, users.is_email_verified
-                 FROM posthog_team AS team
-                 JOIN posthog_organization AS organization ON organization.id = team.organization_id
-                 JOIN posthog_organizationmembership AS membership ON membership.organization_id = organization.id
-                 JOIN posthog_user AS users ON users.id = membership.user_id
-                 WHERE team.id = ANY($1::bigint[])
-                   AND organization.is_active IS NOT FALSE
-                   AND users.is_active = true`,
-                    [teamIds.map(Number)],
-                    tag
-                )
-            })
-        )
+        const rows = await this.lookupMembers(teamIds.map(Number))
         const members = new Map(
             teamIds.map((id) => [id, { verified: new Set<string>(), unverified: new Set<string>() }])
         )
@@ -107,6 +82,54 @@ export class OrganizationMembersService {
                 { verifiedEmails: verified, unverifiedEmails: unverified, expiresAt },
             ])
         )
+    }
+
+    private async lookupMembers(teamIds: number[]): Promise<MemberRow[]> {
+        const tag = 'fetch-sandbox-team-organization-members'
+        let timedOut = false
+        let timer: NodeJS.Timeout | undefined
+        const deadline = new Promise<void>((resolve) => {
+            timer = setTimeout(() => {
+                timedOut = true
+                resolve()
+            }, LOOKUP_TIMEOUT_MS)
+        })
+        let rows: MemberRow[] | undefined
+        const lookup = this.lookupSlots.run(deadline, async () => {
+            rows = await this.postgres.transaction(PostgresUse.COMMON_WRITE, tag, async (tx) => {
+                // Nobody waits for a lookup that got its connection after its deadline, so it runs no query.
+                if (timedOut) {
+                    throw new Error('The organization member lookup was abandoned at its deadline')
+                }
+                await this.postgres.query(tx, `SET LOCAL statement_timeout = ${LOOKUP_TIMEOUT_MS}`, undefined, tag)
+                // Only an explicit false deactivates an organization, matching the web middleware.
+                const result = await this.postgres.query<MemberRow>(
+                    tx,
+                    `SELECT team.id AS team_id, users.email, users.is_email_verified
+                     FROM posthog_team AS team
+                     JOIN posthog_organization AS organization ON organization.id = team.organization_id
+                     JOIN posthog_organizationmembership AS membership ON membership.organization_id = organization.id
+                     JOIN posthog_user AS users ON users.id = membership.user_id
+                     WHERE team.id = ANY($1::bigint[])
+                       AND organization.is_active IS NOT FALSE
+                       AND users.is_active = true`,
+                    [teamIds],
+                    tag
+                )
+                return result.rows
+            })
+        })
+        // A lookup that loses the race can still fail later, after nobody waits for it.
+        lookup.catch(() => undefined)
+        try {
+            await Promise.race([lookup, deadline])
+        } finally {
+            clearTimeout(timer)
+        }
+        if (!rows) {
+            throw new Error('The organization member lookup timed out')
+        }
+        return rows
     }
 
     // A snapshot older than a minute never decides a send: it is reloaded once, and a reload that
