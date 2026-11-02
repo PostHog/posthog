@@ -113,7 +113,7 @@ const config: Config = {
 
     moduleNameMapper: {
         '^kea$': '<rootDir>/src/test/keaTestModule.js',
-        '^.+\\.(css|less|scss|svg|png)$': '<rootDir>/src/test/mocks/styleMock.js',
+        '^.+\\.(css|less|scss|svg|png|mp3)$': '<rootDir>/src/test/mocks/styleMock.js',
         // @posthog/brand PNG subpaths resolve to .mjs modules that build a URL via
         // `new URL("./x.png", import.meta.url)` — import.meta is unavailable under Sucrase/CJS,
         // so mock them to the styleMock string instead of executing them.
