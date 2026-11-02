@@ -79,6 +79,9 @@ pub struct PropertyStoreConfig {
     #[envconfig(from = "PROPERTY_STORE_FULL_COMPACTION_SECS", default = "86400")]
     pub full_compaction_secs: u64,
 
+    #[envconfig(from = "PROPERTY_STORE_MAX_FULL_COMPACTIONS", default = "4")]
+    pub max_full_compactions: usize,
+
     #[envconfig(from = "PROPERTY_STORE_COMPRESSION", default = "zstd")]
     pub compression: Compression,
 
@@ -101,6 +104,9 @@ pub struct PropertyStoreConfig {
 
     #[envconfig(from = "PROPERTY_STORE_READER_IDLE_SECS", default = "300")]
     pub reader_idle_secs: u64,
+
+    #[envconfig(from = "PROPERTY_STORE_MAX_FRESH_READS", default = "8")]
+    pub max_fresh_reads: usize,
 }
 
 impl PropertyStoreConfig {

@@ -22,7 +22,6 @@ use crate::{shard_for, shard_path, PropertyStoreConfig, PropertyStoreError};
 const OPEN_WAIT: Duration = Duration::from_secs(30);
 const REOPEN_BACKOFF: Duration = Duration::from_secs(1);
 const MAINTENANCE_TICK: Duration = Duration::from_secs(60);
-const MAX_FULL_COMPACTIONS: usize = 4;
 /// Bounds one shard's maintenance step, so a hung shard cannot stall the rest.
 const MAINTENANCE_STEP_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -82,6 +81,7 @@ pub struct PropertyWriter {
     cache: Arc<dyn DbCache>,
     memtable_flush: Option<Duration>,
     full_compaction: Option<Duration>,
+    max_full_compactions: usize,
     slots: std::sync::Mutex<Slots>,
     assigned: Notify,
     full_compactions: std::sync::Mutex<HashMap<u32, Tracked>>,
@@ -100,6 +100,7 @@ enum Stage {
 struct Tracked {
     stage: Stage,
     compaction: Compaction,
+    submitted: Instant,
 }
 
 #[derive(Default)]
@@ -118,6 +119,7 @@ impl PropertyWriter {
             cache: engine::shared_cache(config),
             memtable_flush: config.memtable_flush_interval(),
             full_compaction: config.full_compaction_interval(),
+            max_full_compactions: config.max_full_compactions.max(1),
             slots: std::sync::Mutex::new(Slots::default()),
             assigned: Notify::new(),
             full_compactions: std::sync::Mutex::new(HashMap::new()),
@@ -534,7 +536,7 @@ impl PropertyWriter {
                 .lock()
                 .expect("full compactions lock poisoned")
                 .contains_key(&shard);
-            if tracked || in_flight >= MAX_FULL_COMPACTIONS {
+            if tracked || in_flight >= self.max_full_compactions {
                 continue;
             }
             let step = tokio::time::timeout(
@@ -586,12 +588,20 @@ impl PropertyWriter {
                 in_flight += 1;
                 continue;
             };
+            let outcome = if completed { "completed" } else { "failed" };
             counter!(
                 "personhog_property_store_full_compactions_total",
                 "stage" => stage_label(tracked.stage),
-                "outcome" => if completed { "completed" } else { "failed" }
+                "outcome" => outcome
             )
             .increment(1);
+            // Settled on the maintenance tick, so durations are accurate to about one tick.
+            histogram!(
+                "personhog_property_store_full_compaction_stage_seconds",
+                "stage" => stage_label(tracked.stage),
+                "outcome" => outcome
+            )
+            .record(tracked.submitted.elapsed().as_secs_f64());
             self.full_compactions
                 .lock()
                 .expect("full compactions lock poisoned")
@@ -675,7 +685,14 @@ impl PropertyWriter {
         self.full_compactions
             .lock()
             .expect("full compactions lock poisoned")
-            .insert(shard, Tracked { stage, compaction });
+            .insert(
+                shard,
+                Tracked {
+                    stage,
+                    compaction,
+                    submitted: Instant::now(),
+                },
+            );
         Ok(Some(stage))
     }
 

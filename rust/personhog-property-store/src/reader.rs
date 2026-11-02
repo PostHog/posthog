@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use futures::future::join_all;
-use metrics::{counter, gauge};
+use metrics::{counter, gauge, histogram};
 use slatedb::config::DbReaderOptions;
 use slatedb::db_cache::DbCache;
 use slatedb::object_store::ObjectStore;
@@ -14,8 +14,6 @@ use tokio::sync::{Notify, Semaphore};
 use crate::encoding::{decode_value, encode_key, version_of, StoredProperties};
 use crate::engine::{self, KeepNewest, ShardMetrics};
 use crate::{shard_for, shard_path, PropertyStoreConfig, PropertyStoreError};
-
-const MAX_FRESH_READS: usize = 8;
 
 struct OpenReader {
     reader: Arc<DbReader>,
@@ -70,7 +68,7 @@ impl PropertyReader {
                 cache: engine::shared_cache(config),
                 closed: AtomicBool::new(false),
             }),
-            fresh_reads: Arc::new(Semaphore::new(MAX_FRESH_READS)),
+            fresh_reads: Arc::new(Semaphore::new(config.max_fresh_reads.max(1))),
             shards: config.shards.max(1),
             read_timeout: config.read_timeout(),
             idle: config.reader_idle(),
@@ -176,7 +174,8 @@ impl PropertyReader {
         let shard = shard_for(team_id, person_id, self.shards);
         let key = encode_key(team_id, person_id);
         let Ok(permit) = Arc::clone(&self.fresh_reads).try_acquire_owned() else {
-            counter!("personhog_property_store_fresh_reads_refused_total").increment(1);
+            counter!("personhog_property_store_fresh_reads_total", "outcome" => "refused")
+                .increment(1);
             return Err(PropertyStoreError::ShardUnavailable {
                 shard,
                 reason: "too many one-off reads in flight".to_string(),
@@ -187,6 +186,7 @@ impl PropertyReader {
         let opener = Arc::clone(&self.opener);
         tokio::spawn(async move {
             let _permit = permit;
+            let started = Instant::now();
             let raw = match opener.build(shard, None).await {
                 Ok(fresh) => {
                     let raw = fresh.get(key).await;
@@ -197,6 +197,15 @@ impl PropertyReader {
                 }
                 Err(e) => Err(PropertyStoreError::from(e)),
             };
+            let outcome = match &raw {
+                Ok(Some(_)) => "found",
+                Ok(None) => "missing",
+                Err(_) => "error",
+            };
+            counter!("personhog_property_store_fresh_reads_total", "outcome" => outcome)
+                .increment(1);
+            histogram!("personhog_property_store_fresh_read_ms")
+                .record(started.elapsed().as_secs_f64() * 1000.0);
             done.send(raw).ok();
         });
         let read = async {
@@ -353,7 +362,10 @@ impl Opener {
 
 async fn open(opener: Arc<Opener>, shard: u32, slot: Arc<ShardSlot>) {
     let metrics = ShardMetrics::new();
+    let started = Instant::now();
     let opened = opener.build(shard, Some(&metrics)).await;
+    histogram!("personhog_property_store_reader_open_ms")
+        .record(started.elapsed().as_secs_f64() * 1000.0);
     let unwanted = {
         let mut state = slot.state.lock().expect("reader slot lock poisoned");
         state.opening = false;
