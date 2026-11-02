@@ -26,7 +26,7 @@ const LOCAL_SOURCES = [
 type LocalSource = (typeof LOCAL_SOURCES)[number]
 
 /** Lists of pages to open. A search with words ranks them with the saved objects, so a page named like the query leads. */
-const RANKED_LOCAL_SOURCES: LocalSource[] = ['products', 'data-management', 'people', 'health', 'misc']
+const RANKED_PAGE_SOURCES: LocalSource[] = ['data-management', 'people', 'health', 'misc']
 
 export type CommandKMode = 'empty' | 'key' | 'value' | 'search'
 
@@ -306,7 +306,21 @@ const plainName = (item: SearchItem): string =>
         .replace(/\s*\([^)]*\)\s*$/, '')
         .trim()
 
-const rankablePages = (local: LocalLists): SearchItem[] => RANKED_LOCAL_SOURCES.flatMap((source) => local[source])
+// Keeps one array per lists object, because the ranking cache keys on array identity.
+const rankablePagesCache = new WeakMap<LocalLists, SearchItem[]>()
+
+function rankablePages(local: LocalLists): SearchItem[] {
+    let pages = rankablePagesCache.get(local)
+    if (!pages) {
+        // Actions such as "Log out" stay in their own section, so Enter on the top row never runs one.
+        pages = [
+            ...local.products,
+            ...RANKED_PAGE_SOURCES.flatMap((source) => local[source].filter((item) => item.href)),
+        ]
+        rankablePagesCache.set(local, pages)
+    }
+    return pages
+}
 
 export function rankableSettings(local: LocalLists, localQuery: string): SearchItem[] {
     const productNames = new Set(rankablePages(local).map(plainName))
@@ -370,7 +384,7 @@ function lowerSections(
     }
     if (localQuery) {
         for (const source of LOCAL_SOURCES) {
-            if (ranked && RANKED_LOCAL_SOURCES.includes(source)) {
+            if (ranked && source === 'products') {
                 continue
             }
             const filtered = matchLocal(source, local[source], localQuery, ranked).filter((item) => !shown.has(item.id))
