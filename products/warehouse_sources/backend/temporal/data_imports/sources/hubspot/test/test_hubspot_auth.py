@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from posthog.models import Team
 
-from products.warehouse_sources.backend.logic.source_credentials_rollout import reset_caches
+from products.warehouse_sources.backend.logic.source_credentials_rollout import DUAL_WRITE_FLAG, reset_caches
 from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports import schema_flags
@@ -211,7 +211,12 @@ def test_token_refresh_saves_the_token_and_leaves_the_reference_column_alone(dua
 
     with (
         _patch_post(response),
-        patch.object(schema_flags.posthoganalytics, "feature_enabled", return_value=dual_write),
+        # Only the dual-write flag: the read flag would put the column pointer back into the loaded inputs.
+        patch.object(
+            schema_flags.posthoganalytics,
+            "feature_enabled",
+            side_effect=lambda flag, *args, **kwargs: dual_write and flag == DUAL_WRITE_FLAG,
+        ),
     ):
         reset_caches()
         assert hubspot_refresh_access_token("fake-refresh", source_id=str(source.id)) == "fake-new"
