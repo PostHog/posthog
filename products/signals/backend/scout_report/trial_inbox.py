@@ -10,9 +10,9 @@ from django.db.models import QuerySet
 
 from pydantic import JsonValue
 from rest_framework import exceptions, serializers
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.response import Response
 
+from posthog.api.pagination import FacadeLimitOffsetPagination
 from posthog.models import User
 from posthog.paging import Page, PageRequest
 
@@ -390,23 +390,14 @@ class TrialInboxReads:
             return Response({"count": count, "next": None, "previous": None, "results": []})
         # The view's own paginator pages this list too, so both paths share one limit cap.
         paginator = self.view.paginator
-        if not isinstance(paginator, LimitOffsetPagination):
+        if not isinstance(paginator, FacadeLimitOffsetPagination):
             raise exceptions.ValidationError({"detail": "This scout run requires limit/offset inbox pagination."})
-        request = self.view.request
-        limit = paginator.get_limit(request)
-        if limit is None:
-            raise exceptions.ValidationError({"detail": "This scout run requires a default inbox page size."})
-        offset = paginator.get_offset(request)
-        page = self._merged_page(
-            queryset,
-            documents,
-            PageRequest(limit=limit, offset=offset),
-            include_source_metadata=include_source_metadata,
+        page = paginator.read_facade_page(
+            self.view.request,
+            lambda page_request: self._merged_page(
+                queryset, documents, page_request, include_source_metadata=include_source_metadata
+            ),
         )
-        paginator.request = request
-        paginator.limit = limit
-        paginator.offset = offset
-        paginator.count = page.count
         return paginator.get_paginated_response(page.results)
 
 
