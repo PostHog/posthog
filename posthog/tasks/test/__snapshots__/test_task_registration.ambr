@@ -36,6 +36,7 @@
     'posthog.tasks.email.send_async_migration_complete_email',
     'posthog.tasks.email.send_async_migration_errored_email',
     'posthog.tasks.email.send_canary_email',
+    'posthog.tasks.email.send_ci_trust_policy_changed',
     'posthog.tasks.email.send_code_based_verification',
     'posthog.tasks.email.send_conversation_restore_email',
     'posthog.tasks.email.send_discussions_mentioned',
