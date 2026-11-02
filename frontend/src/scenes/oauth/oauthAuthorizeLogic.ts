@@ -214,6 +214,8 @@ export interface oauthAuthorizeLogicValues {
     allScopesRequired: boolean
     allTeams: TeamBasicType[] | null
     allTeamsLoading: boolean
+    alreadyGrantedScopeLevels: Map<string, RequiredLevel>
+    alreadyGrantedScopes: string[]
     appName: string
     authorizationComplete: boolean
     consentResourceScopes: string[]
@@ -241,8 +243,6 @@ export interface oauthAuthorizeLogicValues {
     redirectUrl: string
     requiredAccessLevel: 'organization' | 'team' | null
     requiredScopeLevels: Map<string, RequiredLevel>
-    alreadyGrantedScopes: string[]
-    alreadyGrantedScopeLevels: Map<string, RequiredLevel>
     requiredScopeRows: OAuthScopeRow[]
     scopeAccessSelections: {
         bulk: ScopeAccessLevel | null
@@ -303,6 +303,9 @@ export interface oauthAuthorizeLogicActions {
     setAllScopeAccess: (level: ScopeAccessLevel) => {
         level: ScopeAccessLevel
     }
+    setAlreadyGrantedScopes: (alreadyGrantedScopes: string[]) => {
+        alreadyGrantedScopes: string[]
+    }
     setAuthorizationComplete: (complete: boolean) => {
         complete: boolean
     }
@@ -350,9 +353,6 @@ export interface oauthAuthorizeLogicActions {
     }
     setScopes: (scopes: string[]) => {
         scopes: string[]
-    }
-    setAlreadyGrantedScopes: (alreadyGrantedScopes: string[]) => {
-        alreadyGrantedScopes: string[]
     }
     setScopesWereDefaulted: (scopesWereDefaulted: boolean) => {
         scopesWereDefaulted: boolean
