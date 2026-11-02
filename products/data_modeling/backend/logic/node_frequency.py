@@ -14,6 +14,8 @@ from datetime import timedelta
 
 from django.db.models import Q, QuerySet
 
+from posthog.dataclasses import frozen
+
 from products.data_modeling.backend.facade.contracts import SavedQueryNodeState, SuspensionMarker
 from products.data_modeling.backend.logic.cohort_scheduling import MINUTES_PER_WEEK
 from products.data_modeling.backend.logic.freshness import (
@@ -251,7 +253,7 @@ def resolve_source_intervals(source_nodes: list[Node]) -> tuple[dict[str, timede
     return source_intervals, best_effort
 
 
-@dataclasses.dataclass
+@frozen
 class FrequencyGraph:
     """The primitives `freshness.py` operates on, extracted from one DAG's Node/Edge rows."""
 
