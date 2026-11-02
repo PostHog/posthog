@@ -1752,6 +1752,16 @@ activity_logs: _ActivityLogsTable = _ActivityLogsTable(
         "detail": StringJSONDatabaseField(
             name="detail", description="JSON detail of what changed (field-level diffs, context)."
         ),
+        # Never declare `credential_id`, even as hidden: a query can select a hidden column by name,
+        # and the advanced API shows the id only for some credential types.
+        "credential_type": StringDatabaseField(
+            name="credential_type",
+            nullable=True,
+            description=(
+                "Kind of credential that authenticated the change, e.g. 'session', 'personal_api_key', 'oauth'. "
+                "Null for system activity and for entries recorded before the credential was stored."
+            ),
+        ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the activity occurred."),
     },
 )

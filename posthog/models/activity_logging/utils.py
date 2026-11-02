@@ -62,6 +62,13 @@ DeclaredCredentialType = Literal[
 # `log_activity` writes `unattributed` for a row in a request where no authentication class recorded
 # a credential, so no class may declare it.
 CredentialType = Literal[DeclaredCredentialType, "unattributed"]
+# The credential types whose `credential_id` customers can read. Each id names a login session or a
+# key that the customer can look up and revoke through the PostHog API. The other ids stay internal:
+# a service JWT audience names an internal PostHog service, and the rest lead to nothing a customer
+# can look up.
+CUSTOMER_VISIBLE_CREDENTIAL_ID_TYPES: frozenset[CredentialType] = frozenset(
+    {"session", "personal_api_key", "project_secret_key"}
+)
 # Sized for an ID-JAG `client_id`, the longest value: the identity provider config accepts client
 # ids up to 256 characters. Key ids, OAuth application UUIDs and session public ids are much shorter.
 ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH = 256

@@ -58,6 +58,10 @@ export type ActivityLogItem = {
     client?: string | null
     /** Client IP address captured at request time. Null for non-HTTP activity (system, background jobs). */
     ip_address?: string | null
+    /** Kind of credential that authenticated the change, e.g. `session` or `personal_api_key`. Null for system activity and older entries. */
+    credential_type?: string | null
+    /** Login session id or key id of that credential. Only the advanced activity log returns it, and only for some credential types. */
+    credential_id?: string | null
 }
 
 // the description of a single activity log is a sentence describing one or more changes that makes up the entry

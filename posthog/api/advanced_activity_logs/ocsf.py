@@ -121,6 +121,8 @@ class ActivityLogOCSFSerializer(serializers.ModelSerializer):
                 "organization_id": str(instance.organization_id) if instance.organization_id else None,
                 "was_impersonated": instance.was_impersonated,
                 "is_system": instance.is_system,
+                "credential_type": instance.credential_type,
+                "credential_id": instance.customer_visible_credential_id,
             },
         }
 

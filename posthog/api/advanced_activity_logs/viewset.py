@@ -109,13 +109,29 @@ def apply_organization_scoped_filter(
         return queryset.filter(team_id=team_id)
 
 
+CREDENTIAL_TYPE_HELP_TEXT = (
+    "Kind of credential that authenticated the change, for example 'session', 'personal_api_key', "
+    "'oauth' or 'project_secret_key'. Null for system activity and for entries recorded before "
+    "PostHog stored the credential."
+)
+CREDENTIAL_ID_HELP_TEXT = (
+    "Id of the credential that authenticated the change: the login session id for 'session', or "
+    "the key id for 'personal_api_key' and 'project_secret_key'. Null for every other credential "
+    "type and for impersonated changes."
+)
+
+
 class ActivityLogSerializer(serializers.ModelSerializer):
     user = UserBasicSerializer()
     unread = serializers.SerializerMethodField()
+    credential_type = serializers.CharField(read_only=True, allow_null=True, help_text=CREDENTIAL_TYPE_HELP_TEXT)
+    credential_id = serializers.CharField(
+        source="customer_visible_credential_id", read_only=True, allow_null=True, help_text=CREDENTIAL_ID_HELP_TEXT
+    )
 
     class Meta:
         model = ActivityLog
-        # An explicit list, so that a new internal column such as `credential_id` stays out. This
+        # An explicit list, so that a new internal column such as `impersonated_by_id` stays out. This
         # serializer also builds the `$activity_log_entry_created` event, so a field listed here
         # reaches the advanced API, the export and customer destinations at the same time.
         fields = [
@@ -128,6 +144,8 @@ class ActivityLogSerializer(serializers.ModelSerializer):
             "is_system",
             "client",
             "ip_address",
+            "credential_type",
+            "credential_id",
             "activity",
             "item_id",
             "scope",
@@ -511,6 +529,10 @@ class ActivityLogFlatExportSerializer(serializers.ModelSerializer):
     user_last_name = serializers.CharField(source="user.last_name", default="")
     user_email = serializers.CharField(source="user.email", default="")
     detail = serializers.SerializerMethodField()
+    credential_type = serializers.CharField(read_only=True, allow_null=True, help_text=CREDENTIAL_TYPE_HELP_TEXT)
+    credential_id = serializers.CharField(
+        source="customer_visible_credential_id", read_only=True, allow_null=True, help_text=CREDENTIAL_ID_HELP_TEXT
+    )
 
     class Meta:
         model = ActivityLog
@@ -527,6 +549,8 @@ class ActivityLogFlatExportSerializer(serializers.ModelSerializer):
             "detail",
             "client",
             "ip_address",
+            "credential_type",
+            "credential_id",
             "created_at",
         ]
 

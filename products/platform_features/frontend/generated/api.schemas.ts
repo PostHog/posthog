@@ -854,6 +854,16 @@ export interface ActivityLogApi {
     client?: string | null
     /** @nullable */
     ip_address?: string | null
+    /**
+     * Kind of credential that authenticated the change, for example 'session', 'personal_api_key', 'oauth' or 'project_secret_key'. Null for system activity and for entries recorded before PostHog stored the credential.
+     * @nullable
+     */
+    readonly credential_type: string | null
+    /**
+     * Id of the credential that authenticated the change: the login session id for 'session', or the key id for 'personal_api_key' and 'project_secret_key'. Null for every other credential type and for impersonated changes.
+     * @nullable
+     */
+    readonly credential_id: string | null
     /** @maxLength 79 */
     activity: string
     /**
