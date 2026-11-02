@@ -20,6 +20,7 @@ from products.workflows.backend.services.email_sending_tier import (
     TeamSendingHistory,
     TierDecision,
     apply_tier_decision,
+    build_sending_history_windows,
     decide_tier,
     highest_qualifying_tier,
     recompute_email_sending_tier_for_team,
@@ -519,3 +520,27 @@ class TestBackfillEmailSendingTiers(BaseTest):
             ghost_id: history(team_id=ghost_id),
         }
         assert set(BackfillCommand()._without_deleted_teams(histories)) == {self.team.id}
+
+
+@override_settings(**TIER_SETTINGS)
+class TestSendingHistoryFromMetrics(SimpleTestCase):
+    def test_sandbox_sends_count_toward_rates_but_not_promotion_volume(self) -> None:
+        # Sandbox sends reach only the team's own members, so a team must not earn a higher tier by
+        # sending them; they still sit in `email_sent`, and rates divide by everything sent.
+        today = timezone.now().date()
+        days = {
+            (today - timedelta(days=1)).strftime("%Y-%m-%d"): {"email_sent": 900, "email_sandbox_sent": 300},
+            today.strftime("%Y-%m-%d"): {"email_sent": 400, "email_sandbox_sent": 400, "email_bounced_hard": 2},
+        }
+        with patch(
+            "products.workflows.backend.services.email_sending_tier.fetch_app_metric_daily_totals_by_team",
+            return_value={7: days},
+        ) as fetch:
+            windows = build_sending_history_windows(
+                after=timezone.now() - timedelta(days=30), recent_after=timezone.now() - timedelta(days=7)
+            )
+
+        assert "email_sandbox_sent" in fetch.call_args.kwargs["name"]
+        assert windows.window[7].sent == 1300
+        assert windows.window[7].hard_bounced == 2
+        assert windows.window[7].daily_sends == {(today - timedelta(days=1)).strftime("%Y-%m-%d"): 600}

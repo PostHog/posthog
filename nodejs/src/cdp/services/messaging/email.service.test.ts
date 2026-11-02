@@ -530,7 +530,7 @@ describe('EmailService', () => {
                         }),
                     ])
                     expect(result.metrics.map((metric) => metric.metric_name)).toEqual(
-                        isTest ? [] : ['email_sandbox_sent']
+                        isTest ? [] : ['email_sent', 'email_untracked', 'email_sandbox_sent']
                     )
                     expect(capture).toHaveBeenCalledWith(
                         expect.objectContaining({ id: team.id }),
@@ -750,6 +750,20 @@ describe('EmailService', () => {
 
                 expectSkipped(result)
                 expect(capture).not.toHaveBeenCalled()
+            })
+
+            it('keeps a bounded number of blocked-event captures waiting on a stalled store', async () => {
+                const useClient = jest.fn(() => new Promise<never>(() => {}))
+                service = createSandboxService(true, { blockedEventRedis: { useClient } })
+                const invocations = Array.from({ length: 15 }, () => ({
+                    ...invocation,
+                    queueParameters: createSandboxParams({ to: { email: 'outsider@example.com', name: '' } }),
+                }))
+
+                const results = await Promise.all(invocations.map((blocked) => service.executeSendEmail(blocked)))
+
+                results.forEach(expectSkipped)
+                expect(useClient).toHaveBeenCalledTimes(10)
             })
 
             it('fails closed when the member check fails', async () => {
