@@ -203,26 +203,41 @@ describe('email pacing policies', () => {
             expect(limiter.claimAllOrNothingPair.mock.calls.map((call) => call[1])).toEqual([3, 5])
         })
 
-        it.each([
-            [
-                'names the full bucket',
-                1,
-                'This project reached its email sending limit of 20 emails per day. Retrying this email in 4s. The limit rises as the project builds a clean sending history.',
-            ],
-            [
-                'names no cap when the limiter failed',
-                null,
-                "Could not check this project's email sending limit, so this email is waiting. Retrying in 4s. No action is needed on your side.",
-            ],
-        ])('parks a denied send and %s', async (_name, deniedIndex, logMessage) => {
+        it('parks a denied send and names the full bucket', async () => {
             limiter.claimAllOrNothingPair.mockResolvedValue({
                 granted: false,
-                deniedIndex,
+                deniedIndex: 1,
                 retryAfterMs: 4000,
                 reserved: true,
             })
 
-            expect(await enforce.claim(invocation, false)).toEqual({ retryDelayMs: 4000, logMessage })
+            expect(await enforce.claim(invocation, false)).toEqual({
+                retryDelayMs: 4000,
+                logMessage:
+                    'This project reached its email sending limit of 20 emails per day. Retrying this email in 4s. The limit rises as the project builds a clean sending history.',
+            })
+        })
+
+        it('paces a limiter failure on the daily bucket and names no cap', async () => {
+            jest.spyOn(Math, 'random').mockReturnValue(0)
+            limiter.claimAllOrNothingPair.mockResolvedValue({
+                granted: false,
+                deniedIndex: null,
+                retryAfterMs: null,
+                reserved: false,
+            })
+            const cap = capFor({
+                teamEmailCapMode: 'enforce',
+                teamEmailTierHourlyCaps: [36000],
+                teamEmailTierDailyCaps: [8640],
+            })
+
+            expect(await cap.claim(invocation, false)).toEqual({
+                retryDelayMs: 10000,
+                logMessage:
+                    "Could not check this project's email sending limit, so this email is waiting. Retrying in 10s. No action is needed on your side.",
+            })
+            jest.restoreAllMocks()
         })
 
         it('drains both buckets in shadow mode but never delays the send', async () => {

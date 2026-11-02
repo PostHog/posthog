@@ -3157,6 +3157,7 @@ describe('Workflows E2E (email queue)', () => {
                     status: 'completed',
                 }),
             ])
+            expect(jobs[0].transition_count).toBeLessThanOrEqual(8)
         }
     })
 
