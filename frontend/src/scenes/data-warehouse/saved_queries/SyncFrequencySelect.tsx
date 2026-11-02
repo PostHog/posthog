@@ -92,6 +92,8 @@ export function SyncFrequencySelect({
     // A cadence that also speeds up upstream views waits here until it is confirmed.
     const [pending, setPending] = useState<DataModelingSyncInterval | null>(null)
     const pendingWarning = pending ? speedUpWarning(bounds, pending) : null
+    const inherited = inheritedCadence(bounds, value)
+    const selectedSpeedUp = !pending && value && value !== 'never' ? speedUpWarning(bounds, value) : null
     const options = buildOptions(bounds)
     const explanation = buildExplanation(bounds)
     const modeReason = modeDisabledReason(bounds)
@@ -124,7 +126,7 @@ export function SyncFrequencySelect({
                 <IconRabbit className={PACE_ICON_CLASS} aria-hidden />
                 <LemonSegmentedButton<DataModelingSyncInterval>
                     size="small"
-                    value={pending ?? (value && value !== 'never' ? value : undefined)}
+                    value={pending ?? inherited?.cadence ?? (value && value !== 'never' ? value : undefined)}
                     onChange={(next) => {
                         if (next !== value && speedUpWarning(bounds, next)) {
                             setPending(next)
@@ -169,6 +171,8 @@ export function SyncFrequencySelect({
                     </div>
                 </div>
             )}
+            {inherited && <span className="text-xs text-secondary max-w-prose">{inherited.note}</span>}
+            {selectedSpeedUp && <span className="text-xs text-secondary max-w-prose">{selectedSpeedUp}</span>}
             {explanation && <span className="text-xs text-secondary max-w-prose">{explanation}</span>}
         </div>
     )
@@ -177,8 +181,8 @@ export function SyncFrequencySelect({
 /**
  * What else a cadence changes, or null when it only changes this view.
  *
- * A view can't be fresher than its inputs, so the scheduler lowers every slower upstream view to
- * the picked cadence. Saying so before the write keeps those views from changing unannounced.
+ * A view can't be fresher than its inputs, so a slower upstream view runs at this cadence for as long
+ * as this view does. Its own setting is left alone, so it slows back down if this view does.
  */
 export function speedUpWarning(
     bounds: SyncFrequencyBoundsApi | null | undefined,
@@ -195,10 +199,40 @@ export function speedUpWarning(
         : 'Some upstream views'
     const plural = named.length > 1 || option.speeds_up_withheld || !named.length
     return (
-        `${subject} ${plural ? 'refresh' : 'refreshes'} less often than this. ` +
-        `${plural ? 'They' : 'It'} will also refresh every ${CADENCE_LABELS[cadence]}, ` +
-        `because this view can't be fresher than what it reads.`
+        `${subject} ${plural ? 'are' : 'is'} set to refresh less often, so ${plural ? 'they' : 'it'} ` +
+        `${plural ? 'refresh' : 'refreshes'} every ${CADENCE_LABELS[cadence]} while this view does, ` +
+        `because a view can't be fresher than what it reads. ${plural ? 'Their' : 'Its'} own setting doesn't change.`
     )
+}
+
+/**
+ * The cadence a view actually runs at when its saved setting is slower than a consumer needs.
+ *
+ * The scheduler runs a view at the finest cadence among itself and its consumers, so the saved
+ * setting is a lower bound on freshness, not the schedule. Options arrive coarsest-last, so the last
+ * allowed one is the consumer ceiling.
+ */
+export function inheritedCadence(
+    bounds: SyncFrequencyBoundsApi | null | undefined,
+    value: SyncFrequencyValue | null
+): { cadence: DataModelingSyncInterval; note: string } | null {
+    if (!bounds || !value || value === 'never') {
+        return null
+    }
+    const saved = bounds.options.find((option) => option.cadence === value)
+    const allowed = bounds.options.filter((option) => option.allowed)
+    if (!saved || saved.allowed || saved.blocked_by !== 'consumer' || !allowed.length) {
+        return null
+    }
+
+    const cadence = allowed[allowed.length - 1].cadence as DataModelingSyncInterval
+    const consumer = bounds.ceiling?.blocker?.name
+    return {
+        cadence,
+        note:
+            `Refreshes every ${CADENCE_LABELS[cadence]} because ${consumer ?? 'a view built on this one'} needs it. ` +
+            `Your setting of every ${CADENCE_LABELS[value]} applies again if ${consumer ?? 'that view'} refreshes less often.`,
+    }
 }
 
 export function buildOptions(

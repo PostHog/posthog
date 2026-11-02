@@ -4,7 +4,9 @@ import {
     buildExplanation,
     buildOptions,
     defaultCadenceWithin,
+    inheritedCadence,
     modeDisabledReason,
+    SyncFrequencyValue,
     speedUpWarning,
     unsatisfiableReason,
 } from './SyncFrequencySelect'
@@ -219,22 +221,80 @@ describe('SyncFrequencySelect', () => {
                 'one upstream view is slower',
                 ['org_universe'],
                 false,
-                "org_universe refreshes less often than this. It will also refresh every 6 hours, because this view can't be fresher than what it reads.",
+                "org_universe is set to refresh less often, so it refreshes every 6 hours while this view does, because a view can't be fresher than what it reads. Its own setting doesn't change.",
             ],
             [
                 'a slower upstream view is withheld',
                 ['org_universe'],
                 true,
-                "org_universe and other upstream views refresh less often than this. They will also refresh every 6 hours, because this view can't be fresher than what it reads.",
+                "org_universe and other upstream views are set to refresh less often, so they refresh every 6 hours while this view does, because a view can't be fresher than what it reads. Their own setting doesn't change.",
             ],
             [
                 'every slower upstream view is withheld',
                 [],
                 true,
-                "Some upstream views refresh less often than this. They will also refresh every 6 hours, because this view can't be fresher than what it reads.",
+                "Some upstream views are set to refresh less often, so they refresh every 6 hours while this view does, because a view can't be fresher than what it reads. Their own setting doesn't change.",
             ],
         ])('when %s', (_case, names, withheld, expected) => {
             expect(speedUpWarning(withSpeedsUp(names, withheld), '6hour')).toBe(expected)
+        })
+    })
+
+    describe('inheritedCadence', () => {
+        const consumerBound = (name: string | null): SyncFrequencyBoundsApi =>
+            bounds({
+                options: [
+                    {
+                        cadence: '1hour',
+                        allowed: true,
+                        blocked_by: null,
+                        blocker: null,
+                        speeds_up: [],
+                        speeds_up_withheld: false,
+                    },
+                    {
+                        cadence: '6hour',
+                        allowed: true,
+                        blocked_by: null,
+                        blocker: null,
+                        speeds_up: [],
+                        speeds_up_withheld: false,
+                    },
+                    {
+                        cadence: '24hour',
+                        allowed: false,
+                        blocked_by: 'consumer',
+                        blocker: null,
+                        speeds_up: [],
+                        speeds_up_withheld: false,
+                    },
+                ],
+                ceiling: { label: '6 hours', blocker: name ? blocker(name) : null },
+            } as Partial<SyncFrequencyBoundsApi>)
+
+        it.each([
+            ['the saved setting is allowed', consumerBound('maps'), '6hour', null],
+            ['the view is paused', consumerBound('maps'), 'never', null],
+            [
+                'a consumer needs it fresher',
+                consumerBound('maps'),
+                '24hour',
+                {
+                    cadence: '6hour',
+                    note: 'Refreshes every 6 hours because maps needs it. Your setting of every 1 day applies again if maps refreshes less often.',
+                },
+            ],
+            [
+                'the consumer is withheld',
+                consumerBound(null),
+                '24hour',
+                {
+                    cadence: '6hour',
+                    note: 'Refreshes every 6 hours because a view built on this one needs it. Your setting of every 1 day applies again if that view refreshes less often.',
+                },
+            ],
+        ])('when %s', (_case, input, value, expected) => {
+            expect(inheritedCadence(input, value as SyncFrequencyValue)).toEqual(expected)
         })
     })
 })

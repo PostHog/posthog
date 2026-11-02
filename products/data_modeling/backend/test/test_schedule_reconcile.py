@@ -6,7 +6,6 @@ from unittest import mock
 
 from django.test import SimpleTestCase
 
-from parameterized import parameterized
 from temporalio.client import ScheduleAlreadyRunningError, ScheduleListActionStartWorkflow
 from temporalio.service import RPCError, RPCStatusCode
 
@@ -470,17 +469,9 @@ class TestMaybeReconcileDag(BaseTest):
         update.assert_called_once()
         self.assertEqual(update.call_args.kwargs["id"], tier_id)
 
-    @parameterized.expand(
-        [
-            # the source can deliver 6h, so the stale 1d upstream target drops to its consumer's 6h
-            ("source_can_keep_up", H1, H6),
-            # the source syncs daily, so no target satisfies both sides; leave it for a person
-            ("source_too_slow", DAY, DAY),
-        ]
-    )
-    def test_upstream_target_slower_than_its_consumer_is_lowered(self, _name, source_interval, expected_upstream):
+    def test_upstream_slower_than_its_consumer_runs_at_the_consumer_cadence_and_keeps_its_setting(self):
         dag = DAG.get_or_create_default(self.team)
-        source = _warehouse_source_node(self.team, dag, sync_frequency_interval=source_interval)
+        source = _warehouse_source_node(self.team, dag, sync_frequency_interval=H1)
         upstream = _saved_query_node(self.team, dag, "org_universe", NodeType.MAT_VIEW)
         consumer = _saved_query_node(self.team, dag, "maps", NodeType.MAT_VIEW)
         Edge.objects.create(team=self.team, dag=dag, source=source, target=upstream)
@@ -490,15 +481,17 @@ class TestMaybeReconcileDag(BaseTest):
 
         with (
             mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=self._temporal_listing([]))),
-            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
         ):
             with self.captureOnCommitCallbacks(execute=True):
                 maybe_reconcile_dag(dag)
 
+        create.assert_called_once()
+        self.assertEqual(create.call_args.kwargs["id"], tier_schedule_id(str(dag.id), H6))
+        scheduled = create.call_args.kwargs["schedule"].action.args[0]["node_ids"]
+        self.assertEqual(sorted(scheduled), sorted([str(upstream.id), str(consumer.id)]))
         upstream.refresh_from_db()
-        consumer.refresh_from_db()
-        self.assertEqual(get_declared_target(upstream), expected_upstream)
-        self.assertEqual(get_declared_target(consumer), H6)
+        self.assertEqual(get_declared_target(upstream), DAY)
 
     def test_reconcile_failure_never_raises_past_commit(self):
         dag = self._dag_with_target()
