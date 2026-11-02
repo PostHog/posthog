@@ -179,6 +179,7 @@ jobs:
                         - 'products/notebooks/**'
                         - 'products/product_analytics/frontend/insights/**'
                         - 'products/*/frontend/generated/**'
+                        - 'products/webmcp/frontend/**'
                         - 'frontend/src/mocks/fixtures/**'
     build:
         name: Build Package
