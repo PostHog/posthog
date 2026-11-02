@@ -105,6 +105,19 @@ const SCOUT_RECENCY_TIMESTAMPS: Record<
     last_run: (config) => config.last_run_at,
 }
 
+/** When a refused scout chat may start again, from the `Retry-After` of the server's daily-cap 429. */
+function scoutChatRetryAtFromError(error: unknown): number | null {
+    if (!(error instanceof ApiError) || error.status !== 429 || error.code !== 'throttled') {
+        return null
+    }
+    const seconds = Number(error.headers?.get('Retry-After'))
+    return Number.isSafeInteger(seconds) && seconds > 0 ? Date.now() + seconds * 1000 : null
+}
+
+function scoutChatLimitReason(retryAt: number): string {
+    return `You've reached today's limit for scout chats. Try again after ${dayjs(retryAt).format('h:mm A')}.`
+}
+
 function compareByRecency(firstTimestamp: string | null, secondTimestamp: string | null): number {
     if (!firstTimestamp || !secondTimestamp) {
         return firstTimestamp === secondTimestamp ? 0 : firstTimestamp ? -1 : 1
@@ -432,6 +445,8 @@ export interface scoutFleetLogicValues {
     runsWindowLoadedOnce: boolean
     runsWindowLoading: boolean
     scoutBannerMessage: string | null
+    scoutChatDisabledReason: string | null
+    scoutChatRetryAt: number | null
     scoutConfigs: SignalScoutConfig[] | null
     scoutConfigsLoading: boolean
     scoutCostRollups: Map<string, ScoutCostRollup>
@@ -666,6 +681,9 @@ export interface scoutFleetLogicActions {
     setRunNotePopoverConfigId: (configId: string | null) => {
         configId: string | null
     }
+    setScoutChatRetryAt: (retryAt: number | null) => {
+        retryAt: number | null
+    }
     setScoutEnabledFilter: (filter: ScoutEnabledFilter) => {
         filter: ScoutEnabledFilter
     }
@@ -755,6 +773,10 @@ export interface scoutFleetLogicMeta {
         aiConsentDisabledReason: (
             dataProcessingAccepted: boolean,
             dataProcessingApprovalDisabledReason: string | null
+        ) => string | null
+        scoutChatDisabledReason: (
+            aiConsentDisabledReason: string | null,
+            scoutChatRetryAt: number | null
         ) => string | null
         rollups: (scoutRuns: SignalScoutRunSummary[]) => Map<string, ScoutRollup>
         scoutRunsCoverFleet: (scoutConfigs: SignalScoutConfigApi[] | null) => boolean
@@ -883,6 +905,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         }),
         startScoutChatTaskSuccess: true,
         startScoutChatTaskFailure: true,
+        setScoutChatRetryAt: (retryAt: number | null) => ({ retryAt }),
         setScoutFleetSyncOutcome: (outcome: ScoutFleetSyncOutcome) => ({ outcome }),
         mergeScoutRunCosts: (costs: Map<string, number>) => ({ costs }),
     }),
@@ -1308,6 +1331,12 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 startScoutChatTaskFailure: () => null,
             },
         ],
+        scoutChatRetryAt: [
+            null as number | null,
+            {
+                setScoutChatRetryAt: (_, { retryAt }) => retryAt,
+            },
+        ],
         // The enabled, tag, owner, and sort choices persist like the report list's filters, so a new
         // visit opens the roster as the user left it. Search does not persist, the same as the report list.
         selectedScoutTags: [
@@ -1508,6 +1537,12 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             (s) => [s.dataProcessingAccepted, s.dataProcessingApprovalDisabledReason],
             (dataProcessingAccepted: boolean, dataProcessingApprovalDisabledReason: string | null): string | null =>
                 aiConsentDisabledReason(dataProcessingAccepted, dataProcessingApprovalDisabledReason),
+        ],
+        // Every scout chat entry point shares one per-user daily cap, so one refusal disables them all.
+        scoutChatDisabledReason: [
+            (s) => [s.aiConsentDisabledReason, s.scoutChatRetryAt],
+            (aiConsentDisabledReason: string | null, scoutChatRetryAt: number | null): string | null =>
+                aiConsentDisabledReason ?? (scoutChatRetryAt !== null ? scoutChatLimitReason(scoutChatRetryAt) : null),
         ],
         rollups: [
             (s) => [s.scoutRuns],
@@ -2044,8 +2079,8 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             // template, then navigate to it. Not a live chat.
             // The CTAs carry this as a `disabledReason`; this backstops the paths that don't go
             // through a button press, since the endpoint enforces no consent of its own.
-            if (values.aiConsentDisabledReason) {
-                lemonToast.error(values.aiConsentDisabledReason)
+            if (values.scoutChatDisabledReason) {
+                lemonToast.error(values.scoutChatDisabledReason)
                 actions.startScoutChatTaskFailure()
                 return
             }
@@ -2080,7 +2115,17 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 actions.startScoutChatTaskSuccess()
                 router.actions.push(urls.taskDetail(task.task_id))
             } catch (error: any) {
-                lemonToast.error(error?.detail || error?.message || `Failed to start ${taskLabel}`)
+                const retryAt = scoutChatRetryAtFromError(error)
+                if (retryAt !== null) {
+                    lemonToast.error(scoutChatLimitReason(retryAt))
+                    actions.setScoutChatRetryAt(retryAt)
+                    cache.disposables.add(() => {
+                        const timeout = setTimeout(() => actions.setScoutChatRetryAt(null), retryAt - Date.now())
+                        return () => clearTimeout(timeout)
+                    }, 'scoutChatRetry')
+                } else {
+                    lemonToast.error(error?.detail || error?.message || `Failed to start ${taskLabel}`)
+                }
                 actions.startScoutChatTaskFailure()
             } finally {
                 cache.chatTaskStarting = false
