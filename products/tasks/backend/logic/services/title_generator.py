@@ -11,6 +11,8 @@ TITLE_DISTINCT_ID = "task-title-generator"
 TITLE_MODEL = "claude-haiku-4-5-20251001"
 TITLE_TEMPERATURE = 0.2  # Slightly lower for more consistent output
 TITLE_MAX_TOKENS = 50  # Reduced since we want short titles
+TITLE_GATEWAY_TIMEOUT_SECONDS = 30.0
+TITLE_GATEWAY_MAX_RETRIES = 1
 
 
 def generate_task_title(description: str) -> str:
@@ -121,7 +123,9 @@ def _complete_via_ai_gateway(system_prompt: str, user_prompt: str) -> str:
     from posthog.llm.gateway_client import build_ai_gateway_anthropic_client  # noqa: PLC0415
 
     client = build_ai_gateway_anthropic_client(ai_product="posthog_code", distinct_id=TITLE_DISTINCT_ID)
-    response = client.messages.create(
+    response = client.with_options(
+        timeout=TITLE_GATEWAY_TIMEOUT_SECONDS, max_retries=TITLE_GATEWAY_MAX_RETRIES
+    ).messages.create(
         model=TITLE_MODEL,
         system=system_prompt,
         messages=[{"role": "user", "content": user_prompt}],

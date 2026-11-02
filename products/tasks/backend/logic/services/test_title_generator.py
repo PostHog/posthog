@@ -119,7 +119,7 @@ class TestTitleGeneratorAIGateway:
     ):
         mock_resolve.return_value = MagicMock() if gateway_configured else None
         mock_flag.return_value = flag_on
-        mock_build.return_value.messages.create.return_value = SimpleNamespace(
+        mock_build.return_value.with_options.return_value.messages.create.return_value = SimpleNamespace(
             content=[SimpleNamespace(type="text", text="Gateway title")]
         )
         mock_client_cls.return_value.stream.return_value = [StreamChunk(type="text", data={"text": "Direct title"})]
@@ -134,7 +134,8 @@ class TestTitleGeneratorAIGateway:
     @patch("products.tasks.backend.logic.services.title_generator.feature_enabled_or_false", return_value=True)
     @patch("posthog.llm.gateway_client.resolve_ai_gateway_config", return_value=MagicMock())
     def test_gateway_request_keeps_model_and_attribution(self, _mock_resolve, _mock_flag, mock_build):
-        create = mock_build.return_value.messages.create
+        with_options = mock_build.return_value.with_options
+        create = with_options.return_value.messages.create
         create.return_value = SimpleNamespace(
             content=[
                 SimpleNamespace(type="thinking", text="ignored"),
@@ -147,6 +148,7 @@ class TestTitleGeneratorAIGateway:
 
         assert result == "Fix login bug"
         mock_build.assert_called_once_with(ai_product="posthog_code", distinct_id="task-title-generator")
+        with_options.assert_called_once_with(timeout=30.0, max_retries=1)
         kwargs = create.call_args.kwargs
         assert kwargs["model"] == "claude-haiku-4-5-20251001"
         assert kwargs["max_tokens"] == 50
@@ -157,7 +159,7 @@ class TestTitleGeneratorAIGateway:
     @patch("products.tasks.backend.logic.services.title_generator.feature_enabled_or_false", return_value=True)
     @patch("posthog.llm.gateway_client.resolve_ai_gateway_config", return_value=MagicMock())
     def test_gateway_error_falls_back_to_description(self, _mock_resolve, _mock_flag, mock_build):
-        mock_build.return_value.messages.create.side_effect = Exception("gateway down")
+        mock_build.return_value.with_options.return_value.messages.create.side_effect = Exception("gateway down")
 
         result = generate_task_title("This is a test description that should be used as fallback")
 
