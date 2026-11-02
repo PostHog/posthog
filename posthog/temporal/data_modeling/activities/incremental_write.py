@@ -166,6 +166,12 @@ class UniqueKeyTracker:
         if self._closed.is_set():
             raise _TrackerClosed()
 
+    def _duplicate_key_error(self, occurrences: str) -> IncrementalWriteError:
+        return IncrementalWriteError(
+            f"The unique key ({', '.join(self._columns)}) does not identify a single row: {occurrences} in "
+            "this run's result. Add the columns that tell those rows apart."
+        )
+
     def _raise_if_over_disk_budget(self) -> None:
         assert self._spill_directory is not None
         directory = Path(self._spill_directory.name)
@@ -195,10 +201,7 @@ class UniqueKeyTracker:
             with self._spill:
                 self._spill.executemany("INSERT INTO unique_keys (key) VALUES (?)", rows())
         except sqlite3.IntegrityError as error:
-            raise IncrementalWriteError(
-                f"The unique key ({', '.join(self._columns)}) does not identify a single row: "
-                "a key appears more than once in this run's result. Add the columns that tell those rows apart."
-            ) from error
+            raise self._duplicate_key_error("a key appears more than once") from error
 
     def _start_spill(self) -> None:
         self._spill_directory = TemporaryDirectory(prefix="posthog-materialization-keys-")
@@ -247,10 +250,7 @@ class UniqueKeyTracker:
             if already_seen.num_rows:
                 worst = max(worst, pc.max(already_seen.column("count_all")).as_py() + 1)
         if worst > 1:
-            raise IncrementalWriteError(
-                f"The unique key ({', '.join(self._columns)}) does not identify a single row: one key "
-                f"appears {worst} times in this run's result. Add the columns that tell those rows apart."
-            )
+            raise self._duplicate_key_error(f"one key appears {worst} times")
 
         distinct = grouped.select(self._columns).combine_chunks()
         self._seen_chunks.append(distinct)
