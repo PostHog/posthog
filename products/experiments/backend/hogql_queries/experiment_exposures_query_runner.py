@@ -1,6 +1,7 @@
 import uuid
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
+from functools import cached_property
 from typing import Any
 
 import structlog
@@ -84,10 +85,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_entity_key,
     has_positive_test_account_filter,
 )
-from products.experiments.backend.hogql_queries.precompute_policy import (
-    ensure_exposures_precomputed,
-    team_precompute_skip_reason,
-)
+from products.experiments.backend.hogql_queries.exposures_precompute import ExposuresPrecompute
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
@@ -197,16 +195,26 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
     def _get_date_range(self) -> DateRange:
         return analysis_window(self.window_start, self.window_end_date, self.team, self.as_of)
 
-    def _ensure_exposures_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:
-        if not self.window_start:
-            raise ValidationError("Experiment must have a start date for lazy computation")
-
-        return ensure_exposures_precomputed(
-            self.team,
-            builder,
-            self.window_start,
-            analysis_window_end(self.window_end_date, self.as_of),
+    @cached_property
+    def _exposures_precompute(self) -> ExposuresPrecompute:
+        return ExposuresPrecompute(
+            team=self.team,
+            team_experiments_config=get_or_create_team_extension(self.team, TeamExperimentsConfig),
+            experiment=self.experiment,
+            window_start=self.window_start,
+            window_end=analysis_window_end(self.window_end_date, self.as_of),
+            exposure_criteria=self.exposure_criteria,
+            cohort_filter_sources=(),
+            precomputation_mode=None,
+            is_data_warehouse_query=False,
+            group_type_index=self.group_type_index,
         )
+
+    def _exposures_precompute_applicable(self) -> bool:
+        return self._exposures_precompute.applicable
+
+    def _ensure_exposures_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:
+        return self._exposures_precompute.ensure_precomputed(builder)
 
     def _query_builder(self, exposure_params: ExposureQueryParams) -> ExperimentQueryBuilder:
         return ExperimentQueryBuilder(
@@ -227,18 +235,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         # TODO: Add a query-level precomputation_mode override for ExperimentExposureQuery. The main
         # runner lets PrecomputationMode.PRECOMPUTED bypass the duration gate. This path has no such
         # override, so callers cannot force precomputation for an experiment below the minimum duration.
-        # The group_type_index check mirrors the main runner: group builds always fail, because the
-        # INSERT cannot resolve the materialized $group_N column on sharded_events.
-        if (
-            self.group_type_index is None
-            and team_precompute_skip_reason(
-                self.team,
-                get_or_create_team_extension(self.team, TeamExperimentsConfig),
-                self.experiment,
-                self.exposure_criteria,
-            )
-            is None
-        ):
+        if self._exposures_precompute_applicable():
             try:
                 with tags_context(experiment_query_surface="precompute_build", experiment_precompute_table="exposures"):
                     result = self._ensure_exposures_precomputed(builder)
