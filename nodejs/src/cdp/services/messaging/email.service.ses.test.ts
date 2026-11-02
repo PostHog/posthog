@@ -5,6 +5,7 @@ import { register } from 'prom-client'
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
+import { RedisV2 } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import {
@@ -21,8 +22,9 @@ import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub } from '../../../types'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
+import { teamEmailCapBuckets } from './email-pacing'
 import { EmailSuppressionService } from './email-suppression.service'
-import { EmailService, EmailServiceConfig, teamEmailCapBuckets } from './email.service'
+import { EmailService, EmailServiceConfig } from './email.service'
 import { mailDevTransport } from './helpers/maildev'
 import { MessageAssetsService } from './message-assets.service'
 
@@ -33,6 +35,8 @@ describe('EmailService with local SES', () => {
     let params: CyclotronInvocationQueueParametersEmailType
     let ses: LocalSes
     let limiter: RateLimiterService
+    // One pool for the whole suite: RedisV2 has no close, so a pool per test would leave a connection per test.
+    let redis: RedisV2 | undefined
     let configService: TeamWorkflowsConfigService
     let suppression: EmailSuppressionService
     let assets: MessageAssetsService
@@ -110,7 +114,8 @@ describe('EmailService with local SES', () => {
         ses = new LocalSes()
         await ses.start()
         hub = await createHub({ SITE_URL: 'http://localhost:8000' })
-        limiter = new RateLimiterService(createEmailLimiterRedis(hub), { name: 'email-outcomes-test' })
+        redis ??= createEmailLimiterRedis(hub)
+        limiter = new RateLimiterService(redis, { name: 'email-outcomes-test' })
         services = new EmailServiceFixture(hub)
         configService = services.workflowsConfig
         suppression = services.suppression

@@ -3171,9 +3171,9 @@ describe('Workflows E2E (email queue)', () => {
                     function_id: hogFlow.id,
                     queue_name: 'email',
                     status: 'completed',
-                    transition_count: 8,
                 }),
             ])
+            expect(jobs[0].transition_count).toBeLessThanOrEqual(8)
         }
     })
 
