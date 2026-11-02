@@ -59,27 +59,46 @@ Returns a `NotificationEvent` on success, or `None` if the feature flag is disab
 
 **Optional:**
 
-| Field           | Type                               | Default  | Description                                                                                                                                                                                   |
-| --------------- | ---------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `resource_type` | `NotificationResourceType \| None` | `None`   | Access-controlled types (e.g. `"dashboard"`) auto-filter recipients without viewer access                                                                                                     |
-| `resource_id`   | `str`                              | `""`     | ID of the resource for linking                                                                                                                                                                |
-| `source_url`    | `str`                              | `""`     | Relative URL path (e.g. `/dashboard/42`), shown as link icon in UI                                                                                                                            |
-| `priority`      | `Priority`                         | `NORMAL` | `normal` = popover only; `critical` = popover + persistent toast                                                                                                                              |
-| `archivable`    | `bool`                             | `False`  | Opt in to a per-recipient "archive" (dismiss) action that moves the notification to the recipient's Archived tab. When `False`, recipients can only mark it read/unread (the default pattern) |
-| `resolver`      | `RecipientsResolver \| None`       | `None`   | Custom recipient resolver. Default handles user/team/org/role targeting                                                                                                                       |
+| Field             | Type                               | Default  | Description                                                                                                                                                                           |
+| ----------------- | ---------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `resource_type`   | `NotificationResourceType \| None` | `None`   | Access-controlled types (e.g. `"dashboard"`) auto-filter recipients without viewer access                                                                                             |
+| `resource_id`     | `str`                              | `""`     | ID of the resource for linking                                                                                                                                                        |
+| `source_url`      | `str`                              | `""`     | Relative URL path (e.g. `/dashboard/42`), shown as link icon in UI                                                                                                                    |
+| `source_type`     | `SourceType \| None`               | `None`   | Kind of page to open. With `source_id`, the frontend builds the link, so it survives URL changes. Prefer it over `source_url` when the page is one of the `SourceType` values.        |
+| `source_id`       | `str \| None`                      | `None`   | ID of the page to open, read with `source_type`.                                                                                                                                      |
+| `metadata`        | `dict[str, Any] \| None`           | `None`   | Structured payload for rich rendering of one type, such as the web analytics digest metrics.                                                                                          |
+| `idempotency_key` | `str \| None`                      | `None`   | Deduplicates sends: a second call with the same key in the same project or organization returns the first notification and sends nothing. Set it for anything a retry can send twice. |
+| `priority`        | `Priority`                         | `NORMAL` | `normal` = popover only; `critical` = popover + persistent toast                                                                                                                      |
+| `resolver`        | `RecipientsResolver \| None`       | `None`   | Custom recipient resolver. Default handles user/team/org/role targeting                                                                                                               |
 
 ## Choosing parameters
 
 ### Notification type
 
-| Type                 | When to use                                      |
-| -------------------- | ------------------------------------------------ |
-| `comment_mention`    | User was @mentioned in a comment or discussion   |
-| `alert_firing`       | A monitoring alert threshold was breached        |
-| `approval_requested` | A change requires the user's approval            |
-| `approval_resolved`  | An approval the user requested has been resolved |
-| `pipeline_failure`   | A data pipeline or batch export failed           |
-| `issue_assigned`     | An error tracking issue was assigned to the user |
+| Type                            | When to use                                             |
+| ------------------------------- | ------------------------------------------------------- |
+| `comment_mention`               | Someone @mentioned the user in a comment or discussion  |
+| `issue_assigned`                | An error tracking issue was assigned to the user        |
+| `reminder`                      | A reminder the user set came due                        |
+| `approval_requested`            | A change needs the user's approval                      |
+| `approval_resolved`             | An approval the user asked for was approved or rejected |
+| `alert_firing`                  | An alert threshold was crossed                          |
+| `usage_spike`                   | Usage jumped well above the usual level                 |
+| `email_reputation`              | Email sending reputation dropped                        |
+| `pipeline_failure`              | A data pipeline or batch export failed                  |
+| `materialization_failure`       | A materialized view failed to refresh                   |
+| `data_quality_check_failure`    | A data quality check failed                             |
+| `feature_flag_failure`          | A feature flag stopped evaluating correctly             |
+| `experiment_concluded`          | An experiment reached a result                          |
+| `web_analytics_digest`          | The weekly web analytics summary                        |
+| `first_report_completed`        | The project's first report finished                     |
+| `project_created`               | A new project was created in the organization           |
+| `achievement_unlocked`          | The user or team reached a milestone                    |
+| `subscription_nudge`            | A prompt to subscribe to something useful               |
+| `workflow_suggestion`           | A suggested workflow the user can set up                |
+| `notification_settings_changed` | The user's notification settings changed                |
+
+The notifications pane under the new navigation puts every type in a category for its filter: Mentions & assignments, Approvals, Alerts, Data & pipelines, or Other. A new type lands in Other until it is added to that registry.
 
 ### Priority
 
@@ -114,7 +133,7 @@ Kafka publish happens on `transaction.on_commit` — won't fire if the transacti
 
 ## Adding a new notification type
 
-1. Add enum value in `products/notifications/backend/facade/enums.py`
+1. Add enum value in `products/notifications/backend/facade/enums.py`. The list API rejects types it does not know, so the enum is the only place a type has to exist on the backend
 2. Add icon mapping in `frontend/src/lib/components/NotificationsMenu/notificationToasts.tsx` (`NOTIFICATION_TYPE_ICONS`) — the single icon source, read by `getNotificationIcon`, which only `NotificationRow` calls; the side panel gets the icon by rendering that row
 3. Add a label + description entry in `frontend/src/lib/components/NotificationsMenu/NotificationRow.tsx` (`REALTIME_NOTIFICATION_TYPE_META`) — drives the per-type notification preferences UI
 4. Run `python manage.py makemigrations notifications`

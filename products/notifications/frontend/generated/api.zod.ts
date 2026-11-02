@@ -9,6 +9,15 @@
  */
 import * as zod from 'zod'
 
+export const notificationsUnarchiveCreateBodyMarkUnreadDefault = false
+
+export const NotificationsUnarchiveCreateBody = /* @__PURE__ */ zod.object({
+    mark_unread: zod
+        .boolean()
+        .default(notificationsUnarchiveCreateBodyMarkUnreadDefault)
+        .describe('Also mark the notifications unread, to restore their state before the archive.'),
+})
+
 export const notificationsArchiveBulkCreateBodyNotificationIdsMax = 500
 
 export const NotificationsArchiveBulkCreateBody = /* @__PURE__ */ zod.object({
@@ -40,4 +49,21 @@ export const NotificationsMarkUnreadBulkCreateBody = /* @__PURE__ */ zod.object(
         .describe(
             'UUIDs of notification events to mark in bulk (max 500). Events the user is not a recipient of are silently skipped.'
         ),
+})
+
+export const notificationsUnarchiveBulkCreateBodyNotificationIdsMax = 500
+
+export const notificationsUnarchiveBulkCreateBodyMarkUnreadDefault = false
+
+export const NotificationsUnarchiveBulkCreateBody = /* @__PURE__ */ zod.object({
+    notification_ids: zod
+        .array(zod.uuid())
+        .max(notificationsUnarchiveBulkCreateBodyNotificationIdsMax)
+        .describe(
+            'UUIDs of notification events to mark in bulk (max 500). Events the user is not a recipient of are silently skipped.'
+        ),
+    mark_unread: zod
+        .boolean()
+        .default(notificationsUnarchiveBulkCreateBodyMarkUnreadDefault)
+        .describe('Also mark the notifications unread, to restore their state before the archive.'),
 })
