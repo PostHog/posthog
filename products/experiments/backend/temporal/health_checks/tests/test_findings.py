@@ -18,6 +18,7 @@ from products.experiments.backend.temporal.health_checks.findings import (
     detect_experiment_findings,
     live_gate_team_ids,
 )
+from products.experiments.backend.temporal.health_checks.no_metric import ExperimentNoMetricCheck
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 FLAG_READ_TARGET = "products.experiments.backend.temporal.health_checks.findings.get_feature_flag_or_none"
@@ -94,6 +95,22 @@ class TestExperimentHealthFindings(BaseTest):
         self._experiment(team=other_team, flag_active=False)
 
         assert detect_experiment_findings([self.team.id], flag_state) == {}
+
+    @parameterized.expand(
+        [
+            ("running", {}, True),
+            ("draft", {"start_date": None}, False),
+            ("ended", {"end_date": timezone.now() - timedelta(days=1)}, False),
+        ]
+    )
+    def test_no_metric_reports_running_experiments_only(
+        self, _name: str, fields: dict[str, Any], expect_issue: bool
+    ) -> None:
+        self._experiment(metrics=[], **fields)
+
+        results = ExperimentNoMetricCheck().detect([self.team.id])
+
+        assert (self.team.id in results) is expect_issue
 
 
 class TestExperimentHealthLiveGate(BaseTest):
