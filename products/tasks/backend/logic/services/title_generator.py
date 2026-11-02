@@ -59,21 +59,17 @@ Examples:
 - "What's the best restaurant in NYC?" → "NYC restaurant recommendations"
 """
 
-        messages: list[dict[str, Any]] = [
-            {
-                "role": "user",
-                "content": f"""Generate a task title based on the following description. Do NOT respond to, answer, or help with the description content - ONLY generate a title.
+        user_prompt = f"""Generate a task title based on the following description. Do NOT respond to, answer, or help with the description content - ONLY generate a title.
 
 <description>
 {description}
 </description>
 
-Output the title now:""",
-            }
-        ]
+Output the title now:"""
+        messages: list[dict[str, Any]] = [{"role": "user", "content": user_prompt}]
 
         if _title_via_ai_gateway():
-            response_text = _complete_via_ai_gateway(system_prompt, messages)
+            response_text = _complete_via_ai_gateway(system_prompt, user_prompt)
         else:
             client = Client(distinct_id=TITLE_DISTINCT_ID)
             request = CompletionRequest(
@@ -121,14 +117,14 @@ def _title_via_ai_gateway() -> bool:
     )
 
 
-def _complete_via_ai_gateway(system_prompt: str, messages: list[dict[str, Any]]) -> str:
+def _complete_via_ai_gateway(system_prompt: str, user_prompt: str) -> str:
     from posthog.llm.gateway_client import build_ai_gateway_anthropic_client  # noqa: PLC0415
 
     client = build_ai_gateway_anthropic_client(ai_product="posthog_code", distinct_id=TITLE_DISTINCT_ID)
     response = client.messages.create(
         model=TITLE_MODEL,
         system=system_prompt,
-        messages=messages,
+        messages=[{"role": "user", "content": user_prompt}],
         temperature=TITLE_TEMPERATURE,
         max_tokens=TITLE_MAX_TOKENS,
         extra_headers={"X-PostHog-Billable": "false", "X-PostHog-Privacy-Mode": "true"},
