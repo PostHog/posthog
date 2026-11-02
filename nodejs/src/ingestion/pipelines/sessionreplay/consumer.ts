@@ -401,6 +401,11 @@ export class SessionRecordingIngester {
         this.stopEventIngestionRestrictionManager = started.stop
 
         const pipelineConfig: SessionReplayPipelineConfig = {
+            messageLimits: {
+                maxWindowIdBytes: this.config.SESSION_RECORDING_MAX_WINDOW_ID_BYTES,
+                maxEventsPerMessage: this.config.SESSION_RECORDING_MAX_EVENTS_PER_MESSAGE,
+                enforce: this.config.SESSION_RECORDING_ENFORCE_MESSAGE_LIMITS,
+            },
             outputs: this.outputs,
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
             overflowMode: this.config.INGESTION_OVERFLOW_MODE,
