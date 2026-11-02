@@ -22,22 +22,18 @@ class KnowledgeUsageRecord(UUIDModel):
     data before the usage report and the billing service start counting it.
     """
 
-    # The canonical team the knowledge is stored under (plain id, no FK), so child environments count
-    # toward their parent and deleting a team never cascades into usage history.
+    # Canonical team, no FK: deleting a team must not cascade into usage history.
     team_id = models.BigIntegerField()
     usage_key = models.CharField(max_length=64, choices=KnowledgeUsageKey.choices)
     quantity = models.PositiveIntegerField()
-    # Where the work came from: a retrieval surface ("api", "support", ...) or an ingestion path.
     surface = models.CharField(max_length=32, blank=True, default="")
-    # Set for retrieval: the search's trace id. A retried Temporal activity reuses its trace id, so the
-    # unique constraint drops the duplicate instead of counting the same search twice.
+    # The search's trace id, so a retried Temporal activity is counted once.
     idempotency_key = models.CharField(max_length=128, null=True, blank=True)
-    # Kept for support questions ("why was I billed for this?"). Plain ids so deletes never cascade.
+    # Plain ids, kept to answer "why was I billed for this?" after a delete.
     source_id = models.UUIDField(null=True, blank=True)
     document_id = models.UUIDField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
-    # Fail-closed like other team data. Cross-team reads (the future usage report) use `.unscoped()`.
     objects = TeamScopedManager()
 
     class Meta:
@@ -50,9 +46,7 @@ class KnowledgeUsageRecord(UUIDModel):
             ),
         ]
         indexes = [
-            # For the daily per-team usage report, which buckets rows by write time.
             models.Index(fields=["created_at", "team_id"], name="bk_usage_created_team"),
-            # For one team's usage of one meter over a billing period.
             models.Index(fields=["team_id", "usage_key", "created_at"], name="bk_usage_team_key_created"),
         ]
 

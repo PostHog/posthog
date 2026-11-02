@@ -36,8 +36,7 @@ logger = structlog.get_logger(__name__)
 async def support_retrieve_activity(input: RetrieveInput) -> RetrieveOutput:
     """Search BK + rerank. On widen attempts, also fetch document windows around prior citations."""
     info = activity.info()
-    # Each search is metered as one query, keyed on its trace id. Deriving the id from the activity means
-    # a retried attempt reuses it and is metered once, while a new workflow run is new work.
+    # Stable across retries of this activity, so a retried search is counted once.
     trace_seed = f"{info.workflow_id}:{info.workflow_run_id}:{info.activity_id}"
     async with Heartbeater():
         return await database_sync_to_async(_retrieve_sync, thread_sensitive=False)(input, trace_seed)

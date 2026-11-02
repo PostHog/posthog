@@ -45,8 +45,7 @@ class RetrievalTrace:
     """One search. The query embedding and the rerank of that search share the trace."""
 
     surface: RetrievalSurface
-    # Also the search's usage idempotency key. Work that can be retried (Temporal activities) passes
-    # `stable_trace_id(...)` so a retry meters the search once.
+    # Also the usage idempotency key: retryable work passes `stable_trace_id(...)`.
     trace_id: str = dataclasses.field(default_factory=lambda: str(uuid4()))
 
 

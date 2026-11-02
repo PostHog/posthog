@@ -25,10 +25,8 @@ class TestSupportRetrieveMetering(BaseTest):
             patch.object(logic, "generate_embedding", side_effect=RuntimeError("no embeddings")),
         ):
             _retrieve_sync(input, "workflow:run-1:activity-1")
-            # A retried attempt of the same activity reuses the seed, so it meters nothing new.
             _retrieve_sync(input, "workflow:run-1:activity-1")
             assert self._query_count() == 2
 
-            # A new workflow run is new work.
             _retrieve_sync(input, "workflow:run-2:activity-1")
             assert self._query_count() == 4

@@ -491,8 +491,7 @@ def _search_existing_knowledge(team: Team, query: str, *, run_id: UUID) -> list[
         limit=LEARNING_SEARCH_LIMIT,
         use_semantic=True,
         query_embedding=embedding,
-        # Learning searches are metered like any other retrieval. One run analyses one evidence revision,
-        # so a retried analysis reuses the run's trace id and meters its search once.
+        # Keyed on the run, so a retried analysis is counted once.
         trace=RetrievalTrace(surface="learning", trace_id=stable_trace_id("learning", run_id)),
     )
 

@@ -23,8 +23,7 @@ from .models import KnowledgeUsageKey, KnowledgeUsageRecord
 
 logger = structlog.get_logger(__name__)
 
-# Searches PostHog runs for its own purposes, never billed to the customer. `docs_shadow` runs business
-# knowledge beside the Inkeep docs search to compare results; the customer never sees its output.
+# PostHog's internal docs-search comparison; the customer never sees its results.
 UNMETERED_SURFACES = frozenset({"docs_shadow"})
 
 
@@ -44,7 +43,7 @@ def record_chunks_ingested(
     if quantity <= 0:
         return
     try:
-        # Savepoint: a failed insert must not poison the caller's transaction and roll back the chunks.
+        # Savepoint, so a failed insert can't poison the caller's transaction and roll back the chunks.
         with transaction.atomic():
             KnowledgeUsageRecord.objects.unscoped().create(
                 team_id=team_id,
@@ -69,8 +68,6 @@ def record_query(*, team_id: int, trace_id: str, surface: str) -> None:
     if surface in UNMETERED_SURFACES:
         return
     try:
-        # Savepoint, as above. Unscoped: the idempotency key is global, and the row's team is the
-        # canonical team passed in.
         with transaction.atomic():
             KnowledgeUsageRecord.objects.unscoped().get_or_create(
                 usage_key=KnowledgeUsageKey.QUERIES,

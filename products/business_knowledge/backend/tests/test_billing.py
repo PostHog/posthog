@@ -7,11 +7,17 @@ from unittest.mock import patch
 from django.db import transaction
 from django.utils import timezone
 
+from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
 from products.business_knowledge.backend import billing, logic
 from products.business_knowledge.backend.llm_telemetry import RetrievalTrace, stable_trace_id
-from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeUsageKey, KnowledgeUsageRecord
+from products.business_knowledge.backend.models import (
+    KnowledgeChunk,
+    KnowledgeLibrary,
+    KnowledgeUsageKey,
+    KnowledgeUsageRecord,
+)
 
 TEXT = "Refunds are available within 30 days.\n\nShipping is free above 50 euros."
 
@@ -98,13 +104,11 @@ class TestRetrievalMetering(_UsageTest):
         ]
 
     def test_a_search_without_a_trace_is_not_metered(self) -> None:
-        # Only offline evals and tests search without a trace.
         logic.search_knowledge(self.team.id, "refunds")
 
         assert self._rows(KnowledgeUsageKey.QUERIES) == []
 
     def test_the_internal_docs_shadow_search_is_not_metered(self) -> None:
-        # PostHog runs it to compare business knowledge with its docs search; the customer never sees it.
         logic.search_knowledge(self.team.id, "refunds", trace=RetrievalTrace(surface="docs_shadow"))
 
         assert self._rows(KnowledgeUsageKey.QUERIES) == []
@@ -116,6 +120,16 @@ class TestRetrievalMetering(_UsageTest):
         logic.search_knowledge(self.team.id, "refunds", trace=trace)
 
         assert len(self._rows(KnowledgeUsageKey.QUERIES)) == 1
+
+    def test_a_search_against_an_empty_library_is_metered(self) -> None:
+        with team_scope(self.team.id, canonical=True):
+            library = KnowledgeLibrary.objects.create(team_id=self.team.id, name="Empty")
+        trace = RetrievalTrace(surface="api")
+
+        results = logic.search_knowledge_for_team(self.team, "refunds", trace=trace, library_id=library.id)
+
+        assert results == []
+        assert [r.idempotency_key for r in self._rows(KnowledgeUsageKey.QUERIES)] == [trace.trace_id]
 
     def test_a_search_that_raises_meters_nothing(self) -> None:
         with (
@@ -144,8 +158,7 @@ class TestRetrievalMetering(_UsageTest):
         assert self._rows(KnowledgeUsageKey.QUERIES, team_id=child.id) == []
 
     def test_async_search_from_a_child_environment_searches_the_child_and_meters_the_parent(self) -> None:
-        # PostHog AI only authorizes the environment it runs in, so the search must not widen to the parent
-        # project. Usage still belongs to the parent, where it will be counted.
+        # PostHog AI only authorizes the environment it runs in, so the search must not widen to the parent.
         child = Team.objects.create(
             organization=self.organization, parent_team=self.team, project=self.team.project, name="Child environment"
         )
