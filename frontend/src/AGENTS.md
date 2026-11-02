@@ -2,6 +2,8 @@
 
 Applies to any change under `frontend/src`. This is a **discovery + cadence** guide: the rules below exist because agents tend to generate before they look. The root `AGENTS.md` and the quill package guides remain authoritative, except that [`design.md`](./design.md) wins over a quill package guide for UI behind `today-rail-nav` — this file does not repeat them, it points at them.
 
+Before you build or edit any UI, or when a task asks to simplify or redesign one, read [`platform-ux.md`](./platform-ux.md). It decides what a surface shows and when (progressive disclosure first), on LemonUI and quill alike. Only the platform UX team changes the nav rail.
+
 ## Rule 1 — Reuse before you create
 
 **Before building any UI element, search for an existing one.** PostHog already has a badge, a label, a table, a tag, a card, a modal. Hand-rolling one with raw `<div>`/`<table>` + Tailwind is the single most common agent mistake here, and it produces unbounded, off-design output. Reuse is also how the product stays on-brand: Lemon/quill components carry PostHog's tokens, density, and interaction patterns, so a scene built from them looks like PostHog without anyone having to think about it.

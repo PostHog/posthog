@@ -871,8 +871,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/prefect_cloud/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pretix/pretix.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pretix/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/printify/printify.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/printify/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/productboard/productboard.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/productboard/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pulumi_cloud/pulumi_cloud.py
@@ -908,7 +906,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/revenuecat/revenuecat.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/rippling/rippling.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/rippling/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/rki_covid/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/roark/roark.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/roark/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/rocketlane/rocketlane.py

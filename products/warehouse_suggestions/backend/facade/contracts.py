@@ -209,12 +209,6 @@ class SuggestionStatus:
     refreshed_at: datetime | None
 
 
-@frozen
-class SuggestionPage:
-    count: int
-    results: list[Suggestion]
-
-
 class SuggestionNotFoundError(Exception):
     pass
 

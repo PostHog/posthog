@@ -67,7 +67,7 @@ from products.experiments.backend.health.registry import (
     EXPOSURE_HEALTH_CHECKS,
     evaluate as evaluate_health,
 )
-from products.experiments.backend.health.rollout import shows_health_findings
+from products.experiments.backend.health.rollout import runs_for_impersonated_session, shows_health_findings
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.base_query_utils import analysis_window, analysis_window_end
 from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
@@ -336,8 +336,8 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
 
     def _runs_segments_query(self) -> bool:
         # The segments only explain a finding and the query scans the exposure events, so it runs only for a reader
-        # who sees the findings. A userless run sees none. The answer stays out of the cache key: an async run computes
-        # the key again in a worker, from that worker's flag definitions, and a key that disagrees with the web
+        # who sees the findings. A userless run sees none. The flag's answer stays out of the cache key: an async run
+        # computes the key again in a worker, from that worker's flag definitions, and a key that disagrees with the web
         # request's makes every page load miss the cache.
         if not isinstance(self.user, User):
             return False
@@ -620,4 +620,8 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         # The test account filter finding asks the user to edit these filters, so an edit must not serve the old answer.
         if applies_test_account_filters(self.team, self.exposure_criteria):
             payload["test_account_filters"] = self.team.test_account_filters
+        # An impersonated session reads the segments whether or not the customer has the flag, so it must not get the
+        # customer's cached answer without them. The query tag follows an async run, so a worker computes the same key.
+        if runs_for_impersonated_session():
+            payload["impersonated_session"] = True
         return payload

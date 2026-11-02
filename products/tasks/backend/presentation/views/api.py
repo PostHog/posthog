@@ -2008,10 +2008,20 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @staticmethod
     def _is_trial_lifecycle_update(payload: object) -> bool:
-        if not isinstance(payload, dict) or not payload or set(payload) - {"status", "error_message", "state"}:
+        if (
+            not isinstance(payload, dict)
+            or not payload
+            or set(payload) - {"status", "error_message", "error_type", "output", "state"}
+        ):
             return False
         if "status" in payload and (
             not isinstance(payload["status"], str) or payload["status"] not in {"in_progress", "completed", "failed"}
+        ):
+            return False
+        if "error_type" in payload and payload.get("status") != "failed":
+            return False
+        if "output" in payload and not (
+            payload.get("status") in {"completed", "failed"} and tasks_facade.is_finish_report_output(payload["output"])
         ):
             return False
         if "state" in payload:
