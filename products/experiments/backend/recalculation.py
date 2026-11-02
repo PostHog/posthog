@@ -27,14 +27,18 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models.scoping import get_current_team_id, team_scope
+from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.temporal.common.client import sync_connect
 
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
-from products.experiments.backend.metric_calculation.config import build_calculation_configs
-from products.experiments.backend.metric_calculation.results import MetricResultStore
+from products.experiments.backend.metric_calculation.config import (
+    build_calculation_configs,
+    resolve_calculation_key_version,
+)
+from products.experiments.backend.metric_calculation.results import MetricResultStore, result_configuration_status
 from products.experiments.backend.metric_resolution import get_metrics_for_calculation
 from products.experiments.backend.models.experiment import (
     Experiment,
@@ -286,6 +290,8 @@ def start_metrics_recalculation_workflow(recalculation_id: str, *, team_id: int,
     FAILED when it is safe to do so, and the exception propagates to the caller.
     """
     try:
+        # The run's activities take the key version from these inputs, so a flag change mid-run keeps one version.
+        calculation_key_version = resolve_calculation_key_version(Team.objects.only("id").get(id=team_id))
         temporal = sync_connect()
         asyncio.run(
             temporal.start_workflow(
@@ -294,6 +300,7 @@ def start_metrics_recalculation_workflow(recalculation_id: str, *, team_id: int,
                     recalculation_id=recalculation_id,
                     fairness_key=organization_id,
                     activity_task_queue=_activity_task_queue(organization_id),
+                    calculation_key_version=calculation_key_version,
                 ),
                 id=metrics_recalculation_workflow_id(recalculation_id),
                 task_queue=settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
@@ -626,13 +633,16 @@ def get_run_results(recalc: ExperimentMetricsRecalculation) -> list[dict]:
     Ended experiments retain completed rows with a compatible display key after project settings change, without
     making those rows reusable.
     """
-    rows = MetricResultStore(experiment_id=recalc.experiment_id).for_run(recalc)
+    configs = build_calculation_configs(recalc.experiment)
+    by_uuid = {config.metric_id: config for config in configs}
+    rows = MetricResultStore(experiment_id=recalc.experiment_id).for_run(recalc, configs=configs)
     return [
         {
             "metric_uuid": row.metric_uuid,
             "status": row.status,
             "result": strip_step_sessions(row.result),
             "error_message": row.error_message,
+            "configuration_status": result_configuration_status(row.fingerprint, by_uuid[row.metric_uuid]),
         }
         for row in rows
     ]
@@ -679,6 +689,7 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
                     "status": row.status,
                     "result": strip_step_sessions(row.result),
                     "error_message": None,
+                    "configuration_status": result_configuration_status(row.fingerprint, calculation_config),
                 }
             )
             if latest_query_to is None or row.query_to > latest_query_to:

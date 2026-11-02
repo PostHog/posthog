@@ -192,3 +192,27 @@ async def main():
 
 asyncio.run(main())
 ```
+
+## Calculation key version 2 rollout
+
+The `experiment-calculation-key-v2` flag, evaluated locally per team, decides the key version of each new operation (`resolve_calculation_key_version`).
+Daily discovery, metrics recalculation requests and timeseries backfill requests decide it once and carry it in their queued key or workflow input.
+Workers take the storage key version from the queued key, the workflow input or the backfill row. In a worker, the flag decides only new operations and the response-cache payload.
+
+Turn the flag on for a team only after every web and worker process in that region runs a build that reads both key versions and checks the executed key before it writes.
+Check the deployed builds in US and EU separately.
+The flag change itself needs no schedule pause or workflow drain: work queued before the change keeps its version 1 key, work queued after uses version 2, and both versions are readable.
+
+Expect these effects for a flagged team:
+
+- Response-cache misses for experiment queries, because the cache payload includes the version 2 key.
+- Same-window recalculations recompute instead of reusing version 1 results.
+- Results under version 1 show that their settings were not recorded. Ended experiments still show them without recalculating on page load.
+- Inline metric fingerprints are restamped on the next save. The activity log ignores that restamp.
+
+Monitor page-load runs by `heal_latest_run` (a gap in a real terminal run) and `cold_run` (404 or an incomplete timeseries fallback), together with the response-cache hit rate and experiment query latency.
+Ended experiments with compatible stored results should not start either page-load run.
+
+To roll back, turn the flag off.
+New operations then use version 1 again, and version 2 results stay readable.
+Do not rewrite stored fingerprints, flush the response cache or trigger a fleet-wide backfill as part of a rollback.

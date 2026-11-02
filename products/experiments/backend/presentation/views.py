@@ -140,6 +140,7 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentSessionEventDeltaResponseSerializer,
     ExperimentSetupContextInputSerializer,
     ExperimentSetupContextResponseSerializer,
+    ExperimentTimeseriesResultsSerializer,
     ExperimentWriteSerializer,
     RecalculateMetricsRequestSerializer,
     RunningTimeCalculationInputSerializer,
@@ -1577,6 +1578,7 @@ class EnterpriseExperimentsViewSet(
                 deprecated=True,
             ),
         ],
+        responses={200: ExperimentTimeseriesResultsSerializer},
     )
     @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
     def timeseries_results(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -1587,7 +1589,11 @@ class EnterpriseExperimentsViewSet(
             raise ValidationError("metric_uuid query parameter is required")
 
         service = ExperimentService(team=self.team, user=request.user)
-        return Response(service.get_timeseries_results(experiment, metric_uuid=metric_uuid))
+        return Response(
+            ExperimentTimeseriesResultsSerializer(
+                service.get_timeseries_results(experiment, metric_uuid=metric_uuid)
+            ).data
+        )
 
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def recalculate_timeseries(self, request: Request, *args: Any, **kwargs: Any) -> Response:

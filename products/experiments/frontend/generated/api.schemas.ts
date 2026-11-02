@@ -3933,6 +3933,20 @@ export interface ExperimentMetricsRecalculationJobApi {
 }
 
 /**
+ * * `current` - Current settings
+ * * `previous` - Earlier settings
+ * * `unknown` - Settings not recorded
+ */
+export type ExperimentResultConfigurationStatusEnumApi =
+    (typeof ExperimentResultConfigurationStatusEnumApi)[keyof typeof ExperimentResultConfigurationStatusEnumApi]
+
+export const ExperimentResultConfigurationStatusEnumApi = {
+    Current: 'current',
+    Previous: 'previous',
+    Unknown: 'unknown',
+} as const
+
+/**
  * * `pending` - pending
  * * `completed` - completed
  * * `failed` - failed
@@ -3950,6 +3964,12 @@ export const MetricRecalculationResultStatusEnumApi = {
  * One metric's recalculated result row, read back from ExperimentMetricResult.
  */
 export interface MetricRecalculationResultApi {
+    /** Whether this result uses current settings, earlier settings, or settings that were not recorded.
+     *
+     * * `current` - Current settings
+     * * `previous` - Earlier settings
+     * * `unknown` - Settings not recorded */
+    readonly configuration_status: ExperimentResultConfigurationStatusEnumApi
     /** UUID of the metric this result belongs to */
     readonly metric_uuid: string
     /** Status of this metric's calculation in the run
@@ -4439,6 +4459,85 @@ export interface ShipVariantApi {
     variant_key: string
     /** If true, prepend a release condition to the feature flag that rolls the variant out to 100% of users, overriding any existing release conditions on the flag. If false (default), only update the variant distribution — existing release conditions are preserved and the variant is served only to users who already match them. */
     release_to_everyone?: boolean
+}
+
+/**
+ * Result per day (YYYY-MM-DD, project timezone) in the ExperimentQueryResponse shape, from the start date to the end date or today. Null for a day without a completed result.
+ */
+export type ExperimentTimeseriesResultsApiTimeseries = { [key: string]: unknown }
+
+/**
+ * Configuration provenance for each stored day: current, previous, or unknown.
+ */
+export type ExperimentTimeseriesResultsApiConfigurationByDay = { [key: string]: 'current' | 'previous' | 'unknown' }
+
+/**
+ * Error message per day (YYYY-MM-DD) whose calculation failed, or null when none failed.
+ * @nullable
+ */
+export type ExperimentTimeseriesResultsApiErrors = { [key: string]: string } | null
+
+/**
+ * * `pending` - Pending
+ * * `completed` - Completed
+ * * `partial` - Partial
+ * * `failed` - Failed
+ */
+export type ExperimentTimeseriesResultsStatusEnumApi =
+    (typeof ExperimentTimeseriesResultsStatusEnumApi)[keyof typeof ExperimentTimeseriesResultsStatusEnumApi]
+
+export const ExperimentTimeseriesResultsStatusEnumApi = {
+    Pending: 'pending',
+    Completed: 'completed',
+    Partial: 'partial',
+    Failed: 'failed',
+} as const
+
+/**
+ * Day-by-day results of one metric under the experiment's current settings.
+ */
+export interface ExperimentTimeseriesResultsApi {
+    /** Experiment id. */
+    experiment_id: number
+    /** UUID of the metric the series belongs to. */
+    metric_uuid: string
+    /** 'completed' when every day has a result, 'partial' when some do, 'failed' when no day has a result and some failed, 'pending' when no day was calculated yet.
+     *
+     * * `pending` - Pending
+     * * `completed` - Completed
+     * * `partial` - Partial
+     * * `failed` - Failed */
+    status: ExperimentTimeseriesResultsStatusEnumApi
+    /** Result per day (YYYY-MM-DD, project timezone) in the ExperimentQueryResponse shape, from the start date to the end date or today. Null for a day without a completed result. */
+    timeseries: ExperimentTimeseriesResultsApiTimeseries
+    /** Configuration provenance for each stored day: current, previous, or unknown. */
+    configuration_by_day: ExperimentTimeseriesResultsApiConfigurationByDay
+    /**
+     * When the most recent day's result was computed, or null.
+     * @nullable
+     */
+    computed_at: string | null
+    /** When the oldest stored day was written. */
+    created_at: string
+    /** When the newest stored day was last written. */
+    updated_at: string
+    /**
+     * 'pending' or 'in_progress' while a backfill of this series runs, otherwise null.
+     * @nullable
+     */
+    recalculation_status: string | null
+    /**
+     * When the running backfill was requested, or null.
+     * @nullable
+     */
+    recalculation_created_at: string | null
+    /** The series as a compact text table, one row per day, for language model consumers. */
+    formatted_results: string
+    /**
+     * Error message per day (YYYY-MM-DD) whose calculation failed, or null when none failed.
+     * @nullable
+     */
+    errors: ExperimentTimeseriesResultsApiErrors
 }
 
 /**

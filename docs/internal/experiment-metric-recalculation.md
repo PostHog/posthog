@@ -32,3 +32,20 @@ See the [workflow architecture](../../products/experiments/backend/temporal/ARCH
 A request with the same metric and calculation key reuses the active backfill. A different key cancels the old request and starts a replacement. Each daily write locks the experiment and checks the request status in the same transaction, preventing a superseded worker from overwriting the replacement's days. Queries run outside the transaction.
 
 The request stores the metric's current definition and key, and ignores a definition or key in the request body. Until backfills consume a frozen calculation config, each day's runner must give the request's key, in the key version of that key, before executing. Settings drift cancels the request instead of storing a result under settings it did not use.
+
+## Settings changes and stored results
+
+The `experiment-calculation-key-v2` flag turns on calculation key version 2 for a team.
+Version 2 hashes every analytical setting, including statistics, CUPED, test account filters and the timezone, so calculation reuse requires results from the current settings.
+Version 1 omits those settings, so a result stored under it has unknown settings once the team uses version 2.
+
+An ended experiment keeps its compatible stored result when project settings change.
+Opening its results page does not request a replacement.
+The page marks results from earlier settings or unrecorded settings and offers an explicit recalculation.
+Such results stay visible and are never relabeled as current.
+
+The API reports this provenance as `configuration_status` on each recalculation result and as `configuration_by_day` on the timeseries results: `current`, `previous` or `unknown`.
+Under version 1, every result under the version 1 key reports `current`.
+
+Under version 2, the query runner adds the calculation key to its response-cache payload, so dashboard widgets miss the cache for the same settings changes as the experiment page.
+The first request for an affected cached response is therefore slower after a team turns on the flag.

@@ -73,7 +73,7 @@ Every metric in a single recalc shares one `query_to` timestamp, stamped by the 
 
 Every result row is keyed by a `recalc_fp = sha256(config_fp + "recalculation")` (`_recalc_fingerprint` in `metric_calculation/results.py`). The config part is the calculation key that the daily timeseries workflows use too: `MetricCalculationConfig.calculation_key()` in `metric_calculation/config.py`. The salt is a fixed string, so the recalc fingerprint is deterministic per config, not per run.
 
-Two key versions exist, and `calculation_key()` returns the one of `settings.key_version`. `resolve_calculation_key_version` decides the version when an operation starts; queued work carries it in its key, so a worker never re-decides it. Key version 1 (`legacy_key()`) hashes only the effective metric definition, the start date, the stats method, the stored exposure criteria, maturity and the excluded variants.
+Two key versions exist, and `calculation_key()` returns the one of `settings.key_version`. `resolve_calculation_key_version` decides the version when an operation starts, from the team's `experiment-calculation-key-v2` flag evaluated locally; queued work carries it in its key, so a worker never re-decides it. Key version 1 (`legacy_key()`) hashes only the effective metric definition, the start date, the stats method, the stored exposure criteria, maturity and the excluded variants.
 
 A metrics recalculation run carries its version in the `calculation_key_version` workflow input, and the workflow passes it to the calc activity only when it is not 1. Every worker in a region must run that code before any team uses version 2: an older activity worker rejects the extra argument with a `TypeError`, and an older workflow worker drops the field and runs the run as version 1.
 
@@ -83,7 +83,7 @@ Key version 2 reads the exposure criteria as stored, with the product defaults a
 
 Rows keep the key they were written with. Readers find a config's rows under both key versions. The newest compatible row wins, and rows under the current settings win only a tie, while `has_completed` requires the active key. A version 1 row's exact analytical settings are unknown, so no conversion may assign it a version 2 key without recomputing it.
 
-Writes can also store the version 1 key in `display_key`, salted for run rows. The chart, current outcome and significance baseline use it to preserve history across project setting changes. Ended experiments also use it for `for_run` and cold-start display, so a project edit does not create a gap that automatically overwrites their decided result. Running experiments still recompute.
+Writes can also store the version 1 key in `display_key`, salted for run rows. The chart, current outcome and significance baseline use it to preserve history across project setting changes. Ended experiments also use it for `for_run` and cold-start display, so a project edit does not create a gap that automatically overwrites their decided result. Running experiments still recompute. Results carry `configuration_status` (`current`, `previous`, or `unknown`) and charts carry the same information in `configuration_by_day`. The page offers an explicit recalculation for earlier or unrecorded settings.
 
 The display key omits confidence, baseline and CUPED settings as well as project settings, so it must never authorize calculation reuse. Metric definition, start date, stats method, stored exposure criteria, maturity and excluded-variant edits change the display key too and hide incompatible history.
 

@@ -1,8 +1,10 @@
+from contextlib import AbstractContextManager
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.db import connection
 from django.utils import timezone as django_timezone
@@ -15,6 +17,7 @@ from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.metric_calculation.config import (
+    CALCULATION_KEY_V2_FLAG,
     MetricCalculationConfig,
     get_metric_calculation_config,
 )
@@ -670,14 +673,25 @@ class TestMetricResultStore(BaseTest):
         )
 
 
-class TestCalculationKeyVersionDefault(BaseTest):
-    def test_the_default_version_keeps_the_keys_and_the_query_cache_payload(self) -> None:
-        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="default-version-flag")
-        experiment = Experiment.objects.create(
+def _patch_key_version_flag(state: bool | None | Exception) -> AbstractContextManager[Any]:
+    def feature_enabled(flag_key: str, *args: Any, **kwargs: Any) -> bool | None:
+        if flag_key != CALCULATION_KEY_V2_FLAG:
+            return False
+        if isinstance(state, Exception):
+            raise state
+        return state
+
+    return patch("posthoganalytics.feature_enabled", side_effect=feature_enabled)
+
+
+class TestCalculationKeyActivation(BaseTest):
+    def _experiment(self) -> Experiment:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="key-version-flag")
+        return Experiment.objects.create(
             team=self.team,
             created_by=self.user,
             feature_flag=flag,
-            name="default version",
+            name="key version",
             start_date=_START,
             metrics=[
                 {
@@ -688,10 +702,56 @@ class TestCalculationKeyVersionDefault(BaseTest):
                 }
             ],
         )
-        calculation_config = get_metric_calculation_config(experiment, "m1")
-        assert calculation_config is not None
-        assert calculation_config.calculation_key() == calculation_config.legacy_key()
+
+    def _runner(self, experiment: Experiment) -> ExperimentQueryRunner:
         assert experiment.metrics is not None
         query = ExperimentQuery(experiment_id=experiment.id, metric=build_metric(experiment.metrics[0]))
-        # A new payload field would miss every cached experiment response when this release deploys.
-        assert "calculation_key" not in ExperimentQueryRunner(query=query, team=self.team).get_cache_payload()
+        return ExperimentQueryRunner(query=query, team=self.team)
+
+    @parameterized.expand(
+        [
+            ("flag_off", False, 1),
+            ("inconclusive_local_evaluation", None, 1),
+            ("evaluation_error", RuntimeError("flag definitions unavailable"), 1),
+            ("flag_on", True, 2),
+        ]
+    )
+    def test_the_team_flag_decides_the_key_and_the_query_cache_payload(
+        self, _name: str, flag_state: bool | None | Exception, expected_version: int
+    ) -> None:
+        experiment = self._experiment()
+        with _patch_key_version_flag(flag_state):
+            calculation_config = get_metric_calculation_config(experiment, "m1")
+            payload = self._runner(experiment).get_cache_payload()
+        assert calculation_config is not None
+        assert calculation_config.calculation_key() == calculation_config.key_for_version(expected_version)
+        # A new payload field would miss every cached experiment response, so version 1 keeps the payload as it was.
+        assert payload.get("calculation_key") == (
+            calculation_config.calculation_key() if expected_version == 2 else None
+        )
+
+    @parameterized.expand(
+        [
+            ("confidence", {"bayesian": {"ci_level": 0.9}}),
+            ("cuped", {"cuped": {"enabled": True}}),
+            ("multiple_variants", {"multiple_variant_handling": "first_seen"}),
+            ("test_accounts", None),
+        ]
+    )
+    def test_query_cache_key_changes_with_analytical_settings_under_version_2(
+        self, _name: str, stats_config: dict | None
+    ) -> None:
+        experiment = self._experiment()
+        with _patch_key_version_flag(True):
+            before = self._runner(experiment).get_cache_key()
+            if stats_config is None:
+                self.team.test_account_filters = [{"key": "email", "type": "person", "value": "@example.com"}]
+                self.team.save()
+            elif _name == "multiple_variants":
+                experiment.exposure_criteria = stats_config
+                experiment.save()
+            else:
+                experiment.stats_config = stats_config
+                experiment.save()
+            after = self._runner(experiment).get_cache_key()
+        assert before != after
