@@ -1,3 +1,4 @@
+import { withFileLock } from '@/core/file-lock'
 import type { Runtime } from '@/core/runtime'
 
 import {
@@ -9,6 +10,10 @@ import {
     type StoredSecret,
 } from './credential-store'
 import { loginFor, readSettings, withLogin, writeSettings, type HogSettings, type LoginRecord } from './settings'
+
+// settings.json and the credentials file hold every host's login, so each write reads them, changes
+// one entry and writes them back. The lock keeps two hog processes from dropping each other's entry.
+const LOGINS_LOCK = 'logins.lock'
 
 // A login hog stored, and the store that holds its secrets.
 export interface StoredLogin {
@@ -66,17 +71,21 @@ export async function writeLogin(
     options: { lastLogin?: boolean } = {}
 ): Promise<void> {
     const [secret, record] = splitLogin(credential, store)
-    await store.write(credential.host, secret)
-    const settings = withLogin(await readSettings(runtime), credential.host, record)
-    await writeSettings(runtime, options.lastLogin ? { ...settings, host: credential.host } : settings)
+    await withFileLock(runtime, LOGINS_LOCK, async () => {
+        await store.write(credential.host, secret)
+        const settings = withLogin(await readSettings(runtime), credential.host, record)
+        await writeSettings(runtime, options.lastLogin ? { ...settings, host: credential.host } : settings)
+    })
 }
 
 // Removes the login's secrets and its record. Resolves to false when hog had no login for the host.
 export async function removeLogin(runtime: Runtime, login: StoredLogin): Promise<boolean> {
     const { host } = login.credential
-    const removed = await login.store.remove(host)
-    const settings = withLogin(await readSettings(runtime), host, undefined)
-    const lastLogin = settings.host !== undefined && hostKey(settings.host) === hostKey(host)
-    await writeSettings(runtime, lastLogin ? { logins: settings.logins } : settings)
-    return removed
+    return withFileLock(runtime, LOGINS_LOCK, async () => {
+        const removed = await login.store.remove(host)
+        const settings = withLogin(await readSettings(runtime), host, undefined)
+        const lastLogin = settings.host !== undefined && hostKey(settings.host) === hostKey(host)
+        await writeSettings(runtime, lastLogin ? { logins: settings.logins } : settings)
+        return removed
+    })
 }
