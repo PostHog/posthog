@@ -5,7 +5,7 @@ import { PersonReadRepository } from '~/common/persons/repositories/person-repos
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { UsageIngestionConfig, createUsageIngestionClient, usageReportTeamMatcher } from '~/common/usage-ingestion'
 import { PostgresRouter } from '~/common/utils/db/postgres'
-import { getRedisHost } from '~/common/utils/db/redis'
+import { RedisPoolConfig, getRedisHost } from '~/common/utils/db/redis'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
 import { TeamManager } from '~/common/utils/team-manager'
@@ -44,7 +44,7 @@ import { MessageAssetsService } from './services/messaging/message-assets.servic
 import { PushNotificationService } from './services/messaging/push-notification.service'
 import { RecipientPreferencesService } from './services/messaging/recipient-preferences.service'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
-import { SandboxEmailSender } from './services/messaging/sandbox-email-sender'
+import { MAX_OPEN_STORE_CALLS, SandboxEmailSender } from './services/messaging/sandbox-email-sender'
 import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
 import { HogInvocationResultsService } from './services/monitoring/hog-invocation-results.service'
 import { HogWatcherService } from './services/monitoring/hog-watcher.service'
@@ -390,16 +390,25 @@ export function createCdpCoreServices(
     deps: CdpCoreServicesDeps,
     redisName = 'cdp-redis'
 ): CdpCoreServices {
-    const redis = createRedisV2PoolFromConfig({
-        connection: config.CDP_REDIS_HOST
+    const cdpRedisConnection = (name: string): RedisPoolConfig['connection'] =>
+        config.CDP_REDIS_HOST
             ? {
                   url: config.CDP_REDIS_HOST,
                   options: { port: config.CDP_REDIS_PORT, password: config.CDP_REDIS_PASSWORD },
-                  name: redisName,
+                  name,
               }
-            : { url: config.REDIS_URL, name: `${redisName}-fallback` },
+            : { url: config.REDIS_URL, name: `${name}-fallback` }
+    const redis = createRedisV2PoolFromConfig({
+        connection: cdpRedisConnection(redisName),
         poolMinSize: config.REDIS_POOL_MIN_SIZE,
         poolMaxSize: config.REDIS_POOL_MAX_SIZE,
+    })
+    // A stalled blocked-event call keeps its connection until Redis answers, so these calls get their own
+    // connections: on the shared pool they took the ones hog watcher and the duplicate observer wait for.
+    const sandboxBlockedEventRedis = createRedisV2PoolFromConfig({
+        connection: cdpRedisConnection(`${redisName}-sandbox-blocked-event`),
+        poolMinSize: 0,
+        poolMaxSize: MAX_OPEN_STORE_CALLS,
     })
 
     const redisReader = createCdpReaderRedisPool(config, redis, redisName)
@@ -497,7 +506,7 @@ export function createCdpCoreServices(
                 fromAddress: config.SES_SANDBOX_FROM_ADDRESS,
             },
             deps.teamManager,
-            redis
+            sandboxBlockedEventRedis
         ),
         new OrganizationMembersService(deps.postgres)
     )
