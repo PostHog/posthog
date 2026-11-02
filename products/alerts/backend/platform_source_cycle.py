@@ -19,7 +19,7 @@ same set of checks.
 import json
 import time
 import asyncio
-from collections.abc import Collection, Iterator, Sequence
+from collections.abc import Callable, Collection, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -28,6 +28,7 @@ from typing import Any, Final
 from django.conf import settings
 
 import structlog
+from temporalio import activity
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
@@ -356,6 +357,59 @@ class _ClickHouseSlot:
                     logger.exception("Could not release a ClickHouse slot", holder=self.holder)
 
 
+def _with_capacity_retries[T](run: Callable[[], T], alert: AlertConfiguration, query_slot: _ClickHouseSlot) -> T:
+    """Runs a check's query, and runs it again after a ClickHouse refusal for load, on the retry
+    policy production evaluates the alert's cadence with.
+
+    Production raises the refusal and Temporal retries its activity. A parallel-run check has one
+    attempt, so it retries inside that attempt instead, and keeps its evaluation slot between tries.
+    The wait between tries counts as slot wait, so the recorded query duration leaves it out.
+    """
+    policy = alert_timeouts(alert.calculation_interval).evaluate_retry_policy
+    delay = policy.initial_interval.total_seconds()
+    # Temporal caps an unset maximum interval at 100 times the initial one.
+    longest = (policy.maximum_interval or 100 * policy.initial_interval).total_seconds()
+    tries = policy.maximum_attempts
+    for tried in range(1, tries + 1):
+        try:
+            return run()
+        except Exception as error:
+            if (
+                tried == tries
+                or classify_query_error(error) != QueryErrorCategory.RATE_LIMITED
+                or not _attempt_outlasts(delay)
+            ):
+                raise
+            time.sleep(delay)
+            query_slot.waited_ms += int(delay * 1000)
+            if not _attempt_outlasts(0):
+                raise
+        delay = min(delay * policy.backoff_coefficient, longest)
+    raise AssertionError("The retry loop returns or raises on its last try")
+
+
+def _attempt_outlasts(seconds: float) -> bool:
+    """Whether the Temporal attempt running this check is live and has `seconds` of its budget left.
+
+    An attempt that timed out or was cancelled keeps its thread, and the failed-check cleanup has
+    already stopped its queries, so a query it started after that would hold a ClickHouse slot that
+    nothing frees. Outside an activity there is no budget to outlast.
+    """
+    if not activity.in_activity():
+        return True
+    if activity.is_cancelled():
+        return False
+    info = activity.info()
+    # The attempt starts after it is scheduled, so its scheduled time gives a deadline no later than
+    # the real one. Schedule-to-close counts from the first attempt, so it can end a retry sooner.
+    deadlines = []
+    if info.start_to_close_timeout is not None:
+        deadlines.append(info.current_attempt_scheduled_time + info.start_to_close_timeout)
+    if info.schedule_to_close_timeout is not None:
+        deadlines.append(info.scheduled_time + info.schedule_to_close_timeout)
+    return not deadlines or datetime.now(UTC) + timedelta(seconds=seconds) < min(deadlines)
+
+
 def _stop_query(team_id: int, configuration_id: str, query_id: str) -> None:
     # Imported here: at module level it changes how many queries the access-control tests count.
     from posthog.clickhouse.cancel import cancel_query_on_cluster  # noqa: PLC0415
@@ -641,7 +695,11 @@ def _decide(
         return _decide_grouped(check, snapshot, alert, now=now, query_slot=query_slot)
     started_at = time.monotonic()
     try:
-        result = check_alert_for_insight(alert, evaluation_id=evaluation_id, query_slot=query_slot)
+        result = _with_capacity_retries(
+            lambda: check_alert_for_insight(alert, evaluation_id=evaluation_id, query_slot=query_slot),
+            alert,
+            query_slot,
+        )
     except ClickHouseBudgetFull:
         return None
     except LLMDetectorUnavailableError:
@@ -809,7 +867,9 @@ def _decide_grouped(
         )
     started_at = time.monotonic()
     try:
-        evaluated = check_alert_per_series(alert, query_slot=query_slot)
+        evaluated = _with_capacity_retries(
+            lambda: check_alert_per_series(alert, query_slot=query_slot), alert, query_slot
+        )
     except ClickHouseBudgetFull:
         return None
     except AlertExtractionError as error:
