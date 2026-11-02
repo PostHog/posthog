@@ -17,12 +17,12 @@ Recipes are in [reading-the-export.md](./reading-the-export.md).
 
 **Causes and fixes:**
 
-| Cause                                             | Fix                                                                                                                                                         |
-| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Canvas capture is off. It is off by default.      | Turn on canvas capture in the project's replay settings. Optionally set `session_recording.captureCanvas` (`canvasFps`, `canvasQuality`) in `posthog.init`. |
-| The canvas uses WebGPU.                           | Not supported. No workaround except a WebGL fallback in the app.                                                                                            |
-| WebGL context without a preserved drawing buffer. | Frames can capture blank. Create the context with `preserveDrawingBuffer: true` if the app allows it.                                                       |
-| Frames exist but at low rate or quality.          | Capture samples about 4 frames a second at most, through `toDataURL`. Raise `canvasFps` and `canvasQuality`, and expect some lag.                           |
+| Cause                                             | Fix                                                                                                                                                              |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Canvas capture is off. It is off by default.      | Turn on canvas capture in the project's replay settings. Optionally set `session_recording.captureCanvas` (`canvasFps`, `canvasQuality`) in `posthog.init`.      |
+| The canvas uses WebGPU.                           | Not supported. No workaround except a WebGL fallback in the app.                                                                                                 |
+| WebGL context without a preserved drawing buffer. | Frames can capture blank. Create the context with `preserveDrawingBuffer: true` if the app allows it.                                                            |
+| Frames exist but at low rate or quality.          | The project setting captures 3 frames a second, and the SDK default is 4. Set `canvasFps` (up to 12) and `canvasQuality` in `posthog.init`, and expect some lag. |
 
 Canvas content cannot be masked by DOM selectors.
 Recordings made while capture was off stay blank.

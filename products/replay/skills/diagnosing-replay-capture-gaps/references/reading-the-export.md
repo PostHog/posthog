@@ -37,20 +37,21 @@ The recorder also writes warnings into the console stream with the prefix `[Sess
 
 ### Config fields in `$remote_config_received`
 
-| Field                                        | Meaning                                                                             |
-| -------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `enabled`                                    | Replay is on for the project.                                                       |
-| `version`                                    | `2` when the project uses trigger groups, `1` for legacy conditions only.           |
-| `triggerGroups`                              | Trigger groups. Each has its own conditions and sample rate.                        |
-| `sampleRate`                                 | Share of sessions recorded, as a string such as `"0.10"`. `null` means no sampling. |
-| `urlTriggers`, `eventTriggers`, `linkedFlag` | Recording waits until one matches.                                                  |
-| `triggerMatchType`                           | `any` or `all`: how the triggers combine.                                           |
-| `minimumDurationMilliseconds`                | Sessions shorter than this are not kept.                                            |
-| `urlBlocklist`                               | URLs where recording pauses.                                                        |
+| Field                                        | Meaning                                                                                                                                                              |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`                                    | Replay is on for the project.                                                                                                                                        |
+| `version`                                    | `2` when the project uses trigger groups, `1` for legacy conditions only.                                                                                            |
+| `triggerGroups`                              | Trigger groups. Each has its own conditions and sample rate.                                                                                                         |
+| `sampleRate`                                 | Share of sessions recorded. `null` means no sampling. This is the rate the SDK used: `session_recording.sampleRate` in `posthog.init` overrides the project setting. |
+| `urlTriggers`, `eventTriggers`, `linkedFlag` | Recording waits until one matches.                                                                                                                                   |
+| `triggerMatchType`                           | `any` or `all`: how the triggers combine.                                                                                                                            |
+| `minimumDurationMilliseconds`                | Sessions shorter than this are not kept.                                                                                                                             |
+| `urlBlocklist`                               | URLs where recording pauses.                                                                                                                                         |
 
 `sampleRate`, `urlTriggers`, `eventTriggers`, `linkedFlag` and `triggerMatchType` are the legacy conditions.
 With `version: 2` and a non-empty `triggerGroups`, a current SDK uses the groups, and the legacy conditions are only a fallback for SDKs too old for trigger groups.
 `triggerGroupSamplingDecisionMade` events, or `$sdk_debug_replay_remote_trigger_matching_config = 'v2_trigger_groups'` on events, confirm the SDK used the groups.
+Before you point the user to project settings for the sample rate, check `session_recording.sampleRate` in `$posthog_config`. If it is set, it is the rate in effect.
 
 ## Recipes
 
@@ -72,8 +73,9 @@ jq -r '(.data.snapshots | map(.timestamp) | min) as $s
 
 ### Windows
 
-For each window: when it started, when its first full snapshot arrived, how many it has, when it ended, and its pages.
-`first_full_s` well after `first_s` means the start of that window cannot play.
+For each window: when it started, its first non-Custom event, when its first full snapshot arrived, how many it has, when it ended, and its pages.
+`first_full_s` well after `first_data_s` means the start of that window was lost.
+`first_full_s` after `first_s` but not after `first_data_s` means only Custom events (usually a backdated `sessionIdle`) came first. Nothing was lost.
 `first_full_s: null` means the window never plays.
 
 ```sh
@@ -81,6 +83,7 @@ jq -c '(.data.snapshots | map(.timestamp) | min) as $s
   | .data.snapshots | group_by(.windowId) | map({
       window: .[0].windowId,
       first_s: (((map(.timestamp) | min) - $s) / 1000 | floor),
+      first_data_s: ([.[] | select(.type != 5) | .timestamp] | if length > 0 then ((min - $s) / 1000 | floor) else null end),
       first_full_s: ([.[] | select(.type == 2) | .timestamp] | if length > 0 then ((min - $s) / 1000 | floor) else null end),
       full_snapshots: ([.[] | select(.type == 2)] | length),
       last_s: (((map(.timestamp) | max) - $s) / 1000 | floor),

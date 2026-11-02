@@ -34,18 +34,18 @@ That is the most useful sentence in your answer.
 
 ## Inputs
 
-| Input                                         | What it holds                                                                                 |
-| --------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| Attached file ending in `-ph-recording.json`  | The full export: every rrweb snapshot, including the DOM. Can be many MB. Query it with `jq`. |
-| `session_recording_data` context item         | A compact timeline (pages, console, network, custom events). It has no DOM.                   |
-| The user's prompt                             | Usually names the player time, for example "I am 01:23 into the recording". Start there.      |
-| `posthog:session-recording-get`               | Metadata, including `snapshot_source` (`web` or `mobile`) and duration.                       |
-| `posthog:execute-sql`                         | Events for the session: `$lib`, `$lib_version`, `$browser`, `$os`, `$current_url`.            |
-| `posthog:session-recording-console-logs-list` | Console logs, if the export is not attached.                                                  |
+| Input                                         | What it holds                                                                                   |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Attached file ending in `-ph-recording.json`  | The full export: every rrweb snapshot, including the DOM. Can be many MB. Query it with `jq`.   |
+| `session_recording_data` context item         | A compact timeline (pages, console, network, custom events). It has no DOM.                     |
+| The user's prompt                             | Usually names the player time, for example "I am 01:23 into the recording". Start there.        |
+| `posthog:session-recording-get`               | Metadata, including `snapshot_source` (`web` or `mobile`) and duration.                         |
+| `posthog:execute-sql`                         | Events for the session: `$lib`, `$lib_version`, `$browser`, `$os`, `$current_url`.              |
+| `posthog:session-recording-console-logs-list` | Console logs, if the export is not attached. Not every client has this tool. Skip it if absent. |
 
 Never print the export whole.
 If no export file is attached (it is over 30 MB, or the chat cannot take files), say that DOM-level checks are not possible.
-Then work from the timeline, the console logs and SQL.
+Then work from the timeline and SQL, and the console logs tool if you have it.
 
 ## Workflow
 

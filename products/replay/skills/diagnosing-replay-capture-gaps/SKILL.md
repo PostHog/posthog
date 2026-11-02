@@ -1,17 +1,15 @@
 ---
 name: diagnosing-replay-capture-gaps
 description: >
-  Explains why part of a session recording was not captured, and what the
-  recording's own config says about why other sessions are not recorded, by
-  reading the exported rrweb JSON (`*-ph-recording.json`).
+  Explains why part of one session recording was not captured, by reading the
+  exported rrweb JSON (`*-ph-recording.json`) and the SDK lifecycle and config
+  events inside it.
   Use when a user debugs one replay and asks why it starts late, stops early,
   only shows the first or landing page, stops after cookie consent or a page
   navigation, has blank stretches or gaps, is shorter than the real visit, is
-  split across sessions, or shows "the first N minutes can't be played". Also
-  use when the user asks why recordings stopped or why only some users or pages
-  get recorded, and has one recording to start from. Reads sampling, triggers,
-  minimum duration, URL blocklist, and init config from the recording.
-  For a session with no recording at all, use diagnosing-missing-recordings.
+  split across sessions, or shows "the first N minutes can't be played".
+  Not for sessions with no recording, or recordings that stopped across the
+  project: use diagnosing-missing-recordings for those.
 ---
 
 # Diagnosing gaps in what a replay captured
@@ -59,7 +57,8 @@ Read the custom events around each gap. The [lifecycle tags table](./references/
 - `recording paused` with `reason: url blocker`: the page matched the URL blocklist. Expected.
 - `browser offline`: data was buffered offline and may be lost if the tab closed.
 - `$session_id_change` or `$session_ending`: the rest is in another recording. `nextSessionId` names it.
-- A window whose first full snapshot is much later than its first event: the start was lost. That is the "first N can't be played" banner.
+- A window whose first full snapshot is much later than its first non-Custom event: the start was lost. That is the "first N can't be played" banner.
+  Custom events alone before the full snapshot do not count. A backdated `sessionIdle` opens the window over an idle span, and the SDK records nothing while idle.
 - A window that ends at the last interaction before a navigation, with no later Meta and no `$pageview` or `$url_changed` event: the next page was not captured.
 
 ### Step 3: Compare with what the user actually did
@@ -97,12 +96,12 @@ LIMIT 300
 Use [causes.md](./references/causes.md).
 Each cause lists the evidence that proves it.
 Accept a cause only when its evidence is in this recording or in the events.
-If the evidence points outside what you can see (billing limit, proxy config, an ad blocker on the user's device), say so and say how the user can check.
+If the evidence points outside what you can see (proxy config, an ad blocker on the user's device), say so and say how the user can check.
 
-### Step 5: Generalize to sessions that were not recorded
+### Step 5: Say what the config means for other sessions
 
 The config in this recording applies to every session on the same site and SDK version.
-Use it to answer "why only some sessions":
+If the user also asks why other sessions are missing, give these facts, then hand off:
 
 - First find which conditions the SDK used. With `version: 2` and a non-empty `triggerGroups`, a current SDK uses the trigger groups, and `triggerGroupSamplingDecisionMade` events appear. The top-level `sampleRate` and triggers are then only a fallback for SDKs too old for trigger groups.
 - The active sample rate below 1: most sessions are left out on purpose.
@@ -110,7 +109,7 @@ Use it to answer "why only some sessions":
 - `minimumDurationMilliseconds`: shorter sessions are dropped.
 - `urlBlocklist`: those pages never record.
 
-For a specific session with no recording, hand off to the `diagnosing-missing-recordings` skill.
+For a specific session with no recording, or recordings that stopped across the project, hand off to the `diagnosing-missing-recordings` skill.
 
 ### Step 6: Answer
 

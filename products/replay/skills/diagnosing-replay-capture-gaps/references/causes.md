@@ -13,7 +13,7 @@ Recipes are in [reading-the-export.md](./reading-the-export.md).
 **Evidence:**
 
 - `$remote_config_received`: `version`, `triggerGroups`, and the legacy `sampleRate`, `urlTriggers`, `eventTriggers`, `linkedFlag`, `triggerMatchType`. Read the config notes in [reading-the-export.md](./reading-the-export.md#config-fields-in-remote_config_received) to tell which of these the SDK used.
-- `$recording_started.reason` tells which condition started this recording. `sampled` with triggers configured means the trigger never fired and this session only got in through sampling.
+- `$recording_started.reason` tells which condition started this recording. With legacy conditions, `sampled` only records the sampling decision. The SDK writes it before it checks triggers, so look for a later `url_trigger_matched`, `event_trigger_matched`, or `linked_flag_matched`, and read `triggerMatchType`, before you conclude a trigger never fired.
 - `triggerGroupSamplingDecisionMade` shows each group's sample rate and decision.
 - Events: `$sdk_debug_replay_url_trigger_status`, `$sdk_debug_replay_event_trigger_status`, `$sdk_debug_replay_linked_flag_trigger_status` stay `trigger_pending` on sessions that do not record.
 
@@ -24,7 +24,7 @@ Recipes are in [reading-the-export.md](./reading-the-export.md).
 - A sample rate left in the collapsed **legacy recording conditions** section of replay settings. It is a fallback: it applies when the project has no readable trigger groups, or when the SDK is too old for trigger groups (no `triggerGroupSamplingDecisionMade` events, and an old `$lib_version`). A current SDK with trigger groups ignores it. When it does apply, which pages are missing looks meaningful but is random per session.
 - The customer's own rollout flag or sampling stacked on top of PostHog sampling.
 - Mobile SDK upgrades: older Android SDKs ignored remote sampling and triggers and recorded everything. After an upgrade, the same project settings record fewer sessions.
-- A local `sessionReplayConfig.sampleRate` in a mobile SDK overrides the project rate.
+- A local `session_recording.sampleRate` in `posthog.init`, or `sessionReplayConfig.sampleRate` in a mobile SDK, overrides the project rate. The `sampleRate` in `$remote_config_received` is already the local rate when one is set.
 
 **Fix:** settings path: Settings > Session replay > Recording conditions. Explain the trade-off between triggers and sampling.
 On web, the SDK buffers about a minute before a trigger fires, so the recording starts shortly before the trigger. Mobile SDKs have no pre-trigger buffer: recording starts at the trigger.
@@ -68,7 +68,8 @@ Docs: https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-
 
 **Symptom:** the banner "The first Xm Xs of this recording can't be played. The first screen snapshot arrived late."
 
-**Evidence:** in the windows recipe, `first_full_s` is well after `first_s` for a window. Events and network data exist for that stretch, but no full snapshot, so the player cannot draw it.
+**Evidence:** in the windows recipe, `first_full_s` is well after `first_data_s` for a window. Snapshots and network data exist for that stretch, but no full snapshot, so the player cannot draw it.
+If only Custom events come before the full snapshot, the window opened idle. That is expected, not lost data.
 
 **Causes:**
 
@@ -98,10 +99,10 @@ Docs: https://posthog.com/docs/advanced/proxy
 
 **Symptom:** "no recordings for two weeks", with normal event volume.
 
-**Evidence:** not visible in the recording. Check, in this order:
+**Evidence:** recordings made before the date look normal, so check the events after it:
 
-1. The session replay **billing limit**. When it is reached, new recordings are dropped until the period resets. The capture endpoint still returns 200, so the browser shows no error.
-2. Replay turned off in project settings. `disable_session_recording: false` in code does not turn replay on; it only stops the client from blocking it.
+1. The session replay **billing limit**. When it is reached, remote config returns `quotaLimited: ["recordings"]` with `sessionRecording: false`, and the SDK stops recording. Client events after the date carry `$recording_status = 'disabled'`. Older SDKs write the whole remote config into `$remote_config_received`, so `quotaLimited` can show in the config recipe.
+2. Replay turned off in project settings. This also gives `$recording_status = 'disabled'`, but without `quotaLimited`. `disable_session_recording: false` in code does not turn replay on; it only stops the client from blocking it.
 3. The settings were changed recently. Changes take a few minutes to reach ingestion.
 
 **Fix:** raise the limit in Organization settings > Billing above what the period already used. It clears in about 15 minutes. Dropped recordings cannot be recovered.
