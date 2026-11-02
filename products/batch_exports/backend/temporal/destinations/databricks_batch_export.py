@@ -984,6 +984,9 @@ def databricks_default_fields() -> list[BatchExportField]:
     return batch_export_fields
 
 
+DATABRICKS_MAX_DECIMAL_PRECISION = 38
+
+
 def _get_databricks_field_type(pa_type: pa.DataType, is_variant: bool) -> str | None:
     """Get the Databricks type for a PyArrow field."""
     if pa.types.is_string(pa_type) or isinstance(pa_type, JsonType):
@@ -1013,9 +1016,17 @@ def _get_databricks_field_type(pa_type: pa.DataType, is_variant: bool) -> str | 
     elif pa.types.is_timestamp(pa_type):
         return "TIMESTAMP"
 
+    elif pa.types.is_date(pa_type):
+        return "DATE"
+
+    elif pa.types.is_decimal(pa_type) and pa_type.precision <= DATABRICKS_MAX_DECIMAL_PRECISION:
+        return f"DECIMAL({pa_type.precision}, {pa_type.scale})"
+
     elif pa.types.is_list(pa_type):
         assert isinstance(pa_type, pa.ListType)
         list_type = _get_databricks_field_type(pa_type.value_type, False)
+        if list_type is None:
+            return None
         return f"ARRAY<{list_type}>"
 
     return None
