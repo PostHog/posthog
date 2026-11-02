@@ -16,7 +16,6 @@ import { mockScoutSuggestionSet, mockScoutConfigs } from '../../__mocks__/scoutC
 import { InboxActivateScene } from '../../InboxActivateScene'
 import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
 import { InboxActivationPanel } from './InboxActivationPanel'
-import { InboxAgentSetupComplete } from './InboxAgentSetupComplete'
 import { InboxOnboardingBanner } from './InboxOnboardingBanner'
 import { InboxOnboardingEntry } from './InboxOnboardingEntry'
 import { InboxSetupFlow } from './InboxSetupFlow'
@@ -163,26 +162,6 @@ export const AgentConnectionFailed: Story = {
     ],
     play: async ({ canvas }) => {
         await expect(await canvas.findByText("Couldn't load setup. Try again.")).toBeVisible()
-    },
-}
-
-export const AgentSetupComplete: Story = {
-    render: () => <InboxAgentSetupComplete />,
-    parameters: {
-        pageUrl: '/inbox?agent_setup=complete',
-        testOptions: { snapshotBrowsers: [] },
-    },
-    decorators: [
-        mswDecorator({
-            get: {
-                '/api/projects/:id/signals/onboarding/': { draft: null, completed_at: '2026-10-14T00:00:00Z' },
-            },
-        }),
-    ],
-    play: async ({ canvas }) => {
-        await expect(
-            await canvas.findByText('Self-driving is set up. You can now continue in your agent.')
-        ).toBeVisible()
     },
 }
 
@@ -578,4 +557,15 @@ export const QuickActivated: Story = {
             },
         }),
     ],
+}
+
+export const AgentQuickActivated: Story = {
+    ...QuickActivated,
+    parameters: {
+        pageUrl: '/inbox?agent_setup=complete',
+        testOptions: { snapshotBrowsers: [] },
+    },
+    play: async ({ canvas }) => {
+        await expect(await canvas.findByText('Setup complete. Continue in your agent.')).toBeVisible()
+    },
 }

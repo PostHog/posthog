@@ -18,7 +18,6 @@ import { ScoutsRoster } from './components/config/scouts/ScoutsRoster'
 import { ScoutsRosterActions } from './components/config/scouts/ScoutsRosterActions'
 import { ReportDetail, ReportDetailSkeleton } from './components/detail/ReportDetail'
 import { FindingsPanel } from './components/findings/FindingsPanel'
-import { InboxAgentSetupComplete } from './components/onboarding/InboxAgentSetupComplete'
 import { InboxOnboardingBanner } from './components/onboarding/InboxOnboardingBanner'
 import { InboxOnboardingEntry } from './components/onboarding/InboxOnboardingEntry'
 import { ScratchpadPanel } from './components/scratchpad/ScratchpadPanel'
@@ -256,7 +255,6 @@ export function InboxScene(): JSX.Element {
 
     return (
         <SceneContent className="gap-y-0 border-b-0 flex-1 min-h-0">
-            <InboxAgentSetupComplete />
             <div className={showDetail ? 'hidden' : 'flex flex-col gap-y-4 flex-1 min-h-0'}>
                 <SceneTitleSection
                     name="Self-driving inbox"
