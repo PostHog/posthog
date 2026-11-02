@@ -833,7 +833,6 @@ function EmailContentPreview({ buttonsAt }: { buttonsAt: 'bottom' | 'center' }):
         <LemonField name="html" className="flex relative flex-col flex-1 group/email-preview">
             {({ value }: ChildFunctionProps) => (
                 <>
-                    {/* Mouse input passes through to the preview so its text stays selectable; only the buttons take it */}
                     <div
                         className={clsx(
                             'EmailTemplater__preview-overlay flex absolute inset-0 justify-center p-2 transition-opacity pointer-events-none',

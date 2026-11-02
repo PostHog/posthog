@@ -266,14 +266,11 @@ function PanelStory({ mode, selectedNodeId, layout = 'floating', viewOnly = fals
 
 const Template: StoryFn<PanelStoryProps> = (args) => <PanelStory {...args} />
 
-// jsdom computes no hit testing, so these plays check in a real browser which element takes the mouse.
-// The preview must stay inside the viewport without scrolling, because a scroll changes the snapshot.
 function elementAtCenterOf(element: Element): Element | null {
     const { left, top, width, height } = element.getBoundingClientRect()
     return document.elementFromPoint(left + width / 2, top + height / 2)
 }
 
-// The overlay buttons sit at the center of the preview, so this samples a point above them
 function elementOverPreviewText(preview: Element): Element | null {
     const { left, top, width, height } = preview.getBoundingClientRect()
     return document.elementFromPoint(left + width / 2, top + height / 4)
@@ -299,7 +296,6 @@ EmailInSidePanel.args = { mode: 'build', selectedNodeId: 'email', layout: 'panel
 
 export const EmailOpensContentEditor: StoryFn<PanelStoryProps> = Template.bind({})
 EmailOpensContentEditor.args = { mode: 'build', selectedNodeId: 'email' }
-// The play opens the editor modal, which has no baseline of its own
 EmailOpensContentEditor.parameters = { testOptions: { snapshotBrowsers: [] } }
 EmailOpensContentEditor.play = async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
     const preview = await within(canvasElement).findByTitle('Email template preview')
@@ -308,7 +304,6 @@ EmailOpensContentEditor.play = async ({ canvasElement }: { canvasElement: HTMLEl
     const editButton = within(canvasElement).getByText('Click to modify content')
     await expect(editButton.contains(elementAtCenterOf(editButton))).toBe(true)
     await userEvent.click(editButton)
-    // The modal fades in from opacity 0, so the heading exists before it is visible
     const heading = await within(document.body).findByText('Editing email template')
     await waitFor(() => expect(heading).toBeVisible())
 }

@@ -5,7 +5,8 @@ import { useEffect, useRef } from 'react'
 
 import { workflowLogic } from '../../workflowLogic'
 
-const READING_CONTROLS = '.LemonCollapsePanel__header, a[href], [data-attr="copy-code-button"]'
+const READING_CONTROLS =
+    '.LemonCollapsePanel__header, .ViewOnlyArea__reading-control, a[href], [data-attr="copy-code-button"]'
 const FOCUS_KEYS = new Set(['Tab', 'Escape'])
 const TEXT_CURSOR_KEYS = new Set([
     'ArrowUp',
@@ -36,11 +37,15 @@ function isInTextField(event: React.SyntheticEvent): boolean {
     return event.target instanceof Element && event.target.closest(TEXT_FIELDS) !== null
 }
 
+function isCursorMove(event: React.KeyboardEvent): boolean {
+    return TEXT_CURSOR_KEYS.has(event.key) && !event.altKey && isInTextField(event)
+}
+
 function isReadingKey(event: React.KeyboardEvent): boolean {
     const isShortcut = event.metaKey || event.ctrlKey
     return (
         FOCUS_KEYS.has(event.key) ||
-        (TEXT_CURSOR_KEYS.has(event.key) && isInTextField(event)) ||
+        isCursorMove(event) ||
         (isShortcut && READING_SHORTCUTS.has(event.key.toLowerCase()))
     )
 }
@@ -51,25 +56,21 @@ function blockEditingKeys(event: React.KeyboardEvent): void {
     }
 }
 
-function blockNativeInput(event: Event): void {
+function blockNativeBeforeInput(event: Event): void {
     event.preventDefault()
 }
 
-// A disabled <fieldset> would also disable collapse headers, and viewers need those to read nested settings.
-// Some step controls call APIs directly, so events are blocked here and not only in workflowLogic.
-// Text fields keep pointer events for text selection, so mouse-driven edits (cut, context menu) are blocked too.
 export function ViewOnlyArea({ children }: { children: React.ReactNode }): JSX.Element {
     const { isViewOnly } = useValues(workflowLogic)
     const areaRef = useRef<HTMLDivElement>(null)
 
-    // React's onBeforeInput is a polyfill that misses deletions and undo, so the native event is used.
     useEffect(() => {
         const area = areaRef.current
         if (!isViewOnly || !area) {
             return
         }
-        area.addEventListener('beforeinput', blockNativeInput, true)
-        return () => area.removeEventListener('beforeinput', blockNativeInput, true)
+        area.addEventListener('beforeinput', blockNativeBeforeInput, true)
+        return () => area.removeEventListener('beforeinput', blockNativeBeforeInput, true)
     }, [isViewOnly])
 
     return (

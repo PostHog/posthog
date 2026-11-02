@@ -121,6 +121,23 @@ describe('view-only workflow', () => {
         expect(screen.getByLabelText('Sound')).toBeInTheDocument()
     })
 
+    it("lets a viewer go from a step's output variables to all workflow variables", () => {
+        const editorLogic = hogFlowEditorLogic({ id: WORKFLOW_ID })
+        editorLogic.mount()
+        editorLogic.actions.setSelectedNodeId('push_node')
+
+        renderForViewer(
+            <BindLogic logic={hogFlowEditorLogic} props={{ id: WORKFLOW_ID }}>
+                <HogFlowEditorPanelBuildDetail />
+            </BindLogic>
+        )
+        fireEvent.click(screen.getByText('Output variables'))
+        fireEvent.click(screen.getByText('View all workflow variables'))
+
+        expect(editorLogic.values.mode).toBe('variables')
+        editorLogic.unmount()
+    })
+
     it.each([
         ['clicks a button', 'Save as team default', (el: HTMLElement): boolean => fireEvent.click(el)],
         [
@@ -146,6 +163,16 @@ describe('view-only workflow', () => {
                 ),
         ],
         ['steps a number field', 'Maximum emails', (el: HTMLElement) => fireEvent.keyDown(el, { key: 'ArrowUp' })],
+        [
+            'moves a code line up',
+            'Code',
+            (el: HTMLElement): boolean => fireEvent.keyDown(el, { key: 'ArrowUp', altKey: true }),
+        ],
+        [
+            'copies a code line down',
+            'Code',
+            (el: HTMLElement): boolean => fireEvent.keyDown(el, { key: 'ArrowDown', altKey: true, shiftKey: true }),
+        ],
     ])('stops a viewer who %s inside a step', (_, label, interact) => {
         const onEdit = jest.fn()
         renderForViewer(
@@ -153,6 +180,9 @@ describe('view-only workflow', () => {
                 <button aria-label="Save as team default" onClick={onEdit} onKeyDown={onEdit} />
                 <input aria-label="Subject" onKeyDown={onEdit} onPaste={onEdit} onCut={onEdit} />
                 <input aria-label="Maximum emails" type="number" onKeyDown={onEdit} />
+                <div className="monaco-editor">
+                    <textarea aria-label="Code" onKeyDown={onEdit} />
+                </div>
             </ViewOnlyArea>
         )
 
