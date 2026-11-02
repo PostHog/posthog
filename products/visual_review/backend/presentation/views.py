@@ -316,7 +316,8 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         run_type = request.query_params.get("run_type")
         return facade_page_response(
             self,
-            lambda page: api.list_quarantined(pk, team_id=self.team_id, identifier=identifier, run_type=run_type, page=page
+            lambda page: api.list_quarantined(
+                pk, team_id=self.team_id, identifier=identifier, run_type=run_type, page=page
             ),
             serializer_class=QuarantinedIdentifierEntrySerializer,
         )
