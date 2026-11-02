@@ -138,6 +138,12 @@ class TestCursorPagination(BaseTest):
                 "value_the_field_cannot_hold",
                 b64encode(urlencode({"v": '["not-a-date","1"]'}).encode("ascii")).decode("ascii"),
             ),
+            (
+                "id_the_field_cannot_hold",
+                b64encode(urlencode({"v": '["2024-01-01 00:00:00+00:00","not-an-integer"]'}).encode("ascii")).decode(
+                    "ascii"
+                ),
+            ),
         ]
     )
     def test_rejects_a_malformed_cursor(self, _name: str, cursor: str) -> None:

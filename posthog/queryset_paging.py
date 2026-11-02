@@ -45,19 +45,37 @@ def select_page[M: Model](queryset: QuerySet[M], page: PageRequest) -> Page[M]:
     return Page(results=list(rows), count=count)
 
 
-def _is_nullable(model: type[Model], field: str) -> bool:
+def _model_field(model: type[Model], field: str) -> Field | None:
+    """Return the column field that `field` names, or None for an annotation or a relation without a column."""
     if field == "pk":
-        return False
+        return model._meta.pk
     try:
         model_field = model._meta.get_field(field)
     except FieldDoesNotExist:
-        # An annotation can hold NULL, and nothing here tells its type.
-        return True
-    # A reverse relation or a generic key has no column of its own, so it can be NULL in a join.
-    return model_field.null if isinstance(model_field, Field) else True
+        return None
+    return model_field if isinstance(model_field, Field) else None
 
 
-def _sorts_after(field: str, value: str | None, *, descending: bool, nullable: bool) -> Q | None:
+def _is_nullable(model: type[Model], field: str) -> bool:
+    model_field = _model_field(model, field)
+    # An annotation, a reverse relation or a generic key can hold NULL, and nothing here tells otherwise.
+    return True if model_field is None else model_field.null
+
+
+def _cursor_value(model: type[Model], field: str, value: str | None) -> object:
+    """Convert a cursor value from text to the type of its field.
+
+    A value the field cannot hold, such as "abc" for an integer, raises Django's ValidationError.
+    """
+    if value is None:
+        return None
+    model_field = _model_field(model, field)
+    if model_field is None:
+        return value
+    return model_field.to_python(value)
+
+
+def _sorts_after(field: str, value: object, *, descending: bool, nullable: bool) -> Q | None:
     """Match the rows whose `field` alone sorts after `value`, or return None when no row can.
 
     Postgres sorts NULL after every value in ascending order and before every value in descending
@@ -81,7 +99,8 @@ def _rows_after(model: type[Model], ordering: Sequence[str], after: Sequence[str
     # Starts as a match for no row, and each field adds one more way to sort after the cursor row.
     rows_after = Q(pk__in=[])
     ties = Q()
-    for term, value in zip(ordering, after):
+    values = [_cursor_value(model, term.lstrip("-"), value) for term, value in zip(ordering, after)]
+    for term, value in zip(ordering, values):
         field = term.lstrip("-")
         descending = term.startswith("-")
         sorts_after = _sorts_after(field, value, descending=descending, nullable=_is_nullable(model, field))
@@ -90,11 +109,11 @@ def _rows_after(model: type[Model], ordering: Sequence[str], after: Sequence[str
         ties &= Q(**{f"{field}__isnull": True}) if value is None else Q(**{field: value})
 
     first = ordering[0].lstrip("-")
-    if len(after) < 2 or after[0] is None or _is_nullable(model, first):
+    if len(after) < 2 or values[0] is None or _is_nullable(model, first):
         return rows_after
     # The first field's own bound repeats part of the match, so that an index on that field can limit the scan.
     bound = "lte" if ordering[0].startswith("-") else "gte"
-    return Q(**{f"{first}__{bound}": after[0]}) & rows_after
+    return Q(**{f"{first}__{bound}": values[0]}) & rows_after
 
 
 def select_cursor_rows[M: Model](queryset: QuerySet[M], page: CursorPageRequest) -> list[M]:
