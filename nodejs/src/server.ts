@@ -27,6 +27,7 @@ import { CdpConsumerBaseDeps } from './cdp/consumers/cdp-base.consumer'
 import { CdpCohortMembershipTriggerConsumer } from './cdp/consumers/cdp-cohort-membership-trigger.consumer'
 import { CdpCohortMembershipConsumer } from './cdp/consumers/cdp-cohort-membership.consumer'
 import { CdpCyclotronWorkerBatchResolve } from './cdp/consumers/cdp-cyclotron-worker-batch-resolve.consumer'
+import { CdpCyclotronWorkerEmailTransactional } from './cdp/consumers/cdp-cyclotron-worker-email-transactional.consumer'
 import { CdpCyclotronWorkerEmail } from './cdp/consumers/cdp-cyclotron-worker-email.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
@@ -49,6 +50,7 @@ import { createIdempotencyValkeyPool } from './cdp/services/hogflows/idempotency
 import { CyclotronJobQueueKafka } from './cdp/services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgresV2 } from './cdp/services/job-queue/job-queue-postgres-v2'
 import { CyclotronJobQueueRateLimitedPostgresV2 } from './cdp/services/job-queue/job-queue-rate-limited-postgres-v2'
+import { JobQueue } from './cdp/services/job-queue/job-queue.interface'
 import { createFrequencyCapValkeyPool } from './cdp/services/messaging/frequency-cap-valkey-pool'
 import { hasEmailSigningKey } from './cdp/services/messaging/helpers/tracking-code'
 import { HogInvocationResultsService } from './cdp/services/monitoring/hog-invocation-results.service'
@@ -104,6 +106,7 @@ export class PluginServer implements NodeServer {
             capabilities.cdpCyclotronWorker ||
             capabilities.cdpCyclotronWorkerHogFlow ||
             capabilities.cdpCyclotronWorkerEmail ||
+            capabilities.cdpCyclotronWorkerEmailTransactional ||
             capabilities.cdpCohortMembership ||
             capabilities.cdpCohortMembershipTriggers ||
             capabilities.cdpCyclotronWorkerBatchResolve ||
@@ -343,7 +346,7 @@ export class PluginServer implements NodeServer {
         // Boot-time guard: an email-sending deployment must carry a signing key, otherwise every send
         // would either mint an unsigned tracking link or (now that generate() fails closed) fail. Refuse
         // to start instead of degrading silently. The email worker below signs tracking codes.
-        const isEmailWorker = capabilities.cdpCyclotronWorkerEmail
+        const isEmailWorker = capabilities.cdpCyclotronWorkerEmail || capabilities.cdpCyclotronWorkerEmailTransactional
         if (isEmailWorker && !hasEmailSigningKey(this.config.ENCRYPTION_SALT_KEYS)) {
             throw new Error(
                 'Email worker requires ENCRYPTION_SALT_KEYS to sign tracking codes — refusing to start. ' +
@@ -353,26 +356,23 @@ export class PluginServer implements NodeServer {
 
         if (capabilities.cdpCyclotronWorkerEmail) {
             serviceLoaders.push(async () => {
-                // Dedicated queue instance — see note on cdpCyclotronWorkerHogFlow above.
-                // When the SES rate-limiter Valkey is configured, use the rate-limited
-                // variant so dequeue is gated by a Valkey-backed token bucket. Without
-                // the env var (typical for local dev outside k8s) we fall back to the
-                // plain queue and dequeue is unthrottled.
-                //
-                // Fair dequeue (per-team round-robin) is intrinsic to the email queue —
-                // the worker derives it from its queue name — and applies regardless of
-                // whether rate limiting is on.
-                const sesValkey = createSesRateLimiterValkeyPool(this.config)
-                const queue = sesValkey
-                    ? new CyclotronJobQueueRateLimitedPostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config, {
-                          limiter: new RateLimiterService(sesValkey, { name: 'ses' }),
-                          key: '@posthog/ses/global',
-                          capacity: this.config.CDP_SES_RATE_LIMIT_CAPACITY,
-                          refillPerSecond: this.config.CDP_SES_RATE_LIMIT_REFILL_PER_SECOND,
-                          throttledPollDelayMs: this.config.CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS,
-                      })
-                    : new CyclotronJobQueuePostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config)
+                // Carries the floor, so the transactional lane below, which passes none,
+                // always finds that much SES capacity waiting.
+                const queue = this.createEmailJobQueue(this.config.CDP_SES_RATE_LIMIT_TRANSACTIONAL_RESERVE)
                 const worker = new CdpCyclotronWorkerEmail(this.config, this.withEmailActionValkeys(cdpDeps!), queue)
+                await worker.start()
+                return worker.service
+            })
+        }
+
+        if (capabilities.cdpCyclotronWorkerEmailTransactional) {
+            serviceLoaders.push(async () => {
+                const queue = this.createEmailJobQueue(0)
+                const worker = new CdpCyclotronWorkerEmailTransactional(
+                    this.config,
+                    this.withEmailActionValkeys(cdpDeps!),
+                    queue
+                )
                 await worker.start()
                 return worker.service
             })
@@ -478,6 +478,27 @@ export class PluginServer implements NodeServer {
             emailValidationValkey: createSesRateLimiterValkeyPool(this.config, 'email-mx-validation'),
             frequencyCapValkey: createFrequencyCapValkeyPool(this.config),
         }
+    }
+
+    /**
+     * One instance per lane — see the note on cdpCyclotronWorkerHogFlow: sharing one
+     * across consumers collides on the worker, the pending-job map and the pg pool.
+     * Both lanes claim from one shared bucket, which is what keeps their combined send
+     * rate at the SES limit. Without the Valkey env var dequeue is unthrottled.
+     */
+    private createEmailJobQueue(reserveFloor: number): JobQueue {
+        const sesValkey = createSesRateLimiterValkeyPool(this.config)
+        if (!sesValkey) {
+            return new CyclotronJobQueuePostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config)
+        }
+        return new CyclotronJobQueueRateLimitedPostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config, {
+            limiter: new RateLimiterService(sesValkey, { name: 'ses' }),
+            key: '@posthog/ses/global',
+            capacity: this.config.CDP_SES_RATE_LIMIT_CAPACITY,
+            refillPerSecond: this.config.CDP_SES_RATE_LIMIT_REFILL_PER_SECOND,
+            throttledPollDelayMs: this.config.CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS,
+            reserveFloor,
+        })
     }
 
     private getCleanupResources(): CleanupResources {

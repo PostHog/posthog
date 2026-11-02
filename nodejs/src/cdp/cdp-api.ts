@@ -3,6 +3,7 @@ import express from 'ultimate-express'
 import { z } from 'zod'
 
 import { ModifiedRequest } from '~/common/api/router'
+import { buildIntegerMatcher } from '~/common/config/matchers'
 import type { RedisV2 } from '~/common/redis/redis-v2'
 import { logger } from '~/common/utils/logger'
 import { UUID, UUIDT, delay } from '~/common/utils/utils'
@@ -14,6 +15,7 @@ import {
     resolveLogTransformationInputs,
 } from '~/logs/transformations/hog-log-exec'
 import { PluginEvent } from '~/plugin-scaffold'
+import { ValueMatcher } from '~/types'
 
 import {
     HealthCheckResult,
@@ -69,6 +71,7 @@ import { GroupsManagerService } from './services/managers/groups-manager.service
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
 import { EMAIL_QUEUE_PRIORITY, EmailQueuePriorityClass, cdpEmailQueuedTotal } from './services/messaging/email-priority'
+import { getEmailQueue } from './services/messaging/email-queues'
 import { EmailStatusService } from './services/messaging/email-status.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
@@ -215,6 +218,7 @@ export class CdpApi {
     private stepResumeJwt: ScopedServiceJwt
     private transactionalEmailJwt: ScopedServiceJwt
     private transactionalEmailIdempotencyKeys: IdempotencyKeys
+    private transactionalEmailQueueTeams: ValueMatcher<number>
     private emailSuppressionService: EmailSuppressionService
     private emailValidationService: EmailValidationService
     private teamWorkflowsConfigService: TeamWorkflowsConfigService
@@ -301,6 +305,7 @@ export class CdpApi {
             PosthogJwtAudience.WORKFLOWS_SEND_TRANSACTIONAL_EMAIL,
             config.WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET || ''
         )
+        this.transactionalEmailQueueTeams = buildIntegerMatcher(config.CDP_EMAIL_TRANSACTIONAL_QUEUE_TEAMS, true)
         this.transactionalEmailIdempotencyKeys = new IdempotencyKeys(
             deps.idempotencyValkey ?? null,
             'transactional-email'
@@ -1276,8 +1281,14 @@ export class CdpApi {
                 invocation.state.triggerMetricPending = true
                 // Straight to the email queue: the flow's only step is the email, so a hop through the
                 // workflow queue would only add latency to a password reset or a verification code.
+                // Always transactional by definition of this endpoint, so the lane is only a question
+                // of whether the team is in the rollout.
                 const priorityClass: EmailQueuePriorityClass = 'fast'
-                invocation.queue = 'email'
+                invocation.queue = getEmailQueue(
+                    { message_category_type: 'transactional' },
+                    team.id,
+                    this.transactionalEmailQueueTeams
+                )
                 invocation.queuePriority = EMAIL_QUEUE_PRIORITY[priorityClass]
 
                 const idempotencyKeys = this.transactionalEmailIdempotencyKeys
@@ -1325,7 +1336,7 @@ export class CdpApi {
                         this.invocationResultsService.invocationResultsRowsService.dropQueuedRowsFor([invocation.id])
                         throw error
                     }
-                    cdpEmailQueuedTotal.labels(priorityClass).inc()
+                    cdpEmailQueuedTotal.labels({ priority_class: priorityClass, queue: invocation.queue }).inc()
                 } catch (error) {
                     // Nothing was queued, so the caller's retry with the same key must be able to send.
                     if (idempotencyKey) {

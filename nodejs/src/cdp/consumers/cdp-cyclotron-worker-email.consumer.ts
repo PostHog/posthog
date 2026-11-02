@@ -1,6 +1,7 @@
 import { PluginsServerConfig } from '~/types'
 
 import { JobQueue } from '../services/job-queue/job-queue.interface'
+import { EMAIL_QUEUE } from '../services/messaging/email-queues'
 import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../types'
 import { CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp-cyclotron-worker-hogflow.consumer'
@@ -10,7 +11,7 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
 
     constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps, jobQueue: JobQueue) {
         super(config, deps, jobQueue)
-        this.queue = 'email'
+        this.queue = EMAIL_QUEUE
     }
 
     public override async processInvocations(

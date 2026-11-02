@@ -30,6 +30,7 @@ import {
     StoredCohortMembership,
 } from '../cohorts/cohort-membership-repository'
 import { HogExecutorExecuteAsyncOptions } from '../hog-executor-async.service'
+import { isEmailQueue } from '../messaging/email-queues'
 import { EmailStatusService } from '../messaging/email-status.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
@@ -699,7 +700,7 @@ export class HogFlowExecutorService {
         // run whose email action isn't the first action executed.
         const result = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
             queuePriority: invocation.queuePriority,
-            queueMetadata: invocation.queue === 'email' ? withoutTeamCapped(invocation.queueMetadata) : undefined,
+            queueMetadata: isEmailQueue(invocation.queue) ? withoutTeamCapped(invocation.queueMetadata) : undefined,
         })
         result.finished = false // Typically we are never finished unless we error or exit
 

@@ -102,6 +102,7 @@ describe('Hog Executor', () => {
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
                 siteUrl: hub.SITE_URL,
                 internalApiBaseUrl: hub.INTERNAL_API_BASE_URL,
+                transactionalEmailQueueTeams: '*',
             },
             {
                 teamManager: hub.teamManager,
@@ -2533,7 +2534,10 @@ describe('Hog Executor', () => {
             }
             invocation.state.vmState = { stack: [] } as any
 
-            const result = (executor as any).routeEmailToQueue(invocation, invocation.queuePriority)
+            const result = (executor as any).routeEmailToQueue(invocation, 'email', {
+                originQueue: invocation.queue,
+                originPriority: invocation.queuePriority,
+            })
 
             expect(result.finished).toBe(false)
             expect(result.invocation.queue).toBe('email')
@@ -2548,7 +2552,7 @@ describe('Hog Executor', () => {
             )
         })
 
-        it('should classify transactional sends into the fast priority class', () => {
+        it('should put transactional sends on the transactional lane in the fast priority class', async () => {
             const hogFunction = createHogFunction({
                 name: 'Email function',
                 metadata: { message_category_type: 'transactional' },
@@ -2568,8 +2572,9 @@ describe('Hog Executor', () => {
             }
             invocation.state.vmState = { stack: [] } as any
 
-            const result = (executor as any).routeEmailToQueue(invocation, invocation.queuePriority)
+            const result = await executor.executeWithAsyncFunctions(invocation)
 
+            expect(result.invocation.queue).toBe('emailtransactional')
             expect(result.invocation.queuePriority).toBe(0)
         })
 
@@ -2606,7 +2611,10 @@ describe('Hog Executor', () => {
             }
             invocation.state.vmState = { stack: [] } as any
 
-            const result = (executor as any).routeEmailToQueue(invocation, invocation.queuePriority)
+            const result = (executor as any).routeEmailToQueue(invocation, 'email', {
+                originQueue: invocation.queue,
+                originPriority: invocation.queuePriority,
+            })
 
             expect(result.invocation.id).toBe(invocation.id)
         })
@@ -2639,6 +2647,19 @@ describe('Hog Executor', () => {
             expect(result.invocation.queue).toBe('email')
             expect(result.invocation.queueMetadata?.originQueue).toBeDefined()
             expect(result.finished).toBe(false)
+        })
+
+        it('should move a send on the other email lane instead of sending it, keeping the origin stash', async () => {
+            const invocation = createEmailInvocation()
+            invocation.hogFunction.metadata = { message_category_type: 'transactional' }
+            invocation.queue = 'email'
+            invocation.queueMetadata = { originQueue: 'hogflow', originPriority: 2 }
+
+            const result = await executor.executeWithAsyncFunctions(invocation)
+
+            expect(result.finished).toBe(false)
+            expect(result.invocation.queue).toBe('emailtransactional')
+            expect(result.invocation.queueMetadata).toMatchObject({ originQueue: 'hogflow', originPriority: 2 })
         })
 
         it('should send inline when isTest is set', async () => {

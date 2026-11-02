@@ -236,6 +236,7 @@ export class TemplateTester {
                 fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
                 siteUrl: config.SITE_URL,
                 internalApiBaseUrl: config.INTERNAL_API_BASE_URL,
+                transactionalEmailQueueTeams: config.CDP_EMAIL_TRANSACTIONAL_QUEUE_TEAMS,
             },
             {
                 teamManager: this.mockTeamManager as any,

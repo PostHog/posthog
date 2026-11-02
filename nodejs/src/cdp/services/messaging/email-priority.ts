@@ -45,6 +45,6 @@ export function getEmailQueuePriority(metadata: HogFunctionType['metadata']): nu
 
 export const cdpEmailQueuedTotal = new Counter({
     name: 'cdp_email_queued_total',
-    help: 'Total emails routed to the dedicated email queue',
-    labelNames: ['priority_class'] as const,
+    help: 'Total emails routed to an email queue',
+    labelNames: ['priority_class', 'queue'] as const,
 })

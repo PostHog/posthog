@@ -25,6 +25,7 @@ import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.se
 import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { getEmailQueuePriorityClass } from './email-priority'
+import { isEmailQueue } from './email-queues'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailStatusService, isTransactionalEmailSend } from './email-status.service'
 import { EmailSuppressionService, SuppressionCheckOptions } from './email-suppression.service'
@@ -488,7 +489,7 @@ export class EmailService {
         const addLog = createAddLogFunction(result.logs)
 
         // Read from the incoming invocation: result.invocation is a clone, and a clone drops the scheduled time.
-        const queueWait = invocation.queue === 'email' && !isTest ? emailQueueWait(invocation) : undefined
+        const queueWait = isEmailQueue(invocation.queue) && !isTest ? emailQueueWait(invocation) : undefined
 
         const params = invocation.queueParameters
         const integrationId = selectEmailSenderIntegrationId(invocation.id, params.from)

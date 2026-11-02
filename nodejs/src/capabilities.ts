@@ -27,6 +27,7 @@ export const CAPABILITIES_CDP_WORKFLOWS: PluginServerCapabilities = {
     cdpCyclotronWorkerBatchResolve: true,
     cdpCyclotronWorkerHogFlow: true,
     cdpCyclotronWorkerEmail: true,
+    cdpCyclotronWorkerEmailTransactional: true,
     cdpCyclotronV2Janitor: isDevEnv(),
     cdpHogflowScheduler: isDevEnv(),
     cdpHogflowSubscriptionMatcher: isDevEnv(),
@@ -131,6 +132,10 @@ export function getPluginServerCapabilities(
         case PluginServerMode.cdp_cyclotron_worker_email:
             return {
                 cdpCyclotronWorkerEmail: true,
+            }
+        case PluginServerMode.cdp_cyclotron_worker_email_transactional:
+            return {
+                cdpCyclotronWorkerEmailTransactional: true,
             }
         case PluginServerMode.cdp_precalculated_filters:
             // The consumer is gone. Boot with no capabilities so a pod that charts still

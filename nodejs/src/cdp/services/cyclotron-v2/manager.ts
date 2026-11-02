@@ -8,6 +8,7 @@ import { sleep } from '~/common/utils/utils'
 
 import { BatchResolverResumeOutcome, resumeParkedBatchResolver } from '../hogflows/batch-resolver-resume'
 import { StepResume, StepResumeOutcome, processStepResumes } from '../hogflows/step-resume.service'
+import { isEmailQueue } from '../messaging/email-queues'
 import {
     CYCLOTRON_COUNTER_MAX,
     CyclotronV2CancelJobsOptions,
@@ -384,7 +385,7 @@ export class CyclotronV2Manager {
     private async computeEmailDequeueSeqs(jobs: CyclotronV2JobInit[]): Promise<(string | null)[]> {
         const indicesByTeam = new Map<number, number[]>()
         for (let i = 0; i < jobs.length; i++) {
-            if (jobs[i].queueName !== 'email') {
+            if (!isEmailQueue(jobs[i].queueName)) {
                 continue
             }
             const indices = indicesByTeam.get(jobs[i].teamId)

@@ -10,6 +10,7 @@ import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 import { CyclotronV2DequeuedJob, CyclotronV2JobInit, CyclotronV2Manager, CyclotronV2Worker } from '../cyclotron-v2'
 import { CyclotronV2WorkerConfig } from '../cyclotron-v2/types'
+import { isEmailQueue } from '../messaging/email-queues'
 import { JobQueue } from './job-queue.interface'
 import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observeConsumedBatch } from './shared'
 
@@ -232,12 +233,11 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                         personId: extractPersonId(result.invocation),
                         actionId: extractActionId(result.invocation),
                         queueName: result.invocation.queue,
-                        // Persisted only across email-queue transitions: entering carries the
-                        // class routeEmailToQueue assigned, leaving restores the origin
-                        // priority. Elsewhere the row keeps its insert-time priority, so the
-                        // in-memory retry bumps on other queues stay unpersisted as before.
+                        // Persisted only across email-lane transitions. Elsewhere the row
+                        // keeps its insert-time priority, so the in-memory retry bumps on
+                        // other queues stay unpersisted as before.
                         priority:
-                            result.invocation.queue === 'email' || job.queueName === 'email'
+                            isEmailQueue(result.invocation.queue) || isEmailQueue(job.queueName)
                                 ? result.invocation.queuePriority
                                 : undefined,
                     })

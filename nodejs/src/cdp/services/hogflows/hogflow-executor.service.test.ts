@@ -122,6 +122,7 @@ describe('Hogflow Executor', () => {
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
                 siteUrl: hub.SITE_URL,
                 internalApiBaseUrl: hub.INTERNAL_API_BASE_URL,
+                transactionalEmailQueueTeams: hub.CDP_EMAIL_TRANSACTIONAL_QUEUE_TEAMS,
             },
             {
                 teamManager: hub.teamManager,

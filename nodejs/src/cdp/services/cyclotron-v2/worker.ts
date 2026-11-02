@@ -5,6 +5,7 @@ import { v7 as uuidv7 } from 'uuid'
 
 import { logger } from '~/common/utils/logger'
 
+import { isEmailQueue } from '../messaging/email-queues'
 import { assignEmailDequeueSeq } from './manager'
 import {
     CYCLOTRON_COUNTER_MAX,
@@ -249,7 +250,7 @@ export class CyclotronV2Worker {
         // `dequeue_seq` is only ever assigned for email jobs (see
         // CyclotronV2Manager), so deriving this from the queue name keeps the
         // worker's ORDER BY in lockstep with where the sort key actually exists.
-        this.fairDequeue = config.queueName === 'email'
+        this.fairDequeue = isEmailQueue(config.queueName)
     }
 
     async connect(processBatch: (jobs: CyclotronV2DequeuedJob[]) => Promise<void>): Promise<void> {
@@ -540,7 +541,7 @@ export class CyclotronV2Worker {
                 // path. Skipped when the row was already on the email queue,
                 // so existing fair-ordered rows keep their place after retry/
                 // reschedule without bumping the counter.
-                if (options?.queueName === 'email' && row.queue_name !== 'email') {
+                if (isEmailQueue(options?.queueName) && !isEmailQueue(row.queue_name)) {
                     const dequeueSeq = await assignEmailDequeueSeq(pool, row.team_id)
                     params.push(dequeueSeq)
                     setClauses.push(`dequeue_seq = $${params.length}`)
