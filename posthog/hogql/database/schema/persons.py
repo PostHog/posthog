@@ -331,11 +331,14 @@ def build_person_id_pushdown_predicate(join_to_add: LazyJoinToAdd, node: SelectQ
     # scan holds the FROM entry as the query wrote it.
     scan = join_to_add.from_scan
     left = scan.join if scan is not None else node.select_from
-    left_types = scan.types if scan is not None else (left.type,) if left is not None else ()
+    left_types: tuple[ast.Type, ...] = (
+        scan.types if scan is not None else (left.type,) if left is not None and left.type is not None else ()
+    )
     if (
         left is None
         or not isinstance(left.table, ast.Field)
         or left.table_args
+        or not left_types
         or left_types[0] is not join_to_add.lazy_join_type.table_type
         or (scan is not None and (node.select_from is None or node.select_from.alias != join_to_add.from_table))
     ):
