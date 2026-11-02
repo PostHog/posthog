@@ -362,6 +362,7 @@ CREDENTIAL_KINDS: Mapping[str, str] = {
     "DeelFlows": "deel-flows",
     "Deepgram": "deepgram",
     "Deepsource": "deepsource",
+    "DemoAcme": "demo-acme",
     "Demodesk": "demodesk",
     "DenoDeploy": "deno-deploy",
     "Depot": "depot",

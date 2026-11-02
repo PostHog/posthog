@@ -364,6 +364,7 @@ CREDENTIAL_AUTH_TYPES: Mapping[str, str] = {
     "deel-flows": "credentials",
     "deepgram": "token",
     "deepsource": "credentials",
+    "demo-acme": "token",
     "demodesk": "token",
     "deno-deploy": "token",
     "depot": "token",
