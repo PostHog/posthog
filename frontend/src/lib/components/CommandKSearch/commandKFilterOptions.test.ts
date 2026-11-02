@@ -96,6 +96,20 @@ describe('viewAllFor', () => {
             '/feature-flags?search=checkout%20beta',
         ],
         [
+            'a list that reads every quote as a letter once one quote in the query is unmatched',
+            [chip('feature_flag', 'Feature flag')],
+            "name:rock'n'roll -don't",
+            'View all feature flags',
+            "/feature-flags?search=rock'n'roll",
+        ],
+        [
+            'a list that reads the text as a letter when the name holds the unmatched quote',
+            [chip('feature_flag', 'Feature flag')],
+            "name:don't rock'n'roll",
+            'View all feature flags',
+            "/feature-flags?search=don't%20rock'n'roll",
+        ],
+        [
             'a list that searches without an excluded name',
             [chip('feature_flag', 'Feature flag'), chip('checkout', 'checkout', { key: 'name', negated: true })],
             '',

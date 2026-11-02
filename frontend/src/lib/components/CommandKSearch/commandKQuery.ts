@@ -331,8 +331,6 @@ export interface ResolvedQuery {
     filters: QueryChip[]
     /** The text that is not a filter token. */
     freeText: string
-    /** The words the file system search reads in `freeText`, less the words it excludes. */
-    includedWords: string[]
     /** The `search` string for the file system endpoint. */
     backendSearch: string
 }
@@ -377,13 +375,10 @@ function shellWords(text: string, quotes: string): string[] | null {
     return words
 }
 
-// Mirrors `tokenize_search` in posthog/api/file_system/file_system.py, which reads an unmatched `'` as a letter.
-// The search then excludes a word that starts with `-` or `!`.
-function searchWords(text: string): string[] {
+// Mirrors `tokenize_search` in posthog/api/file_system/file_system.py, which reads every `'` as a letter once one is unmatched.
+function tokenizeSearch(text: string): string[] {
     return shellWords(text, `"'`) ?? shellWords(text, '"') ?? text.split(/\s+/).filter(Boolean)
 }
-
-const isExcludedWord = (word: string): boolean => word.startsWith('-') || word.startsWith('!')
 
 /**
  * Resolves the input once per change, so every consumer agrees on what applies. A typed value
@@ -406,28 +401,37 @@ export function resolveQuery(text: string, chips: QueryChip[], options: FilterOp
         }
     }
     const filterTokens = [...filters.values()].map((chip) => backendToken(chip.key, chip.value, chip.negated)).sort()
-    const freeText = freeTokens.join(' ')
     return {
         filters: [...filters.values()],
-        freeText,
-        includedWords: searchWords(freeText).filter((word) => word && !isExcludedWord(word)),
+        freeText: freeTokens.join(' '),
         backendSearch: [...filterTokens, ...freeTokens].join(' '),
     }
 }
 
-// List pages match one phrase, which cannot exclude, so excluded words and names stay out.
-export function listSearchText({ filters, includedWords }: ResolvedQuery): string {
-    const names = filters
-        .filter((filter) => filter.key === 'name' && !filter.negated)
-        .map((filter) => searchValue(filter.value))
-    return [...names, ...includedWords].filter(Boolean).join(' ')
-}
+const isQuotedBy = (text: string, quote: string): boolean => text.startsWith(quote) && text.endsWith(quote)
+const stripQuotes = (text: string): string =>
+    isQuotedBy(text, '"') || isQuotedBy(text, "'") ? text.slice(1, -1) : text
 
-// The file system search splits a filter token like a word, and then strips one pair of quotes from its value.
-function searchValue(value: string): string {
-    const word = searchWords(quoteIfNeeded(value)).join(' ')
-    const isQuotedBy = (quote: string): boolean => word.startsWith(quote) && word.endsWith(quote)
-    return isQuotedBy('"') || isQuotedBy("'") ? word.slice(1, -1) : word
+const BACKEND_FILTER_FIELDS = new Set(['path', 'name', 'user', 'author', 'type', 'ref'])
+
+// Reads `backendSearch` like the file system search does, so the list searches the words Cmd+K matched.
+// List pages match one phrase, which cannot exclude, so excluded words and filters other than `name:` stay out.
+export function listSearchText({ backendSearch }: ResolvedQuery): string {
+    const words: string[] = []
+    for (const raw of tokenizeSearch(backendSearch)) {
+        if (raw.startsWith('-') || raw.startsWith('!')) {
+            continue
+        }
+        const token = stripQuotes(raw)
+        const colonIndex = token.indexOf(':')
+        const field = colonIndex === -1 ? null : token.slice(0, colonIndex).toLowerCase()
+        if (field === 'name') {
+            words.push(stripQuotes(token.slice(colonIndex + 1).trim()))
+        } else if (field === null || !BACKEND_FILTER_FIELDS.has(field)) {
+            words.push(token)
+        }
+    }
+    return words.filter(Boolean).join(' ')
 }
 
 /** The raw query as a person would type it, chips included. Used when copying the input. */
