@@ -134,7 +134,7 @@ describe('report run connection lifecycle', () => {
         jest.clearAllMocks()
         AppState.currentState = 'active'
         jest.spyOn(AppState, 'addEventListener').mockReturnValue({ remove: jest.fn() })
-        useConnectivity.setState({ status: 'unknown', isConnectionExpensive: null })
+        useConnectivity.setState({ status: 'unknown' })
         useHandoffStore.setState({ reports: {} })
         jest.mocked(getTask).mockResolvedValue({ id: TASK, title: '', signal_report: REPORT, latest_run: RUN })
         jest.mocked(getTaskRun).mockResolvedValue(RUN)

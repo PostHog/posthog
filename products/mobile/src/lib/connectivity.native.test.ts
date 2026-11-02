@@ -1,42 +1,41 @@
-import NetInfo, { type NetInfoState } from '@react-native-community/netinfo'
+import { type NetworkState, NetworkStateType } from 'expo-network'
 import { AppState, type AppStateStatus } from 'react-native'
 
 import { monitorConnectivity, useConnectivity } from './connectivity'
 
-jest.mock('@react-native-community/netinfo', () => jest.requireActual('@react-native-community/netinfo/src/index'))
-jest.mock('@react-native-community/netinfo/src/internal/nativeInterface', () => ({
+jest.mock('expo-network', () => jest.requireActual('expo-network'))
+jest.mock('expo-network/build/ExpoNetwork', () => ({
     __esModule: true,
     default: {
-        configure: jest.fn(),
-        getCurrentState: jest.fn(),
-        eventEmitter: { addListener: jest.fn() },
+        getNetworkStateAsync: jest.fn(),
+        addListener: jest.fn(),
     },
 }))
 
-const bridge = jest.requireMock('@react-native-community/netinfo/src/internal/nativeInterface').default as {
-    getCurrentState: jest.Mock<Promise<NetInfoState>, []>
-    eventEmitter: { addListener: jest.Mock }
+const bridge = jest.requireMock('expo-network/build/ExpoNetwork').default as {
+    getNetworkStateAsync: jest.Mock<Promise<NetworkState>, []>
+    addListener: jest.Mock
 }
 
-function state(connected: boolean): NetInfoState {
+function state(connected: boolean): NetworkState {
     return {
-        type: 'wifi',
+        type: NetworkStateType.WIFI,
         isConnected: connected,
         isInternetReachable: false,
-        details: { isConnectionExpensive: false },
-    } as NetInfoState
+    }
 }
 
-describe('connectivity with the installed NetInfo state manager', () => {
-    let nativeEvent: (state: NetInfoState) => void
+describe('connectivity with the installed Expo Network module', () => {
+    let nativeEvent: (state: NetworkState) => void
     let appChange: (state: AppStateStatus) => void
+    const originalAppState = AppState.currentState
 
     beforeEach(() => {
         jest.useFakeTimers()
         AppState.currentState = 'active'
-        useConnectivity.setState({ status: 'unknown', isConnectionExpensive: null })
-        bridge.getCurrentState.mockImplementation(async () => state(true))
-        bridge.eventEmitter.addListener.mockImplementation((_event, listener) => {
+        useConnectivity.setState({ status: 'unknown' })
+        bridge.getNetworkStateAsync.mockImplementation(async () => state(true))
+        bridge.addListener.mockImplementation((_event, listener) => {
             nativeEvent = listener
             return { remove: jest.fn() }
         })
@@ -44,9 +43,9 @@ describe('connectivity with the installed NetInfo state manager', () => {
             appChange = listener
             return { remove: jest.fn() }
         })
-        NetInfo.configure({ reachabilityShouldRun: () => false, useNativeReachability: false })
     })
     afterEach(() => {
+        AppState.currentState = originalAppState
         jest.restoreAllMocks()
         jest.useRealTimers()
     })
@@ -54,12 +53,14 @@ describe('connectivity with the installed NetInfo state manager', () => {
     test.each([false, true])(
         'a late refresh reporting %s cannot overwrite a newer native event',
         async (oldConnected) => {
+            bridge.getNetworkStateAsync.mockResolvedValueOnce(state(oldConnected))
             const setOnline = jest.fn()
             const stop = monitorConnectivity(setOnline)
             try {
                 await jest.advanceTimersByTimeAsync(0)
-                let resolve: (state: NetInfoState) => void = () => undefined
-                bridge.getCurrentState.mockImplementationOnce(
+                expect(useConnectivity.getState().status).toBe(oldConnected ? 'connected' : 'offline')
+                let resolve: (state: NetworkState) => void = () => undefined
+                bridge.getNetworkStateAsync.mockImplementationOnce(
                     () =>
                         new Promise((yes) => {
                             resolve = yes
@@ -84,8 +85,8 @@ describe('connectivity with the installed NetInfo state manager', () => {
         const setOnline = jest.fn()
         const stop = monitorConnectivity(setOnline)
         await jest.advanceTimersByTimeAsync(0)
-        let resolve: (state: NetInfoState) => void = () => undefined
-        bridge.getCurrentState.mockImplementationOnce(
+        let resolve: (state: NetworkState) => void = () => undefined
+        bridge.getNetworkStateAsync.mockImplementationOnce(
             () =>
                 new Promise((yes) => {
                     resolve = yes

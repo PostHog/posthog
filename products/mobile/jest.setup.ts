@@ -1,8 +1,10 @@
 import type { MetricChartProps } from '@/ui/chart/types'
 
-jest.mock('@react-native-community/netinfo', () =>
-    jest.requireActual('@react-native-community/netinfo/jest/netinfo-mock')
-)
+jest.mock('expo-network', () => ({
+    ...jest.requireActual<typeof import('expo-network')>('expo-network'),
+    addNetworkStateListener: jest.fn(() => ({ remove: jest.fn() })),
+    getNetworkStateAsync: jest.fn(async () => ({ isConnected: true })),
+}))
 
 jest.mock('@react-native-async-storage/async-storage', () =>
     jest.requireActual('@react-native-async-storage/async-storage/jest/async-storage-mock')

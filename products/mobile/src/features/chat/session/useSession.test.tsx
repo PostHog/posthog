@@ -157,7 +157,7 @@ describe('useSession', () => {
     beforeEach(() => {
         jest.spyOn(AppState, 'addEventListener').mockReturnValue({ remove: jest.fn() })
         AppState.currentState = 'active'
-        useConnectivity.setState({ status: 'unknown', isConnectionExpensive: null })
+        useConnectivity.setState({ status: 'unknown' })
         jest.mocked(useAiApproval).mockReturnValue({
             request: jest.fn(async () => true),
             pending: false,
@@ -341,7 +341,7 @@ describe('useSession', () => {
                 expect(result.current.history.status).toBe('error')
                 const attempts = mocked.openTaskRunStream.mock.calls.length
                 await act(async () => {
-                    useConnectivity.setState({ status: 'connected', isConnectionExpensive: true })
+                    useConnectivity.setState({ status: 'connected' })
                     jest.advanceTimersByTime(60_000)
                 })
                 expect(mocked.openTaskRunStream).toHaveBeenCalledTimes(attempts)

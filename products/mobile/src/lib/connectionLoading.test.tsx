@@ -1,6 +1,6 @@
-import NetInfo from '@react-native-community/netinfo'
 import { onlineManager, QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, renderHook, waitFor } from '@testing-library/react-native'
+import { getNetworkStateAsync } from 'expo-network'
 import type { ReactElement, ReactNode } from 'react'
 import { AppState } from 'react-native'
 import { setAuthProvider } from '@/api/client'
@@ -59,8 +59,8 @@ describe('paused reads without cached data', () => {
             getAuth: () => ({ host: 'https://app.example.com', accessToken: 'fake', projectId: 2, session: 1 }),
             refreshAccessToken: async () => null,
         })
-        jest.mocked(NetInfo.refresh).mockImplementation(() => new Promise(() => undefined))
-        useConnectivity.setState({ status: 'offline', isConnectionExpensive: null })
+        jest.mocked(getNetworkStateAsync).mockImplementation(() => new Promise(() => undefined))
+        useConnectivity.setState({ status: 'offline' })
         onlineManager.setOnline(false)
         globalThis.fetch = jest.fn(async (url: string) => ({
             ok: true,
@@ -112,7 +112,7 @@ describe('paused reads without cached data', () => {
                 expect(result.current.error?.message).toContain('Your data will load when your connection returns')
                 expect(globalThis.fetch).not.toHaveBeenCalled()
                 await act(async () => {
-                    useConnectivity.setState({ status: 'connected', isConnectionExpensive: false })
+                    useConnectivity.setState({ status: 'connected' })
                     onlineManager.setOnline(true)
                 })
                 await waitFor(() => expect(result.current.data).toBeDefined())

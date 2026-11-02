@@ -411,7 +411,7 @@ A send waiting for encrypted draft storage is cancelled by New chat or closing t
 
 The device connectivity signal pauses the live stream while the link is offline. If the link drops during the first task lookup or history hydration, the chat shows offline feedback and returns to loading when connectivity returns. Returning online or returning to the foreground resumes the same run with its event cursor and transcript. A stream that exhausted its transient retries can recover on those transitions, or through Reconnect in the open chat. Auth, permission and missing-run failures do not automatically restart the stream. Recovery reads the existing run; it does not resend messages, answers or run creation requests.
 
-A connected link does not prove PostHog is reachable. Wi-Fi without internet, a captive portal and a server outage still use the bounded stream retry loop and idle deadline. Repeated connected notifications and connection cost changes do not reset that retry budget. An initially unknown link permits requests.
+A connected link does not prove PostHog is reachable. Wi-Fi without internet, a captive portal and a server outage still use the bounded stream retry loop and idle deadline. Repeated connected notifications do not reset that retry budget. An initially unknown link permits requests.
 
 The page opens from the bottom bar's compose button, a report's Chat button, a report's task status, an inbox row's menu and the Chats tab.
 The route takes an optional `entry` param; `chatSheetSource` falls back on `report` with a `reportId`, `task` with only a `taskId`, else `compose`.
