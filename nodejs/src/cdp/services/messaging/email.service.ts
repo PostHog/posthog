@@ -161,7 +161,6 @@ function pickThrottleRetryDelayMs(): number {
     return 500 + Math.floor(Math.random() * 500)
 }
 
-/** The provider that delivers a sender's email. Throws for a provider this worker cannot send through. */
 function sendingProviderOf(integration: IntegrationType): 'ses' | 'maildev' {
     const provider = integration.config.provider ?? 'ses'
     if (provider === 'unsupported') {

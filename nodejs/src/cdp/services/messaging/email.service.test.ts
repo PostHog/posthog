@@ -319,70 +319,80 @@ describe('EmailService', () => {
                 expect(result.metrics.map((metric) => metric.metric_name)).toEqual(['email_failed'])
                 expect(sendEmailSpy).not.toHaveBeenCalled()
             })
-            it('fails an unrecognized provider without spending the workflow or team sending budget', async () => {
-                await insertIntegration(hub.postgres, team.id, {
-                    id: getIntegrationId(4),
-                    kind: 'email',
-                    config: {
-                        email: 'test@posthog.com',
-                        name: 'Test User',
-                        domain: 'posthog.com',
-                        verified: true,
-                        provider: 'mailjet',
-                    },
-                })
-                const redis = createRedisV2PoolFromConfig({
-                    connection: hub.CDP_REDIS_HOST
-                        ? {
-                              url: hub.CDP_REDIS_HOST,
-                              options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
-                          }
-                        : { url: hub.REDIS_URL },
-                    poolMinSize: hub.REDIS_POOL_MIN_SIZE,
-                    poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
-                })
-                const limiter = new RateLimiterService(redis, { name: 'unknown-provider-budget-test' })
-                const limitedService = new EmailService(
-                    {
-                        sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
-                        sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
-                        sesRegion: hub.SES_REGION,
-                        sesEndpoint: hub.SES_ENDPOINT,
-                        sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
-                        sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
-                        teamEmailCapMode: 'enforce',
-                        teamEmailTierHourlyCaps: [1],
-                        teamEmailTierDailyCaps: [1],
-                    },
-                    hub.integrationManager,
-                    new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
-                    hub.ENCRYPTION_SALT_KEYS,
-                    hub.SITE_URL,
-                    new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
-                    new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
-                    new RecipientsManagerService(hub.postgres),
-                    null,
-                    undefined,
-                    limiter,
-                    limiter
-                )
-                jest.spyOn(limitedService.sesV2Client!, 'send').mockResolvedValue({
-                    MessageId: 'test-message-id',
-                } as never)
-                invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 1, period: 'hour' } }
+            it.each([
+                { budget: 'workflow', workflowLimit: true, teamCap: false },
+                { budget: 'team', workflowLimit: false, teamCap: true },
+            ])(
+                'fails an unrecognized provider without spending the $budget sending budget',
+                async ({ workflowLimit, teamCap }) => {
+                    await insertIntegration(hub.postgres, team.id, {
+                        id: getIntegrationId(4),
+                        kind: 'email',
+                        config: {
+                            email: 'test@posthog.com',
+                            name: 'Test User',
+                            domain: 'posthog.com',
+                            verified: true,
+                            provider: 'mailjet',
+                        },
+                    })
+                    const redis = createRedisV2PoolFromConfig({
+                        connection: hub.CDP_REDIS_HOST
+                            ? {
+                                  url: hub.CDP_REDIS_HOST,
+                                  options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+                              }
+                            : { url: hub.REDIS_URL },
+                        poolMinSize: hub.REDIS_POOL_MIN_SIZE,
+                        poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+                    })
+                    const limiter = new RateLimiterService(redis, { name: 'unknown-provider-budget-test' })
+                    const configService = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
+                    jest.spyOn(configService, 'getEmailSendingTier').mockResolvedValue(0)
+                    const limitedService = new EmailService(
+                        {
+                            sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
+                            sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
+                            sesRegion: hub.SES_REGION,
+                            sesEndpoint: hub.SES_ENDPOINT,
+                            sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
+                            sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
+                            teamEmailCapMode: teamCap ? 'enforce' : 'off',
+                            teamEmailTierHourlyCaps: [1],
+                            teamEmailTierDailyCaps: [1],
+                        },
+                        hub.integrationManager,
+                        configService,
+                        hub.ENCRYPTION_SALT_KEYS,
+                        hub.SITE_URL,
+                        new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
+                        new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
+                        new RecipientsManagerService(hub.postgres),
+                        null,
+                        undefined,
+                        limiter,
+                        limiter
+                    )
+                    jest.spyOn(limitedService.sesV2Client!, 'send').mockResolvedValue({
+                        MessageId: 'test-message-id',
+                    } as never)
+                    if (workflowLimit) {
+                        invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 1, period: 'hour' } }
+                    }
 
-                invocation.queueParameters = createEmailParams({ from: { integrationId: 4 } })
-                const failed = await limitedService.executeSendEmail(invocation)
-                invocation.queueParameters = createEmailParams({ from: { integrationId: 1 } })
-                const sent = await limitedService.executeSendEmail(invocation)
+                    invocation.queueParameters = createEmailParams({ from: { integrationId: 4 } })
+                    const failed = await limitedService.executeSendEmail(invocation)
+                    invocation.queueParameters = createEmailParams({ from: { integrationId: 1 } })
+                    const sent = await limitedService.executeSendEmail(invocation)
 
-                expect(failed.error).toBe(
-                    "The sender's email provider is not recognized. Select a different sender in the workflow's email step."
-                )
-                expect(sent.finished).toBe(true)
-                expect(sent.error).toBeUndefined()
-                expect(sent.metrics.map((metric) => metric.metric_name)).toContain('email_sent')
-            })
+                    expect(failed.error).toBe(
+                        "The sender's email provider is not recognized. Select a different sender in the workflow's email step."
+                    )
+                    expect(sent.finished).toBe(true)
+                    expect(sent.error).toBeUndefined()
+                    expect(sent.metrics.map((metric) => metric.metric_name)).toContain('email_sent')
+                }
+            )
             it('should send identical from and feedback forwarding args', async () => {
                 // This test is important for spam classification - feedback forwarding email MUST match from email
                 invocation.queueParameters = createEmailParams({
