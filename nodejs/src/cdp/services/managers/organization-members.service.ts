@@ -11,6 +11,9 @@ export type BlockedRecipient = { readonly address: string; readonly unverifiedMe
 
 const MAX_SNAPSHOT_AGE_MS = 60_000
 const REFRESH_AGE_MS = MAX_SNAPSHOT_AGE_MS - 1_000
+// The lookup is one indexed join. A stalled one fails the check here instead of holding up every other
+// send in the worker's batch, which waits for this invocation to finish.
+const LOOKUP_TIMEOUT_MS = 3_000
 
 const normalizeEmail = (email: string): string => email.trim().toLowerCase()
 
@@ -57,19 +60,23 @@ export class OrganizationMembersService {
     private async loadSnapshots(teamIds: string[]): Promise<Record<string, OrganizationMemberSnapshot>> {
         const expiresAt = this.now() + MAX_SNAPSHOT_AGE_MS
         // Only an explicit false deactivates an organization, matching the web middleware.
-        const { rows } = await this.postgres.query<{ team_id: number; email: string; is_email_verified: boolean }>(
-            PostgresUse.COMMON_WRITE,
-            `SELECT team.id AS team_id, users.email, users.is_email_verified
-             FROM posthog_team AS team
-             JOIN posthog_organization AS organization ON organization.id = team.organization_id
-             JOIN posthog_organizationmembership AS membership ON membership.organization_id = organization.id
-             JOIN posthog_user AS users ON users.id = membership.user_id
-             WHERE team.id = ANY($1::bigint[])
-               AND organization.is_active IS NOT FALSE
-               AND users.is_active = true`,
-            [teamIds.map(Number)],
-            'fetch-sandbox-team-organization-members'
-        )
+        const tag = 'fetch-sandbox-team-organization-members'
+        const { rows } = await this.postgres.transaction(PostgresUse.COMMON_WRITE, tag, async (tx) => {
+            await this.postgres.query(tx, `SET LOCAL statement_timeout = ${LOOKUP_TIMEOUT_MS}`, undefined, tag)
+            return await this.postgres.query<{ team_id: number; email: string; is_email_verified: boolean }>(
+                tx,
+                `SELECT team.id AS team_id, users.email, users.is_email_verified
+                 FROM posthog_team AS team
+                 JOIN posthog_organization AS organization ON organization.id = team.organization_id
+                 JOIN posthog_organizationmembership AS membership ON membership.organization_id = organization.id
+                 JOIN posthog_user AS users ON users.id = membership.user_id
+                 WHERE team.id = ANY($1::bigint[])
+                   AND organization.is_active IS NOT FALSE
+                   AND users.is_active = true`,
+                [teamIds.map(Number)],
+                tag
+            )
+        })
         const members = new Map(
             teamIds.map((id) => [id, { verified: new Set<string>(), unverified: new Set<string>() }])
         )

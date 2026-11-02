@@ -2,6 +2,12 @@ import { PostgresRouter } from '~/common/utils/db/postgres'
 
 import { OrganizationMembersService } from './organization-members.service'
 
+const routerFor = (select: jest.Mock): PostgresRouter =>
+    ({
+        transaction: (_usage: unknown, _tag: string, run: (tx: unknown) => Promise<unknown>) => run({}),
+        query: (_tx: unknown, sql: string) => (sql.startsWith('SET LOCAL') ? Promise.resolve({ rows: [] }) : select()),
+    }) as unknown as PostgresRouter
+
 describe('OrganizationMembersService', () => {
     const memberRow = (email: string): { team_id: number; email: string; is_email_verified: boolean } => ({
         team_id: 1,
@@ -15,7 +21,7 @@ describe('OrganizationMembersService', () => {
             now += 60_000
             return Promise.resolve({ rows: [memberRow('member@example.com')] })
         })
-        const service = new OrganizationMembersService({ query } as unknown as PostgresRouter, () => now)
+        const service = new OrganizationMembersService(routerFor(query), () => now)
 
         await expect(service.getBlockedRecipients(1, ['member@example.com'])).rejects.toThrow('expired')
         expect(query).toHaveBeenCalledTimes(2)
@@ -27,7 +33,7 @@ describe('OrganizationMembersService', () => {
             now += 60_000
             return Promise.resolve({ rows: [memberRow('member@example.com')] })
         })
-        const service = new OrganizationMembersService({ query } as unknown as PostgresRouter, () => now)
+        const service = new OrganizationMembersService(routerFor(query), () => now)
 
         await expect(service.getBlockedRecipients(1, ['member@example.com'], { fresh: true })).rejects.toThrow(
             'expired'
@@ -39,7 +45,7 @@ describe('OrganizationMembersService', () => {
         let now = 0
         let member = 'member@example.com'
         const query = jest.fn(() => Promise.resolve({ rows: [memberRow(member)] }))
-        const service = new OrganizationMembersService({ query } as unknown as PostgresRouter, () => now)
+        const service = new OrganizationMembersService(routerFor(query), () => now)
 
         expect(await service.getBlockedRecipients(1, ['member@example.com'])).toEqual([])
         expect(await service.getBlockedRecipients(1, ['member@example.com'])).toEqual([])
@@ -56,7 +62,7 @@ describe('OrganizationMembersService', () => {
     it('reloads members for a fresh check inside the minute', async () => {
         let member = 'member@example.com'
         const query = jest.fn(() => Promise.resolve({ rows: [memberRow(member)] }))
-        const service = new OrganizationMembersService({ query } as unknown as PostgresRouter, () => 0)
+        const service = new OrganizationMembersService(routerFor(query), () => 0)
 
         expect(await service.getBlockedRecipients(1, ['member@example.com'])).toEqual([])
         member = 'new-member@example.com'
@@ -73,7 +79,7 @@ describe('OrganizationMembersService', () => {
             .fn()
             .mockReturnValueOnce(new Promise((resolve) => (finishEarlierLookup = resolve)))
             .mockResolvedValue({ rows: [memberRow('new-member@example.com')] })
-        const service = new OrganizationMembersService({ query } as unknown as PostgresRouter, () => 0)
+        const service = new OrganizationMembersService(routerFor(query), () => 0)
 
         // Another send starts loading members, then the member is removed before the final check.
         const earlierCheck = service.getBlockedRecipients(1, ['member@example.com'])

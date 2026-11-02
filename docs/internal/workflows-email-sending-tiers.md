@@ -99,7 +99,7 @@ The blocked event fires at most once an hour per team, reason, and send kind (wo
 A send that passes every check goes out through the fixed SES tenant, configuration set, and From address, whatever the step's custom sender and Reply-To say.
 Sandbox sends skip the team's tier budget, click and open tracking, and unsubscribe headers, because they reach only members of the sending organization.
 The worker parses and normalizes the HTML, then appends a footer that names the sender and the organization ID.
-It overrides root clipping and visibility styles and keeps the template's typography, so malformed markup may render differently from an own-domain send.
+It overrides root clipping and visibility styles, drops any root style declaration it cannot parse cleanly, and keeps the template's typography, so malformed markup may render differently from an own-domain send.
 A template whose HTML cannot keep the footer fails the send.
 The visible footer is best effort across email clients and template CSS; the signed tracking header still attributes the message.
 Right before delivery, every sandbox send, test sends included, claims a daily allowance per project (`WORKFLOWS_SANDBOX_DAILY_TEAM_CAP`, one token per recipient copy) and per recipient address across the organization (`WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP`).
@@ -109,6 +109,4 @@ The worker checks members after the claim and gives the claim back when that che
 An SES throttle response also gives the claim back before the delivery retry. Returns are deduplicated, and Valkey ignores a return that arrives more than five minutes after it was issued.
 Test sends run inline in the CDP API, so a sandbox-enabled CDP API opens the SES Valkey pool (`SES_RATE_LIMITER_VALKEY_*`) for the allowances. Without it, every sandbox test send skips.
 Each delivered send emits a `workflows sandbox email sent` event.
-Test sends never record `email_sent`, so they do not count toward the sending tier.
-Live workflow sends still count as `email_sent`, which the sending tier reads, until sandbox sends get their own metric.
-Use the switch in production for test sends only until that metric is deployed.
+Live workflow sends record `email_sandbox_sent` instead of `email_sent`, so they never count toward the sending tier; test sends record neither.

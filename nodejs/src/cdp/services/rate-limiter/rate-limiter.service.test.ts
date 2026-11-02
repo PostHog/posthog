@@ -501,6 +501,29 @@ describe('RateLimiterService', () => {
             ).toEqual({ granted: false, deniedIndexes: null })
         })
 
+        it('fails a command at once while an optional pool reconnects instead of queueing it', async () => {
+            const optionalValkey = createSesRateLimiterValkeyPool(
+                {
+                    SES_RATE_LIMITER_VALKEY_HOST: '127.0.0.1',
+                    SES_RATE_LIMITER_VALKEY_PORT: 6379,
+                    SES_RATE_LIMITER_VALKEY_PASSWORD: '',
+                    SES_RATE_LIMITER_VALKEY_TLS: false,
+                    REDIS_POOL_MIN_SIZE: 1,
+                    REDIS_POOL_MAX_SIZE: 1,
+                },
+                'reconnect-test',
+                { optional: true }
+            )!
+            expect(await optionalValkey.useClient({ name: 'warm-up' }, (client) => client.ping())).toBe('PONG')
+
+            const duringOutage = optionalValkey.useClient({ name: 'during-outage' }, (client) => {
+                ;(client as unknown as { stream: { destroy: () => void } }).stream.destroy()
+                return client.get(`${KEY}/during-outage`)
+            })
+
+            await expect(duringOutage).rejects.toThrow('enableOfflineQueue')
+        })
+
         it('reports a limiter error without naming a denied bucket', async () => {
             const unreachable = new RateLimiterService(
                 {

@@ -301,12 +301,14 @@ describe('EmailService', () => {
                     teamEmailRateLimiter = null,
                     messageAssetsService,
                     dailyCapLimiter = new RateLimiterService(sandboxRedis, { name: 'sandbox-email' }),
+                    blockedEventRedis = sandboxRedis,
                 }: {
                     membersPostgres?: PostgresRouter
                     senderSettings?: Partial<SandboxEmailSenderConfig>
                     teamEmailRateLimiter?: RateLimiterService | null
                     messageAssetsService?: MessageAssetsService
                     dailyCapLimiter?: RateLimiterService | null
+                    blockedEventRedis?: ConstructorParameters<typeof SandboxEmailSender>[2]
                 } = {}
             ): EmailService => {
                 const workflowsConfig = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
@@ -345,7 +347,7 @@ describe('EmailService', () => {
                             ...senderSettings,
                         },
                         hub.teamManager,
-                        sandboxRedis,
+                        blockedEventRedis,
                         dailyCapLimiter
                     ),
                     new OrganizationMembersService(membersPostgres)
@@ -528,7 +530,7 @@ describe('EmailService', () => {
                         }),
                     ])
                     expect(result.metrics.map((metric) => metric.metric_name)).toEqual(
-                        isTest ? [] : ['email_sent', 'email_untracked']
+                        isTest ? [] : ['email_sandbox_sent']
                     )
                     expect(capture).toHaveBeenCalledWith(
                         expect.objectContaining({ id: team.id }),
@@ -721,6 +723,33 @@ describe('EmailService', () => {
                     'workflows sandbox email blocked',
                     expect.objectContaining({ reason: 'recipient_not_member' })
                 )
+            })
+
+            it('fails closed instead of waiting when the member lookup stalls', async () => {
+                service = createSandboxService(true)
+
+                await hub.postgres.transaction(PostgresUse.COMMON_WRITE, 'test:stall-member-lookup', async (tx) => {
+                    await hub.postgres.query(
+                        tx,
+                        'LOCK TABLE posthog_organizationmembership IN ACCESS EXCLUSIVE MODE',
+                        undefined,
+                        'test:lock-memberships'
+                    )
+                    const result = await service.executeSendEmail(invocation)
+
+                    expectSkipped(result)
+                    expectBlockedEvent('check_failed', false, 1)
+                })
+            }, 15_000)
+
+            it('finishes a blocked send when the blocked-event store stalls', async () => {
+                service = createSandboxService(true, { blockedEventRedis: { useClient: () => new Promise(() => {}) } })
+                invocation.queueParameters = createSandboxParams({ to: { email: 'outsider@example.com', name: '' } })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expectSkipped(result)
+                expect(capture).not.toHaveBeenCalled()
             })
 
             it('fails closed when the member check fails', async () => {
