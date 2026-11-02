@@ -1,7 +1,8 @@
 """Issue status from the workflow state of linked Linear tickets.
 
 An issue resolves when every linked Linear ticket is closed and at least one of them is done. A
-canceled ticket alone never resolves an issue, because it means nobody fixed anything. A resolved
+canceled ticket alone never resolves an issue, because it means nobody fixed anything. A linked ticket
+that Linear does not return has no known state, so it keeps the issue open. A resolved
 issue becomes active again when a linked ticket moves from a closed state back to an open one.
 Only projects that turn on `linear_status_sync_enabled` in their error tracking settings take part.
 
@@ -112,11 +113,11 @@ def sync_status(job: contracts.LinearStatusSyncJob) -> None:
     workspace_rows = _opted_in_workspace_rows(job)
     if not workspace_rows:
         return
-    _refresh_moved_identifiers(job, workspace_rows)
+    workspace_integration_ids = [row.id for row in workspace_rows]
     issues = (
         ErrorTrackingIssue.objects.filter(
             team_id__in={row.team_id for row in workspace_rows},
-            external_issue__integration_id__in=[row.id for row in workspace_rows],
+            external_issue__integration_id__in=workspace_integration_ids,
             external_issue__external_context__id__in=job.identifiers,
         )
         .distinct()
@@ -132,6 +133,7 @@ def sync_status(job: contracts.LinearStatusSyncJob) -> None:
     for issue in issues:
         try:
             with _issue_lock(issue.id):
+                _refresh_moved_identifiers(issue, job, workspace_integration_ids)
                 _sync_issue(issue, job, previous_state)
         except Exception as error:
             logger.warning("linear_status_sync_issue_failed", issue_id=str(issue.id), team_id=issue.team_id)
@@ -191,19 +193,23 @@ def _opted_in_workspace_rows(job: contracts.LinearStatusSyncJob) -> list[Integra
     return [row for row in rows if row.team_id in opted_in_team_ids]
 
 
-def _refresh_moved_identifiers(job: contracts.LinearStatusSyncJob, workspace_rows: list[IntegrationRecord]) -> None:
-    """Point references that hold an identifier from before a team move at the ticket's current one.
+def _refresh_moved_identifiers(
+    issue: ErrorTrackingIssue, job: contracts.LinearStatusSyncJob, workspace_integration_ids: list[int]
+) -> None:
+    """Point the issue's references that hold an identifier from before a team move at the ticket's current one.
 
     A reference stores only the identifier, and the state lookup finds a ticket by its current
-    one, so a stale identifier reads as a deleted ticket and stops holding its issue open. Workflow
-    states belong to a team, so a move between teams always changes the state and reaches here.
+    one, so a stale identifier reads as a ticket with no known state, and the issue cannot resolve
+    until the reference is refreshed. Workflow states belong to a team, so a move between teams
+    always changes the state and reaches here. The caller holds the issue lock, so another job
+    never reads the issue's references while this job rewrites them.
     """
     current, *previous = job.identifiers
     if not previous:
         return
     stale = ErrorTrackingExternalReference.objects.filter(
-        issue__team_id__in={row.team_id for row in workspace_rows},
-        integration_id__in=[row.id for row in workspace_rows],
+        issue_id=issue.id,
+        integration_id__in=workspace_integration_ids,
         external_context__id__in=previous,
     )
     for reference in stale:
@@ -258,10 +264,11 @@ def _sync_issue(
     )
 
     if trigger_state in _CLOSED_STATE_TYPES:
-        # A ticket Linear no longer returns was deleted or cannot be read any more, so it does not
-        # hold the issue open.
-        known_states = set(states.values())
-        if known_states <= _CLOSED_STATE_TYPES and _DONE_STATE_TYPE in known_states:
+        # Linear leaves out a ticket that was deleted, a ticket the token cannot read, and a ticket
+        # that moved teams before its reference was refreshed. Only a deleted ticket is safe to ignore,
+        # and the response cannot tell the three apart, so a ticket without a state keeps the issue open.
+        linked_states = [states.get(reference.id) for reference in references]
+        if all(state in _CLOSED_STATE_TYPES for state in linked_states) and _DONE_STATE_TYPE in linked_states:
             _transition(
                 issue,
                 expected=ErrorTrackingIssue.Status.ACTIVE,

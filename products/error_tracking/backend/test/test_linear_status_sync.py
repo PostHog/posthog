@@ -220,12 +220,12 @@ class TestLinearStatusSync(BaseTest):
                 "resolved",
             ),
             (
-                "deleted_ticket_does_not_hold_the_issue_open",
+                "unreturned_ticket_holds_the_issue_open",
                 ["ENG-1", "ENG-9"],
                 {"ENG-1": "completed"},
                 "started",
                 "active",
-                "resolved",
+                "active",
             ),
             ("reopened_ticket_reactivates", ["ENG-1"], {"ENG-1": "started"}, "completed", "resolved", "active"),
             (
@@ -293,16 +293,23 @@ class TestLinearStatusSync(BaseTest):
             not_opted_in_issue.id: "active",
         }
 
-    def test_a_ticket_that_moved_teams_keeps_holding_its_issue_open(self) -> None:
+    @parameterized.expand([("move_job_first", True), ("completion_job_first", False)])
+    def test_a_ticket_that_moved_teams_holds_its_issue_open_until_it_closes(
+        self, _name: str, move_job_first: bool
+    ) -> None:
         issue = self._linked_issue(self.team, self._linear_integration(self.team), ["ENG-1", "OPS-7"])
-        linear = _FakeLinear({"ENG-1": "started", "ENG-2": "started"}, "started")
+        linear = _FakeLinear({"ENG-1": "completed", "ENG-2": "started"}, "started")
+        move_job, completion_job = ("ENG-2", "OPS-7"), ("ENG-1",)
 
-        self._sync(linear, identifiers=("ENG-2", "OPS-7"))
-        linear.ticket_states["ENG-1"] = "completed"
-        self._sync(linear)
-
+        for identifiers in (move_job, completion_job) if move_job_first else (completion_job, move_job):
+            self._sync(linear, identifiers=identifiers)
         issue.refresh_from_db()
         assert issue.status == "active"
+
+        linear.ticket_states["ENG-2"] = "completed"
+        self._sync(linear, identifiers=("ENG-2",))
+        issue.refresh_from_db()
+        assert issue.status == "resolved"
 
     def test_a_project_whose_linear_read_fails_raises_without_holding_back_the_others(self) -> None:
         revoked_team = Team.objects.create(organization=self.organization, name="Revoked token")
