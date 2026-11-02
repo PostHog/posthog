@@ -6878,6 +6878,10 @@ snapshots:
         hash: v1.k794b7964.010da65c2bb2e55daed38244a9918ab578c84f020a1c8df2ed847a4670005aec.M8-1Oet6RSJ7ulOk_R2yYMfKo4IUctrRZQulmG15BVk
     products-dashboards-add-insight-to-dashboard-modal--with-more-insight-types--light:
         hash: v1.k794b7964.6c001db5555f48832f11ae8d9dcc535dff4e22044bb6dfce15db3a2a522f1fa9.GQCxp64JkEqDCNEeSD6gPtc5rwlzjHFJ-QnZu4lRips
+    products-dashboards-add-insight-to-dashboard-modal--with-more-insight-types-and-metrics--dark:
+        hash: v1.k794b7964.ae47defe4c15916f4bc9dbbc552a3aef89d54102aa4a9ae94d9961613189782a.QCkri5EX6WvUH40v6bfL147fml_W9EOjEAIGK-FQjAk
+    products-dashboards-add-insight-to-dashboard-modal--with-more-insight-types-and-metrics--light:
+        hash: v1.k794b7964.0d90933bf7fe46580b45cd8bedc78895be3e1694ac2d25e8dbbaf4156995e8b2.uDZhPMLvnomVB-RV_1Lmmgjzy2AMIcYu411UKLZjpnM
     products-dashboards-dashboard-widgets-overview--all-widget-types--dark:
         hash: v1.k794b7964.3b3689c002c42da7502405c35d4ebe2285aeaeda2015418d9e700bfe9dc47205.ByGuHj3aUBKZNgl5AzGDwbuMXT-HGQhG-Vcab7mz4Yw
     products-dashboards-dashboard-widgets-overview--all-widget-types--light:
