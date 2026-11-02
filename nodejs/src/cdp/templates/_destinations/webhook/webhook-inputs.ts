@@ -14,28 +14,7 @@ export const webhookRequestInputs: HogFunctionInputSchemaType[] = [
         type: 'choice',
         label: 'Method',
         secret: false,
-        choices: [
-            {
-                label: 'POST',
-                value: 'POST',
-            },
-            {
-                label: 'PUT',
-                value: 'PUT',
-            },
-            {
-                label: 'PATCH',
-                value: 'PATCH',
-            },
-            {
-                label: 'GET',
-                value: 'GET',
-            },
-            {
-                label: 'DELETE',
-                value: 'DELETE',
-            },
-        ],
+        choices: ['POST', 'PUT', 'PATCH', 'GET', 'DELETE'].map((method) => ({ label: method, value: method })),
         default: 'POST',
         required: false,
         description: 'HTTP method to use for the request.',
