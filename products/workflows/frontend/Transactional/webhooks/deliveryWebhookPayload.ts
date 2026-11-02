@@ -28,15 +28,13 @@ const TRANSACTIONAL_EMAIL_PROPERTY: EventPropertyFilter = {
     operator: PropertyOperator.IsSet,
 }
 
-// The list matches a destination whose filters contain this group, so it shows the webhooks the tab created
-// and any destination a user built by hand on the same property.
+// The list matches any destination whose filters contain this group, including one a user built by hand.
 export const DELIVERY_WEBHOOK_LIST_FILTER_GROUPS: CyclotronJobFiltersType[] = [
     { properties: [TRANSACTIONAL_EMAIL_PROPERTY] },
 ]
 
-// Resend's event names and body fields, so a receiver written for Resend reads it. The body has no `from`,
-// because the delivery events do not carry the sender. Resend calls a spam complaint "complained" and a link
-// click "clicked"; every other event keeps its own suffix. A bounce type uses the provider's names, as in Resend.
+// Resend's event names, fields and bounce types, so a Resend receiver reads it. It has no `from`, because these
+// events do not carry the sender. Resend names a spam complaint "complained" and a link click "clicked".
 const DELIVERY_WEBHOOK_BODY = {
     type: "{event.event == '$workflows_email_blocked' ? 'email.complained' : event.event == '$workflows_email_link_clicked' ? 'email.clicked' : replaceOne(event.event, '$workflows_email_', 'email.')}",
     created_at: '{event.timestamp}',

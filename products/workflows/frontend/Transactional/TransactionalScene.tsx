@@ -29,6 +29,18 @@ import { TransactionalEmailsTable } from './TransactionalEmailsTable'
 import { TransactionalWebhooks } from './webhooks/TransactionalWebhooks'
 import { TransactionalEmailWizard } from './wizard/TransactionalEmailWizard'
 
+type TransactionalTab = MessagingNavTabKey | 'transactional' | 'webhooks'
+
+// The tab routes are literal paths, so the tab is the last path segment rather than a route param.
+function tabFromPathSegment(lastSegment: string, showWebhooks: boolean): TransactionalTab {
+    if (showWebhooks && lastSegment === 'webhooks') {
+        return 'webhooks'
+    }
+    return MESSAGING_NAV_TAB_KEYS.includes(lastSegment as MessagingNavTabKey)
+        ? (lastSegment as MessagingNavTabKey)
+        : 'transactional'
+}
+
 export const scene: SceneExport = {
     component: TransactionalScene,
     productKey: ProductKey.WORKFLOWS,
@@ -39,14 +51,8 @@ export function TransactionalScene(): JSX.Element {
     const showTransactional = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const showWebhooks = useFeatureFlag('WORKFLOWS_EMAIL_DELIVERY_WEBHOOKS')
-    // The tab routes are literal paths, so the tab is the last path segment rather than a route param.
     const lastSegment = location.pathname.split('/').pop() ?? ''
-    const currentTab: MessagingNavTabKey | 'transactional' | 'webhooks' =
-        showWebhooks && lastSegment === 'webhooks'
-            ? 'webhooks'
-            : MESSAGING_NAV_TAB_KEYS.includes(lastSegment as MessagingNavTabKey)
-              ? (lastSegment as MessagingNavTabKey)
-              : 'transactional'
+    const currentTab = tabFromPathSegment(lastSegment, showWebhooks)
 
     if (!showTransactional) {
         return <NotFound object="page" />
@@ -94,11 +100,7 @@ export function TransactionalScene(): JSX.Element {
             />
             <EmailSuspensionBanner />
             <LemonTabs<'transactional' | 'library' | 'webhooks' | 'messaging-setup'>
-                activeKey={
-                    currentTab === 'transactional' || currentTab === 'library' || currentTab === 'webhooks'
-                        ? currentTab
-                        : 'messaging-setup'
-                }
+                activeKey={isMessagingSetupTab(currentTab) ? 'messaging-setup' : currentTab}
                 tabs={[
                     {
                         label: 'Transactional emails',
