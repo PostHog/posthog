@@ -2,7 +2,8 @@
 //! picks a candidate for its viewport and shows nothing offline for one the fetcher did not take, and each fetched image
 //! costs a scrub, so a srcset keeps one candidate.
 
-use crate::url_policy::try_canonicalize;
+use crate::scan::images::keeps_inline_image;
+use crate::url_policy::{is_remote, try_canonicalize};
 
 const MAX_SRCSET_WIDTH: f64 = 1024.0;
 const MAX_SRCSET_DENSITY: f64 = 2.0;
@@ -46,13 +47,16 @@ pub fn kept_candidate(srcset: &str) -> Option<(usize, &str)> {
         .map(|candidate| (candidate.index, candidate.url))
 }
 
-/// Whether the kept candidate can show offline, as an inline image or a URL the fetcher can take. An img with such a
-/// srcset shows that candidate, so v3 fetches neither its `src` nor its `rr_src`.
-pub fn has_usable_candidate(srcset: &str) -> bool {
-    kept_candidate(srcset).is_some_and(|(_, url)| {
-        url.get(..b"data:image/".len())
-            .is_some_and(|scheme| scheme.eq_ignore_ascii_case("data:image/"))
-            || try_canonicalize(url).is_ok()
+/// The kept candidate when it can show offline, as a URL the fetcher can take or an inline image the image scan keeps.
+/// An img with such a srcset shows that candidate, so v3 fetches neither its `src` nor its `rr_src`. The writer keeps
+/// this candidate alone, and none when there is no such candidate, so that the img shows its `src`.
+pub fn usable_candidate(srcset: &str) -> Option<(usize, &str)> {
+    kept_candidate(srcset).filter(|&(_, url)| {
+        if is_remote(url) {
+            try_canonicalize(url).is_ok()
+        } else {
+            keeps_inline_image(url)
+        }
     })
 }
 
@@ -145,6 +149,9 @@ fn parse_descriptor(descriptor: &str) -> Option<(DescriptorKind, f64)> {
 
 #[cfg(test)]
 mod tests {
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine;
+
     use super::*;
 
     fn kept_url(srcset: &str) -> Option<&str> {
@@ -219,14 +226,29 @@ mod tests {
 
     #[test]
     fn a_srcset_is_usable_when_its_kept_candidate_can_show_offline() {
+        let inline =
+            |mime: &str, bytes: &[u8]| format!("data:{mime};base64,{} 1x", STANDARD.encode(bytes));
         for (srcset, usable) in [
-            ("https://cdn.example.com/a.png 1x", true),
-            ("//cdn.example.com/a.png 1x", true),
-            ("data:image/png;base64,AAAA 1x", true),
-            ("/relative/a.png 1x", false),
-            ("https://cdn.example.com/a.png 1x, b.png 1280w", false),
+            ("https://cdn.example.com/a.png 1x".to_owned(), true),
+            ("//cdn.example.com/a.png 1x".to_owned(), true),
+            (inline("image/png", b"\x89PNG\r\n\x1a\nbytes"), true),
+            ("data:image/svg+xml,%3Csvg%2F%3E 1x".to_owned(), true),
+            (
+                inline(
+                    "image/avif",
+                    b"\x00\x00\x00\x1cftypavif\x00\x00\x00\x00avifmif1miaf",
+                ),
+                false,
+            ),
+            (inline("image/bmp", b"BMbitmap"), false),
+            ("/relative/a.png 1x".to_owned(), false),
+            ("https://10.0.0.7/a.png 1x".to_owned(), false),
+            (
+                "https://cdn.example.com/a.png 1x, b.png 1280w".to_owned(),
+                false,
+            ),
         ] {
-            assert_eq!(has_usable_candidate(srcset), usable, "{srcset}");
+            assert_eq!(usable_candidate(&srcset).is_some(), usable, "{srcset}");
         }
     }
 }

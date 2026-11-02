@@ -2,16 +2,17 @@
 //! policy declines becomes a marker that names the reason, so that no credential, signature or private host stays in
 //! the block. The inspector names the URLs: those in image slots, CSS included.
 //!
-//! A srcset is rebuilt instead: it keeps only the candidate that the inspector fetched, by [`kept_candidate`]. That
-//! candidate leaves too when the policy declines it, the image scan declined its inline image, or a picture source's
-//! type is one the fetcher does not store. A browser skips a source with no candidates, so it falls back to a source or
-//! an img that can load, where a marker in the list would show a broken image. The writer rebuilds each srcset in the
-//! bytes it stores, after escapes were written again and inline images left, so the rebuild never depends on a
-//! prediction of those bytes.
+//! A srcset is rebuilt instead: it keeps only the candidate that the inspector fetched, by [`usable_candidate`] in the
+//! value the inspector read. It keeps none when that value has no usable candidate, which makes the inspector fetch the
+//! img's `src`, or when the candidate is remote in a picture source of a type the fetcher does not store. A browser
+//! skips a source with no candidates, so it falls back to a source or an img that can load, where a marker in the list
+//! would show a broken image. The writer rebuilds each srcset in the bytes it stores, after escapes were written again
+//! and inline images left. Moving an inline image out can change how a srcset parses, so the writer finds the
+//! inspector's candidate by its [`CandidatePosition`].
 
 use std::borrow::Cow;
 use std::cell::Cell;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 
 use aho_corasick::{AhoCorasick, AhoCorasickKind, MatchKind};
 use metrics::counter;
@@ -21,7 +22,7 @@ use posthog_replay_anonymizer::v4_image_refs::{
 use replay_core_v4::bytescan::{unescape, write_json_string, Span};
 use replay_core_v4::inspect::css::{escape_in_identifier, rewrite_functions, CssRewrite};
 use replay_core_v4::inspect::dom::{for_each_srcset_candidate, Srcset};
-use replay_core_v4::inspect::srcset::kept_candidate;
+use replay_core_v4::inspect::srcset::usable_candidate;
 use replay_core_v4::scan::tokens::{Token, Tokens};
 use replay_core_v4::seal::image_url_key;
 use replay_core_v4::url_policy::is_remote;
@@ -231,11 +232,10 @@ pub struct UrlRewrite {
     css_matcher: Option<AhoCorasick>,
     css_targets: Vec<CssTarget>,
     css_texts: HashMap<String, usize>,
-    /// Remote URLs that the block names only in picture sources of a type the fetcher does not store.
-    unfetched: HashSet<String>,
-    /// The [`remote_urls`] of each inspected srcset value. Only a stored srcset with the same remote URLs is rebuilt, so
-    /// a srcset key outside an image slot, such as in a custom event's payload, stays as it is.
-    inspected_srcsets: HashSet<Vec<String>>,
+    /// The usable candidate of each inspected srcset value, by the [`remote_urls`] of the value. Only a stored srcset with
+    /// the same remote URLs is rebuilt, so a srcset key outside an image slot, such as in a custom event's payload, stays
+    /// as it is. Values with the same remote URLs share an entry, so each keeps the candidate of every one of them.
+    kept_srcset_candidates: HashMap<Vec<String>, Vec<CandidatePosition>>,
     url_targets: HashMap<String, usize>,
     team_id: i64,
     key_month: String,
@@ -357,24 +357,16 @@ impl UrlRewrite {
                     .ok()
             })
             .flatten();
-        // A URL that a source of a stored type also names stays, as the inspector merges identical srcset values.
-        let mut source_types: HashMap<&str, bool> = HashMap::new();
+        let mut kept_srcset_candidates: HashMap<Vec<String>, Vec<CandidatePosition>> =
+            HashMap::new();
         for srcset in srcsets {
-            for_each_srcset_candidate(&srcset.text, |url, _| {
-                if is_remote(url) {
-                    *source_types.entry(url).or_insert(true) &= srcset.unfetched_type;
-                }
-            });
+            let kept = kept_srcset_candidates
+                .entry(remote_urls(&srcset.text))
+                .or_default();
+            if let Some(position) = usable_position(srcset).filter(|p| !kept.contains(p)) {
+                kept.push(position);
+            }
         }
-        let unfetched = source_types
-            .into_iter()
-            .filter(|&(_, unfetched)| unfetched)
-            .map(|(url, _)| url.to_owned())
-            .collect();
-        let inspected_srcsets = srcsets
-            .iter()
-            .map(|srcset| remote_urls(&srcset.text))
-            .collect();
         let matcher = (!patterns.is_empty())
             .then(|| {
                 // A DFA over long URLs can take hundreds of times their bytes. A contiguous NFA takes about ten.
@@ -465,8 +457,7 @@ impl UrlRewrite {
                 .enumerate()
                 .map(|(index, rewrite)| (rewrite.text.clone(), index))
                 .collect(),
-            unfetched,
-            inspected_srcsets,
+            kept_srcset_candidates,
             url_targets,
             team_id,
             key_month: key_month.to_owned(),
@@ -500,12 +491,12 @@ impl UrlRewrite {
             let Ok(text) = unescape(bytes, (start, end)) else {
                 continue;
             };
-            if !self.inspected_srcsets.contains(&remote_urls(&text)) {
+            let Some(kept) = self.kept_srcset_candidates.get(&remote_urls(&text)) else {
                 continue;
-            }
+            };
             let Some((value, outcome, covers)) = rebuilt_srcset(
                 &text,
-                &self.unfetched,
+                kept,
                 &self.url_targets,
                 self.team_id,
                 &self.key_month,
@@ -820,12 +811,54 @@ fn remote_urls(srcset: &str) -> Vec<String> {
     urls
 }
 
+/// A srcset candidate by its kind and its index among the candidates of that kind. The writer moves only inline images
+/// out of a srcset, so a position names the same candidate in the event the inspector read and in the block the writer
+/// stores.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CandidatePosition {
+    Remote(usize),
+    Inline(usize),
+}
+
+fn for_each_positioned_candidate<'s>(
+    srcset: &'s str,
+    mut found: impl FnMut(CandidatePosition, &'s str, &'s str),
+) {
+    let (mut remote, mut inline) = (0, 0);
+    for_each_srcset_candidate(srcset, |url, descriptors| {
+        let position = if is_remote(url) {
+            remote += 1;
+            CandidatePosition::Remote(remote - 1)
+        } else {
+            inline += 1;
+            CandidatePosition::Inline(inline - 1)
+        };
+        found(position, url, descriptors);
+    });
+}
+
+fn usable_position(srcset: &Srcset) -> Option<CandidatePosition> {
+    // `usable_candidate` reads only a well-formed srcset, whose candidates `for_each_srcset_candidate` reads in the same order.
+    let (usable_index, url) = usable_candidate(&srcset.text)?;
+    if srcset.unfetched_type && is_remote(url) {
+        return None;
+    }
+    let (mut index, mut usable) = (0, None);
+    for_each_positioned_candidate(&srcset.text, |position, _, _| {
+        if index == usable_index {
+            usable = Some(position);
+        }
+        index += 1;
+    });
+    usable
+}
+
 /// The srcset with only the candidate the block keeps, a remote URL as its reference, how it was rebuilt, and the URL
 /// targets of the remote URLs it held. `None` when the srcset keeps its one candidate, because the URL targets then
 /// replace it.
 fn rebuilt_srcset(
     text: &str,
-    unfetched: &HashSet<String>,
+    kept: &[CandidatePosition],
     url_targets: &HashMap<String, usize>,
     team_id: i64,
     key_month: &str,
@@ -845,28 +878,20 @@ fn rebuilt_srcset(
             value.push_str(descriptors);
         }
     };
-    // `kept_candidate` reads only a well-formed srcset, whose candidates `for_each_srcset_candidate` reads in the same order.
-    let kept = kept_candidate(text).map(|(index, _)| index);
-    let mut index = 0;
-    for_each_srcset_candidate(text, |url, descriptors| {
-        let is_kept = kept == Some(index);
-        index += 1;
-        if url.starts_with(IMAGE_DECLINED_PREFIX) {
-            removed = true;
-        } else if !is_remote(url) {
-            if is_kept {
-                keep(url, descriptors);
-            } else {
-                removed = true;
-            }
-        } else {
-            covers.extend(url_targets.get(url));
-            match url_reference(url, team_id, key_month, url_key) {
-                Ok((_, reference)) if is_kept && !unfetched.contains(url) => {
-                    keep(&reference, descriptors)
+    for_each_positioned_candidate(text, |position, url, descriptors| {
+        let is_kept = kept.contains(&position);
+        match position {
+            CandidatePosition::Remote(_) => {
+                covers.extend(url_targets.get(url));
+                match url_reference(url, team_id, key_month, url_key) {
+                    Ok((_, reference)) if is_kept => keep(&reference, descriptors),
+                    _ => removed = true,
                 }
-                _ => removed = true,
             }
+            CandidatePosition::Inline(_) if is_kept && !url.starts_with(IMAGE_DECLINED_PREFIX) => {
+                keep(url, descriptors)
+            }
+            CandidatePosition::Inline(_) => removed = true,
         }
     });
     if !removed {
@@ -975,6 +1000,16 @@ mod tests {
             (
                 format!("{a} 1x, {b} 640w"),
                 format!("{a} 1x, {b} 640w"),
+                String::new(),
+            ),
+            // The image scan moves out a data URI in any case, where the inspector read a malformed srcset and fetched
+            // the img's `src` instead.
+            (
+                format!(
+                    "DATA:image/png;base64,{} 1x, {b} 2x",
+                    STANDARD.encode(b"\x89PNG\r\n\x1a\nbytes")
+                ),
+                format!("image:v4:7:2026-10:0123abcd 1x, {b} 2x"),
                 String::new(),
             ),
         ] {

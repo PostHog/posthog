@@ -1050,7 +1050,12 @@ mod tests {
         let svg =
             "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%2F%3E";
         let remote_svg = "https://cdn.example.com/a.svg";
+        let avif_typed_svg = "data:image/svg+xml,%3Csvg%2F%3E";
         let shared = "https://cdn.example.com/shared.webp";
+        let (also_in_webp, webp_2x) = (
+            "https://cdn.example.com/also-in-webp.png",
+            "https://cdn.example.com/webp-2x.webp",
+        );
         let other_avif = format!(
             "data:image/avif;base64,{}",
             STANDARD.encode(b"\x00\x00\x00\x1cftypavif\x00\x00\x00\x00avifmif1other")
@@ -1065,12 +1070,17 @@ mod tests {
             source(6, json!({"type": "image/svg+xml", "srcset": format!("{svg} 1x")})),
             source(7, json!({"type": "image/svg+xml", "srcset": format!("{remote_svg} 1x")})),
             source(3, json!({"type": "image/avif", "srcset": format!("{avif} 1x, {inline_avif} 2x")})),
+            // An inline candidate needs no fetch job, so it stays whatever the type.
+            source(15, json!({"type": "image/avif", "srcset": format!("{avif} 1x, {avif_typed_svg} 2x")})),
             // A bare srcset equal to the img's src below: only the srcset empties.
             source(8, json!({"type": "image/avif", "srcset": bare})),
             // Values that read the same once their inline AVIFs leave merge their policies, so the WebP source keeps
             // the shared candidate.
             source(11, json!({"type": "image/avif", "srcset": format!("{shared} 2x, {inline_avif} 1x")})),
             source(12, json!({"type": "image/webp", "srcset": format!("{shared} 2x, {other_avif} 1x")})),
+            // The WebP source keeps its other candidate, so no source fetches the URL the two share.
+            source(13, json!({"type": "image/avif", "srcset": format!("{also_in_webp} 1x")})),
+            source(14, json!({"type": "image/webp", "srcset": format!("{also_in_webp} 1x, {webp_2x} 2x")})),
             // An empty type gives no hint, so the source keeps its candidate.
             source(9, json!({"type": "", "srcset": format!("{typeless} 1x")})),
             // Only the kept candidate stays, so a declined URL and an inline image the image scrub cannot read leave too.
@@ -1087,7 +1097,9 @@ mod tests {
             inspector.observe_message(&mut inspection, message);
         }
         // The fetcher stores no AVIF, so the AVIF source gets no fetch job.
-        assert!(!inspection.finish().image_urls.iter().any(|u| u == avif));
+        let fetched = inspection.finish().image_urls;
+        assert!(!fetched.iter().any(|u| u == avif || u == also_in_webp));
+        assert!(fetched.iter().any(|u| u == webp_2x));
 
         let lines = stored_lines(&events, &[]);
         let reference = |url: &str| {
@@ -1103,7 +1115,8 @@ mod tests {
         // The AVIF source has no candidate left, so the browser takes the WebP.
         assert!(lines.contains(r#""srcset":"""#), "{lines}");
         assert!(
-            lines.contains(&format!(r#""srcset":"{svg} 1x""#)),
+            lines.contains(&format!(r#""srcset":"{svg} 1x""#))
+                && lines.contains(&format!(r#""srcset":"{avif_typed_svg} 2x""#)),
             "{lines}"
         );
         assert!(
@@ -1117,6 +1130,11 @@ mod tests {
         assert!(lines.contains(&reference(fallback)), "{lines}");
         assert!(
             lines.contains(&format!(r#""srcset":"{} 2x""#, reference(shared))),
+            "{lines}"
+        );
+        assert!(
+            lines.contains(&format!(r#""srcset":"{} 2x""#, reference(webp_2x)))
+                && !lines.contains(&reference(also_in_webp)),
             "{lines}"
         );
         assert!(

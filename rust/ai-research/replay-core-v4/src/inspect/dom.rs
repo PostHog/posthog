@@ -120,11 +120,10 @@ impl HiddenSources {
         }
         if let Some(span) = attributes.srcset {
             let srcset = text(bytes, Some(span));
-            self.fetchable_srcset_candidate = srcset
-                .as_deref()
-                .and_then(srcset::kept_candidate)
-                .and_then(|(_, url)| fetchable(url).map(str::to_owned));
-            self.srcset_usable = srcset.as_deref().is_some_and(srcset::has_usable_candidate);
+            let usable = srcset.as_deref().and_then(srcset::usable_candidate);
+            self.srcset_usable = usable.is_some();
+            self.fetchable_srcset_candidate =
+                usable.and_then(|(_, url)| fetchable(url).map(str::to_owned));
         }
     }
 
@@ -142,7 +141,8 @@ impl HiddenSources {
         string(&self.src) + string(&self.rr_src) + string(&self.fetchable_srcset_candidate)
     }
 
-    fn push_revealed(self, set: &Attributes, walk: &mut Walk) {
+    fn push_revealed(mut self, bytes: &[u8], set: &Attributes, walk: &mut Walk) {
+        self.update(bytes, set);
         if !self.srcset_usable {
             for (url, replaced) in [(self.src, set.src), (self.rr_src, set.rr_src)] {
                 if let Some(url) = url.filter(|_| replaced.is_none()) {
@@ -483,15 +483,18 @@ impl Walk<'_> {
         }
     }
 
-    /// Only the kept candidate gets a fetch job. The block holds the others until the writer drops them, so the writer
-    /// needs their URLs too.
-    fn push_srcset(&mut self, bytes: &[u8], value: Option<Span>) {
-        if let Some(srcset) = text(bytes, value) {
-            srcset_urls(&srcset, &mut |url| self.image_urls.push_remote(url));
-            if let Some((_, url)) = srcset::kept_candidate(&srcset) {
-                self.push_url_text(url);
-            }
+    /// Only the usable candidate gets a fetch job. The block holds the others until the writer drops them, so the writer
+    /// needs their URLs too. Returns whether the srcset has a usable candidate.
+    fn push_srcset(&mut self, bytes: &[u8], value: Option<Span>) -> bool {
+        let Some(srcset) = text(bytes, value) else {
+            return false;
+        };
+        srcset_urls(&srcset, &mut |url| self.image_urls.push_remote(url));
+        let usable = srcset::usable_candidate(&srcset);
+        if let Some((_, url)) = usable {
+            self.push_url_text(url);
         }
+        usable.is_some()
     }
 
     fn push_srcset_value(&mut self, bytes: &[u8], value: Option<Span>, unfetched_type: bool) {
@@ -672,14 +675,13 @@ impl Attributes {
     fn push_urls(&self, bytes: &[u8], media: Option<Media>, walk: &mut Walk) {
         match media {
             Some(Media::Img { visibility }) if !visibility.hides() => {
-                if text(bytes, self.srcset).is_some_and(|s| srcset::has_usable_candidate(&s)) {
+                if walk.push_srcset(bytes, self.srcset) {
                     walk.push_remote(bytes, self.src, false);
                     walk.push_remote(bytes, self.rr_src, false);
                 } else {
                     walk.push_url(bytes, self.src);
                     walk.push_url(bytes, self.rr_src);
                 }
-                walk.push_srcset(bytes, self.srcset);
                 walk.push_srcset_value(bytes, self.srcset, false);
             }
             Some(Media::Img { .. }) => {
@@ -1594,7 +1596,7 @@ fn observe_mutation(
                     }
                     Some((id, true, false)) => {
                         if let Some(sources) = dom.set_hidden_sources(id, None) {
-                            sources.push_revealed(&values, &mut walk);
+                            sources.push_revealed(attributes.bytes, &values, &mut walk);
                         }
                     }
                     _ => {}
@@ -2028,6 +2030,7 @@ mod tests {
             element(19, "img", json!({"srcset": format!("{} 640w,{} 2x", url("w_640,q_auto/srcset-comma"), url("srcset-second"))}), json!([])),
             element(20, "img", json!({"src": url("shown-later"), "srcset": format!("{} 2x", url("shown-later-2x")), "hidden": ""}), json!([])),
             element(21, "img", json!({"src": format!("https://cdn.example.com/{}.png", "a".repeat(MAX_URL_LEN))}), json!([])),
+            element(22, "img", json!({"src": url("srcset-removed"), "srcset": format!("{} 2x", url("removed-2x")), "hidden": ""}), json!([])),
         ]))], "id": 1}});
         let message = events(json!([
             // URLs do not wait for the first full snapshot.
@@ -2040,6 +2043,8 @@ mod tests {
             // An update that sets no source keeps the hidden img's sources.
             mutation(json!([]), json!([]), json!([]), json!([{"id": 20, "attributes": {"alt": "x"}}])),
             mutation(json!([]), json!([]), json!([]), json!([{"id": 20, "attributes": {"hidden": null}}])),
+            // The srcset leaves as the img shows, so the img shows its `src`.
+            mutation(json!([]), json!([]), json!([]), json!([{"id": 22, "attributes": {"hidden": null, "srcset": null}}])),
             mutation(json!([]), json!([]), json!([]), json!([{"id": 6, "attributes": {"style": {"background-image": [format!("url({})", url("style-object")), "important"], "background": format!("url({})", url("style-object-plain")), "color": "red", "mask-image": false}}}])),
             mutation(json!([]), json!([]), json!([]), json!([{"id": 6, "attributes": {"style": {"background-image": "url(\"/img/relative-style.png\")"}}}])),
             // A `source` added on its own under a `picture`, one the page has or one the same mutation adds.
@@ -2120,6 +2125,7 @@ mod tests {
             "custom-declaration",
             "adopted",
             "shown-later-2x",
+            "srcset-removed",
             "style-object",
             "style-object-plain",
             "lone-source",
