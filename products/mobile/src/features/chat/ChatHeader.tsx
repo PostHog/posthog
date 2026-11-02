@@ -27,10 +27,18 @@ interface ChatHeaderProps {
     blurTarget?: RefObject<View | null>
     onBack: () => void
     onNewChat: () => void
+    newChatDisabledReason?: string
     onArchive?: () => Promise<void>
 }
 
-export function ChatHeader({ webUrl, blurTarget, onBack, onNewChat, onArchive }: ChatHeaderProps): ReactElement {
+export function ChatHeader({
+    webUrl,
+    blurTarget,
+    onBack,
+    onNewChat,
+    newChatDisabledReason,
+    onArchive,
+}: ChatHeaderProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     const insets = useScreenInsets()
@@ -68,8 +76,10 @@ export function ChatHeader({ webUrl, blurTarget, onBack, onNewChat, onArchive }:
             </Pressable44>
             <PillControl height={ROW_HEIGHT}>
                 <Pressable44
-                    onPress={onNewChat}
+                    onPress={() => (newChatDisabledReason ? toasts.show(newChatDisabledReason) : onNewChat())}
                     accessibilityLabel="New chat"
+                    accessibilityState={{ disabled: !!newChatDisabledReason }}
+                    accessibilityHint={newChatDisabledReason}
                     pressedBackground={colors.background}
                     style={styles.button}
                     testID="chat-new"
