@@ -229,12 +229,16 @@ export interface todayHighlightsLogicMeta {
             } | null,
             highlightsFailed: boolean
         ) => PulseSlotApi[]
-        pulseTiles: (highlights: HighlightsApi | null, pulseSlots: any) => HighlightMetricApi[]
-        highlightsPending: (highlights: HighlightsApi | null, highlightsLoading: boolean) => boolean
+        pulseTiles: (highlights: HighlightsApi | null, pulseSlots: PulseSlotApi[]) => HighlightMetricApi[]
+        highlightsPending: (
+            highlights: HighlightsApi | null,
+            highlightsLoading: boolean,
+            highlightsFailed: boolean
+        ) => boolean
         pulsePending: (
             highlights: HighlightsApi | null,
             highlightsPending: boolean,
-            pulseSlots: any,
+            pulseSlots: PulseSlotApi[],
             highlightsFailed: boolean
         ) => boolean
         doneHighlightKeys: (
@@ -384,9 +388,12 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                 pulseSlots.flatMap((slot) => highlights?.pulse.find((metric) => metric.key === slot.key) ?? []),
         ],
         highlightsPending: [
-            (s) => [s.highlights, s.highlightsLoading],
-            (highlights: HighlightsApi | null, highlightsLoading: boolean): boolean =>
-                highlights ? highlights.status === 'computing' && highlights.generated_at === null : highlightsLoading,
+            (s) => [s.highlights, s.highlightsLoading, s.highlightsFailed],
+            (highlights: HighlightsApi | null, highlightsLoading: boolean, highlightsFailed: boolean): boolean =>
+                !highlightsFailed &&
+                (highlights
+                    ? highlights.status === 'computing' && highlights.generated_at === null
+                    : highlightsLoading),
         ],
         pulsePending: [
             (s) => [s.highlights, s.highlightsPending, s.pulseSlots, s.highlightsFailed],
