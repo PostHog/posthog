@@ -11,18 +11,18 @@ from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 from posthog.scopes import UNPRIVILEGED_SCOPES
 
-# A policy can grant any unprivileged scope except the ones that let a CI token outlive itself or widen
-# its own access. Risky scopes that stay grantable carry a warning from `RISKY_SCOPE_WARNINGS`.
-# - `ci_trust_policy` would let a CI job change the policy behind its token.
+# A policy can grant any unprivileged scope except the ones that let a workload token outlive itself or
+# widen its own access. Risky scopes that stay grantable carry a warning from `RISKY_SCOPE_WARNINGS`.
+# - `workload_trust_policy` would let a workload change the policy behind its token.
 # - `task:write` starts an agent run from a prompt the caller writes, with its own longer-lived owner token.
 #   `conversation:write` (PostHog AI can create such a task), `signal_scout:write` and
 #   `business_knowledge:write` start the same kind of run.
 # - `project:write` lets a token rotate the project's secret token.
 # - `streamlit_app` returns a one-hour OAuth token to connect to a running app.
-CI_TRUST_POLICY_DENIED_SCOPES: frozenset[str] = frozenset(
+WORKLOAD_TRUST_POLICY_DENIED_SCOPES: frozenset[str] = frozenset(
     {
-        "ci_trust_policy:read",
-        "ci_trust_policy:write",
+        "workload_trust_policy:read",
+        "workload_trust_policy:write",
         "business_knowledge:write",
         "conversation:write",
         "project:write",
@@ -34,21 +34,23 @@ CI_TRUST_POLICY_DENIED_SCOPES: frozenset[str] = frozenset(
 )
 
 
-def ci_trust_policy_grantable_scopes() -> frozenset[str]:
-    return UNPRIVILEGED_SCOPES - CI_TRUST_POLICY_DENIED_SCOPES
+def workload_trust_policy_grantable_scopes() -> frozenset[str]:
+    return UNPRIVILEGED_SCOPES - WORKLOAD_TRUST_POLICY_DENIED_SCOPES
 
 
-def ci_trust_policy_scopes_not_grantable(scopes: Iterable[str]) -> list[str]:
-    grantable = ci_trust_policy_grantable_scopes()
+def workload_trust_policy_scopes_not_grantable(scopes: Iterable[str]) -> list[str]:
+    grantable = workload_trust_policy_grantable_scopes()
     return sorted({scope for scope in scopes if scope not in grantable})
 
 
-def ci_trust_policies_settings_url(team_id: int) -> str:
-    return f"{settings.SITE_URL}/project/{team_id}/settings/environment-ci-trust-policies"
+def workload_trust_policies_settings_url(team_id: int) -> str:
+    return f"{settings.SITE_URL}/project/{team_id}/settings/environment-trusted-workloads"
 
 
-class CITrustPolicy(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
-    """Lets CI jobs of one repository exchange their OIDC token for a short-lived project token.
+class WorkloadTrustPolicy(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
+    """Lets a workload, such as the CI jobs of one repository, exchange its OIDC token for a short-lived
+    project token. Azure calls this a federated identity credential, AWS a role trust policy, Google
+    Cloud a workload identity provider, and PyPI and npm trusted publishing.
 
     An empty `ref` or `environment` matches any value. The repository is always pinned, by name and
     by its immutable id.
@@ -76,9 +78,9 @@ class CITrustPolicy(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         constraints = [
             models.UniqueConstraint(
                 fields=["team", "issuer", "repository_id", "ref", "environment"],
-                name="posthog_unique_ci_trust_policy_conditions",
+                name="posthog_unique_workload_trust_policy_conditions",
             ),
         ]
 
     def __str__(self) -> str:
-        return f"CITrustPolicy(team={self.team_id}, name={self.name!r})"
+        return f"WorkloadTrustPolicy(team={self.team_id}, name={self.name!r})"

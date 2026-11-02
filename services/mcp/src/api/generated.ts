@@ -611,7 +611,6 @@ export namespace Schemas {
      * * `billing` - billing
      * * `business_knowledge` - business_knowledge
      * * `canvas` - canvas
-     * * `ci_trust_policy` - ci_trust_policy
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
@@ -716,6 +715,7 @@ export namespace Schemas {
      * * `webhook` - webhook
      * * `wizard_session` - wizard_session
      * * `wizard_run` - wizard_run
+     * * `workload_trust_policy` - workload_trust_policy
      */
     export type ScopeObjectEnum = typeof ScopeObjectEnum[keyof typeof ScopeObjectEnum];
 
@@ -735,7 +735,6 @@ export namespace Schemas {
       Billing: 'billing',
       BusinessKnowledge: 'business_knowledge',
       Canvas: 'canvas',
-      CiTrustPolicy: 'ci_trust_policy',
       Cohort: 'cohort',
       Comment: 'comment',
       Conversation: 'conversation',
@@ -840,6 +839,7 @@ export namespace Schemas {
       Webhook: 'webhook',
       WizardSession: 'wizard_session',
       WizardRun: 'wizard_run',
+      WorkloadTrustPolicy: 'workload_trust_policy',
     } as const;
 
     export interface AccessControlObjectRuleResource {
@@ -859,7 +859,6 @@ export namespace Schemas {
        * * `billing` - billing
        * * `business_knowledge` - business_knowledge
        * * `canvas` - canvas
-       * * `ci_trust_policy` - ci_trust_policy
        * * `cohort` - cohort
        * * `comment` - comment
        * * `conversation` - conversation
@@ -963,7 +962,8 @@ export namespace Schemas {
        * * `web_analytics` - web_analytics
        * * `webhook` - webhook
        * * `wizard_session` - wizard_session
-       * * `wizard_run` - wizard_run */
+       * * `wizard_run` - wizard_run
+       * * `workload_trust_policy` - workload_trust_policy */
       resource: ScopeObjectEnum;
       /** The levels an object rule on this resource type accepts, lowest first. */
       available_access_levels: string[];
@@ -1106,7 +1106,6 @@ export namespace Schemas {
        * * `billing` - billing
        * * `business_knowledge` - business_knowledge
        * * `canvas` - canvas
-       * * `ci_trust_policy` - ci_trust_policy
        * * `cohort` - cohort
        * * `comment` - comment
        * * `conversation` - conversation
@@ -1210,7 +1209,8 @@ export namespace Schemas {
        * * `web_analytics` - web_analytics
        * * `webhook` - webhook
        * * `wizard_session` - wizard_session
-       * * `wizard_run` - wizard_run */
+       * * `wizard_run` - wizard_run
+       * * `workload_trust_policy` - workload_trust_policy */
       source_resource: ScopeObjectEnum;
       /**
          * The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).
@@ -1516,7 +1516,6 @@ export namespace Schemas {
        * * `billing` - billing
        * * `business_knowledge` - business_knowledge
        * * `canvas` - canvas
-       * * `ci_trust_policy` - ci_trust_policy
        * * `cohort` - cohort
        * * `comment` - comment
        * * `conversation` - conversation
@@ -1620,7 +1619,8 @@ export namespace Schemas {
        * * `web_analytics` - web_analytics
        * * `webhook` - webhook
        * * `wizard_session` - wizard_session
-       * * `wizard_run` - wizard_run */
+       * * `wizard_run` - wizard_run
+       * * `workload_trust_policy` - workload_trust_policy */
       resource: ScopeObjectEnum;
       /** The object's primary key. */
       resource_id: string;
@@ -21223,61 +21223,6 @@ export namespace Schemas {
       readonly value: string;
     }
 
-    export interface CIProviderClaims {
-      /** Claim that carries the repository's full name. */
-      repository: string;
-      /** Claim that carries the repository's immutable ID. */
-      repository_id: string;
-      /**
-         * Claim that carries the git ref, or null.
-         * @nullable
-         */
-      ref: string | null;
-      /**
-         * Claim that carries the environment, or null.
-         * @nullable
-         */
-      environment: string | null;
-    }
-
-    export interface CIProvider {
-      /** Stable identifier of the provider. */
-      key: string;
-      /** Display name of the provider. */
-      name: string;
-      /** OIDC issuer a policy for this provider uses. */
-      issuer: string;
-      /** Where to read how to set the provider up. */
-      docs_url: string;
-      /** Which token claims a policy matches on. */
-      claims: CIProviderClaims;
-    }
-
-    /**
-     * What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care.
-     */
-    export type CIProvidersResponseRiskyScopes = {[key: string]: string};
-
-    export interface UnsupportedCIProvider {
-      /** Stable identifier of the provider. */
-      key: string;
-      /** Display name of the provider. */
-      name: string;
-      /** Why the provider can't be used. */
-      reason: string;
-    }
-
-    export interface CIProvidersResponse {
-      /** Providers a policy can trust. */
-      supported: CIProvider[];
-      /** Known providers that can't be trusted. */
-      unsupported: UnsupportedCIProvider[];
-      /** Every scope a policy's ceiling may hold. */
-      grantable_scopes: string[];
-      /** What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care. */
-      risky_scopes: CIProvidersResponseRiskyScopes;
-    }
-
     /**
      * * `running` - Sync Running
      * * `completed` - Sync Completed
@@ -21455,55 +21400,6 @@ export namespace Schemas {
        * * `jobs_not_synced` - Jobs not synced
        * * `not_executed` - Not executed */
       unavailable_reason: CITimingUnavailableReasonEnum | null;
-    }
-
-    export interface CITrustPolicy {
-      readonly id: string;
-      /**
-         * A name that says what the policy is for.
-         * @maxLength 200
-         */
-      name: string;
-      /**
-         * The OIDC issuer of the CI provider, from the list of supported providers.
-         * @maxLength 255
-         */
-      issuer: string;
-      /**
-         * The key of the CI provider the issuer belongs to.
-         * @nullable
-         */
-      readonly provider: string | null;
-      /**
-         * The repository's full name, for example `acme/web`. Matched exactly.
-         * @maxLength 255
-         */
-      repository: string;
-      /**
-         * The repository's immutable ID from the CI provider. Matched together with the name, so a deleted and re-created repository with the same name does not match.
-         * @maxLength 100
-         */
-      repository_id: string;
-      /**
-         * The git ref the job must run on, for example `refs/heads/main`. Empty matches any ref.
-         * @maxLength 255
-         */
-      ref?: string;
-      /**
-         * The deployment environment the job must run in. Empty matches any environment.
-         * @maxLength 255
-         */
-      environment?: string;
-      /**
-         * The scopes every token minted under this policy carries. Scopes that manage credentials or access are refused.
-         * @items.maxLength 100
-         */
-      scopes: string[];
-      /** Whether the policy can mint tokens. Disabling it cuts off its tokens. */
-      enabled?: boolean;
-      readonly created_by: UserBasic | null;
-      readonly created_at: string;
-      readonly updated_at: string;
     }
 
     export interface EventsHeatMapColumnAggregationResult {
@@ -73026,7 +72922,6 @@ export namespace Schemas {
        * * `billing` - billing
        * * `business_knowledge` - business_knowledge
        * * `canvas` - canvas
-       * * `ci_trust_policy` - ci_trust_policy
        * * `cohort` - cohort
        * * `comment` - comment
        * * `conversation` - conversation
@@ -73130,7 +73025,8 @@ export namespace Schemas {
        * * `web_analytics` - web_analytics
        * * `webhook` - webhook
        * * `wizard_session` - wizard_session
-       * * `wizard_run` - wizard_run */
+       * * `wizard_run` - wizard_run
+       * * `workload_trust_policy` - workload_trust_policy */
       source_resource: ScopeObjectEnum;
       /**
          * The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).
@@ -77976,15 +77872,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: CIMDVerificationToken[];
-    }
-
-    export interface PaginatedCITrustPolicyList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: CITrustPolicy[];
     }
 
     export interface PaginatedCanvasList {
@@ -85893,6 +85780,64 @@ export namespace Schemas {
       results: WorkflowProposal[];
     }
 
+    export interface WorkloadTrustPolicy {
+      readonly id: string;
+      /**
+         * A name that says what the policy is for.
+         * @maxLength 200
+         */
+      name: string;
+      /**
+         * The OIDC issuer of the CI provider, from the list of supported providers.
+         * @maxLength 255
+         */
+      issuer: string;
+      /**
+         * The key of the CI provider the issuer belongs to.
+         * @nullable
+         */
+      readonly provider: string | null;
+      /**
+         * The repository's full name, for example `acme/web`. Matched exactly.
+         * @maxLength 255
+         */
+      repository: string;
+      /**
+         * The repository's immutable ID from the CI provider. Matched together with the name, so a deleted and re-created repository with the same name does not match.
+         * @maxLength 100
+         */
+      repository_id: string;
+      /**
+         * The git ref the job must run on, for example `refs/heads/main`. Empty matches any ref.
+         * @maxLength 255
+         */
+      ref?: string;
+      /**
+         * The deployment environment the job must run in. Empty matches any environment.
+         * @maxLength 255
+         */
+      environment?: string;
+      /**
+         * The scopes every token minted under this policy carries. Scopes that manage credentials or access are refused.
+         * @items.maxLength 100
+         */
+      scopes: string[];
+      /** Whether the policy can mint tokens. Disabling it cuts off its tokens. */
+      enabled?: boolean;
+      readonly created_by: UserBasic | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface PaginatedWorkloadTrustPolicyList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: WorkloadTrustPolicy[];
+    }
+
     /**
      * * `sum` - Sum
      * * `avg` - Avg
@@ -86819,55 +86764,6 @@ export namespace Schemas {
          * @maxLength 2048
          */
       cimd_url?: string;
-    }
-
-    export interface PatchedCITrustPolicy {
-      readonly id?: string;
-      /**
-         * A name that says what the policy is for.
-         * @maxLength 200
-         */
-      name?: string;
-      /**
-         * The OIDC issuer of the CI provider, from the list of supported providers.
-         * @maxLength 255
-         */
-      issuer?: string;
-      /**
-         * The key of the CI provider the issuer belongs to.
-         * @nullable
-         */
-      readonly provider?: string | null;
-      /**
-         * The repository's full name, for example `acme/web`. Matched exactly.
-         * @maxLength 255
-         */
-      repository?: string;
-      /**
-         * The repository's immutable ID from the CI provider. Matched together with the name, so a deleted and re-created repository with the same name does not match.
-         * @maxLength 100
-         */
-      repository_id?: string;
-      /**
-         * The git ref the job must run on, for example `refs/heads/main`. Empty matches any ref.
-         * @maxLength 255
-         */
-      ref?: string;
-      /**
-         * The deployment environment the job must run in. Empty matches any environment.
-         * @maxLength 255
-         */
-      environment?: string;
-      /**
-         * The scopes every token minted under this policy carries. Scopes that manage credentials or access are refused.
-         * @items.maxLength 100
-         */
-      scopes?: string[];
-      /** Whether the policy can mint tokens. Disabling it cuts off its tokens. */
-      enabled?: boolean;
-      readonly created_by?: UserBasic | null;
-      readonly created_at?: string;
-      readonly updated_at?: string;
     }
 
     /**
@@ -96332,6 +96228,55 @@ export namespace Schemas {
       email_tracking_consent_mode?: EmailTrackingConsentModeEnum;
       /** Capture email sends, opens, clicks and bounces as PostHog events, so they can be used in insights and funnels. These events count toward the project's event usage. */
       capture_workflows_engagement_events?: boolean;
+    }
+
+    export interface PatchedWorkloadTrustPolicy {
+      readonly id?: string;
+      /**
+         * A name that says what the policy is for.
+         * @maxLength 200
+         */
+      name?: string;
+      /**
+         * The OIDC issuer of the CI provider, from the list of supported providers.
+         * @maxLength 255
+         */
+      issuer?: string;
+      /**
+         * The key of the CI provider the issuer belongs to.
+         * @nullable
+         */
+      readonly provider?: string | null;
+      /**
+         * The repository's full name, for example `acme/web`. Matched exactly.
+         * @maxLength 255
+         */
+      repository?: string;
+      /**
+         * The repository's immutable ID from the CI provider. Matched together with the name, so a deleted and re-created repository with the same name does not match.
+         * @maxLength 100
+         */
+      repository_id?: string;
+      /**
+         * The git ref the job must run on, for example `refs/heads/main`. Empty matches any ref.
+         * @maxLength 255
+         */
+      ref?: string;
+      /**
+         * The deployment environment the job must run in. Empty matches any environment.
+         * @maxLength 255
+         */
+      environment?: string;
+      /**
+         * The scopes every token minted under this policy carries. Scopes that manage credentials or access are refused.
+         * @items.maxLength 100
+         */
+      scopes?: string[];
+      /** Whether the policy can mint tokens. Disabling it cuts off its tokens. */
+      enabled?: boolean;
+      readonly created_by?: UserBasic | null;
+      readonly created_at?: string;
+      readonly updated_at?: string;
     }
 
     export interface PathCleaningPreviewExample {
@@ -124185,6 +124130,15 @@ export namespace Schemas {
       identifier: string;
     }
 
+    export interface UnsupportedWorkloadProvider {
+      /** Stable identifier of the provider. */
+      key: string;
+      /** Display name of the provider. */
+      name: string;
+      /** Why the provider can't be used. */
+      reason: string;
+    }
+
     export interface UpdateAppInput {
       /** New name for the app. */
       name?: string;
@@ -127334,6 +127288,52 @@ export namespace Schemas {
       succeeded: number;
       /** Failed invocations in the window. */
       failed: number;
+    }
+
+    export interface WorkloadProviderClaims {
+      /** Claim that carries the repository's full name. */
+      repository: string;
+      /** Claim that carries the repository's immutable ID. */
+      repository_id: string;
+      /**
+         * Claim that carries the git ref, or null.
+         * @nullable
+         */
+      ref: string | null;
+      /**
+         * Claim that carries the environment, or null.
+         * @nullable
+         */
+      environment: string | null;
+    }
+
+    export interface WorkloadProvider {
+      /** Stable identifier of the provider. */
+      key: string;
+      /** Display name of the provider. */
+      name: string;
+      /** OIDC issuer a policy for this provider uses. */
+      issuer: string;
+      /** Where to read how to set the provider up. */
+      docs_url: string;
+      /** Which token claims a policy matches on. */
+      claims: WorkloadProviderClaims;
+    }
+
+    /**
+     * What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care.
+     */
+    export type WorkloadProvidersResponseRiskyScopes = {[key: string]: string};
+
+    export interface WorkloadProvidersResponse {
+      /** Providers a policy can trust. */
+      supported: WorkloadProvider[];
+      /** Known providers that can't be trusted. */
+      unsupported: UnsupportedWorkloadProvider[];
+      /** Every scope a policy's ceiling may hold. */
+      grantable_scopes: string[];
+      /** What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care. */
+      risky_scopes: WorkloadProvidersResponseRiskyScopes;
     }
 
     export interface ZendeskImportError {
@@ -131600,7 +131600,7 @@ export namespace Schemas {
      * * `PersonalAPIKey` - PersonalAPIKey
      * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
      * * `OAuthApplication` - OAuthApplication
-     * * `CITrustPolicy` - CITrustPolicy
+     * * `WorkloadTrustPolicy` - WorkloadTrustPolicy
      * * `User` - User
      * * `Action` - Action
      * * `AccountView` - AccountView
@@ -131720,7 +131720,7 @@ export namespace Schemas {
       PersonalAPIKey: 'PersonalAPIKey',
       ProjectSecretAPIKey: 'ProjectSecretAPIKey',
       OAuthApplication: 'OAuthApplication',
-      CITrustPolicy: 'CITrustPolicy',
+      WorkloadTrustPolicy: 'WorkloadTrustPolicy',
       User: 'User',
       Action: 'Action',
       AccountView: 'AccountView',
@@ -131826,7 +131826,7 @@ export namespace Schemas {
      * * `PersonalAPIKey` - PersonalAPIKey
      * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
      * * `OAuthApplication` - OAuthApplication
-     * * `CITrustPolicy` - CITrustPolicy
+     * * `WorkloadTrustPolicy` - WorkloadTrustPolicy
      * * `User` - User
      * * `Action` - Action
      * * `AccountView` - AccountView
@@ -131934,7 +131934,7 @@ export namespace Schemas {
       PersonalAPIKey: 'PersonalAPIKey',
       ProjectSecretAPIKey: 'ProjectSecretAPIKey',
       OAuthApplication: 'OAuthApplication',
-      CITrustPolicy: 'CITrustPolicy',
+      WorkloadTrustPolicy: 'WorkloadTrustPolicy',
       User: 'User',
       Action: 'Action',
       AccountView: 'AccountView',
@@ -133460,17 +133460,6 @@ export namespace Schemas {
      * Multiple values may be separated by commas.
      */
     state?: string[];
-    };
-
-    export type CiTrustPoliciesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
     };
 
     export type CohortsListParams = {
@@ -146718,6 +146707,17 @@ export namespace Schemas {
      * The workflow to read the import of.
      */
     hog_flow_id: string;
+    };
+
+    export type WorkloadTrustPoliciesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type PublicHogFunctionTemplatesListParams = {
