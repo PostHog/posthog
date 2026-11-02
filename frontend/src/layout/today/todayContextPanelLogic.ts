@@ -9,9 +9,6 @@ import { CANVAS_SIDE_PANEL_TABS, sidePanelLogic } from '~/layout/navigation-3000
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
-import { sidepanelTicketsLogic } from 'products/conversations/frontend/components/SidePanel/sidepanelTicketsLogic'
-import { ConversationTicket, SidePanelViewState } from 'products/conversations/frontend/types'
-
 import { projectSessionKey, readSessionValue, writeSessionValue } from './todaySessionStorage'
 import { todayShellLogic } from './todayShellLogic'
 
@@ -57,10 +54,6 @@ export interface todayContextPanelLogicValues {
     enabledTabs: SidePanelTab[] // sidePanelLogic
     selectedTab: SidePanelTab | null // sidePanelStateLogic
     sidePanelOpen: boolean // sidePanelStateLogic
-    canCreateTicket: boolean // sidepanelTicketsLogic
-    currentTicket: ConversationTicket | null // sidepanelTicketsLogic
-    supportView: SidePanelViewState // sidepanelTicketsLogic
-    tickets: ConversationTicket[] // sidepanelTicketsLogic
     onAiPage: boolean // todayShellLogic
     activeTab: SidePanelTab
     canUndock: boolean
@@ -151,14 +144,7 @@ export interface todayContextPanelLogicMeta {
         floatingActiveTab: (floatingTab: SidePanelTab, enabledTabs: SidePanelTab[]) => SidePanelTab
         canUndock: (activeTab: SidePanelTab, onAiPage: boolean) => boolean
         activeTab: (docked: boolean, selectedTab: SidePanelTab | null, floatingActiveTab: SidePanelTab) => SidePanelTab
-        fullScreenUrl: (
-            activeTab: SidePanelTab,
-            selectedNotebook: string,
-            tickets: ConversationTicket[],
-            canCreateTicket: boolean,
-            supportView: SidePanelViewState,
-            currentTicket: ConversationTicket | null
-        ) => string | null
+        fullScreenUrl: (activeTab: SidePanelTab, selectedNotebook: string) => string | null
     }
 }
 
@@ -183,8 +169,6 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
             ['enabledTabs'],
             notebookPanelLogic,
             ['selectedNotebook'],
-            sidepanelTicketsLogic,
-            ['tickets', 'canCreateTicket', 'view as supportView', 'currentTicket'],
             todayShellLogic,
             ['onAiPage'],
         ],
@@ -322,25 +306,15 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
         ],
         fullScreenUrl: [
             // PostHog AI's URL comes from the chat logic, which the header reads only while the panel is open.
-            (s) => [s.activeTab, s.selectedNotebook, s.tickets, s.canCreateTicket, s.supportView, s.currentTicket],
-            (
-                activeTab: SidePanelTab,
-                selectedNotebook: string,
-                tickets: ConversationTicket[],
-                canCreateTicket: boolean,
-                supportView: SidePanelViewState,
-                currentTicket: ConversationTicket | null
-            ): string | null => {
+            // Support's comes from sidepanelTicketsLogic for the same reason: connecting it here would mount it,
+            // and mounting it fetches tickets on every page that shows the launcher.
+            (s) => [s.activeTab, s.selectedNotebook],
+            (activeTab: SidePanelTab, selectedNotebook: string): string | null => {
                 switch (activeTab) {
                     case SidePanelTab.Activity:
                         return urls.advancedActivityLogs()
                     case SidePanelTab.Notebooks:
                         return urls.notebook(selectedNotebook)
-                    // Matches the support panel's own expand button: the tickets page, on the open ticket if any.
-                    case SidePanelTab.Support:
-                        return canCreateTicket || tickets.length > 0
-                            ? urls.myTickets(supportView === 'ticket' ? currentTicket?.id : undefined)
-                            : null
                     default:
                         return null
                 }

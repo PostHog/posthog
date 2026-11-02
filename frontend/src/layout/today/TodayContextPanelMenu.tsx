@@ -17,6 +17,7 @@ import { PhaiViewSwitchMenuItem } from 'scenes/max/components/PhaiViewSwitchMenu
 
 import { SidePanelTab } from '~/types'
 
+import { sidepanelTicketsLogic } from 'products/conversations/frontend/components/SidePanel/sidepanelTicketsLogic'
 import { DebugLogsMenuItem } from 'products/posthog_ai/frontend/api/menus'
 
 import { todayAiChatLogic } from './todayAiChatLogic'
@@ -25,7 +26,29 @@ import { DROPDOWN_PARTS } from './todayMenuParts'
 import { TodayPanelTaskMenuItems } from './TodayPanelTaskMenuItems'
 
 export function TodayContextPanelMenu({ docked }: { docked: boolean }): JSX.Element | null {
-    const { activeTab, fullScreenUrl: tabFullScreenUrl, canUndock } = useValues(todayContextPanelLogic)
+    const { activeTab, fullScreenUrl } = useValues(todayContextPanelLogic)
+    // Reading sidepanelTicketsLogic mounts it, and mounting it fetches tickets. Only the Support tab reads it,
+    // because the support panel next to this menu already has it mounted.
+    return activeTab === SidePanelTab.Support ? (
+        <SupportPanelMenu docked={docked} />
+    ) : (
+        <PanelMenu docked={docked} tabFullScreenUrl={fullScreenUrl} />
+    )
+}
+
+function SupportPanelMenu({ docked }: { docked: boolean }): JSX.Element | null {
+    const { myTicketsUrl } = useValues(sidepanelTicketsLogic)
+    return <PanelMenu docked={docked} tabFullScreenUrl={myTicketsUrl} />
+}
+
+function PanelMenu({
+    docked,
+    tabFullScreenUrl,
+}: {
+    docked: boolean
+    tabFullScreenUrl: string | null
+}): JSX.Element | null {
+    const { activeTab, canUndock } = useValues(todayContextPanelLogic)
     const { dock, undock, openFullScreen } = useActions(todayContextPanelLogic)
     const { fullScreenUrl: aiFullScreenUrl, onTaskRunner, activeCreation } = useValues(todayAiChatLogic)
     const { carryContextToFullScreen } = useActions(todayAiChatLogic)
