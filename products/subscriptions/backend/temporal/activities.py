@@ -512,9 +512,10 @@ async def _deliver_insight_dashboard_subscription(
 
     try:
         result = await _send_to_target(subscription, inputs, assets, recipient_results, send_only_to_new_recipients)
-    except ApplicationError as error:
-        # Temporal retries this activity, so the retry delivers the reason and the row stays enabled.
-        if not error.non_retryable:
+    except Exception as error:
+        # Temporal retries every failure but a non-retryable one, so the retry delivers the reason
+        # and the row stays enabled until it does.
+        if not (isinstance(error, ApplicationError) and error.non_retryable):
             disable_reason = None
         raise
     finally:

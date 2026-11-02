@@ -800,18 +800,32 @@ async def test_deliver_subscription_auto_disables_invalid_subscriptions(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "label, exception_types, email_bounces, expected_enabled",
+    "label, exception_types, send_error, expected_raise, expected_enabled",
     [
-        ("owner_left", ["CreatorLeftOrganizationError"], False, False),
-        ("owner_lost_access_to_every_tile", ["TableAccessDeniedError", "TableAccessDeniedError"], False, False),
+        ("owner_left", ["CreatorLeftOrganizationError"], None, None, False),
+        ("owner_lost_access_to_every_tile", ["TableAccessDeniedError", "TableAccessDeniedError"], None, None, False),
         # One denied tile still delivers the dashboard, with that tile showing why.
-        ("owner_lost_access_to_one_tile", ["TableAccessDeniedError", None], False, True),
+        ("owner_lost_access_to_one_tile", ["TableAccessDeniedError", None], None, None, True),
         # A permanent bounce raises out of the send, and the disable must still happen.
-        ("owner_left_and_email_bounces", ["CreatorLeftOrganizationError"], True, False),
+        (
+            "owner_left_and_email_bounces",
+            ["CreatorLeftOrganizationError"],
+            EmailDeliveryError("permanent rejection"),
+            ApplicationError,
+            False,
+        ),
+        # A transient failure is retried by Temporal, so the retry delivers the reason before any disable.
+        (
+            "owner_left_and_send_fails_transiently",
+            ["CreatorLeftOrganizationError"],
+            ConnectionError("smtp unreachable"),
+            ConnectionError,
+            True,
+        ),
     ],
 )
 async def test_deliver_subscription_sends_the_reason_then_disables_when_the_owner_cannot_run_it(
-    team, user, label, exception_types, email_bounces, expected_enabled
+    team, user, label, exception_types, send_error, expected_raise, expected_enabled
 ):
     insight = await sync_to_async(Insight.objects.create)(team=team, short_id=f"own-{label[:5]}", name="owner")
     asset_ids = []
@@ -837,7 +851,7 @@ async def test_deliver_subscription_sends_the_reason_then_disables_when_the_owne
     with (
         patch(
             "products.subscriptions.backend.temporal.activities.send_email_subscription_report",
-            side_effect=EmailDeliveryError("permanent rejection") if email_bounces else None,
+            side_effect=send_error,
         ) as send_report,
         patch(
             "products.subscriptions.backend.logic.auto_disable.send_notifications_for_disabled_subscription"
@@ -850,8 +864,8 @@ async def test_deliver_subscription_sends_the_reason_then_disables_when_the_owne
                 subscription_id=subscription.id, exported_asset_ids=asset_ids, total_insight_count=len(asset_ids)
             ),
         )
-        if email_bounces:
-            with pytest.raises(ApplicationError):
+        if expected_raise is not None:
+            with pytest.raises(expected_raise):
                 await run
         else:
             result = await run
