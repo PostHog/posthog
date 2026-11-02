@@ -111778,7 +111778,7 @@ export namespace Schemas {
     }
 
     /**
-     * Topic key to `false` to opt the recipient out of that topic, or `true` to opt them back in. Opting back in to one topic after an all-marketing opt-out lifts that opt-out, so `all_marketing` becomes `true`, and keeps the other marketing topics opted out. Topics you leave out keep their current choice.
+     * Topic key to `false` to opt the recipient out of that topic, or `true` to opt them back in. Opting back in to one marketing topic after an all-marketing opt-out lifts that opt-out, so `all_marketing` becomes `true`, and keeps the other marketing topics opted out. Topics you leave out keep their current choice.
      */
     export type SetPreferencesTopics = {[key: string]: boolean};
 
@@ -111790,7 +111790,7 @@ export namespace Schemas {
       identifier: string;
       /** `false` opts the recipient out of every marketing topic. `true` lifts that opt-out. Applied before `topics`. */
       all_marketing?: boolean;
-      /** Topic key to `false` to opt the recipient out of that topic, or `true` to opt them back in. Opting back in to one topic after an all-marketing opt-out lifts that opt-out, so `all_marketing` becomes `true`, and keeps the other marketing topics opted out. Topics you leave out keep their current choice. */
+      /** Topic key to `false` to opt the recipient out of that topic, or `true` to opt them back in. Opting back in to one marketing topic after an all-marketing opt-out lifts that opt-out, so `all_marketing` becomes `true`, and keeps the other marketing topics opted out. Topics you leave out keep their current choice. */
       topics?: SetPreferencesTopics;
     }
 
