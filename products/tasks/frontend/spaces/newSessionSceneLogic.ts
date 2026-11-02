@@ -143,7 +143,7 @@ export const newSessionSceneLogic = kea<newSessionSceneLogicType>([
             ],
         ],
     }),
-    listeners(({ values }) => ({
+    listeners(({ actions, values }) => ({
         // Like PostHog Desktop, a pick moves to that space's own New session, so it becomes the last space too.
         pickSpace: ({ spaceId }) => {
             router.actions.push(urls.taskSpaceNewSession(spaceId))
@@ -154,6 +154,9 @@ export const newSessionSceneLogic = kea<newSessionSceneLogicType>([
                 space_role: values.space?.system_role ?? null,
                 space_source: values.spaceChoice.source,
             })
+            if (!values.space) {
+                actions.loadSpaces()
+            }
             router.actions.push(urls.aiTask(sessionId))
         },
     })),
