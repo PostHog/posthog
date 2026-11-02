@@ -2,9 +2,9 @@ from collections.abc import Collection, Iterable
 from typing import Any
 from uuid import UUID
 
+from django.db import transaction
 from django.db.models import F
 
-from posthog.exceptions_capture import capture_exception
 from posthog.helpers.full_text_search import build_rank
 from posthog.ingress.contracts import WebhookDelivery
 
@@ -365,16 +365,12 @@ def delete_ses_identity(identity: str) -> None:
     providers.SESProvider().delete_identity(identity)
 
 
-def clear_ses_bounce_suppression(email: str) -> bool:
-    """Remove a bounce entry for `email` from the SES account suppression list. Never raises."""
-    from products.workflows.backend import providers  # noqa: PLC0415
+def clear_ses_bounce_suppression(email: str) -> None:
+    """Queue the removal of a bounce entry for `email` from the SES account suppression list."""
+    # The task module imports boto3, so import it here to keep boto3 off the facade import path.
+    from products.workflows.backend.tasks.ses_suppression import clear_ses_bounce_suppression_task  # noqa: PLC0415
 
-    try:
-        return providers.SESProvider().clear_bounce_suppression(email)
-    except Exception as e:
-        # A failure here must not fail the removal from the team's own list, which already happened.
-        capture_exception(e)
-        return False
+    transaction.on_commit(lambda: clear_ses_bounce_suppression_task.delay(email))
 
 
 def get_maildev_mock_dns_records() -> list[EmailDomainDnsRecord]:

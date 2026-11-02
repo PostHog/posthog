@@ -276,8 +276,10 @@ const resolveEmailStatusUpdate = (
             if (!reachesTo(rec.bounce.bouncedRecipients.map((r) => r.emailAddress))) {
                 return null
             }
+            // `provider_rejected` ranks above `sent`, which the send already recorded. `recipient_suppressed`
+            // ranks below `sent`, so the email status would stay `sent`.
             return isBlockedByProvider(rec)
-                ? { status: 'failed', reason: 'recipient_suppressed', timestamp: rec.bounce.timestamp }
+                ? { status: 'failed', reason: 'provider_rejected', timestamp: rec.bounce.timestamp }
                 : {
                       status: 'bounced',
                       reason: BOUNCE_TYPE_TO_EVENT_PROPERTY[rec.bounce.bounceType],

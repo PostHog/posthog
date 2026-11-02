@@ -1103,6 +1103,15 @@ describe('SesWebhookHandler', () => {
                 { eventType: 'Reject', reject: { reason: 'Bad content' } },
                 update('failed', transactionalMail.timestamp, 'provider_rejected'),
             ],
+            [
+                'a refusal for the SES account suppression list',
+                {},
+                {
+                    ...bounce('Permanent'),
+                    bounce: { ...bounce('Permanent').bounce, bounceSubType: 'OnAccountSuppressionList' },
+                },
+                update('failed', '2025-10-03T12:02:00Z', 'provider_rejected'),
+            ],
             ['a delivery of an untagged email', { tags: baseMail.tags }, delivery(['to@example.com']), []],
             ['a delivery to the cc recipient only', {}, delivery(['cc@example.com']), []],
             ['a bounce of the cc recipient', {}, bounce('Permanent', 'cc@example.com'), []],

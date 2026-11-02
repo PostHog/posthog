@@ -134,7 +134,10 @@ class TestRemoveSuppressionResetsSource(APIBaseTest):
 
         with (
             patch("products.messaging.backend.services.suppression.is_cloud", return_value=True),
-            patch("products.messaging.backend.services.suppression.clear_ses_bounce_suppression") as clear_ses,
+            patch(
+                "products.workflows.backend.tasks.ses_suppression.clear_ses_bounce_suppression_task.delay"
+            ) as clear_ses,
+            self.captureOnCommitCallbacks(execute=True),
         ):
             response = self.client.post(
                 self._url("remove_suppression"), {"identifier": "user@example.com"}, format="json"
