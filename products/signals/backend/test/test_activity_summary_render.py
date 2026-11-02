@@ -16,6 +16,7 @@ from products.signals.backend.activity_summary.prompt import (
     EmptyProfileError,
     MalformedSummaryError,
     normalize_summary,
+    summary_profile_text,
     summary_text,
     user_message,
 )
@@ -1285,6 +1286,13 @@ def test_summary_text_is_the_headline_and_the_theme_labels_in_order() -> None:
     reloaded = json.loads(json.dumps(summary, sort_keys=True))
     assert summary_text(summary) == summary_text(reloaded) == "Builds the signup funnel.\nThemes: b; a"
     assert summary_text({**summary, "themes": []}) == "Builds the signup funnel."
+    assert (
+        summary_profile_text(reloaded)
+        == "Builds the signup funnel.\nThemes: b; a\n\n## Funnels\n- Builds the signup funnel."
+    )
+    without_profile = {key: value for key, value in summary.items() if key != "profile"}
+    for profile in ({}, {"profile": None}, {"profile": "  "}):
+        assert summary_profile_text({**without_profile, **profile}) is None
 
 
 _PRICES = SummaryPrices(input_price_per_million_tokens=0.1, output_price_per_million_tokens=0.5)
