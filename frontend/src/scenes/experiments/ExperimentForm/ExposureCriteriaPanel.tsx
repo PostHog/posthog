@@ -15,7 +15,6 @@ import { ChartDisplayCategory, type Experiment } from '~/types'
 
 import { NegatedEventFilterNote } from 'products/experiments/frontend/components/NegatedEventFilterNote'
 import { SelectableCard } from 'products/experiments/frontend/components/SelectableCard'
-import { isLaunched } from 'products/experiments/frontend/experimentStatus'
 
 import {
     EXPERIMENT_EXPOSURE_EVENT,
@@ -77,10 +76,7 @@ function InclusionActionFilter({
                 {...commonActionFilterProps}
                 actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
             />
-            <NegatedEventFilterNote
-                config={experiment.exposure_criteria?.exposure_config}
-                launched={isLaunched(experiment)}
-            />
+            <NegatedEventFilterNote config={experiment.exposure_criteria?.exposure_config} experiment={experiment} />
         </div>
     )
 }
@@ -116,10 +112,7 @@ function ActivationActionFilter({
                 {...commonActionFilterProps}
                 actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
             />
-            <NegatedEventFilterNote
-                config={experiment.exposure_criteria?.activation_config}
-                launched={isLaunched(experiment)}
-            />
+            <NegatedEventFilterNote config={experiment.exposure_criteria?.activation_config} experiment={experiment} />
         </div>
     )
 }

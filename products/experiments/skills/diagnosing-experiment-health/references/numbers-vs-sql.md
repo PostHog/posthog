@@ -258,7 +258,7 @@ The person's other sessions can still have recordings, when replay is on for the
 A filter on an event property applies to each exposure event, not to the person.
 A person with a left-out event still counts when another of their exposure events passes, so their sessions can show the left-out page or value.
 To keep people out of the experiment, leave them out in the flag's release conditions before launch.
-On a running experiment that edit is a mid-run change (A6 and A7 in `bias-and-skew.md`).
+On a running experiment that edit is a mid-run change: people move out of the experiment, not to another variant (A6 in `bias-and-skew.md`, E2 in `mid-run-changes.md`).
 
 **Recommend:** use recordings to _qualitatively_ understand variant differences (what users actually
 experienced), not to _audit_ the numbers.

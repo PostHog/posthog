@@ -1,10 +1,12 @@
+import { isOperatorNegated } from 'lib/utils/operators'
+
 import {
     ExperimentEventExposureConfig,
     ExperimentExposureConfig,
     ExperimentExposureCriteria,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { Experiment, PropertyFilterType, PropertyOperator } from '~/types'
+import { Experiment, PropertyFilterType } from '~/types'
 
 /**
  * The flag exposure event contract for experiments. Mirrors the backend chokepoint
@@ -66,34 +68,26 @@ export function isDefaultExposureConfig(config: ExperimentExposureConfig): boole
     return isEventConfig(config) && config.event === EXPOSURE_DEFAULT_EVENT
 }
 
-const NEGATED_OPERATORS: ReadonlySet<PropertyOperator> = new Set([
-    PropertyOperator.IsNot,
-    PropertyOperator.NotIn,
-    PropertyOperator.IsNotSet,
-    PropertyOperator.NotIContains,
-    PropertyOperator.NotIContainsMulti,
-    PropertyOperator.NotRegex,
-    PropertyOperator.NotStartsWith,
-    PropertyOperator.NotEndsWith,
-    PropertyOperator.NotBetween,
-    PropertyOperator.IsCleanedPathNotExact,
-    PropertyOperator.SemverNeq,
-])
-
 /**
- * Whether the config leaves out events by an event property. The operators mirror the backend's
- * `operator_is_negative`. A person property has one value per user at a time, so a filter on it reads
- * as leaving out the user. `$feature_flag` names the flag of a flag call event, not a trait of the user.
+ * Whether the config leaves out events by an event property. A person property has one value per user
+ * at a time, so a filter on it reads as leaving out the user. `$feature_flag` names the flag of a flag
+ * call event, not a trait of the user. A group-aggregated experiment counts each group by
+ * `$group_<index>`, so a filter on that key leaves out the whole group.
  */
-export function hasNegatedEventFilter(config: ExperimentExposureConfig | undefined): boolean {
+export function hasNegatedEventFilter(
+    config: ExperimentExposureConfig | undefined,
+    groupTypeIndex: number | null | undefined
+): boolean {
     if (!config || config.kind === NodeKind.ExperimentWarehouseNativeExposureConfig) {
         return false
     }
+    const groupKey = groupTypeIndex != null ? `$group_${groupTypeIndex}` : null
     return (config.properties ?? []).some(
         (property) =>
             property.type === PropertyFilterType.Event &&
             property.key !== '$feature_flag' &&
-            NEGATED_OPERATORS.has(property.operator)
+            property.key !== groupKey &&
+            isOperatorNegated(property.operator)
     )
 }
 

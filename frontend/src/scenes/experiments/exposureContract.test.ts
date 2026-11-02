@@ -198,13 +198,25 @@ describe('exposureContract', () => {
         value: 'x',
     })
 
-    it.each<[string, ExperimentExposureConfig | undefined, boolean]>([
+    it.each<[string, ExperimentExposureConfig | undefined, boolean, (number | null)?]>([
         ['no config', undefined, false],
         ['no filters', eventConfig(), false],
         ['a negated event filter', eventConfig(eventFilter('$current_url', PropertyOperator.NotIContains)), true],
         ['a negated filter without a value', eventConfig(eventFilter('step', PropertyOperator.IsNotSet)), true],
         ['a filter that selects', eventConfig(eventFilter('$current_url', PropertyOperator.IContains)), false],
         ['a negated filter on the flag key', eventConfig(eventFilter('$feature_flag', PropertyOperator.IsNot)), false],
+        [
+            'a negated filter on the group a group experiment counts',
+            eventConfig(eventFilter('$group_2', PropertyOperator.IsNot)),
+            false,
+            2,
+        ],
+        [
+            'a negated filter on a group key in a person experiment',
+            eventConfig(eventFilter('$group_2', PropertyOperator.IsNot)),
+            true,
+            null,
+        ],
         [
             'a negated person filter',
             eventConfig({
@@ -229,7 +241,7 @@ describe('exposureContract', () => {
             { kind: NodeKind.ExperimentWarehouseNativeExposureConfig, connection_id: 'x', query: 'SELECT 1' },
             false,
         ],
-    ])('reads whether the config leaves out events for %s', (_name, config, expected) => {
-        expect(hasNegatedEventFilter(config)).toBe(expected)
+    ])('reads whether the config leaves out events for %s', (_name, config, expected, groupTypeIndex = null) => {
+        expect(hasNegatedEventFilter(config, groupTypeIndex)).toBe(expected)
     })
 })

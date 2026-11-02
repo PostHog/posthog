@@ -993,12 +993,12 @@ class EnterpriseExperimentsViewSet(
         the other findings stop at the end.
 
         `exposure_filters` reads the cohort filters of the exposure criteria and of the activation,
-        not the test account filters. `exposure_filter_on_dynamic_cohort` is a
-        warning in every state: the results use the members of a dynamic cohort at the calculation,
-        not at exposure. Its subcode is `cohort_forces_variant` when a release condition of the flag
-        that matches the cohort's members gives one variant, `cohort_in_release_conditions` when the
-        release conditions match its members otherwise, and `evidence.cohort_ids` names the cohorts.
-        Both subcodes need the exposure criteria to keep the members too, not to leave them out.
+        not the test account filters. `exposure_filter_on_dynamic_cohort` is a warning in every
+        state: the results use the members of a dynamic cohort at the calculation, not at exposure.
+        Its subcode is `cohort_forces_variant` when a release condition of the flag that matches the
+        cohort's members gives one variant, `cohort_in_release_conditions` when the release
+        conditions match its members otherwise, and `evidence.cohort_ids` names the cohorts. Both
+        subcodes need the exposure criteria to keep the members too, not to leave them out.
 
         `metric_cannot_compile` builds and compiles the query of each metric without running it, as
         the caller, so a metric that every calculation fails on shows before launch. A metric that

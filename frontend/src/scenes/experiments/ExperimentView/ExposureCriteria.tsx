@@ -15,7 +15,6 @@ import { ChartDisplayCategory } from '~/types'
 
 import { NegatedEventFilterNote } from 'products/experiments/frontend/components/NegatedEventFilterNote'
 import { SelectableCard } from 'products/experiments/frontend/components/SelectableCard'
-import { isLaunched } from 'products/experiments/frontend/experimentStatus'
 
 import { experimentLogic } from '../experimentLogic'
 import { EXPOSURE_DEFAULT_EVENT, getActivationConfig, resolveFilterTestAccounts } from '../exposureContract'
@@ -176,10 +175,7 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                         {...commonActionFilterProps}
                         actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
                     />
-                    <NegatedEventFilterNote
-                        config={exposureCriteria.exposure_config}
-                        launched={isLaunched(experiment)}
-                    />
+                    <NegatedEventFilterNote config={exposureCriteria.exposure_config} experiment={experiment} />
                 </div>
             )}
             {isActivation && exposureCriteria?.activation_config && (
@@ -207,10 +203,7 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                         {...commonActionFilterProps}
                         actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
                     />
-                    <NegatedEventFilterNote
-                        config={exposureCriteria.activation_config}
-                        launched={isLaunched(experiment)}
-                    />
+                    <NegatedEventFilterNote config={exposureCriteria.activation_config} experiment={experiment} />
                 </div>
             )}
             <div className="w-[405px]">

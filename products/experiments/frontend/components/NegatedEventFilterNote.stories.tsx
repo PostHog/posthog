@@ -8,9 +8,8 @@ import { NegatedEventFilterNote } from './NegatedEventFilterNote'
 const meta: Meta<typeof NegatedEventFilterNote> = {
     title: 'Experiments/NegatedEventFilterNote',
     component: NegatedEventFilterNote,
-    parameters: { testOptions: { snapshotBrowsers: [] } },
     args: {
-        launched: false,
+        experiment: {},
         config: {
             kind: NodeKind.ExperimentEventExposureConfig,
             event: '$pageview',
