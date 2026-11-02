@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("warehouse_sources", "0191_repin_qualys_vmdr_api_version_6_0"),
+        ("warehouse_sources", "0192_repin_loop_returns_api_version"),
     ]
 
     operations = [
