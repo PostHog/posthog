@@ -3006,8 +3006,11 @@ module.exports = {
 
 if (require.main === module) {
     let result
+    let context = null
+    let changedFiles = []
+    let deletedFiles = null
     try {
-        const changedFiles = fs
+        changedFiles = fs
             .readFileSync(0, 'utf8')
             .split('\n')
             .map((line) => line.trim())
@@ -3016,9 +3019,11 @@ if (require.main === module) {
             console.error('No changed files on stdin; reporting ALL')
             result = ALL
         } else {
+            context = buildContext(REPO_ROOT)
+            deletedFiles = findDeletedFiles(changedFiles)
             result = computeTargets(changedFiles, {
-                ...buildContext(REPO_ROOT),
-                deletedFiles: findDeletedFiles(changedFiles),
+                ...context,
+                deletedFiles,
             })
         }
     } catch (error) {
@@ -3031,4 +3036,16 @@ if (require.main === module) {
         console.error(`Computed ${result.length} target(s): ${JSON.stringify(result)}`)
     }
     process.stdout.write(JSON.stringify(result))
+    if (process.env.LANE_TELEMETRY_FILE) {
+        try {
+            const { summarizeLane } = require('./trunk-lane-telemetry')
+            context = context || buildContext(REPO_ROOT)
+            fs.writeFileSync(
+                process.env.LANE_TELEMETRY_FILE,
+                JSON.stringify(summarizeLane(changedFiles, result, context, deletedFiles))
+            )
+        } catch (error) {
+            console.error(`Could not write lane telemetry (${error.message}); keeping computed targets`)
+        }
+    }
 }

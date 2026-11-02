@@ -17,6 +17,7 @@ from django.utils import timezone
 import structlog
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError, ApplicationError
 
 from posthog.hogql.errors import QueryError, TableAccessDeniedError
 
@@ -46,6 +47,7 @@ from products.signals.backend.anomaly_scores.config import (
     read_payload,
     resolve_profile,
 )
+from products.signals.backend.anomaly_scores.due_list import record_failed, record_scored
 from products.signals.backend.anomaly_scores.emission import emit, score_events
 from products.signals.backend.anomaly_scores.metrics import record_candidates, record_pick
 from products.signals.backend.anomaly_scores.queue import (
@@ -63,6 +65,7 @@ from products.signals.backend.anomaly_scores.scoring import (
     score_insight,
 )
 from products.signals.backend.anomaly_scores.selection import parse_selection_config
+from products.signals.backend.anomaly_scores.spend import CpuSpendReport
 from products.signals.backend.anomaly_scores.state import invalidate_state, load_state, save_state
 
 logger = structlog.get_logger(__name__)
@@ -88,6 +91,9 @@ STATUS_ARTIFACT_UNAVAILABLE = "artifact_unavailable"
 STATUS_ERRORED = "errored"
 
 _PLAN_TIMEOUT = datetime.timedelta(minutes=2)
+# No team starts to load after this time. The rest of the plan scales with the loaded teams, so it needs the other half.
+# A timed-out attempt does not stop its thread, so a plan that ends in time also keeps its retry from overlapping it.
+_PLAN_LOAD_BUDGET = _PLAN_TIMEOUT / 2
 # All the scoring queries of one insight stop within their budget. The rest is detection, the capture request,
 # and the failure classification. A query timeout must reach the classification, so that it gets the 1 day cooldown.
 _INSIGHT_TIMEOUT = datetime.timedelta(seconds=SCORING_QUERY_BUDGET_SECONDS) + datetime.timedelta(seconds=90)
@@ -122,6 +128,15 @@ class AnomalyScoringTickPlan:
     train_backlog_hard: int = 0
     active: int = 0
     active_reasons: dict[str, int] | None = None
+    enrolled_teams: int = 0
+    enrolled_organizations: int = 0
+    teams_planned: int = 0
+    teams_skipped: int = 0
+    self_driving_organization_percentage: float = 0.0
+    due_insights: int | None = None
+    oldest_due_seconds: int | None = None
+    oldest_refresh_seconds: int | None = None
+    cpu: CpuSpendReport | None = None
 
 
 @frozen
@@ -170,6 +185,25 @@ class AnomalyScoringTickResult:
     # Active insights of the eligible teams, and how many of them have each activity reason.
     active: int = 0
     active_reasons: dict[str, int] | None = None
+    enrolled_teams: int = 0
+    enrolled_organizations: int = 0
+    # Time of the plan activity, its retry included. Compare it with the plan timeout.
+    plan_ms: int = 0
+    # Teams with active insights that the plan loaded, and the teams that wait for a later tick.
+    teams_planned: int = 0
+    teams_skipped: int = 0
+    # The percentage rollout after the overrides of this deployment.
+    self_driving_organization_percentage: float = 0.0
+    # The plan activity failed, and the tick scored nothing. `plan_error` is the error class.
+    plan_failed: bool = False
+    plan_error: str | None = None
+    # Due rows that the plan read from the stored due list, the time since the oldest of them became due, and
+    # the time since the oldest row refresh. None when the plan does not read the due list.
+    due_insights: int | None = None
+    oldest_due_seconds: int | None = None
+    oldest_refresh_seconds: int | None = None
+    # The CPU spend that the plan read, and what its CPU limits left out. None when the plan did not run.
+    cpu: CpuSpendReport | None = None
 
 
 def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPlan:
@@ -178,8 +212,10 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPl
     config = read_config(payload)
     if not config.enabled:
         return AnomalyScoringTickPlan(enabled=False, picks=[], candidates=0, max_concurrency=config.max_concurrency)
-    selection = select_insights(config, parse_selection_config(payload), now, limit)
+    deadline = time.monotonic() + _PLAN_LOAD_BUDGET.total_seconds()
+    selection = select_insights(config, parse_selection_config(payload), now, limit, deadline=deadline)
     record_candidates(selection.candidates)
+    # With the due list on, the census is empty, and the refresh job sends it.
     capture_census(selection.census, now)
     return AnomalyScoringTickPlan(
         enabled=True,
@@ -195,7 +231,24 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPl
         train_backlog_hard=selection.train_backlog_hard,
         active=selection.active,
         active_reasons=selection.active_reasons,
+        enrolled_teams=selection.enrolled_teams,
+        enrolled_organizations=selection.enrolled_organizations,
+        teams_planned=selection.teams_planned,
+        teams_skipped=selection.teams_skipped,
+        self_driving_organization_percentage=config.self_driving_organization_percentage,
+        due_insights=selection.due_insights,
+        oldest_due_seconds=selection.oldest_due_seconds,
+        oldest_refresh_seconds=selection.oldest_refresh_seconds,
+        cpu=selection.cpu,
     )
+
+
+def plan_error_class(error: ActivityError) -> str:
+    """The class of the error that failed the plan activity. An activity timeout is a Temporal `TimeoutError`."""
+    cause = error.cause
+    if isinstance(cause, ApplicationError) and cause.type:
+        return cause.type
+    return type(cause).__name__ if cause is not None else type(error).__name__
 
 
 def failure_status(error: Exception) -> str | None:
@@ -244,10 +297,12 @@ def run_insight(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
         )
         record_pick(status=status or STATUS_ERRORED, interval=interval, duration_ms=duration_ms, events=0, run=pick.run)
         capture_pick(pick, status=status or STATUS_ERRORED, interval=interval, duration_ms=duration_ms, run=pick.run)
+        # A full cluster is not a fault of the insight, so it keeps the attempt cooldown.
+        cooldown = SKIP_COOLDOWN if status not in (None, STATUS_AT_CAPACITY) else ATTEMPT_COOLDOWN
+        record_failed(pick.team_id, pick.insight_id, now, cooldown)
         if status is None:
             raise
-        # A full cluster is not a fault of the insight, so it keeps the attempt cooldown.
-        if status != STATUS_AT_CAPACITY:
+        if cooldown == SKIP_COOLDOWN:
             mark_attempted(pick.insight_id, SKIP_COOLDOWN)
         return ScoreInsightResult(status=status, events=0)
     duration_ms = round((time.monotonic() - started) * 1000)
@@ -326,7 +381,7 @@ def capture_census(census: list[TeamCensus], now: datetime.datetime) -> None:
             properties={
                 "deployment": settings.CLOUD_DEPLOYMENT,
                 "team_id": team.team_id,
-                "day": day.isoformat(),
+                "census_date": day.isoformat(),
                 "active_insights": team.active,
                 **{f"active_{reason}": count for reason, count in team.active_reasons.items()},
                 **{f"interval_{interval}": count for interval, count in team.active_intervals.items()},
@@ -345,6 +400,8 @@ def _score_pick(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
         None,
     )
     if insight is None:
+        # The next refresh removes the row of a deleted insight.
+        record_failed(pick.team_id, pick.insight_id, now, SKIP_COOLDOWN)
         return ScoreInsightResult(status=STATUS_MISSING, events=0)
     team = Team.objects.get(id=pick.team_id)
     # Set before scoring, so a failure also waits for the cooldown instead of taking a slot on every tick.
@@ -365,6 +422,7 @@ def _score_pick(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
                     error=str(error)[:200],
                 )
                 invalidate_state(team, insight.id, profile)
+                record_failed(team.id, insight.id, now, ATTEMPT_COOLDOWN)
                 return ScoreInsightResult(status=STATUS_ARTIFACT_UNAVAILABLE, events=0, run=ScoringRun.SCORE)
     scores = score_insight(
         insight,
@@ -391,6 +449,17 @@ def _score_pick(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
     # A state write before a failed emit would skip those buckets for good.
     if scores.state is not None:
         save_state(team, insight.id, profile, scores.state)
+    record_scored(
+        team,
+        insight.id,
+        {
+            series.series_key: max(point.bucket_start for point in series.points)
+            for series in scores.series
+            if series.points
+        },
+        now,
+        input.limits,
+    )
     return ScoreInsightResult(
         status=STATUS_SCORED if events else STATUS_UP_TO_DATE,
         events=len(events),
@@ -423,7 +492,20 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
         train_backlog_hard=result.train_backlog_hard,
         active=result.active,
         active_reasons=result.active_reasons,
+        enrolled_teams=result.enrolled_teams,
+        enrolled_organizations=result.enrolled_organizations,
+        plan_ms=result.plan_ms,
+        teams_planned=result.teams_planned,
+        teams_skipped=result.teams_skipped,
+        self_driving_organization_percentage=result.self_driving_organization_percentage,
+        plan_failed=result.plan_failed,
+        plan_error=result.plan_error,
+        due_insights=result.due_insights,
+        oldest_due_seconds=result.oldest_due_seconds,
+        oldest_refresh_seconds=result.oldest_refresh_seconds,
+        cpu=result.cpu,
     )
+    cpu = result.cpu
     ph_background_capture()(
         distinct_id=ANOMALY_SCORING_FLAG_DISTINCT_ID,
         event="anomaly scoring tick",
@@ -448,6 +530,23 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
             "train_backlog_hard": result.train_backlog_hard,
             "active_insights": result.active,
             **{f"active_{reason}": count for reason, count in (result.active_reasons or {}).items()},
+            "enrolled_teams": result.enrolled_teams,
+            "enrolled_organizations": result.enrolled_organizations,
+            "plan_ms": result.plan_ms,
+            "teams_planned": result.teams_planned,
+            "teams_skipped": result.teams_skipped,
+            "self_driving_organization_percentage": result.self_driving_organization_percentage,
+            "plan_failed": result.plan_failed,
+            "plan_error": result.plan_error,
+            "due_insights": result.due_insights,
+            "oldest_due_seconds": result.oldest_due_seconds,
+            "oldest_refresh_seconds": result.oldest_refresh_seconds,
+            "cpu_spend_status": cpu.status if cpu else None,
+            "fleet_cpu_seconds_today": cpu.fleet_cpu_seconds if cpu else None,
+            "fleet_read_bytes_today": cpu.fleet_read_bytes if cpu else None,
+            "teams_over_cpu_limit": cpu.teams_over_limit if cpu else None,
+            "train_skipped_for_cpu": cpu.train_skipped if cpu else None,
+            "score_skipped_for_cpu": cpu.score_skipped if cpu else None,
         },
     )
 
@@ -479,12 +578,27 @@ class AnomalyScoringTickWorkflow:
     @workflow.run
     async def run(self, inputs: AnomalyScoringTickInput) -> AnomalyScoringTickResult:
         started = workflow.now()
-        plan = await workflow.execute_activity(
-            plan_anomaly_scoring_tick_activity,
-            inputs,
-            start_to_close_timeout=_PLAN_TIMEOUT,
-            retry_policy=RetryPolicy(maximum_attempts=2),
-        )
+        try:
+            plan = await workflow.execute_activity(
+                plan_anomaly_scoring_tick_activity,
+                inputs,
+                start_to_close_timeout=_PLAN_TIMEOUT,
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+        except ActivityError as error:
+            # Without this event, a failed tick looks like a missing tick. The workflow still fails.
+            plan_ms = round((workflow.now() - started).total_seconds() * 1000)
+            await self._capture(
+                AnomalyScoringTickResult(
+                    enabled=True,
+                    duration_ms=plan_ms,
+                    plan_ms=plan_ms,
+                    plan_failed=True,
+                    plan_error=plan_error_class(error),
+                )
+            )
+            raise
+        plan_ms = round((workflow.now() - started).total_seconds() * 1000)
         if not plan.enabled:
             return AnomalyScoringTickResult()
 
@@ -545,11 +659,24 @@ class AnomalyScoringTickWorkflow:
             train_backlog_hard=plan.train_backlog_hard,
             active=plan.active,
             active_reasons=plan.active_reasons,
+            enrolled_teams=plan.enrolled_teams,
+            enrolled_organizations=plan.enrolled_organizations,
+            plan_ms=plan_ms,
+            teams_planned=plan.teams_planned,
+            teams_skipped=plan.teams_skipped,
+            self_driving_organization_percentage=plan.self_driving_organization_percentage,
+            due_insights=plan.due_insights,
+            oldest_due_seconds=plan.oldest_due_seconds,
+            oldest_refresh_seconds=plan.oldest_refresh_seconds,
+            cpu=plan.cpu,
         )
+        await self._capture(result)
+        return result
+
+    async def _capture(self, result: AnomalyScoringTickResult) -> None:
         await workflow.execute_activity(
             capture_anomaly_scoring_tick_activity,
             result,
             start_to_close_timeout=_CAPTURE_TIMEOUT,
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
-        return result

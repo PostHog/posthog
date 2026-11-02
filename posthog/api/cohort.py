@@ -125,7 +125,7 @@ from products.cohorts.backend.realtime_state import (
     CohortHistoryBuildPhase,
     CohortRealtimeReadiness,
     CohortRealtimeState,
-    has_realtime_state,
+    cohorts_with_realtime_state,
     resolve_realtime_readiness,
 )
 from products.feature_flags.backend.facade.config import ConfigFormatError, UnsupportedConfig, decode_config
@@ -805,6 +805,23 @@ class CohortUsedInResponseSerializer(serializers.Serializer):
     )
 
 
+# Each run carries its per-query stats, so a page stays bounded well above the UI page size of 100.
+COHORT_CALCULATION_HISTORY_MAX_LIMIT = 500
+
+
+class CohortCalculationHistoryQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False,
+        default=100,
+        min_value=1,
+        max_value=COHORT_CALCULATION_HISTORY_MAX_LIMIT,
+        help_text=f"Number of calculation runs to return. Defaults to 100, at most {COHORT_CALCULATION_HISTORY_MAX_LIMIT}.",
+    )
+    offset = serializers.IntegerField(
+        required=False, default=0, min_value=0, help_text="Number of calculation runs to skip. Defaults to 0."
+    )
+
+
 class CohortCalculationHistorySerializer(serializers.ModelSerializer):
     duration_seconds = serializers.ReadOnlyField()
     is_completed = serializers.ReadOnlyField()
@@ -814,7 +831,6 @@ class CohortCalculationHistorySerializer(serializers.ModelSerializer):
     total_read_rows = serializers.ReadOnlyField()
     total_written_rows = serializers.ReadOnlyField()
     main_query = serializers.ReadOnlyField()
-    main_query_id = serializers.ReadOnlyField()
 
     class Meta:
         model = CohortCalculationHistory
@@ -834,8 +850,18 @@ class CohortCalculationHistorySerializer(serializers.ModelSerializer):
             "total_read_rows",
             "total_written_rows",
             "main_query",
-            "main_query_id",
         ]
+
+
+class CohortCalculationHistoryResponseSerializer(serializers.Serializer):
+    results = CohortCalculationHistorySerializer(many=True, help_text="Calculation runs on this page, newest first.")
+    count = serializers.IntegerField(help_text="Number of calculation runs recorded for the cohort.")
+    next = serializers.CharField(
+        allow_null=True, help_text="Query string for the next page, such as `?limit=100&offset=100`, or null."
+    )
+    previous = serializers.CharField(
+        allow_null=True, help_text="Query string for the previous page, or null on the first page."
+    )
 
 
 class CSVConfig:
@@ -1001,7 +1027,7 @@ def _resolve_realtime_readiness_if_in_rollout(
     Eligibility is checked before the rollout flag, and not after, so a project the pipeline does
     not cover never pays for a flag evaluation that cannot change its answer.
     """
-    relevant = [cohort for cohort in cohorts if has_realtime_state(cohort)]
+    relevant = cohorts_with_realtime_state(cohorts)
     if not relevant or not _realtime_targeting_enabled(context):
         return {}
     return resolve_realtime_readiness(relevant)
@@ -1060,6 +1086,12 @@ class CohortListSerializer(serializers.ListSerializer):
             cohorts, self.child.context
         )
         return super().to_representation(cohorts)
+
+
+def _completed_calculations_newest_first(cohort: Any) -> QuerySet[CohortCalculationHistory]:
+    return CohortCalculationHistory.objects.filter(cohort=cohort, finished_at__isnull=False).order_by(
+        "-started_at", "-id"
+    )
 
 
 class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializer):
@@ -1189,18 +1221,14 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 return get_friendly_error_message(cohort.last_error_code, will_retry=will_retry)
             return None
 
-        # Fall back to querying calculation history.
+        # Fall back to querying the most recent completed calculation.
+        # If a newer completed run succeeded (error is empty/NULL), the cohort has recovered
+        # and no stale error from an older failed run should be surfaced.
         # Old records may have error set but error_code=NULL; get_friendly_error_message
         # returns None for those, so they won't surface user-facing messages.
-        last_failed_calculation = (
-            CohortCalculationHistory.objects.filter(cohort=cohort)
-            .exclude(error__isnull=True)
-            .exclude(error="")
-            .order_by("-started_at")
-            .first()
-        )
-        if last_failed_calculation:
-            return get_friendly_error_message(last_failed_calculation.error_code, will_retry=will_retry)
+        last_completed_calculation = _completed_calculations_newest_first(cohort).first()
+        if last_completed_calculation and last_completed_calculation.error:
+            return get_friendly_error_message(last_completed_calculation.error_code, will_retry=will_retry)
         return None
 
     def validate_cohort_type(self, value):
@@ -2507,13 +2535,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         # cohorts.
         if not is_basic_list:
             last_error_code_subquery = Subquery(
-                CohortCalculationHistory.objects.filter(
-                    cohort=OuterRef("pk"),
-                    error__isnull=False,
-                )
-                .exclude(error="")
-                .order_by("-started_at")
-                .values("error_code")[:1]
+                _completed_calculations_newest_first(OuterRef("pk")).values("error_code")[:1]
             )
             queryset = queryset.prefetch_related("experiment_set").annotate(last_error_code=last_error_code_subquery)
 
@@ -2741,10 +2763,16 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         )
         return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
+    @extend_schema(
+        parameters=[CohortCalculationHistoryQuerySerializer],
+        responses={200: CohortCalculationHistoryResponseSerializer},
+    )
     @action(methods=["GET"], detail=True, required_scopes=["cohort:read"])
     def calculation_history(self, request: request.Request, **kwargs):
-        limit = int(request.query_params.get("limit", "100"))
-        offset = int(request.query_params.get("offset", "0"))
+        query = CohortCalculationHistoryQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        limit: int = query.validated_data["limit"]
+        offset: int = query.validated_data["offset"]
 
         cohort: Cohort = self.get_object()
 

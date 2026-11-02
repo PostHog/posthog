@@ -8,6 +8,7 @@ import { myTicketsSceneLogic } from './myTicketsSceneLogic'
 
 describe('myTicketsSceneLogic', () => {
     beforeEach(() => {
+        localStorage.clear()
         initKeaTests()
         ;(posthog as any).conversations = {
             isAvailable: () => true,
@@ -16,6 +17,7 @@ describe('myTicketsSceneLogic', () => {
     })
 
     afterEach(() => {
+        jest.restoreAllMocks()
         delete (posthog as any).conversations
     })
 
@@ -31,6 +33,8 @@ describe('myTicketsSceneLogic', () => {
         const callsAtBoot = getTickets.mock.calls.length
         expect(callsAtBoot).toBeGreaterThan(0)
 
+        const bootTime = Date.now()
+        jest.spyOn(Date, 'now').mockReturnValue(bootTime + 60_000)
         const sceneLogic = myTicketsSceneLogic.build()
         sceneLogic.mount()
         await expectLogic(ticketsLogic).toFinishAllListeners()

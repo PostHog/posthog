@@ -1,11 +1,9 @@
-#!/usr/bin/env bun
+#!/usr/bin/env -S bun --no-env-file
+import { processRuntime } from '@/core/runtime'
+
 import { run } from './cli'
 
-process.exitCode = run(process.argv.slice(2), {
-    stdout: (text) => {
-        process.stdout.write(`${text}\n`)
-    },
-    stderr: (text) => {
-        process.stderr.write(`${text}\n`)
-    },
+// A promise chain rather than top-level await, which `bun build --bytecode` does not support.
+void run(process.argv.slice(2), processRuntime()).then((code) => {
+    process.exitCode = code
 })

@@ -34,9 +34,9 @@ export const platformAlertsCreateBodyTwoNameDefault = `Untitled alert`
 export const platformAlertsCreateBodyTwoNameMax = 255
 
 export const platformAlertsCreateBodyTwoEnabledDefault = true
-export const platformAlertsCreateBodyTwoSourceConfigOneDestinationIdsMax = 100
+export const platformAlertsCreateBodyTwoSourceConfigOneQueryMax = 10000
 
-export const platformAlertsCreateBodyTwoSourceConfigOneEmailProjectMembersDefault = false
+export const platformAlertsCreateBodyTwoSourceConfigOneConditionKindDefault = `threshold`
 export const platformAlertsCreateBodyTwoGroupingOneMaxInstancesDefault = 100
 export const platformAlertsCreateBodyTwoGroupingOneMaxInstancesMax = 100
 
@@ -55,10 +55,8 @@ export const platformAlertsCreateBodyThreeNameDefault = `Untitled alert`
 export const platformAlertsCreateBodyThreeNameMax = 255
 
 export const platformAlertsCreateBodyThreeEnabledDefault = true
-export const platformAlertsCreateBodyThreeSourceConfigOneSourceIdsMax = 100
+export const platformAlertsCreateBodyThreeSourceConfigOneDestinationIdsMax = 100
 
-export const platformAlertsCreateBodyThreeSourceConfigOneGroupByDefault = `source`
-export const platformAlertsCreateBodyThreeSourceConfigOneIncludeBillingLimitsDefault = false
 export const platformAlertsCreateBodyThreeSourceConfigOneEmailProjectMembersDefault = false
 export const platformAlertsCreateBodyThreeGroupingOneMaxInstancesDefault = 100
 export const platformAlertsCreateBodyThreeGroupingOneMaxInstancesMax = 100
@@ -73,6 +71,29 @@ export const platformAlertsCreateBodyThreeDatapointsToAlarmMax = 10
 export const platformAlertsCreateBodyThreeCooldownMinutesDefault = 0
 export const platformAlertsCreateBodyThreeCooldownMinutesMin = 0
 export const platformAlertsCreateBodyThreeCooldownMinutesMax = 2147483647
+
+export const platformAlertsCreateBodyFourNameDefault = `Untitled alert`
+export const platformAlertsCreateBodyFourNameMax = 255
+
+export const platformAlertsCreateBodyFourEnabledDefault = true
+export const platformAlertsCreateBodyFourSourceConfigOneSourceIdsMax = 100
+
+export const platformAlertsCreateBodyFourSourceConfigOneGroupByDefault = `source`
+export const platformAlertsCreateBodyFourSourceConfigOneIncludeBillingLimitsDefault = false
+export const platformAlertsCreateBodyFourSourceConfigOneEmailProjectMembersDefault = false
+export const platformAlertsCreateBodyFourGroupingOneMaxInstancesDefault = 100
+export const platformAlertsCreateBodyFourGroupingOneMaxInstancesMax = 100
+
+export const platformAlertsCreateBodyFourGroupingOneOnOverflowDefault = `degrade_visible`
+export const platformAlertsCreateBodyFourEvaluationPeriodsDefault = 1
+export const platformAlertsCreateBodyFourEvaluationPeriodsMax = 10
+
+export const platformAlertsCreateBodyFourDatapointsToAlarmDefault = 1
+export const platformAlertsCreateBodyFourDatapointsToAlarmMax = 10
+
+export const platformAlertsCreateBodyFourCooldownMinutesDefault = 0
+export const platformAlertsCreateBodyFourCooldownMinutesMin = 0
+export const platformAlertsCreateBodyFourCooldownMinutesMax = 2147483647
 
 export const PlatformAlertsCreateBody = /* @__PURE__ */ zod.union([
     zod
@@ -241,7 +262,7 @@ export const PlatformAlertsCreateBody = /* @__PURE__ */ zod.union([
     zod
         .object({
             source_kind: zod
-                .enum(['warehouse_destination'])
+                .enum(['metrics'])
                 .describe('Product whose data the alert evaluates. It cannot change after the create.'),
             name: zod
                 .string()
@@ -254,23 +275,33 @@ export const PlatformAlertsCreateBody = /* @__PURE__ */ zod.union([
                 .describe('Whether the alert is evaluated on schedule. Defaults to true.'),
             source_config: zod
                 .object({
-                    destination_ids: zod
-                        .array(zod.uuid())
-                        .max(platformAlertsCreateBodyTwoSourceConfigOneDestinationIdsMax)
-                        .optional()
+                    query: zod
+                        .string()
+                        .min(1)
+                        .max(platformAlertsCreateBodyTwoSourceConfigOneQueryMax)
                         .describe(
-                            'Warehouse destinations the alert watches. Empty watches every destination in the project, including destinations added later. The grouping must be by_result_labels with keys [destination_id].'
+                            "A PromQL expression over this project's metrics. Each series it returns is one group. For a threshold condition, leave the comparison out of the expression."
                         ),
-                    email_project_members: zod
-                        .boolean()
-                        .default(platformAlertsCreateBodyTwoSourceConfigOneEmailProjectMembersDefault)
-                        .describe(
-                            'Whether project members who get data pipeline error emails also get an email when this alert fires or resolves.'
-                        ),
+                    condition: zod
+                        .object({
+                            kind: zod
+                                .enum(['threshold', 'present'])
+                                .default(platformAlertsCreateBodyTwoSourceConfigOneConditionKindDefault)
+                                .describe(
+                                    "threshold compares each series' latest value with `threshold`. present fires for every series the query returns, for a query that already filters to the series in breach."
+                                ),
+                            operator: zod
+                                .union([zod.enum(['gt', 'gte', 'lt', 'lte', 'eq', 'ne']), zod.null()])
+                                .optional()
+                                .describe("How a series' value compares with `threshold`. Required for a threshold."),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe('The value a series is compared with. Required for a threshold.'),
+                        })
+                        .describe('When a series is in breach.'),
                 })
-                .describe(
-                    'Settings for a warehouse_destination alert. The bound the alert is evaluated against is under condition.'
-                ),
+                .describe('Settings for a metrics alert. The bound the alert is evaluated against is under condition.'),
             grouping: zod
                 .object({
                     mode: zod
@@ -368,7 +399,7 @@ export const PlatformAlertsCreateBody = /* @__PURE__ */ zod.union([
     zod
         .object({
             source_kind: zod
-                .enum(['warehouse_source'])
+                .enum(['warehouse_destination'])
                 .describe('Product whose data the alert evaluates. It cannot change after the create.'),
             name: zod
                 .string()
@@ -381,24 +412,12 @@ export const PlatformAlertsCreateBody = /* @__PURE__ */ zod.union([
                 .describe('Whether the alert is evaluated on schedule. Defaults to true.'),
             source_config: zod
                 .object({
-                    source_ids: zod
+                    destination_ids: zod
                         .array(zod.uuid())
-                        .max(platformAlertsCreateBodyThreeSourceConfigOneSourceIdsMax)
+                        .max(platformAlertsCreateBodyThreeSourceConfigOneDestinationIdsMax)
                         .optional()
                         .describe(
-                            'Warehouse sources the alert watches. Empty watches every source in the project, including sources added later.'
-                        ),
-                    group_by: zod
-                        .enum(['schema', 'source'])
-                        .default(platformAlertsCreateBodyThreeSourceConfigOneGroupByDefault)
-                        .describe(
-                            'schema keeps one alert instance, and sends one message, per failing table. source keeps one per source, whatever number of its tables fail. The grouping must be by_result_labels with keys [schema_id] or [source_id] to match.'
-                        ),
-                    include_billing_limits: zod
-                        .boolean()
-                        .default(platformAlertsCreateBodyThreeSourceConfigOneIncludeBillingLimitsDefault)
-                        .describe(
-                            "Whether a table that stops syncing at the project's billing limit also fires the alert."
+                            'Warehouse destinations the alert watches. Empty watches every destination in the project, including destinations added later. The grouping must be by_result_labels with keys [destination_id].'
                         ),
                     email_project_members: zod
                         .boolean()
@@ -408,7 +427,7 @@ export const PlatformAlertsCreateBody = /* @__PURE__ */ zod.union([
                         ),
                 })
                 .describe(
-                    'Settings for a warehouse_source alert. The bound the alert is evaluated against is under condition.'
+                    'Settings for a warehouse_destination alert. The bound the alert is evaluated against is under condition.'
                 ),
             grouping: zod
                 .object({
@@ -504,6 +523,145 @@ export const PlatformAlertsCreateBody = /* @__PURE__ */ zod.union([
                 ),
         })
         .describe('The settings of a new alert. Every one but source_config has a default, which is stored.'),
+    zod
+        .object({
+            source_kind: zod
+                .enum(['warehouse_source'])
+                .describe('Product whose data the alert evaluates. It cannot change after the create.'),
+            name: zod
+                .string()
+                .max(platformAlertsCreateBodyFourNameMax)
+                .default(platformAlertsCreateBodyFourNameDefault)
+                .describe("Human-readable name of the alert. Defaults to 'Untitled alert'."),
+            enabled: zod
+                .boolean()
+                .default(platformAlertsCreateBodyFourEnabledDefault)
+                .describe('Whether the alert is evaluated on schedule. Defaults to true.'),
+            source_config: zod
+                .object({
+                    source_ids: zod
+                        .array(zod.uuid())
+                        .max(platformAlertsCreateBodyFourSourceConfigOneSourceIdsMax)
+                        .optional()
+                        .describe(
+                            'Warehouse sources the alert watches. Empty watches every source in the project, including sources added later.'
+                        ),
+                    group_by: zod
+                        .enum(['schema', 'source'])
+                        .default(platformAlertsCreateBodyFourSourceConfigOneGroupByDefault)
+                        .describe(
+                            'schema keeps one alert instance, and sends one message, per failing table. source keeps one per source, whatever number of its tables fail. The grouping must be by_result_labels with keys [schema_id] or [source_id] to match.'
+                        ),
+                    include_billing_limits: zod
+                        .boolean()
+                        .default(platformAlertsCreateBodyFourSourceConfigOneIncludeBillingLimitsDefault)
+                        .describe(
+                            "Whether a table that stops syncing at the project's billing limit also fires the alert."
+                        ),
+                    email_project_members: zod
+                        .boolean()
+                        .default(platformAlertsCreateBodyFourSourceConfigOneEmailProjectMembersDefault)
+                        .describe(
+                            'Whether project members who get data pipeline error emails also get an email when this alert fires or resolves.'
+                        ),
+                })
+                .describe(
+                    'Settings for a warehouse_source alert. The bound the alert is evaluated against is under condition.'
+                ),
+            grouping: zod
+                .object({
+                    mode: zod
+                        .enum(['single', 'by_result_labels'])
+                        .describe('\* `single` - Single\n\* `by_result_labels` - By result labels')
+                        .describe(
+                            'single keeps one instance for the whole alert. by_result_labels keeps one instance per distinct value of the labels in keys, so each group fires and resolves on its own.\n\n\* `single` - Single\n\* `by_result_labels` - By result labels'
+                        ),
+                    keys: zod
+                        .array(zod.string())
+                        .optional()
+                        .describe(
+                            'Result labels whose values make a group, such as service_name. Empty for mode single, required for by_result_labels. Changing them deletes the existing instances and closes their notification threads without a message.'
+                        ),
+                    max_instances: zod
+                        .number()
+                        .min(1)
+                        .max(platformAlertsCreateBodyFourGroupingOneMaxInstancesMax)
+                        .default(platformAlertsCreateBodyFourGroupingOneMaxInstancesDefault)
+                        .describe(
+                            'Most instances the alert keeps at once. Groups past it are not tracked, and the last message says how many were left out.'
+                        ),
+                    on_overflow: zod
+                        .enum(['degrade_visible'])
+                        .describe('\* `degrade_visible` - Degrade visible')
+                        .default(platformAlertsCreateBodyFourGroupingOneOnOverflowDefault)
+                        .describe(
+                            'What happens to groups past max_instances. degrade_visible names how many were left out.\n\n\* `degrade_visible` - Degrade visible'
+                        ),
+                })
+                .optional()
+                .describe('How the alert splits its results into instances. Defaults to mode single.'),
+            schedule_restriction: zod
+                .union([
+                    zod.object({
+                        blocked_windows: zod
+                            .array(
+                                zod.object({
+                                    start: zod
+                                        .string()
+                                        .describe(
+                                            'Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).'
+                                        ),
+                                    end: zod
+                                        .string()
+                                        .describe(
+                                            'End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.'
+                                        ),
+                                })
+                            )
+                            .describe(
+                                'Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours.'
+                            ),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    'Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null.'
+                ),
+            evaluation_periods: zod
+                .number()
+                .min(1)
+                .max(platformAlertsCreateBodyFourEvaluationPeriodsMax)
+                .default(platformAlertsCreateBodyFourEvaluationPeriodsDefault)
+                .describe('Number of recent checks considered when deciding to fire. Defaults to 1.'),
+            datapoints_to_alarm: zod
+                .number()
+                .min(1)
+                .max(platformAlertsCreateBodyFourDatapointsToAlarmMax)
+                .default(platformAlertsCreateBodyFourDatapointsToAlarmDefault)
+                .describe(
+                    'Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.'
+                ),
+            cooldown_minutes: zod
+                .number()
+                .min(platformAlertsCreateBodyFourCooldownMinutesMin)
+                .max(platformAlertsCreateBodyFourCooldownMinutesMax)
+                .default(platformAlertsCreateBodyFourCooldownMinutesDefault)
+                .describe('Minimum minutes between notifications for the same alert. Defaults to 0.'),
+            labels: zod
+                .record(zod.string(), zod.string())
+                .optional()
+                .describe(
+                    'Labels that say who owns the alert and how urgent it is, such as {\"team\": \"checkout\", \"severity\": \"critical\"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.'
+                ),
+            annotations: zod
+                .record(zod.string(), zod.string())
+                .optional()
+                .describe(
+                    'Context for whoever responds, such as {\"runbook_url\": \"https:\/\/...\"}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https:\/\/.'
+                ),
+        })
+        .describe('The settings of a new alert. Every one but source_config has a default, which is stored.'),
 ])
 
 export const platformAlertsUpdateBodyOneNameMax = 255
@@ -537,9 +695,9 @@ export const platformAlertsUpdateBodyTwoCooldownMinutesMax = 2147483647
 
 export const platformAlertsUpdateBodyThreeNameMax = 255
 
-export const platformAlertsUpdateBodyThreeSourceConfigOneDestinationIdsMax = 100
+export const platformAlertsUpdateBodyThreeSourceConfigOneQueryMax = 10000
 
-export const platformAlertsUpdateBodyThreeSourceConfigOneEmailProjectMembersDefault = false
+export const platformAlertsUpdateBodyThreeSourceConfigOneConditionKindDefault = `threshold`
 export const platformAlertsUpdateBodyThreeGroupingOneMaxInstancesDefault = 100
 export const platformAlertsUpdateBodyThreeGroupingOneMaxInstancesMax = 100
 
@@ -553,10 +711,8 @@ export const platformAlertsUpdateBodyThreeCooldownMinutesMax = 2147483647
 
 export const platformAlertsUpdateBodyFourNameMax = 255
 
-export const platformAlertsUpdateBodyFourSourceConfigOneSourceIdsMax = 100
+export const platformAlertsUpdateBodyFourSourceConfigOneDestinationIdsMax = 100
 
-export const platformAlertsUpdateBodyFourSourceConfigOneGroupByDefault = `source`
-export const platformAlertsUpdateBodyFourSourceConfigOneIncludeBillingLimitsDefault = false
 export const platformAlertsUpdateBodyFourSourceConfigOneEmailProjectMembersDefault = false
 export const platformAlertsUpdateBodyFourGroupingOneMaxInstancesDefault = 100
 export const platformAlertsUpdateBodyFourGroupingOneMaxInstancesMax = 100
@@ -568,6 +724,24 @@ export const platformAlertsUpdateBodyFourDatapointsToAlarmMax = 10
 
 export const platformAlertsUpdateBodyFourCooldownMinutesMin = 0
 export const platformAlertsUpdateBodyFourCooldownMinutesMax = 2147483647
+
+export const platformAlertsUpdateBodyFiveNameMax = 255
+
+export const platformAlertsUpdateBodyFiveSourceConfigOneSourceIdsMax = 100
+
+export const platformAlertsUpdateBodyFiveSourceConfigOneGroupByDefault = `source`
+export const platformAlertsUpdateBodyFiveSourceConfigOneIncludeBillingLimitsDefault = false
+export const platformAlertsUpdateBodyFiveSourceConfigOneEmailProjectMembersDefault = false
+export const platformAlertsUpdateBodyFiveGroupingOneMaxInstancesDefault = 100
+export const platformAlertsUpdateBodyFiveGroupingOneMaxInstancesMax = 100
+
+export const platformAlertsUpdateBodyFiveGroupingOneOnOverflowDefault = `degrade_visible`
+export const platformAlertsUpdateBodyFiveEvaluationPeriodsMax = 10
+
+export const platformAlertsUpdateBodyFiveDatapointsToAlarmMax = 10
+
+export const platformAlertsUpdateBodyFiveCooldownMinutesMin = 0
+export const platformAlertsUpdateBodyFiveCooldownMinutesMax = 2147483647
 
 export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
     zod
@@ -879,7 +1053,7 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
     zod
         .object({
             source_kind: zod
-                .enum(['warehouse_destination'])
+                .enum(['metrics'])
                 .describe(
                     'Product whose data the alert evaluates. It cannot change, so it must match the stored value.'
                 ),
@@ -887,23 +1061,33 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
             enabled: zod.boolean().describe('Whether the alert is evaluated on schedule.'),
             source_config: zod
                 .object({
-                    destination_ids: zod
-                        .array(zod.uuid())
-                        .max(platformAlertsUpdateBodyThreeSourceConfigOneDestinationIdsMax)
-                        .optional()
+                    query: zod
+                        .string()
+                        .min(1)
+                        .max(platformAlertsUpdateBodyThreeSourceConfigOneQueryMax)
                         .describe(
-                            'Warehouse destinations the alert watches. Empty watches every destination in the project, including destinations added later. The grouping must be by_result_labels with keys [destination_id].'
+                            "A PromQL expression over this project's metrics. Each series it returns is one group. For a threshold condition, leave the comparison out of the expression."
                         ),
-                    email_project_members: zod
-                        .boolean()
-                        .default(platformAlertsUpdateBodyThreeSourceConfigOneEmailProjectMembersDefault)
-                        .describe(
-                            'Whether project members who get data pipeline error emails also get an email when this alert fires or resolves.'
-                        ),
+                    condition: zod
+                        .object({
+                            kind: zod
+                                .enum(['threshold', 'present'])
+                                .default(platformAlertsUpdateBodyThreeSourceConfigOneConditionKindDefault)
+                                .describe(
+                                    "threshold compares each series' latest value with `threshold`. present fires for every series the query returns, for a query that already filters to the series in breach."
+                                ),
+                            operator: zod
+                                .union([zod.enum(['gt', 'gte', 'lt', 'lte', 'eq', 'ne']), zod.null()])
+                                .optional()
+                                .describe("How a series' value compares with `threshold`. Required for a threshold."),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe('The value a series is compared with. Required for a threshold.'),
+                        })
+                        .describe('When a series is in breach.'),
                 })
-                .describe(
-                    'Settings for a warehouse_destination alert. The bound the alert is evaluated against is under condition.'
-                ),
+                .describe('Settings for a metrics alert. The bound the alert is evaluated against is under condition.'),
             grouping: zod
                 .object({
                     mode: zod
@@ -996,7 +1180,7 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
     zod
         .object({
             source_kind: zod
-                .enum(['warehouse_source'])
+                .enum(['warehouse_destination'])
                 .describe(
                     'Product whose data the alert evaluates. It cannot change, so it must match the stored value.'
                 ),
@@ -1004,24 +1188,12 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
             enabled: zod.boolean().describe('Whether the alert is evaluated on schedule.'),
             source_config: zod
                 .object({
-                    source_ids: zod
+                    destination_ids: zod
                         .array(zod.uuid())
-                        .max(platformAlertsUpdateBodyFourSourceConfigOneSourceIdsMax)
+                        .max(platformAlertsUpdateBodyFourSourceConfigOneDestinationIdsMax)
                         .optional()
                         .describe(
-                            'Warehouse sources the alert watches. Empty watches every source in the project, including sources added later.'
-                        ),
-                    group_by: zod
-                        .enum(['schema', 'source'])
-                        .default(platformAlertsUpdateBodyFourSourceConfigOneGroupByDefault)
-                        .describe(
-                            'schema keeps one alert instance, and sends one message, per failing table. source keeps one per source, whatever number of its tables fail. The grouping must be by_result_labels with keys [schema_id] or [source_id] to match.'
-                        ),
-                    include_billing_limits: zod
-                        .boolean()
-                        .default(platformAlertsUpdateBodyFourSourceConfigOneIncludeBillingLimitsDefault)
-                        .describe(
-                            "Whether a table that stops syncing at the project's billing limit also fires the alert."
+                            'Warehouse destinations the alert watches. Empty watches every destination in the project, including destinations added later. The grouping must be by_result_labels with keys [destination_id].'
                         ),
                     email_project_members: zod
                         .boolean()
@@ -1031,7 +1203,7 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
                         ),
                 })
                 .describe(
-                    'Settings for a warehouse_source alert. The bound the alert is evaluated against is under condition.'
+                    'Settings for a warehouse_destination alert. The bound the alert is evaluated against is under condition.'
                 ),
             grouping: zod
                 .object({
@@ -1122,6 +1294,135 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
                 ),
         })
         .describe('The settings an edit can change. Each source kind subclasses it with a typed `source_config`.'),
+    zod
+        .object({
+            source_kind: zod
+                .enum(['warehouse_source'])
+                .describe(
+                    'Product whose data the alert evaluates. It cannot change, so it must match the stored value.'
+                ),
+            name: zod.string().max(platformAlertsUpdateBodyFiveNameMax).describe('Human-readable name of the alert.'),
+            enabled: zod.boolean().describe('Whether the alert is evaluated on schedule.'),
+            source_config: zod
+                .object({
+                    source_ids: zod
+                        .array(zod.uuid())
+                        .max(platformAlertsUpdateBodyFiveSourceConfigOneSourceIdsMax)
+                        .optional()
+                        .describe(
+                            'Warehouse sources the alert watches. Empty watches every source in the project, including sources added later.'
+                        ),
+                    group_by: zod
+                        .enum(['schema', 'source'])
+                        .default(platformAlertsUpdateBodyFiveSourceConfigOneGroupByDefault)
+                        .describe(
+                            'schema keeps one alert instance, and sends one message, per failing table. source keeps one per source, whatever number of its tables fail. The grouping must be by_result_labels with keys [schema_id] or [source_id] to match.'
+                        ),
+                    include_billing_limits: zod
+                        .boolean()
+                        .default(platformAlertsUpdateBodyFiveSourceConfigOneIncludeBillingLimitsDefault)
+                        .describe(
+                            "Whether a table that stops syncing at the project's billing limit also fires the alert."
+                        ),
+                    email_project_members: zod
+                        .boolean()
+                        .default(platformAlertsUpdateBodyFiveSourceConfigOneEmailProjectMembersDefault)
+                        .describe(
+                            'Whether project members who get data pipeline error emails also get an email when this alert fires or resolves.'
+                        ),
+                })
+                .describe(
+                    'Settings for a warehouse_source alert. The bound the alert is evaluated against is under condition.'
+                ),
+            grouping: zod
+                .object({
+                    mode: zod
+                        .enum(['single', 'by_result_labels'])
+                        .describe('\* `single` - Single\n\* `by_result_labels` - By result labels')
+                        .describe(
+                            'single keeps one instance for the whole alert. by_result_labels keeps one instance per distinct value of the labels in keys, so each group fires and resolves on its own.\n\n\* `single` - Single\n\* `by_result_labels` - By result labels'
+                        ),
+                    keys: zod
+                        .array(zod.string())
+                        .optional()
+                        .describe(
+                            'Result labels whose values make a group, such as service_name. Empty for mode single, required for by_result_labels. Changing them deletes the existing instances and closes their notification threads without a message.'
+                        ),
+                    max_instances: zod
+                        .number()
+                        .min(1)
+                        .max(platformAlertsUpdateBodyFiveGroupingOneMaxInstancesMax)
+                        .default(platformAlertsUpdateBodyFiveGroupingOneMaxInstancesDefault)
+                        .describe(
+                            'Most instances the alert keeps at once. Groups past it are not tracked, and the last message says how many were left out.'
+                        ),
+                    on_overflow: zod
+                        .enum(['degrade_visible'])
+                        .describe('\* `degrade_visible` - Degrade visible')
+                        .default(platformAlertsUpdateBodyFiveGroupingOneOnOverflowDefault)
+                        .describe(
+                            'What happens to groups past max_instances. degrade_visible names how many were left out.\n\n\* `degrade_visible` - Degrade visible'
+                        ),
+                })
+                .describe('How the alert splits its results into instances.'),
+            schedule_restriction: zod
+                .union([
+                    zod.object({
+                        blocked_windows: zod
+                            .array(
+                                zod.object({
+                                    start: zod
+                                        .string()
+                                        .describe(
+                                            'Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).'
+                                        ),
+                                    end: zod
+                                        .string()
+                                        .describe(
+                                            'End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.'
+                                        ),
+                                })
+                            )
+                            .describe(
+                                'Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours.'
+                            ),
+                    }),
+                    zod.null(),
+                ])
+                .describe(
+                    'Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours.'
+                ),
+            evaluation_periods: zod
+                .number()
+                .min(1)
+                .max(platformAlertsUpdateBodyFiveEvaluationPeriodsMax)
+                .describe('Number of recent checks considered when deciding to fire.'),
+            datapoints_to_alarm: zod
+                .number()
+                .min(1)
+                .max(platformAlertsUpdateBodyFiveDatapointsToAlarmMax)
+                .describe(
+                    'Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.'
+                ),
+            cooldown_minutes: zod
+                .number()
+                .min(platformAlertsUpdateBodyFiveCooldownMinutesMin)
+                .max(platformAlertsUpdateBodyFiveCooldownMinutesMax)
+                .describe('Minimum minutes between notifications for the same alert.'),
+            labels: zod
+                .record(zod.string(), zod.string())
+                .optional()
+                .describe(
+                    'Labels that say who owns the alert and how urgent it is, such as {\"team\": \"checkout\", \"severity\": \"critical\"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.'
+                ),
+            annotations: zod
+                .record(zod.string(), zod.string())
+                .optional()
+                .describe(
+                    'Context for whoever responds, such as {\"runbook_url\": \"https:\/\/...\"}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https:\/\/.'
+                ),
+        })
+        .describe('The settings an edit can change. Each source kind subclasses it with a typed `source_config`.'),
 ])
 
 export const platformAlertsPartialUpdateBodyOneNameMax = 255
@@ -1155,9 +1456,9 @@ export const platformAlertsPartialUpdateBodyTwoCooldownMinutesMax = 2147483647
 
 export const platformAlertsPartialUpdateBodyThreeNameMax = 255
 
-export const platformAlertsPartialUpdateBodyThreeSourceConfigOneDestinationIdsMax = 100
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneQueryMax = 10000
 
-export const platformAlertsPartialUpdateBodyThreeSourceConfigOneEmailProjectMembersDefault = false
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneConditionKindDefault = `threshold`
 export const platformAlertsPartialUpdateBodyThreeGroupingOneMaxInstancesDefault = 100
 export const platformAlertsPartialUpdateBodyThreeGroupingOneMaxInstancesMax = 100
 
@@ -1171,10 +1472,8 @@ export const platformAlertsPartialUpdateBodyThreeCooldownMinutesMax = 2147483647
 
 export const platformAlertsPartialUpdateBodyFourNameMax = 255
 
-export const platformAlertsPartialUpdateBodyFourSourceConfigOneSourceIdsMax = 100
+export const platformAlertsPartialUpdateBodyFourSourceConfigOneDestinationIdsMax = 100
 
-export const platformAlertsPartialUpdateBodyFourSourceConfigOneGroupByDefault = `source`
-export const platformAlertsPartialUpdateBodyFourSourceConfigOneIncludeBillingLimitsDefault = false
 export const platformAlertsPartialUpdateBodyFourSourceConfigOneEmailProjectMembersDefault = false
 export const platformAlertsPartialUpdateBodyFourGroupingOneMaxInstancesDefault = 100
 export const platformAlertsPartialUpdateBodyFourGroupingOneMaxInstancesMax = 100
@@ -1186,6 +1485,24 @@ export const platformAlertsPartialUpdateBodyFourDatapointsToAlarmMax = 10
 
 export const platformAlertsPartialUpdateBodyFourCooldownMinutesMin = 0
 export const platformAlertsPartialUpdateBodyFourCooldownMinutesMax = 2147483647
+
+export const platformAlertsPartialUpdateBodyFiveNameMax = 255
+
+export const platformAlertsPartialUpdateBodyFiveSourceConfigOneSourceIdsMax = 100
+
+export const platformAlertsPartialUpdateBodyFiveSourceConfigOneGroupByDefault = `source`
+export const platformAlertsPartialUpdateBodyFiveSourceConfigOneIncludeBillingLimitsDefault = false
+export const platformAlertsPartialUpdateBodyFiveSourceConfigOneEmailProjectMembersDefault = false
+export const platformAlertsPartialUpdateBodyFiveGroupingOneMaxInstancesDefault = 100
+export const platformAlertsPartialUpdateBodyFiveGroupingOneMaxInstancesMax = 100
+
+export const platformAlertsPartialUpdateBodyFiveGroupingOneOnOverflowDefault = `degrade_visible`
+export const platformAlertsPartialUpdateBodyFiveEvaluationPeriodsMax = 10
+
+export const platformAlertsPartialUpdateBodyFiveDatapointsToAlarmMax = 10
+
+export const platformAlertsPartialUpdateBodyFiveCooldownMinutesMin = 0
+export const platformAlertsPartialUpdateBodyFiveCooldownMinutesMax = 2147483647
 
 export const PlatformAlertsPartialUpdateBody = /* @__PURE__ */ zod.union([
     zod
@@ -1517,7 +1834,7 @@ export const PlatformAlertsPartialUpdateBody = /* @__PURE__ */ zod.union([
     zod
         .object({
             source_kind: zod
-                .enum(['warehouse_destination'])
+                .enum(['metrics'])
                 .describe(
                     'Product whose data the alert evaluates. It cannot change, so it must match the stored value.'
                 ),
@@ -1529,24 +1846,34 @@ export const PlatformAlertsPartialUpdateBody = /* @__PURE__ */ zod.union([
             enabled: zod.boolean().optional().describe('Whether the alert is evaluated on schedule.'),
             source_config: zod
                 .object({
-                    destination_ids: zod
-                        .array(zod.uuid())
-                        .max(platformAlertsPartialUpdateBodyThreeSourceConfigOneDestinationIdsMax)
-                        .optional()
+                    query: zod
+                        .string()
+                        .min(1)
+                        .max(platformAlertsPartialUpdateBodyThreeSourceConfigOneQueryMax)
                         .describe(
-                            'Warehouse destinations the alert watches. Empty watches every destination in the project, including destinations added later. The grouping must be by_result_labels with keys [destination_id].'
+                            "A PromQL expression over this project's metrics. Each series it returns is one group. For a threshold condition, leave the comparison out of the expression."
                         ),
-                    email_project_members: zod
-                        .boolean()
-                        .default(platformAlertsPartialUpdateBodyThreeSourceConfigOneEmailProjectMembersDefault)
-                        .describe(
-                            'Whether project members who get data pipeline error emails also get an email when this alert fires or resolves.'
-                        ),
+                    condition: zod
+                        .object({
+                            kind: zod
+                                .enum(['threshold', 'present'])
+                                .default(platformAlertsPartialUpdateBodyThreeSourceConfigOneConditionKindDefault)
+                                .describe(
+                                    "threshold compares each series' latest value with `threshold`. present fires for every series the query returns, for a query that already filters to the series in breach."
+                                ),
+                            operator: zod
+                                .union([zod.enum(['gt', 'gte', 'lt', 'lte', 'eq', 'ne']), zod.null()])
+                                .optional()
+                                .describe("How a series' value compares with `threshold`. Required for a threshold."),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe('The value a series is compared with. Required for a threshold.'),
+                        })
+                        .describe('When a series is in breach.'),
                 })
                 .optional()
-                .describe(
-                    'Settings for a warehouse_destination alert. The bound the alert is evaluated against is under condition.'
-                ),
+                .describe('Settings for a metrics alert. The bound the alert is evaluated against is under condition.'),
             grouping: zod
                 .object({
                     mode: zod
@@ -1644,7 +1971,7 @@ export const PlatformAlertsPartialUpdateBody = /* @__PURE__ */ zod.union([
     zod
         .object({
             source_kind: zod
-                .enum(['warehouse_source'])
+                .enum(['warehouse_destination'])
                 .describe(
                     'Product whose data the alert evaluates. It cannot change, so it must match the stored value.'
                 ),
@@ -1656,24 +1983,12 @@ export const PlatformAlertsPartialUpdateBody = /* @__PURE__ */ zod.union([
             enabled: zod.boolean().optional().describe('Whether the alert is evaluated on schedule.'),
             source_config: zod
                 .object({
-                    source_ids: zod
+                    destination_ids: zod
                         .array(zod.uuid())
-                        .max(platformAlertsPartialUpdateBodyFourSourceConfigOneSourceIdsMax)
+                        .max(platformAlertsPartialUpdateBodyFourSourceConfigOneDestinationIdsMax)
                         .optional()
                         .describe(
-                            'Warehouse sources the alert watches. Empty watches every source in the project, including sources added later.'
-                        ),
-                    group_by: zod
-                        .enum(['schema', 'source'])
-                        .default(platformAlertsPartialUpdateBodyFourSourceConfigOneGroupByDefault)
-                        .describe(
-                            'schema keeps one alert instance, and sends one message, per failing table. source keeps one per source, whatever number of its tables fail. The grouping must be by_result_labels with keys [schema_id] or [source_id] to match.'
-                        ),
-                    include_billing_limits: zod
-                        .boolean()
-                        .default(platformAlertsPartialUpdateBodyFourSourceConfigOneIncludeBillingLimitsDefault)
-                        .describe(
-                            "Whether a table that stops syncing at the project's billing limit also fires the alert."
+                            'Warehouse destinations the alert watches. Empty watches every destination in the project, including destinations added later. The grouping must be by_result_labels with keys [destination_id].'
                         ),
                     email_project_members: zod
                         .boolean()
@@ -1684,7 +1999,7 @@ export const PlatformAlertsPartialUpdateBody = /* @__PURE__ */ zod.union([
                 })
                 .optional()
                 .describe(
-                    'Settings for a warehouse_source alert. The bound the alert is evaluated against is under condition.'
+                    'Settings for a warehouse_destination alert. The bound the alert is evaluated against is under condition.'
                 ),
             grouping: zod
                 .object({
@@ -1764,6 +2079,145 @@ export const PlatformAlertsPartialUpdateBody = /* @__PURE__ */ zod.union([
                 .number()
                 .min(platformAlertsPartialUpdateBodyFourCooldownMinutesMin)
                 .max(platformAlertsPartialUpdateBodyFourCooldownMinutesMax)
+                .optional()
+                .describe('Minimum minutes between notifications for the same alert.'),
+            labels: zod
+                .record(zod.string(), zod.string())
+                .optional()
+                .describe(
+                    'Labels that say who owns the alert and how urgent it is, such as {\"team\": \"checkout\", \"severity\": \"critical\"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.'
+                ),
+            annotations: zod
+                .record(zod.string(), zod.string())
+                .optional()
+                .describe(
+                    'Context for whoever responds, such as {\"runbook_url\": \"https:\/\/...\"}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https:\/\/.'
+                ),
+        })
+        .describe('The settings an edit can change. Each source kind subclasses it with a typed `source_config`.'),
+    zod
+        .object({
+            source_kind: zod
+                .enum(['warehouse_source'])
+                .describe(
+                    'Product whose data the alert evaluates. It cannot change, so it must match the stored value.'
+                ),
+            name: zod
+                .string()
+                .max(platformAlertsPartialUpdateBodyFiveNameMax)
+                .optional()
+                .describe('Human-readable name of the alert.'),
+            enabled: zod.boolean().optional().describe('Whether the alert is evaluated on schedule.'),
+            source_config: zod
+                .object({
+                    source_ids: zod
+                        .array(zod.uuid())
+                        .max(platformAlertsPartialUpdateBodyFiveSourceConfigOneSourceIdsMax)
+                        .optional()
+                        .describe(
+                            'Warehouse sources the alert watches. Empty watches every source in the project, including sources added later.'
+                        ),
+                    group_by: zod
+                        .enum(['schema', 'source'])
+                        .default(platformAlertsPartialUpdateBodyFiveSourceConfigOneGroupByDefault)
+                        .describe(
+                            'schema keeps one alert instance, and sends one message, per failing table. source keeps one per source, whatever number of its tables fail. The grouping must be by_result_labels with keys [schema_id] or [source_id] to match.'
+                        ),
+                    include_billing_limits: zod
+                        .boolean()
+                        .default(platformAlertsPartialUpdateBodyFiveSourceConfigOneIncludeBillingLimitsDefault)
+                        .describe(
+                            "Whether a table that stops syncing at the project's billing limit also fires the alert."
+                        ),
+                    email_project_members: zod
+                        .boolean()
+                        .default(platformAlertsPartialUpdateBodyFiveSourceConfigOneEmailProjectMembersDefault)
+                        .describe(
+                            'Whether project members who get data pipeline error emails also get an email when this alert fires or resolves.'
+                        ),
+                })
+                .optional()
+                .describe(
+                    'Settings for a warehouse_source alert. The bound the alert is evaluated against is under condition.'
+                ),
+            grouping: zod
+                .object({
+                    mode: zod
+                        .enum(['single', 'by_result_labels'])
+                        .describe('\* `single` - Single\n\* `by_result_labels` - By result labels')
+                        .describe(
+                            'single keeps one instance for the whole alert. by_result_labels keeps one instance per distinct value of the labels in keys, so each group fires and resolves on its own.\n\n\* `single` - Single\n\* `by_result_labels` - By result labels'
+                        ),
+                    keys: zod
+                        .array(zod.string())
+                        .optional()
+                        .describe(
+                            'Result labels whose values make a group, such as service_name. Empty for mode single, required for by_result_labels. Changing them deletes the existing instances and closes their notification threads without a message.'
+                        ),
+                    max_instances: zod
+                        .number()
+                        .min(1)
+                        .max(platformAlertsPartialUpdateBodyFiveGroupingOneMaxInstancesMax)
+                        .default(platformAlertsPartialUpdateBodyFiveGroupingOneMaxInstancesDefault)
+                        .describe(
+                            'Most instances the alert keeps at once. Groups past it are not tracked, and the last message says how many were left out.'
+                        ),
+                    on_overflow: zod
+                        .enum(['degrade_visible'])
+                        .describe('\* `degrade_visible` - Degrade visible')
+                        .default(platformAlertsPartialUpdateBodyFiveGroupingOneOnOverflowDefault)
+                        .describe(
+                            'What happens to groups past max_instances. degrade_visible names how many were left out.\n\n\* `degrade_visible` - Degrade visible'
+                        ),
+                })
+                .optional()
+                .describe('How the alert splits its results into instances.'),
+            schedule_restriction: zod
+                .union([
+                    zod.object({
+                        blocked_windows: zod
+                            .array(
+                                zod.object({
+                                    start: zod
+                                        .string()
+                                        .describe(
+                                            'Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).'
+                                        ),
+                                    end: zod
+                                        .string()
+                                        .describe(
+                                            'End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.'
+                                        ),
+                                })
+                            )
+                            .describe(
+                                'Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours.'
+                            ),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    'Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours.'
+                ),
+            evaluation_periods: zod
+                .number()
+                .min(1)
+                .max(platformAlertsPartialUpdateBodyFiveEvaluationPeriodsMax)
+                .optional()
+                .describe('Number of recent checks considered when deciding to fire.'),
+            datapoints_to_alarm: zod
+                .number()
+                .min(1)
+                .max(platformAlertsPartialUpdateBodyFiveDatapointsToAlarmMax)
+                .optional()
+                .describe(
+                    'Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.'
+                ),
+            cooldown_minutes: zod
+                .number()
+                .min(platformAlertsPartialUpdateBodyFiveCooldownMinutesMin)
+                .max(platformAlertsPartialUpdateBodyFiveCooldownMinutesMax)
                 .optional()
                 .describe('Minimum minutes between notifications for the same alert.'),
             labels: zod

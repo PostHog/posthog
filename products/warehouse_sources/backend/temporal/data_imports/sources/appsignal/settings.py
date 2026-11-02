@@ -141,7 +141,6 @@ APPSIGNAL_ENDPOINTS: dict[str, AppsignalEndpointConfig] = {
       name
       description
       query
-      severities
       sourceIds
       actionType
     }
