@@ -17,16 +17,16 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from posthog.api.oauth.ci_providers import (
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.shared import UserBasicSerializer
+from posthog.api.utils import action
+from posthog.auth import SessionAuthentication
+from posthog.ci_providers import (
     get_ci_provider_by_issuer,
     get_supported_ci_providers,
     get_unsupported_ci_providers,
     normalize_issuer,
 )
-from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.shared import UserBasicSerializer
-from posthog.api.utils import action
-from posthog.auth import SessionAuthentication
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.ci_trust_policy import (
@@ -35,6 +35,7 @@ from posthog.models.ci_trust_policy import (
     ci_trust_policy_scopes_not_grantable,
 )
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
+from posthog.scopes import RISKY_SCOPE_WARNINGS
 from posthog.tasks.email import CITrustPolicyChange, send_ci_trust_policy_changed
 
 # A policy matches claim values exactly, so a character that reads as a pattern is refused rather than
@@ -223,6 +224,10 @@ class CIProvidersResponseSerializer(serializers.Serializer):
     grantable_scopes = serializers.ListField(
         child=serializers.CharField(), help_text="Every scope a policy's ceiling may hold."
     )
+    risky_scopes = serializers.DictField(
+        child=serializers.CharField(),
+        help_text="What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care.",
+    )
 
 
 class NotImpersonatedWritePermission(BasePermission):
@@ -290,6 +295,7 @@ class CITrustPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @extend_schema(responses={200: CIProvidersResponseSerializer})
     @action(methods=["GET"], detail=False, required_scopes=["ci_trust_policy:read"], pagination_class=None)
     def providers(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        grantable = ci_trust_policy_grantable_scopes()
         payload = {
             "supported": [
                 {
@@ -310,6 +316,7 @@ class CITrustPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 {"key": provider.key, "name": provider.name, "reason": provider.reason}
                 for provider in get_unsupported_ci_providers()
             ],
-            "grantable_scopes": sorted(ci_trust_policy_grantable_scopes()),
+            "grantable_scopes": sorted(grantable),
+            "risky_scopes": {scope: warning for scope, warning in RISKY_SCOPE_WARNINGS.items() if scope in grantable},
         }
         return Response(CIProvidersResponseSerializer(payload).data)

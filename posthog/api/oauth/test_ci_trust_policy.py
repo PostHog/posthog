@@ -88,6 +88,16 @@ class TestCITrustPolicyAPI(APIBaseTest):
 
         assert response.status_code == expected_status, response.json()
 
+    def test_risky_scopes_are_grantable_and_come_with_a_warning(self) -> None:
+        self._set_level(OrganizationMembership.Level.ADMIN)
+
+        created = self.client.post(self.url, _payload(scopes=["organization_member:write"]), format="json")
+        providers = self.client.get(f"{self.url}providers/").json()
+
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        assert "organization_member:write" in providers["risky_scopes"]
+        assert "task:write" not in providers["grantable_scopes"]
+
     def test_members_can_read_but_not_change_or_delete(self) -> None:
         policy = self._create_policy()
 
@@ -130,11 +140,7 @@ class TestCITrustPolicyAPI(APIBaseTest):
             ("unknown_scope", {"scopes": ["not_a_thing:read"]}, "scopes"),
             ("privileged_scope", {"scopes": ["llm_gateway:read"]}, "scopes"),
             ("credential_scope", {"scopes": ["project:write"]}, "scopes"),
-            ("member_management_scope", {"scopes": ["organization_member:write"]}, "scopes"),
             ("own_policy_scope", {"scopes": ["ci_trust_policy:read"]}, "scopes"),
-            ("owner_account_scope", {"scopes": ["user:read"]}, "scopes"),
-            ("approval_scope", {"scopes": ["approvals:write"]}, "scopes"),
-            ("credential_storing_scope", {"scopes": ["integration:write"]}, "scopes"),
             ("agent_run_scope", {"scopes": ["task:write"]}, "scopes"),
             ("app_token_scope", {"scopes": ["streamlit_app:read"]}, "scopes"),
         ]
