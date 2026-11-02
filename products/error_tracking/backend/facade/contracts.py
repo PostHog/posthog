@@ -489,3 +489,29 @@ class ErrorTrackingIssueSummary:
     generated_at: datetime
     # When the summary was last generated or confirmed unchanged. The 24h regenerate interval runs from it.
     checked_at: datetime
+
+
+class IssueSummaryStatus(LabeledStrEnum):
+    READY = "ready"
+    GENERATING = "generating"
+    NOT_GENERATED = "not_generated"
+    UNAVAILABLE = "unavailable"
+
+
+class IssueSummaryUnavailableReason(LabeledStrEnum):
+    AI_NOT_APPROVED = "ai_not_approved"
+    # No source sets this yet. It is in the contract so that readers handle it before billing does.
+    NOT_ON_PLAN = "not_on_plan"
+    RESTRICTED = "restricted"
+    DISABLED = "disabled"
+    ERROR = "error"
+
+
+@dataclass(frozen=True)
+class IssueSummaryRead:
+    status: IssueSummaryStatus
+    # The stored summary. Also set while a newer one generates.
+    summary: ErrorTrackingIssueSummary | None
+    stale: bool
+    reason: IssueSummaryUnavailableReason | None
+    hint: str | None

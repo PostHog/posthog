@@ -44202,6 +44202,7 @@ export namespace Schemas {
     /**
      * * `ready` - Ready
      * * `generating` - Generating
+     * * `not_generated` - Not Generated
      * * `unavailable` - Unavailable
      */
     export type IssueSummaryStatusEnum = typeof IssueSummaryStatusEnum[keyof typeof IssueSummaryStatusEnum];
@@ -44210,7 +44211,26 @@ export namespace Schemas {
     export const IssueSummaryStatusEnum = {
       Ready: 'ready',
       Generating: 'generating',
+      NotGenerated: 'not_generated',
       Unavailable: 'unavailable',
+    } as const;
+
+    /**
+     * * `ai_not_approved` - Ai Not Approved
+     * * `not_on_plan` - Not On Plan
+     * * `restricted` - Restricted
+     * * `disabled` - Disabled
+     * * `error` - Error
+     */
+    export type IssueSummaryUnavailableReasonEnum = typeof IssueSummaryUnavailableReasonEnum[keyof typeof IssueSummaryUnavailableReasonEnum];
+
+
+    export const IssueSummaryUnavailableReasonEnum = {
+      AiNotApproved: 'ai_not_approved',
+      NotOnPlan: 'not_on_plan',
+      Restricted: 'restricted',
+      Disabled: 'disabled',
+      Error: 'error',
     } as const;
 
     export interface ErrorTrackingIssueDetail {
@@ -44273,14 +44293,27 @@ export namespace Schemas {
       sparkline?: number[];
       /** Aggregate over matching events. Returned only when includeBreakdown is true. */
       breakdown?: ErrorTrackingIssueBreakdown;
-      /** A model-written summary of the issue. Present only when summary_status is 'ready'. Treat likely_cause as a hypothesis, not a fact. */
+      /** An AI-written summary of the issue. Present when one is stored, also while a newer one is written. Treat likely_cause as a hypothesis, not a fact. */
       summary?: ErrorTrackingIssueSummary;
-      /** 'ready' means summary is present. 'generating' means a summary may still be written: call once more after a few seconds, and continue without it if the status does not change. 'unavailable' means no summary exists for this issue and none is being written.
+      /** 'ready' means summary is present. 'generating' means a summary is being written in the background, and summary holds the one it will replace, if any. 'not_generated' means no summary exists and none is being written. 'unavailable' means no summary can be shown or written, and summary_reason says why. This read never waits for a summary.
        *
        * * `ready` - Ready
        * * `generating` - Generating
+       * * `not_generated` - Not Generated
        * * `unavailable` - Unavailable */
       summary_status: IssueSummaryStatusEnum;
+      /** Present when summary is present. True when a newer summary may be due, because the summary is older than a day or an older prompt wrote it. This read then starts a newer one in the background when it is due. */
+      summary_stale?: boolean;
+      /** Present when summary_status is 'unavailable'. 'ai_not_approved': the organization has not approved AI data processing. 'not_on_plan': the plan does not include summaries. 'restricted': the user may not read a property that the summary is written from. 'disabled': summaries are off for the project. 'error': generation failed, and a later read can try again.
+       *
+       * * `ai_not_approved` - Ai Not Approved
+       * * `not_on_plan` - Not On Plan
+       * * `restricted` - Restricted
+       * * `disabled` - Disabled
+       * * `error` - Error */
+      summary_reason?: IssueSummaryUnavailableReasonEnum;
+      /** Present when summary_status is 'generating' or 'not_generated'. Plain words that name the next step, with a link to the issue. You may pass it to the user. */
+      summary_hint?: string;
     }
 
     export interface ErrorTrackingIssueEventsQueryResponse {
@@ -44691,14 +44724,30 @@ export namespace Schemas {
     }
 
     export interface ErrorTrackingIssueSummaryResponse {
-      /** ready: `summary` holds the stored summary. generating: a summary is being written in the background, so poll again. `summary` holds the previous one, if any. unavailable: no summary exists and none will be written, for example because the feature is off.
+      /** ready: `summary` holds the stored summary. generating: a summary is being written in the background, whatever started it, so read again later. `summary` holds the one it will replace, if any. not_generated: no summary exists and none is being written. A read with start=true starts one. unavailable: no summary can be shown or written. `reason` says why.
        *
        * * `ready` - Ready
        * * `generating` - Generating
+       * * `not_generated` - Not Generated
        * * `unavailable` - Unavailable */
       status: IssueSummaryStatusEnum;
       /** The stored summary, or null when none exists yet. */
       summary: ErrorTrackingStoredIssueSummary | null;
+      /** True when a newer summary may be due: the stored one is older than the regenerate interval, or an older prompt wrote it. False when there is no summary. */
+      stale: boolean;
+      /** Why the status is unavailable, else null. ai_not_approved: the organization has not approved AI data processing. not_on_plan: the plan does not include summaries. restricted: the user may not read a property that the summary is written from. disabled: summaries are off for the project. error: generation failed, and a later read can try again.
+       *
+       * * `ai_not_approved` - Ai Not Approved
+       * * `not_on_plan` - Not On Plan
+       * * `restricted` - Restricted
+       * * `disabled` - Disabled
+       * * `error` - Error */
+      reason: IssueSummaryUnavailableReasonEnum | null;
+      /**
+         * Plain words that name the next step, for generating and not_generated. Null for other statuses.
+         * @nullable
+         */
+      hint: string | null;
     }
 
     export interface ErrorTrackingIssueValue {
@@ -136597,6 +136646,13 @@ export namespace Schemas {
      * Resolve the issue that currently owns this fingerprint first.
      */
     fingerprint?: string;
+    };
+
+    export type ErrorTrackingIssuesSummaryRetrieveParams = {
+    /**
+     * When true, the read also starts generation in the background if a summary is due. When false, the read only reports the stored summary and any generation already in progress.
+     */
+    start?: boolean;
     };
 
     export type ErrorTrackingIssuesValuesRetrieveParams = {

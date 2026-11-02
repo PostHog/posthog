@@ -617,17 +617,48 @@ class TestErrorTracking(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("read_none_started", "get", "", False, True, "generating"),
-            ("read_none_blocked", "get", "", False, False, "unavailable"),
-            ("read_stale_refreshes", "get", "", True, True, "ready"),
-            ("read_fresh", "get", "", True, False, "ready"),
-            ("regenerate_started", "post", "/regenerate", True, True, "generating"),
-            ("regenerate_fresh", "post", "/regenerate", True, False, "ready"),
-            ("regenerate_blocked", "post", "/regenerate", False, False, "unavailable"),
+            *[
+                (f"read_{name}", "", True, status, stored, stale, reason, hint)
+                for name, status, stored, stale, reason, hint in [
+                    ("ready", contracts.IssueSummaryStatus.READY, True, False, None, None),
+                    ("ready_stale", contracts.IssueSummaryStatus.READY, True, True, None, None),
+                    ("generating", contracts.IssueSummaryStatus.GENERATING, False, False, None, "Read again."),
+                    ("not_generated", contracts.IssueSummaryStatus.NOT_GENERATED, False, False, None, "Open it."),
+                    *[
+                        (
+                            f"unavailable_{reason.value}",
+                            contracts.IssueSummaryStatus.UNAVAILABLE,
+                            False,
+                            False,
+                            reason,
+                            None,
+                        )
+                        for reason in contracts.IssueSummaryUnavailableReason
+                    ],
+                ]
+            ],
+            (
+                "read_without_start",
+                "?start=false",
+                False,
+                contracts.IssueSummaryStatus.NOT_GENERATED,
+                False,
+                False,
+                None,
+                "Open it.",
+            ),
         ]
     )
     def test_issue_summary_status(
-        self, _name: str, method: str, suffix: str, stored: bool, started: bool, expected_status: str
+        self,
+        _name: str,
+        query: str,
+        start: bool,
+        status: contracts.IssueSummaryStatus,
+        stored: bool,
+        stale: bool,
+        reason: contracts.IssueSummaryUnavailableReason | None,
+        hint: str | None,
     ) -> None:
         issue = self.create_issue()
         summary = contracts.ErrorTrackingIssueSummary(
@@ -641,17 +672,14 @@ class TestErrorTracking(APIBaseTest):
             generated_at=datetime(2026, 10, 20, 12, 0, tzinfo=UTC),
             checked_at=datetime(2026, 10, 21, 12, 0, tzinfo=UTC),
         )
-        with (
-            patch.object(summaries_facade, "get_issue_summary", return_value=summary if stored else None) as get,
-            patch.object(summaries_facade, "start_issue_summary_generation", return_value=started) as start,
-        ):
-            response = getattr(self.client, method)(
-                f"/api/projects/{self.team.id}/error_tracking/issues/{issue.id}/summary{suffix}"
-            )
+        read = contracts.IssueSummaryRead(
+            status=status, summary=summary if stored else None, stale=stale, reason=reason, hint=hint
+        )
+        with patch.object(summaries_facade, "read_issue_summary", return_value=read) as read_summary:
+            response = self.client.get(f"/api/projects/{self.team.id}/error_tracking/issues/{issue.id}/summary{query}")
 
         assert response.status_code == 200
-        get.assert_called_once_with(self.team.id, issue.id, user=self.user)
-        start.assert_called_once_with(self.team.id, issue.id, user=self.user)
+        read_summary.assert_called_once_with(self.team.id, issue.id, user=self.user, start=start)
         expected_summary = (
             {
                 "what_happened": "A TypeError in checkout.",
@@ -666,17 +694,21 @@ class TestErrorTracking(APIBaseTest):
             if stored
             else None
         )
-        assert response.json() == {"status": expected_status, "summary": expected_summary}
+        assert response.json() == {
+            "status": status.value,
+            "summary": expected_summary,
+            "stale": stale,
+            "reason": reason.value if reason is not None else None,
+            "hint": hint,
+        }
 
     @parameterized.expand(
         [
-            ("other_team_get", "get", "", True),
-            ("other_team_post", "post", "/regenerate", True),
-            ("malformed_id_get", "get", "", False),
-            ("malformed_id_post", "post", "/regenerate", False),
+            ("other_team", True),
+            ("malformed_id", False),
         ]
     )
-    def test_issue_summary_is_scoped_to_team(self, _name: str, method: str, suffix: str, other_team: bool) -> None:
+    def test_issue_summary_is_scoped_to_team(self, _name: str, other_team: bool) -> None:
         if other_team:
             issue_id = str(
                 ErrorTrackingIssue.objects.create(team=Team.objects.create(organization=self.organization)).id
@@ -684,13 +716,11 @@ class TestErrorTracking(APIBaseTest):
         else:
             issue_id = "not-a-uuid"
 
-        with patch.object(summaries_facade, "start_issue_summary_generation") as start:
-            response = getattr(self.client, method)(
-                f"/api/projects/{self.team.id}/error_tracking/issues/{issue_id}/summary{suffix}"
-            )
+        with patch.object(summaries_facade, "read_issue_summary") as read_summary:
+            response = self.client.get(f"/api/projects/{self.team.id}/error_tracking/issues/{issue_id}/summary")
 
         assert response.status_code == 404
-        start.assert_not_called()
+        read_summary.assert_not_called()
 
     @parameterized.expand(
         [

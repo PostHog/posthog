@@ -3,9 +3,9 @@
 A module of its own, like ``queries.py``, so the HogQL and LLM client imports stay out of ``facade/api.py``.
 """
 
-from datetime import datetime
 from uuid import UUID
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 
 from products.error_tracking.backend.facade import contracts
@@ -45,32 +45,26 @@ def get_issue_summary(team_id: int, issue_id: UUID | str, *, user: User) -> cont
     return _shown(team_id, issue_summaries.get_issue_summary(team_id, issue_id))
 
 
-def get_or_generate_issue_summary(
-    team_id: int, issue_id: UUID | str, *, user: User
-) -> contracts.ErrorTrackingIssueSummary | None:
-    """Generate in the calling thread when a summary is due, else return the stored one. Blocks on the model."""
-    if not issue_summaries.summary_sources_readable(team_id, user):
-        return None
-    return _shown(team_id, issue_summaries.get_or_generate_issue_summary(team_id, issue_id).summary)
+def read_issue_summary(team_id: int, issue_id: UUID | str, *, user: User, start: bool) -> contracts.IssueSummaryRead:
+    """The stored summary and its status, at once. Never waits for generation, and never raises.
 
-
-def start_issue_summary_generation(team_id: int, issue_id: UUID | str, *, user: User) -> bool:
-    """Queue generation in the background when a summary may be due. False means the caller should not wait.
-
-    Also False when `user` may not read the summary, so that caller does not wait for one it cannot see.
+    `start` queues generation in the background when a summary is due.
     """
-    if not issue_summaries.summary_sources_readable(team_id, user):
-        return False
-    return issue_summaries.start_issue_summary_generation(team_id, issue_id)
-
-
-def wait_for_issue_summary(
-    team_id: int, issue_id: UUID | str, *, user: User, checked_after: datetime | None, timeout_seconds: float
-) -> contracts.ErrorTrackingIssueSummary | None:
-    """Poll for a summary generated or confirmed unchanged after `checked_after`. None at the timeout."""
-    if not issue_summaries.summary_sources_readable(team_id, user):
-        return None
-    summary = issue_summaries.wait_for_issue_summary(
-        team_id, issue_id, checked_after=checked_after, timeout_seconds=timeout_seconds
+    try:
+        state = issue_summaries.read_issue_summary(team_id, issue_id, user, start=start)
+    except Exception as error:
+        capture_exception(error, {"team_id": team_id, "issue_id": str(issue_id)})
+        return contracts.IssueSummaryRead(
+            status=contracts.IssueSummaryStatus.UNAVAILABLE,
+            summary=None,
+            stale=False,
+            reason=contracts.IssueSummaryUnavailableReason.ERROR,
+            hint=None,
+        )
+    return contracts.IssueSummaryRead(
+        status=state.status,
+        summary=_to_summary(state.summary) if state.summary is not None else None,
+        stale=state.stale,
+        reason=state.reason,
+        hint=state.hint,
     )
-    return _shown(team_id, summary)

@@ -1,6 +1,6 @@
 """Generate, store and read the model-written summary of an issue.
 
-A read calls `get_or_generate_issue_summary`, directly or through the Celery task. The issue-created workflow
+A read queues `get_or_generate_issue_summary` through the Celery task and never waits for it. The issue-created workflow
 calls `generate_issue_summary_from_event`, and the issue-reopened workflow calls `refresh_issue_summary_on_reopen`.
 Each returns the stored summary when no new one is due, so callers need no freshness logic of their own.
 """
@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from uuid import UUID, uuid4
 
+from django.conf import settings
 from django.db import IntegrityError
 from django.utils import timezone
 
@@ -50,7 +51,11 @@ from products.access_control.backend.facade.api import (
     split_restricted_property_names,
 )
 from products.access_control.backend.facade.contracts import UserNotOrganizationMemberError
-from products.error_tracking.backend.facade.contracts import IssueSummaryCategory
+from products.error_tracking.backend.facade.contracts import (
+    IssueSummaryCategory,
+    IssueSummaryStatus,
+    IssueSummaryUnavailableReason,
+)
 from products.error_tracking.backend.facade.queries import run_error_tracking_query
 from products.error_tracking.backend.facade.query_utils import (
     TREND_VOLUME_RESOLUTION,
@@ -63,6 +68,7 @@ from products.error_tracking.backend.facade.query_utils import (
     to_number,
     truncate_text,
 )
+from products.error_tracking.backend.logic import build_issue_permalink_path
 from products.error_tracking.backend.logic.issue_summary_config import (
     ISSUE_SUMMARY_BUDGET,
     ISSUE_SUMMARY_CATEGORY_MODEL,
@@ -120,7 +126,6 @@ PRIVACY_MODE_HEADER = "X-PostHog-Privacy-Mode"
 
 UNKNOWN = "unknown"
 IN_APP_FRAME_MARKER = "[in-app]"
-WAIT_POLL_INTERVAL_SECONDS = 0.25
 # Event values must not open or close the <issue> block that fences them in the prompt.
 ISSUE_FENCE_TAG = re.compile(r"</?\s*issue\s*>", re.IGNORECASE)
 # A worker claims with this prefix and its own token, so only that worker can settle the claim.
@@ -185,7 +190,8 @@ class IssueSummaryOutcome(StrEnum):
 
 # Outcomes that hold the issue past the lock TTL, because each try runs the input queries before it finds them.
 HOLD_OUTCOMES = frozenset({IssueSummaryOutcome.NO_EXCEPTION, IssueSummaryOutcome.RATE_LIMITED})
-# Outcomes that leave a summary current. The claim then stays until the lock expires.
+# Outcomes that leave a summary current. The run releases its claim, because the stored row now answers reads and
+# a read reports any claim as generation in progress.
 SETTLED_OUTCOMES = frozenset({IssueSummaryOutcome.GENERATED, IssueSummaryOutcome.UNCHANGED, IssueSummaryOutcome.FRESH})
 
 ISSUE_SUMMARY_OUTCOMES = Counter(
@@ -307,13 +313,103 @@ def generation_blocked(
     return None
 
 
-def start_issue_summary_generation(team_id: int, issue_id: UUID | str) -> bool:
-    """Queue generation in the background when a summary may be due. True when a summary may arrive soon.
+def summary_is_stale(summary: ErrorTrackingIssueSummary, now: datetime) -> bool:
+    """True when a newer summary may be due.
 
-    False means nothing will change soon, so the caller should not wait.
+    A read calls this, so it must not run the input queries. A summary written by an older prompt is stale.
+    A summary older than the regenerate interval is stale too, because the inputs may have moved since then.
+    A summary saved before rows stored the prompt version is stale only by age.
     """
-    if generation_blocked(team_id, get_issue_summary(team_id, issue_id), regeneration_due) is not None:
-        return False
+    prompt_version = summary.content.get("prompt_version")
+    return regeneration_due(summary, now) or (
+        prompt_version is not None and prompt_version != ISSUE_SUMMARY_PROMPT_VERSION
+    )
+
+
+@frozen
+class IssueSummaryState:
+    status: IssueSummaryStatus
+    summary: ErrorTrackingIssueSummary | None = None
+    stale: bool = False
+    reason: IssueSummaryUnavailableReason | None = None
+    hint: str | None = None
+
+
+def read_issue_summary(team_id: int, issue_id: UUID | str, user: User, *, start: bool) -> IssueSummaryState:
+    """The stored summary and what is happening to it. Never waits for generation.
+
+    `start` queues generation in the background when a summary is due. Without it, the read only reports what is
+    in progress.
+    """
+    if not summary_sources_readable(team_id, user):
+        return IssueSummaryState(status=IssueSummaryStatus.UNAVAILABLE, reason=IssueSummaryUnavailableReason.RESTRICTED)
+    if not issue_summaries_enabled(team_id):
+        return IssueSummaryState(status=IssueSummaryStatus.UNAVAILABLE, reason=IssueSummaryUnavailableReason.DISABLED)
+    stored = get_issue_summary(team_id, issue_id)
+    try:
+        if start:
+            generation: IssueSummaryOutcome | None = start_issue_summary_generation(team_id, issue_id)
+        else:
+            generation = peek_issue_summary_generation(team_id, issue_id)
+    except Exception as error:
+        capture_exception(error, {"team_id": team_id, "issue_id": str(issue_id)})
+        generation = IssueSummaryOutcome.UNEXPECTED_ERROR
+    in_progress = generation == IssueSummaryOutcome.IN_PROGRESS
+    if stored is None and not in_progress:
+        # A worker can save the first summary between the read above and the start.
+        stored = get_issue_summary(team_id, issue_id)
+
+    if in_progress:
+        return IssueSummaryState(
+            status=IssueSummaryStatus.GENERATING,
+            summary=stored,
+            stale=stored is not None and summary_is_stale(stored, timezone.now()),
+            hint=_generating_hint(team_id, issue_id),
+        )
+    if stored is not None:
+        return IssueSummaryState(
+            status=IssueSummaryStatus.READY,
+            summary=stored,
+            stale=summary_is_stale(stored, timezone.now()),
+        )
+    match generation:
+        case None | IssueSummaryOutcome.FRESH:
+            return IssueSummaryState(
+                status=IssueSummaryStatus.NOT_GENERATED,
+                hint=_not_generated_hint(team_id, issue_id),
+            )
+        case IssueSummaryOutcome.AI_NOT_APPROVED:
+            reason = IssueSummaryUnavailableReason.AI_NOT_APPROVED
+        case IssueSummaryOutcome.DISABLED:
+            reason = IssueSummaryUnavailableReason.DISABLED
+        case _:
+            # A failure holds the issue until the lock expires, so a new start finds the same outcome until then.
+            reason = IssueSummaryUnavailableReason.ERROR
+    return IssueSummaryState(status=IssueSummaryStatus.UNAVAILABLE, reason=reason)
+
+
+def _issue_url(team_id: int, issue_id: UUID | str) -> str:
+    return settings.SITE_URL + build_issue_permalink_path(project_id=team_id, issue_id=issue_id, fingerprint=None)
+
+
+def _generating_hint(team_id: int, issue_id: UUID | str) -> str:
+    return (
+        "A new summary of this issue is being written. It is usually ready in about 10 seconds. "
+        f"Check again then, or open {_issue_url(team_id, issue_id)}."
+    )
+
+
+def _not_generated_hint(team_id: int, issue_id: UUID | str) -> str:
+    return f"This issue has no summary yet. Open {_issue_url(team_id, issue_id)} to generate one."
+
+
+def start_issue_summary_generation(team_id: int, issue_id: UUID | str) -> IssueSummaryOutcome:
+    """Queue generation in the background when a summary may be due.
+
+    Returns IN_PROGRESS when a summary may arrive soon, else the outcome that stops one.
+    """
+    if (blocked := generation_blocked(team_id, get_issue_summary(team_id, issue_id), regeneration_due)) is not None:
+        return blocked
     try:
         client = _start_client()
         key = _lock_key(team_id, issue_id)
@@ -323,21 +419,33 @@ def start_issue_summary_generation(team_id: int, issue_id: UUID | str) -> bool:
     except RedisError:
         logger.warning("error_tracking_issue_summary_lock_unavailable", team_id=team_id, exc_info=True)
         return _queue_generation(team_id, issue_id)
-    return _lock_outcome(held) == IssueSummaryOutcome.IN_PROGRESS
+    return _lock_outcome(held)
 
 
-def _queue_generation(team_id: int, issue_id: UUID | str) -> bool:
+def peek_issue_summary_generation(team_id: int, issue_id: UUID | str) -> IssueSummaryOutcome | None:
+    """What a start would find, without queueing anything. None when nothing is queued, running or held."""
+    if not is_ai_data_processing_approved(team_id):
+        return IssueSummaryOutcome.AI_NOT_APPROVED
+    try:
+        held = _start_client().get(_lock_key(team_id, issue_id))
+    except RedisError:
+        logger.warning("error_tracking_issue_summary_lock_unavailable", team_id=team_id, exc_info=True)
+        return None
+    return _lock_outcome(held) if held is not None else None
+
+
+def _queue_generation(team_id: int, issue_id: UUID | str) -> IssueSummaryOutcome:
     try:
         _publish_generation(team_id, issue_id)
     except Exception as error:
         capture_exception(error, {"team_id": team_id, "issue_id": str(issue_id)})
-        # Without a task, the queued marker would keep reads waiting until it expires.
+        # Without a task, the queued marker would report generation in progress until it expires.
         try:
             _start_client().register_script(RELEASE_LUA)(keys=[_lock_key(team_id, issue_id)], args=[LOCK_QUEUED])
         except RedisError:
             logger.warning("error_tracking_issue_summary_lock_unavailable", team_id=team_id, exc_info=True)
-        return False
-    return True
+        return IssueSummaryOutcome.UNEXPECTED_ERROR
+    return IssueSummaryOutcome.IN_PROGRESS
 
 
 def _start_client() -> Redis:
@@ -364,25 +472,6 @@ def _publish_generation(team_id: int, issue_id: UUID | str) -> None:
         generate_error_tracking_issue_summary.apply_async(
             args=(team_id, str(issue_id)), kwargs={"queued_at": time.time()}, connection=connection, retry=False
         )
-
-
-def wait_for_issue_summary(
-    team_id: int, issue_id: UUID | str, *, checked_after: datetime | None, timeout_seconds: float
-) -> ErrorTrackingIssueSummary | None:
-    """Poll for a summary generated or confirmed unchanged after `checked_after`, or any summary when it is None.
-
-    Pass the time taken just before `start_issue_summary_generation`. Returns None at the timeout.
-    The background task keeps running.
-    """
-    deadline = time.monotonic() + timeout_seconds
-    while True:
-        summary = get_issue_summary(team_id, issue_id)
-        if summary is not None and (checked_after is None or summary.checked_at > checked_after):
-            return summary
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            return None
-        time.sleep(min(WAIT_POLL_INTERVAL_SECONDS, remaining))
 
 
 def run_issue_summary_task(team_id: int, issue_id: UUID | str, queued_at: float | None) -> None:
@@ -672,7 +761,12 @@ def _generate_claimed(
             issue_id=issue_id,
             defaults={
                 "team_id": team_id,
-                "content": {**response.model_dump(), "category": category.value if category else None},
+                "content": {
+                    **response.model_dump(),
+                    "category": category.value if category else None,
+                    # Lets a read tell that a summary is stale without running the input queries.
+                    "prompt_version": ISSUE_SUMMARY_PROMPT_VERSION,
+                },
                 "input_hash": inputs.input_hash,
                 "model": ISSUE_SUMMARY_MODEL,
                 "generated_at": generated_at,
@@ -726,13 +820,11 @@ def _settle_claim(
     """Replace this worker's claim with `outcome` when no summary came of it, so reads stop waiting for one.
 
     A hold outcome extends the lock. Any other failure keeps the lock TTL, so the retry spacing does not change.
-    `release` deletes the claim instead.
+    `release`, or a settled outcome, deletes the claim instead.
     Nothing is written when the key no longer holds `claim`: the lock expired, or another read took the issue.
     """
-    if outcome in SETTLED_OUTCOMES:
-        return
     try:
-        if release:
+        if release or outcome in SETTLED_OUTCOMES:
             get_client().register_script(RELEASE_LUA)(keys=[_lock_key(team_id, issue_id)], args=[claim])
             return
         ttl = str(ISSUE_SUMMARY_HOLD_SECONDS) if outcome in HOLD_OUTCOMES else ""

@@ -24,7 +24,13 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.facade.api import upsert_property_access_control
 from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
-from products.error_tracking.backend.facade.contracts import ErrorTrackingIssueSummary, IssueSummaryCategory
+from products.error_tracking.backend.facade.contracts import (
+    ErrorTrackingIssueSummary,
+    IssueSummaryCategory,
+    IssueSummaryRead,
+    IssueSummaryStatus,
+    IssueSummaryUnavailableReason,
+)
 from products.error_tracking.backend.facade.query_utils import (
     ISSUE_BREAKDOWN_TOP_VALUES,
     MAX_STACK_FRAMES,
@@ -266,6 +272,7 @@ def test_breakdown_query_date_range(
 
 
 SUMMARIES_FACADE = "products.error_tracking.backend.facade.summaries"
+ISSUE_SUMMARIES_LOGIC = "products.error_tracking.backend.logic.issue_summaries"
 STORED_SUMMARY = ErrorTrackingIssueSummary(
     issue_id=UUID("01936e7f-d7ff-7314-b2d4-7627981e34f0"),
     what_happened="Checkout throws a TypeError when the cart is empty.",
@@ -277,6 +284,19 @@ STORED_SUMMARY = ErrorTrackingIssueSummary(
     generated_at=datetime(2026, 4, 24, 11, 0, tzinfo=UTC),
     checked_at=datetime(2026, 4, 24, 11, 0, tzinfo=UTC),
 )
+
+
+def summary_read(
+    status: IssueSummaryStatus,
+    *,
+    summary: ErrorTrackingIssueSummary | None = None,
+    stale: bool = False,
+    reason: IssueSummaryUnavailableReason | None = None,
+    hint: str | None = None,
+) -> IssueSummaryRead:
+    return IssueSummaryRead(status=status, summary=summary, stale=stale, reason=reason, hint=hint)
+
+
 STORED_SUMMARY_PAYLOAD = {
     "what_happened": STORED_SUMMARY.what_happened,
     "likely_cause": STORED_SUMMARY.likely_cause,
@@ -358,7 +378,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with patch(f"{SUMMARIES_FACADE}.start_issue_summary_generation") as start_generation:
+        with patch(f"{SUMMARIES_FACADE}.read_issue_summary") as start_generation:
             response = self.client.post(
                 f"/api/environments/{self.team.id}/error_tracking/query/issues",
                 data={
@@ -1020,67 +1040,52 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("stored", STORED_SUMMARY, True, None, None, False, "ready", STORED_SUMMARY_PAYLOAD),
             (
-                "stored_without_category",
-                replace(STORED_SUMMARY, category=None),
-                False,
-                None,
-                None,
-                False,
                 "ready",
-                {key: value for key, value in STORED_SUMMARY_PAYLOAD.items() if key != "category"},
+                summary_read(IssueSummaryStatus.READY, summary=STORED_SUMMARY),
+                {"summary": STORED_SUMMARY_PAYLOAD, "summary_status": "ready", "summary_stale": False},
             ),
-            ("generated_within_the_wait", None, True, STORED_SUMMARY, None, True, "ready", STORED_SUMMARY_PAYLOAD),
-            ("wait_times_out", None, True, None, None, True, "generating", None),
-            ("gates_off", None, False, None, None, False, "unavailable", None),
             (
-                "saved_before_the_start",
-                [None, STORED_SUMMARY],
-                False,
-                None,
-                None,
-                False,
-                "ready",
-                STORED_SUMMARY_PAYLOAD,
+                "ready_stale_without_category",
+                summary_read(IssueSummaryStatus.READY, summary=replace(STORED_SUMMARY, category=None), stale=True),
+                {
+                    "summary": {key: value for key, value in STORED_SUMMARY_PAYLOAD.items() if key != "category"},
+                    "summary_status": "ready",
+                    "summary_stale": True,
+                },
             ),
-            ("facade_fails", None, None, None, RuntimeError("broker down"), False, "unavailable", None),
+            (
+                "generating",
+                summary_read(IssueSummaryStatus.GENERATING, hint="Read the issue again."),
+                {"summary_status": "generating", "summary_hint": "Read the issue again."},
+            ),
+            (
+                "not_generated",
+                summary_read(IssueSummaryStatus.NOT_GENERATED, hint="Open the issue."),
+                {"summary_status": "not_generated", "summary_hint": "Open the issue."},
+            ),
+            *[
+                (
+                    f"unavailable_{reason.value}",
+                    summary_read(IssueSummaryStatus.UNAVAILABLE, reason=reason),
+                    {"summary_status": "unavailable", "summary_reason": reason.value},
+                )
+                for reason in IssueSummaryUnavailableReason
+            ],
         ]
     )
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
-    def test_issue_detail_returns_the_summary(
-        self,
-        _name: str,
-        stored: ErrorTrackingIssueSummary | None | list[ErrorTrackingIssueSummary | None],
-        started: bool | None,
-        waited: ErrorTrackingIssueSummary | None,
-        start_error: Exception | None,
-        expect_wait: bool,
-        expected_status: str,
-        expected_summary: dict[str, object] | None,
+    def test_issue_detail_returns_the_summary_status(
+        self, _name: str, read: IssueSummaryRead, expected_fields: dict[str, object]
     ) -> None:
         self.create_issue()
         self.create_exception_event()
         flush_persons_and_events()
-        clock = [100.0]
-
-        def wait(*_args: object, **_kwargs: object) -> ErrorTrackingIssueSummary | None:
-            clock[0] += 2.5
-            return waited
 
         with (
-            patch("products.error_tracking.backend.presentation.views.query.time") as view_time,
-            patch(
-                f"{SUMMARIES_FACADE}.get_issue_summary",
-                side_effect=stored if isinstance(stored, list) else lambda *_args, **_kwargs: stored,
-            ),
-            patch(
-                f"{SUMMARIES_FACADE}.start_issue_summary_generation", return_value=started, side_effect=start_error
-            ) as start_generation,
-            patch(f"{SUMMARIES_FACADE}.wait_for_issue_summary", side_effect=wait) as wait_for_summary,
+            patch(f"{SUMMARIES_FACADE}.read_issue_summary", return_value=read) as read_summary,
             patch("posthog.event_usage.posthoganalytics.capture") as mock_capture,
         ):
-            view_time.monotonic.side_effect = lambda: clock[0]
             response = self.client.post(
                 f"/api/environments/{self.team.id}/error_tracking/query/issue",
                 data={"issueId": self.issue_id},
@@ -1088,17 +1093,38 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             )
 
         assert response.status_code == 200
-        assert response.json()["summary_status"] == expected_status
-        assert response.json().get("summary") == expected_summary
+        summary_fields = {key: value for key, value in response.json().items() if key.startswith("summary")}
+        assert summary_fields == expected_fields
         assert response.json()["impact"]["occurrences"] == 1
-        start_generation.assert_called_once_with(self.team.id, self.issue_id, user=self.user)
-        assert wait_for_summary.called == expect_wait
+        read_summary.assert_called_once_with(self.team.id, self.issue_id, user=self.user, start=True)
         [read_event] = [
             call.kwargs["properties"]
             for call in mock_capture.call_args_list
             if call.kwargs.get("event") == "error_tracking_issue_read"
         ]
-        assert (read_event["facts_ms"], read_event["summary_wait_ms"]) == (0, 2500 if expect_wait else 0)
+        assert (read_event["summary_status"], read_event["summary_reason"]) == (
+            expected_fields["summary_status"],
+            expected_fields.get("summary_reason"),
+        )
+
+    def test_issue_detail_starts_a_first_summary_without_waiting(self) -> None:
+        self.create_issue()
+
+        with (
+            patch(f"{ISSUE_SUMMARIES_LOGIC}.team_flag_enabled", return_value=True),
+            patch(f"{ISSUE_SUMMARIES_LOGIC}.generate_error_tracking_issue_summary.apply_async") as apply_async,
+            patch("time.sleep", side_effect=AssertionError("the read slept")),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/query/issue",
+                data={"issueId": self.issue_id},
+                format="json",
+            )
+
+        assert response.status_code == 200
+        assert response.json()["summary_status"] == "generating"
+        assert f"/error-tracking/{self.issue_id}" in response.json()["summary_hint"]
+        apply_async.assert_called_once()
 
     def test_issue_read_succeeds_when_capture_fails(self) -> None:
         self.create_issue()

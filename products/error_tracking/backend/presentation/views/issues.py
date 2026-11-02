@@ -257,12 +257,6 @@ class ErrorTrackingIssueSplitResponseSerializer(serializers.Serializer):
     )
 
 
-class IssueSummaryStatus(models.TextChoices):
-    READY = "ready"
-    GENERATING = "generating"
-    UNAVAILABLE = "unavailable"
-
-
 class ErrorTrackingStoredIssueSummarySerializer(serializers.Serializer):
     what_happened = serializers.CharField(help_text="What the exception is and where it happens.")
     likely_cause = serializers.CharField(
@@ -282,40 +276,61 @@ class ErrorTrackingStoredIssueSummarySerializer(serializers.Serializer):
     )
 
 
+class ErrorTrackingIssueSummaryQuerySerializer(serializers.Serializer):
+    start = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "When true, the read also starts generation in the background if a summary is due. "
+            "When false, the read only reports the stored summary and any generation already in progress."
+        ),
+    )
+
+
 class ErrorTrackingIssueSummaryResponseSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
-        choices=IssueSummaryStatus.choices,
+        choices=contracts.IssueSummaryStatus.choices,
         help_text=(
             "ready: `summary` holds the stored summary. "
-            "generating: a summary is being written in the background, so poll again. "
-            "`summary` holds the previous one, if any. "
-            "unavailable: no summary exists and none will be written, for example because the feature is off."
+            "generating: a summary is being written in the background, whatever started it, so read again later. "
+            "`summary` holds the one it will replace, if any. "
+            "not_generated: no summary exists and none is being written. A read with start=true starts one. "
+            "unavailable: no summary can be shown or written. `reason` says why."
         ),
     )
     summary = ErrorTrackingStoredIssueSummarySerializer(
         allow_null=True, help_text="The stored summary, or null when none exists yet."
     )
+    stale = serializers.BooleanField(
+        help_text=(
+            "True when a newer summary may be due: the stored one is older than the regenerate interval, "
+            "or an older prompt wrote it. False when there is no summary."
+        )
+    )
+    reason = serializers.ChoiceField(
+        choices=contracts.IssueSummaryUnavailableReason.choices,
+        allow_null=True,
+        help_text=(
+            "Why the status is unavailable, else null. ai_not_approved: the organization has not approved AI data "
+            "processing. not_on_plan: the plan does not include summaries. restricted: the user may not read a property "
+            "that the summary is written from. disabled: summaries are off for the project. error: generation failed, "
+            "and a later read can try again."
+        ),
+    )
+    hint = serializers.CharField(
+        allow_null=True,
+        help_text="Plain words that name the next step, for generating and not_generated. Null for other statuses.",
+    )
 
 
-def issue_summary_response(team_id: int, issue_id: UUID, *, user: User, regenerate: bool) -> dict[str, object]:
-    """Read the stored summary and ask the facade to start generation, which it skips while the summary is fresh.
-
-    `regenerate` only changes the status of a started refresh of a stored summary: `generating` instead of `ready`.
-    Never waits.
-    """
-    summary = summaries_facade.get_issue_summary(team_id, issue_id, user=user)
-    # Starting is a no-op while a stored summary is younger than the regenerate interval,
-    # so a read of a stale summary also refreshes it in the background.
-    started = summaries_facade.start_issue_summary_generation(team_id, issue_id, user=user)
-    if started and (regenerate or summary is None):
-        summary_status = IssueSummaryStatus.GENERATING
-    elif summary is not None:
-        summary_status = IssueSummaryStatus.READY
-    else:
-        summary_status = IssueSummaryStatus.UNAVAILABLE
+def issue_summary_response(team_id: int, issue_id: UUID, *, user: User, start: bool) -> dict[str, object]:
+    read = summaries_facade.read_issue_summary(team_id, issue_id, user=user, start=start)
     return {
-        "status": summary_status,
-        "summary": ErrorTrackingStoredIssueSummarySerializer(summary).data if summary is not None else None,
+        "status": read.status,
+        "summary": ErrorTrackingStoredIssueSummarySerializer(read.summary).data if read.summary is not None else None,
+        "stale": read.stale,
+        "reason": read.reason,
+        "hint": read.hint,
     }
 
 
@@ -333,7 +348,6 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         "assign",
         "cohort",
         "bulk",
-        "summary_regenerate",
     ]
     serializer_class = ErrorTrackingIssueReadSerializer
 
@@ -593,19 +607,12 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             )
         return Response({"success": True})
 
-    @extend_schema(responses={200: ErrorTrackingIssueSummaryResponseSerializer})
+    @validated_request(
+        query_serializer=ErrorTrackingIssueSummaryQuerySerializer,
+        responses={200: OpenApiResponse(response=ErrorTrackingIssueSummaryResponseSerializer)},
+    )
     @action(methods=["GET"], detail=True)
-    def summary(self, request: request.Request, *args: object, pk: object = None, **kwargs: object) -> Response:
-        return self._summary_response(pk, regenerate=False)
-
-    @extend_schema(request=None, responses={200: ErrorTrackingIssueSummaryResponseSerializer})
-    @action(methods=["POST"], detail=True, url_path="summary/regenerate")
-    def summary_regenerate(
-        self, request: request.Request, *args: object, pk: object = None, **kwargs: object
-    ) -> Response:
-        return self._summary_response(pk, regenerate=True)
-
-    def _summary_response(self, pk: object, *, regenerate: bool) -> Response:
+    def summary(self, request: ValidatedRequest, *args: object, pk: object = None, **kwargs: object) -> Response:
         try:
             issue_id = UUID(str(pk))
         except ValueError:
@@ -614,7 +621,9 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         if not facade_api.issue_exists_by_id(self.team_id, issue_id):
             raise NotFound("Issue not found")
         return Response(
-            issue_summary_response(self.team_id, issue_id, user=cast(User, self.request.user), regenerate=regenerate)
+            issue_summary_response(
+                self.team_id, issue_id, user=cast(User, request.user), start=request.validated_query_data["start"]
+            )
         )
 
     @extend_schema(operation_id="error_tracking_issues_all_activity_retrieve")
