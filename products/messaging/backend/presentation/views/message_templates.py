@@ -1640,7 +1640,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             return self._send_template_by_key(request)
         with transactional_email_stage("feature_flag"):
             self._require_transactional_email_flag()
-            self._refuse_engagement_capture_outside_the_beta(request.validated_data)
+            self._refuse_engagement_capture_outside_the_beta(request.data)
         with transactional_email_stage("template_lookup"):
             try:
                 template = get_template(self.team_id, request.validated_data["template"]["id"])
@@ -1651,8 +1651,8 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             request, template, route="send_email", options=_template_send_options(request.data, request.validated_data)
         )
 
-    def _refuse_engagement_capture_outside_the_beta(self, data: Mapping[str, Any]) -> None:
-        if "capture_engagement" in data and not _flag_enabled(self.team, EMAIL_FROM_CODE_FLAG):
+    def _refuse_engagement_capture_outside_the_beta(self, sent: Mapping[str, Any]) -> None:
+        if "capture_engagement" in sent and not _flag_enabled(self.team, EMAIL_FROM_CODE_FLAG):
             raise serializers.ValidationError({"capture_engagement": ENGAGEMENT_CAPTURE_OUTSIDE_THE_BETA})
 
     def _send_template_by_key(self, request: Any) -> Response:
