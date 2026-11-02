@@ -214,6 +214,9 @@ export class CdpEventsConsumer<
                 }
             },
             loadTeam: (teamId) => this.loadTeamWithHogFunctionsOrFlows(teamId, this.hogTypes),
+            // loadTeamWithHogFunctionsOrFlows only reads caches, so sharing one call per team changes nothing
+            // a caller can observe.
+            dedupeTeamLoads: true,
             // Parked rather than dropped: a schema we cannot read today is often one a later
             // version can.
             onError: park('parse'),

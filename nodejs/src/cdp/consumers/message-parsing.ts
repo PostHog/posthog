@@ -59,6 +59,15 @@ export type ParseBatchOptions<TLoaded = Team> = {
      * the message, so the batch skips it. Without it, or when it returns false, the error fails the batch.
      */
     parkLookupError?: (message: Message, error: string) => boolean
+    /**
+     * Calls `loadTeam` once per team in the batch rather than once per message. A batch holds many
+     * messages of one team, and a `loadTeam` that reads several caches allocates a promise per cache
+     * on every call.
+     *
+     * Off by default, because a `loadTeam` that counts or records something then counts once per team
+     * instead of once per message. Turn it on only where `loadTeam` is a pure lookup.
+     */
+    dedupeTeamLoads?: boolean
 }
 
 /**
@@ -75,8 +84,32 @@ export type ParseBatchOptions<TLoaded = Team> = {
  */
 export async function parseBatch<TLoaded = Team>(
     messages: Message[],
-    { errorLog, parse, loadTeam, onInvalidTeamId, onError, parkLookupError }: ParseBatchOptions<TLoaded>
+    {
+        errorLog,
+        parse,
+        loadTeam,
+        onInvalidTeamId,
+        onError,
+        parkLookupError,
+        dedupeTeamLoads = false,
+    }: ParseBatchOptions<TLoaded>
 ): Promise<HogFunctionInvocationGlobals[]> {
+    // Every message of one team awaits the same promise, so each still handles the outcome itself and
+    // one team's failed lookup parks every one of its messages.
+    const loadedByTeam = new Map<number, Promise<TLoaded | null>>()
+    const loadTeamOnce = (teamId: number): Promise<TLoaded | null> => {
+        if (!dedupeTeamLoads) {
+            return loadTeam(teamId)
+        }
+        const pending = loadedByTeam.get(teamId)
+        if (pending) {
+            return pending
+        }
+        const loading = loadTeam(teamId)
+        loadedByTeam.set(teamId, loading)
+        return loading
+    }
+
     const results = await Promise.all(
         messages.map(async (message) => {
             const reportError = onError && ((error: string) => onError(message, error))
@@ -102,7 +135,7 @@ export async function parseBatch<TLoaded = Team>(
             if (!parsed) {
                 return null
             }
-            const loaded = await loadTeam(parsed.teamId).catch((e) => {
+            const loaded = await loadTeamOnce(parsed.teamId).catch((e) => {
                 if (e?.isRetriable === true || !parkLookupError?.(message, errorMessage(e))) {
                     throw e
                 }
