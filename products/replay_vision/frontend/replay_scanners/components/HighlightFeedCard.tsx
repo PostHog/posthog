@@ -453,11 +453,12 @@ function highlightCardResult(
         }
         const hidden = categories.length - MAX_CATEGORY_PILLS
         return (
-            <span className="flex min-w-0 items-center gap-1 overflow-hidden">
+            // Pills shrink and truncate, and the count stays outside them, so a narrow card still shows how many are hidden.
+            <span className="flex min-w-0 items-center gap-1">
                 {categories.slice(0, MAX_CATEGORY_PILLS).map(({ tag, isFreeform }, index) => (
-                    <span key={`${index}-${tag}`} className={CATEGORY_CLASS}>
-                        {isFreeform && <IconSparkles aria-hidden />}
-                        {tag}
+                    <span key={`${index}-${tag}`} className={clsx(CATEGORY_CLASS, 'min-w-0')}>
+                        {isFreeform && <IconSparkles className="shrink-0" aria-hidden />}
+                        <span className="truncate">{tag}</span>
                     </span>
                 ))}
                 {hidden > 0 && <span className={clsx(CATEGORY_CLASS, 'shrink-0')}>+{hidden}</span>}
