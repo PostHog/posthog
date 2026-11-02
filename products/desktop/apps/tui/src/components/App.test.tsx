@@ -741,6 +741,13 @@ describe("App", () => {
   });
 
   it("pins and unpins the pane's chat with /pin and /unpin, and archives it at once with /archive, undone when the server refuses", async () => {
+    // A local chat, so the sidebar lists it from its session file as well as from the server's page.
+    const sessions = join(homedir(), ".config", "posthog-tui", "local");
+    mkdirSync(sessions, { recursive: true });
+    writeFileSync(
+      join(sessions, "t1.jsonl"),
+      `${JSON.stringify({ type: "session", version: 3, id: "s1", timestamp: "2026-10-09T09:04:45.006Z", cwd: "/tmp" })}\n`,
+    );
     saveLayout(openTask(initialLayout(), "t1", "Old name"));
     let answer = (): void => {};
     const setArchived = vi.fn(
@@ -789,7 +796,7 @@ describe("App", () => {
       mouse.emit("keys", text);
       mouse.emit("keys", "\r");
     };
-    // The chats under the tabs on the latest frame; with the pane empty, the whole list fits.
+    // The chats under the tabs on the latest frame.
     const listed = (): string[] => {
       const rows = stripTerminalSequences(output()).split("\n");
       const tabs = rows.findLastIndex((row) => row.includes("My chats"));
@@ -798,8 +805,8 @@ describe("App", () => {
         .flatMap((row) => row.match(/Other|Old name/)?.[0] ?? []);
     };
     try {
-      // The sidebar has two list rows here: the pane's own chat and one more.
-      await vi.waitFor(() => expect(listed()).toEqual(["Other"]));
+      // The sidebar has two list rows here, and a local chat's fresh session file sorts it first.
+      await vi.waitFor(() => expect(listed()).toEqual(["Old name"]));
       type("/pin");
       await vi.waitFor(() =>
         expect(loadPrefs().pinnedChats).toEqual([
@@ -815,7 +822,8 @@ describe("App", () => {
       await vi.waitFor(() =>
         expect(setArchived).toHaveBeenCalledWith("t1", true),
       );
-      // Out of the list and its pane before the server answers, as a close; the empty pane remembers it.
+      // Out of the list (the server's page and the session files alike) and its pane before the server answers,
+      // as a close; the empty pane remembers it.
       await vi.waitFor(() => expect(listed()).toEqual(["Other"]));
       expect(allPanes(loadLayout())[0]).toMatchObject({
         taskId: null,
@@ -827,7 +835,7 @@ describe("App", () => {
       await vi.waitFor(() =>
         expect(allPanes(loadLayout())[0].taskId).toBe("t1"),
       );
-      await vi.waitFor(() => expect(listed()).toEqual(["Other"]));
+      await vi.waitFor(() => expect(listed()).toEqual(["Old name"]));
       type("/archive");
       await vi.waitFor(() => expect(setArchived).toHaveBeenCalledTimes(2));
       await vi.waitFor(() => expect(listed()).toEqual(["Other"]));
@@ -835,6 +843,9 @@ describe("App", () => {
       await vi.waitFor(() => expect(output()).toContain("Archived"));
       // Brought back into the pane, /unarchive lists it again.
       mouse.emit("keys", "\u001b");
+      await vi.waitFor(() =>
+        expect(output()).toContain("Press Esc again to go back"),
+      );
       mouse.emit("keys", "\u001b");
       await vi.waitFor(() =>
         expect(allPanes(loadLayout())[0].taskId).toBe("t1"),
@@ -843,9 +854,10 @@ describe("App", () => {
       await vi.waitFor(() =>
         expect(setArchived).toHaveBeenCalledWith("t1", false),
       );
-      await vi.waitFor(() => expect(listed()).toEqual(["Other"]));
+      await vi.waitFor(() => expect(listed()).toEqual(["Old name"]));
     } finally {
       instance.unmount();
+      rmSync(sessions, { recursive: true });
     }
   });
 

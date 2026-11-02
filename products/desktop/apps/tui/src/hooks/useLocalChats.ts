@@ -32,6 +32,8 @@ export interface LocalChatsState {
   localActive: Map<string, number>;
   // Marks a chat as changed now, before its agent has written its session file.
   markActive: (taskId: string) => void;
+  // Takes an archived local chat out of the sidebar, or lists it again; its session file stays on disk either way.
+  setHidden: (taskId: string, hidden: boolean) => void;
   // Re-reads the session files; merged, so a chat without a file yet stays local.
   refreshActive: () => void;
   // What each local chat waits on the user for, and the cursor in each prompt's sheet.
@@ -63,8 +65,17 @@ export function useLocalChats({
   const [localActive, setLocalActive] = useState(() => localChats.list());
   // Chats from before local chats had a task row get one first, so none starts under its old id.
   const [localLinked, setLocalLinked] = useState(false);
+  // Archived local chats, which a refresh from disk must not list again.
+  const hiddenLocal = useRef(new Set<string>()).current;
   const refreshActive = useRef((): void =>
-    setLocalActive((current) => new Map([...current, ...localChats.list()])),
+    setLocalActive(
+      (current) =>
+        new Map(
+          [...current, ...localChats.list()].filter(
+            ([id]) => !hiddenLocal.has(id),
+          ),
+        ),
+    ),
   ).current;
   const isLocal = (taskId: string | null): taskId is string =>
     taskId !== null &&
@@ -224,6 +235,16 @@ export function useLocalChats({
     localActive,
     markActive: (taskId) =>
       setLocalActive((current) => new Map(current).set(taskId, Date.now())),
+    setHidden: (taskId, hidden) => {
+      if (hidden) hiddenLocal.add(taskId);
+      else hiddenLocal.delete(taskId);
+      setLocalActive((current) => {
+        const next = new Map(current);
+        if (hidden) next.delete(taskId);
+        else if (localChats.list().has(taskId)) next.set(taskId, Date.now());
+        return next;
+      });
+    },
     refreshActive,
     prompts,
     promptCursors,

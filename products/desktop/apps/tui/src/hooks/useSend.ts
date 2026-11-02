@@ -92,6 +92,7 @@ export function useSend({
     localFor: (id: string, pick?: StartPick) => Promise<LocalAgent>;
     clear: (id: string) => Promise<void>;
     markActive: (taskId: string) => void;
+    setHidden: (taskId: string, hidden: boolean) => void;
   };
   places: {
     placeFor: (paneId: string) => ChatPlace;
@@ -287,6 +288,8 @@ export function useSend({
       else {
         // Shown at once; a failed call puts the chat back where it was. An archived chat leaves its pane as a close
         // does, so the pane is a new chat and a double Esc on it brings the chat back.
+        // A local chat is listed from its session file too, so it is hidden there as well.
+        local.setHidden(taskId, archived);
         if (archived) {
           listed.drop(taskId);
           setLayout((state) => newChatIn(state, paneId));
@@ -304,6 +307,7 @@ export function useSend({
             listed.release(taskId);
           },
           (error: unknown) => {
+            local.setHidden(taskId, !archived);
             if (archived) {
               listed.restore(taskId, current);
               setLayout((state) => backToPrevious(state, paneId));
