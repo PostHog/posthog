@@ -33,6 +33,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import get_request_analytics_properties, groups
 from posthog.exceptions import QuotaLimitExceeded
+from posthog.models.integer_field_bounds import INTEGER_FIELD_MAX, INTEGER_FIELD_MIN
 from posthog.models.user import User
 from posthog.permissions import is_service_auth
 from posthog.rate_limit import SubscriptionTestDeliveryThrottle
@@ -424,7 +425,7 @@ class SubscriptionWriteSerializer(serializers.Serializer):
     interval = serializers.IntegerField(
         required=True,
         min_value=1,
-        max_value=2147483647,
+        max_value=INTEGER_FIELD_MAX,
         help_text=(
             "Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). "
             "Required on create; must be 1 or greater."
@@ -439,15 +440,15 @@ class SubscriptionWriteSerializer(serializers.Serializer):
     bysetpos = serializers.IntegerField(
         allow_null=True,
         required=False,
-        min_value=-2147483648,
-        max_value=2147483647,
+        min_value=INTEGER_FIELD_MIN,
+        max_value=INTEGER_FIELD_MAX,
         help_text="Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).",
     )
     count = serializers.IntegerField(
         allow_null=True,
         required=False,
-        min_value=-2147483648,
-        max_value=2147483647,
+        min_value=INTEGER_FIELD_MIN,
+        max_value=INTEGER_FIELD_MAX,
         help_text="Total number of deliveries before the subscription stops. Null for unlimited.",
     )
     start_date = serializers.DateTimeField(
@@ -1257,7 +1258,7 @@ class SubscriptionDeliverySerializer(serializers.Serializer):
         ),
     )
     exported_asset_ids = serializers.ListField(
-        child=serializers.IntegerField(min_value=-2147483648, max_value=2147483647),
+        child=serializers.IntegerField(min_value=INTEGER_FIELD_MIN, max_value=INTEGER_FIELD_MAX),
         allow_empty=False,
         read_only=True,
         help_text="ExportedAsset ids generated for this send.",

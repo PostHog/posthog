@@ -1,4 +1,5 @@
 import json
+import hashlib
 from base64 import b64decode, b64encode
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Optional
@@ -137,6 +138,14 @@ class CappedCountLimitOffsetPagination(PrecountedLimitOffsetPagination):
         return paginated
 
 
+def _serialize_rows(view: "GenericAPIView", rows: list[Any], serializer_class: type[BaseSerializer] | None) -> Any:
+    """Serialize a facade page the way the view serializes its own rows, unless the caller names a serializer."""
+    if serializer_class is None:
+        # `get_serializer` keeps a view's own override of how it builds the serializer.
+        return view.get_serializer(rows, many=True).data
+    return serializer_class(rows, many=True, context=view.get_serializer_context()).data
+
+
 class FacadeLimitOffsetPagination(BoundedLimitOffsetPagination):
     """Builds the standard limit/offset response from a page that a facade read in SQL.
 
@@ -146,13 +155,8 @@ class FacadeLimitOffsetPagination(BoundedLimitOffsetPagination):
     and links of `LimitOffsetPagination`.
     """
 
-    def get_paginated_facade_response[T](
-        self,
-        request: Request,
-        view: "GenericAPIView",
-        fetch: Callable[[PageRequest], Page[T]],
-        serializer_class: type[BaseSerializer] | None = None,
-    ) -> Response:
+    def read_facade_page[T](self, request: Request, fetch: Callable[[PageRequest], Page[T]]) -> Page[T]:
+        """Read the page the request asks for, and keep the state `get_paginated_response` builds links from."""
         limit = self.get_limit(request)
         if limit is None:
             raise ImproperlyConfigured(f"{type(self).__name__} needs a default_limit to page a facade list.")
@@ -161,10 +165,17 @@ class FacadeLimitOffsetPagination(BoundedLimitOffsetPagination):
         self.offset = self.get_offset(request)
         page = fetch(PageRequest(limit=limit, offset=self.offset))
         self.count = page.count
+        return page
 
-        serializer_class = serializer_class or view.get_serializer_class()
-        serializer = serializer_class(page.results, many=True, context=view.get_serializer_context())
-        return self.get_paginated_response(serializer.data)
+    def get_paginated_facade_response[T](
+        self,
+        request: Request,
+        view: "GenericAPIView",
+        fetch: Callable[[PageRequest], Page[T]],
+        serializer_class: type[BaseSerializer] | None = None,
+    ) -> Response:
+        page = self.read_facade_page(request, fetch)
+        return self.get_paginated_response(_serialize_rows(view, page.results, serializer_class))
 
 
 def _reversed_ordering(ordering: tuple[str, ...]) -> tuple[str, ...]:
@@ -229,6 +240,13 @@ class StableCursorPagination(CursorPagination):
             values.append(None if value is None else str(value))
         return tuple(values)
 
+    def ordering_key(self) -> str:
+        """Return a short token for the list's ordering, so a cursor cannot be read under another ordering.
+
+        It hashes the unreversed ordering, so the next and previous cursors of one list share it.
+        """
+        return hashlib.sha1(",".join(self.ordering).encode("utf-8"), usedforsecurity=False).hexdigest()[:8]
+
     def cursor_link(self, cursor: PageCursor) -> str:
         tokens: dict[str, str] = {}
         if cursor.drf_offset:
@@ -238,6 +256,7 @@ class StableCursorPagination(CursorPagination):
         # A cursor that skips rows came in DRF's format, which `p` and `o` already describe in full.
         if cursor.after and not cursor.offset:
             tokens["v"] = json.dumps(list(cursor.after), separators=(",", ":"))
+            tokens["k"] = self.ordering_key()
         if cursor.drf_position is not None:
             tokens["p"] = cursor.drf_position
         encoded = b64encode(urlencode(tokens).encode("ascii")).decode("ascii")
@@ -253,6 +272,9 @@ class StableCursorPagination(CursorPagination):
             reverse = bool(int(tokens.get("r", ["0"])[0]))
             drf_position = tokens["p"][0] if "p" in tokens else None
             if "v" in tokens:
+                # `v` holds values of the ordering the cursor came from, which another ordering reads as other rows.
+                if "k" in tokens and tokens["k"][0] != self.ordering_key():
+                    raise NotFound(self.invalid_cursor_message)
                 # `v` names the edge row exactly, so no rows are skipped. `o` is there for DRF only.
                 after = json.loads(tokens["v"][0])
                 offset = 0
@@ -297,6 +319,7 @@ class StableCursorPagination(CursorPagination):
         if self.row_past_page is None:
             return None, tied
         # DRF does the same on a change of direction. It is exact unless the tie group also covers that row.
+        # During a rolling deploy, an old pod can mis-page such a `previous` link, and any tie group larger than `offset_cutoff`.
         return self.position_of(self.row_past_page)[0], 0
 
     def next_cursor(self, page: list[Any]) -> PageCursor:
@@ -414,9 +437,7 @@ class FacadeCursorPagination(StableCursorPagination):
         assert rows is not None
         self.count_rows = lambda: fetched[-1].count
 
-        serializer_class = serializer_class or view.get_serializer_class()
-        serializer = serializer_class(rows, many=True, context=view.get_serializer_context())
-        return self.get_paginated_response(serializer.data)
+        return self.get_paginated_response(_serialize_rows(view, rows, serializer_class))
 
 
 def facade_page_response[T](

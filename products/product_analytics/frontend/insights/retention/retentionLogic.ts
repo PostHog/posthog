@@ -2,8 +2,9 @@ import { mean, sum } from 'd3'
 import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { DataColorTheme, DataColorToken } from 'lib/colors'
-import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { dayjs } from 'lib/dayjs'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
+import { CUSTOM_OPTION_KEY } from 'lib/utils/dateFilters'
 import { formatDateRange } from 'lib/utils/datetime'
 import {
     BreakdownColorConfig,
@@ -15,11 +16,11 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { getColorFromToken } from 'scenes/dataThemeLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import type { QuerySourceUpdate } from 'scenes/insights/insightVizDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { BREAKDOWN_OTHER_DISPLAY, BREAKDOWN_OTHER_STRING_LABEL, formatBreakdownLabel } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'
+import { isRetentionQuery, hasBreakdownFilter } from '~/queries/schema/node-guards'
 import { RetentionFilter, RetentionResult } from '~/queries/schema/schema-general'
 import type {
     BreakdownFilter,
@@ -36,7 +37,6 @@ import type {
     WebStatsTableQuery,
 } from '~/queries/schema/schema-general'
 import type { PathsV2Query } from '~/queries/schema/schema-general'
-import { isRetentionQuery, hasBreakdownFilter } from '~/queries/utils'
 import { BreakdownKeyType, CohortType, DateMappingOption, InsightLogicProps, RetentionPeriod } from '~/types'
 
 import { ProcessedRetentionPayload } from './types'

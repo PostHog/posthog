@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
+import { mswDecorator } from '~/mocks/browser'
+
 import { EvaluationTemplatesScene } from './EvaluationTemplates'
 
 const meta: Meta<typeof EvaluationTemplatesScene> = {
@@ -22,4 +24,14 @@ export const Narrow: Story = {
             <EvaluationTemplatesScene />
         </div>
     ),
+}
+
+export const WithoutApiKey: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/llm_analytics/evaluation_config/': { active_provider_key: null },
+            },
+        }),
+    ],
 }
