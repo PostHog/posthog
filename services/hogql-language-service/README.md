@@ -3,8 +3,8 @@
 This prototype keeps multiple immutable, permission-filtered catalogs in memory and provides local SQL completion.
 Completion uses the cursor context to suggest fields, functions, comparison operators, and predicate continuations such as `AND` and `OR`.
 The service embeds the global HogQL function list, while Django supplies permission-filtered tables and properties.
-It uses `github.com/orian/clickhouse-sql-parser` to recover table and alias context from the query. Django remains the
-authority for deciding which schema and properties belong in each catalog.
+It parses queries with the HogQL parser, so it accepts exactly the grammar that query execution accepts.
+Django remains the authority for deciding which schema and properties belong in each catalog.
 
 The service embeds the HogQL parser from `rust/hogql/parser`, compiled to WASM.
 The module is a build output, not a tracked file.
@@ -60,7 +60,7 @@ For example, `WITH t AS (SELECT properties AS props FROM events) SELECT t.props.
 Computed or ambiguous property origins remain unknown; the service does not guess a namespace from a projected name.
 Validation reports `duplicate_table` for repeated table names or explicit aliases in one query scope and asks for distinct aliases.
 Table names, table aliases, and CTE names resolve by exact case; catalogs can contain distinct `events` and `Events` tables.
-Multi-part names also retain distinct identities when their parser-safe forms coincide, such as `a.b.c_d` and `a.b_c.d`.
+Multi-part names also retain distinct identities when their implicit aliases look alike, such as `a.b.c_d` and `a.b_c.d`.
 Autocomplete prefix matching remains case-insensitive and preserves the selected identifier's case.
 Duplicate qualifiers do not supply property provenance, even when raw ClickHouse accepts the corresponding unaliased self-join.
 
@@ -88,8 +88,8 @@ in-memory completion path; network and JSON decoding are intentionally excluded.
 suggestions, the total match count, and an opaque `nextCursor` when another page exists. Send the same query and
 position with `"cursor":"<nextCursor>"` to retrieve it. The HTTP `Content-Length` is the encoded response size.
 
-The parser currently accepts ClickHouse's `database.table` identifiers but not HogQL's three-part synced-table names.
-Shared analysis normalizes those table references before parsing while preserving byte offsets.
+A syntax error comes from the HogQL parser and marks the token where parsing failed.
+If the parser fails for a reason that is not about the query, validation returns HTTP 500 and Django uses the Python path.
 For incomplete SQL, completion can recover a single query's `FROM` clause and keeps the parser error in `parseError`.
 Queries with complete CTE definitions can also retain their outer SELECT/FROM scope through unfinished trailing clauses, including completion inside an unfinished outer predicate.
 This preserves derived fields, known property origins, and retained SELECT aliases.

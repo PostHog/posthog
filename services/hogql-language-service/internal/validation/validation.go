@@ -10,10 +10,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	clickhouse "github.com/orian/clickhouse-sql-parser/parser"
-
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/analysis"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/catalog"
+	"github.com/PostHog/posthog/services/hogql-language-service/internal/hogqlparser"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/querylimits"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/textposition"
 )
@@ -39,15 +38,32 @@ type Result struct {
 	DurationMicros int64        `json:"durationMicros"`
 }
 
+// Validate reports problems in the query. An internal parser failure becomes a syntax_error diagnostic here;
+// ValidateWithEncoding returns it as an error instead.
 func Validate(schema *catalog.PreparedCatalog, query string) Result {
+	result, _ := validate(schema, query)
+	return result
+}
+
+func validate(schema *catalog.PreparedCatalog, query string) (Result, error) {
 	started := time.Now()
 	document, err := analysis.Analyze(schema, query)
+	if errors.Is(err, hogqlparser.ErrInternal) {
+		return result([]Diagnostic{{Code: "syntax_error", Message: err.Error(), Start: 0, End: len(query)}}, nil, nil, started), err
+	}
 	if err != nil {
-		code := "syntax_error"
-		if errors.Is(err, querylimits.ErrQueryTooLarge) || errors.Is(err, querylimits.ErrQueryTooDeep) {
-			code = "query_limit"
+		diagnostic := Diagnostic{Code: "syntax_error", Message: err.Error(), Start: 0, End: len(query)}
+		var syntaxError *hogqlparser.SyntaxError
+		if errors.As(err, &syntaxError) {
+			diagnostic.Start, diagnostic.End = syntaxError.Start, syntaxError.End
+			// Matches the wording that get_hogql_metadata in posthog/hogql/metadata.py uses for the same error.
+			if strings.Contains(syntaxError.Message, "unexpected token in expression: Eof") {
+				diagnostic.Message = "Unexpected end of query"
+			}
+		} else if errors.Is(err, querylimits.ErrQueryTooLarge) || errors.Is(err, querylimits.ErrQueryTooDeep) {
+			diagnostic.Code = "query_limit"
 		}
-		return result([]Diagnostic{{Code: code, Message: err.Error(), Start: 0, End: len(query)}}, nil, nil, started)
+		return result([]Diagnostic{diagnostic}, nil, nil, started), nil
 	}
 
 	var diagnostics []Diagnostic
@@ -77,81 +93,10 @@ func Validate(schema *catalog.PreparedCatalog, query string) Result {
 				End:     source.End(),
 			})
 		}
-		ignoredIdents := ignoredIdentifierNodes(statement)
 		seen := map[string]bool{}
-		statement.Walk(func(node clickhouse.Expr) bool {
-			switch typed := node.(type) {
-			case *clickhouse.NestedIdentifier:
-				if typed.DotIdent == nil {
-					return true
-				}
-				ignoredIdents[typed.DotIdent] = true
-				bindings := statement.BindingsAt(int(node.Pos()), int(node.End()))
-				if binding, ok := bindings.Relation(typed.Ident.Name); ok {
-					ignoredIdents[typed.Ident] = true
-					if typed.DotIdent.Name != "*" {
-						validateField(&diagnostics, seen, binding, typed.DotIdent, document)
-					}
-				}
-			case *clickhouse.Path:
-				if len(typed.Fields) < 2 {
-					return true
-				}
-				bindings := statement.BindingsAt(int(node.Pos()), int(node.End()))
-				if bindings.Len() == 0 {
-					return true
-				}
-				parts := make([]string, len(typed.Fields))
-				for index, field := range typed.Fields {
-					parts[index] = field.Name
-				}
-				target := bindings.Traversal(parts[:len(parts)-1])
-				if target.Explicit {
-					for _, field := range typed.Fields {
-						ignoredIdents[field] = true
-					}
-					if target.Failed {
-						failedAt := min(target.FailureAt, len(typed.Fields)-1)
-						validateUnknownIndexedField(&diagnostics, seen, target.Fields, typed.Fields[failedAt], document)
-					} else if target.Valid && target.PropertyNamespace != "" {
-						propertyAt := len(typed.Fields) - 1
-						if target.HasProperty {
-							propertyAt = target.PropertyAt
-						}
-						validateProperty(&diagnostics, seen, schema.Properties(target.PropertyNamespace), typed.Fields[propertyAt])
-					} else if target.Valid && target.Fields != nil {
-						validateIndexedField(&diagnostics, seen, target.Fields, typed.Fields[len(typed.Fields)-1], document)
-					}
-					return true
-				}
-				if namespace, ok := bindings.PropertyNamespace(parts); ok {
-					for _, field := range typed.Fields {
-						ignoredIdents[field] = true
-					}
-					validateProperty(&diagnostics, seen, schema.Properties(namespace), typed.Fields[len(typed.Fields)-1])
-					return true
-				}
-				if binding, ok := bindings.Relation(typed.Fields[0].Name); ok {
-					for _, field := range typed.Fields {
-						ignoredIdents[field] = true
-					}
-					validateField(&diagnostics, seen, binding, typed.Fields[1], document)
-				} else {
-					for _, field := range typed.Fields[1:] {
-						ignoredIdents[field] = true
-					}
-				}
-			case *clickhouse.Ident:
-				if ignoredIdents[typed] || typed.Name == "*" || analysis.IsBooleanLiteral(typed) {
-					return true
-				}
-				bindings := statement.BindingsAt(int(node.Pos()), int(node.End()))
-				if bindings.Len() > 0 {
-					validateUnqualifiedField(&diagnostics, seen, bindings, typed, document)
-				}
-			}
-			return true
-		})
+		for field := range statement.ColumnFields() {
+			validateColumnField(&diagnostics, seen, schema, statement, document, field)
+		}
 		if document.LimitError() != nil {
 			break
 		}
@@ -161,14 +106,19 @@ func Validate(schema *catalog.PreparedCatalog, query string) Result {
 			Code: "query_limit", Message: err.Error(), Start: 0, End: len(query),
 		})
 	}
-	return result(diagnostics, collectNotices(schema, document, query), referencedTableNames, started)
+	return result(diagnostics, collectNotices(schema, document, query), referencedTableNames, started), nil
 }
 
+// ValidateWithEncoding returns an error wrapping hogqlparser.ErrInternal when the parser fails for a reason that is
+// not about the query, so that the caller can fall back instead of showing a false syntax error.
 func ValidateWithEncoding(schema *catalog.PreparedCatalog, query string, encoding textposition.Encoding) (Result, error) {
 	if !encoding.Valid() {
 		return Result{}, fmt.Errorf("unsupported position encoding %q", encoding)
 	}
-	result := Validate(schema, query)
+	result, err := validate(schema, query)
+	if err != nil {
+		return Result{}, err
+	}
 	for index := range result.Diagnostics {
 		start, err := textposition.FromByteOffset(query, result.Diagnostics[index].Start, encoding)
 		if err != nil {
@@ -196,54 +146,74 @@ func ValidateWithEncoding(schema *catalog.PreparedCatalog, query string, encodin
 	return result, nil
 }
 
-func ignoredIdentifierNodes(statement *analysis.Statement) map[*clickhouse.Ident]bool {
-	ignoredIdents := map[*clickhouse.Ident]bool{}
-	statement.Walk(func(node clickhouse.Expr) bool {
-		switch typed := node.(type) {
-		case *clickhouse.TableIdentifier:
-			ignoredIdents[typed.Database] = true
-			ignoredIdents[typed.Table] = true
-		case *clickhouse.CTEStmt:
-			if ident, ok := typed.Expr.(*clickhouse.Ident); ok {
-				ignoredIdents[ident] = true
-			}
-		case *clickhouse.FunctionExpr:
-			ignoredIdents[typed.Name] = true
-		case *clickhouse.IntervalExpr:
-			ignoredIdents[typed.Unit] = true
-		case *clickhouse.IntervalFrom:
-			ignoredIdents[typed.Interval] = true
-		case *clickhouse.SelectItem:
-			ignoredIdents[typed.Alias] = true
-		case *clickhouse.AliasExpr:
-			if alias, ok := typed.Alias.(*clickhouse.Ident); ok {
-				ignoredIdents[alias] = true
-			}
+func validateColumnField(diagnostics *[]Diagnostic, seen map[string]bool, schema *catalog.PreparedCatalog, statement *analysis.Statement, document *analysis.Document, field analysis.ColumnField) {
+	parts := field.Parts
+	bindings := statement.BindingsAt(field.Node.Start, field.Node.End)
+	if bindings.Len() == 0 {
+		return
+	}
+	if len(parts) == 1 {
+		if parts[0].Name != "*" {
+			validateUnqualifiedField(diagnostics, seen, bindings, parts[0], document)
 		}
-		return true
-	})
-	return ignoredIdents
+		return
+	}
+	if parts[len(parts)-1].Name == "*" {
+		if _, ok := bindings.Relation(parts[0].Name); !ok && len(parts) == 2 {
+			validateUnqualifiedField(diagnostics, seen, bindings, parts[0], document)
+		}
+		return
+	}
+	names := make([]string, len(parts))
+	for index, part := range parts {
+		names[index] = part.Name
+	}
+	target := bindings.Traversal(names[:len(names)-1])
+	if target.Explicit {
+		if target.Failed {
+			failedAt := min(target.FailureAt, len(parts)-1)
+			validateUnknownIndexedField(diagnostics, seen, target.Fields, parts[failedAt], document)
+		} else if target.Valid && target.PropertyNamespace != "" {
+			propertyAt := len(parts) - 1
+			if target.HasProperty {
+				propertyAt = target.PropertyAt
+			}
+			validateProperty(diagnostics, seen, schema.Properties(target.PropertyNamespace), parts[propertyAt])
+		} else if target.Valid && target.Fields != nil {
+			validateIndexedField(diagnostics, seen, target.Fields, parts[len(parts)-1], document)
+		}
+		return
+	}
+	if namespace, ok := bindings.PropertyNamespace(names); ok {
+		validateProperty(diagnostics, seen, schema.Properties(namespace), parts[len(parts)-1])
+		return
+	}
+	if binding, ok := bindings.Relation(parts[0].Name); ok {
+		validateField(diagnostics, seen, binding, parts[1], document)
+		return
+	}
+	validateUnqualifiedField(diagnostics, seen, bindings, parts[0], document)
 }
 
-func validateProperty(diagnostics *[]Diagnostic, seen map[string]bool, properties *catalog.Index, ident *clickhouse.Ident) {
+func validateProperty(diagnostics *[]Diagnostic, seen map[string]bool, properties *catalog.Index, ident hogqlparser.FieldPart) {
 	if len(*diagnostics) >= querylimits.MaxDiagnostics {
 		return
 	}
 	if _, ok := properties.Exact(ident.Name); ok {
 		return
 	}
-	key := fmt.Sprintf("%d:%d", ident.Pos(), ident.End())
+	key := fmt.Sprintf("%d:%d", ident.Start, ident.End)
 	if seen[key] {
 		return
 	}
 	seen[key] = true
 	*diagnostics = append(*diagnostics, Diagnostic{
-		Code: "unknown_property", Message: fmt.Sprintf("Unknown property %q", ident.Name), Start: int(ident.Pos()), End: int(ident.End()),
+		Code: "unknown_property", Message: fmt.Sprintf("Unknown property %q", ident.Name), Start: ident.Start, End: ident.End,
 		Suggestions: closest(ident.Name, slices.Values(properties.Entries()), 5),
 	})
 }
 
-func validateField(diagnostics *[]Diagnostic, seen map[string]bool, binding analysis.Relation, ident *clickhouse.Ident, document *analysis.Document) {
+func validateField(diagnostics *[]Diagnostic, seen map[string]bool, binding analysis.Relation, ident hogqlparser.FieldPart, document *analysis.Document) {
 	if len(*diagnostics) >= querylimits.MaxDiagnostics || document.LimitError() != nil {
 		return
 	}
@@ -253,29 +223,29 @@ func validateField(diagnostics *[]Diagnostic, seen map[string]bool, binding anal
 	if document.LimitError() != nil {
 		return
 	}
-	key := fmt.Sprintf("%d:%d", ident.Pos(), ident.End())
+	key := fmt.Sprintf("%d:%d", ident.Start, ident.End)
 	if seen[key] {
 		return
 	}
 	seen[key] = true
 	*diagnostics = append(*diagnostics, Diagnostic{
-		Code: "unknown_field", Message: fmt.Sprintf("Unknown field %q", ident.Name), Start: int(ident.Pos()), End: int(ident.End()),
+		Code: "unknown_field", Message: fmt.Sprintf("Unknown field %q", ident.Name), Start: ident.Start, End: ident.End,
 		Suggestions: closest(ident.Name, binding.Fields(), 5),
 	})
 }
 
-func validateIndexedField(diagnostics *[]Diagnostic, seen map[string]bool, fields *catalog.PreparedFields, ident *clickhouse.Ident, document *analysis.Document) {
+func validateIndexedField(diagnostics *[]Diagnostic, seen map[string]bool, fields *catalog.PreparedFields, ident hogqlparser.FieldPart, document *analysis.Document) {
 	if _, ok := fields.Exact(ident.Name); ok {
 		return
 	}
 	validateUnknownIndexedField(diagnostics, seen, fields, ident, document)
 }
 
-func validateUnknownIndexedField(diagnostics *[]Diagnostic, seen map[string]bool, fields *catalog.PreparedFields, ident *clickhouse.Ident, document *analysis.Document) {
+func validateUnknownIndexedField(diagnostics *[]Diagnostic, seen map[string]bool, fields *catalog.PreparedFields, ident hogqlparser.FieldPart, document *analysis.Document) {
 	if len(*diagnostics) >= querylimits.MaxDiagnostics || document.LimitError() != nil {
 		return
 	}
-	key := fmt.Sprintf("%d:%d", ident.Pos(), ident.End())
+	key := fmt.Sprintf("%d:%d", ident.Start, ident.End)
 	if seen[key] {
 		return
 	}
@@ -285,12 +255,12 @@ func validateUnknownIndexedField(diagnostics *[]Diagnostic, seen map[string]bool
 		entries = fields.Entries()
 	}
 	*diagnostics = append(*diagnostics, Diagnostic{
-		Code: "unknown_field", Message: fmt.Sprintf("Unknown field %q", ident.Name), Start: int(ident.Pos()), End: int(ident.End()),
+		Code: "unknown_field", Message: fmt.Sprintf("Unknown field %q", ident.Name), Start: ident.Start, End: ident.End,
 		Suggestions: closest(ident.Name, slices.Values(entries), 5),
 	})
 }
 
-func validateUnqualifiedField(diagnostics *[]Diagnostic, seen map[string]bool, bindings analysis.Bindings, ident *clickhouse.Ident, document *analysis.Document) {
+func validateUnqualifiedField(diagnostics *[]Diagnostic, seen map[string]bool, bindings analysis.Bindings, ident hogqlparser.FieldPart, document *analysis.Document) {
 	if len(*diagnostics) >= querylimits.MaxDiagnostics || document.LimitError() != nil {
 		return
 	}
@@ -314,13 +284,13 @@ func validateUnqualifiedField(diagnostics *[]Diagnostic, seen map[string]bool, b
 			return
 		}
 	}
-	key := fmt.Sprintf("%d:%d", ident.Pos(), ident.End())
+	key := fmt.Sprintf("%d:%d", ident.Start, ident.End)
 	if seen[key] {
 		return
 	}
 	seen[key] = true
 	*diagnostics = append(*diagnostics, Diagnostic{
-		Code: "unknown_field", Message: fmt.Sprintf("Unknown field %q", ident.Name), Start: int(ident.Pos()), End: int(ident.End()),
+		Code: "unknown_field", Message: fmt.Sprintf("Unknown field %q", ident.Name), Start: ident.Start, End: ident.End,
 		Suggestions: closest(ident.Name, slices.Values(candidates), 5),
 	})
 }

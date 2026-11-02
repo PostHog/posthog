@@ -12,6 +12,7 @@ import (
 
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/catalog"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/completion"
+	"github.com/PostHog/posthog/services/hogql-language-service/internal/hogqlparser"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/ratelimit"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/serviceauth"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/textposition"
@@ -330,6 +331,12 @@ func (s *server) validate(w http.ResponseWriter, r *http.Request, authorization 
 		positionEncoding = textposition.UTF16
 	}
 	result, err := validation.ValidateWithEncoding(current, input.Query, positionEncoding)
+	if errors.Is(err, hogqlparser.ErrInternal) {
+		setRequestResult(r, "parser_error")
+		slog.ErrorContext(r.Context(), "hogql parser failed", "error", err)
+		http.Error(w, "parser failed", http.StatusInternalServerError)
+		return
+	}
 	if err != nil {
 		setRequestResult(r, "invalid_query")
 		http.Error(w, err.Error(), http.StatusBadRequest)

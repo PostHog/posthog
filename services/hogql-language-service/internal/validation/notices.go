@@ -5,10 +5,9 @@ import (
 	"sort"
 	"strings"
 
-	clickhouse "github.com/orian/clickhouse-sql-parser/parser"
-
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/analysis"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/catalog"
+	"github.com/PostHog/posthog/services/hogql-language-service/internal/hogqlparser"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/querylimits"
 )
 
@@ -72,13 +71,13 @@ func displayType(raw string) string {
 	}
 }
 
-func (c *noticeCollector) addField(ident *clickhouse.Ident, rawType string) {
+func (c *noticeCollector) addField(ident hogqlparser.FieldPart, rawType string) {
 	if fieldType := displayType(rawType); fieldType != "" {
-		c.add(fmt.Sprintf("Field '%s' is of type '%s'", ident.Name, fieldType), int(ident.Pos()), int(ident.End()))
+		c.add(fmt.Sprintf("Field '%s' is of type '%s'", ident.Name, fieldType), ident.Start, ident.End)
 	}
 }
 
-func (c *noticeCollector) addProperty(ident *clickhouse.Ident, namespace string, properties *catalog.Index) {
+func (c *noticeCollector) addProperty(ident hogqlparser.FieldPart, namespace string, properties *catalog.Index) {
 	field, ok := properties.Exact(ident.Name)
 	if !ok {
 		return
@@ -91,7 +90,7 @@ func (c *noticeCollector) addProperty(ident *clickhouse.Ident, namespace string,
 	if strings.HasPrefix(owner, "group:") {
 		owner = "group"
 	}
-	c.add(fmt.Sprintf("%s property '%s' is of type '%s'", strings.ToUpper(owner[:1])+owner[1:], ident.Name, fieldType), int(ident.Pos()), int(ident.End()))
+	c.add(fmt.Sprintf("%s property '%s' is of type '%s'", strings.ToUpper(owner[:1])+owner[1:], ident.Name, fieldType), ident.Start, ident.End)
 }
 
 func (c *noticeCollector) sorted() []Notice {
@@ -119,78 +118,61 @@ func collectNotices(schema *catalog.PreparedCatalog, document *analysis.Document
 			}
 			collector.add(message, table.Start, table.End)
 		}
-		ignoredIdents := ignoredIdentifierNodes(statement)
-		statement.Walk(func(node clickhouse.Expr) bool {
+		for field := range statement.ColumnFields() {
 			if len(collector.notices) >= querylimits.MaxNotices || document.LimitError() != nil {
-				return false
+				break
 			}
-			switch typed := node.(type) {
-			case *clickhouse.NestedIdentifier:
-				if typed.DotIdent == nil {
-					return true
-				}
-				ignoredIdents[typed.Ident] = true
-				ignoredIdents[typed.DotIdent] = true
-				bindings := statement.BindingsAt(int(node.Pos()), int(node.End()))
-				if resolved, ok := bindings.UnambiguousRelation(typed.Ident.Name); ok {
-					if field, ok := resolved.ResolvedField(typed.DotIdent.Name); ok {
-						collector.addField(typed.DotIdent, field.Type)
-					}
-				}
-			case *clickhouse.Path:
-				if len(typed.Fields) < 2 {
-					return true
-				}
-				for _, field := range typed.Fields {
-					ignoredIdents[field] = true
-				}
-				bindings := statement.BindingsAt(int(node.Pos()), int(node.End()))
-				parts := make([]string, len(typed.Fields))
-				for index, field := range typed.Fields {
-					parts[index] = field.Name
-				}
-				target := bindings.Traversal(parts[:len(parts)-1])
-				if target.Explicit {
-					if target.Valid && target.PropertyNamespace != "" {
-						propertyAt := len(typed.Fields) - 1
-						if target.HasProperty {
-							propertyAt = target.PropertyAt
-						}
-						collector.addProperty(typed.Fields[propertyAt], target.PropertyNamespace, schema.Properties(target.PropertyNamespace))
-					} else if target.Valid && target.Fields != nil {
-						if field, ok := target.Fields.Exact(typed.Fields[len(typed.Fields)-1].Name); ok {
-							collector.addField(typed.Fields[len(typed.Fields)-1], field.Type)
-						}
-					}
-					return true
-				}
-				if namespace, ok := bindings.PropertyNamespace(parts); ok {
-					collector.addProperty(typed.Fields[len(typed.Fields)-1], namespace, schema.Properties(namespace))
-					return true
-				}
-				if resolved, ok := bindings.UnambiguousRelation(typed.Fields[0].Name); ok {
-					if field, ok := resolved.ResolvedField(typed.Fields[1].Name); ok {
-						collector.addField(typed.Fields[1], field.Type)
-					}
-				}
-			case *clickhouse.Ident:
-				if ignoredIdents[typed] || typed.Name == "*" || analysis.IsBooleanLiteral(typed) {
-					return true
-				}
-				bindings := statement.BindingsAt(int(node.Pos()), int(node.End()))
-				if field, ok := bindings.ResolvedSelectAlias(typed.Name); ok {
-					collector.addField(typed, field.Type)
-				} else if _, exists := bindings.SelectAlias(typed.Name); !exists {
-					if field, ok := bindings.ResolvedField(typed.Name); ok {
-						collector.addField(typed, field.Type)
-					}
-				}
-			}
-			return true
-		})
+			collector.addColumnField(schema, statement, field)
+		}
 		if len(collector.notices) >= querylimits.MaxNotices || document.LimitError() != nil {
 			break
 		}
 	}
 	return collector.sorted()
+}
+
+func (c *noticeCollector) addColumnField(schema *catalog.PreparedCatalog, statement *analysis.Statement, field analysis.ColumnField) {
+	parts := field.Parts
+	bindings := statement.BindingsAt(field.Node.Start, field.Node.End)
+	if len(parts) == 1 {
+		if parts[0].Name == "*" {
+			return
+		}
+		if resolved, ok := bindings.ResolvedSelectAlias(parts[0].Name); ok {
+			c.addField(parts[0], resolved.Type)
+		} else if _, exists := bindings.SelectAlias(parts[0].Name); !exists {
+			if resolved, ok := bindings.ResolvedField(parts[0].Name); ok {
+				c.addField(parts[0], resolved.Type)
+			}
+		}
+		return
+	}
+	names := make([]string, len(parts))
+	for index, part := range parts {
+		names[index] = part.Name
+	}
+	target := bindings.Traversal(names[:len(names)-1])
+	if target.Explicit {
+		if target.Valid && target.PropertyNamespace != "" {
+			propertyAt := len(parts) - 1
+			if target.HasProperty {
+				propertyAt = target.PropertyAt
+			}
+			c.addProperty(parts[propertyAt], target.PropertyNamespace, schema.Properties(target.PropertyNamespace))
+		} else if target.Valid && target.Fields != nil {
+			if resolved, ok := target.Fields.Exact(parts[len(parts)-1].Name); ok {
+				c.addField(parts[len(parts)-1], resolved.Type)
+			}
+		}
+		return
+	}
+	if namespace, ok := bindings.PropertyNamespace(names); ok {
+		c.addProperty(parts[len(parts)-1], namespace, schema.Properties(namespace))
+		return
+	}
+	if resolved, ok := bindings.UnambiguousRelation(parts[0].Name); ok {
+		if entry, ok := resolved.ResolvedField(parts[1].Name); ok {
+			c.addField(parts[1], entry.Type)
+		}
+	}
 }

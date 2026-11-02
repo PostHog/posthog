@@ -270,8 +270,8 @@ func TestTraversalRelationHopLimit(t *testing.T) {
 	}
 }
 
-func TestValidateDoesNotShareBindingsAcrossStatements(t *testing.T) {
-	result := Validate(schema(), "SELECT person_id FROM warehouse_orders; SELECT person_id FROM warehouse_people")
+func TestValidateDoesNotShareBindingsAcrossSetQueryBranches(t *testing.T) {
+	result := Validate(schema(), "SELECT person_id FROM warehouse_orders UNION ALL SELECT person_id FROM warehouse_people")
 	if result.Valid || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "unknown_field" {
 		t.Fatalf("result = %#v", result)
 	}
@@ -407,7 +407,6 @@ func TestValidateAcceptsKnownFieldsAndFunctions(t *testing.T) {
 	}{
 		{query: "SELECT sum(o.amount), o.order_id FROM warehouse_orders AS o WHERE o.amount > 0", tableName: "warehouse_orders"},
 		{query: "SELECT uuid FROM events WHERE event = '$pageview' AND timestamp > now() - interval 1 month", tableName: "events"},
-		{query: "SELECT extract(month FROM timestamp) FROM events", tableName: "events"},
 		{query: "SELECT properties.$GEO_CITY FROM events", tableName: "events"},
 		{query: "SELECT s.kind FROM (SELECT event AS kind FROM events) AS s", tableName: "events"},
 		{query: "WITH t AS (SELECT event AS `Σ` FROM events) SELECT t.`ς` FROM t", tableName: "events"},
@@ -419,6 +418,10 @@ func TestValidateAcceptsKnownFieldsAndFunctions(t *testing.T) {
 		{query: "SELECT TRUE, false FROM events WHERE TRUE AND false = FALSE", tableName: "events"},
 		{query: "SELECT CASE WHEN TRUE THEN false ELSE FALSE END AS enabled FROM events", tableName: "events"},
 		{query: "WITH flags AS (SELECT TRUE AS enabled FROM events) SELECT enabled FROM flags WHERE enabled = FALSE", tableName: "events"},
+		{query: "SELECT jev(event, 'Is this a signup?', choice := ['yes', 'no']) AS verdict FROM events", tableName: "events"},
+		{query: "SELECT arrayMap(value -> concat(value, event), [event]) FROM events", tableName: "events"},
+		{query: "SELECT tag FROM events ARRAY JOIN [event] AS tag", tableName: "events"},
+		{query: "WITH 'signup' AS target SELECT event FROM events WHERE event = target", tableName: "events"},
 	} {
 		result := Validate(schema(), test.query)
 		if !result.Valid || len(result.Diagnostics) != 0 {
@@ -426,6 +429,30 @@ func TestValidateAcceptsKnownFieldsAndFunctions(t *testing.T) {
 		}
 		if len(result.TableNames) != 1 || result.TableNames[0] != test.tableName {
 			t.Fatalf("query %q returned table names %#v", test.query, result.TableNames)
+		}
+	}
+}
+
+func TestValidateReportsSyntaxErrorsAtTheirPosition(t *testing.T) {
+	for _, test := range []struct {
+		query   string
+		marked  string
+		message string
+	}{
+		{query: "SELECT person_id FROM warehouse_orders; SELECT person_id FROM warehouse_people", marked: "SELECT"},
+		{query: "SELECT 'café', extract(month FROM timestamp) FROM events", marked: "FROM"},
+		{query: "SELECT event FROM events WHERE", marked: "", message: "Unexpected end of query"},
+	} {
+		result := Validate(schema(), test.query)
+		if result.Valid || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "syntax_error" {
+			t.Fatalf("query %q returned %#v", test.query, result)
+		}
+		diagnostic := result.Diagnostics[0]
+		if marked := test.query[diagnostic.Start:diagnostic.End]; marked != test.marked {
+			t.Fatalf("query %q marked %q, want %q", test.query, marked, test.marked)
+		}
+		if test.message != "" && diagnostic.Message != test.message {
+			t.Fatalf("query %q message %q, want %q", test.query, diagnostic.Message, test.message)
 		}
 	}
 }
@@ -448,12 +475,12 @@ func TestValidatePreservesCollidingNormalizedTableReferences(t *testing.T) {
 		tableNames string
 	}{
 		{
-			name: "distinct canonical tables across statements and Unicode bytes",
+			name: "distinct canonical tables after Unicode bytes",
 			catalog: &catalog.Catalog{Tables: map[string]catalog.Table{
 				"a.b.c_d": fieldTable("a.b.c_d", "left_field"),
 				"a.b_c.d": fieldTable("a.b_c.d", "right_field"),
 			}},
-			query:      "SELECT 'café'; SELECT l.left_field, r.right_field FROM a.b.c_d AS l JOIN a.b_c.d AS r ON 1 = 1",
+			query:      "SELECT 'café' AS label, l.left_field, r.right_field FROM a.b.c_d AS l JOIN a.b_c.d AS r ON 1 = 1",
 			tableNames: "a.b.c_d,a.b_c.d",
 		},
 		{
@@ -678,11 +705,12 @@ func TestValidateRejectsUnknownFields(t *testing.T) {
 		"SELECT amount AS total FROM warehouse_orders JOIN events ON total = 1",
 		"SELECT amount AS total FROM warehouse_orders WHERE order_id IN (SELECT total FROM events)",
 		"SELECT total FROM warehouse_orders WHERE order_id IN (SELECT event AS total FROM events)",
-		"SELECT amount AS total FROM warehouse_orders; SELECT total FROM events",
 		"SELECT amount AS total FROM warehouse_orders UNION ALL SELECT total FROM warehouse_orders",
 		"WITH t AS (SELECT total FROM warehouse_orders) SELECT amount AS total FROM warehouse_orders",
 		"SELECT event AS kind FROM events ORDER BY events.kind",
 		"SELECT amount AS Total FROM warehouse_orders ORDER BY total",
+		"SELECT {'key': missing} FROM events",
+		`SELECT event FROM events WINDOW "start" AS (PARTITION BY missing)`,
 		`SELECT "TRUE" FROM events`,
 		"SELECT events.FALSE FROM events",
 	} {
@@ -708,7 +736,6 @@ func TestValidateBoundsCommonTableExpressionProjectionExpansion(t *testing.T) {
 	}{
 		{name: "single statement within budget", query: withinBudget, valid: true},
 		{name: "single statement exceeds budget", query: "WITH " + strings.Join(ctes, ", ") + " SELECT missing FROM c13"},
-		{name: "shared budget stops before later statements", query: withinBudget + "; " + withinBudget + "; SELECT person_id FROM warehouse_people"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			result := Validate(schema(), test.query)

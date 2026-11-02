@@ -28,6 +28,11 @@ HogQL language service
 Autocomplete or validation response
 ```
 
+The service parses with the HogQL parser from `rust/hogql/parser`, compiled to WASM and embedded in the Go binary.
+A change under `rust/hogql/parser/` runs the service tests and, on master, builds a new service image.
+The service builds the module from the same commit, while Python uses the wheel that `pyproject.toml` pins.
+The editor and execution can therefore disagree about syntax until the pin reaches the same parser version.
+
 Django remains authoritative for authentication, team membership, entitlements, feature flags, and access-control
 resolution. The Go service does not read PostHog permission tables or accept browser-selected identity without an
 authenticated internal request.
@@ -212,7 +217,7 @@ Validation retains the spelling from SQL in `tableNames`, and self-joins through
 Completion shows one spelling per canonical target. It prefers a matching canonical name and otherwise shows one matching alias.
 CTEs shadow only their exact spelling, so a CTE named `demo_postgres_orders` does not hide `postgres.demo.orders`.
 CTE shadowing and table-suggestion deduplication use exact names, so a CTE named `Events` does not hide the catalog table `events`.
-Multi-part names retain their source identity when their parser-safe forms coincide, such as `a.b.c_d` and `a.b_c.d`.
+Multi-part names retain their source identity when their implicit aliases look alike, such as `a.b.c_d` and `a.b_c.d`.
 Duplicate qualifiers do not establish property provenance, including inside CTE projections and qualified wildcards.
 FROM and JOIN completion includes visible table CTEs before catalog tables, with `CTE` in the suggestion detail.
 For an unquoted multi-part prefix, completion returns matching leaf tables with full labels and suffix-only insertion.
@@ -313,7 +318,6 @@ Closed block comments and line comments at end of input remain valid.
 
 ### Recovery and remaining work
 
-- Multi-part normalization supports unquoted table paths after `FROM` and `JOIN`. Separately quoted path components and multi-part paths in comma-separated sources remain unsupported. Replacing the regular-expression normalization with token-aware handling is follow-up work.
 - Source-specific case-insensitive relation lookup remains unsupported. Python catalog nodes can opt in, for example for Snowflake, but the Go catalog payload does not carry that per-node flag. Supporting it requires publishing the metadata and implementing exact-match-first, opt-in fallback without merging distinct names. The service requires exact relation names until then; autocomplete prefix matching remains case-insensitive.
 - Physical field and property-key case sensitivity remain separate from relation-name resolution. This layer does not claim complete identifier-case parity with the Python resolver.
 - CTE recovery requires complete CTE definitions and a parseable outer SELECT/FROM prefix. Broken CTE bodies, missing CTE-closing parentheses, and incomplete SELECT or JOIN sources remain unsupported because they do not establish a reliable projected schema. Recovering those forms requires separate structural recovery for each damaged scope.
@@ -323,7 +327,7 @@ Closed block comments and line comments at end of input remain valid.
 - Projecting a relation or nested virtual container such as `e.person.properties AS props` does not retain traversal provenance. Extend projected-field provenance before enabling those paths outside their source scope; direct source traversal requires explicit catalog annotations, and existing physical property paths remain available.
 - Single-SELECT recovery without WITH retains only FROM bindings and does not guess discarded aliases. Extending SELECT-alias recovery there requires preserving its SELECT list and visibility positions as the CTE-aware path does.
 - SELECT-alias property provenance follows the existing visibility and case-sensitive precedence rules. An alias without a known container origin suppresses property-owner fallback; it does not inherit a namespace from a name such as `person` or `properties`.
-- Scalar WITH aliases, aliases inside expressions, ARRAY JOIN aliases, QUALIFY, and duplicate SELECT-alias diagnostics remain follow-up work. Model their resolver order and parser support before extending the top-level SELECT alias index. For duplicate declarations, the index retains the first field and type, but property provenance becomes unknown once the duplicate declaration is visible; earlier references retain their original provenance.
+- Validation treats scalar WITH aliases and ARRAY JOIN aliases as known names anywhere in the statement, without scope or type, so it never reports them as unknown fields. Scoping them, aliases inside expressions, QUALIFY, and duplicate SELECT-alias diagnostics remain follow-up work. Model their resolver order and parser support before extending the top-level SELECT alias index. For duplicate declarations, the index retains the first field and type, but property provenance becomes unknown once the duplicate declaration is visible; earlier references retain their original provenance.
 - Validation skips field checks when a query has no known FROM bindings, including SELECT without FROM. Completion can still suggest its aliases. Add explicit empty-source scopes and distinguish unknown relations before enabling strict validation there.
 - JOIN USING output coalescing and ambiguous unqualified-field diagnostics remain follow-up work. Completion offers each source's qualified field; it does not choose a join-wide value or change validation's ambiguity rules.
 - CTE table-name suggestions in malformed FROM/JOIN clauses still require cursor replacement to produce parseable SQL. This recovery slice targets outer expression completion with intact sources; recovering incomplete source declarations needs its own scope and ambiguity checks.

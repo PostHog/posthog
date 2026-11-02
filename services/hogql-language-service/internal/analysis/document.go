@@ -6,9 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	clickhouse "github.com/orian/clickhouse-sql-parser/parser"
-
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/catalog"
+	"github.com/PostHog/posthog/services/hogql-language-service/internal/hogqlparser"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/propertyresolver"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/querylimits"
 )
@@ -20,14 +19,15 @@ type Document struct {
 }
 
 type Statement struct {
-	expr               clickhouse.Expr
-	schema             *catalog.PreparedCatalog
-	originalTableNames map[int]string
-	budget             *projectionBudget
-	scopes             []*queryScope
-	tables             []TableReference
-	resolvedTables     []TableReference
-	analyzed           bool
+	expr           *hogqlparser.Node
+	query          string
+	schema         *catalog.PreparedCatalog
+	budget         *projectionBudget
+	scopes         []*queryScope
+	byQuery        map[*hogqlparser.Node]*queryScope
+	tables         []TableReference
+	resolvedTables []TableReference
+	analyzed       bool
 }
 
 type TableReference struct {
@@ -48,19 +48,14 @@ func Analyze(schema *catalog.PreparedCatalog, query string) (*Document, error) {
 	if err := querylimits.Validate(query); err != nil {
 		return nil, err
 	}
-	parserQuery, originalTableNames := normalizeHogQLTableReferences(query)
-	statements, err := clickhouse.NewParser(parserQuery).ParseStmts()
+	root, err := hogqlparser.ParseSelect(query)
 	if err != nil {
 		return nil, err
 	}
 	document := &Document{budget: projectionBudget{
 		remaining: querylimits.MaxCTEProjectedFields, lookupRemaining: querylimits.MaxFieldLookupWork,
 	}}
-	for _, expr := range statements {
-		document.statements = append(document.statements, &Statement{
-			expr: expr, schema: schema, originalTableNames: originalTableNames, budget: &document.budget,
-		})
-	}
+	document.statements = append(document.statements, &Statement{expr: root, query: query, schema: schema, budget: &document.budget})
 	return document, nil
 }
 
@@ -94,26 +89,21 @@ func (s *Statement) analyze() {
 		return
 	}
 	s.analyzed = true
-	s.scopes = queryScopes(s.expr, s.budget)
-	bindTables := func(node clickhouse.Expr) bool {
-		expr, ok := node.(*clickhouse.TableExpr)
-		if !ok {
+	s.scopes, s.byQuery = queryScopes(s.expr, s.query, s.budget)
+	bindTables := func(node *hogqlparser.Node) bool {
+		if !node.Is("JoinExpr") {
 			return true
 		}
-		if bindSubquery(expr, s.scopes, s.budget) {
+		if bindSubquery(node, s.byQuery, s.budget) {
 			return true
 		}
-		name, alias, implicitAlias, start, end, ok := tableReference(expr)
+		name, alias, implicitAlias, start, end, ok := tableReference(node)
 		if !ok {
 			return true
 		}
 		scope := innermostScope(s.scopes, start, end)
 		if scope == nil {
 			return true
-		}
-		if original, exists := s.originalTableNames[start]; exists {
-			name = original
-			implicitAlias = strings.ReplaceAll(original, ".", "__")
 		}
 		if cte := resolveCTE(scope, name, start); cte != nil {
 			addBinding(scope, name, alias, Relation{name: cte.name, cte: cte}, start, end)
@@ -125,19 +115,18 @@ func (s *Statement) analyze() {
 		if exists {
 			s.resolvedTables = append(s.resolvedTables, TableReference{Name: name, Canonical: table.Name, Start: start, End: end, Known: true})
 			if alias == "" && implicitAlias != name {
-				// HogQL registers multi-part table paths under a double-underscore alias.
 				alias = implicitAlias
 			}
 			addBinding(scope, name, alias, Relation{name: name, table: table}, start, end)
 		}
 		return true
 	}
-	walkIncludingExcept(s.expr, bindTables)
+	s.expr.Walk(bindTables)
 }
 
-// Walk borrows parser nodes for validation; callers must not mutate them or retain them across requests.
-func (s *Statement) Walk(visit func(clickhouse.Expr) bool) {
-	walkIncludingExcept(s.expr, visit)
+// Walk borrows parser nodes for validation; callers must not retain them across requests.
+func (s *Statement) Walk(visit func(*hogqlparser.Node) bool) {
+	s.expr.Walk(visit)
 }
 
 func (s *Statement) Tables() iter.Seq[TableReference] {
@@ -161,11 +150,11 @@ func (s *Statement) DuplicateSources() iter.Seq[Source] {
 }
 
 func (s *Statement) ContainsPosition(position int) bool {
-	if int(s.expr.Pos()) <= position && position <= int(s.expr.End()) {
+	if s.expr.Contains(position, position) {
 		return true
 	}
 	for _, scope := range s.scopes {
-		if contains(scope.query, position, position) {
+		if scope.query.Contains(position, position) {
 			return true
 		}
 	}

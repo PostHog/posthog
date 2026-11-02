@@ -1,13 +1,11 @@
 package analysis
 
 import (
-	"regexp"
 	"strings"
 	"unicode"
 
-	clickhouse "github.com/orian/clickhouse-sql-parser/parser"
-
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/catalog"
+	"github.com/PostHog/posthog/services/hogql-language-service/internal/hogqlparser"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/propertyresolver"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/querylimits"
 )
@@ -19,8 +17,11 @@ type Relation struct {
 }
 
 type cteBinding struct {
-	name       string
-	query      *clickhouse.SelectQuery
+	name string
+	// query is the SELECT whose columns the CTE projects. For a set query that is the first branch, because the
+	// first branch names the columns. body spans the whole definition, which a CTE cannot reference.
+	query      *hogqlparser.Node
+	body       *hogqlparser.Node
 	scope      *queryScope
 	budget     *projectionBudget
 	fields     []projectedField
@@ -45,7 +46,8 @@ type projectionBudget struct {
 }
 
 type queryScope struct {
-	query              *clickhouse.SelectQuery
+	query              *hogqlparser.Node
+	source             string
 	parent             *queryScope
 	bindings           map[string]Relation
 	sources            []Source
@@ -66,69 +68,61 @@ type propertyNamespace struct {
 	matched bool
 }
 
-var tableReferencePattern = regexp.MustCompile(`(?i)\b(?:FROM|JOIN)\s+([A-Za-z_][A-Za-z0-9_.$]*)`)
-
-func queryScopes(statement clickhouse.Expr, budget *projectionBudget) []*queryScope {
+func queryScopes(statement *hogqlparser.Node, source string, budget *projectionBudget) ([]*queryScope, map[*hogqlparser.Node]*queryScope) {
 	var scopes []*queryScope
-	byQuery := map[*clickhouse.SelectQuery]*queryScope{}
-	walkIncludingExcept(statement, func(node clickhouse.Expr) bool {
-		if query, ok := node.(*clickhouse.SelectQuery); ok {
-			scope := &queryScope{query: query, bindings: map[string]Relation{}, budget: budget}
+	byQuery := map[*hogqlparser.Node]*queryScope{}
+	statement.Walk(func(node *hogqlparser.Node) bool {
+		if node.Is("SelectQuery") && node.Start >= 0 {
+			scope := &queryScope{query: node, source: source, bindings: map[string]Relation{}, budget: budget}
 			scopes = append(scopes, scope)
-			byQuery[query] = scope
+			byQuery[node] = scope
 		}
 		return true
 	})
 	for _, scope := range scopes {
 		for _, candidate := range scopes {
-			if scope == candidate || span(candidate.query) <= span(scope.query) || !contains(candidate.query, int(scope.query.Pos()), int(scope.query.End())) {
+			if scope == candidate || candidate.query.Span() <= scope.query.Span() || !candidate.query.Contains(scope.query.Start, scope.query.End) {
 				continue
 			}
-			if scope.parent == nil || span(candidate.query) < span(scope.parent.query) {
+			if scope.parent == nil || candidate.query.Span() < scope.parent.query.Span() {
 				scope.parent = candidate
 			}
 		}
-		if scope.parent != nil && (scope.parent.query.UnionAll == scope.query || scope.parent.query.UnionDistinct == scope.query || scope.parent.query.Except == scope.query) {
-			scope.cteRoot = true
-		}
 	}
 	for _, scope := range scopes {
-		if scope.query.With == nil {
-			continue
-		}
-		for _, statement := range scope.query.With.CTEs {
-			name, nameOK := statement.Expr.(*clickhouse.Ident)
-			query, queryOK := statement.Alias.(*clickhouse.SelectQuery)
-			if !nameOK || !queryOK {
+		for _, statement := range scope.query.Children("ctes") {
+			if statement.Text("cte_type") != "subquery" {
 				continue
 			}
-			cte := &cteBinding{name: name.Name, query: query, scope: byQuery[query], budget: budget}
-			if cte.scope != nil {
-				cte.scope.cteRoot = true
+			body := statement.Child("expr")
+			branches := selectBranches(body)
+			if len(branches) == 0 {
+				continue
+			}
+			cte := &cteBinding{name: statement.Text("name"), query: branches[0], body: body, scope: byQuery[branches[0]], budget: budget}
+			for _, branch := range branches {
+				if branchScope := byQuery[branch]; branchScope != nil {
+					branchScope.cteRoot = true
+				}
 			}
 			scope.ctes = append(scope.ctes, cte)
 		}
 	}
-	return scopes
+	return scopes, byQuery
 }
 
-func walkIncludingExcept(expr clickhouse.Expr, visit func(clickhouse.Expr) bool) {
-	var exceptBranches []*clickhouse.SelectQuery
-	seenExcept := map[*clickhouse.SelectQuery]bool{}
-	wrapper := func(node clickhouse.Expr) bool {
-		walkChildren := visit(node)
-		if query, ok := node.(*clickhouse.SelectQuery); ok && walkChildren && query.Except != nil && !seenExcept[query.Except] {
-			seenExcept[query.Except] = true
-			exceptBranches = append(exceptBranches, query.Except)
+func selectBranches(node *hogqlparser.Node) []*hogqlparser.Node {
+	switch {
+	case node.Is("SelectQuery"):
+		return []*hogqlparser.Node{node}
+	case node.Is("SelectSetQuery"):
+		branches := selectBranches(node.Child("initial_select_query"))
+		for _, subsequent := range node.Children("subsequent_select_queries") {
+			branches = append(branches, selectBranches(subsequent.Child("select_query"))...)
 		}
-		return walkChildren
+		return branches
 	}
-	clickhouse.Walk(expr, wrapper)
-	for len(exceptBranches) > 0 {
-		branch := exceptBranches[0]
-		exceptBranches = exceptBranches[1:]
-		clickhouse.Walk(branch, wrapper)
-	}
+	return nil
 }
 
 func addBinding(scope *queryScope, name, alias string, binding Relation, start, end int) {
@@ -165,7 +159,7 @@ func (s *queryScope) hasDuplicateSource(name string) bool {
 
 func (s *queryScope) visibleCTEs(position int) []*cteBinding {
 	for index, cte := range s.ctes {
-		if contains(cte.query, position, position) {
+		if cte.body.Contains(position, position) {
 			return s.ctes[:index]
 		}
 	}
@@ -187,19 +181,11 @@ func resolveCTE(scope *queryScope, name string, position int) *cteBinding {
 func innermostScope(scopes []*queryScope, start, end int) *queryScope {
 	var found *queryScope
 	for _, scope := range scopes {
-		if contains(scope.query, start, end) && (found == nil || span(scope.query) < span(found.query)) {
+		if scope.query.Contains(start, end) && (found == nil || scope.query.Span() < found.query.Span()) {
 			found = scope
 		}
 	}
 	return found
-}
-
-func contains(query *clickhouse.SelectQuery, start, end int) bool {
-	return int(query.Pos()) <= start && end <= int(query.End())
-}
-
-func span(query *clickhouse.SelectQuery) int {
-	return int(query.End() - query.Pos())
 }
 
 func visibleBindings(scope *queryScope) map[string]Relation {
@@ -300,68 +286,40 @@ func (s *queryScope) unqualifiedPropertyNamespace(name string) (string, bool, bo
 	return resolved.name, resolved.ok, resolved.matched
 }
 
-func normalizeHogQLTableReferences(query string) (string, map[int]string) {
-	normalized := []byte(query)
-	originalNames := map[int]string{}
-	for _, indexes := range tableReferencePattern.FindAllStringSubmatchIndex(query, -1) {
-		start, end := indexes[2], indexes[3]
-		name := query[start:end]
-		firstDot := strings.IndexByte(name, '.')
-		if firstDot == -1 || !strings.Contains(name[firstDot+1:], ".") {
-			continue
-		}
-		for index := start + firstDot + 1; index < end; index++ {
-			if normalized[index] == '.' {
-				normalized[index] = '_'
-			}
-		}
-		originalNames[start] = name
-	}
-	return string(normalized), originalNames
-}
-
-func tableReference(expr *clickhouse.TableExpr) (name, alias, implicitAlias string, start, end int, ok bool) {
-	node := expr.Expr
-	if aliased, isAlias := node.(*clickhouse.AliasExpr); isAlias {
-		node = aliased.Expr
-		if ident, isIdent := aliased.Alias.(*clickhouse.Ident); isIdent {
-			alias = ident.Name
-		}
-	}
-	identifier, isTable := node.(*clickhouse.TableIdentifier)
-	if !isTable || identifier.Table == nil {
+// tableReference reads a JoinExpr whose table is a name. A table function such as numbers(10) has no catalog
+// entry and no columns to check, so it is not a reference.
+func tableReference(join *hogqlparser.Node) (name, alias, implicitAlias string, start, end int, ok bool) {
+	table := join.Child("table")
+	if !table.Is("Field") || join.Has("table_args") || table.Start < 0 {
 		return "", "", "", 0, 0, false
 	}
-	name = identifier.Table.Name
-	implicitAlias = name
-	if identifier.Database != nil {
-		name = identifier.Database.Name + "." + name
-		implicitAlias = identifier.Database.Name + "__" + identifier.Table.Name
+	chain := table.Chain()
+	if len(chain) == 0 {
+		return "", "", "", 0, 0, false
 	}
-	return name, alias, implicitAlias, int(identifier.Pos()), int(identifier.End()), true
+	// HogQL registers multi-part table paths under a double-underscore alias.
+	return strings.Join(chain, "."), join.Text("alias"), strings.Join(chain, "__"), table.Start, table.End, true
 }
 
-func bindSubquery(expr *clickhouse.TableExpr, scopes []*queryScope, budget *projectionBudget) bool {
-	node := expr.Expr
-	var alias string
-	if aliased, ok := node.(*clickhouse.AliasExpr); ok {
-		node = aliased.Expr
-		if ident, ok := aliased.Alias.(*clickhouse.Ident); ok {
-			alias = ident.Name
-		}
-	}
-	subquery, ok := node.(*clickhouse.SubQuery)
-	if !ok {
+func bindSubquery(join *hogqlparser.Node, byQuery map[*hogqlparser.Node]*queryScope, budget *projectionBudget) bool {
+	table := join.Child("table")
+	branches := selectBranches(table)
+	if len(branches) == 0 {
 		return false
 	}
-	inner := innermostScope(scopes, int(subquery.Select.Pos()), int(subquery.Select.End()))
-	if inner != nil && inner.parent != nil {
-		// FROM subqueries do not inherit the containing query's table bindings.
-		inner.cteRoot = true
-		if alias != "" {
-			derived := &cteBinding{name: alias, query: subquery.Select, scope: inner, budget: budget}
-			addBinding(inner.parent, alias, "", Relation{name: alias, cte: derived}, int(expr.Pos()), int(expr.End()))
+	first := byQuery[branches[0]]
+	if first == nil || first.parent == nil {
+		return true
+	}
+	// FROM subqueries do not inherit the containing query's table bindings.
+	for _, branch := range branches {
+		if scope := byQuery[branch]; scope != nil {
+			scope.cteRoot = true
 		}
+	}
+	if alias := join.Text("alias"); alias != "" {
+		derived := &cteBinding{name: alias, query: branches[0], body: table, scope: first, budget: budget}
+		addBinding(first.parent, alias, "", Relation{name: alias, cte: derived}, join.Start, join.End)
 	}
 	return true
 }
@@ -458,40 +416,27 @@ func (c *cteBinding) projectedFields() []projectedField {
 		return c.fields
 	}
 	c.resolving = true
-	for _, item := range c.query.SelectItems {
-		if item.Alias != nil {
-			namespace, _ := projectedPropertyNamespace(c.scope, item.Expr, int(item.Expr.Pos()))
-			c.appendField(projectedField{entry: catalog.Entry{Name: item.Alias.Name, Type: projectedType(c.scope, item.Expr)}, propertyNamespace: namespace})
+	for _, item := range c.query.Children("select") {
+		if item.Is("Alias") {
+			expr := item.Child("expr")
+			namespace, _ := projectedPropertyNamespace(c.scope, expr, expr.Start)
+			c.appendField(projectedField{entry: catalog.Entry{Name: item.Text("alias"), Type: projectedType(c.scope, expr)}, propertyNamespace: namespace})
 			if c.budget.exceeded || c.budget.lookupExceeded {
 				break
 			}
 			continue
 		}
-		switch expr := item.Expr.(type) {
-		case *clickhouse.Ident:
-			if expr.Name == "*" {
-				c.appendWildcardFields(c.scope, "")
-			} else {
-				namespace, _ := projectedPropertyNamespace(c.scope, expr, int(expr.Pos()))
-				c.appendField(projectedField{entry: catalog.Entry{Name: expr.Name, Type: projectedType(c.scope, expr)}, propertyNamespace: namespace})
-			}
-		case *clickhouse.Path:
-			if len(expr.Fields) > 0 {
-				namespace, _ := projectedPropertyNamespace(c.scope, expr, int(expr.Pos()))
-				c.appendField(projectedField{entry: catalog.Entry{Name: expr.Fields[len(expr.Fields)-1].Name, Type: projectedType(c.scope, expr)}, propertyNamespace: namespace})
-			}
-		case *clickhouse.NestedIdentifier:
-			if expr.DotIdent != nil && expr.DotIdent.Name == "*" {
-				c.appendWildcardFields(c.scope, expr.Ident.Name)
-			} else if expr.DotIdent != nil {
-				namespace, _ := projectedPropertyNamespace(c.scope, expr, int(expr.Pos()))
-				c.appendField(projectedField{entry: catalog.Entry{Name: expr.DotIdent.Name, Type: projectedType(c.scope, expr)}, propertyNamespace: namespace})
-			} else {
-				namespace, _ := projectedPropertyNamespace(c.scope, expr, int(expr.Pos()))
-				c.appendField(projectedField{entry: catalog.Entry{Name: expr.Ident.Name, Type: projectedType(c.scope, expr)}, propertyNamespace: namespace})
-			}
+		chain := item.Chain()
+		switch {
+		case !item.Is("Field") || len(chain) == 0:
+			c.appendField(projectedField{entry: catalog.Entry{Name: item.Source(c.scope.source)}})
+		case len(chain) == 1 && chain[0] == "*":
+			c.appendWildcardFields(c.scope, "")
+		case len(chain) == 2 && chain[1] == "*":
+			c.appendWildcardFields(c.scope, chain[0])
 		default:
-			c.appendField(projectedField{entry: catalog.Entry{Name: item.Expr.String()}})
+			namespace, _ := projectedPropertyNamespace(c.scope, item, item.Start)
+			c.appendField(projectedField{entry: catalog.Entry{Name: chain[len(chain)-1], Type: projectedType(c.scope, item)}, propertyNamespace: namespace})
 		}
 		if c.budget.exceeded || c.budget.lookupExceeded {
 			break
@@ -565,35 +510,24 @@ func (c *cteBinding) appendBindingFields(binding Relation, suppressProvenance bo
 	}
 }
 
-func projectedPropertyNamespace(scope *queryScope, expr clickhouse.Expr, position int) (string, bool) {
-	bindings := visibleBindings(scope)
-	switch typed := expr.(type) {
-	case *clickhouse.Ident:
-		if IsBooleanLiteral(typed) {
-			return "", false
-		}
-		if alias, ok := (Bindings{scope: scope, position: position}).selectAlias(typed.Name); ok {
+func projectedPropertyNamespace(scope *queryScope, expr *hogqlparser.Node, position int) (string, bool) {
+	if !expr.Is("Field") {
+		return "", false
+	}
+	chain := expr.Chain()
+	switch len(chain) {
+	case 1:
+		if alias, ok := (Bindings{scope: scope, position: position}).selectAlias(chain[0]); ok {
 			return alias.propertyNamespace, alias.propertyNamespace != ""
 		}
-		namespace, ok, _ := scope.unqualifiedPropertyNamespace(typed.Name)
+		namespace, ok, _ := scope.unqualifiedPropertyNamespace(chain[0])
 		return namespace, ok
-	case *clickhouse.Path:
-		if len(typed.Fields) == 2 {
-			if scope.hasDuplicateSource(typed.Fields[0].Name) {
-				return "", false
-			}
-			if binding, ok := bindings[typed.Fields[0].Name]; ok {
-				return bindingPropertyNamespace(binding, typed.Fields[1].Name)
-			}
+	case 2:
+		if scope.hasDuplicateSource(chain[0]) {
+			return "", false
 		}
-	case *clickhouse.NestedIdentifier:
-		if typed.DotIdent != nil {
-			if scope.hasDuplicateSource(typed.Ident.Name) {
-				return "", false
-			}
-			if binding, ok := bindings[typed.Ident.Name]; ok {
-				return bindingPropertyNamespace(binding, typed.DotIdent.Name)
-			}
+		if binding, ok := visibleBindings(scope)[chain[0]]; ok {
+			return bindingPropertyNamespace(binding, chain[1])
 		}
 	}
 	return "", false
@@ -626,38 +560,34 @@ func (b *projectionBudget) lookup(work int) bool {
 	return true
 }
 
-func projectedType(scope *queryScope, expr clickhouse.Expr) string {
-	bindings := visibleBindings(scope)
-	switch typed := expr.(type) {
-	case *clickhouse.Ident:
-		if IsBooleanLiteral(typed) {
+func projectedType(scope *queryScope, expr *hogqlparser.Node) string {
+	if expr.Is("Constant") {
+		if _, ok := expr.Bool("value"); ok {
 			return "boolean"
 		}
-		if field, ok := (Bindings{scope: scope, position: int(expr.Pos())}).SelectAlias(typed.Name); ok {
+	}
+	if !expr.Is("Field") {
+		return ""
+	}
+	chain := expr.Chain()
+	if len(chain) == 1 {
+		if field, ok := (Bindings{scope: scope, position: expr.Start}).SelectAlias(chain[0]); ok {
 			return field.Type
 		}
 		for _, binding := range scope.uniqueBindings() {
-			if !scope.budget.lookup(len(typed.Name) + 1) {
+			if !scope.budget.lookup(len(chain[0]) + 1) {
 				return ""
 			}
-			if field, ok := bindingField(binding, typed.Name); ok {
+			if field, ok := bindingField(binding, chain[0]); ok {
 				return field.Type
 			}
 		}
-	case *clickhouse.Path:
-		if len(typed.Fields) >= 2 {
-			if binding, ok := bindings[typed.Fields[0].Name]; ok {
-				if field, exists := bindingField(binding, typed.Fields[1].Name); exists {
-					return field.Type
-				}
-			}
-		}
-	case *clickhouse.NestedIdentifier:
-		if typed.DotIdent != nil {
-			if binding, ok := bindings[typed.Ident.Name]; ok {
-				if field, exists := bindingField(binding, typed.DotIdent.Name); exists {
-					return field.Type
-				}
+		return ""
+	}
+	if len(chain) >= 2 {
+		if binding, ok := visibleBindings(scope)[chain[0]]; ok {
+			if field, exists := bindingField(binding, chain[1]); exists {
+				return field.Type
 			}
 		}
 	}

@@ -4,9 +4,8 @@ import (
 	"iter"
 	"strings"
 
-	clickhouse "github.com/orian/clickhouse-sql-parser/parser"
-
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/catalog"
+	"github.com/PostHog/posthog/services/hogql-language-service/internal/hogqlparser"
 )
 
 type selectAlias struct {
@@ -21,56 +20,65 @@ func (s *queryScope) selectAliases() map[string]selectAlias {
 		return s.aliases
 	}
 	s.aliases = map[string]selectAlias{}
-	for _, item := range s.query.SelectItems {
+	for _, item := range s.query.Children("select") {
 		if !s.budget.lookup(1) {
 			break
 		}
-		if item.Alias == nil {
+		if !item.Is("Alias") {
 			continue
 		}
-		name := item.Alias.Name
+		name := item.Text("alias")
 		if !s.budget.lookup(len(name) + 1) {
 			break
 		}
 		if existing, exists := s.aliases[name]; exists {
 			if existing.ambiguousAt == 0 {
-				existing.ambiguousAt = int(item.End())
+				existing.ambiguousAt = item.End
 				s.aliases[name] = existing
 			}
 			continue
 		}
 		// HogQL resolves each expression before registering its alias (Resolver.visit_alias).
-		field := catalog.Entry{Name: name, Type: projectedType(s, item.Expr)}
-		namespace, _ := projectedPropertyNamespace(s, item.Expr, int(item.Expr.Pos()))
-		s.aliases[name] = selectAlias{field: field, propertyNamespace: namespace, end: int(item.End())}
+		expr := item.Child("expr")
+		field := catalog.Entry{Name: name, Type: projectedType(s, expr)}
+		namespace, _ := projectedPropertyNamespace(s, expr, expr.Start)
+		s.aliases[name] = selectAlias{field: field, propertyNamespace: namespace, end: item.End}
 	}
 	return s.aliases
 }
+
+// Clauses that the resolver visits after SELECT, so their expressions can refer to SELECT aliases.
+var clausesAfterSelect = []string{"where", "prewhere", "group_by", "having", "order_by", "window_exprs", "limit_by", "limit", "offset", "qualify"}
 
 func (b Bindings) aliasCutoff() int {
 	if b.scope == nil {
 		return -1
 	}
 	q := b.scope.query
-	items := q.SelectItems
-	if len(items) > 0 && int(items[0].Pos()) <= b.position && b.position <= int(items[len(items)-1].End()) {
+	if items := q.Children("select"); len(items) > 0 && clauseContains(items, b.position) {
 		return b.position
 	}
-	containsPosition := func(expr clickhouse.Expr) bool {
-		return int(expr.Pos()) <= b.position && b.position <= int(expr.End())
-	}
 	// Resolver.visit_select_query resolves FROM/JOIN before SELECT, then these clauses.
-	if q.Where != nil && containsPosition(q.Where) ||
-		q.Prewhere != nil && containsPosition(q.Prewhere) ||
-		q.GroupBy != nil && containsPosition(q.GroupBy) ||
-		q.Having != nil && containsPosition(q.Having) ||
-		q.OrderBy != nil && containsPosition(q.OrderBy) ||
-		q.Window != nil && containsPosition(q.Window) ||
-		q.LimitBy != nil && containsPosition(q.LimitBy) ||
-		q.Limit != nil && containsPosition(q.Limit) {
-		return int(q.End())
+	for _, clause := range clausesAfterSelect {
+		if clauseContains(q.Children(clause), b.position) {
+			return q.End
+		}
 	}
 	return -1
+}
+
+func clauseContains(nodes []*hogqlparser.Node, position int) bool {
+	start, end := -1, -1
+	for _, node := range nodes {
+		if node.Start < 0 {
+			continue
+		}
+		if start < 0 || node.Start < start {
+			start = node.Start
+		}
+		end = max(end, node.End)
+	}
+	return start >= 0 && start <= position && position <= end
 }
 
 func (b Bindings) SelectAlias(name string) (catalog.Entry, bool) {

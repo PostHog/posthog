@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/catalog"
+	"github.com/PostHog/posthog/services/hogql-language-service/internal/hogqlparser"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/httpapi"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/ratelimit"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/serviceauth"
@@ -54,6 +55,10 @@ func main() {
 		fatalConfiguration(err)
 	}
 
+	if err := hogqlparser.Init(); err != nil {
+		slog.Error("HogQL parser failed to load", "error", err)
+		os.Exit(1)
+	}
 	catalogs := catalog.NewRegistry(maxCatalogs, int64(maxCatalogBytes), catalogTTL)
 	handler := httpapi.NewHandler(httpapi.Config{
 		Catalogs:         catalogs,
