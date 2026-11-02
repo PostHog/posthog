@@ -250,7 +250,7 @@ export const ToolConfigSchema = z
                  * Dot-path patterns of response fields to remove unless the caller asks for them. Codegen adds
                  * an optional `expand` request param constrained to these paths. Use it on a detail tool where
                  * a few fields dominate the payload but an agent needs them only for some tasks.
-                 * Incompatible with `include`.
+                 * Incompatible with `include`, and with a path `exclude` also lists.
                  */
                 expandable: z.array(z.string()).optional(),
                 /**
@@ -278,6 +278,9 @@ export const ToolConfigSchema = z
             .refine((data) => !(data.expandable?.length && data.include?.length), {
                 message:
                     'response.expandable removes fields by default, so it cannot be combined with response.include',
+            })
+            .refine((data) => !data.expandable?.some((path) => data.exclude?.includes(path)), {
+                message: 'response.exclude always removes its paths, so `expand` could never restore them',
             })
             .refine((data) => !(data.selectable && !data.include?.length), {
                 message: 'response.selectable requires response.include (the allowlist to select from)',

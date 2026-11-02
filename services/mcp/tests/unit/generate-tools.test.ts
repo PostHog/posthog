@@ -1615,12 +1615,18 @@ describe('ToolConfigSchema validation', () => {
         expect(result.success).toBe(true)
     })
 
-    it('rejects response.include with response.exclude', () => {
-        const result = ToolConfigSchema.safeParse({
-            operation: 'things_list',
-            enabled: true,
-            response: { include: ['id'], exclude: ['name'] },
-        })
+    it.each([
+        { name: 'rejects response.include with response.exclude', response: { include: ['id'], exclude: ['name'] } },
+        {
+            name: 'rejects response.expandable with response.include',
+            response: { include: ['id'], expandable: ['body'] },
+        },
+        {
+            name: 'rejects a response.expandable path that response.exclude also removes',
+            response: { exclude: ['body'], expandable: ['body'] },
+        },
+    ])('$name', ({ response }) => {
+        const result = ToolConfigSchema.safeParse({ operation: 'things_get', enabled: true, response })
         expect(result.success).toBe(false)
     })
 
