@@ -62,7 +62,8 @@ const REQUEST_TIMEOUT_MS = 30_000
 // RFC 8628 asks clients to poll this much slower after each `slow_down`.
 const SLOW_DOWN_SECONDS = 5
 // Reusing a request this close to expiry would hand the person a link that dies while they open it.
-const REUSE_MARGIN_MS = 60_000
+// Approving takes a few seconds, so the margin stays short.
+const REUSE_MARGIN_MS = 20_000
 
 function pendingPath(runtime: Runtime, command: string): string {
     return hogFile(runtime, `pending-${command.replace(/^hog /, '').replaceAll(' ', '-')}.json`)
