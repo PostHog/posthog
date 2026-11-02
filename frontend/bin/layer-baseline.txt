@@ -252,7 +252,6 @@ frontend/src/lib/components/Sharing/SharingModal.tsx -> frontend/src/scenes/insi
 frontend/src/lib/components/SmoothingFilter/SmoothingFilter.tsx -> frontend/src/scenes/insights/insightLogic.tsx
 frontend/src/lib/components/SmoothingFilter/SmoothingFilter.tsx -> frontend/src/scenes/insights/insightVizDataLogic.ts
 frontend/src/lib/components/SmoothingFilter/SmoothingFilter.tsx -> products/product_analytics/frontend/insights/trends/trendsDataLogic.ts
-frontend/src/lib/components/SocialLoginButton/SocialLoginButton.tsx -> frontend/src/scenes/authentication/shared/passkeyLogic.ts
 frontend/src/lib/components/SurveyResponseDisplay/SurveyResponseDisplay.tsx -> frontend/src/scenes/surveys/hooks/useSurveyResponseColumns.tsx
 frontend/src/lib/components/SurveyResponseDisplay/SurveyResponseDisplay.tsx -> frontend/src/scenes/surveys/surveyLogic.tsx
 frontend/src/lib/components/SurveyResponseDisplay/SurveyResponseDisplay.tsx -> frontend/src/scenes/surveys/utils.ts
@@ -470,7 +469,6 @@ frontend/src/scenes/AuthenticatedShell.tsx -> products/webmcp/frontend/logics/we
 frontend/src/scenes/appScenes.ts -> frontend/src/scenes/project-homepage/importProjectHomepage.ts
 frontend/src/scenes/bootApp.ts -> frontend/src/scenes/notebooks/AddToNotebook/registerNotebookLinkDrag.ts
 frontend/src/scenes/sceneLogic.tsx -> frontend/src/exporter/exporterViewLogic.ts
-frontend/src/scenes/sceneLogic.tsx -> frontend/src/scenes/authentication/auth/loginLogic.ts
 frontend/src/scenes/sceneLogic.tsx -> frontend/src/scenes/coupons/utils.ts
 frontend/src/scenes/sceneLogic.tsx -> frontend/src/scenes/onboarding/onboardingDelegationState.ts
 frontend/src/scenes/scenes.ts -> frontend/src/scenes/activity/explore/defaults.ts
