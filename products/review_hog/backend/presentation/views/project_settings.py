@@ -1,13 +1,13 @@
 from typing import Any
 from uuid import UUID
 
-from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.routing import PathParameter
 from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.review_hog.backend.facade.api import (
@@ -226,7 +226,7 @@ class ReviewProjectSettingsViewSet(ReviewHogProjectViewSetMixin, viewsets.Generi
     permission_classes = [PostHogFeatureFlagPermission, EffectiveTeamStrictManagementPermission]
     posthog_feature_flag = "review-hog"
     serializer_class = ReviewProjectSettingsSerializer
-    path_parameters = {"person_id": UUID}
+    path_parameters = {"person_id": PathParameter(type=UUID, description="Id of the list entry.")}
 
     def _settings_response(self, response_status: int = status.HTTP_200_OK) -> Response:
         settings = get_review_project_settings(self.effective_team_id, self.acting_user_id)
@@ -297,9 +297,6 @@ class ReviewProjectSettingsViewSet(ReviewHogProjectViewSetMixin, viewsets.Generi
         return self._settings_response(status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
     @extend_schema(
-        parameters=[
-            OpenApiParameter("person_id", OpenApiTypes.UUID, OpenApiParameter.PATH, description="Id of the list entry.")
-        ],
         responses={
             200: OpenApiResponse(response=ReviewProjectSettingsSerializer, description="The person was removed."),
             404: OpenApiResponse(response=ReviewHogSettingsErrorSerializer, description="No such list entry."),

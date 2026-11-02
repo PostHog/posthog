@@ -2,14 +2,7 @@ import re
 from typing import Any, cast
 from uuid import UUID
 
-from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import (
-    OpenApiParameter,
-    OpenApiResponse,
-    extend_schema,
-    extend_schema_field,
-    extend_schema_view,
-)
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field, extend_schema_view
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, ValidationError
@@ -17,7 +10,7 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping.manager import resolve_effective_team_id
@@ -95,16 +88,6 @@ def not_active_member_error(error: PersonNotActiveMemberError) -> ValidationErro
 
 def no_such_list_entry_response() -> Response:
     return Response({"error": "No such list entry.", "conflicting_project": None}, status=status.HTTP_404_NOT_FOUND)
-
-
-def uuid_path_parameter(object_name: str) -> OpenApiParameter:
-    # path_parameters types the id, but only this declaration gives it a description in the API docs.
-    return OpenApiParameter(
-        "id",
-        OpenApiTypes.UUID,
-        OpenApiParameter.PATH,
-        description=f"A UUID string identifying this {object_name}.",
-    )
 
 
 def decision_data(decision: AutomaticReviewDecision) -> dict[str, Any]:
@@ -392,7 +375,6 @@ class EffectiveTeamStrictManagementPermission(EffectiveTeamMemberPermission):
         summary="Remove a repository's settings",
         description="Remove the repository from this project and clear its exception and lists. With an 'all "
         "repositories' claim the repository stays in the project and follows the project rule.",
-        parameters=[uuid_path_parameter("review repository")],
     ),
 )
 class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericViewSet):
@@ -406,7 +388,10 @@ class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericView
     permission_classes = [PostHogFeatureFlagPermission, EffectiveTeamStrictManagementPermission]
     posthog_feature_flag = "review-hog"
     serializer_class = ReviewRepositorySerializer
-    path_parameters = {"pk": UUID, "person_id": UUID}
+    path_parameters = {
+        "pk": PathParameter(type=UUID, description="A UUID string identifying this review repository."),
+        "person_id": PathParameter(type=UUID, description="Id of the list entry."),
+    }
     pagination_class = None
 
     def _repository_or_404(self) -> ReviewRepositorySettings:
@@ -470,7 +455,6 @@ class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericView
         return Response(response.data)
 
     @extend_schema(
-        parameters=[uuid_path_parameter("review repository")],
         request=ReviewRepositoryPersonRequestSerializer,
         responses={
             200: OpenApiResponse(response=ReviewRepositorySerializer, description="The person was already on it."),
@@ -500,12 +484,6 @@ class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericView
         return self._repository_response(repository.id, status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
     @extend_schema(
-        parameters=[
-            uuid_path_parameter("review repository"),
-            OpenApiParameter(
-                "person_id", OpenApiTypes.UUID, OpenApiParameter.PATH, description="Id of the list entry."
-            ),
-        ],
         responses={
             200: OpenApiResponse(response=ReviewRepositorySerializer, description="The person was removed."),
             404: OpenApiResponse(response=ReviewHogSettingsErrorSerializer, description="No such list entry."),
@@ -538,7 +516,9 @@ class ReviewInstallationClaimViewSet(ReviewHogProjectViewSetMixin, viewsets.Gene
     permission_classes = [PostHogFeatureFlagPermission, EffectiveTeamStrictManagementPermission]
     posthog_feature_flag = "review-hog"
     serializer_class = ReviewInstallationClaimSerializer
-    path_parameters = {"pk": UUID}
+    path_parameters = {
+        "pk": PathParameter(type=UUID, description="A UUID string identifying this review installation claim.")
+    }
     pagination_class = None
 
     def _claim_id_or_404(self) -> UUID:
@@ -581,7 +561,6 @@ class ReviewInstallationClaimViewSet(ReviewHogProjectViewSetMixin, viewsets.Gene
         return Response(ReviewInstallationClaimSerializer(claim).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
-        parameters=[uuid_path_parameter("review installation claim")],
         request=ReviewInstallationClaimUpdateSerializer,
         responses={
             200: OpenApiResponse(response=ReviewInstallationClaimSerializer, description="The claim was changed."),
@@ -612,7 +591,6 @@ class ReviewInstallationClaimViewSet(ReviewHogProjectViewSetMixin, viewsets.Gene
         return Response(ReviewInstallationClaimSerializer(claim).data)
 
     @extend_schema(
-        parameters=[uuid_path_parameter("review installation claim")],
         responses={
             204: OpenApiResponse(description="The claim and this project's repository settings there are gone.")
         },
@@ -630,7 +608,6 @@ class ReviewInstallationClaimViewSet(ReviewHogProjectViewSetMixin, viewsets.Gene
     destroy=extend_schema(
         summary="Clear my choice for a repository",
         description="Clear the requesting user's own choice for one repository, so their default applies again.",
-        parameters=[uuid_path_parameter("review user repository choice")],
     ),
 )
 class ReviewRepositoryChoiceViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericViewSet):
@@ -644,7 +621,9 @@ class ReviewRepositoryChoiceViewSet(ReviewHogProjectViewSetMixin, viewsets.Gener
     permission_classes = [PostHogFeatureFlagPermission, EffectiveTeamMemberPermission]
     posthog_feature_flag = "review-hog"
     serializer_class = ReviewRepositoryChoiceSerializer
-    path_parameters = {"pk": UUID}
+    path_parameters = {
+        "pk": PathParameter(type=UUID, description="A UUID string identifying this review user repository choice.")
+    }
     pagination_class = None
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
