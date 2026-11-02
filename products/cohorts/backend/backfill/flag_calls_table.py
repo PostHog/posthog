@@ -58,7 +58,7 @@ def _can_seed_from_flag_evaluations(cohort: Cohort, conditions: list[dict[str, A
             f"The batch query of cohort {cohort.id} does not compile, so the run can't pick the table to read "
             f"its flag calls from: {error}"
         ) from error
-    if not (reads.rewrite_enabled and reads.reads_from_events == 0):
+    if reads.reads_from_events != 0:
         return False
     scans = [_scan_window(condition, team) for condition in conditions]
     within_ttl = all(days_back <= _MAX_FLAG_EVALUATIONS_DAYS_BACK for _, days_back in scans)
