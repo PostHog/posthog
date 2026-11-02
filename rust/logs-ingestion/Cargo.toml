@@ -8,11 +8,27 @@ description = "Rust port of the Node logs ingestion consumer (nodejs/src/logs), 
 path = "src/lib.rs"
 
 [dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+base64 = { workspace = true }
+chrono = { workspace = true }
+futures = { workspace = true }
+hex = "0.4"
+hmac = { workspace = true }
+ingestion-framework = { path = "../ingestion-framework" }
+metrics = { workspace = true }
 rand = { workspace = true }
+redis = { workspace = true }
+regex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
 zstd = { workspace = true }
 
 [dev-dependencies]
-base64 = { workspace = true }
-serde_json = { workspace = true }
-sha2 = { workspace = true }
+criterion = { version = "0.5", features = ["async_tokio"] }
+tokio = { workspace = true, features = ["test-util"] }

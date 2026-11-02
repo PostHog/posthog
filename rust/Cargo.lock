@@ -7620,11 +7620,26 @@ dependencies = [
 name = "logs-ingestion"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "async-trait",
  "base64 0.22.1",
+ "chrono",
+ "criterion",
+ "futures",
+ "hex",
+ "hmac 0.12.1",
+ "ingestion-framework",
+ "metrics",
  "rand 0.8.5",
+ "redis",
+ "regex",
+ "serde",
  "serde_json",
  "sha2 0.10.9",
  "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
  "zstd 0.13.3",
 ]
 
