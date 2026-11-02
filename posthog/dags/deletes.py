@@ -1505,8 +1505,8 @@ def delete_team_product_documents(
 ) -> None:
     """Delete the embedding documents of one team for one product, and fail if any survive.
 
-    The event sweep matches a document to an event only when `document_id` starts with the event
-    uuid. AI observability trace summaries use `<trace id>::<job id>`, and a trace id is not an
+    The event sweep matches a document to an event only when the part of `document_id` before the
+    first `::` is the event uuid. AI observability trace summaries use `<trace id>::<job id>`, and a trace id is not an
     event uuid, so an event deletion leaves them in place until the table TTL drops them. This job
     removes them on request.
     """
