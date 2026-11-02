@@ -135,6 +135,9 @@ def union_unreadable_reason(node: ast.AST, context: HogQLContext) -> str | None:
     columns = FlagEvaluationsColumns(
         database.get_table(EVENTS_WITH_FLAG_CALLS_CHAIN), database.get_table(["posthog", "flag_evaluations"])
     )
+    if collector.export_collision is not None:
+        first, second = (".".join(str(part) for part in chain) for chain in collector.export_collision)
+        return f"it reads {first} and {second}, which the union would return as one column"
     for chain in collector.chains:
         if columns.chain(chain) is None:
             return f"it reads {'.'.join(str(part) for part in chain)}, which that table doesn't have"
@@ -527,17 +530,23 @@ class _UnionChainCollector(SyntaxVisitor):
         self._select: ast.SelectQuery | None = None
         self.export_collision: tuple[list[str | int], list[str | int]] | None = None
 
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        outer = self._select
+        self._select = node
+        super().visit_select_query(node)
+        self._select = outer
+
     def visit_field(self, node: ast.Field) -> None:
         read = _union_chain(node.type)
         if read is not None:
             chain = read[1]
             self.chains.append(chain)
-            # Lazy table resolution names a whole-field read after the field, whichever table the field is on.
-            # It names a property read by joining the path with `___`, so `a.b` and `a___b` share a name.
-            name = node.type.name if isinstance(node.type, ast.FieldType) else "___".join(str(link) for link in chain)
-            first = self.exports.setdefault((id(self._select), name), chain)
-            if first != chain and self.export_collision is None:
-                self.export_collision = (first, chain)
+            if not isinstance(node.type, ast.FieldType):
+                # Lazy table resolution names a property read by joining the path with `___`, so `a.b` and `a___b` share a name.
+                name = "___".join(str(link) for link in chain)
+                first = self.exports.setdefault((id(self._select), name), chain)
+                if first != chain and self.export_collision is None:
+                    self.export_collision = (first, chain)
             return
         field_type = node.type.field_type if isinstance(node.type, ast.PropertyType) else node.type
         if not isinstance(field_type, ast.FieldType):
