@@ -69,6 +69,7 @@ CI_TRUST_POLICY_ALLOWED_SCOPES: frozenset[str] = frozenset(
         "event_filter:read",
         "event_filter:write",
         "experiment:read",
+        "experiment:write",
         "experiment_holdout:read",
         "experiment_holdout:write",
         "experiment_saved_metric:read",
