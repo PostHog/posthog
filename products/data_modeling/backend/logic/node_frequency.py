@@ -24,6 +24,7 @@ from products.data_modeling.backend.logic.freshness import (
     clamp_to_source_floor,
     compute_effective_cadences,
     compute_target_bounds,
+    descendants_of,
     intersect_target_bounds,
     max_data_age,
     normalize_seed_target,
@@ -39,6 +40,7 @@ _SYSTEM_KEY = "system"
 _FREQUENCY_KEY = "frequency"
 _TARGET_SECONDS_KEY = "target_seconds"
 _ANCHOR_MINUTES_KEY = "anchor_minutes"
+_PINNED_KEY = "pinned"
 
 # `resolve_dependency_to_node` stamps this on source (TABLE) nodes at creation.
 _ORIGIN_KEY = "origin"
@@ -77,6 +79,11 @@ def get_declared_target(node: Node) -> timedelta | None:
     """Return the node's declared freshness target, or None if it has none."""
     seconds = (node.properties or {}).get(_SYSTEM_KEY, {}).get(_FREQUENCY_KEY, {}).get(_TARGET_SECONDS_KEY)
     return timedelta(seconds=seconds) if seconds is not None else None
+
+
+def get_declared_pin(node: Node) -> bool:
+    """Return whether the node holds its declared target instead of following its consumers."""
+    return bool((node.properties or {}).get(_SYSTEM_KEY, {}).get(_FREQUENCY_KEY, {}).get(_PINNED_KEY, False))
 
 
 def declared_targets_by_saved_query(team_id: int, saved_query_ids: Iterable[str | uuid.UUID]) -> dict[str, timedelta]:
@@ -125,6 +132,7 @@ def node_states_by_saved_query(
     return {
         query_id: SavedQueryNodeState(
             declared_target=targets.get(query_id),
+            pinned=any(get_declared_pin(node) for node in nodes),
             suspended={
                 engine: SuspensionMarker(at=marker["at"], reason=marker["reason"], job_id=marker["job_id"])
                 for engine, marker in merged_suspension_state(nodes).items()
@@ -135,13 +143,31 @@ def node_states_by_saved_query(
 
 
 def set_declared_target(node: Node, target: timedelta | None) -> None:
-    """Set (or clear, with None) the node's declared target without touching sibling system state."""
+    """Set (or clear, with None) the node's declared target without touching sibling system state.
+
+    Clearing the target also clears the pin, because a pin holds the target and has nothing to hold without one.
+    """
     properties = node.properties or {}
     frequency = properties.setdefault(_SYSTEM_KEY, {}).setdefault(_FREQUENCY_KEY, {})
     if target is None:
         frequency.pop(_TARGET_SECONDS_KEY, None)
+        frequency.pop(_PINNED_KEY, None)
     else:
         frequency[_TARGET_SECONDS_KEY] = int(target.total_seconds())
+    node.properties = properties
+    node.save(update_fields=["properties"])
+
+
+def set_declared_pin(node: Node, pinned: bool) -> None:
+    """Pin (or unpin) the node's declared target without touching sibling system state."""
+    if pinned and get_declared_target(node) is None:
+        raise ValueError("a node needs a declared target before it can be pinned")
+    properties = node.properties or {}
+    frequency = properties.setdefault(_SYSTEM_KEY, {}).setdefault(_FREQUENCY_KEY, {})
+    if pinned:
+        frequency[_PINNED_KEY] = True
+    else:
+        frequency.pop(_PINNED_KEY, None)
     node.properties = properties
     node.save(update_fields=["properties"])
 
@@ -251,6 +277,7 @@ class FrequencyGraph:
     edges: list[tuple[str, str]]  # (upstream_id, downstream_id), includes source tables
     declared_targets: dict[str, timedelta]  # declared per-node targets
     declared_anchors: dict[str, int]  # declared per-node schedule anchors (minutes past Monday 00:00 UTC)
+    pinned: set[str]  # nodes that hold their declared target instead of following their consumers
     source_intervals: dict[str, timedelta]  # per source (TABLE) node
     best_effort_source_ids: set[str]  # sources treated as STREAMING but not guaranteed
     names: dict[str, str]  # node id -> display name, so a bound can name what set it
@@ -270,10 +297,13 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
     schedulable = {str(node.id) for node in nodes if node.type in SAVED_QUERY_NODE_TYPES}
     declared_targets: dict[str, timedelta] = {}
     declared_anchors: dict[str, int] = {}
+    pinned: set[str] = set()
     for node in nodes:
         target = get_declared_target(node)
         if target is not None:
             declared_targets[str(node.id)] = target
+            if get_declared_pin(node):
+                pinned.add(str(node.id))
         anchor = get_declared_anchor(node)
         if anchor is not None:
             declared_anchors[str(node.id)] = anchor
@@ -286,6 +316,7 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
         edges=edges,
         declared_targets=declared_targets,
         declared_anchors=declared_anchors,
+        pinned=pinned,
         source_intervals=source_intervals,
         best_effort_source_ids=best_effort,
         names={str(node.id): node.name for node in nodes},
@@ -303,6 +334,9 @@ class SavedQueryFrequencyBounds:
     best_effort_source_ids: set[str]  # upstream sources with no schedule, so the floor is a guess
     max_data_age: timedelta
     speeds_up: dict[timedelta, set[str]]  # cadence -> upstream nodes that would run more often if this were set to it
+    pinned: bool
+    # cadence -> downstream nodes that would read data older than their own cadence if this were pinned to it
+    delays_if_pinned: dict[timedelta, set[str]]
 
 
 def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> SavedQueryFrequencyBounds | None:
@@ -323,6 +357,7 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
     identities: dict[str, NodeIdentity] = {}
     best_effort: set[str] = set()
     speeds_up: dict[timedelta, set[str]] = {}
+    delays_if_pinned: dict[timedelta, set[str]] = {}
     data_ages: list[timedelta] = []
     graphs: dict[str, FrequencyGraph] = {}
     for node in nodes:
@@ -337,6 +372,7 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
                 edges=graph.edges,
                 declared_targets=graph.declared_targets,
                 source_intervals=graph.source_intervals,
+                pinned=graph.pinned,
             )
         )
         names.update(graph.names)
@@ -347,6 +383,8 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
         candidates = [option.value for option in per_dag[-1].options if option.allowed]
         for cadence, sped_up in _speeds_up_by_cadence(team_id, str(node.id), graph, ancestors, candidates).items():
             speeds_up.setdefault(cadence, set()).update(sped_up)
+        for cadence, delayed in _delays_if_pinned_by_cadence(str(node.id), graph, per_dag[-1]).items():
+            delays_if_pinned.setdefault(cadence, set()).update(delayed)
         data_ages.append(max_data_age(str(node.id), graph.edges, graph.source_intervals, graph.declared_targets))
 
     return SavedQueryFrequencyBounds(
@@ -356,6 +394,8 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
         best_effort_source_ids=best_effort,
         max_data_age=max(data_ages),
         speeds_up=speeds_up,
+        pinned=any(get_declared_pin(node) for node in nodes),
+        delays_if_pinned=delays_if_pinned,
     )
 
 
@@ -370,8 +410,12 @@ def _speeds_up_by_cadence(
     """
 
     def run(declared_targets: dict[str, timedelta]) -> dict[str, timedelta | None]:
-        effective = compute_effective_cadences(nodes=graph.nodes, edges=graph.edges, declared_targets=declared_targets)
-        return clamp_to_source_floor(effective, edges=graph.edges, source_intervals=graph.source_intervals)[0]
+        effective = compute_effective_cadences(
+            nodes=graph.nodes, edges=graph.edges, declared_targets=declared_targets, pinned=graph.pinned
+        )
+        return clamp_to_source_floor(
+            effective, edges=graph.edges, source_intervals=graph.source_intervals, pinned=graph.pinned
+        )[0]
 
     upstream = ancestors & graph.nodes
     ephemeral = {
@@ -395,6 +439,28 @@ def _speeds_up_by_cadence(
             and ((before := current.get(ancestor)) is None or after < before)
         }
     return result
+
+
+def _delays_if_pinned_by_cadence(
+    node_id: str, graph: FrequencyGraph, bounds: TargetBounds
+) -> dict[timedelta, set[str]]:
+    """The downstream views that would read data older than their own cadence if `node_id` were pinned to each option.
+
+    A descendant's effective cadence comes from its own target and its own consumers, never from
+    `node_id`, so one pass over the current graph answers every option.
+    """
+    effective = compute_effective_cadences(
+        nodes=graph.nodes, edges=graph.edges, declared_targets=graph.declared_targets, pinned=graph.pinned
+    )
+    descendants = descendants_of(node_id, graph.edges) & graph.nodes
+    return {
+        option.value: {
+            descendant
+            for descendant in descendants
+            if (cadence := effective.get(descendant)) is not None and cadence < option.value
+        }
+        for option in bounds.options
+    }
 
 
 def schedulable_nodes(dag: DAG) -> QuerySet[Node]:

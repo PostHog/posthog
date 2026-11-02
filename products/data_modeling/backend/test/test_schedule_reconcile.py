@@ -6,6 +6,7 @@ from unittest import mock
 
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
 from temporalio.client import ScheduleAlreadyRunningError, ScheduleListActionStartWorkflow
 from temporalio.service import RPCError, RPCStatusCode
 
@@ -17,6 +18,7 @@ from products.data_modeling.backend.logic.node_frequency import (
     get_declared_anchor,
     get_declared_target,
     set_declared_anchor,
+    set_declared_pin,
     set_declared_target,
 )
 from products.data_modeling.backend.logic.saved_query_dag_sync import promote_dag_view_nodes_to_matview
@@ -469,15 +471,28 @@ class TestMaybeReconcileDag(BaseTest):
         update.assert_called_once()
         self.assertEqual(update.call_args.kwargs["id"], tier_id)
 
-    def test_upstream_slower_than_its_consumer_runs_at_the_consumer_cadence_and_keeps_its_setting(self):
+    @parameterized.expand(
+        [
+            ("unpinned_runs_at_the_consumer_cadence", False, True, {H6: ["upstream", "consumer"]}),
+            ("pinned_keeps_its_own_cadence", True, True, {DAY: ["upstream"], H6: ["consumer"]}),
+            ("pinned_holds_back_a_consumer_with_no_fresher_parent", True, False, {DAY: ["upstream", "consumer"]}),
+        ]
+    )
+    def test_upstream_slower_than_its_consumer_keeps_its_setting(
+        self, _name, pinned, consumer_reads_source, expected_tiers
+    ):
         dag = DAG.get_or_create_default(self.team)
         source = _warehouse_source_node(self.team, dag, sync_frequency_interval=H1)
         upstream = _saved_query_node(self.team, dag, "org_universe", NodeType.MAT_VIEW)
         consumer = _saved_query_node(self.team, dag, "maps", NodeType.MAT_VIEW)
         Edge.objects.create(team=self.team, dag=dag, source=source, target=upstream)
         Edge.objects.create(team=self.team, dag=dag, source=upstream, target=consumer)
+        if consumer_reads_source:
+            Edge.objects.create(team=self.team, dag=dag, source=source, target=consumer)
         set_declared_target(upstream, DAY)
         set_declared_target(consumer, H6)
+        if pinned:
+            set_declared_pin(upstream, True)
 
         with (
             mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=self._temporal_listing([]))),
@@ -486,10 +501,18 @@ class TestMaybeReconcileDag(BaseTest):
             with self.captureOnCommitCallbacks(execute=True):
                 maybe_reconcile_dag(dag)
 
-        create.assert_called_once()
-        self.assertEqual(create.call_args.kwargs["id"], tier_schedule_id(str(dag.id), H6))
-        scheduled = create.call_args.kwargs["schedule"].action.args[0]["node_ids"]
-        self.assertEqual(sorted(scheduled), sorted([str(upstream.id), str(consumer.id)]))
+        ids = {"upstream": str(upstream.id), "consumer": str(consumer.id)}
+        created = {
+            call.kwargs["id"]: sorted(call.kwargs["schedule"].action.args[0]["node_ids"])
+            for call in create.call_args_list
+        }
+        self.assertEqual(
+            created,
+            {
+                tier_schedule_id(str(dag.id), cadence): sorted(ids[name] for name in names)
+                for cadence, names in expected_tiers.items()
+            },
+        )
         upstream.refresh_from_db()
         self.assertEqual(get_declared_target(upstream), DAY)
 

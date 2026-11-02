@@ -49,7 +49,10 @@ from products.warehouse_sources.backend.facade.hogql import (
     get_view_or_table_by_name,
     hogql_type_name_for_clickhouse_type,
 )
-from products.warehouse_sources.backend.facade.models import sync_frequency_to_sync_frequency_interval
+from products.warehouse_sources.backend.facade.models import (
+    sync_frequency_interval_to_sync_frequency,
+    sync_frequency_to_sync_frequency_interval,
+)
 
 from . import incremental_config, sync_cadence, view_description, view_state
 
@@ -95,12 +98,18 @@ def _view_types_validation_error(e: Exception) -> serializers.ValidationError:
     return serializers.ValidationError(f"Failed to retrieve types for view: unexpected {type(e).__name__}")
 
 
+PIN_NEEDS_A_CADENCE = "Pick how often this view refreshes before pinning it."
+
+
 def _apply_frequency_target(
     view: DataWarehouseSavedQuery,
     frequency: str | None,
     user_access_control: "UserAccessControl | None",
+    pinned: bool | None = None,
 ) -> timedelta | None:
     target = sync_frequency_to_sync_frequency_interval(frequency) if frequency else None
+    if pinned and target is None:
+        raise serializers.ValidationError(PIN_NEEDS_A_CADENCE)
     # A refusal names what blocks the cadence, so it obeys the same grants the read
     # payload does — otherwise one rejected PATCH reads back a name the caller was
     # never shown. Withheld nodes fall back to generic prose inside the refusal.
@@ -112,7 +121,9 @@ def _apply_frequency_target(
     )
     try:
         # Validate before commit so a rejected frequency rolls back the write.
-        nodes_written = modeling_api.apply_saved_query_frequency_target(view, target, visible_names=visible)
+        nodes_written = modeling_api.apply_saved_query_frequency_target(
+            view, target, visible_names=visible, pinned=pinned
+        )
     except (modeling_api.UnsatisfiableFrequencyError, modeling_api.UnsupportedFrequencyTargetError) as e:
         raise serializers.ValidationError(str(e))
     if target is not None and nodes_written == 0:
@@ -168,6 +179,14 @@ class DataWarehouseSavedQuerySerializer(
             "'24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest "
             "cadence available. Null means no scheduled materialization. Read back after a write, this "
             "reflects the cadence stored on the view's DAG node."
+        ),
+    )
+    sync_frequency_pinned = sync_cadence.SyncFrequencyPinnedField(
+        help_text=(
+            "Pin this view to its own `sync_frequency`. A pinned view refreshes at that cadence even when "
+            "downstream views or endpoints refresh more often, so they read data up to one pinned "
+            "interval old. Requires a `sync_frequency`. Set false to go back to refreshing as often as "
+            "downstream views need. Clearing `sync_frequency` also clears the pin."
         ),
     )
     sync_frequency_bounds = serializers.SerializerMethodField(
@@ -248,6 +267,7 @@ class DataWarehouseSavedQuerySerializer(
             "updated_at",
             "description",
             "sync_frequency",
+            "sync_frequency_pinned",
             "sync_frequency_bounds",
             "columns",
             "status",
@@ -355,6 +375,7 @@ class DataWarehouseSavedQuerySerializer(
         has_description = "description" in validated_data
         description = validated_data.pop("description", None)
         sync_frequency = validated_data.pop("sync_frequency", None)
+        sync_frequency_pinned = validated_data.pop("sync_frequency_pinned", None)
         validated_data.pop("edited_history_id", None)
         view = DataWarehouseSavedQuery(**validated_data)
 
@@ -415,15 +436,15 @@ class DataWarehouseSavedQuerySerializer(
                 capture_exception(e)
                 logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
                 modeling_api.adopt_saved_query_without_edges(view.team_id, view.id, _lineage_sync_error_detail(e))
-            if sync_frequency is not None:
-                if sync_frequency != "never":
+            if sync_frequency is not None or sync_frequency_pinned:
+                if sync_frequency is not None and sync_frequency != "never":
                     assert_user_can_read_query(
                         view.query,
                         view.team_id,
                         cast(User, self.context["request"].user),
                         database=self.context.get("database"),
                     )
-                _apply_frequency_target(view, sync_frequency, self.user_access_control)
+                _apply_frequency_target(view, sync_frequency, self.user_access_control, pinned=sync_frequency_pinned)
 
         self._report_view_action(
             "view created",
@@ -442,8 +463,10 @@ class DataWarehouseSavedQuerySerializer(
 
         frequency_given = "sync_frequency" in validated_data
         sync_frequency = validated_data.pop("sync_frequency", None)
+        pinned_given = "sync_frequency_pinned" in validated_data
+        sync_frequency_pinned = validated_data.pop("sync_frequency_pinned", None)
 
-        if sync_frequency and sync_frequency != "never":
+        if (sync_frequency and sync_frequency != "never") or pinned_given:
             # Scheduling a view is the same grant as materializing it directly.
             assert_user_can_read_query(
                 instance.query,
@@ -547,11 +570,28 @@ class DataWarehouseSavedQuerySerializer(
             view: DataWarehouseSavedQuery = super().update(locked_instance, validated_data)
             name_changed = before_update.name != view.name
 
-            if frequency_changed:
-                previous_target = modeling_api.declared_targets_by_saved_query(view.team_id, [view.pk]).get(
-                    str(view.pk)
+            cadence_written = frequency_changed or pinned_given
+            if cadence_written:
+                previous = modeling_api.node_states_by_saved_query(view.team_id, [view.pk]).get(str(view.pk))
+                previous_target = previous.declared_target if previous is not None else None
+                previous_pinned = previous is not None and previous.pinned
+                if not frequency_changed:
+                    # A pin alone keeps the stored cadence and only changes whether consumers can speed it up.
+                    if sync_frequency_pinned and previous_target is None:
+                        raise serializers.ValidationError(PIN_NEEDS_A_CADENCE)
+                    sync_frequency = (
+                        sync_frequency_interval_to_sync_frequency(previous_target)
+                        if previous_target is not None
+                        else None
+                    )
+                target = _apply_frequency_target(
+                    view, sync_frequency, self.user_access_control, pinned=sync_frequency_pinned
                 )
-                target = _apply_frequency_target(view, sync_frequency, self.user_access_control)
+                pinned_after = (
+                    sync_frequency_pinned
+                    if sync_frequency_pinned is not None
+                    else (previous_pinned and target is not None)
+                )
 
             if has_description:
                 self._write_view_description(view, description)
@@ -575,7 +615,7 @@ class DataWarehouseSavedQuerySerializer(
                 )
                 for change in changes
             ]
-            if frequency_changed and previous_target != target:
+            if cadence_written and previous_target != target:
                 # The cadence lives on the DAG node, so changes_between() sees nothing and
                 # log_activity would discard the whole updated entry as a no-op.
                 changes.append(
@@ -585,6 +625,16 @@ class DataWarehouseSavedQuerySerializer(
                         field="sync_frequency_interval",
                         before=str(previous_target) if previous_target is not None else None,
                         after=str(target) if target is not None else None,
+                    )
+                )
+            if cadence_written and previous_pinned != pinned_after:
+                changes.append(
+                    Change(
+                        type="DataWarehouseSavedQuery",
+                        action="changed",
+                        field="sync_frequency_pinned",
+                        before=previous_pinned,
+                        after=pinned_after,
                     )
                 )
             log_activity(

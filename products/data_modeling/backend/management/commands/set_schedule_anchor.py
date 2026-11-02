@@ -92,10 +92,10 @@ class Command(BaseCommand):
         for dag, node_ids in sorted(nodes_by_dag.items(), key=lambda kv: str(kv[0].id)):
             graph = build_frequency_graph(dag)
             effective = compute_effective_cadences(
-                nodes=graph.nodes, edges=graph.edges, declared_targets=graph.declared_targets
+                nodes=graph.nodes, edges=graph.edges, declared_targets=graph.declared_targets, pinned=graph.pinned
             )
             effective, _clamped = clamp_to_source_floor(
-                effective, edges=graph.edges, source_intervals=graph.source_intervals
+                effective, edges=graph.edges, source_intervals=graph.source_intervals, pinned=graph.pinned
             )
 
             if options["with_upstream"]:

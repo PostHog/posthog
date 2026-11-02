@@ -1317,12 +1317,16 @@ class TestSavedQuery(APIBaseTest):
             ("materialized_without_a_target", NodeType.MAT_VIEW, None, ["upstream_view"]),
             # an ephemeral view never runs, so nothing about it speeds up
             ("ephemeral", NodeType.VIEW, timedelta(days=1), []),
+            # a pinned view keeps its own cadence whatever its consumers ask for
+            ("pinned", NodeType.MAT_VIEW, timedelta(days=1), [], True),
         ]
     )
-    def test_an_option_names_the_upstream_views_it_speeds_up(self, _name, upstream_type, upstream_target, expected):
+    def test_an_option_names_the_upstream_views_it_speeds_up(
+        self, _name, upstream_type, upstream_target, expected, upstream_pinned=False
+    ):
         # A finer cadence downstream drags slower upstream views along with it. The picker has to
         # say so before the write, or the upstream cadences change behind the user's back.
-        from products.data_modeling.backend.facade.api import set_declared_target
+        from products.data_modeling.backend.facade.api import set_declared_pin, set_declared_target
 
         upstream = self._create_view_with_a_consumer(consumer_target=timedelta(days=1))
         upstream_node = Node.objects.get(saved_query_id=upstream["id"])
@@ -1330,6 +1334,8 @@ class TestSavedQuery(APIBaseTest):
         upstream_node.save(update_fields=["type"])
         if upstream_target is not None:
             set_declared_target(upstream_node, upstream_target)
+        if upstream_pinned:
+            set_declared_pin(upstream_node, True)
         consumer_id = DataWarehouseSavedQuery.objects.get(team=self.team, name="consumer_view").id
 
         options = {option["cadence"]: option for option in self._read_frequency_bounds(str(consumer_id))["options"]}
@@ -1337,6 +1343,55 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual([view["name"] for view in options["6hour"]["speeds_up"]], expected)
         self.assertFalse(options["6hour"]["speeds_up_withheld"])
         self.assertEqual(options["24hour"]["speeds_up"], [])
+
+    def test_a_pinned_view_keeps_a_cadence_slower_than_its_consumer_until_unpinned(self):
+        from products.data_modeling.backend.facade.api import get_declared_pin, get_declared_target
+
+        upstream = self._create_view_with_a_consumer(consumer_target=timedelta(hours=6))
+        url = f"/api/environments/{self.team.id}/warehouse_saved_queries/{upstream['id']}"
+        node = Node.objects.get(saved_query_id=upstream["id"])
+
+        options = {option["cadence"]: option for option in self._read_frequency_bounds(upstream["id"])["options"]}
+        self.assertEqual(options["24hour"]["blocked_by"], "consumer")
+        self.assertEqual([view["name"] for view in options["24hour"]["delays_if_pinned"]], ["consumer_view"])
+        self.assertEqual(options["6hour"]["delays_if_pinned"], [])
+
+        with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+            pinned = self.client.patch(url, {"sync_frequency": "24hour", "sync_frequency_pinned": True})
+        self.assertEqual(pinned.status_code, 200, pinned.json())
+        self.assertEqual((pinned.json()["sync_frequency"], pinned.json()["sync_frequency_pinned"]), ("24hour", True))
+        self.assertTrue(pinned.json()["sync_frequency_bounds"]["pinned"])
+        node.refresh_from_db()
+        self.assertEqual((get_declared_target(node), get_declared_pin(node)), (timedelta(days=1), True))
+        log = ActivityLog.objects.get(scope="DataWarehouseSavedQuery", item_id=upstream["id"], activity="updated")
+        pin_changes = [c for c in cast(dict[str, Any], log.detail)["changes"] if c["field"] == "sync_frequency_pinned"]
+        self.assertEqual([(c["before"], c["after"]) for c in pin_changes], [(False, True)])
+
+        with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+            unpinned = self.client.patch(url, {"sync_frequency_pinned": False})
+        self.assertEqual(unpinned.status_code, 200, unpinned.json())
+        self.assertFalse(unpinned.json()["sync_frequency_pinned"])
+        node.refresh_from_db()
+        self.assertEqual((get_declared_target(node), get_declared_pin(node)), (timedelta(days=1), False))
+
+    @parameterized.expand(
+        [
+            ("no_cadence_yet", {"sync_frequency_pinned": True}),
+            ("cadence_cleared_in_the_same_write", {"sync_frequency": "never", "sync_frequency_pinned": True}),
+        ]
+    )
+    def test_pinning_needs_a_cadence(self, _name, payload):
+        from products.data_modeling.backend.facade.api import get_declared_pin
+
+        saved_query = self._create_saved_query_for_frequency_tests()
+
+        with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}", payload
+            )
+
+        self.assertEqual(response.status_code, 400, response.json())
+        self.assertFalse(get_declared_pin(Node.objects.get(saved_query_id=saved_query["id"])))
 
     def test_bounds_stay_off_the_list_page(self):
         # Bounds cost a graph walk per view, so serving them on a page of views is an N+1. The

@@ -151,9 +151,11 @@ def _desired_tiers(dag: DAG) -> dict[Tier, set[str]]:
     """The cohorts the reconciler would build, mirroring its propagation + clamp + bucketing."""
     graph = build_frequency_graph(dag)
     effective = compute_effective_cadences(
-        nodes=graph.nodes, edges=graph.edges, declared_targets=graph.declared_targets
+        nodes=graph.nodes, edges=graph.edges, declared_targets=graph.declared_targets, pinned=graph.pinned
     )
-    effective, _clamped = clamp_to_source_floor(effective, edges=graph.edges, source_intervals=graph.source_intervals)
+    effective, _clamped = clamp_to_source_floor(
+        effective, edges=graph.edges, source_intervals=graph.source_intervals, pinned=graph.pinned
+    )
     return bucket_into_cadence_tiers(effective, graph.declared_anchors)
 
 
