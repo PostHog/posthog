@@ -27,7 +27,7 @@ function Body({ paragraphs }: { paragraphs: number }): JSX.Element {
 const meta: Meta<typeof DetailPanel> = {
     title: 'Scenes-App/AI observability/Shared/Detail panel',
     component: DetailPanel,
-    parameters: { layout: 'fullscreen', testOptions: { snapshotTargetSelector: 'aside' } },
+    parameters: { testOptions: { snapshotTargetSelector: 'aside' } },
     args: {
         toolbar: <span className="font-semibold">Toolbar</span>,
         children: <Body paragraphs={4} />,
