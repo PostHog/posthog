@@ -303,10 +303,38 @@ def read_variant_quantile(quantile_level: float, quantile_grid: list[float] | No
     return VariantQuantile(quantile=quantile_grid[0], bounds=chosen)
 
 
+def quantile_statistic(
+    metric: ExperimentQuantileMetric, variant: ExperimentStatsBase | ExperimentStatsBaseValidated
+) -> QuantileStatistic | None:
+    """The QuantileStatistic of a variant, or None when its bounds are unavailable or its sums are inconsistent."""
+    n_events = int(variant.denominator_sum or 0)
+    variant_quantile = read_variant_quantile(metric.quantile, variant.quantile_grid, n_events)
+    if variant_quantile is None:
+        return None
+    try:
+        return QuantileStatistic(
+            nu=metric.quantile,
+            n=n_events,
+            n_clusters=variant.number_of_samples,
+            quantile=variant_quantile.quantile,
+            quantile_lower=variant_quantile.bounds.lower,
+            quantile_upper=variant_quantile.bounds.upper,
+            n_star=variant_quantile.bounds.n_star,
+            s_sum=variant.sum,
+            s_sum_squares=variant.sum_squares,
+            n_sum=variant.denominator_sum or 0.0,
+            n_sum_squares=variant.denominator_sum_squares or 0.0,
+            s_n_sum_of_products=variant.numerator_denominator_sum_product or 0.0,
+        )
+    except StatisticError:
+        return None
+
+
 def validate_variant_result(
     variant_result: ExperimentStatsBase,
     metric: AnyExperimentMetric,
     is_baseline=False,
+    difference_type: DifferenceType = DifferenceType.RELATIVE,
 ) -> ExperimentStatsBaseValidated:
     validation_failures = []
 
@@ -321,13 +349,14 @@ def validate_variant_result(
         validation_failures.append(ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA)
 
     if isinstance(metric, ExperimentQuantileMetric):
-        # sum holds the count of events at or below the quantile, so the baseline check reads the quantile instead.
-        variant_quantile = read_variant_quantile(
-            metric.quantile, variant_result.quantile_grid, int(variant_result.denominator_sum or 0)
-        )
-        if variant_quantile is None:
+        quantile_stat = quantile_statistic(metric, variant_result)
+        # Zero variance means too few events or too many tied values for the outer interval, and no test can
+        # run on it. Flag it here, so the result shows why the variant has no inference.
+        if quantile_stat is None or quantile_stat.has_zero_variance:
             validation_failures.append(ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA)
-        elif is_baseline and variant_quantile.quantile == 0:
+        # sum holds the count of events at or below the quantile, so the baseline check reads the quantile instead.
+        # Only a relative difference divides by the baseline, so an absolute difference accepts a zero quantile.
+        elif is_baseline and difference_type == DifferenceType.RELATIVE and quantile_stat.quantile == 0:
             validation_failures.append(ExperimentStatsValidationFailure.BASELINE_MEAN_IS_ZERO)
     elif is_baseline and variant_result.sum == 0:
         validation_failures.append(ExperimentStatsValidationFailure.BASELINE_MEAN_IS_ZERO)
@@ -416,24 +445,9 @@ def metric_variant_to_statistic(
             m_d_sum_of_products=variant.numerator_denominator_sum_product or 0.0,
         )
     elif isinstance(metric, ExperimentQuantileMetric):
-        n_events = int(variant.denominator_sum or 0)
-        variant_quantile = read_variant_quantile(metric.quantile, variant.quantile_grid, n_events)
-        if variant_quantile is None:
+        quantile_stat = quantile_statistic(metric, variant)
+        if quantile_stat is None:
             raise StatisticError("Quantile bounds are unavailable - no events or too many tied values")
-        quantile_stat = QuantileStatistic(
-            nu=metric.quantile,
-            n=n_events,
-            n_clusters=variant.number_of_samples,
-            quantile=variant_quantile.quantile,
-            quantile_lower=variant_quantile.bounds.lower,
-            quantile_upper=variant_quantile.bounds.upper,
-            n_star=variant_quantile.bounds.n_star,
-            s_sum=variant.sum,
-            s_sum_squares=variant.sum_squares,
-            n_sum=variant.denominator_sum or 0.0,
-            n_sum_squares=variant.denominator_sum_squares or 0.0,
-            s_n_sum_of_products=variant.numerator_denominator_sum_product or 0.0,
-        )
         if quantile_stat.has_zero_variance:
             raise StatisticError("Quantile has zero variance - not enough events or too many tied values")
         return quantile_stat
@@ -630,8 +644,13 @@ def get_frequentist_experiment_result(
     )
     method = FrequentistMethod(config)
 
-    control_variant_validated = validate_variant_result(control_variant, metric, is_baseline=True)
-    test_variants_validated = [validate_variant_result(test_variant, metric) for test_variant in test_variants]
+    control_variant_validated = validate_variant_result(
+        control_variant, metric, is_baseline=True, difference_type=settings.difference_type
+    )
+    test_variants_validated = [
+        validate_variant_result(test_variant, metric, difference_type=settings.difference_type)
+        for test_variant in test_variants
+    ]
 
     control_stat = None
     if not control_variant_validated.validation_failures:
@@ -721,8 +740,13 @@ def get_bayesian_experiment_result(
     config = BayesianConfig(ci_level=settings.ci_level, difference_type=settings.difference_type)
     method = BayesianMethod(config)
 
-    control_variant_validated = validate_variant_result(control_variant, metric, is_baseline=True)
-    test_variants_validated = [validate_variant_result(test_variant, metric) for test_variant in test_variants]
+    control_variant_validated = validate_variant_result(
+        control_variant, metric, is_baseline=True, difference_type=settings.difference_type
+    )
+    test_variants_validated = [
+        validate_variant_result(test_variant, metric, difference_type=settings.difference_type)
+        for test_variant in test_variants
+    ]
 
     control_stat = None
     if not control_variant_validated.validation_failures:

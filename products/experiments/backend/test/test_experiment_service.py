@@ -821,18 +821,27 @@ class TestExperimentService(APIBaseTest):
                 "from_another_team",
                 True,
                 {"kind": "ExperimentMetric", "metric_type": "count", "uuid": "other-uuid", "event": "$pageview"},
+                {"type": "primary"},
                 "Saved metric does not exist or does not belong to this project",
             ),
             (
                 "legacy_query",
                 False,
                 {"kind": "ExperimentTrendsQuery", "count_query": {"kind": "TrendsQuery", "series": []}},
+                {"type": "primary"},
                 "Legacy shared metrics can't be added to an experiment: Unlinkable Metric",
+            ),
+            (
+                "quantile_with_breakdown_override",
+                False,
+                {**_QUANTILE_METRIC, "uuid": "quantile-uuid"},
+                {"type": "primary", "breakdowns": [{"property": "$browser"}]},
+                "Invalid saved metric at index 0: breakdowns are not supported for percentile metrics",
             ),
         ]
     )
     def test_create_experiment_rejects_unlinkable_saved_metric(
-        self, _: str, from_other_team: bool, query: dict, expected_error: str
+        self, _: str, from_other_team: bool, query: dict, metadata: dict, expected_error: str
     ) -> None:
         self._create_flag(key="saved-metrics-link-check")
         team = Team.objects.create(organization=self.organization, name="Other Team") if from_other_team else self.team
@@ -843,7 +852,7 @@ class TestExperimentService(APIBaseTest):
             service.create_experiment(
                 name="Unlinkable Metric Experiment",
                 feature_flag_key="saved-metrics-link-check",
-                saved_metrics_ids=[{"id": saved_metric.id, "metadata": {"type": "primary"}}],
+                saved_metrics_ids=[{"id": saved_metric.id, "metadata": metadata}],
             )
 
         assert expected_error in str(ctx.exception)
@@ -1163,6 +1172,11 @@ class TestExperimentService(APIBaseTest):
             (
                 "quantile_with_breakdown",
                 [{**_QUANTILE_METRIC, "breakdownFilter": {"breakdowns": [{"property": "$browser"}]}}],
+                "breakdowns are not supported for percentile metrics",
+            ),
+            (
+                "quantile_with_single_field_breakdown",
+                [{**_QUANTILE_METRIC, "breakdownFilter": {"breakdown": "$browser"}}],
                 "breakdowns are not supported for percentile metrics",
             ),
             (

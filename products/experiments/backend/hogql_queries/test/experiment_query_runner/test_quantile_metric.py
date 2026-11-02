@@ -12,6 +12,9 @@ from posthog.schema import (
     ExperimentQuantileMetric,
     ExperimentQuery,
     ExperimentQueryResponse,
+    ExperimentStatsValidationFailure,
+    ExperimentVariantResultBayesian,
+    ExperimentVariantResultFrequentist,
     FunnelConversionWindowTimeUnit,
 )
 
@@ -48,9 +51,11 @@ class TestExperimentQuantileMetric(ExperimentQueryRunnerBaseTest):
     def _user(self, variant: str, values: list[float]) -> list[dict[str, Any]]:
         return [self._exposure(variant), *(self._app_ready(variant, {"app_ready_ms": value}) for value in values)]
 
-    def _run(self, metric: ExperimentQuantileMetric, *, use_precomputation: bool = False) -> ExperimentQueryRunner:
+    def _run(
+        self, metric: ExperimentQuantileMetric, *, use_precomputation: bool = False, method: str = "frequentist"
+    ) -> ExperimentQueryRunner:
         experiment = self.create_experiment(feature_flag=self.feature_flag)
-        experiment.stats_config = {"method": "frequentist"}
+        experiment.stats_config = {"method": method}
         experiment.metrics = [metric.model_dump(mode="json")]
         self._save_experiment_with_precomputation(experiment, use_precomputation)
         return ExperimentQueryRunner(
@@ -123,6 +128,7 @@ class TestExperimentQuantileMetric(ExperimentQueryRunnerBaseTest):
             ("event_without_the_property", {}, "2024-01-02T12:10:00", None),
             ("event_with_a_non_numeric_value", {"app_ready_ms": "fast"}, "2024-01-02T12:10:00", None),
             ("event_after_the_conversion_window", {"app_ready_ms": 1000}, "2024-01-02T14:00:00", 1),
+            ("event_before_the_exposure", {"app_ready_ms": 1000}, "2024-01-02T11:00:00", None),
         ]
     )
     @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
@@ -156,3 +162,74 @@ class TestExperimentQuantileMetric(ExperimentQueryRunnerBaseTest):
 
         assert result.baseline is not None and result.baseline.quantile_grid is not None
         assert (result.baseline.denominator_sum, result.baseline.quantile_grid[0]) == (3, 2)
+
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
+    def test_quantile_metric_counts_ties_and_keeps_a_variant_without_events(self) -> None:
+        self.feature_flag = self.create_feature_flag()
+        metric = ExperimentQuantileMetric(
+            source=EventsNode(event="app_ready", math_property="app_ready_ms"), quantile=0.5
+        )
+        query_runner = self._run(metric)
+
+        journeys_for(
+            {
+                # Control pools 1, 5, 5, 5, 5, 9, 9, 9, so the median is 5 and four events tie with it.
+                "control_a": self._user("control", [5, 5, 5]),
+                "control_b": self._user("control", [1, 5, 9]),
+                "control_c": self._user("control", [9, 9]),
+                "test_a": self._user("test", []),
+                "test_b": self._user("test", []),
+            },
+            self.team,
+        )
+        flush_persons_and_events()
+
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        assert result.baseline is not None and result.baseline.quantile_grid is not None
+        control = result.baseline
+        # Per user S_i: a 3, b 2 (1 and 5), c 0. A strict comparison gives a 0 and b 1.
+        assert (control.quantile_grid[0], control.sum, control.denominator_sum) == (5, 5, 8)
+
+        assert result.variant_results is not None
+        test = result.variant_results[0]
+        assert (test.number_of_samples, test.sum, test.denominator_sum) == (2, 0, 0)
+        assert not test.quantile_grid
+        assert test.validation_failures is not None
+        assert ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA in test.validation_failures
+
+    @parameterized.expand([("frequentist",), ("bayesian",)])
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
+    def test_quantile_metric_reaches_inference_with_enough_users(self, method: str) -> None:
+        self.feature_flag = self.create_feature_flag()
+        metric = ExperimentQuantileMetric(
+            source=EventsNode(event="app_ready", math_property="app_ready_ms"), quantile=0.5
+        )
+        query_runner = self._run(metric, method=method)
+
+        # 60 users per variant with two events each. Control pools the values 1..120, and test pools 101..220.
+        journeys: dict[str, list[dict[str, Any]]] = {}
+        for i in range(60):
+            journeys[f"control_{i}"] = self._user("control", [i + 1, i + 61])
+            journeys[f"test_{i}"] = self._user("test", [i + 101, i + 161])
+        journeys_for(journeys, self.team)
+        flush_persons_and_events()
+
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        assert result.baseline is not None and result.baseline.quantile_grid is not None
+        assert result.variant_results is not None
+        test = result.variant_results[0]
+        assert test.quantile_grid is not None
+        # Position floor(0.5 * 120) = 60 of the sorted values is 61 for control and 161 for test.
+        assert (result.baseline.quantile_grid[0], test.quantile_grid[0]) == (61, 161)
+        assert (result.baseline.validation_failures, test.validation_failures) == ([], [])
+
+        if method == "frequentist":
+            interval = cast(ExperimentVariantResultFrequentist, test).confidence_interval
+        else:
+            interval = cast(ExperimentVariantResultBayesian, test).credible_interval
+        assert interval is not None
+        # The relative effect is (161 - 61) / 61, about 1.64, and the test median is above the control median.
+        assert 0 < interval[0] < 1.64 < interval[1]
+        assert test.significant is True
