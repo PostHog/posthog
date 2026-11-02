@@ -635,6 +635,16 @@ export class EmailService {
             // (workflow action or email destination hog function) resolves it the same way.
             trackingEnabled = await this.resolveTrackingEnabled(result.invocation, deliverableParams)
 
+            const provider = integration.config.provider ?? 'ses'
+            if (provider === 'unsupported') {
+                throw new Error('Email delivery mode not supported')
+            }
+            if (provider !== 'ses' && provider !== 'maildev') {
+                throw new Error(
+                    "The sender's email provider is not recognized. Select a different sender in the workflow's email step."
+                )
+            }
+
             // User-configured per-workflow pacing. Claimed last, after every skip gate, so a
             // suspended or suppressed send never spends a token. Test sends bypass it. When the
             // limiter's Valkey is down claimUpTo returns 0, so sends wait (never drop) until it
@@ -737,20 +747,10 @@ export class EmailService {
                       }
                     : paramsWithReplyTo
 
-            switch (integration.config.provider ?? 'ses') {
-                case 'maildev':
-                    await this.sendEmailWithMaildev(result, sendParams, from, trackingEnabled, isTest)
-                    break
-                case 'ses':
-                    await this.sendEmailWithSES(result, sendParams, from, trackingEnabled, isTest, queueWait)
-                    break
-
-                case 'unsupported':
-                    throw new Error('Email delivery mode not supported')
-                default:
-                    throw new Error(
-                        "The sender's email provider is not recognized. Select a different sender in the workflow's email step."
-                    )
+            if (provider === 'maildev') {
+                await this.sendEmailWithMaildev(result, sendParams, from, trackingEnabled, isTest)
+            } else {
+                await this.sendEmailWithSES(result, sendParams, from, trackingEnabled, isTest, queueWait)
             }
 
             // Emit the `[Email:…]` token in the success log only when an asset row

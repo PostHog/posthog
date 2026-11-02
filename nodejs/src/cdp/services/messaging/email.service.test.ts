@@ -299,7 +299,7 @@ describe('EmailService', () => {
                     'mailjet',
                     "The sender's email provider is not recognized. Select a different sender in the workflow's email step.",
                 ],
-            ])('fails without sending when the provider is %s', async (provider, error) => {
+            ])('fails the send and reports email_failed when the provider is %s', async (provider, error) => {
                 await insertIntegration(hub.postgres, team.id, {
                     id: getIntegrationId(4),
                     kind: 'email',
@@ -317,7 +317,65 @@ describe('EmailService', () => {
 
                 expect(result.error).toBe(error)
                 expect(result.metrics.map((metric) => metric.metric_name)).toEqual(['email_failed'])
-                expect(sendEmailSpy).not.toHaveBeenCalled()
+            })
+            it('fails an unrecognized provider without spending the workflow sending budget', async () => {
+                await insertIntegration(hub.postgres, team.id, {
+                    id: getIntegrationId(4),
+                    kind: 'email',
+                    config: {
+                        email: 'test@posthog.com',
+                        name: 'Test User',
+                        domain: 'posthog.com',
+                        verified: true,
+                        provider: 'mailjet',
+                    },
+                })
+                const redis = createRedisV2PoolFromConfig({
+                    connection: hub.CDP_REDIS_HOST
+                        ? {
+                              url: hub.CDP_REDIS_HOST,
+                              options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+                          }
+                        : { url: hub.REDIS_URL },
+                    poolMinSize: hub.REDIS_POOL_MIN_SIZE,
+                    poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+                })
+                const limitedService = new EmailService(
+                    {
+                        sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
+                        sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
+                        sesRegion: hub.SES_REGION,
+                        sesEndpoint: hub.SES_ENDPOINT,
+                        sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
+                        sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
+                    },
+                    hub.integrationManager,
+                    new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
+                    hub.ENCRYPTION_SALT_KEYS,
+                    hub.SITE_URL,
+                    new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
+                    new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
+                    new RecipientsManagerService(hub.postgres),
+                    null,
+                    undefined,
+                    new RateLimiterService(redis, { name: 'unknown-provider-budget-test' })
+                )
+                jest.spyOn(limitedService.sesV2Client!, 'send').mockResolvedValue({
+                    MessageId: 'test-message-id',
+                } as never)
+                invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 1, period: 'hour' } }
+
+                invocation.queueParameters = createEmailParams({ from: { integrationId: 4 } })
+                const failed = await limitedService.executeSendEmail(invocation)
+                invocation.queueParameters = createEmailParams({ from: { integrationId: 1 } })
+                const sent = await limitedService.executeSendEmail(invocation)
+
+                expect(failed.error).toBe(
+                    "The sender's email provider is not recognized. Select a different sender in the workflow's email step."
+                )
+                expect(sent.finished).toBe(true)
+                expect(sent.error).toBeUndefined()
+                expect(sent.metrics.map((metric) => metric.metric_name)).toContain('email_sent')
             })
             it('should send identical from and feedback forwarding args', async () => {
                 // This test is important for spam classification - feedback forwarding email MUST match from email
