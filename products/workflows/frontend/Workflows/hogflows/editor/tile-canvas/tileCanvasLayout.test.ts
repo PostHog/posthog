@@ -1,3 +1,5 @@
+import { groupBy } from 'lib/utils/arrays'
+
 import type { HogFlowAction, HogFlowEdge } from '../../types'
 import { Box, CanvasLayout, layoutTileCanvas, NodeSize, pathFrameSpecs } from './tileCanvasLayout'
 import { computePathGroups, computeVisibleGraph, FlowGraph, PathGroup, Point, VisibleEdge } from './tileCanvasModel'
@@ -109,6 +111,44 @@ const sharedTarget: FlowGraph = {
 }
 const sharedTargetGroups = computePathGroups(sharedTarget)
 
+const splits = (from: [string, string[]][]): HogFlowEdge[] =>
+    from.flatMap(([source, targets]) => targets.map((to, index) => pathEdge(source, to, index, targets.length)))
+
+// Splits that lead into each other, so opening the first path moves the targets of the splits below it
+const nestedSplits: FlowGraph = {
+    actions: ['n0', 'n1', 'n2', 'n3', 'n4', 'n5', 'n6', 'n7'].map((id) =>
+        step(id, id === 'n0' ? 'trigger' : ['n6', 'n7'].includes(id) ? 'function' : 'conditional_branch')
+    ),
+    edges: [
+        { from: 'n0', to: 'n1', type: 'continue' },
+        ...splits([
+            ['n1', ['n2', 'n2', 'n5']],
+            ['n2', ['n3', 'n7']],
+            ['n3', ['n4', 'n5']],
+            ['n4', ['n5', 'n6', 'n6']],
+            ['n5', ['n6', 'n6']],
+        ]),
+        { from: 'n6', to: 'n7', type: 'continue' },
+    ],
+}
+const nestedSplitsGroups = computePathGroups(nestedSplits)
+
+// trigger -> split with ten paths, each one step long, that all rejoin at `exit`
+const TEN = Array.from({ length: 10 }, (_, index) => `p${index}`)
+const busyJoin: FlowGraph = {
+    actions: [
+        step('trigger', 'trigger'),
+        step('split', 'conditional_branch'),
+        ...TEN.map((id) => step(id)),
+        step('exit'),
+    ],
+    edges: [
+        { from: 'trigger', to: 'split', type: 'continue' },
+        ...splits([['split', TEN]]),
+        ...TEN.map((id): HogFlowEdge => ({ from: id, to: 'exit', type: 'continue' })),
+    ],
+}
+
 type Segment = [Point, Point]
 const segmentsOf = (points: Point[]): Segment[] => points.slice(1).map((end, index) => [points[index], end])
 const span = (a: number, b: number): [number, number] => [Math.min(a, b), Math.max(a, b)]
@@ -170,49 +210,82 @@ describe('layoutTileCanvas', () => {
     })
 
     it.each([
-        ['closed', [] as string[]],
-        ['open', sharedTargetGroups.map((group) => group.id)],
-    ])('gives each arrow of a split its own line, with its label on it, when its paths are %s', async (_, openIds) => {
-        const { layout, sizes, edges } = await layOut(sharedTarget, sharedTargetGroups, openIds)
-        const routes = Object.values(layout.edges)
-        const fromSplit = Object.entries(layout.edges).filter(([id]) => id.startsWith('split->'))
+        ['a split into a shared step, closed', sharedTarget, sharedTargetGroups, [] as string[]],
+        ['a split into a shared step, open', sharedTarget, sharedTargetGroups, sharedTargetGroups.map((g) => g.id)],
+        [
+            'splits that lead into each other, with the first path open',
+            nestedSplits,
+            nestedSplitsGroups,
+            ['path:n2:branch:0'],
+        ],
+    ])(
+        'gives each arrow of a split its own line, with its label on it, for %s',
+        async (_, flow, flowGroups, openIds) => {
+            const { layout, sizes, edges } = await layOut(flow, flowGroups, openIds)
+            const routes = Object.values(layout.edges)
+            const routed = (from: VisibleEdge[]): [string, CanvasLayout['edges'][string]][] =>
+                from.filter(({ id }) => layout.edges[id]).map(({ id }) => [id, layout.edges[id]])
+            const fromSplits = Object.values(groupBy(edges, (edge) => edge.source)).filter((group) => group.length > 1)
 
-        const sharedRuns = pairsOf(routes).filter(([one, other]) =>
-            segmentsOf(one.points).some((a) => segmentsOf(other.points).some((b) => overlap(a, b) > 1))
-        )
-        const splitCrossings = pairsOf(fromSplit).filter(([[, one], [, other]]) =>
-            segmentsOf(one.points).some((a) => segmentsOf(other.points).some((b) => crosses(a, b)))
-        )
-        const onLine = (label: Point, [a, b]: Segment): boolean =>
-            a.x === b.x && Math.abs(a.x - label.x) < 1 && label.y >= span(a.y, b.y)[0] && label.y <= span(a.y, b.y)[1]
-        const labelsOffTheirLine = fromSplit.filter(
-            ([, { label, points }]) => !label || !segmentsOf(points).some((segment) => onLine(label, segment))
-        )
+            const sharedRuns = pairsOf(routes).filter(([one, other]) =>
+                segmentsOf(one.points).some((a) => segmentsOf(other.points).some((b) => overlap(a, b) > 1))
+            )
+            const splitCrossings = fromSplits.flatMap((group) =>
+                pairsOf(routed(group))
+                    .filter(([[, one], [, other]]) =>
+                        segmentsOf(one.points).some((a) => segmentsOf(other.points).some((b) => crosses(a, b)))
+                    )
+                    .map(([[one], [other]]) => [one, other])
+            )
+            const onLine = (label: Point, [a, b]: Segment): boolean =>
+                a.x === b.x &&
+                Math.abs(a.x - label.x) < 1 &&
+                label.y >= span(a.y, b.y)[0] &&
+                label.y <= span(a.y, b.y)[1]
+            const labelsOffTheirLine = routed(fromSplits.flat())
+                .filter(
+                    ([, { label, points }]) => !label || !segmentsOf(points).some((segment) => onLine(label, segment))
+                )
+                .map(([id]) => id)
 
-        const meetsTile = (point: Point | undefined, node: string): boolean => {
-            const { x, width } = sizes[node].anchor as Box
-            return !!point && Math.abs(point.x - layout.positions[node].x - x) < width / 2
-        }
-        const arrowsOffTheirTiles = edges
-            .filter(({ id, source, target }) => {
-                const points = layout.edges[id]?.points
-                return !meetsTile(points?.[0], source) || !meetsTile(points?.at(-1), target)
+            const meetsTile = (point: Point | undefined, node: string): boolean => {
+                const { x, width } = sizes[node].anchor as Box
+                return !!point && Math.abs(point.x - layout.positions[node].x - x) < width / 2
+            }
+            const arrowsOffTheirTiles = edges
+                .filter(({ id, source, target }) => {
+                    const points = layout.edges[id]?.points
+                    return !meetsTile(points?.[0], source) || !meetsTile(points?.at(-1), target)
+                })
+                .map(({ id }) => id)
+
+            expect({
+                unrouted: edges.filter(({ id }) => !layout.edges[id]).map(({ id }) => id),
+                sharedRuns,
+                splitCrossings,
+                labelsOffTheirLine,
+                arrowsOffTheirTiles,
+            }).toEqual({
+                unrouted: [],
+                sharedRuns: [],
+                splitCrossings: [],
+                labelsOffTheirLine: [],
+                arrowsOffTheirTiles: [],
             })
-            .map(({ id }) => id)
+        }
+    )
 
-        expect({
-            arrowsFromSplit: fromSplit.length,
-            sharedRuns,
-            splitCrossings,
-            labelsOffTheirLine,
-            arrowsOffTheirTiles,
-        }).toEqual({
-            arrowsFromSplit: 5,
-            sharedRuns: [],
-            splitCrossings: [],
-            labelsOffTheirLine: [],
-            arrowsOffTheirTiles: [],
-        })
+    it('keeps the arrowheads into a step with many arrows apart', async () => {
+        const { layout, edges } = await layOut(busyJoin, computePathGroups(busyJoin), [])
+        const ends = edges
+            .filter((edge) => edge.target === 'exit')
+            .map(({ id }) => layout.edges[id].points.at(-1)?.x ?? 0)
+            .sort((a, b) => a - b)
+        const gaps = ends.slice(1).map((x, index) => x - ends[index])
+
+        expect(ends).toHaveLength(10)
+        // An arrowhead is 8px wide, so two heads closer than that draw as one shape
+        expect(Math.min(...gaps)).toBeGreaterThanOrEqual(8)
     })
 
     it('gives a path no more room for a name longer than its label shows', () => {
