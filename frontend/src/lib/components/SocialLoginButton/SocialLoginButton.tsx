@@ -1,19 +1,26 @@
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { router } from 'kea-router'
+import { Suspense } from 'react'
 
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { LemonButton, LemonButtonWithoutSideActionProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { preflightLogic } from 'lib/logic/preflightLogic'
-import { BeginPasskeyLoginParams, passkeyLogic } from 'scenes/authentication/shared/passkeyLogic'
+import { lazyWithRetry } from 'lib/utils/retryImport'
+import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 
 import { LoginMethod, SSOProvider } from '~/types'
 
 import passkeyLogo from './passkey.svg'
 import { SocialLoginIcon } from './SocialLoginIcon'
 import { getSocialLoginUrl } from './socialLoginUrl'
+
+// The passkey flow pulls in the login logic and the WebAuthn browser library.
+const PasskeyLoginButton = lazyWithRetry(() =>
+    import('scenes/authentication/shared/PasskeyLoginButton').then((m) => ({ default: m.PasskeyLoginButton }))
+)
 
 interface SocialLoginLinkProps {
     provider: SSOProvider
@@ -90,42 +97,6 @@ export function SocialLoginButton({
     )
 }
 
-interface PasskeyLoginButtonProps {
-    isLastUsed?: boolean
-    extraQueryParams?: Record<string, string>
-}
-
-export function PasskeyLoginButton({ isLastUsed, extraQueryParams }: PasskeyLoginButtonProps): JSX.Element {
-    const { beginPasskeyLogin } = useActions(passkeyLogic)
-    const { isLoading } = useValues(passkeyLogic)
-
-    return (
-        <div className="relative">
-            <LemonButton
-                size="large"
-                icon={<img src={passkeyLogo} alt="Passkey" className="object-contain w-7 h-7" />}
-                active={isLastUsed}
-                tooltip="Passkey"
-                htmlType="button"
-                onClick={() => {
-                    beginPasskeyLogin(undefined, extraQueryParams as BeginPasskeyLoginParams)
-                }}
-                loading={isLoading}
-                data-attr="passkey-login"
-            />
-            {isLastUsed && (
-                <LemonTag
-                    type="muted"
-                    size="small"
-                    className="absolute -top-3 left-1/2 -translate-x-1/2 pointer-events-none"
-                >
-                    Last used
-                </LemonTag>
-            )}
-        </div>
-    )
-}
-
 interface SocialLoginButtonsProps {
     title?: string
     caption?: string
@@ -195,7 +166,25 @@ export function SocialLoginButtons({
                             {...props}
                         />
                     ))}
-                    {showPasskey && <PasskeyLoginButton isLastUsed={lastUsedProvider === 'passkey'} {...props} />}
+                    {showPasskey && (
+                        <ChunkLoadErrorBoundary fallback={() => null}>
+                            <Suspense
+                                fallback={
+                                    <LemonButton
+                                        size="large"
+                                        icon={
+                                            <img src={passkeyLogo} alt="Passkey" className="object-contain w-7 h-7" />
+                                        }
+                                        tooltip="Passkey"
+                                        htmlType="button"
+                                        loading
+                                    />
+                                }
+                            >
+                                <PasskeyLoginButton isLastUsed={lastUsedProvider === 'passkey'} {...props} />
+                            </Suspense>
+                        </ChunkLoadErrorBoundary>
+                    )}
                 </div>
                 {caption && captionLocation === 'bottom' && <p className="text-secondary">{caption}</p>}
             </div>
