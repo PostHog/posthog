@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -204,6 +205,10 @@ class TemplateManagedBy(LabeledStrEnum):
     CODE = "code", "Code"
 
 
+class TemplateReleasedTo(LabeledStrEnum):
+    GUI = "gui", "GUI"
+
+
 class TemplateUploadResult(LabeledStrEnum):
     CREATED = "created", "Created"
     UPDATED = "updated", "Updated"
@@ -216,6 +221,34 @@ class ContentHashState(LabeledStrEnum):
     CURRENT = "current", "Current"
     SUPERSEDED = "superseded", "Superseded"
     OUTDATED = "outdated", "Outdated"
+
+
+@frozen
+class TemplateWriteIntent:
+    action: str
+    payload: Mapping[str, Any]
+
+
+class TemplateWriteRefused(Exception):
+    def __init__(self, *, code: str, detail: str, why: str, fix: str) -> None:
+        super().__init__(detail)
+        self.code = code
+        self.detail = detail
+        self.why = why
+        self.fix = fix
+
+
+class TemplateManagedByCode(TemplateWriteRefused):
+    def __init__(self, *, detail: str, why: str, fix: str) -> None:
+        super().__init__(code="immutable", detail=detail, why=why, fix=fix)
+
+
+class TemplateKeyRefused(TemplateWriteRefused):
+    pass
+
+
+class TemplateEditedInPostHog(Exception):
+    code = "template_edited_in_posthog"
 
 
 @frozen
@@ -236,3 +269,4 @@ class TemplateUpload:
     design: dict[str, Any]
     source: TemplateSource | None
     if_not_superseded: bool
+    if_code_managed: bool

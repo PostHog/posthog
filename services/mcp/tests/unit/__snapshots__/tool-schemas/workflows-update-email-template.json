@@ -132,6 +132,11 @@
             "description": "A UUID string identifying this message template.",
             "type": "string"
         },
+        "key": {
+            "description": "Give a template that has no key one, so code can take it over: the next upload under this key updates this template and keeps its id, workflow and sender. Code sends that already use this key keep their own workflow until that upload, then run through this template's workflow. Send it as the only field of the PATCH. Letters, digits, hyphens (-) and underscores (_). Set once: a template that has a key keeps it.",
+            "maxLength": 400,
+            "type": "string"
+        },
         "message_category": {
             "anyOf": [
                 {
