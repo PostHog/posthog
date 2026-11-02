@@ -765,13 +765,38 @@ def test_hogql_event_removal_clean_passes() -> None:
 
 
 @pytest.mark.parametrize(
-    "request_type", [RequestType.EVENT_REMOVAL, RequestType.PROPERTY_REMOVAL, RequestType.PERSON_REMOVAL]
+    "overrides,match",
+    [
+        ({}, None),
+        ({"start_time": None}, "start_time and end_time are required"),
+        ({"events": ["$pageview"]}, "not valid for logs_removal"),
+        ({"delete_all_events": True}, "not valid for logs_removal"),
+        ({"properties": ["$ip"]}, "not valid for logs_removal"),
+        ({"hogql_predicate": "properties.$browser = 'Chrome'"}, "not valid for logs_removal"),
+        ({"person_distinct_ids": ["did-1"]}, "only valid for person_removal"),
+    ],
+    ids=["valid", "no_time_range", "events", "delete_all_events", "properties", "hogql_predicate", "person"],
+)
+def test_logs_removal_clean(overrides: dict[str, object], match: str | None) -> None:
+    request = DataDeletionRequest(**_base_kwargs(request_type=RequestType.LOGS_REMOVAL, **overrides))
+    if match is None:
+        request.clean()
+        return
+    with pytest.raises(ValidationError, match=match):
+        request.clean()
+
+
+@pytest.mark.parametrize(
+    "request_type",
+    [RequestType.EVENT_REMOVAL, RequestType.PROPERTY_REMOVAL, RequestType.PERSON_REMOVAL, RequestType.LOGS_REMOVAL],
 )
 def test_legacy_request_types_reject_hogql_query_snapshot(request_type: str) -> None:
     if request_type == RequestType.EVENT_REMOVAL:
         fields = _base_kwargs(events=["$pageview"])
     elif request_type == RequestType.PROPERTY_REMOVAL:
         fields = _property_kwargs()
+    elif request_type == RequestType.LOGS_REMOVAL:
+        fields = _base_kwargs(request_type=RequestType.LOGS_REMOVAL)
     else:
         fields = _person_kwargs()
     request = DataDeletionRequest(**fields, hogql_query="SELECT uuid FROM events")
@@ -853,6 +878,29 @@ def test_cached_compile_hogql_predicate_blank_predicate_skips_compile():
     request = DataDeletionRequest(**_base_kwargs(events=["$pageview"], hogql_predicate=""))
     with patch.object(ddr, "compile_hogql_predicate", side_effect=AssertionError("should not compile")):
         assert cached_compile_hogql_predicate(request) == ("", {})
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("remaining,expected_status", [(3, RequestStatus.QUEUED), (0, RequestStatus.COMPLETED)])
+def test_verify_queued_logs_request_counts_logs(team, remaining, expected_status):
+    request = DataDeletionRequest.objects.create(
+        team_id=team.pk,
+        request_type=RequestType.LOGS_REMOVAL,
+        start_time=datetime(2026, 1, 1, tzinfo=UTC),
+        end_time=datetime(2026, 1, 2, tzinfo=UTC),
+        execution_mode="deferred",
+        status=RequestStatus.QUEUED,
+    )
+
+    with (
+        patch.object(ddr, "count_remaining_logs", return_value=remaining),
+        patch.object(ddr, "count_remaining_matching_events", side_effect=AssertionError("counted events")),
+    ):
+        outcome = ddr.verify_queued_request(request)
+
+    assert outcome.remaining == remaining
+    request.refresh_from_db()
+    assert request.status == expected_status
 
 
 @pytest.mark.django_db

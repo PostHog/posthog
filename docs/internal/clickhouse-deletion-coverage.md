@@ -113,6 +113,10 @@ Each is a decision that erasure may lag by the retention window.
 
 Session recordings, the dead letter queue, and logs are likewise TTL-reclaimed.
 That decision predates this document; the older `posthog/models/async_deletion/delete_events.py` records it in a comment, but that module is legacy and is not the source of truth here.
+A logs removal request is the one exception: it deletes one team's logs in a time range on demand.
+A deferred request waits in the queued status until the weekly `deletes_job` deletes it with the other queued requests (`delete_queued_logs`). An immediate request deletes in its own job (`delete_logs_op`).
+It deletes from `logs34` and from the rollups `log_attributes3`, `logs_pattern_buckets` and `logs_volume_buckets`. Each rollup keeps text from the logs: attribute values, message patterns, or service, namespace and environment names.
+A rollup bucket that overlaps the range is deleted whole.
 
 ## Known gaps
 

@@ -77,7 +77,11 @@
                                    value="{{ value }}"
                                    {% if value == default_execution_mode %}checked{% endif %} />
                             <strong>{{ label }}</strong>
-                            {% if value == "immediate" %}
+                            {% if is_logs_removal and value == "immediate" %}
+                                &mdash; Run a delete mutation on each logs table now. The logs are gone when the job finishes.
+                            {% elif is_logs_removal and value == "deferred" %}
+                                &mdash; Queue the request. The scheduled <code>deletes_job</code> deletes its logs together with other queued logs removal requests. The request goes to <code>queued</code>, then to <code>completed</code> when no matching logs are left.
+                            {% elif value == "immediate" %}
                                 &mdash; Dispatch a dedicated lightweight-delete mutation now on each shard. Events gone when the job finishes.
                             {% elif value == "deferred" %}
                                 &mdash; Queue matching event UUIDs into <code>adhoc_events_deletion</code>. The scheduled <code>deletes_job</code> drains them alongside other batched deletes. Request lands in <code>queued</code> and transitions to <code>completed</code> once the events are gone.
