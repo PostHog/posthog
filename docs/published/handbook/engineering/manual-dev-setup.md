@@ -288,9 +288,6 @@ Open [http://localhost:8010](http://localhost:8010) to see the app.
 
 To get some practical test data into your brand-new instance of PostHog, run `DEBUG=1 ./manage.py generate_demo_data`. For a list of useful arguments of the command, run `DEBUG=1 ./manage.py generate_demo_data --help`.
 
-Local demo projects also get Inbox reports and a completed chat.
-The chat requires object storage: if storage is disabled or the transcript cannot be read back, demo generation skips the chat and keeps the reports.
-
 > **Friendly Tip** The first time you run the app, you can log in with a test account: _user_:`test@posthog.com` _pwd_:`12345678`.
 
 ## 7. Develop

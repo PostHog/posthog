@@ -1,15 +1,13 @@
-import json
 import uuid
 import datetime as dt
 from types import SimpleNamespace
 from typing import Any, cast
 
-from posthog.test.base import APIBaseTest, BaseTest
+from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
-from asgiref.sync import sync_to_async
 from parameterized import parameterized
 
 from posthog.models.file_system.constants import DEFAULT_SURFACE
@@ -29,7 +27,6 @@ from products.demo.backend.logic.products.hedgebox.taxonomy import (
     EVENT_UPLOADED_FILE,
 )
 from products.product_analytics.backend.facade.models import Insight
-from products.signals.backend.models import SignalReportTask
 
 
 def _matrix_with_one_person(seed: str) -> HedgeboxMatrix:
@@ -97,91 +94,6 @@ class TestHedgeboxMatrixInitialViews(BaseTest):
             assert event["event"] == "$exception"
             assert event["team"] == self.team
             assert event["properties"]["$exception_list"][0]["stacktrace"]["frames"]
-
-
-@override_settings(DEBUG=True, OBJECT_STORAGE_ENABLED=True)
-class TestHedgeboxMatrixLocalDemoInbox(APIBaseTest):
-    @parameterized.expand(
-        [
-            ("available", True, True),
-            ("disabled", False, False),
-            ("discarded_writes", True, False),
-        ]
-    )
-    @patch("products.demo.backend.logic.products.hedgebox.matrix.is_cloud", return_value=False)
-    @patch("products.demo.backend.logic.products.hedgebox.matrix.sync_issues_to_clickhouse")
-    @patch("products.demo.backend.logic.products.hedgebox.matrix.create_event")
-    def test_local_project_setup_seeds_for_you_reports_and_only_readable_chats(
-        self, _name: str, storage_enabled: bool, persist_transcript: bool, *_mocks: MagicMock
-    ) -> None:
-        storage: dict[str, str] = {}
-
-        def read(path: str, **kwargs: object) -> str | None:
-            return storage.get(path)
-
-        def write(path: str, content: str, **kwargs: object) -> None:
-            if persist_transcript:
-                storage[path] = content
-
-        with (
-            override_settings(OBJECT_STORAGE_ENABLED=storage_enabled),
-            patch("posthog.storage.object_storage.read", side_effect=read),
-            patch("posthog.storage.object_storage.write", side_effect=write),
-            patch("posthog.storage.object_storage.tag"),
-            patch("posthog.temporal.common.client.sync_connect", side_effect=ConnectionError("no temporal in tests")),
-            # The persist path reads on a worker thread, which cannot see this test's open transaction.
-            patch(
-                "products.signals.backend.temporal.agentic.report.database_sync_to_async",
-                side_effect=lambda func, **kwargs: sync_to_async(func, thread_sensitive=True),
-            ),
-        ):
-            _matrix_with_one_person("local-demo-inbox").set_project_up(self.team, self.user)
-
-        inbox = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?view=for_you")
-        assert inbox.status_code == 200, inbox.content
-        assert len(inbox.json()["results"]) == 3
-        assert not SignalReportTask.objects.filter(team_id=self.team.id).exists()
-
-        tasks_url = f"/api/projects/{self.team.id}/tasks/"
-        chats = self.client.get(f"{tasks_url}?created_by={self.user.id}&exclude_origin_product=signals_scout")
-        assert chats.status_code == 200, chats.content
-        if not persist_transcript:
-            assert chats.json()["results"] == []
-            return
-        [chat] = chats.json()["results"]
-        assert chat["origin_product"] == "user_created"
-        assert chat["latest_run"]["status"] == "completed"
-
-        with patch("posthog.storage.object_storage.read", side_effect=read):
-            logs = self.client.get(f"{tasks_url}{chat['id']}/runs/{chat['latest_run']['id']}/logs/")
-        assert logs.status_code == 200, logs.content
-        updates = [
-            json.loads(line)["notification"].get("params", {}).get("update", {})
-            for line in logs.content.decode().splitlines()
-        ]
-        assert [update.get("sessionUpdate") for update in updates[:2]] == ["user_message", "agent_message"]
-
-
-class TestHedgeboxMatrixLocalDemoInboxGuard(SimpleTestCase):
-    @parameterized.expand(
-        [
-            ("cloud_debug", True, True),
-            ("self_hosted_prod", False, False),
-        ]
-    )
-    @patch("products.demo.backend.logic.products.hedgebox.matrix.signals_demo_data")
-    def test_demo_inbox_only_seeded_in_local_dev(
-        self, _name: str, debug: bool, cloud: bool, mock_signals_demo_data: MagicMock
-    ) -> None:
-        matrix = HedgeboxMatrix(seed="demo-inbox-guard", n_clusters=0)
-        team = cast(Any, SimpleNamespace(pk=1))
-        user = cast(Any, SimpleNamespace(pk=1))
-
-        with override_settings(DEBUG=debug):
-            with patch("products.demo.backend.logic.products.hedgebox.matrix.is_cloud", return_value=cloud):
-                matrix._set_up_demo_inbox(team, user)
-
-        assert mock_signals_demo_data.mock_calls == []
 
 
 class TestHedgeboxMatrixSimulation(SimpleTestCase):
