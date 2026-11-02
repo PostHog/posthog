@@ -7,6 +7,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LazyLemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LazyLemonMarkdown'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 import { lazyWithRetry, retryImport } from 'lib/utils/retryImport'
+import { reloadAfterChunkLoadError } from 'lib/utils/stableChunks'
 
 import type { LemonRichContentEditorProps } from './LemonRichContentEditor'
 import { richContentToText } from './richContentText'
@@ -45,15 +46,20 @@ interface LazyChunkProps<P extends object> {
     chunk: RetryableChunk<ComponentType<P>>
     chunkProps: P
     loading: ReactNode
-    renderError: (retry: () => void) => ReactNode
+    renderError: (recover: ChunkRecovery) => ReactNode
+}
+
+interface ChunkRecovery {
+    label: string
+    onClick: () => void
 }
 
 /**
  * Keeps a failed rich text chunk local to the component that needs it. Without it the error reaches the
  * app's ChunkLoadErrorBoundary, which reloads the page and drops what the user was doing.
  */
-class LazyChunk<P extends object> extends Component<LazyChunkProps<P>, { error: unknown }> {
-    override state: { error: unknown } = { error: null }
+class LazyChunk<P extends object> extends Component<LazyChunkProps<P>, { error: unknown; retried: boolean }> {
+    override state: { error: unknown; retried: boolean } = { error: null, retried: false }
 
     static getDerivedStateFromError(error: unknown): { error: unknown } {
         return { error }
@@ -67,7 +73,16 @@ class LazyChunk<P extends object> extends Component<LazyChunkProps<P>, { error: 
 
     retry = (): void => {
         this.props.chunk.reset()
-        this.setState({ error: null })
+        this.setState({ error: null, retried: true })
+    }
+
+    // The browser caches a chunk that fails to parse, and a deploy deletes old chunks, so a second
+    // failure or a parse failure needs a reload. The user chooses it, so no unsaved work is lost by surprise.
+    recovery(error: unknown): ChunkRecovery {
+        const needsReload = this.state.retried || (error as { name?: string }).name === 'SyntaxError'
+        return needsReload
+            ? { label: 'Reload page', onClick: () => reloadAfterChunkLoadError(error) }
+            : { label: 'Try again', onClick: this.retry }
     }
 
     override render(): ReactNode {
@@ -76,7 +91,7 @@ class LazyChunk<P extends object> extends Component<LazyChunkProps<P>, { error: 
             throw error
         }
         if (error) {
-            return this.props.renderError(this.retry)
+            return this.props.renderError(this.recovery(error))
         }
         // Read on every render, so a retry renders the new lazy component.
         const Chunk: ComponentType<P> = this.props.chunk.get()
@@ -161,12 +176,12 @@ export function LazyLemonRichContentEditor(props: LemonRichContentEditorProps): 
                     <div className="h-8 border-t" />
                 </div>
             }
-            renderError={(retry) => (
+            renderError={(recover) => (
                 <div className="flex flex-col border rounded mt-4 input-like">
                     <div className="p-2 min-h-16 text-secondary">Couldn't load the editor.</div>
                     <div className="flex justify-end border-t p-1">
-                        <LemonButton size="xsmall" type="secondary" onClick={retry}>
-                            Try again
+                        <LemonButton size="xsmall" type="secondary" onClick={recover.onClick}>
+                            {recover.label}
                         </LemonButton>
                     </div>
                 </div>

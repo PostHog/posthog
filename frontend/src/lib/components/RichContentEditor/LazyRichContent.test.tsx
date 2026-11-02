@@ -31,6 +31,14 @@ jest.mock('./LemonRichContentEditor', () => ({
 describe('LazyRichContent', () => {
     afterEach(cleanup)
 
+    it('offers a page reload when a retry fails too', async () => {
+        render(<LazyLemonRichContentEditor logicKey="test" onCreate={() => {}} />)
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Try again' }, { timeout: 5000 }))
+
+        expect(await screen.findByRole('button', { name: 'Reload page' }, { timeout: 5000 })).toBeInTheDocument()
+    })
+
     it('keeps a failed chunk local: text falls back to markdown, the editor offers a retry', async () => {
         render(
             <>

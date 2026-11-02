@@ -55,8 +55,9 @@ export function imageTilePositionToCss(position: ImageTilePosition): string {
 }
 
 // One markdown image: `![alt](src)`, `![alt](<src>)`, either with an optional `"title"`.
+// A bare src may hold parentheses nested two deep, such as `diagram(1).png`.
 const MARKDOWN_IMAGE =
-    /^!\[((?:\\.|[^\\\]])*)\]\((?:<((?:\\.|[^\\<>\n])*)>|([^\s)<][^\s)]*))(?:\s+"((?:\\.|[^"\\])*)")?\)$/
+    /^!\[((?:\\.|[^\\\]])*)\]\((?:<((?:\\.|[^\\<>\n])*)>|(?!<)((?:\\.|[^\s()\\]|\((?:\\.|[^\s()\\]|\((?:\\.|[^\s()\\])*\))*\))+))(?:\s+"((?:\\.|[^"\\])*)")?\)$/
 const MARKDOWN_ESCAPE = /\\([!-/:-@[-`{-~])/g
 
 /**

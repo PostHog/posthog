@@ -86,6 +86,11 @@ describe('imageTileUtils', () => {
             '<img src="https://example.com/diagram.png" alt="A diagram" width="320" height="240" />',
         ],
         [
+            'parentheses in the source',
+            { src: 'https://example.com/diagram(1).png', alt: 'A diagram' },
+            '![A diagram](https://example.com/diagram(1).png)',
+        ],
+        [
             'bracket in the description',
             { src: 'https://example.com/diagram.png', alt: 'A ] diagram' },
             '![A \\] diagram](https://example.com/diagram.png)',
