@@ -252,7 +252,7 @@ Unlike `client`, they are evidence of which credential made a change.
 | `project_secret_key`     | none                        | the key id                                                                                                               |
 | `team_secret_token`      | none                        | none                                                                                                                     |
 | `id_jag`                 | the token user              | the `client_id` claim                                                                                                    |
-| `oidc_workload`                | the owner the token acts as | the workload trust policy id                                                                                                   |
+| `oidc_workload`          | the owner the token acts as | the workload trust policy id                                                                                             |
 | `internal_jwt`           | the token user              | none                                                                                                                     |
 | `service_jwt`            | none                        | the audience of the scoped service JWT                                                                                   |
 | `internal_api_secret`    | none                        | none                                                                                                                     |
