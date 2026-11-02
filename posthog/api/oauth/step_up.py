@@ -1,6 +1,6 @@
 from collections.abc import Iterable
 
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
@@ -142,15 +142,46 @@ def live_granted_scopes(*, application: OAuthApplication, user_id: int) -> set[s
     connected and keeps its scopes. Tokens minted during staff impersonation are left out, because
     the user did not grant those.
     """
-    scope_strings = (
-        OAuthAccessToken.objects.filter(application=application, user_id=user_id, impersonated_by__isnull=True)
-        .filter(Q(expires__gt=timezone.now()) | Q(refresh_token__isnull=False, refresh_token__revoked__isnull=True))
-        .values_list("scope", flat=True)
-    )
     granted: set[str] | None = None
-    for scope_string in scope_strings:
+    for scope_string in _live_access_tokens(application, user_id).values_list("scope", flat=True):
         granted = (granted or set()) | set((scope_string or "").split())
     return granted
+
+
+def live_granted_scopes_covering(
+    *, application: OAuthApplication, user_id: int, scoped_teams: list[int], scoped_organizations: list[str]
+) -> set[str]:
+    """Scopes from live grants whose project and organization access covers the new selection.
+
+    Restoring only these never widens where a scope applies: a scope granted for one project does
+    not come back on a grant for another.
+    """
+    granted: set[str] = set()
+    for scope_string, token_teams, token_organizations in _live_access_tokens(application, user_id).values_list(
+        "scope", "scoped_teams", "scoped_organizations"
+    ):
+        if _access_covers(token_teams or [], token_organizations or [], scoped_teams, scoped_organizations):
+            granted |= set((scope_string or "").split())
+    return granted
+
+
+def _live_access_tokens(application: OAuthApplication, user_id: int) -> QuerySet[OAuthAccessToken]:
+    return OAuthAccessToken.objects.filter(
+        application=application, user_id=user_id, impersonated_by__isnull=True
+    ).filter(Q(expires__gt=timezone.now()) | Q(refresh_token__isnull=False, refresh_token__revoked__isnull=True))
+
+
+def _access_covers(
+    token_teams: list[int], token_organizations: list[str], scoped_teams: list[int], scoped_organizations: list[str]
+) -> bool:
+    # A token with neither list reaches everything the user can reach.
+    if not token_teams and not token_organizations:
+        return True
+    if scoped_teams:
+        return set(scoped_teams) <= set(token_teams)
+    if scoped_organizations:
+        return set(scoped_organizations) <= set(token_organizations)
+    return False
 
 
 def _union(*scope_lists: Iterable[str]) -> list[str]:

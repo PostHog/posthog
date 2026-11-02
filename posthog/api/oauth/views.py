@@ -70,7 +70,7 @@ from posthog.api.oauth.metadata import (
     openid_provider_metadata,
     protected_resource_metadata,
 )
-from posthog.api.oauth.step_up import live_granted_scopes, resolve_step_up_grant
+from posthog.api.oauth.step_up import live_granted_scopes_covering, resolve_step_up_grant
 from posthog.auth import IDJagAccessTokenAuthentication, SessionAuthentication
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
 from posthog.helpers.oauth_pending_connection import (
@@ -1811,7 +1811,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         # leaves out travel in the session, never in the form the browser submits.
         hidden_scopes_key = _step_up_hidden_scopes_session_key(application)
         if step_up_grant and step_up_grant.hidden_scopes:
-            request.session[hidden_scopes_key] = step_up_grant.hidden_scopes
+            request.session[hidden_scopes_key] = {"consent": consent_scopes, "hidden": step_up_grant.hidden_scopes}
         else:
             request.session.pop(hidden_scopes_key, None)
 
@@ -1853,12 +1853,10 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 credentials[field] = serializer.validated_data[field]
 
         scopes = serializer.validated_data.get("scope", "")
-        hidden_scopes = request.session.pop(_step_up_hidden_scopes_session_key(application), None)
-        if serializer.validated_data["allow"] and hidden_scopes and application.supports_step_up:
-            # A step-up consent screen lists only the added scopes, so the ones it left out go back
-            # in here. Only those the user still holds come back, in case a revoke ran in between.
-            still_granted = live_granted_scopes(application=application, user_id=request.user.id) or set()
-            scopes = " ".join(sorted(set(scopes.split()) | (set(hidden_scopes) & still_granted)))
+        hidden_scopes_key = _step_up_hidden_scopes_session_key(application)
+        restored_scopes = self._restorable_step_up_scopes(request, application, serializer.validated_data, scopes)
+        if restored_scopes:
+            scopes = " ".join(sorted(set(scopes.split()) | restored_scopes))
         if is_read_only_impersonation(request):
             scopes = downgrade_scopes_to_read_only(scopes)
 
@@ -1923,6 +1921,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             )
 
         except OAuthToolkitError as error:
+            request.session.pop(hidden_scopes_key, None)
             logger.warning(
                 "oauth_authorize_toolkit_error",
                 client_id=serializer.validated_data["client_id"],
@@ -1960,6 +1959,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             return response
 
         logger.debug("Success url for the request: %s", uri)
+        request.session.pop(hidden_scopes_key, None)
 
         redirect = self.redirect(uri, application)
 
@@ -1970,6 +1970,32 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         response = Response({"redirect_to": redirect.url}, status=status.HTTP_200_OK)
         clear_pending_oauth_connection_cookie(request, response)
         return response
+
+    @staticmethod
+    def _restorable_step_up_scopes(
+        request, application: OAuthApplication, validated_data: dict, submitted_scope: str
+    ) -> set[str]:
+        """Scopes a step-up consent screen left out, which the consent POST adds back.
+
+        They come back only when this POST answers that screen: the submitted scopes are ones it
+        listed. A POST from another consent screen for the same app, such as a second tab showing
+        the full list, keeps exactly what its user picked. Only scopes the user still holds on a
+        grant covering the newly picked projects come back, so a revoke in between or a different
+        project never widens the grant.
+        """
+        stored = request.session.get(_step_up_hidden_scopes_session_key(application))
+        if not validated_data["allow"] or not application.supports_step_up or not isinstance(stored, dict):
+            return set()
+        listed = set(stored.get("consent", [])) | set(application.required_scopes) | ALWAYS_ALLOWED_SCOPES
+        if not set(submitted_scope.split()) <= listed:
+            return set()
+        still_granted = live_granted_scopes_covering(
+            application=application,
+            user_id=request.user.id,
+            scoped_teams=validated_data.get("scoped_teams") or [],
+            scoped_organizations=validated_data.get("scoped_organizations") or [],
+        )
+        return set(stored.get("hidden", [])) & still_granted
 
     def _redirect_and_finish_connection(self, request, uri: str, application: OAuthApplication) -> HttpResponse:
         response = self.redirect(uri, application)

@@ -364,14 +364,25 @@ class TestOAuthAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("step_up", True, MCP_RESOURCE_PARAM, ["comment:write"], {"openid", "insight:write", "comment:write"}),
-            ("no_step_up", False, MCP_RESOURCE_PARAM, ["comment:write"], {"comment:write"}),
-            ("step_up_outside_mcp", True, "", ["comment:write"], {"comment:write"}),
+            ("step_up", True, MCP_RESOURCE_PARAM, None, "comment:write", {"openid", "insight:write", "comment:write"}),
+            ("no_step_up", False, MCP_RESOURCE_PARAM, None, "comment:write", {"comment:write"}),
+            ("step_up_outside_mcp", True, "", None, "comment:write", {"comment:write"}),
+            # The prior grant covers another project, so its scopes do not come back for this one.
+            ("step_up_other_project", True, MCP_RESOURCE_PARAM, [987654], "comment:write", {"comment:write"}),
+            # A POST from another consent screen keeps exactly what its user picked.
+            (
+                "step_up_other_screen",
+                True,
+                MCP_RESOURCE_PARAM,
+                None,
+                "openid insight:read comment:write",
+                {"openid", "insight:read", "comment:write"},
+            ),
         ]
     )
     @time_machine.travel("2026-03-01 12:00:00", tick=False)
     def test_mcp_reauthorize_keeps_prior_scopes_only_for_a_step_up_app(
-        self, _name, supports_step_up, resource_param, expected_consent, expected
+        self, _name, supports_step_up, resource_param, prior_scoped_teams, submitted_scope, expected
     ):
         self.confidential_application.supports_step_up = supports_step_up
         self.confidential_application.save()
@@ -381,6 +392,7 @@ class TestOAuthAPI(APIBaseTest):
             token="pha_prior_grant",
             expires=timezone.now() - timedelta(hours=1),
             scope="openid insight:write",
+            scoped_teams=prior_scoped_teams,
         )
         OAuthRefreshToken.objects.create(
             application=self.confidential_application,
@@ -391,12 +403,18 @@ class TestOAuthAPI(APIBaseTest):
 
         consent = self.client.get(f"{self.base_authorization_url}&scope={quote('comment:write')}{resource_param}")
         authorize = self.client.post(
-            "/oauth/authorize/", {**self.base_authorization_post_body, "scope": "comment:write"}
+            "/oauth/authorize/",
+            {
+                **self.base_authorization_post_body,
+                "scope": submitted_scope,
+                "access_level": OAuthApplicationAccessLevel.TEAM.value,
+                "scoped_teams": [self.team.id],
+            },
         )
         code = authorize.json()["redirect_to"].split("code=")[1].split("&")[0]
         token = self.post("/oauth/token/", {**self.base_token_body, "code": code}).json()
 
-        self.assertEqual(consent.context["posthog_app_context"]["oauth_scope_resolution"]["scopes"], expected_consent)
+        self.assertEqual(consent.context["posthog_app_context"]["oauth_scope_resolution"]["scopes"], ["comment:write"])
         self.assertEqual(set(token["scope"].split()), expected)
 
     @patch("posthog.api.oauth.views.render_template")
