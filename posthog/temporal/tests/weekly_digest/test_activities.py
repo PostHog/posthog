@@ -767,7 +767,7 @@ def test_send_weekly_digest_batch_emails_subscribed_members_once(
         assert post.kwargs["headers"] == {
             "Authorization": "Bearer test-webhook-secret",
             "Content-Type": "application/json",
-            "Idempotency-Key": f"{digest.key}:{subscribed.id}",
+            "Idempotency-Key": f"{digest.key}:{subscribed.uuid}",
         }
         # The digest holds UUIDs and datetimes, so the body must be encoded before it reaches requests.
         body = json.loads(post.kwargs["data"])

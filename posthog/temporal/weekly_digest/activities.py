@@ -1293,7 +1293,8 @@ def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                                     continue
                                 _wait_for_workflows_post(r, input.digest.key)
                                 partial = True
-                                _post_to_workflows(workflows_session, encoded_body, f"{input.digest.key}:{user.id}")
+                                # Both regions post to one workflow and user ids repeat across regions, so the key uses the UUID.
+                                _post_to_workflows(workflows_session, encoded_body, f"{input.digest.key}:{user.uuid}")
                             except WorkflowsWebhookError:
                                 failed_organization_ids.add(str(organization.id))
                                 raise
