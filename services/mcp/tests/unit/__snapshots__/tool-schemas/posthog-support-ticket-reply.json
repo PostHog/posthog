@@ -1,0 +1,17 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "Ticket ID from posthog-support-tickets-list or from posthog-support-ticket-create.",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "type": "string"
+        },
+        "message": {
+            "description": "The reply in plain text, for example the details support asked for. Do not include secrets, API keys or personal data.",
+            "maxLength": 8000,
+            "type": "string"
+        }
+    },
+    "required": ["id", "message"],
+    "type": "object"
+}

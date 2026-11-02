@@ -740,3 +740,18 @@ export const PosthogSupportTicketsCreateBody = /* @__PURE__ */ zod.object({
             'For `data_deletion` only: true confirms that the user wants these events permanently deleted. Ask the user before you set it. Deleted events cannot be restored.'
         ),
 })
+
+/**
+ * Add a message from the signed-in user to one of their tickets with the PostHog support team.
+ * @summary Reply to a PostHog support ticket
+ */
+export const posthogSupportTicketsReplyCreateBodyMessageMax = 8000
+
+export const PosthogSupportTicketsReplyCreateBody = /* @__PURE__ */ zod.object({
+    message: zod
+        .string()
+        .max(posthogSupportTicketsReplyCreateBodyMessageMax)
+        .describe(
+            'The reply in plain text, for example the details support asked for. Do not include secrets, API keys or personal data.'
+        ),
+})

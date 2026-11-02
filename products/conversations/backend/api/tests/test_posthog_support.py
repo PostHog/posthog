@@ -178,3 +178,26 @@ class TestPostHogSupportTicketAPI(APIBaseTest):
         assert own.json()["messages"][0]["author_type"] == "customer"
         assert other.status_code == status.HTTP_404_NOT_FOUND
         assert not_a_uuid.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_user_can_reply_only_to_their_own_ticket(self) -> None:
+        own_ticket_id = self._post(DELETION_REQUEST).json()["ticket_id"]
+        other_ticket = Ticket.objects.create_with_number(
+            team=self.support_team,
+            widget_session_id="00000000-0000-0000-0000-000000000001",
+            distinct_id="someone-else",
+            channel_source="widget",
+            status="new",
+            identity_verified=True,
+        )
+        reply = {"message": "The events came from build 4.2 of the staging app."}
+
+        own = self._call("post", f"{self.url}{own_ticket_id}/reply/", reply)
+        other = self._call("post", f"{self.url}{other_ticket.id}/reply/", reply)
+        not_a_uuid = self._call("post", f"{self.url}{'a' * 36}/reply/", reply)
+
+        assert own.status_code == status.HTTP_201_CREATED, own.json()
+        own_messages = Comment.objects.filter(team=self.support_team, item_id=own_ticket_id).order_by("created_at")
+        assert [m.content for m in own_messages][-1] == reply["message"]
+        assert other.status_code == status.HTTP_404_NOT_FOUND
+        assert not Comment.objects.filter(team=self.support_team, item_id=str(other_ticket.id)).exists()
+        assert not_a_uuid.status_code == status.HTTP_404_NOT_FOUND

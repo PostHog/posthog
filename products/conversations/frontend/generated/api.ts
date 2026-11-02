@@ -29,6 +29,8 @@ import type {
     PatchedTicketNoteUpdateRequestApi,
     PatchedTicketUpdateRequestApi,
     PatchedTicketViewApi,
+    PostHogSupportReplyApi,
+    PostHogSupportReplySentApi,
     PostHogSupportTicketCreatedApi,
     PostHogSupportTicketDetailApi,
     PostHogSupportTicketListApi,
@@ -775,5 +777,27 @@ export const posthogSupportTicketsRetrieve = async (
     return apiMutator<PostHogSupportTicketDetailApi>(getPosthogSupportTicketsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getPosthogSupportTicketsReplyCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/posthog_support/tickets/${id}/reply/`
+}
+
+/**
+ * Add a message from the signed-in user to one of their tickets with the PostHog support team.
+ * @summary Reply to a PostHog support ticket
+ */
+export const posthogSupportTicketsReplyCreate = async (
+    projectId: string,
+    id: string,
+    postHogSupportReplyApi: PostHogSupportReplyApi,
+    options?: RequestInit
+): Promise<PostHogSupportReplySentApi> => {
+    return apiMutator<PostHogSupportReplySentApi>(getPosthogSupportTicketsReplyCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(postHogSupportReplyApi),
     })
 }
