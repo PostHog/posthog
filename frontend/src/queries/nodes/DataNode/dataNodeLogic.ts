@@ -33,7 +33,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { DataNodeCollectionProps, dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
-import { hasInvalidRegexFilter } from '~/queries/nodes/DataNode/hasInvalidRegexFilter'
+import { getRegexFilterPatterns, hasInvalidRegexPattern } from '~/queries/nodes/DataNode/hasInvalidRegexFilter'
 import { QueryScanPollResult, QueryScanState, resolveQueryScan } from '~/queries/nodes/DataNode/queryScan'
 import { getSingleRequestServerMs } from '~/queries/nodes/DataNode/queryTimeBreakdown'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
@@ -1202,7 +1202,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         return null
                     }
 
-                    if (!validateQuery(query, hasInvalidRegexFilter)) {
+                    if (!validateQuery(query)) {
+                        return null
+                    }
+                    // Only a query with a regex filter waits for the RE2 engine.
+                    const regexPatterns = getRegexFilterPatterns(query)
+                    if (regexPatterns.length > 0 && (await hasInvalidRegexPattern(regexPatterns))) {
                         return null
                     }
 

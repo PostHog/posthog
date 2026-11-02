@@ -1,22 +1,27 @@
 import { isValidRE2 } from 'lib/utils/regexp'
 
-export const hasInvalidRegexFilter = (obj: unknown): boolean => {
+export const getRegexFilterPatterns = (obj: unknown): string[] => {
     if (Array.isArray(obj)) {
-        return obj.some(hasInvalidRegexFilter)
+        return obj.flatMap(getRegexFilterPatterns)
     }
 
     if (obj !== null && typeof obj === 'object') {
         const record = obj as Record<string, unknown>
-        if (
-            (record.operator === 'regex' || record.operator === 'not_regex') &&
-            typeof record.value === 'string' &&
-            !isValidRE2(record.value)
-        ) {
-            return true
+        const nestedPatterns = Object.values(record).flatMap(getRegexFilterPatterns)
+        if ((record.operator === 'regex' || record.operator === 'not_regex') && typeof record.value === 'string') {
+            return [record.value, ...nestedPatterns]
         }
-
-        return Object.values(record).some(hasInvalidRegexFilter)
+        return nestedPatterns
     }
 
+    return []
+}
+
+export const hasInvalidRegexPattern = async (patterns: string[]): Promise<boolean> => {
+    for (const pattern of patterns) {
+        if (!(await isValidRE2(pattern))) {
+            return true
+        }
+    }
     return false
 }
