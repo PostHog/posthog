@@ -26,6 +26,18 @@ interface ConfirmationModalProps {
     onCancel?: () => void
 }
 
+function WarningCallout({ title, children }: { title: string; children: React.ReactNode }): JSX.Element {
+    return (
+        <div className="mt-4 p-3 border border-warning bg-warning-highlight rounded">
+            <p className="my-0 flex items-center gap-2">
+                <IconWarning className="text-warning" />
+                <strong>{title}</strong>
+            </p>
+            <p className="mb-0">{children}</p>
+        </div>
+    )
+}
+
 /**
  * Opens a confirmation dialog for feature flag changes.
  * This is used for confirming status changes, rollout changes, or multiple changes at once.
@@ -105,41 +117,29 @@ export function openConfirmationModal({
                         ))}
                     </ul>
                     {releasesToEveryone && (
-                        <div className="mt-4 p-3 border border-warning bg-warning-highlight rounded">
-                            <p className="my-0 flex items-center gap-2">
-                                <IconWarning className="text-warning" />
-                                <strong>This releases the flag to all users</strong>
-                            </p>
-                            <p className="mb-0">
-                                After you save, every user who evaluates <strong>{featureFlag.key}</strong> gets it
-                                immediately.
-                            </p>
-                        </div>
+                        <WarningCallout title="This releases the flag to all users">
+                            After you save, every user who evaluates <strong>{featureFlag.key}</strong> gets it
+                            immediately.
+                        </WarningCallout>
                     )}
                     {isBeingDisabled && dependentFlags && dependentFlags.length > 0 && (
-                        <div className="mt-4 p-3 border border-warning bg-warning-highlight rounded">
-                            <p className="my-0 flex items-center gap-2">
-                                <IconWarning className="text-warning" />
-                                <strong>Cannot disable this feature flag</strong>
-                            </p>
-                            <p className="mb-0">
-                                This flag is referenced by {dependentFlags.length} other feature flag
-                                {dependentFlags.length === 1 ? '' : 's'}:{' '}
-                                {dependentFlags.map((flag, index) => (
-                                    <span key={flag.id}>
-                                        {index > 0 && (index === dependentFlags.length - 1 ? ' and ' : ', ')}
-                                        <Link
-                                            to={urls.featureFlag(flag.id)}
-                                            target="_blank"
-                                            aria-label={`Open ${flag.key}`}
-                                        >
-                                            <strong>{flag.key}</strong>
-                                        </Link>
-                                    </span>
-                                ))}
-                                . Please update or disable the dependent flags first.
-                            </p>
-                        </div>
+                        <WarningCallout title="Cannot disable this feature flag">
+                            This flag is referenced by {dependentFlags.length} other feature flag
+                            {dependentFlags.length === 1 ? '' : 's'}:{' '}
+                            {dependentFlags.map((flag, index) => (
+                                <span key={flag.id}>
+                                    {index > 0 && (index === dependentFlags.length - 1 ? ' and ' : ', ')}
+                                    <Link
+                                        to={urls.featureFlag(flag.id)}
+                                        target="_blank"
+                                        aria-label={`Open ${flag.key}`}
+                                    >
+                                        <strong>{flag.key}</strong>
+                                    </Link>
+                                </span>
+                            ))}
+                            . Please update or disable the dependent flags first.
+                        </WarningCallout>
                     )}
                     {allMessages.map((message, index) => (
                         <p key={index} className="mt-4">
