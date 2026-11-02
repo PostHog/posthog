@@ -30,7 +30,6 @@ import { ScanList } from './ScanList'
 import { ScannerPicker } from './ScannerPicker'
 
 const CURRENT_MOMENT_SELECTOR = '[data-current-moment]'
-// Below this the posters of a filmstrip get too small to read, so the chapters go back on the rail.
 const FILMSTRIP_MIN_WIDTH_PX = 840
 
 function SectionHeader({ label, className }: { label: string; className?: string }): JSX.Element {
@@ -113,14 +112,12 @@ export function RecordingMoments({ sessionId, playerLogicProps }: RecordingMomen
         if (currentIndex < 0 || followedIndex.current === currentIndex) {
             return
         }
-        // Not marked followed until the row exists: the timeline waits for the width measurement.
         const current = timelineRef.current?.querySelector<HTMLElement>(CURRENT_MOMENT_SELECTOR)
         if (!current) {
             return
         }
         followedIndex.current = currentIndex
         if (filmstrip) {
-            // Sideways only, so following never pulls the reader up from a scan below the strip.
             scrollIntoStrip(current)
         } else {
             current.scrollIntoView({ block: 'nearest' })
@@ -181,7 +178,7 @@ export function RecordingMoments({ sessionId, playerLogicProps }: RecordingMomen
                         )}
                     </div>
                     <div className="flex-1 min-h-0 overflow-y-auto" ref={timelineRef}>
-                        {/* Nothing until the width is measured, so the rail's posters are not fetched and then swapped for the strip's. */}
+                        {/* Nothing before the width is known, so posters are fetched once. */}
                         {width === undefined ? null : filmstrip ? (
                             <ChapterFilmstrip {...timelineProps} />
                         ) : (

@@ -27,7 +27,6 @@ import { ObservationProgressBar } from './ObservationProgressBar'
 import { ObservationRetryButton } from './ObservationRetryButton'
 import { scannerTypeIcon } from './ScannerTypeBadge'
 
-// A tick this close to the playhead takes the accent colour.
 const NEAR_PLAYHEAD_MS = 60_000
 
 const isInFlight = (o: ReplayObservationApi): boolean => o.status === 'pending' || o.status === 'running'
@@ -60,7 +59,6 @@ function MomentTicks({
     onSeek: (timestampMs: number) => void
 }): JSX.Element {
     return (
-        // Overlaid, so the row button stays clickable up to its right edge.
         <span
             className="pointer-events-none absolute right-8 top-1/2 hidden h-2 w-28 -translate-y-1/2 rounded-sm bg-surface-tertiary @[560px]:block"
             data-attr="vision-scan-moment-ticks"
@@ -173,7 +171,6 @@ function FocusPane({
 export interface ScanListProps {
     sessionId: string
     observations: ReplayObservationApi[]
-    /** The recording's length on the timeline's clock, which the ticks are scaled to. */
     endMs: number | null
     currentTimeMs: number
     onSeek: (timestampMs: number) => void
@@ -184,7 +181,6 @@ export function ScanList({ sessionId, observations, endMs, currentTimeMs, onSeek
     const { focusedObservationId, retryingObservationIds } = useValues(logic)
     const { focusObservation, retryObservation } = useActions(logic)
     const focused = observations.find((o) => o.id === focusedObservationId) ?? defaultFocus(observations)
-    // Parsing the cited timestamps is per observation, not per player tick.
     const moments = useMemo(() => new Map(observations.map((o) => [o.id, citedMoments(o)])), [observations])
     return (
         <div>

@@ -198,12 +198,10 @@ export function recordingTimeline(observations: ReplayObservationApi[]): Recordi
     return { summary, summaryState, chapters, inactive, markers }
 }
 
-/** Where the recording ends on the timeline's clock, or null while the player has no length to go by. */
 export function timelineEndMs(timeline: RecordingTimeline, durationMs: number | null): number | null {
     if (durationMs === null || durationMs <= 0) {
         return null
     }
-    // The player's length can come up short of what the scan saw, and the end must still close the rail.
     return Math.max(durationMs, ...timeline.chapters.map((c) => c.endMs))
 }
 
@@ -260,7 +258,6 @@ export function nextTimelineStopMs(timeline: RecordingTimeline, playerTimeMs: nu
     return later.length > 0 ? Math.min(...later) : null
 }
 
-/** A summary's chapter starts, or a run's key moment plus the timestamps its reasoning cites, sorted and deduplicated. */
 export function citedMoments(observation: ReplayObservationApi): number[] {
     if (observation.status !== 'succeeded') {
         return []
