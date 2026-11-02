@@ -7,7 +7,7 @@ from posthog.schema import EventsNode, LifecycleQuery
 
 from products.endpoints.backend.facade.api import build_endpoint_hogql, transform_materialized_insight_response
 
-LIFECYCLE_REQUIRED_FIELDS = {"data", "labels", "days", "count", "label", "action", "status"}
+LIFECYCLE_REQUIRED_FIELDS = {"data", "labels", "days", "count", "label", "order", "status"}
 
 
 # What the endpoints product needs from this runner, tested where the runner lives. Both paths

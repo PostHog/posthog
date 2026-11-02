@@ -1,10 +1,10 @@
 import { MakeLogicType, actions, connect, events, kea, listeners, path, reducers } from 'kea'
 
 import { LIVE_COUNT_REFRESH_MS, loadCachedLiveCount } from 'lib/components/LiveUserCount/liveCountCache'
+import { hogql } from 'lib/utils/hogql'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { QueryLogTags } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
 
 const QUERY_TAGS: QueryLogTags = { scene: 'Replay', productKey: 'session_replay' }
 

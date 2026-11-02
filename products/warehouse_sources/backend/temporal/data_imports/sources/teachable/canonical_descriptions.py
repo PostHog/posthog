@@ -10,6 +10,8 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "id": "Unique identifier for the user.",
             "name": "The user's full name.",
             "email": "The user's email address.",
+            "role": "The user's role at the school: student, owner, author or affiliate. API v2 only.",
+            "created_at": "When the user was created, in ISO8601 format. API v2 only.",
         },
     },
     "courses": {
@@ -34,6 +36,9 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "expires_at": "When the enrollment expires, or null if it never expires.",
             "completed_at": "When the student completed the course, or null if not yet finished.",
             "percent_complete": "Percentage of the course the student has marked complete.",
+            "sale_id": "Identifier of the sale that granted the enrollment, or null if no sale granted it. API v2 only.",
+            "status": "Enrollment status: active, completed, expired or disabled. API v2 only.",
+            "progress": "The student's percent_complete and completed_at for the course. API v2 only.",
         },
     },
     "transactions": {
@@ -88,6 +93,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "enrolled_at": "When the student enrolled in the course, in ISO8601 format.",
             "lecture_sections": "Progress for each lecture section, with the completion state of each lecture in it.",
             "percent_complete": "Percentage of the course the student has marked complete.",
+            "sections": "Progress for each course section, with the completion state of each lecture in it. API v2 only.",
         },
     },
     "lectures": {
@@ -101,6 +107,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "position": "Position of the lecture within its section (1 is first).",
             "lecture_section_id": "Unique identifier of the section that contains the lecture.",
             "attachments": "Content attached to the lecture: text, video, image, PDF, quiz, code and other blocks.",
+            "section": "The section that contains the lecture. API v2 only.",
         },
     },
     "quizzes": {

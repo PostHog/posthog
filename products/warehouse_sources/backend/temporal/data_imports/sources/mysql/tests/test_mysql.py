@@ -337,7 +337,7 @@ class TestSchemaDiscovery:
         }
         sql, params = cursor.execute.call_args.args
         assert "table_schema NOT IN %(system_schemas)s" in sql
-        assert params["system_schemas"] == ("information_schema", "mysql", "performance_schema", "sys")
+        assert params["system_schemas"] == ("information_schema", "mysql", "performance_schema", "sys", "_vt")
 
     def test_get_columns_filters_qualified_names_when_schema_blank(self, impl, cursor):
         cursor.fetchall.return_value = [
