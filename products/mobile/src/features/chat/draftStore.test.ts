@@ -220,4 +220,21 @@ describe('chat draft persistence', () => {
         expect(await store.load('project', 'new-chat')).toBeNull()
         expect((await store.loadQueue('project', 'task:queued')).rows[0]?.text).toHaveLength(100_000)
     })
+    it('adopts an unchanged near-limit queue even when the task key is longer', async () => {
+        const storage = memoryStorage()
+        const store = new DraftStore(storage)
+        const queued = queueReducer(EMPTY_QUEUE, queueActions.enqueue('Question'))
+        await store.saveQueue('project', 'new-chat', queued)
+        const overhead = (await storage.getItem('project'))?.length ?? 0
+        const text = 'x'.repeat(128 * 1024 - overhead + 'Question'.length)
+        const full = queueReducer(EMPTY_QUEUE, queueActions.enqueue(text))
+        await store.saveQueue('project', 'new-chat', full)
+        const task = 'task:00000000-0000-4000-8000-000000000001'
+        await store.move('project', 'new-chat', task)
+        expect((await store.loadQueue('project', 'new-chat')).rows).toEqual([])
+        expect((await store.loadQueue('project', task)).rows[0]?.text).toBe(text)
+        const larger = queueReducer(full, queueActions.enqueue('Additional text'))
+        await expect(store.saveQueue('project', task, larger)).rejects.toBeInstanceOf(DraftStorageLimitError)
+        expect((await store.loadQueue('project', task)).rows).toHaveLength(1)
+    })
 })

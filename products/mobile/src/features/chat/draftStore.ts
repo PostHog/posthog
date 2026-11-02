@@ -105,7 +105,13 @@ export class DraftStore {
         }
     }
 
-    private async write(scope: string, key: string, saved: SavedDraft, drafts: Drafts): Promise<void> {
+    private async write(
+        scope: string,
+        key: string,
+        saved: SavedDraft,
+        drafts: Drafts,
+        maxCharacters: number = MAX_PROJECT_CHARACTERS
+    ): Promise<void> {
         const previousSize = JSON.stringify(drafts).length
         delete drafts[key]
         if (hasContent(saved.draft) || saved.unsent || saved.queue?.rows.length) {
@@ -117,7 +123,7 @@ export class DraftStore {
         }
         if (Object.keys(drafts).length) {
             const serialized = JSON.stringify(drafts)
-            if (serialized.length > MAX_PROJECT_CHARACTERS && serialized.length >= previousSize)
+            if (serialized.length > maxCharacters && serialized.length >= previousSize)
                 throw new DraftStorageLimitError()
             await this.storage.setItem(scope, serialized)
         } else {
@@ -232,6 +238,7 @@ export class DraftStore {
             }
             const drafts = await this.read(scope)
             const saved = drafts[from]
+            const previousSize = JSON.stringify(drafts).length
             const pending = this.pending.get(`${scope}:${from}`)
             this.pending.delete(`${scope}:${from}`)
             if (pending) {
@@ -240,7 +247,8 @@ export class DraftStore {
             }
             delete drafts[from]
             if (saved) {
-                await this.write(scope, to, saved, drafts)
+                const keyGrowth = Math.max(0, JSON.stringify(to).length - JSON.stringify(from).length)
+                await this.write(scope, to, saved, drafts, Math.max(MAX_PROJECT_CHARACTERS, previousSize + keyGrowth))
             }
         })
     }
