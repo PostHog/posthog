@@ -9,6 +9,8 @@ import { CANVAS_SIDE_PANEL_TABS, sidePanelLogic } from '~/layout/navigation-3000
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
+import { sidepanelTicketsLogic } from 'products/conversations/frontend/components/SidePanel/sidepanelTicketsLogic'
+
 import { projectSessionKey, readSessionValue, writeSessionValue } from './todaySessionStorage'
 import { todayShellLogic } from './todayShellLogic'
 
@@ -41,6 +43,11 @@ const FLOATING_SESSION_KEY = 'today-context-panel-floating'
 export const TODAY_CONTEXT_PANEL_DOCK_EDGE = 64
 
 const NO_OFFSET: TodayContextPanelOffset = { x: 0, y: 0 }
+
+// Read, never connected: connecting would mount the tickets logic on every page, and mounting it fetches tickets.
+// The support panel mounts it while the Support tab is open.
+const myTicketsUrl = (state: any): string | null =>
+    sidepanelTicketsLogic.findMounted()?.selectors.myTicketsUrl(state) ?? null
 
 /**
  * Tabs the top bar doesn't offer. Info is on its way out under the Today layout. Exports, Notebooks and Discussion
@@ -144,7 +151,7 @@ export interface todayContextPanelLogicMeta {
         floatingActiveTab: (floatingTab: SidePanelTab, enabledTabs: SidePanelTab[]) => SidePanelTab
         canUndock: (activeTab: SidePanelTab, onAiPage: boolean) => boolean
         activeTab: (docked: boolean, selectedTab: SidePanelTab | null, floatingActiveTab: SidePanelTab) => SidePanelTab
-        fullScreenUrl: (activeTab: SidePanelTab, selectedNotebook: string) => string | null
+        fullScreenUrl: (activeTab: SidePanelTab, selectedNotebook: string, myTicketsUrl: string | null) => string | null
     }
 }
 
@@ -306,15 +313,16 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
         ],
         fullScreenUrl: [
             // PostHog AI's URL comes from the chat logic, which the header reads only while the panel is open.
-            // Support's comes from sidepanelTicketsLogic for the same reason: connecting it here would mount it,
-            // and mounting it fetches tickets on every page that shows the launcher.
-            (s) => [s.activeTab, s.selectedNotebook],
-            (activeTab: SidePanelTab, selectedNotebook: string): string | null => {
+            (s) => [s.activeTab, s.selectedNotebook, myTicketsUrl],
+            (activeTab: SidePanelTab, selectedNotebook: string, myTicketsUrl: string | null): string | null => {
                 switch (activeTab) {
                     case SidePanelTab.Activity:
                         return urls.advancedActivityLogs()
                     case SidePanelTab.Notebooks:
                         return urls.notebook(selectedNotebook)
+                    // Matches the support panel's own expand button.
+                    case SidePanelTab.Support:
+                        return myTicketsUrl
                     default:
                         return null
                 }
