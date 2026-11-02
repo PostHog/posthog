@@ -43,6 +43,26 @@ export interface workflowEditorVisitLogicActions {
     saveWorkflowPartial: (workflow: Partial<HogFlow>) => {
         workflow: Partial<HogFlow>
     } // workflowLogic
+    setScheduleRepeating: (repeating: boolean) => {
+        repeating: boolean
+    } // workflowLogic
+    setScheduleStartsAtFromPicker: (pickerDate: string | null) => {
+        pickerDate: string | null
+    } // workflowLogic
+    setScheduleState: (
+        scheduleState: import('./hogflows/steps/components/rrule-helpers').ScheduleState,
+        source?: 'natural_language' | 'picker' | undefined
+    ) => {
+        scheduleState: import('./hogflows/steps/components/rrule-helpers').ScheduleState
+        source: 'natural_language' | 'picker'
+    } // workflowLogic
+    setScheduleTimezone: (
+        timezone: string,
+        previousTimezone?: string | undefined
+    ) => {
+        previousTimezone: string | undefined
+        timezone: string
+    } // workflowLogic
     setWorkflowValue: (
         key: import('node_modules/kea-forms/lib').FieldName,
         value: any
@@ -85,10 +105,18 @@ export const workflowEditorVisitLogic = kea<workflowEditorVisitLogicType>([
                 'workflowCreated',
                 'enableBlocked',
                 'leaveConfirmed',
+                'setScheduleState',
+                'setScheduleStartsAtFromPicker',
+                'setScheduleTimezone',
+                'setScheduleRepeating',
             ],
         ],
     })),
     listeners(({ cache, props, values }) => {
+        const recordEdit = (visit: EditorVisit, edit: WorkflowBuilderEdit): void => {
+            visit.lastEdit = edit
+            visit.discardedProgress = null
+        }
         const recordFormEdit = (previousState: any): void => {
             const editor = workflowLogic(props)
             const before = editor.selectors.workflow(previousState)
@@ -97,15 +125,24 @@ export const workflowEditorVisitLogic = kea<workflowEditorVisitLogicType>([
             if (!visit || !edit) {
                 return
             }
-            visit.lastEdit = edit
-            visit.discardedProgress = null
+            recordEdit(visit, edit)
             if (edit === 'step_added') {
                 visit.lastAddedStepType = addedStepKind(before, editor.values.workflow)
+            }
+        }
+        const recordScheduleEdit = (): void => {
+            const visit = cache.visit as EditorVisit | null
+            if (visit) {
+                recordEdit(visit, 'trigger')
             }
         }
         return {
             setWorkflowValue: (_, __, ___, previousState) => recordFormEdit(previousState),
             setWorkflowValues: (_, __, ___, previousState) => recordFormEdit(previousState),
+            setScheduleState: recordScheduleEdit,
+            setScheduleStartsAtFromPicker: recordScheduleEdit,
+            setScheduleTimezone: recordScheduleEdit,
+            setScheduleRepeating: recordScheduleEdit,
             saveWorkflowPartial: ({ workflow }) => {
                 const visit = cache.visit as EditorVisit | null
                 if (visit && workflow.status === 'active') {

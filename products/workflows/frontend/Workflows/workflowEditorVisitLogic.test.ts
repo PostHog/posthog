@@ -8,6 +8,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { confirmCreateAsBroadcast } from '../Broadcasts/broadcastLifecycle'
+import { DEFAULT_STATE } from './hogflows/steps/components/rrule-helpers'
 import type { HogFlow, HogFlowAction } from './hogflows/types'
 import { workflowEditorVisitLogic } from './workflowEditorVisitLogic'
 import { NEW_WORKFLOW, TriggerAction, WorkflowLogicProps, workflowLogic } from './workflowLogic'
@@ -238,7 +239,41 @@ describe('workflowEditorVisitLogic', () => {
         ])
     })
 
-    it('reports moving a step as a step edit', async () => {
+    it.each([
+        [
+            'moving a step',
+            'step_edited',
+            (editor: ReturnType<typeof workflowLogic.build>) =>
+                editor.actions.setWorkflowValues({
+                    edges: [
+                        { from: 'trigger_node', to: 'wait_valid', type: 'continue' },
+                        { from: 'wait_valid', to: 'exit_node', type: 'continue' },
+                    ],
+                }),
+        ],
+        [
+            'changing how often the schedule repeats',
+            'trigger',
+            (editor: ReturnType<typeof workflowLogic.build>) =>
+                editor.actions.setScheduleState({ ...DEFAULT_STATE, frequency: 'daily' }),
+        ],
+        [
+            'picking a schedule start',
+            'trigger',
+            (editor: ReturnType<typeof workflowLogic.build>) =>
+                editor.actions.setScheduleStartsAtFromPicker('2026-05-01T10:00:00'),
+        ],
+        [
+            'changing the schedule timezone',
+            'trigger',
+            (editor: ReturnType<typeof workflowLogic.build>) => editor.actions.setScheduleTimezone('US/Eastern', 'UTC'),
+        ],
+        [
+            'turning schedule repeats on',
+            'trigger',
+            (editor: ReturnType<typeof workflowLogic.build>) => editor.actions.setScheduleRepeating(true),
+        ],
+    ])('reports %s as a %s edit', async (_, lastEdit, edit) => {
         const draft = {
             ...NEW_WORKFLOW,
             id: SAVED_ID,
@@ -248,15 +283,10 @@ describe('workflowEditorVisitLogic', () => {
         const props = { id: SAVED_ID }
         const visit = await openEditor(props)
 
-        workflowLogic(props).actions.setWorkflowValues({
-            edges: [
-                { from: 'trigger_node', to: 'wait_valid', type: 'continue' },
-                { from: 'wait_valid', to: 'exit_node', type: 'continue' },
-            ],
-        })
+        edit(workflowLogic(props))
         visit.unmount()
 
-        expect(captured('workflow editor left')).toEqual([expect.objectContaining({ last_edit: 'step_edited' })])
+        expect(captured('workflow editor left')).toEqual([expect.objectContaining({ last_edit: lastEdit })])
     })
 
     it('reports the progress a person discards when they confirm leaving with unsaved changes', async () => {
