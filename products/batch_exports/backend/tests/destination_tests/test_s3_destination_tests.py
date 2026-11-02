@@ -158,6 +158,43 @@ async def test_custom_s3_connections_pin_the_sdk_hostname_and_preserve_proxies(v
 
 
 @override_settings(FORCE_URL_VALIDATION=True)
+@pytest.mark.parametrize("retry_mode", ["standard", "adaptive"])
+@pytest.mark.parametrize("trusted", [False, True])
+async def test_custom_s3_retries_transport_errors_but_not_blocked_proxies(retry_mode: str, trusted: bool) -> None:
+    proxy = "http://127.0.0.1:3128"
+    expected_error = HTTPClientError if trusted else InvalidS3EndpointError
+    expected_message = "Socket connection intercepted" if trusted else "Outbound proxy is not trusted"
+
+    with (
+        override_settings(SSRF_TRUSTED_PROXY_URLS=[proxy] if trusted else []),
+        patch.dict(
+            os.environ,
+            {
+                **{key: "" for key in os.environ if key.lower().endswith("_proxy")},
+                "HTTPS_PROXY": proxy,
+                "AWS_MAX_ATTEMPTS": "3",
+                "AWS_RETRY_MODE": retry_mode,
+            },
+        ),
+        patch("dns.resolver.Resolver.resolve_name", return_value=Mock(addresses=Mock(return_value=["93.184.216.34"]))),
+        patch("botocore.retries.standard.ExponentialBackoff.delay_amount", return_value=0) as backoff,
+        patch(
+            "aiohappyeyeballs.start_connection", side_effect=RuntimeError("Socket connection intercepted")
+        ) as connect,
+    ):
+        async with s3_client(
+            AWSCredentials(aws_access_key_id="fake-key", aws_secret_access_key="fake-secret"),
+            region="us-east-1",
+            endpoint_url="https://storage.example.com",
+        ) as client:
+            with pytest.raises(expected_error, match=expected_message):
+                await client.head_bucket(Bucket="exports")
+
+    assert connect.await_count == (3 if trusted else 0)
+    assert backoff.call_count == (2 if trusted else 0)
+
+
+@override_settings(FORCE_URL_VALIDATION=True)
 @pytest.mark.parametrize("initial_failure", ["dns", "connection_refused", "connect_timeout"])
 @pytest.mark.parametrize(
     "address,expected_error,expected_message",
