@@ -238,8 +238,10 @@ class SendWeeklyDigestWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, input: SendWeeklyDigestInput) -> None:
+        # Only a resend passes its organizations, so the scheduled run calls the activity exactly as before.
         organization_count = await workflow.execute_activity(
             count_organizations,
+            args=[input.organization_ids] if input.organization_ids is not None else [],
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=common.RetryPolicy(
                 maximum_attempts=2,
