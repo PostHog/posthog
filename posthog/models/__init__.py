@@ -10,7 +10,7 @@ from .activity_logging.activity_log import ActivityLog
 from .activity_logging.notification_viewed import NotificationViewed
 from .async_deletion import AsyncDeletion, DeletionType
 from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
-from .ci_trust_policy import CITrustPolicy, CITrustPolicyRequest
+from .workload_trust_policy import WorkloadTrustPolicy, WorkloadTrustPolicyRequest
 from .column_configuration import ColumnConfiguration
 from .comment import Comment, CommentSlackThread
 from .core_event import CoreEvent
@@ -96,8 +96,8 @@ __all__ = [
     "AsyncDeletion",
     "AsyncMigration",
     "AsyncMigrationError",
-    "CITrustPolicy",
-    "CITrustPolicyRequest",
+    "WorkloadTrustPolicy",
+    "WorkloadTrustPolicyRequest",
     "CIMDVerificationToken",
     "ColumnConfiguration",
     "CoreEvent",

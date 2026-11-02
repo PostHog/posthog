@@ -7,16 +7,16 @@ import { TimeSensitiveAuthenticationArea } from 'lib/components/TimeSensitiveAut
 import { TZLabel } from 'lib/components/TZLabel'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
-import type { CITrustPolicyApi } from '~/generated/core/api.schemas'
+import type { WorkloadTrustPolicyApi } from '~/generated/core/api.schemas'
 
-import { ciTrustPoliciesLogic } from './ciTrustPoliciesLogic'
-import { CITrustPolicyModal } from './CITrustPolicyModal'
+import { workloadTrustPoliciesLogic } from './workloadTrustPoliciesLogic'
+import { WorkloadTrustPolicyModal } from './WorkloadTrustPolicyModal'
 
-export function CITrustPolicies(): JSX.Element {
+export function WorkloadTrustPolicies(): JSX.Element {
     const { policies, policiesLoading, policiesLoadFailed, providers, providersLoadFailed, providerNames } =
-        useValues(ciTrustPoliciesLogic)
+        useValues(workloadTrustPoliciesLogic)
     const { setEditingPolicyId, deletePolicy, setPolicyEnabled, loadPolicies, loadProviders } =
-        useActions(ciTrustPoliciesLogic)
+        useActions(workloadTrustPoliciesLogic)
 
     const createDisabledReason =
         providers === null
@@ -32,19 +32,19 @@ export function CITrustPolicies(): JSX.Element {
         <TimeSensitiveAuthenticationArea>
             <>
                 <p>
-                    A CI trust policy lets CI jobs from one repository get short-lived tokens for this project, so you
-                    don't have to store an API key in your CI provider. Tokens act as the organization owner and carry
-                    only the scopes the policy lists.
+                    A trusted workload, such as the CI jobs of one repository, gets short-lived tokens for this project,
+                    so you don't have to store an API key in your CI provider. Tokens act as the organization owner and
+                    carry only the scopes the policy lists.
                 </p>
                 <LemonButton
                     type="primary"
                     icon={<IconPlus />}
                     onClick={() => setEditingPolicyId('new')}
                     disabledReason={createDisabledReason}
-                    data-attr="ci-trust-policy-create"
+                    data-attr="workload-trust-policy-create"
                     className="mb-4"
                 >
-                    Create CI trust policy
+                    Add trusted workload
                 </LemonButton>
                 {providersLoadFailed ? (
                     <LemonBanner
@@ -69,14 +69,14 @@ export function CITrustPolicies(): JSX.Element {
                 ) : null}
                 {policiesLoadFailed ? (
                     <LemonBanner type="error" action={{ children: 'Retry', onClick: () => loadPolicies() }}>
-                        Couldn't load CI trust policies.
+                        Couldn't load trusted workloads.
                     </LemonBanner>
                 ) : (
-                    <LemonTable<CITrustPolicyApi>
+                    <LemonTable<WorkloadTrustPolicyApi>
                         dataSource={policies ?? []}
                         loading={policiesLoading && policies === null}
                         rowKey="id"
-                        emptyState="No CI trust policies yet. CI jobs can't get tokens for this project."
+                        emptyState="No trusted workloads yet. No workload can get tokens for this project."
                         columns={[
                             {
                                 title: 'Name',
@@ -131,7 +131,7 @@ export function CITrustPolicies(): JSX.Element {
                                         checked={!!policy.enabled}
                                         onChange={(enabled) => setPolicyEnabled({ policy, enabled })}
                                         disabledReason={policiesLoading ? 'Saving' : undefined}
-                                        data-attr="ci-trust-policy-enabled"
+                                        data-attr="workload-trust-policy-enabled"
                                     />
                                 ),
                             },
@@ -166,7 +166,7 @@ export function CITrustPolicies(): JSX.Element {
                                                 label: 'Delete',
                                                 status: 'danger',
                                                 onClick: () => deletePolicy(policy),
-                                                'data-attr': 'ci-trust-policy-delete',
+                                                'data-attr': 'workload-trust-policy-delete',
                                             },
                                         ]}
                                     >
@@ -177,7 +177,7 @@ export function CITrustPolicies(): JSX.Element {
                         ]}
                     />
                 )}
-                <CITrustPolicyModal />
+                <WorkloadTrustPolicyModal />
             </>
         </TimeSensitiveAuthenticationArea>
     )

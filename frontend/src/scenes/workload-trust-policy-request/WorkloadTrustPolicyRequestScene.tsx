@@ -13,13 +13,16 @@ import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import type { CITrustPolicyRequestApi } from '~/generated/core/api.schemas'
+import type { WorkloadTrustPolicyRequestApi } from '~/generated/core/api.schemas'
 
-import { CITrustPolicyRequestLogicProps, ciTrustPolicyRequestLogic } from './ciTrustPolicyRequestLogic'
+import {
+    WorkloadTrustPolicyRequestLogicProps,
+    workloadTrustPolicyRequestLogic,
+} from './workloadTrustPolicyRequestLogic'
 
-export const scene: SceneExport<CITrustPolicyRequestLogicProps> = {
-    component: CITrustPolicyRequestScene,
-    logic: ciTrustPolicyRequestLogic,
+export const scene: SceneExport<WorkloadTrustPolicyRequestLogicProps> = {
+    component: WorkloadTrustPolicyRequestScene,
+    logic: workloadTrustPolicyRequestLogic,
     paramsToProps: ({ params: { id } }) => ({ id }),
 }
 
@@ -32,7 +35,7 @@ function DetailRow({ label, children }: { label: string; children: React.ReactNo
     )
 }
 
-function RequesterLine({ policyRequest }: { policyRequest: CITrustPolicyRequestApi }): JSX.Element {
+function RequesterLine({ policyRequest }: { policyRequest: WorkloadTrustPolicyRequestApi }): JSX.Element {
     const requester = policyRequest.requested_by
     return (
         <>
@@ -55,24 +58,24 @@ function RequesterLine({ policyRequest }: { policyRequest: CITrustPolicyRequestA
     )
 }
 
-function notesFor(policyRequest: CITrustPolicyRequestApi | null, missing: boolean): AuthNotes {
+function notesFor(policyRequest: WorkloadTrustPolicyRequestApi | null, missing: boolean): AuthNotes {
     if (missing) {
-        return AUTH_NOTES.ciTrustPolicyRequest.missing
+        return AUTH_NOTES.workloadTrustPolicyRequest.missing
     }
     if (policyRequest?.status === 'approved') {
-        return AUTH_NOTES.ciTrustPolicyRequest.approved
+        return AUTH_NOTES.workloadTrustPolicyRequest.approved
     }
     if (policyRequest && policyRequest.status !== 'pending') {
-        return AUTH_NOTES.ciTrustPolicyRequest.closed
+        return AUTH_NOTES.workloadTrustPolicyRequest.closed
     }
-    return AUTH_NOTES.ciTrustPolicyRequest.pending
+    return AUTH_NOTES.workloadTrustPolicyRequest.pending
 }
 
-export function CITrustPolicyRequestScene({ id }: CITrustPolicyRequestLogicProps): JSX.Element {
+export function WorkloadTrustPolicyRequestScene({ id }: WorkloadTrustPolicyRequestLogicProps): JSX.Element {
     const { policyRequest, policyRequestLoading, policyRequestMissing, resolving } = useValues(
-        ciTrustPolicyRequestLogic({ id })
+        workloadTrustPolicyRequestLogic({ id })
     )
-    const { approve, reject } = useActions(ciTrustPolicyRequestLogic({ id }))
+    const { approve, reject } = useActions(workloadTrustPolicyRequestLogic({ id }))
 
     return (
         <AuthScene notes={notesFor(policyRequest, policyRequestMissing)}>
@@ -105,7 +108,7 @@ function RequestDetails({
     onApprove,
     onReject,
 }: {
-    policyRequest: CITrustPolicyRequestApi
+    policyRequest: WorkloadTrustPolicyRequestApi
     resolving: 'approve' | 'reject' | null
     onApprove: () => void
     onReject: () => void
@@ -117,13 +120,13 @@ function RequestDetails({
         <div className="flex flex-col gap-4">
             <AuthCardTitle
                 className="mb-0"
-                title={isPending ? 'Approve this CI trust policy?' : `This request was ${policyRequest.status}`}
+                title={isPending ? 'Trust this workload?' : `This request was ${policyRequest.status}`}
                 sub={<RequesterLine policyRequest={policyRequest} />}
             />
 
             {isPending ? (
                 <p className="m-0 text-sm">
-                    Approving creates a CI trust policy for this project. CI jobs that match it get short-lived tokens
+                    Approving adds a trusted workload to this project. The CI jobs that match it get short-lived tokens
                     that act as the organization owner, with only the scopes below.
                 </p>
             ) : null}
@@ -172,7 +175,7 @@ function RequestDetails({
                 <AuthBanner variant="success">
                     Approved
                     {policyRequest.resolved_by ? ` by ${fullNameOrEmail(policyRequest.resolved_by)}` : ''}. The policy
-                    is active. <Link to={urls.settings('environment-ci-trust-policies')}>See CI trust policies</Link>
+                    is active. <Link to={urls.settings('environment-trusted-workloads')}>See trusted workloads</Link>
                 </AuthBanner>
             ) : null}
 
@@ -186,9 +189,9 @@ function RequestDetails({
                         onClick={onApprove}
                         loading={resolving === 'approve'}
                         disabledReason={resolving ? 'Saving' : undefined}
-                        data-attr="ci-trust-policy-request-approve"
+                        data-attr="workload-trust-policy-request-approve"
                     >
-                        Approve and create policy
+                        Approve
                     </LemonButton>
                     <LemonButton
                         type="secondary"
@@ -198,7 +201,7 @@ function RequestDetails({
                         onClick={onReject}
                         loading={resolving === 'reject'}
                         disabledReason={resolving ? 'Saving' : undefined}
-                        data-attr="ci-trust-policy-request-reject"
+                        data-attr="workload-trust-policy-request-reject"
                     >
                         Reject
                     </LemonButton>

@@ -43,8 +43,8 @@ export const AUTH_NOTES = {
         done: ['2fa reset', 'back in you go'],
         invalid: ['this link stopped working', 'ask for a new one'],
     },
-    ciTrustPolicyRequest: {
-        pending: ['a ci job wants in', 'check it before you approve'],
+    workloadTrustPolicyRequest: {
+        pending: ['a workload wants in', 'check it before you approve'],
         approved: ['approved', 'the policy is live'],
         closed: ['nothing to approve', 'this request is closed'],
         missing: ['hmm', "this request isn't here"],

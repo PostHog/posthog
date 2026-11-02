@@ -451,7 +451,7 @@ class CodexConnectUserThrottle(UserRateThrottle):
     rate = "10/hour"
 
 
-class _CITrustPolicyRequestThrottle(SimpleRateThrottle):
+class _WorkloadTrustPolicyRequestThrottle(SimpleRateThrottle):
     """One bucket per user and project, because each request asks the organization's admins to act."""
 
     def get_cache_key(self, request: "Request", view: "APIView") -> str | None:
@@ -461,13 +461,13 @@ class _CITrustPolicyRequestThrottle(SimpleRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": f"{team_id}:{request.user.pk}"}
 
 
-class CITrustPolicyRequestBurstThrottle(_CITrustPolicyRequestThrottle):
-    scope = "ci_trust_policy_request_burst"
+class WorkloadTrustPolicyRequestBurstThrottle(_WorkloadTrustPolicyRequestThrottle):
+    scope = "workload_trust_policy_request_burst"
     rate = "10/hour"
 
 
-class CITrustPolicyRequestSustainedThrottle(_CITrustPolicyRequestThrottle):
-    scope = "ci_trust_policy_request_sustained"
+class WorkloadTrustPolicyRequestSustainedThrottle(_WorkloadTrustPolicyRequestThrottle):
+    scope = "workload_trust_policy_request_sustained"
     rate = "30/day"
 
 

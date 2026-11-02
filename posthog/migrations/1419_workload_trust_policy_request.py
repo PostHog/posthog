@@ -6,17 +6,17 @@ from django.conf import settings
 from django.db import migrations, models
 
 import posthog.uuidt
-import posthog.models.ci_trust_policy
+import posthog.models.workload_trust_policy
 
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1418_ci_trust_policy"),
+        ("posthog", "1418_workload_trust_policy"),
     ]
 
     operations = [
         migrations.CreateModel(
-            name="CITrustPolicyRequest",
+            name="WorkloadTrustPolicyRequest",
             fields=[
                 (
                     "id",
@@ -62,7 +62,7 @@ class Migration(migrations.Migration):
                 ("requested_via_verified", models.BooleanField(blank=True, null=True)),
                 (
                     "expires_at",
-                    models.DateTimeField(default=posthog.models.ci_trust_policy._default_request_expiry),
+                    models.DateTimeField(default=posthog.models.workload_trust_policy._default_request_expiry),
                 ),
                 ("resolved_at", models.DateTimeField(blank=True, null=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
@@ -73,7 +73,7 @@ class Migration(migrations.Migration):
                         null=True,
                         on_delete=django.db.models.deletion.SET_NULL,
                         related_name="+",
-                        to="posthog.citrustpolicy",
+                        to="posthog.workloadtrustpolicy",
                     ),
                 ),
                 (

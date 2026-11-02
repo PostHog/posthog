@@ -34,9 +34,7 @@ APIScopeObject = Literal[
     "billing",
     "business_knowledge",
     "canvas",
-    "ci_trust_policy",
-    # Asks an organization admin for a CI trust policy. A request grants nothing by itself.
-    "ci_trust_policy_request",
+    # Asks an organization admin for a workload trust policy. A request grants nothing by itself.
     "clickhouse_test_cluster_perf",
     "cohort",
     "comment",
@@ -155,6 +153,8 @@ APIScopeObject = Literal[
     "webhook",
     "wizard_session",
     "wizard_run",
+    "workload_trust_policy",
+    "workload_trust_policy_request",
 ]
 
 
