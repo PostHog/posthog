@@ -1,3 +1,5 @@
+import posthog from 'posthog-js'
+
 import { IconWarning } from '@posthog/icons'
 import { LemonDialog, Link } from '@posthog/lemon-ui'
 
@@ -22,7 +24,6 @@ interface ConfirmationModalProps {
     releasesToEveryone?: boolean // Whether saving turns the flag on for everyone (only for multi-changes type)
     onConfirm: () => void
     onCancel?: () => void
-    onDismiss?: () => void // Called when the dialog closes any way other than confirming
 }
 
 /**
@@ -41,7 +42,6 @@ export function openConfirmationModal({
     releasesToEveryone = false,
     onConfirm,
     onCancel,
-    onDismiss,
 }: ConfirmationModalProps): void {
     let title: string
     let description: JSX.Element
@@ -156,6 +156,11 @@ export function openConfirmationModal({
     const hasBlockingDependentFlags = isBeingDisabled && dependentFlags && dependentFlags.length > 0
     let confirmed = false
 
+    if (releasesToEveryone) {
+        // pinned: analytics event names
+        posthog.capture('feature flag release to everyone confirmation shown')
+    }
+
     LemonDialog.open({
         title,
         description,
@@ -181,9 +186,10 @@ export function openConfirmationModal({
             children: 'Cancel',
             onClick: onCancel,
         },
+        // Escape, the close icon and the overlay skip the Cancel button, so count every close without a confirm.
         onAfterClose: () => {
-            if (!confirmed) {
-                onDismiss?.()
+            if (releasesToEveryone && !confirmed) {
+                posthog.capture('feature flag release to everyone confirmation canceled')
             }
         },
     })
