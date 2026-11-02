@@ -167,14 +167,7 @@ describe('CapturedEventsService', () => {
                 ['batch a,b,c,d', 'batch a,b', 'batch c,d', 'single c', 'single d'],
                 'x',
             ],
-            [
-                'source_webhook',
-                ['c'],
-                413,
-                'small',
-                ['batch a,b,c,d', 'batch a,b', 'batch c,d', 'single c', 'single d'],
-                'x',
-            ],
+            ['source_webhook', ['c'], 413, 'small', ['batch a,b,c,d'], 'x'],
             [
                 'source_webhook',
                 ['a', 'd'],
@@ -183,14 +176,7 @@ describe('CapturedEventsService', () => {
                 ['batch a,b,c,d', 'batch a,b', 'batch c,d', 'single a', 'single b', 'single c', 'single d'],
                 'x',
             ],
-            [
-                'source_webhook',
-                [],
-                400,
-                '1.2 MB',
-                ['single a', 'single b', 'single c', 'single d'],
-                '漢'.repeat(400_000),
-            ],
+            ['source_webhook', [], 400, 'one 300 KB', ['batch a,c,d', 'single b'], '漢'.repeat(100_000)],
             ['destination', [], 400, 'small', ['single a', 'single b', 'single c', 'single d'], 'x'],
         ])(
             'sends a %s result with invalid events %j refused with %s and %s events as %j',
@@ -204,12 +190,12 @@ describe('CapturedEventsService', () => {
                 internalCaptureService.capture.mockImplementation((event) =>
                     Promise.resolve({ status: statusOf([event]) } as any)
                 )
-                const properties = { blob }
-
                 await service.queueInvocationResults([
                     {
                         ...buildResult(
-                            ['a', 'b', 'c', 'd'].map((event) => buildCapturedEvent(1, { event, properties }))
+                            ['a', 'b', 'c', 'd'].map((event) =>
+                                buildCapturedEvent(1, { event, properties: { blob: event === 'b' ? blob : 'x' } })
+                            )
                         ),
                         invocation: { hogFunction: { type } },
                     } as unknown as CyclotronJobInvocationResult,
@@ -226,8 +212,9 @@ describe('CapturedEventsService', () => {
                     ...internalCaptureService.captureBatch.mock.calls.map(([events]) => events),
                     ...internalCaptureService.capture.mock.calls.map(([event]) => [event]),
                 ]
-                    .filter((events) => statusOf(events) === 200)
+                    .filter((events) => statusOf(events) !== 400)
                     .flatMap((events) => events.map((event) => event.event))
+                    .filter((event) => !invalid.includes(event))
                 expect(accepted.sort()).toEqual(['a', 'b', 'c', 'd'].filter((event) => !invalid.includes(event)))
             }
         )

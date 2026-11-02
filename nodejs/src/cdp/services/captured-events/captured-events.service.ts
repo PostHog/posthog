@@ -14,6 +14,7 @@ const capturedEventsPending = new Gauge({
 })
 
 const MAX_BATCH_BYTES = 2 * 1024 * 1024
+const MAX_BATCHED_EVENT_BYTES = 256 * 1024
 
 function isSourceWebhookResult(result: CyclotronJobInvocationResult): boolean {
     return (
@@ -28,6 +29,10 @@ function splitBySize(events: InternalCaptureEvent[]): InternalCaptureEvent[][] {
     let groupBytes = 0
     for (const event of events) {
         const eventBytes = Buffer.byteLength(JSON.stringify(event))
+        if (eventBytes > MAX_BATCHED_EVENT_BYTES) {
+            groups.push([event])
+            continue
+        }
         if (group.length > 0 && groupBytes + eventBytes > MAX_BATCH_BYTES) {
             groups.push(group)
             group = []
@@ -154,7 +159,7 @@ export class CapturedEventsService {
             return
         }
         const response = await this.internalCaptureService.captureBatch(group)
-        if (response.status === 400 || response.status === 413) {
+        if (response.status === 400) {
             const middle = Math.ceil(group.length / 2)
             await Promise.all([this.sendAndReport(group.slice(0, middle)), this.sendAndReport(group.slice(middle))])
         } else if (response.status >= 300) {
