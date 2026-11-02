@@ -1,8 +1,7 @@
 import type { BeforeSendFn } from 'posthog-js'
 
 const MARKERS = ['metricVariables', 'bi_filter']
-// The host and path stop at every character that can start a match, so a long string of repeated links is scanned in linear time.
-const URL_START = String.raw`(?:^|[\s"'(])`
+const URL_START = String.raw`(?:^|[\s"'(])` // Bounds repeated-link scans to linear time.
 const URL_HOST = String.raw`(?:(?:https?:)?\/\/[^/?#\s"'<>(]+)?`
 const LOGIN_URL_WITH_PARAMS = new RegExp(String.raw`${URL_START}${URL_HOST}\/login(?:\/[^?#\s"'<>(]*)?[?#]`, 'i')
 const TOKEN_URL = new RegExp(
@@ -17,9 +16,7 @@ function holdsFilterData(text: string): boolean {
     return MARKERS.some((marker) => text.includes(marker))
 }
 
-/** A URL that holds login data, metric variables or BI selections keeps only its path, so the queries, options and
- * selected values of the variables stay out of analytics. A URL with a one-time token in its path also loses the
- * token. Other text that holds them is dropped. */
+/** Keeps only paths for URLs containing sensitive analytics values or one-time login tokens; drops matching non-URL text. */
 export function redactMetricVariableUrl(text: string): string {
     if (!holdsFilterData(text) && !LOGIN_URL_WITH_PARAMS.test(text) && !TOKEN_URL.test(text)) {
         return text
@@ -30,13 +27,17 @@ export function redactMetricVariableUrl(text: string): string {
     return ''
 }
 
+function isObject(value: unknown): value is object {
+    return value !== null && typeof value === 'object'
+}
+
 /** Every string at any depth, such as `$current_url`, an autocaptured `href`, or a request in a replay snapshot.
  * A value with nothing to redact is returned as it is, so a large snapshot is not copied. */
 function redactValue(value: unknown, seen: WeakMap<object, object>): unknown {
     if (typeof value === 'string') {
         return redactMetricVariableUrl(value)
     }
-    if (!value || typeof value !== 'object') {
+    if (!isObject(value)) {
         return value
     }
     const existing = seen.get(value)
