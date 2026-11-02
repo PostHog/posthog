@@ -1064,6 +1064,7 @@ describe('sourceWizardLogic', () => {
                 buildSchema({ table: 'vault.decrypted_secrets', should_sync_default: false }),
                 buildSchema({ table: 'vault.secrets', should_sync_default: false, should_sync: true }),
             ])
+            const toastInfo = jest.spyOn(lemonToast, 'info').mockImplementation(() => ({ id: 'x' }) as any)
 
             try {
                 logic.actions.toggleAllTables(true)
@@ -1071,11 +1072,15 @@ describe('sourceWizardLogic', () => {
                 expect(byTable['Customer'].should_sync).toBe(true)
                 expect(byTable['vault.decrypted_secrets'].should_sync).toBe(false)
                 expect(byTable['vault.secrets'].should_sync).toBe(true)
+                expect(toastInfo).toHaveBeenCalledWith(expect.stringContaining('off by default'))
 
+                toastInfo.mockClear()
                 logic.actions.toggleAllTables(false)
                 byTable = Object.fromEntries(logic.values.databaseSchema.map((s) => [s.table, s]))
                 expect(byTable['vault.secrets'].should_sync).toBe(false)
+                expect(toastInfo).not.toHaveBeenCalled()
             } finally {
+                toastInfo.mockRestore()
                 unmount()
             }
         })
