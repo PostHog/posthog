@@ -2235,6 +2235,13 @@ describe('CDP API', () => {
                 413,
                 'Request entity too large',
             ],
+            [
+                'a multibyte body over the size cap in bytes but not in characters',
+                json,
+                JSON.stringify({ result: { note: '界'.repeat(6_000) } }),
+                413,
+                'Request entity too large',
+            ],
         ])('rejects %s', async (_desc, contentType, body, status, error) => {
             const res = await supertest(app).post(callbackPath()).set('Content-Type', contentType).send(body)
 

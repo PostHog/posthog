@@ -407,7 +407,7 @@ export class CdpApi {
         const bodySizeLimit =
             (maxBytes: number) =>
             (req: ModifiedRequest, res: express.Response, next: express.NextFunction): void => {
-                if (req.rawBody && req.rawBody.length > maxBytes) {
+                if (req.rawBody && Buffer.byteLength(req.rawBody, 'utf8') > maxBytes) {
                     res.status(413).json({ error: 'Request entity too large' })
                     return
                 }
