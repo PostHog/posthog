@@ -13,8 +13,13 @@ from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.models import Team
 from posthog.test.persons import create_person
 
-from products.feature_flags.backend.flag_windows.exposure import ExposureBucket, ExposureCounts, exposure_by_bucket
-from products.feature_flags.backend.flag_windows.query import WatchedEdit
+from products.feature_flags.backend.flag_windows.exposure import (
+    ConditionExposure,
+    ExposureBucket,
+    ExposureCounts,
+    exposure_by_bucket,
+)
+from products.feature_flags.backend.flag_windows.query import ConditionMatch, WatchedCondition, WatchedEdit
 
 START = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
 BUCKET = timedelta(minutes=10)
@@ -44,18 +49,27 @@ ENABLED = WatchedEdit(
     id="enabled", flag_key="new-checkout", edited_at=START, group_type_index=None, variants=(), enables=True
 )
 
+PRO_PLAN = WatchedCondition(
+    position=1, properties=({"key": "plan", "type": "person", "value": ["pro"], "operator": "exact"},)
+)
+
 # (distinct id, minutes after START, event properties)
 Event = tuple[str, int, dict[str, Any]]
 
 
 class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
-    def _send(self, events: list[Event]) -> None:
+    def _send(self, events: list[Event], event: str = "$pageview", plans: dict[str, str] | None = None) -> None:
+        plans = plans or {}
         for distinct_id in dict.fromkeys(distinct_id for distinct_id, _, _ in events):
-            create_person(team=self.team, distinct_ids=[distinct_id])
+            create_person(
+                team=self.team,
+                distinct_ids=[distinct_id],
+                properties={"plan": plans[distinct_id]} if distinct_id in plans else {},
+            )
         for distinct_id, minutes, properties in events:
             _create_event(
                 team=self.team,
-                event="$pageview",
+                event=event,
                 distinct_id=distinct_id,
                 timestamp=START + timedelta(minutes=minutes),
                 properties=properties,
@@ -209,6 +223,79 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
                     ),
                 ]
             },
+        )
+
+    def test_counts_in_the_watched_conditions_by_reason_and_by_properties(self) -> None:
+        def called(reason: str, value: bool) -> dict[str, Any]:
+            return {"$feature_flag": "new-checkout", "$feature_flag_reason": reason, "$feature/new-checkout": value}
+
+        self._send(
+            [
+                ("person-1", 1, called("Matched condition set 2", True)),
+                ("person-2", 2, called("Out of rollout bound", False)),
+                ("person-3", 3, called("Matched condition set 1", True)),
+                ("person-4", 4, called("Evaluated locally", True)),
+                # The reason before the edit names a condition of the old flag.
+                ("person-5", 5, called("Matched condition set 1", True)),
+            ],
+            event="$feature_flag_called",
+            plans={"person-1": "pro", "person-2": "pro", "person-3": "free", "person-4": "pro", "person-5": "free"},
+        )
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="person-5",
+            timestamp=START - timedelta(minutes=5),
+            properties=called("Matched condition set 2", True),
+        )
+        flush_persons_and_events()
+        edit = dataclasses.replace(BOOLEAN, conditions=(PRO_PLAN,))
+
+        exposure = exposure_by_bucket(self.team, [edit], START - timedelta(minutes=10), START + BUCKET, BUCKET)
+
+        self.assertEqual(
+            exposure[edit.id][-1].since_edit.in_condition,
+            {
+                ConditionMatch.REASON: ConditionExposure(with_flag=2, exposed=1),
+                ConditionMatch.PROPERTIES: ConditionExposure(with_flag=3, exposed=2),
+            },
+        )
+
+    def test_counts_in_the_watched_conditions_of_a_group_flag_with_variants(self) -> None:
+        def called(group: str, reason: str, value: str | bool) -> dict[str, Any]:
+            return {
+                "$feature_flag": "org-beta",
+                "$feature_flag_reason": reason,
+                "$feature/org-beta": value,
+                "$group_0": group,
+            }
+
+        self._send(
+            [
+                ("person-1", 1, called("org-a", "Matched condition set 1", "control")),
+                ("person-2", 2, called("org-a", "Matched condition set 1", "control")),
+                ("person-3", 3, called("org-b", "Out of rollout bound", False)),
+                ("person-4", 4, called("org-c", "Matched condition set 2", "test")),
+            ],
+            event="$feature_flag_called",
+        )
+        edit = dataclasses.replace(
+            GROUP, variants=("control", "test"), conditions=(WatchedCondition(position=0, properties=()),)
+        )
+
+        exposure = exposure_by_bucket(self.team, [edit], START, START + BUCKET, BUCKET)
+
+        self.assertEqual(
+            exposure[edit.id][0].in_bucket,
+            ExposureCounts(
+                with_flag=3,
+                exposed=2,
+                by_variant={"control": 1, "test": 1},
+                in_condition={
+                    ConditionMatch.REASON: ConditionExposure(with_flag=2, exposed=1),
+                    ConditionMatch.PROPERTIES: ConditionExposure(with_flag=3, exposed=2),
+                },
+            ),
         )
 
     def test_one_query_keeps_the_counts_of_each_edit_apart(self) -> None:

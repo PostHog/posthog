@@ -17,25 +17,41 @@ people per bucket and since the edit.
   on a large flag a count of a subset can come out a little above the count of the whole, for example `exposed` above
   `with_flag`. `uniqExact` would keep every person id of every count of every bucket in memory, in a query that reads
   every event of the team.
+- An edit moves the people of some conditions only, and the people that match no condition get false before and after
+  it. The counts in the watched conditions leave the others out, in two ways that the backtest compares:
+  - By `$feature_flag_reason`, which the SDKs put on `$feature_flag_called` from the `/flags` response. The reason names
+    the condition that matched, but not the condition whose rollout left the person out, so on a flag with many
+    conditions the people outside the rollout of any condition count. A server SDK that evaluates the flag locally
+    sends no condition, so its people don't count. The SDKs send `$feature_flag_called` once per value of the flag, so a
+    person whose value the edit kept sends none after it and doesn't count either.
+  - By the properties of each event against the property filters of the conditions. Person properties come from the
+    event, so an event without person processing does not match a person filter. A filter on another flag always
+    matches, because the query can't evaluate a flag.
 
 One query per team reads every watched edit: a query per edit would read the same events again.
 """
 
 import math
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import field
 from datetime import datetime, timedelta
+from enum import StrEnum
+from typing import Any
 
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLGlobalSettings
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.models import Team
+
+from products.feature_flags.backend.user_blast_radius import replace_proxy_properties
 
 # The health check query settings (posthog/temporal/health_checks/query.py). Nobody waits for the result, so the scan of
 # every event of a team leaves CPU to the queries people wait for.
@@ -44,6 +60,19 @@ QUERY_MAX_THREADS = 2
 
 IN_BUCKET = "_finalizeAggregation({state})"
 SINCE_EDIT = "uniqMerge({state}) OVER (ORDER BY bucket ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)"
+
+
+class ConditionMatch(StrEnum):
+    REASON = "reason"
+    PROPERTIES = "properties"
+
+
+@frozen
+class WatchedCondition:
+    # The position of the condition in the flag after the edit. `$feature_flag_reason` counts from 1.
+    position: int
+    # The property filters of the condition, as `filters.groups` stores them.
+    properties: tuple[Mapping[str, Any], ...]
 
 
 @frozen
@@ -61,6 +90,8 @@ class WatchedEdit:
     variants: tuple[str, ...]
     # The edit enabled the flag, so no event carried the flag before it.
     enables: bool
+    # The conditions whose people the edit can move. Without them, the counts in the watched conditions are left out.
+    conditions: tuple[WatchedCondition, ...] = ()
 
 
 @frozen
@@ -77,6 +108,8 @@ class FlagRead:
     exposed: ast.Expr
     # The variant key on the event. Compare it with a served variant.
     variant_key: ast.Expr
+    # The person (or group) is in a watched condition, by each way of matching. Empty without watched conditions.
+    in_condition: Mapping[ConditionMatch, ast.Expr] = field(default_factory=dict)
 
     def has_variant(self, variant: str) -> ast.Expr:
         return parse_expr(
@@ -94,7 +127,7 @@ class BucketCounts:
     since_edit: tuple[int, ...]
 
 
-def read_flag(edit: WatchedEdit) -> FlagRead:
+def read_flag(team: Team, edit: WatchedEdit, end: datetime) -> FlagRead:
     if edit.group_type_index is None:
         actor = ast.Field(chain=["person_id"])
         has_actor: ast.Expr = ast.Constant(value=True)
@@ -137,7 +170,69 @@ def read_flag(edit: WatchedEdit) -> FlagRead:
         )
     else:
         exposed = parse_expr("{flag_value} = 'true'", placeholders={"flag_value": flag_value})
-    return FlagRead(actor=actor, has_actor=has_actor, with_flag=with_flag, exposed=exposed, variant_key=variant_key)
+    return FlagRead(
+        actor=actor,
+        has_actor=has_actor,
+        with_flag=with_flag,
+        exposed=exposed,
+        variant_key=variant_key,
+        in_condition=_in_condition(team, edit, actor, end),
+    )
+
+
+def _in_condition(team: Team, edit: WatchedEdit, actor: ast.Expr, end: datetime) -> dict[ConditionMatch, ast.Expr]:
+    if not edit.conditions:
+        return {}
+    # The descriptions of `FeatureFlagMatchReason` in rust/feature-flags/src/api/types.rs.
+    reasons = [f"Matched condition set {condition.position + 1}" for condition in edit.conditions]
+    reasons.append("Out of rollout bound")
+    by_reason = parse_expr(
+        """
+        {actor} IN (
+            SELECT {actor} FROM events
+            WHERE event = '$feature_flag_called'
+                AND properties.$feature_flag = {flag_key}
+                AND timestamp >= {edited_at}
+                AND timestamp < {end}
+                AND properties.$feature_flag_reason IN {reasons}
+        )
+        """,
+        placeholders={
+            "actor": actor,
+            "flag_key": ast.Constant(value=edit.flag_key),
+            "edited_at": ast.Constant(value=edit.edited_at),
+            "end": ast.Constant(value=end),
+            "reasons": ast.Tuple(exprs=[ast.Constant(value=reason) for reason in reasons]),
+        },
+    )
+    by_properties: ast.Expr = ast.Or(
+        exprs=[
+            property_to_expr(
+                replace_proxy_properties(team, {"properties": list(condition.properties)}), team, scope="event"
+            )
+            for condition in edit.conditions
+        ]
+    )
+    return {ConditionMatch.REASON: by_reason, ConditionMatch.PROPERTIES: by_properties}
+
+
+def in_condition_columns(read: FlagRead, counts: Sequence[ast.Expr]) -> list[ast.Expr]:
+    """Each of `counts`, only for the people in the watched conditions, for each way of matching."""
+    return [
+        ast.And(exprs=[count, read.in_condition[match]])
+        for match in ConditionMatch
+        if match in read.in_condition
+        for count in counts
+    ]
+
+
+def read_in_condition(
+    edit: WatchedEdit, values: Sequence[int], per_match: int
+) -> dict[ConditionMatch, tuple[int, ...]]:
+    """The values of the columns from `in_condition_columns`, `per_match` counts for each way of matching."""
+    matches = tuple(ConditionMatch) if edit.conditions else ()
+    groups = [tuple(values[start : start + per_match]) for start in range(0, len(values), per_match)]
+    return dict(zip(matches, groups, strict=True))
 
 
 def counts_by_bucket(
@@ -168,7 +263,10 @@ def counts_by_bucket(
     if not edits:
         return {}
 
-    states_by_edit = [_states(index, edit, conditions(edit, read_flag(edit))) for index, edit in enumerate(edits)]
+    states_by_edit = []
+    for index, edit in enumerate(edits):
+        read = read_flag(team, edit, end)
+        states_by_edit.append(_states(index, edit, read, conditions(edit, read)))
     states = [state for edit_states in states_by_edit for state in edit_states]
     # Buckets start at `start`, not at a multiple of the bucket since the epoch, so a range that starts at an edit
     # time does not begin with a partial bucket.
@@ -239,8 +337,7 @@ def counts_by_bucket(
     return result
 
 
-def _states(index: int, edit: WatchedEdit, conditions: Sequence[ast.Expr]) -> list[ast.Alias]:
-    read = read_flag(edit)
+def _states(index: int, edit: WatchedEdit, read: FlagRead, conditions: Sequence[ast.Expr]) -> list[ast.Alias]:
     return [
         ast.Alias(
             alias=f"e{index}_{position}",

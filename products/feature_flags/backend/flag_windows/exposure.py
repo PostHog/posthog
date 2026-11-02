@@ -10,6 +10,7 @@ rules.
 """
 
 from collections.abc import Mapping, Sequence
+from dataclasses import field
 from datetime import datetime, timedelta
 
 from posthog.hogql import ast
@@ -17,7 +18,20 @@ from posthog.hogql import ast
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
-from products.feature_flags.backend.flag_windows.query import FlagRead, WatchedEdit, counts_by_bucket
+from products.feature_flags.backend.flag_windows.query import (
+    ConditionMatch,
+    FlagRead,
+    WatchedEdit,
+    counts_by_bucket,
+    in_condition_columns,
+    read_in_condition,
+)
+
+
+@frozen
+class ConditionExposure:
+    with_flag: int
+    exposed: int
 
 
 @frozen
@@ -28,6 +42,8 @@ class ExposureCounts:
     exposed: int
     # The people (or groups) with each variant that the flag serves. Empty for a boolean flag.
     by_variant: Mapping[str, int]
+    # The same counts, only for the people (or groups) in the watched conditions. Empty without watched conditions.
+    in_condition: Mapping[ConditionMatch, ConditionExposure] = field(default_factory=dict)
 
 
 @frozen
@@ -59,11 +75,23 @@ def exposure_by_bucket(
 
 
 def _conditions(edit: WatchedEdit, read: FlagRead) -> list[ast.Expr]:
-    return [read.with_flag, read.exposed, *[read.has_variant(variant) for variant in edit.variants]]
+    return [
+        read.with_flag,
+        read.exposed,
+        *[read.has_variant(variant) for variant in edit.variants],
+        *in_condition_columns(read, [read.with_flag, read.exposed]),
+    ]
 
 
 def _exposure(edit: WatchedEdit, values: tuple[int, ...]) -> ExposureCounts:
-    with_flag, exposed, *by_variant = values
+    with_flag, exposed, *rest = values
+    by_variant, in_condition = rest[: len(edit.variants)], rest[len(edit.variants) :]
     return ExposureCounts(
-        with_flag=with_flag, exposed=exposed, by_variant=dict(zip(edit.variants, by_variant, strict=True))
+        with_flag=with_flag,
+        exposed=exposed,
+        by_variant=dict(zip(edit.variants, by_variant, strict=True)),
+        in_condition={
+            match: ConditionExposure(with_flag=counts[0], exposed=counts[1])
+            for match, counts in read_in_condition(edit, in_condition, 2).items()
+        },
     )
