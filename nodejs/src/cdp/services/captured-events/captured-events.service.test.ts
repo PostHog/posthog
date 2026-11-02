@@ -158,10 +158,10 @@ describe('CapturedEventsService', () => {
         })
 
         it.each([
-            ['source_webhook', 200, 'small', ['batch a,b'], 'x'],
-            ['source_webhook', 400, 'small', ['batch a,b', 'single a', 'single b'], 'x'],
-            ['source_webhook', 200, '1.2 MB', ['single a', 'single b'], '漢'.repeat(400_000)],
-            ['destination', 200, 'small', ['single a', 'single b'], 'x'],
+            ['source_webhook', 200, 'small', ['batch a,b,c,d'], 'x'],
+            ['source_webhook', 400, 'small', ['batch a,b,c,d', 'batch a,b', 'batch c,d'], 'x'],
+            ['source_webhook', 200, '1.2 MB', ['single a', 'single b', 'single c', 'single d'], '漢'.repeat(400_000)],
+            ['destination', 200, 'small', ['single a', 'single b', 'single c', 'single d'], 'x'],
         ])('sends a %s result answered %s with %s events as %j', async (type, status, _size, expected, blob) => {
             teamManager.getTeam.mockResolvedValue(buildTeam(1, 'token-team-1'))
             internalCaptureService.captureBatch.mockResolvedValueOnce({ status } as any)
@@ -169,10 +169,7 @@ describe('CapturedEventsService', () => {
 
             await service.queueInvocationResults([
                 {
-                    ...buildResult([
-                        buildCapturedEvent(1, { event: 'a', properties }),
-                        buildCapturedEvent(1, { event: 'b', properties }),
-                    ]),
+                    ...buildResult(['a', 'b', 'c', 'd'].map((event) => buildCapturedEvent(1, { event, properties }))),
                     invocation: { hogFunction: { type } },
                 } as unknown as CyclotronJobInvocationResult,
             ])

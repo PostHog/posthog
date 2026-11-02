@@ -155,7 +155,8 @@ export class CapturedEventsService {
         }
         const response = await this.internalCaptureService.captureBatch(group)
         if (response.status === 400) {
-            await Promise.all(group.map((event) => this.sendAndReport([event])))
+            const middle = Math.ceil(group.length / 2)
+            await Promise.all([this.sendAndReport(group.slice(0, middle)), this.sendAndReport(group.slice(middle))])
         } else if (response.status >= 300) {
             logger.warn('Capture refused an internal event batch', { status: response.status, events: group.length })
         }
