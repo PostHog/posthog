@@ -2,6 +2,7 @@ import { useValues } from 'kea'
 
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { hasNegatedEventFilter } from 'scenes/experiments/exposureContract'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import type { ExperimentExposureConfig } from '~/queries/schema/schema-general'
@@ -17,7 +18,10 @@ export function NegatedEventFilterNote({
     groupTypeIndex: number | null | undefined
 }): JSX.Element | null {
     const { aggregationLabel } = useValues(groupsModel)
-    if (!hasNegatedEventFilter(config, groupTypeIndex)) {
+    const { currentTeam } = useValues(teamLogic)
+    const personsOnEventsMode =
+        currentTeam?.modifiers?.personsOnEventsMode ?? currentTeam?.default_modifiers?.personsOnEventsMode
+    if (!hasNegatedEventFilter(config, groupTypeIndex, personsOnEventsMode)) {
         return null
     }
     const units = aggregationLabel(groupTypeIndex, true).plural

@@ -2,6 +2,7 @@ import {
     ExperimentEventExposureConfig,
     ExperimentExposureConfig,
     ExperimentExposureCriteria,
+    HogQLQueryModifiers,
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { Experiment, PropertyFilterType, PropertyOperator } from '~/types'
@@ -87,20 +88,27 @@ function isOperatorNegated(operator: PropertyOperator): boolean {
 /**
  * Whether a negated filter in the config leaves out single events while the experiment still counts
  * the person or group that sent them. Event, session and element properties can change from one event
- * to the next. A person property has one value per person at a time, so a person or cohort filter
- * leaves out the whole person. When the flag counts groups, the group still counts through its other
- * persons. `$feature_flag` names the flag of a flag call event, not a trait of the user. A
- * group-aggregated experiment counts each group by `$group_<index>`, so a filter on that key leaves
- * out the whole group.
+ * to the next. Person properties can too when the team reads them from the events: an event sent before
+ * the person identified has no `email`, and a negated filter keeps an event without a value. A cohort
+ * filter, and a person filter read from the persons table, leave out the whole person. When the flag
+ * counts groups, the group still counts through its other persons. `$feature_flag` names the flag of a
+ * flag call event, not a trait of the user. A group-aggregated experiment counts each group by
+ * `$group_<index>`, so a filter on that key leaves out the whole group.
  */
 export function hasNegatedEventFilter(
     config: ExperimentExposureConfig | undefined,
-    groupTypeIndex: number | null | undefined
+    groupTypeIndex: number | null | undefined,
+    personsOnEventsMode: HogQLQueryModifiers['personsOnEventsMode']
 ): boolean {
     if (!config || config.kind === NodeKind.ExperimentWarehouseNativeExposureConfig) {
         return false
     }
     const groupKey = groupTypeIndex != null ? `$group_${groupTypeIndex}` : null
+    const aggregatesByGroup = groupKey !== null
+    const personFilterVaries =
+        aggregatesByGroup ||
+        personsOnEventsMode === 'person_id_override_properties_on_events' ||
+        personsOnEventsMode === 'person_id_no_override_properties_on_events'
     return (config.properties ?? []).some((property) => {
         switch (property.type) {
             case PropertyFilterType.Event:
@@ -113,8 +121,9 @@ export function hasNegatedEventFilter(
             case PropertyFilterType.Element:
                 return isOperatorNegated(property.operator)
             case PropertyFilterType.Person:
+                return personFilterVaries && isOperatorNegated(property.operator)
             case PropertyFilterType.Cohort:
-                return groupKey !== null && isOperatorNegated(property.operator)
+                return aggregatesByGroup && isOperatorNegated(property.operator)
             default:
                 return false
         }

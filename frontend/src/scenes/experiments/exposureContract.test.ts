@@ -2,6 +2,7 @@ import {
     ExperimentEventExposureConfig,
     ExperimentExposureConfig,
     ExperimentExposureCriteria,
+    HogQLQueryModifiers,
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
@@ -204,7 +205,15 @@ describe('exposureContract', () => {
         value: 'x',
     }
 
-    it.each<[string, ExperimentExposureConfig | undefined, boolean, (number | null)?]>([
+    it.each<
+        [
+            string,
+            ExperimentExposureConfig | undefined,
+            boolean,
+            (number | null)?,
+            HogQLQueryModifiers['personsOnEventsMode']?,
+        ]
+    >([
         ['no config', undefined, false],
         ['no filters', eventConfig(), false],
         ['a negated event filter', eventConfig(eventFilter('$current_url', PropertyOperator.NotIContains)), true],
@@ -223,7 +232,14 @@ describe('exposureContract', () => {
             true,
             null,
         ],
-        ['a negated person filter', eventConfig(negatedPersonFilter), false],
+        ['a negated person filter read from the persons table', eventConfig(negatedPersonFilter), false],
+        [
+            'a negated person filter read from the events',
+            eventConfig(negatedPersonFilter),
+            true,
+            null,
+            'person_id_override_properties_on_events',
+        ],
         ['a negated person filter in a group experiment', eventConfig(negatedPersonFilter), true, 2],
         [
             'a negated session filter',
@@ -249,7 +265,16 @@ describe('exposureContract', () => {
             { kind: NodeKind.ExperimentWarehouseNativeExposureConfig, connection_id: 'x', query: 'SELECT 1' },
             false,
         ],
-    ])('reads whether the config leaves out events for %s', (_name, config, expected, groupTypeIndex = null) => {
-        expect(hasNegatedEventFilter(config, groupTypeIndex)).toBe(expected)
-    })
+    ])(
+        'reads whether the config leaves out events for %s',
+        (
+            _name,
+            config,
+            expected,
+            groupTypeIndex = null,
+            personsOnEventsMode = 'person_id_override_properties_joined'
+        ) => {
+            expect(hasNegatedEventFilter(config, groupTypeIndex, personsOnEventsMode)).toBe(expected)
+        }
+    )
 })
