@@ -830,7 +830,9 @@ async fn handle_event(
 
     let lookup_started = Instant::now();
     let redirected = redirect_for_tombstone(partition_id, handle, event, partition_count).await;
-    partition.redirect_lookup.record(lookup_started.elapsed());
+    partition
+        .redirect_lookup
+        .record(lookup_started.elapsed().as_secs_f64());
     let resolved: Cow<'_, CohortStreamEvent> = match redirected {
         Redirected::Process(event) => event,
         Redirected::ReKey(re_keyed) => {
@@ -2135,6 +2137,9 @@ mod tombstone_redirect_tests {
         assert_ne!(source_partition, target_partition);
         write_tombstone(&store, source_partition, p_old, p_new);
         let handle = test_handle(&store);
+        let recorder = metrics_exporter_prometheus::PrometheusBuilder::new().build_recorder();
+        let prometheus = recorder.handle();
+        let _local = metrics::set_default_local_recorder(&recorder);
 
         let straggler = person_event(p_old, "u@p.com", 5, 9);
         let mut effects = handle_event(
@@ -2194,6 +2199,17 @@ mod tombstone_redirect_tests {
         .await;
         assert!(dup.changes.is_empty(), "the duplicate folds zero times");
         assert!(dup.re_keys.is_empty());
+
+        let rendered = prometheus.render();
+        for (partition, lookups) in [(source_partition, 1), (target_partition, 2)] {
+            let series = format!(
+                "{STAGE1_REDIRECT_LOOKUP_DURATION}_count{{partition=\"{partition}\"}} {lookups}"
+            );
+            assert!(
+                rendered.lines().any(|line| line == series),
+                "the re-keyed lookup counts too, under its own partition: {series} not in\n{rendered}",
+            );
+        }
     }
 
     #[tokio::test]

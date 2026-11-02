@@ -371,7 +371,7 @@ pub const STAGE1_STATE_DECODE_ERROR: &str = "stage1_state_decode_error_total";
 pub const STAGE1_EVENT_PROCESS_DURATION: &str = "stage1_event_process_duration_seconds";
 /// Time one event spends resolving its person through the merge tombstones, labelled by `partition`
 /// (histogram, seconds). A partition's `rate(..._sum)` is the fraction of its worker's wall time the
-/// lookup takes, so a lagging partition shows whether the lookup is what holds it.
+/// lookup takes.
 pub const STAGE1_REDIRECT_LOOKUP_DURATION: &str = "stage1_redirect_lookup_duration_seconds";
 /// Keys in the event's single batched Stage-1 pre-read — the reads-per-event distribution
 /// (histogram).
