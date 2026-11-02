@@ -911,6 +911,25 @@ class SESProvider:
             logger.exception(f"SES API error deleting identity: {e}")
             raise
 
+    def clear_bounce_suppression(self, email: str) -> bool:
+        """
+        Remove `email` from the account-level suppression list when SES put it there for a bounce.
+
+        Every team shares this list. A complaint entry stays, because one team must not lift a spam
+        complaint that a recipient made against another team's mail. Returns whether SES removed an entry.
+        """
+        # The status client has bounded timeouts, which this call needs because a person waits on it.
+        try:
+            entry = self.ses_v2_status_client.get_suppressed_destination(EmailAddress=email)
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "NotFoundException":
+                return False
+            raise
+        if entry["SuppressedDestination"]["Reason"] != "BOUNCE":
+            return False
+        self.ses_v2_status_client.delete_suppressed_destination(EmailAddress=email)
+        return True
+
     def _busiest_domains(
         self, domains: Sequence[str], *, start: datetime, end: datetime, limit: int, deadline: float
     ) -> list[str]:

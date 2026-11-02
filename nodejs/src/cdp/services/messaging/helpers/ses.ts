@@ -182,6 +182,14 @@ const BOUNCE_TYPE_TO_EVENT_PROPERTY: Record<'Permanent' | 'Transient' | 'Undeter
     Undetermined: 'unknown',
 }
 
+// SES reports a send that it refused, because the address is on the account-level suppression list,
+// as a Permanent bounce with this sub-type. SES never contacted the recipient's mail server, so the
+// refusal must not count toward the bounce rates that auto-pause and the sending tier read.
+const ACCOUNT_SUPPRESSION_BOUNCE_SUB_TYPE = 'OnAccountSuppressionList'
+
+const isBlockedByProvider = (rec: SesEventRecord): boolean =>
+    rec.eventType === 'Bounce' && rec.bounce.bounceSubType === ACCOUNT_SUPPRESSION_BOUNCE_SUB_TYPE
+
 const EVENT_TYPE_TO_METRIC_NAME: Partial<Record<SesEventRecord['eventType'], MinimalAppMetric['metric_name']>> = {
     Open: 'email_opened',
     Click: 'email_link_clicked',
@@ -265,13 +273,16 @@ const resolveEmailStatusUpdate = (
                 ? { status: 'delivered', timestamp: rec.delivery.timestamp }
                 : null
         case 'Bounce':
-            return reachesTo(rec.bounce.bouncedRecipients.map((r) => r.emailAddress))
-                ? {
+            if (!reachesTo(rec.bounce.bouncedRecipients.map((r) => r.emailAddress))) {
+                return null
+            }
+            return isBlockedByProvider(rec)
+                ? { status: 'failed', reason: 'recipient_suppressed', timestamp: rec.bounce.timestamp }
+                : {
                       status: 'bounced',
                       reason: BOUNCE_TYPE_TO_EVENT_PROPERTY[rec.bounce.bounceType],
                       timestamp: rec.bounce.timestamp,
                   }
-                : null
         case 'Complaint':
             // A "not-spam" feedback type corrects an earlier spam report, so it is not a complaint.
             return rec.complaint.complaintFeedbackType?.toLowerCase() !== 'not-spam' &&
@@ -409,6 +420,12 @@ const sanitizeSesField = (value: string, max = MAX_SES_FIELD_LENGTH): string => 
 export const formatSesEventLogs = (rec: SesEventRecord): SesEventLogLine[] => {
     switch (rec.eventType) {
         case 'Bounce': {
+            if (isBlockedByProvider(rec)) {
+                return rec.bounce.bouncedRecipients.map((r) => ({
+                    level: 'warn',
+                    message: `Not sent to ${sanitizeSesField(r.emailAddress)}: the email provider blocked this address after an earlier bounce or spam complaint. It is now on your suppression list. Remove it there to try again.`,
+                }))
+            }
             const bounceType = rec.bounce.bounceType
             const level: SesEventLogLine['level'] = bounceType === 'Permanent' ? 'error' : 'warn'
             return rec.bounce.bouncedRecipients.map((r) => {
@@ -664,6 +681,8 @@ export class SesWebhookHandler {
             teamId?: string
             emailAddresses: string[]
             diagnostic?: string
+            // SES refused the send because the address is on its account-level suppression list.
+            blockedByProvider?: boolean
         }[]
         // Spam complaints — recorded in the suppression list so future sends to the address are
         // blocked. A complaint is the recipient asking us to stop, and provider complaint-rate
@@ -774,6 +793,7 @@ export class SesWebhookHandler {
             teamId?: string
             emailAddresses: string[]
             diagnostic?: string
+            blockedByProvider?: boolean
         }[] = []
         const complainedRecipients: {
             teamId?: string
@@ -820,7 +840,8 @@ export class SesWebhookHandler {
                 continue
             }
 
-            const metricName = EVENT_TYPE_TO_METRIC_NAME[rec.eventType]
+            const blockedByProvider = isBlockedByProvider(rec)
+            const metricName = blockedByProvider ? 'email_suppressed' : EVENT_TYPE_TO_METRIC_NAME[rec.eventType]
             // Test sends (from the editor's "Run test") are not production activity, so we skip
             // their delivery/open/click metrics — otherwise a draft/never-enabled workflow shows
             // email activity in its Metrics tab. Bounce-driven opt-outs below still apply.
@@ -910,7 +931,7 @@ export class SesWebhookHandler {
                 // account bounce rate — what the email reputation feature calibrates against —
                 // counts only hard (Permanent) bounces, so reputation reads email_bounced_hard;
                 // the others exist for diagnosis (transient spikes are a leading indicator).
-                if (rec.eventType === 'Bounce') {
+                if (rec.eventType === 'Bounce' && !blockedByProvider) {
                     metrics.push({
                         functionId,
                         invocationId,
@@ -958,7 +979,12 @@ export class SesWebhookHandler {
             if (suppressionAllowed && rec.eventType === 'Bounce' && rec.bounce.bounceType === 'Permanent') {
                 const emails = rec.bounce.bouncedRecipients.map((r) => r.emailAddress)
                 const diagnostic = rec.bounce.bouncedRecipients.find((r) => r.diagnosticCode)?.diagnosticCode
-                hardBounceRecipients.push({ teamId, emailAddresses: emails, diagnostic })
+                hardBounceRecipients.push({
+                    teamId,
+                    emailAddresses: emails,
+                    diagnostic,
+                    ...(blockedByProvider ? { blockedByProvider } : {}),
+                })
             }
 
             // Count soft (Transient) bounces toward suppression. These are recipient-side failures

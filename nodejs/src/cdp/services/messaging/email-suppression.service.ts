@@ -7,7 +7,7 @@ import { isValidTeamId } from '~/common/utils/team-manager'
 
 const cdpEmailSuppressionTotal = new Counter({
     name: 'cdp_email_suppression_total',
-    help: 'Email suppression-list outcomes. `suppressed_hit` = a send skipped because the recipient is on the list; `transient_bounce` = a soft-bounce counter increment; `hard_bounce` = an address suppressed immediately after a permanent bounce; `complaint` = an address suppressed immediately after a spam complaint.',
+    help: 'Email suppression-list outcomes. `suppressed_hit` = a send skipped because the recipient is on the list; `transient_bounce` = a soft-bounce counter increment; `hard_bounce` = an address suppressed immediately after a permanent bounce; `provider_blocked` = an address suppressed because SES refused the send for its account-level suppression list; `complaint` = an address suppressed immediately after a spam complaint.',
     labelNames: ['result'],
 })
 
@@ -42,6 +42,7 @@ export type SuppressionCheckOptions = {
 type SuppressionEntry = { blocksTransactional: boolean }
 
 const HARD_BOUNCE_REASON = 'Auto-suppressed after a hard bounce'
+const PROVIDER_BLOCKED_REASON = 'Blocked by the email provider after an earlier bounce or spam complaint'
 
 // Reasons that mark a dead address on rows written before `hard_bounced_at` existed: our own hard-bounce
 // rows, and the two Customer.io lists the importer maps to BOUNCE. Both writers now set the column, so
@@ -208,9 +209,16 @@ export class EmailSuppressionService {
      * threshold, no counter — because a permanent bounce is definitive. Manual entries are never
      * touched. If a row already exists as an unsuppressed BOUNCE counter, this escalates it. A row
      * that a complaint already claimed keeps its source and reason, so the bounce refreshes the
-     * diagnostic without relabelling why the address is suppressed.
+     * diagnostic without relabelling why the address is suppressed. `blockedByProvider` marks a send
+     * that SES refused for its account-level suppression list, so the row tells the user where the
+     * block comes from. Removing that row through the API also clears the SES entry for a bounce.
      */
-    public async recordHardBounces(teamId: number, emails: string[], diagnostic?: string): Promise<void> {
+    public async recordHardBounces(
+        teamId: number,
+        emails: string[],
+        diagnostic?: string,
+        { blockedByProvider = false }: { blockedByProvider?: boolean } = {}
+    ): Promise<void> {
         const identifiers = Array.from(new Set(emails.map(normalizeIdentifier).filter(Boolean)))
         if (identifiers.length === 0) {
             return
@@ -219,7 +227,11 @@ export class EmailSuppressionService {
         const diag = diagnostic ? diagnostic.slice(0, DIAGNOSTIC_MAX_LENGTH) : null
         // Params: teamId, reason, diag, then one identifier per row.
         const valueClauses: string[] = []
-        const params: (number | string | null)[] = [teamId, HARD_BOUNCE_REASON, diag]
+        const params: (number | string | null)[] = [
+            teamId,
+            blockedByProvider ? PROVIDER_BLOCKED_REASON : HARD_BOUNCE_REASON,
+            diag,
+        ]
         identifiers.forEach((identifier, i) => {
             const p = params.length + 1 + i
             valueClauses.push(
@@ -264,7 +276,10 @@ export class EmailSuppressionService {
 
         try {
             await this.postgres.query(PostgresUse.COMMON_WRITE, query, params, 'recordHardBounces')
-            cdpEmailSuppressionTotal.inc({ result: 'hard_bounce' }, identifiers.length)
+            cdpEmailSuppressionTotal.inc(
+                { result: blockedByProvider ? 'provider_blocked' : 'hard_bounce' },
+                identifiers.length
+            )
             // Only invalidate the keys we touched — cross-team entries stay warm.
             this.lazyLoader.markForRefresh(identifiers.map((identifier) => toKey(teamId, identifier)))
         } catch (error) {

@@ -2,7 +2,10 @@ from django.db.models import F, QuerySet
 from django.db.models.functions import Coalesce, Now
 from django.utils import timezone
 
+from posthog.cloud_utils import is_cloud
+
 from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
+from products.workflows.backend.facade.api import clear_ses_bounce_suppression
 
 
 def active_suppressions(team_id: int, search: str | None) -> QuerySet[MessageSuppression]:
@@ -64,4 +67,8 @@ def remove_suppression(team_id: int, identifier: str) -> bool:
             updated_at=timezone.now(),
         )
     )
+    # SES keeps its own account-level list. While SES still lists the address, it refuses the next
+    # send, and the refusal puts the address back on this list. Only cloud sends through that account.
+    if updated and is_cloud():
+        clear_ses_bounce_suppression(identifier)
     return bool(updated)

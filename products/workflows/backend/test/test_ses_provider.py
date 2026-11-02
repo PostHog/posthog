@@ -539,6 +539,35 @@ class TestGetTenantReputation(TestCase):
         assert second_call.kwargs["NextToken"] == "page-2"
 
 
+class TestClearBounceSuppression(TestCase):
+    def setUp(self):
+        patcher = patch("products.workflows.backend.providers.ses.boto3.client")
+        mock_boto3_client = patcher.start()
+        self.addCleanup(patcher.stop)
+        self.mock_client = mock_boto3_client.return_value
+        self.provider = SESProvider()
+
+    @parameterized.expand(
+        [
+            ("bounce_entry_is_removed", {"SuppressedDestination": {"Reason": "BOUNCE"}}, True),
+            ("complaint_entry_stays", {"SuppressedDestination": {"Reason": "COMPLAINT"}}, False),
+            (
+                "unlisted_address",
+                ClientError({"Error": {"Code": "NotFoundException"}}, "GetSuppressedDestination"),
+                False,
+            ),
+        ]
+    )
+    def test_removes_only_bounce_entries(self, _name, lookup, expected_removed):
+        if isinstance(lookup, Exception):
+            self.mock_client.get_suppressed_destination.side_effect = lookup
+        else:
+            self.mock_client.get_suppressed_destination.return_value = lookup
+
+        assert self.provider.clear_bounce_suppression("user@example.com") is expected_removed
+        assert self.mock_client.delete_suppressed_destination.called is expected_removed
+
+
 class TestGetAccountReputation(TestCase):
     def setUp(self):
         patcher = patch("products.workflows.backend.providers.ses.boto3.client")

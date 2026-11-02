@@ -4,6 +4,7 @@ from uuid import UUID
 
 from django.db.models import F
 
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.full_text_search import build_rank
 from posthog.ingress.contracts import WebhookDelivery
 
@@ -362,6 +363,18 @@ def delete_ses_identity(identity: str) -> None:
     from products.workflows.backend import providers  # noqa: PLC0415
 
     providers.SESProvider().delete_identity(identity)
+
+
+def clear_ses_bounce_suppression(email: str) -> bool:
+    """Remove a bounce entry for `email` from the SES account suppression list. Never raises."""
+    from products.workflows.backend import providers  # noqa: PLC0415
+
+    try:
+        return providers.SESProvider().clear_bounce_suppression(email)
+    except Exception as e:
+        # A failure here must not fail the removal from the team's own list, which already happened.
+        capture_exception(e)
+        return False
 
 
 def get_maildev_mock_dns_records() -> list[EmailDomainDnsRecord]:
