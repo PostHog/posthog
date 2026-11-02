@@ -37,14 +37,15 @@ describe('workflowStepCatalog', () => {
 
     it.each([
         {
-            name: 'adds the AI task and classify steps behind their flags',
+            name: 'adds the AI task, T3 Code and classify steps behind their flags',
             context: {
                 featureFlags: {
                     [FEATURE_FLAGS.WORKFLOW_AI_TASK_ACTION]: true,
+                    [FEATURE_FLAGS.WORKFLOW_T3_CODE_STEP]: true,
                     [FEATURE_FLAGS.WORKFLOW_CLASSIFY_ACTION]: true,
                 },
             },
-            ai: ['Create AI task', 'Run scout', 'Classify with AI', 'Replay Vision'],
+            ai: ['Create AI task', 'T3 Code', 'Run scout', 'Classify with AI', 'Replay Vision'],
         },
         {
             name: 'leaves the main-environment steps out of another environment',
