@@ -21,6 +21,8 @@ from posthog.scopes import UNPRIVILEGED_SCOPES
 # - `task:write` starts an agent run from a prompt the caller writes, with its own longer-lived owner token.
 #   `conversation:write` (PostHog AI can create such a task), `signal_scout:write` and
 #   `business_knowledge:write` start the same kind of run.
+# - `conversation:read` and `task:read` read the owner's private PostHog AI chats and tasks, because the token
+#   acts as the owner. Add them back if a workload needs them.
 # - `project:write` lets a token rotate the project's secret token.
 # - `streamlit_app` returns a one-hour OAuth token to connect to a running app.
 # - `webhook:write` and `batch_export:write` set up data feeds that keep sending after the token expires,
@@ -33,11 +35,13 @@ WORKLOAD_TRUST_POLICY_DENIED_SCOPES: frozenset[str] = frozenset(
         "workload_trust_policy_request:write",
         "batch_export:write",
         "business_knowledge:write",
+        "conversation:read",
         "conversation:write",
         "project:write",
         "signal_scout:write",
         "streamlit_app:read",
         "streamlit_app:write",
+        "task:read",
         "task:write",
         "webhook:write",
     }
