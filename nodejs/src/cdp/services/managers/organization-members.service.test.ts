@@ -38,4 +38,18 @@ describe('OrganizationMembersService', () => {
         ])
         expect(query).toHaveBeenCalledTimes(2)
     })
+
+    it('reloads members for a fresh check inside the minute', async () => {
+        let member = 'member@example.com'
+        const query = jest.fn(() => Promise.resolve({ rows: [memberRow(member)] }))
+        const service = new OrganizationMembersService({ query } as unknown as PostgresRouter, () => 0)
+
+        expect(await service.getBlockedRecipients(1, ['member@example.com'])).toEqual([])
+        member = 'new-member@example.com'
+
+        expect(await service.getBlockedRecipients(1, ['member@example.com'], { fresh: true })).toEqual([
+            { address: 'member@example.com', unverifiedMember: false },
+        ])
+        expect(query).toHaveBeenCalledTimes(2)
+    })
 })
