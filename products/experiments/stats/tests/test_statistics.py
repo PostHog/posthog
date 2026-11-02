@@ -10,6 +10,8 @@ from ..shared.statistics import (
     QUANTILE_N_STAR_GRID,
     InvalidStatisticError,
     ProportionStatistic,
+    QuantileBounds,
+    QuantileGridLevel,
     QuantileStatistic,
     RatioStatistic,
     SampleMeanStatistic,
@@ -325,12 +327,17 @@ class TestQuantileGridLevels(TestCase):
     )
     def test_levels(self, _name, nu, index, expected):
         levels = quantile_grid_levels(nu)
-        assert [n_star for n_star, _, _ in levels] == QUANTILE_N_STAR_GRID
-        assert levels[index] == expected
+        assert [level.n_star for level in levels] == QUANTILE_N_STAR_GRID
+        n_star, lower_level, upper_level = expected
+        assert levels[index] == QuantileGridLevel(n_star=n_star, lower_level=lower_level, upper_level=upper_level)
 
 
 class TestChooseQuantileBounds(TestCase):
     BOUNDS = [(100, 1.0, 3.0), (200, 1.5, 2.5), (400, 1.8, 2.2), (800, 2.0, 2.0)]
+
+    @staticmethod
+    def _bounds(n_star: int, lower: float, upper: float) -> QuantileBounds:
+        return QuantileBounds(n_star=n_star, lower=lower, upper=upper)
 
     @parameterized.expand(
         [
@@ -342,4 +349,5 @@ class TestChooseQuantileBounds(TestCase):
         ]
     )
     def test_choose(self, _name, n, bounds, expected):
-        assert choose_quantile_bounds(n, bounds) == expected
+        chosen = choose_quantile_bounds(n, [self._bounds(*b) for b in bounds])
+        assert chosen == (self._bounds(*expected) if expected is not None else None)

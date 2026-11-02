@@ -161,9 +161,27 @@ Z_975 = 1.959963984540054
 QUANTILE_N_STAR_GRID = [100 * 2**k for k in range(20)]
 
 
-def quantile_grid_levels(nu: float) -> list[tuple[int, float, float]]:
+@dataclass(frozen=True, kw_only=True)
+class QuantileGridLevel:
+    """Probability levels of the outer quantile interval at one grid size n*."""
+
+    n_star: int
+    lower_level: float
+    upper_level: float
+
+
+@dataclass(frozen=True, kw_only=True)
+class QuantileBounds:
+    """Observed values Y_L and Y_U at the probability levels of one grid size n*."""
+
+    n_star: int
+    lower: float
+    upper: float
+
+
+def quantile_grid_levels(nu: float) -> list[QuantileGridLevel]:
     """
-    Probability levels (n*, L, U) of the outer interval around quantile level nu, one per grid size.
+    Probability levels L and U of the outer interval around quantile level nu, one per grid size.
 
     L and U are nu -/+ Z_975 * sqrt(nu(1-nu)/n*), clipped to (0, 1) and rounded to 10 decimals
     so that the query text is stable.
@@ -173,22 +191,22 @@ def quantile_grid_levels(nu: float) -> list[tuple[int, float, float]]:
         se_p = math.sqrt(nu * (1 - nu) / n_star)
         lower = round(max(nu - Z_975 * se_p, 1e-8), 10)
         upper = round(min(nu + Z_975 * se_p, 1 - 1e-8), 10)
-        levels.append((n_star, lower, upper))
+        levels.append(QuantileGridLevel(n_star=n_star, lower_level=lower, upper_level=upper))
     return levels
 
 
-def choose_quantile_bounds(n: int, bounds: list[tuple[int, float, float]]) -> tuple[int, float, float] | None:
+def choose_quantile_bounds(n: int, bounds: list[QuantileBounds]) -> QuantileBounds | None:
     """
-    Choose the (n*, Y_L, Y_U) to use for a variant with n events.
+    Choose the bounds to use for a variant with n events.
 
-    bounds holds (n*, Y_L, Y_U) in grid order. Picks the largest n* <= n, or the smallest grid
-    size when n is below it. Steps down to smaller n* while Y_L == Y_U (tied values).
+    bounds is in grid order. Picks the largest n* <= n, or the smallest grid size when n is
+    below it. Steps down to smaller n* while Y_L == Y_U (tied values).
     Returns None when all eligible bounds collapse.
     """
-    eligible = [b for b in bounds if b[0] <= n] or [bounds[0]]
-    for n_star, lower, upper in reversed(eligible):
-        if upper > lower:
-            return n_star, lower, upper
+    eligible = [b for b in bounds if b.n_star <= n] or [bounds[0]]
+    for candidate in reversed(eligible):
+        if candidate.upper > candidate.lower:
+            return candidate
     return None
 
 
