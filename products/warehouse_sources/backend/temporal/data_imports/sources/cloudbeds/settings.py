@@ -27,14 +27,17 @@ class CloudbedsEndpointConfig:
     # getRatePlans requires a stay window, so requests cover today through today plus this many
     # days. `None` leaves the endpoint unwindowed.
     stay_window_days: int | None = None
+    # Read from the Accounting API (POST search, cursor pagination) rather than the PMS API, so the
+    # path is relative to the Accounting API base URL and the PMS version pin does not apply.
+    accounting_api: bool = False
 
 
 # getRatePlans prices a stay, so it needs a window. A rolling month forward covers the rate plans a
 # property currently sells without making the request depend on how far ahead it takes bookings.
 RATE_PLAN_WINDOW_DAYS = 30
 
-# Cloudbeds PMS API list endpoints (identical method set across v1.2 and v1.3, which differ only
-# by the `/api/<version>` URL segment). All are full refresh only for now: the reservation
+# Cloudbeds list endpoints. PMS API methods are identical across v1.2 and v1.3, which differ only by
+# the `/api/<version>` URL segment. All are full refresh only for now: the reservation
 # endpoints document server-side modification-date filters, but Cloudbeds notes some reservation
 # modifications are not reflected in the modified timestamp, and we have not been able to verify
 # the filters' behavior against a live account - so we conservatively ship full refresh and dedupe
@@ -69,10 +72,14 @@ CLOUDBEDS_ENDPOINTS: dict[str, CloudbedsEndpointConfig] = {
         path="/getRoomTypes",
         primary_keys=["roomTypeID"],
     ),
+    # getTransactions stops serving on 2026-12-01 under every PMS API version, so transactions come
+    # from the Accounting API whatever the pin. Its `id` is not the transactionID getTransactions
+    # returned, and it lists posted transactions only.
     "transactions": CloudbedsEndpointConfig(
         name="transactions",
-        path="/getTransactions",
-        primary_keys=["transactionID"],
+        path="/transactions",
+        primary_keys=["id"],
+        accounting_api=True,
     ),
     "reservations_with_rate_details": CloudbedsEndpointConfig(
         name="reservations_with_rate_details",

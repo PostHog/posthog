@@ -14,23 +14,19 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use aho_corasick::{AhoCorasick, AhoCorasickKind, MatchKind};
 use metrics::counter;
+use posthog_replay_anonymizer::v4_image_refs::{
+    url_declined_marker, ImageDecline, IMAGE_DECLINED_PREFIX,
+};
 use replay_core_v4::bytescan::{canonical_strings, unescape, write_json_string, Span};
 use replay_core_v4::inspect::css::{escape_in_identifier, rewrite_functions, CssRewrite};
 use replay_core_v4::inspect::dom::{for_each_srcset_candidate, Srcset};
-use replay_core_v4::scan::images::{
-    extract_images, Declined, ImageLimits, ImageSink, DECLINED_PREFIX,
-};
+use replay_core_v4::scan::images::{extract_images, ImageLimits, ImageSink};
 use replay_core_v4::scan::tokens::{Token, Tokens};
 use replay_core_v4::seal::{image_content_key, image_url_key};
 use replay_core_v4::url_policy::is_remote;
 
 use crate::scrub::{Scrub, Scrubber};
 use crate::urls::url_reference;
-
-/// What a declined URL becomes. The reason is the policy's metric label.
-pub fn declined_marker(reason: &str) -> String {
-    format!("imageurl:v4:declined:{reason}")
-}
 
 /// A byte that a URL can go on with. A match next to one is part of a longer URL, so it stays as it is. A comma, a
 /// parenthesis or a quote can be in a URL too, but in a srcset or a CSS `url()` it ends one.
@@ -258,7 +254,7 @@ pub struct PassCounters {
     srcset_rewrites: BTreeMap<&'static str, u64>,
     css_rewrites: BTreeMap<(&'static str, &'static str), u64>,
     url_rewrites: BTreeMap<(&'static str, &'static str), u64>,
-    pub removed_images: [u64; Declined::ALL.len()],
+    pub removed_images: [u64; ImageDecline::ALL.len()],
 }
 
 impl PassCounters {
@@ -283,7 +279,7 @@ impl PassCounters {
             )
             .increment(count);
         }
-        for (reason, &count) in Declined::ALL.iter().zip(&self.removed_images) {
+        for (reason, &count) in ImageDecline::ALL.iter().zip(&self.removed_images) {
             counter!("ai_research_v4_recorder_removed_images_total", "reason" => reason.label())
                 .increment(count);
         }
@@ -333,7 +329,7 @@ impl UrlRewrite {
             patterns.push(json_string_contents(url));
             let (replacement, declined) = match url_reference(url, team_id, key_month, &url_key) {
                 Ok((_, reference)) => (reference, None),
-                Err(decline) => (declined_marker(decline.label()), Some(decline.label())),
+                Err(decline) => (url_declined_marker(decline.into()), Some(decline.label())),
             };
             targets.push(Target {
                 url: url.clone(),
@@ -406,7 +402,7 @@ impl UrlRewrite {
                         let reference = match url_reference(absolute, team_id, key_month, &url_key)
                         {
                             Ok((_, reference)) => reference,
-                            Err(decline) => declined_marker(decline.label()),
+                            Err(decline) => url_declined_marker(decline.into()),
                         };
                         rewrite.replacement.replacen(
                             &format!("\"{absolute}\""),
@@ -880,7 +876,7 @@ fn rebuilt_srcset(
         }
     };
     for_each_srcset_candidate(text, |url, descriptors| {
-        if url.starts_with(DECLINED_PREFIX) {
+        if url.starts_with(IMAGE_DECLINED_PREFIX) {
             removed = true;
         } else if !is_remote(url) {
             keep(url, descriptors);
@@ -957,8 +953,7 @@ mod tests {
         assert_eq!(
             String::from_utf8(rewrite.apply(event.as_bytes(), true).into_owned()).unwrap(),
             format!(
-                r#"{{"srcset":"{ra} 1x,\n{rb} 2x,\t{} 3x"}}"#,
-                declined_marker("non_public_host")
+                r#"{{"srcset":"{ra} 1x,\n{rb} 2x,\timageurl:v4:declined:non_public_host 3x"}}"#
             )
         );
         assert!(rewrite.finish().safe);
@@ -981,7 +976,7 @@ mod tests {
         // A message past its image cap stores the PNG as `over_limit`, where a fresh sink takes it.
         let stored = format!(
             r#"{{"srcset":"{} 1x, {svg} 2x"}}"#,
-            Declined::OverLimit.marker()
+            ImageDecline::OverLimit.marker()
         );
         assert_eq!(
             String::from_utf8(rewrite.apply(stored.as_bytes(), true).into_owned()).unwrap(),
@@ -997,10 +992,7 @@ mod tests {
         let mut rewrite = UrlRewrite::new(&[url.to_owned()], &[], &[], 7, "2026-10", &TEAM_KEY);
         assert_eq!(
             String::from_utf8(rewrite.apply(&canonical, true).into_owned()).unwrap(),
-            format!(
-                r#"{{"src":"{}","alt":"a\nb"}}"#,
-                declined_marker("credential")
-            )
+            r#"{"src":"imageurl:v4:declined:credential","alt":"a\nb"}"#
         );
         assert!(rewrite.finish().safe);
         // An event capture wrote is left as it is.
@@ -1031,7 +1023,7 @@ mod tests {
             let out = rewrite(&[url], &format!(r#"{{"src":"{url}"}}"#));
             assert_eq!(
                 out,
-                format!(r#"{{"src":"{}"}}"#, declined_marker(reason)),
+                format!(r#"{{"src":"imageurl:v4:declined:{reason}"}}"#),
                 "{url}"
             );
         }

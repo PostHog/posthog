@@ -1,5 +1,6 @@
 import posthoganalytics
 
+from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.utils import flag_identity
@@ -8,12 +9,24 @@ from posthog.utils import flag_identity
 HEALTH_FINDINGS_FLAG = "experiment-health-findings"
 
 
+def runs_for_impersonated_session() -> bool:
+    """
+    Whether a staff member started this run in an impersonated session. A query runner has no session, so this reads
+    the tag of the request, which follows an async run into the worker. The tag reads only the session cookie, so an
+    OAuth token that was minted during impersonation is not an impersonated session here.
+    """
+    return bool(get_query_tags().is_impersonated)
+
+
 def shows_health_findings(user: User, team: Team) -> bool:
     """
-    Whether the web app shows the health findings to the user in the team. It evaluates the app's flag locally, from
-    the person and group inputs that the app sends to /flags, so it never waits on the network. An evaluation that
-    is undecided or fails is False.
+    Whether the web app shows the health findings to the user in the team. An impersonated session always shows them,
+    because the user here is the customer, whom the flag can leave out. Otherwise it evaluates the app's flag locally,
+    from the person and group inputs that the app sends to /flags, so it never waits on the network. An evaluation
+    that is undecided or fails is False.
     """
+    if runs_for_impersonated_session():
+        return True
     identity = flag_identity(user, team, team.organization)
     if identity is None:
         return False
