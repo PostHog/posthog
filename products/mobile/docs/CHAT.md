@@ -204,7 +204,7 @@ On the next message to a live run, `useSession` first sends one command per chan
   An untouched model sends no triple, so the server keeps the previous run's selection; the mode maps onto the previous run's harness.
   No `branch`: a resumed run keeps its base branch.
 - **Queue.** A message sent while the agent works, while a send or an answer is in flight, while a decision waits, or behind earlier queued messages goes into a queue above the composer instead (`messageQueue.ts`, `QueuedMessages.tsx`), as on the web.
-  The banner shows "N queued" and one row per message, each with a remove control.
+  The banner shows "N queued" and one row per message, each with a remove control. During delivery it shows "Sending queued messages" and hides the recovery warning until delivery settles.
   Queued text is saved with the chat's draft in native secure storage before the composer clears.
   A per-project storage budget refuses additional text while preserving saved messages; removing messages still works if an older store exceeds the limit.
   While the agent works and the input has text, Send shows beside Stop, which turns into an outline button.

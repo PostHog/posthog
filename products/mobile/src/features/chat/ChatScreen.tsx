@@ -620,6 +620,7 @@ export function ChatScreen({
                                     <QueuedMessages
                                         rows={queue.rows}
                                         held={queue.hold !== null}
+                                        delivering={isDelivering}
                                         onRemove={removeQueued}
                                         onSendNow={sendQueueNow}
                                         sendNowDisabledReason={

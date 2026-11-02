@@ -12,6 +12,7 @@ import type { QueuedMessage } from './messageQueue'
 interface QueuedMessagesProps {
     rows: QueuedMessage[]
     held: boolean
+    delivering: boolean
     notice?: string
     onRemove: (id: string) => void
     onSendNow: () => void
@@ -22,6 +23,7 @@ interface QueuedMessagesProps {
 export function QueuedMessages({
     rows,
     held,
+    delivering,
     notice,
     onRemove,
     onSendNow,
@@ -39,7 +41,9 @@ export function QueuedMessages({
         <View style={styles.banner} testID="chat-queue">
             <View style={styles.header}>
                 <Text style={styles.label} accessibilityLiveRegion="polite">
-                    {`${rows.length} queued${held ? ', review before sending' : ''}`}
+                    {delivering
+                        ? 'Sending queued messages'
+                        : `${rows.length} queued${held ? ', review before sending' : ''}`}
                 </Text>
                 <Pressable44
                     onPress={onSendNow}
@@ -60,7 +64,7 @@ export function QueuedMessages({
                     {copyNotice}
                 </Text>
             ) : null}
-            {notice ? (
+            {notice && !delivering ? (
                 <Text style={styles.reason} accessibilityLiveRegion="polite">
                     {notice}
                 </Text>
