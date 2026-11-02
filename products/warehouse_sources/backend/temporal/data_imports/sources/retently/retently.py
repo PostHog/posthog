@@ -148,8 +148,16 @@ def _trends_resource(api_key: str, config: RetentlyEndpointConfig, team_id: int,
             job_id=job_id,
             db_incremental_field_last_value=None,
             page_size_param=None,
-            parent_endpoint_extra={"paginator": SinglePagePaginator(), "data_selector": parent.data_selector},
-            child_endpoint_extra={"paginator": SinglePagePaginator(), "data_selector": config.data_selector},
+            parent_endpoint_extra={
+                "paginator": SinglePagePaginator(),
+                "data_selector": parent.data_selector,
+                "data_selector_malformed_retryable": True,
+            },
+            child_endpoint_extra={
+                "paginator": SinglePagePaginator(),
+                "data_selector": config.data_selector,
+                "data_selector_malformed_retryable": True,
+            },
         ),
     )
 

@@ -128,7 +128,11 @@ class TestTrendsFanout:
             route(
                 {
                     "/trends": [_response({"success": True, "groups": [{"_id": "g1"}, {"_id": "g2"}]})],
-                    "/trends/g1": [_response({"success": True, "trends": [{"_id": "t1", "trendName": "Enterprise"}]})],
+                    # A 200 error envelope without `trends` is retried, not synced as an empty group.
+                    "/trends/g1": [
+                        _response({"success": False, "error": "Internal Server Error"}),
+                        _response({"success": True, "trends": [{"_id": "t1", "trendName": "Enterprise"}]}),
+                    ],
                     # A group deleted between the listing and its fetch must not fail the sync.
                     "/trends/g2": [_response({"success": False}, status_code=404)],
                 }
@@ -136,7 +140,7 @@ class TestTrendsFanout:
         )
 
         assert result.raised is None
-        assert result.paths == ["/api/v2/trends", "/api/v2/trends/g1", "/api/v2/trends/g2"]
+        assert result.paths == ["/api/v2/trends", "/api/v2/trends/g1", "/api/v2/trends/g1", "/api/v2/trends/g2"]
         assert [(row["groupId"], row["_id"]) for row in result.rows] == [("g1", "t1")]
 
 
