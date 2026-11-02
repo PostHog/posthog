@@ -3331,7 +3331,7 @@
         }
     },
     "conversations-macros-list": {
-        "description": "List the shared reply macros in the project, most used first. A macro is a saved reply an agent inserts into a ticket. The body is markdown and may contain customer, agent, and ticket variables in double braces. Fill those in for the current ticket before sending the reply. shortcut is the slash command without the leading slash, or null when the macro has none.",
+        "description": "List the reply macros the caller can use, most used first: the macros shared with the project, plus the caller's personal macros (visibility 'personal'). A macro is a saved reply an agent inserts into a ticket. The body is markdown and may contain customer, agent, and ticket variables in double braces. Fill those in for the current ticket before sending the reply. shortcut is the slash command without the leading slash, or null when the macro has none.",
         "category": "Conversations",
         "feature": "conversations",
         "summary": "List support macros",
