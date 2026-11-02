@@ -1,0 +1,148 @@
+{
+    "$id": "https://raw.githubusercontent.com/PostHog/posthog/master/hog/posthog.schema.json",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+        "$schema": {
+            "description": "The JSON schema for this file.",
+            "type": "string"
+        },
+        "host": {
+            "description": "The PostHog host for this project, like https://eu.posthog.com. `hog auth login` uses it, and other commands stop when your credentials are for another host. --host and HOG_HOST override it.",
+            "type": "string",
+            "format": "uri"
+        },
+        "errorTracking": {
+            "type": "object",
+            "properties": {
+                "release": {
+                    "description": "The release every uploaded symbol set belongs to.",
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "description": "The release name, usually the app or service name.",
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "version": {
+                            "description": "The release version. hog uses the git commit when this is not set.",
+                            "type": "string",
+                            "minLength": 1
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                "releaseMode": {
+                    "description": "JavaScript only: put the release in the bundle (event, the default) or in the symbol set. --release-mode and HOG_RELEASE_MODE override it.",
+                    "type": "string",
+                    "enum": ["event", "symbol-set"]
+                },
+                "sources": {
+                    "description": "What `hog error-tracking inject`, `upload` and `process` scan when no path is passed.",
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "path": {
+                                "type": "string",
+                                "minLength": 1,
+                                "description": "A folder or file to scan, relative to posthog.json."
+                            },
+                            "kind": {
+                                "description": "The artifact type. hog detects it from the files when this is not set.",
+                                "type": "string",
+                                "enum": ["js", "hermes", "proguard", "dsym", "elf"]
+                            },
+                            "ignore": {
+                                "description": "Glob patterns of files to skip, relative to `path`.",
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                }
+                            },
+                            "mapId": {
+                                "description": "ProGuard only: the map ID your Android build injected into the app.",
+                                "type": "string",
+                                "minLength": 1
+                            }
+                        },
+                        "required": ["path"],
+                        "additionalProperties": false,
+                        "description": "A place where the build writes artifacts with symbols, such as bundles and their sourcemaps."
+                    }
+                }
+            },
+            "additionalProperties": false,
+            "description": "Settings for `hog error-tracking`."
+        },
+        "cli": {
+            "description": "Defaults for global options. Flags and HOG_ environment variables override them.",
+            "type": "object",
+            "properties": {
+                "noFail": {
+                    "description": "Exit with code 0 when a command fails, like --no-fail. HOG_NO_FAIL overrides it.",
+                    "type": "boolean"
+                },
+                "telemetry": {
+                    "description": "false stops hog from sending anonymous usage data to PostHog for everyone working in this folder.",
+                    "type": "boolean"
+                },
+                "rateLimit": {
+                    "description": "The most requests hog sends per minute, like --rate-limit. HOG_RATE_LIMIT overrides it.",
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                }
+            },
+            "additionalProperties": false
+        },
+        "endpoints": {
+            "description": "Settings for `hog endpoints`.",
+            "type": "object",
+            "properties": {
+                "dir": {
+                    "description": "The folder of endpoint YAML files, relative to posthog.json. `hog endpoints pull` writes there, and `push` and `diff` read it when no path is passed.",
+                    "type": "string",
+                    "minLength": 1
+                }
+            },
+            "additionalProperties": false
+        },
+        "languages": {
+            "description": "The typed SDKs `hog schema pull` generates, by language. posthog-cli reads the same entries.",
+            "type": "object",
+            "propertyNames": {
+                "type": "string"
+            },
+            "additionalProperties": {
+                "type": "object",
+                "properties": {
+                    "output_path": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Where the generated module goes, relative to posthog.json."
+                    },
+                    "schema_hash": {
+                        "description": "The hash of the event definitions the module was generated from.",
+                        "type": "string"
+                    },
+                    "updated_at": {
+                        "description": "When the module was last generated.",
+                        "type": "string"
+                    },
+                    "event_count": {
+                        "description": "How many events the module types.",
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                    }
+                },
+                "required": ["output_path"],
+                "additionalProperties": false,
+                "description": "One generated SDK. `hog schema pull` writes it."
+            }
+        }
+    },
+    "additionalProperties": false,
+    "description": "Settings for the PostHog CLI. Never put API keys here: use `hog auth login` or environment variables."
+}

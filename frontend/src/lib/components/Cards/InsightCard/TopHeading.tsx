@@ -3,15 +3,9 @@ import { dateFilterToText } from 'lib/utils/dateFilters'
 import { alignResolvedDateRangeToInterval, formatResolvedDateRange } from 'lib/utils/datetime'
 import { InsightTypeMetadata, QUERY_TYPES_METADATA } from 'scenes/saved-insights/insightTypesMetadata'
 
+import { dateRangeFor, getInterval } from '~/queries/schema/node-accessors'
+import { containsHogQLQuery, isDataTableNode, isInsightQueryNode, isInsightVizNode } from '~/queries/schema/node-guards'
 import { Node, NodeKind, ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
-import {
-    containsHogQLQuery,
-    dateRangeFor,
-    getInterval,
-    isDataTableNode,
-    isInsightQueryNode,
-    isInsightVizNode,
-} from '~/queries/utils'
 
 import { InsightFreshness } from './InsightFreshness'
 import { IgnoresDashboardFiltersNotice, TileOverridesWarning } from './TileOverridesWarning'

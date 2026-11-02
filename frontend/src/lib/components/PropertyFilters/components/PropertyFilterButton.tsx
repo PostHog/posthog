@@ -9,9 +9,9 @@ import { LemonButton, PopoverReferenceContext, Tooltip } from '@posthog/lemon-ui
 
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { fullNameOrEmail, midEllipsis } from 'lib/utils/strings'
-import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'
+import { membersLogic } from '~/models/membersLogic'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { AnyPropertyFilter, GroupPropertyFilter, GroupTypeIndex } from '~/types'
 

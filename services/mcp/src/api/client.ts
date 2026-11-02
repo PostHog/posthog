@@ -827,8 +827,11 @@ export class ApiClient {
 
     apiKeys(): Endpoint {
         return {
-            current: async (): Promise<Result<ApiRedactedPersonalApiKey>> => {
-                return this.fetchJson<ApiRedactedPersonalApiKey>(`${this.baseUrl}/api/personal_api_keys/@current`)
+            current: async ({ signal }: { signal?: AbortSignal } = {}): Promise<Result<ApiRedactedPersonalApiKey>> => {
+                return this.fetchJson<ApiRedactedPersonalApiKey>(
+                    `${this.baseUrl}/api/personal_api_keys/@current`,
+                    signal ? { signal } : undefined
+                )
             },
         }
     }

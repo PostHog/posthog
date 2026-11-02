@@ -183,7 +183,7 @@ class TestRepairVerbs(DivergenceFixturesMixin, ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("republish_after_person_raise", "republish", "repairs._raise_person_version_floor"),
+            ("republish_after_person_raise", "republish", "repairs.raise_person_version"),
             ("republish_after_mapping_raise", "republish", "repairs._raise_mapping_version_floors"),
             ("republish_after_person_publish", "republish", "repairs._publish_person"),
             ("republish_after_mapping_publish", "republish", "repairs.create_person_distinct_id"),
