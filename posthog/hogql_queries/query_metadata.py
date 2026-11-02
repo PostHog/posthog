@@ -553,8 +553,13 @@ class QueryPropertiesExtractor:
             action_id = int(node["id"])
         except (KeyError, TypeError, ValueError):
             return
+        # Step data is read only as property filters, not through `_walk`. Step filters are free-form dicts, so a
+        # filter that names another action would otherwise resolve it, and a cycle or a chain of such actions
+        # would recurse without bound.
         for step_properties in _get_action_step_properties(action_id=action_id, project_id=self.team.project_id):
-            self._walk(step_properties, found)
+            for property_filter in step_properties:
+                if isinstance(property_filter, dict):
+                    self._collect_property_filter(property_filter, found)
 
     @staticmethod
     def _add(

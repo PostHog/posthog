@@ -581,12 +581,16 @@ class TestQueryPropertiesExtractor(SimpleTestCase):
     def test_extract_properties_from_action_steps(self, mock_action_get):
         _action_step_properties_cache.clear()
         self.addCleanup(_action_step_properties_cache.clear)
+        self_reference = {"key": "plan_tier", "type": "event", "kind": "ActionsNode", "id": 4821}
         mock_action_get.return_value = Mock(
-            steps=[Mock(properties=[{"key": "plan", "type": "person", "value": "pro"}]), Mock(properties=None)]
+            steps=[
+                Mock(properties=[{"key": "plan", "type": "person", "value": "pro"}, self_reference]),
+                Mock(properties=None),
+            ]
         )
         query = {"kind": "TrendsQuery", "series": [{"kind": "ActionsNode", "id": 4821}]}
         result = self.extractor.extract_properties(query)
-        self.assertCountEqual([(prop.type, prop.name) for prop in result], [("person", "plan")])
+        self.assertCountEqual([(prop.type, prop.name) for prop in result], [("person", "plan"), ("event", "plan_tier")])
 
     def test_extract_properties_caps_reference_count(self):
         query = {
