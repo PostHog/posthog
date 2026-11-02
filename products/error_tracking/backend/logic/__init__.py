@@ -3,6 +3,7 @@ from urllib.parse import quote
 from uuid import UUID
 
 from django.conf import settings
+from django.db import DEFAULT_DB_ALIAS
 from django.db.models import Count, Q, QuerySet
 
 from posthog.models.event_filter_config import EventFilterPipelineOverride
@@ -215,10 +216,17 @@ def get_issue_counts_by_team() -> list[tuple[int, int]]:
     )
 
 
-def get_symbol_set_counts_by_team(*, resolved_only: bool = False) -> list[tuple[int, int]]:
-    queryset = ErrorTrackingSymbolSet.objects.all()
+def _symbol_set_counts_queryset(*, resolved_only: bool) -> QuerySet[ErrorTrackingSymbolSet]:
+    # These counts scan the whole table and the usage report runs them every 30 minutes, so keep them off the writer.
+    database = "replica" if "replica" in settings.DATABASES else DEFAULT_DB_ALIAS
+    queryset = ErrorTrackingSymbolSet.objects.using(database).all()
     if resolved_only:
         queryset = queryset.filter(storage_ptr__isnull=False)
+    return queryset
+
+
+def get_symbol_set_counts_by_team(*, resolved_only: bool = False) -> list[tuple[int, int]]:
+    queryset = _symbol_set_counts_queryset(resolved_only=resolved_only)
 
     return list(
         queryset.values("team_id").annotate(total=Count("id")).order_by("team_id").values_list("team_id", "total")
