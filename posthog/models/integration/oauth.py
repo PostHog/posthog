@@ -84,7 +84,7 @@ _STRIPE_MODE_MISMATCH_MESSAGE = (
 
 
 _CLIENT_CREDENTIALS_REJECTED_MESSAGE = (
-    "PostHog couldn't finish this connection because the provider rejected PostHog's own app credentials. "
+    "This connection failed because of a problem on PostHog's side, and nothing in your account needs to change. "
     "Contact support so we can fix it."
 )
 

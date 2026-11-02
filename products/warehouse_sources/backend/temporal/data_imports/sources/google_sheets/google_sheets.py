@@ -2,8 +2,9 @@ import re
 import time
 import random
 from collections import Counter
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Iterator
 from typing import Any, Optional, TypeVar, cast
+from urllib.parse import quote
 
 import gspread
 import requests
@@ -11,7 +12,7 @@ from cachetools import Cache, TTLCache, cached
 from google.auth import exceptions as google_auth_exceptions
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2 import service_account
-from gspread.utils import numericise_all
+from gspread.utils import absolute_range_name, fill_gaps, numericise_all
 
 from posthog.credentials_service.errors import CredentialsSecretError
 from posthog.dataclasses import frozen
@@ -346,17 +347,21 @@ def get_schemas(config: GoogleSheetsSourceConfig) -> list[tuple[str, int]]:
 
 
 def get_worksheets(config: GoogleSheetsSourceConfig) -> list[DiscoveredWorksheet]:
-    return [_discovered_worksheet(worksheet) for worksheet in _list_worksheets(config, _SYNC_RETRY_BUDGET)]
+    _, worksheets = _list_worksheets(config, _SYNC_RETRY_BUDGET)
+    return [_discovered_worksheet(worksheet) for worksheet in worksheets]
 
 
-def _list_worksheets(config: GoogleSheetsSourceConfig, budget: _RetryBudget) -> list[gspread.Worksheet]:
+def _list_worksheets(
+    config: GoogleSheetsSourceConfig, budget: _RetryBudget
+) -> tuple[gspread.Spreadsheet, list[gspread.Worksheet]]:
     client = google_sheets_client()
 
     # `open_by_url` and `worksheets()` hit the Sheets API and so are subject to the same
     # transient quota (429) and 5xx server errors as `_get_worksheet` — retry them with backoff
     # rather than letting a transient blip fail the whole sync during schema discovery.
-    def execute() -> list[gspread.Worksheet]:
-        return _open_spreadsheet(client, config.spreadsheet_url).worksheets()
+    def execute() -> tuple[gspread.Spreadsheet, list[gspread.Worksheet]]:
+        spreadsheet = _open_spreadsheet(client, config.spreadsheet_url)
+        return spreadsheet, spreadsheet.worksheets()
 
     return _retry_on_transient_api_error(execute, budget)
 
@@ -378,22 +383,79 @@ class DiscoveredWorksheetSchema:
 def discover_worksheet_schemas(
     config: GoogleSheetsSourceConfig, names: Collection[str] | None = None
 ) -> list[DiscoveredWorksheetSchema]:
-    """List the worksheets once and read each header row through the listed handles.
+    """List the worksheets once and read the header rows in as few batched requests as the URL allows.
 
-    The handles share one client and one token, so each worksheet costs one header read and
-    no further spreadsheet lookups."""
-    schemas: list[DiscoveredWorksheetSchema] = []
-    for handle in _list_worksheets(config, _DISCOVERY_RETRY_BUDGET):
-        worksheet = _discovered_worksheet(handle)
-        if names is not None and worksheet.name not in names:
-            continue
-        schemas.append(
-            DiscoveredWorksheetSchema(
-                worksheet=worksheet,
-                incremental_fields=_incremental_fields_from_header(handle, _DISCOVERY_RETRY_BUDGET),
-            )
+    Discovery runs while the user waits in the source wizard, and every Sheets request spends a quota
+    that all PostHog customers share. One read per worksheet lets a spreadsheet with many tabs outlast
+    the request timeout."""
+    spreadsheet, handles = _list_worksheets(config, _DISCOVERY_RETRY_BUDGET)
+    selected = [handle for handle in handles if names is None or _discovered_worksheet(handle).name in names]
+    header_rows = _read_header_rows(spreadsheet, selected, _DISCOVERY_RETRY_BUDGET)
+    return [
+        DiscoveredWorksheetSchema(
+            worksheet=_discovered_worksheet(handle),
+            incremental_fields=_incremental_fields_from_rows(rows),
         )
-    return schemas
+        for handle, rows in zip(selected, header_rows, strict=True)
+    ]
+
+
+def _is_unparseable_range_error(e: gspread.exceptions.APIError) -> bool:
+    return e.code == 400 and "Unable to parse range" in str(e)
+
+
+# `values:batchGet` is a GET, so every range goes into the URL, and Google rejects a URL much past
+# 16 KB. A spreadsheet with hundreds of long tab names needs several batches.
+_MAX_BATCH_RANGES_URL_LENGTH = 8000
+
+
+def _header_range(worksheet: gspread.Worksheet) -> str:
+    return absolute_range_name(worksheet.title, "1:2")
+
+
+def _header_read_batches(worksheets: list[gspread.Worksheet]) -> Iterator[list[gspread.Worksheet]]:
+    batch: list[gspread.Worksheet] = []
+    batch_length = 0
+    for worksheet in worksheets:
+        length = len("&ranges=") + len(quote(_header_range(worksheet), safe=""))
+        if batch and batch_length + length > _MAX_BATCH_RANGES_URL_LENGTH:
+            yield batch
+            batch, batch_length = [], 0
+        batch.append(worksheet)
+        batch_length += length
+    if batch:
+        yield batch
+
+
+def _read_header_rows(
+    spreadsheet: gspread.Spreadsheet, worksheets: list[gspread.Worksheet], budget: _RetryBudget
+) -> list[list[list[Any]]]:
+    rows: list[list[list[Any]]] = []
+    for batch in _header_read_batches(worksheets):
+        rows.extend(_read_header_rows_batch(spreadsheet, batch, budget))
+    return rows
+
+
+def _read_header_rows_batch(
+    spreadsheet: gspread.Spreadsheet, worksheets: list[gspread.Worksheet], budget: _RetryBudget
+) -> list[list[list[Any]]]:
+    ranges = [_header_range(worksheet) for worksheet in worksheets]
+    try:
+        response = _retry_on_transient_api_error(lambda: spreadsheet.values_batch_get(ranges), budget)
+    except gspread.exceptions.APIError as e:
+        if not _is_unparseable_range_error(e):
+            raise
+        # One unreadable worksheet fails the whole batch, so read each worksheet on its own to find it.
+        return [_read_worksheet_header_rows(worksheet, budget) for worksheet in worksheets]
+    return [_padded_rows(value_range.get("values", [[]])) for value_range in response.get("valueRanges", [])]
+
+
+def _padded_rows(rows: list[list[Any]]) -> list[list[Any]]:
+    # Mirrors `Worksheet.get_all_values`, which pads short rows to the widest one.
+    try:
+        return fill_gaps(rows)
+    except KeyError:
+        return [[]]
 
 
 def _resolve_worksheet_id(
@@ -415,9 +477,9 @@ def _resolve_worksheet_id(
     return selected_worksheet[0]
 
 
-def _incremental_fields_from_header(worksheet: gspread.Worksheet, budget: _RetryBudget) -> list[IncrementalField]:
+def _read_worksheet_header_rows(worksheet: gspread.Worksheet, budget: _RetryBudget) -> list[list[Any]]:
     try:
-        rows = _retry_on_transient_api_error(lambda: worksheet.get_all_values("1:2"), budget)  # Get the first two rows
+        return _retry_on_transient_api_error(lambda: worksheet.get_all_values("1:2"), budget)  # Get the first two rows
     except gspread.exceptions.APIError as e:
         # Google rejects the unbounded "1:2" row range with a 400 "Unable to parse range" for
         # some worksheets (e.g. empty sheets, or sheets resized to have no columns). This is
@@ -426,10 +488,12 @@ def _incremental_fields_from_header(worksheet: gspread.Worksheet, budget: _Retry
         # incremental field — return [] rather than letting one odd sheet break schema discovery
         # for the entire spreadsheet. Other API errors (e.g. transient 5xx) still propagate so
         # they can be retried.
-        if e.code == 400 and "Unable to parse range" in str(e):
+        if _is_unparseable_range_error(e):
             return []
         raise
 
+
+def _incremental_fields_from_rows(rows: list[list[Any]]) -> list[IncrementalField]:
     if len(rows) > 1 and "id" in rows[0]:
         index_of_id = rows[0].index("id")
         value_of_id_col = rows[1][index_of_id]

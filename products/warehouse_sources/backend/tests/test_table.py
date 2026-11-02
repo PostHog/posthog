@@ -44,6 +44,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     CDC_SEQ_COLUMN,
     CDC_TIMESTAMP_COLUMN,
     DELETED_AT_COLUMN,
+    HISTORY_NAMING,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     TransientObjectStoreError,
@@ -756,7 +757,13 @@ class TestSchemaInferenceMode(BaseTest):
 
 class TestHistoryHiddenColumns(SimpleTestCase):
     def test_names_match_the_columns_capture_writes(self) -> None:
-        assert HISTORY_HIDDEN_COLUMNS == {CDC_OP_COLUMN, CDC_SEQ_COLUMN, CDC_TIMESTAMP_COLUMN, DELETED_AT_COLUMN}
+        assert HISTORY_HIDDEN_COLUMNS == {
+            CDC_OP_COLUMN,
+            CDC_SEQ_COLUMN,
+            CDC_TIMESTAMP_COLUMN,
+            DELETED_AT_COLUMN,
+            HISTORY_NAMING.partition_column,
+        }
 
 
 class TestGetHogqlFieldForColumn(SimpleTestCase):

@@ -13,7 +13,6 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
 
-from products.warehouse_sources.backend.facade.contracts import CREDENTIALS_REFERENCE_KEY
 from products.warehouse_sources.backend.types import (
     DIRECT_ENGINE_BY_SOURCE_TYPE,
     ExternalDataSchemaSyncFrequency,
@@ -72,6 +71,9 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     # encrypted at rest.
     api_version = models.CharField(max_length=128, null=True, blank=True)
     job_inputs = EncryptedJSONField(null=True, blank=True)
+    # The integration row with the source's credentials: a legacy int id or a UUID, in the string form of
+    # `IntegrationReference`. No foreign key, because the rows move to a separate credentials service.
+    credentials_integration_id = models.CharField(max_length=64, null=True, blank=True)
     connection_metadata = models.JSONField(default=dict, blank=True, null=True)
     are_tables_created = models.BooleanField(default=False)
     prefix = models.CharField(max_length=100, null=True, blank=True)
@@ -100,6 +102,13 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     class Meta:
         db_table = "posthog_externaldatasource"
+        indexes = [
+            models.Index(
+                fields=["team", "credentials_integration_id"],
+                name="eds_team_credentials_int_idx",
+                condition=models.Q(credentials_integration_id__isnull=False),
+            ),
+        ]
 
     def merge_connection_metadata(self, metadata: dict[str, Any]) -> None:
         """Merge ``metadata`` into ``connection_metadata`` under a lock on this row.
@@ -356,16 +365,13 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         from products.warehouse_sources.backend.logic.source_credentials import (  # noqa: PLC0415 — the store imports this model
             WarehouseSourceCredentialsStore,
         )
-        from products.warehouse_sources.backend.logic.source_inputs import (  # noqa: PLC0415 — the store imports this model
-            SourceInputsStore,
-        )
 
+        if self.credentials_integration_id is None:
+            return
         # The savepoint keeps a database error here from poisoning a caller's enclosing transaction.
         try:
             with transaction.atomic():
-                ref = SourceInputsStore.load(self).get(CREDENTIALS_REFERENCE_KEY)
-                if ref is not None:
-                    WarehouseSourceCredentialsStore.release(self, ref)
+                WarehouseSourceCredentialsStore.release(self)
         except Exception as e:
             capture_exception(e, {"source_id": str(self.id), "team_id": self.team_id})
             SOURCE_CREDENTIALS_RELEASE_FAILED_COUNTER.inc()

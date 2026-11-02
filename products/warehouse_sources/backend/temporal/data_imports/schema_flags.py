@@ -18,6 +18,7 @@ from posthog.temporal.common.utils import retry_on_db_connection_drop
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 
 def is_schema_flag_enabled(schema: ExternalDataSchema, flag: str) -> bool:
@@ -46,6 +47,13 @@ def is_team_flag_enabled(team_id: int, flag: str, *, raise_on_error: bool = Fals
     evaluation from a flag that is off.
     """
     return _is_flag_enabled_for_team(team_id, flag, lambda: {"team_id": str(team_id)}, raise_on_error=raise_on_error)
+
+
+def is_source_flag_enabled(source: ExternalDataSource, flag: str) -> bool:
+    """Evaluate a rollout flag for a whole source, for a decision made before its schemas exist."""
+    return _is_flag_enabled_for_team(
+        source.team_id, flag, lambda: {"team_id": str(source.team_id), "source_type": source.source_type}
+    )
 
 
 def _is_flag_enabled_for_team(

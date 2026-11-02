@@ -75,6 +75,13 @@ SOURCE_BINDINGS: dict[SourceKind, SourceBinding] = {
         evaluation_timeout=dt.timedelta(seconds=60),
         discovery_limit=DISCOVERY_LIMIT_PER_SOURCE,
     ),
+    # One PromQL instant query per check through Snuffle. A batch stops starting queries at its budget.
+    SourceKind.METRICS: SourceBinding(
+        workflow="metrics-alert-evaluate",
+        task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
+        evaluation_timeout=dt.timedelta(seconds=120),
+        discovery_limit=DISCOVERY_LIMIT_PER_SOURCE,
+    ),
 }
 
 

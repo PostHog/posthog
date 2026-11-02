@@ -42,7 +42,7 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction, 
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
@@ -509,7 +509,7 @@ class TestFileSystemAPI(APIBaseTest):
         """
         # Create 5 objects
         ff = FeatureFlag.objects.create(team=self.team, key="Beta Feature", created_by=self.user)
-        Experiment.objects.create(team=self.team, name="Experiment #1", created_by=self.user, feature_flag=ff)
+        create_experiment(team_id=self.team.id, name="Experiment #1", created_by_id=self.user.id, feature_flag_id=ff.id)
         Dashboard.objects.create(team=self.team, name="User Dashboard", created_by=self.user)
         Insight.objects.create(team=self.team, saved=True, name="Marketing Insight", created_by=self.user)
         Notebook.objects.create(team=self.team, title="Data Exploration", created_by=self.user)
@@ -528,7 +528,9 @@ class TestFileSystemAPI(APIBaseTest):
         Ensure that the 'type' query parameter filters creation to a single type.
         """
         flag = FeatureFlag.objects.create(team=self.team, key="Only Flag", created_by=self.user)
-        Experiment.objects.create(team=self.team, name="Experiment #1", feature_flag=flag, created_by=self.user)
+        create_experiment(
+            team_id=self.team.id, name="Experiment #1", feature_flag_id=flag.id, created_by_id=self.user.id
+        )
         FileSystem.objects.all().delete()
 
         # Filter for feature_flag only => creates 1 new 'leaf' item
@@ -978,6 +980,36 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(data["count"], DELETE_PREVIEW_ENTRY_LIMIT + 5)
         self.assertEqual(len(data["entries"]), DELETE_PREVIEW_ENTRY_LIMIT)
         self.assertTrue(data["has_more"])
+
+    @parameterized.expand([("count",), ("count_by_path",)])
+    def test_count_preview_queries_do_not_scale_with_rows(self, endpoint: str) -> None:
+        folder = FileSystem.objects.create(team=self.team, path="ScaleFolder", type="folder", created_by=self.user)
+        if endpoint == "count":
+            url = f"/api/projects/{self.team.id}/file_system/{folder.pk}/count"
+        else:
+            url = f"/api/projects/{self.team.id}/file_system/count_by_path?path=ScaleFolder"
+
+        def create_files(start: int, end: int) -> None:
+            for index in range(start, end):
+                FileSystem.objects.create(
+                    team=self.team, path=f"ScaleFolder/File{index}", type="feature_flag", created_by=self.user
+                )
+
+        def query_count(expected_entries: int) -> int:
+            cache.clear()
+            with CaptureQueriesContext(connection) as ctx:
+                response = self.client.post(url)
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+            self.assertEqual(len(response.json()["entries"]), expected_entries)
+            return len(ctx)
+
+        create_files(0, 2)
+        self.client.post(url)
+        few = query_count(2)
+        create_files(2, 6)
+        many = query_count(6)
+
+        self.assertEqual(few, many)
 
     def test_list_by_type_filter(self):
         """
@@ -2697,19 +2729,19 @@ class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
 
     def _prepare_experiment_case(self):
         feature_flag = FeatureFlag.objects.create(team=self.team, key="exp-flag", created_by=self.user)
-        experiment = Experiment.objects.create(
-            team=self.team,
+        experiment_id = create_experiment(
+            team_id=self.team.id,
             name="Experiment",
-            feature_flag=feature_flag,
-            created_by=self.user,
+            feature_flag_id=feature_flag.id,
+            created_by_id=self.user.id,
         )
         fs_entry = self._ensure_file_system_entry(
-            file_type="experiment", ref=str(experiment.id), fallback_name=str(experiment.id)
+            file_type="experiment", ref=str(experiment_id), fallback_name=str(experiment_id)
         )
         return {
             "fs_entry": fs_entry,
-            "item_id": str(experiment.id),
-            "ref": str(experiment.id),
+            "item_id": str(experiment_id),
+            "ref": str(experiment_id),
             "path": fs_entry.path,
         }
 

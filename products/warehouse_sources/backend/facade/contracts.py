@@ -27,12 +27,12 @@ from pydantic.dataclasses import dataclass
 
 from posthog.integrations import IntegrationUsage
 
-# The `job_inputs` key that holds the pk of the `Integration` row with a source's typed-in credentials.
-# An OAuth source keeps its own `*_integration_id` key instead and has no such row.
-CREDENTIALS_REFERENCE_KEY = "credentials_integration_id"
-
 # The request flag that confirms an edit of credentials that other sources or products also use.
 UPDATE_SHARED_CREDENTIALS_PARAM = "update_shared_credentials"
+
+# The `job_inputs` key of a source API edit that points the source at another credentials row. The API
+# moves the value to the source's `credentials_integration_id` column. The store never saves it in `job_inputs`.
+CREDENTIALS_REFERENCE_INPUT_KEY = "credentials_integration_id"
 
 # The `IntegrationUsage.type` of a warehouse source that uses an integration row.
 WAREHOUSE_SOURCE_USAGE_TYPE = "warehouse_source"

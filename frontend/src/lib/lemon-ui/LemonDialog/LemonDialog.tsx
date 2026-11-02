@@ -179,6 +179,12 @@ const LemonDialogComponent = forwardRef<LemonDialogRef, LemonDialogProps>(functi
     )
 })
 
+// The browser turns Enter on a focused button into a click on that button. Submitting the form as well would run
+// Submit twice, or run it for Cancel.
+function isEnterOnField(e: React.KeyboardEvent<HTMLFormElement>): boolean {
+    return e.key === 'Enter' && !(e.target as HTMLElement).closest('button')
+}
+
 export const LemonFormDialog = ({
     initialValues = {},
     onSubmit,
@@ -232,7 +238,7 @@ export const LemonFormDialog = ({
             onKeyDown={
                 props.shouldAwaitSubmit
                     ? async (e: React.KeyboardEvent<HTMLFormElement>): Promise<void> => {
-                          if (e.key === 'Enter' && primaryButton?.htmlType === 'submit' && isFormValid) {
+                          if (isEnterOnField(e) && primaryButton?.htmlType === 'submit' && isFormValid) {
                               try {
                                   await onSubmit(form)
                               } catch (error) {
@@ -246,7 +252,7 @@ export const LemonFormDialog = ({
                           }
                       }
                     : (e: React.KeyboardEvent<HTMLFormElement>): void => {
-                          if (e.key === 'Enter' && primaryButton?.htmlType === 'submit' && isFormValid) {
+                          if (isEnterOnField(e) && primaryButton?.htmlType === 'submit' && isFormValid) {
                               void onSubmit(form)
                               ref?.current?.closeDialog()
                           }

@@ -33,6 +33,7 @@ export interface SearchItem {
      * other than navigation (e.g. logging out). Consumers should prefer `onSelect` over `href`. */
     onSelect?: () => void
     icon?: React.ReactNode
+    keybinding?: React.ReactNode
     lastViewedAt?: string | null
     groupNoun?: string | null
     itemType?: string | null

@@ -3,6 +3,12 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
+from posthog.models import Team
+
+from products.warehouse_sources.backend.logic.source_credentials_rollout import reset_caches
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports import schema_flags
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.auth import (
     MAX_RETRY_AFTER_SECONDS,
     HubspotRetryableError,
@@ -10,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.au
     _wait_strategy,
     hubspot_refresh_access_token,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_response(
@@ -186,3 +193,30 @@ def test_429_retry_after_carried_on_exception_and_capped_by_wait_strategy() -> N
     state = MagicMock()
     state.outcome.exception.return_value = exc_info.value
     assert _wait_strategy(state) == MAX_RETRY_AFTER_SECONDS
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("dual_write", [True, False])
+def test_token_refresh_saves_the_token_and_leaves_the_reference_column_alone(dual_write: bool, team: Team) -> None:
+    source = ExternalDataSource.objects.create(
+        team=team,
+        source_id="s",
+        connection_id="c",
+        status="Running",
+        source_type=ExternalDataSourceType.HUBSPOT,
+        job_inputs={"hubspot_secret_key": "fake-old", "hubspot_refresh_token": "fake-refresh"},
+        credentials_integration_id="123",
+    )
+    response = _make_response(200, {"access_token": "fake-new"})
+
+    with (
+        _patch_post(response),
+        patch.object(schema_flags.posthoganalytics, "feature_enabled", return_value=dual_write),
+    ):
+        reset_caches()
+        assert hubspot_refresh_access_token("fake-refresh", source_id=str(source.id)) == "fake-new"
+    reset_caches()
+
+    stored = ExternalDataSource.objects.get(pk=source.pk)
+    assert SourceInputsStore.load(stored)["hubspot_secret_key"] == "fake-new"
+    assert stored.credentials_integration_id == "123"

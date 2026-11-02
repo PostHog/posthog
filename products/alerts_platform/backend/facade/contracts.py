@@ -32,6 +32,7 @@ class SourceKind(StrEnum):
     BILLING = "billing"
     WAREHOUSE_SOURCE = "warehouse_source"
     WAREHOUSE_DESTINATION = "warehouse_destination"
+    METRICS = "metrics"
 
 
 @frozen
@@ -1081,7 +1082,13 @@ class NativeAlertLifecycle:
     """
 
     check_interval_minutes: int
-    remove_destinations: NativeAlertRemoveDestinations
+    # Removes the source's HogFunction destinations of a deleted alert. None for a kind whose
+    # destinations are `AlertDestination` rows from the start, which go with the configuration.
+    remove_destinations: NativeAlertRemoveDestinations | None = None
+
+    @property
+    def platform_destinations(self) -> bool:
+        return self.remove_destinations is None
 
 
 @frozen
@@ -1106,6 +1113,10 @@ class SourceConfigSpec:
     incident_event_ids: Mapping[str, str] | None = None
     alert_url: Callable[[int, UUID], str] | None = None
     native: NativeAlertLifecycle | None = None
+    # A PostHog feature flag a project needs, beside `platform-alerts`, to create alerts of this kind.
+    # A new kind names its own flag, so it opens on its own schedule while the others stay generally
+    # available.
+    rollout_flag: str | None = None
 
     def __post_init__(self) -> None:
         # The source-row hooks write a row a native kind does not have.
@@ -1400,6 +1411,15 @@ class SourceDescriber(Protocol):
     """
 
     def __call__(self, *, project_id: int, transition: AnnouncedTransition) -> SourceDescription: ...
+
+
+class SourceRecipients(Protocol):
+    """Who a source's own settings say to email about an alert, beside the destinations a person added.
+
+    It runs once per delivery of an alert whose destinations the platform owns.
+    """
+
+    def __call__(self, *, team_id: int, configuration_id: UUID) -> list[str]: ...
 
 
 @frozen

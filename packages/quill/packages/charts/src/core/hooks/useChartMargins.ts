@@ -86,6 +86,13 @@ export function applyMarginOverride(
     return result
 }
 
+/** Rebuilds a margin override from its four sides, so an inline `margins` object with the same values
+ *  keeps one identity and does not re-run the memos that read it. */
+export function useStableMargins(margins: Partial<ChartMargins> | undefined): Partial<ChartMargins> {
+    const { top, right, bottom, left } = margins ?? {}
+    return useMemo(() => ({ top, right, bottom, left }), [top, right, bottom, left])
+}
+
 interface CategoryLabelWidths {
     first: number
     last: number
@@ -151,7 +158,7 @@ export function useChartMargins({
     yTickFormatter,
     axisOrientation = 'vertical',
     isPercent = false,
-    override,
+    override: rawOverride,
     valueRangeSeries,
     maxCategoryLabelWidth = 0,
     yAxisFormatters,
@@ -159,6 +166,7 @@ export function useChartMargins({
     yAxisTitles,
     yAxisHidden,
 }: UseChartMarginsOptions): ChartMargins {
+    const override = useStableMargins(rawOverride)
     const isHorizontal = axisOrientation === 'horizontal'
     const valueSeries = useMemo(
         () => (isPercent ? series.map((s) => ({ ...s, data: [0, 1] })) : (valueRangeSeries ?? series)),
@@ -322,12 +330,7 @@ export function useChartMargins({
         const rightLabelReserve = (gutterReserves?.right ?? 0) + titleReserve.right
         const right = Math.max(rightFloor, rightLabelReserve, xLabelEdgeReserves.right + X_LABEL_EDGE_PADDING)
         const computed: ChartMargins = { top: DEFAULT_MARGINS.top, right, bottom, left }
-        return override ? applyMarginOverride(computed, override) : computed
-        // Depend on the individual sides, not `override` by identity — callers are expected to build
-        // the override object inline and conditionally (`{ top: reserveOrUndefined }`), which is a
-        // fresh identity every render, and keying off it here would reintroduce the referential churn
-        // this hook's memoization is meant to contain.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+        return applyMarginOverride(computed, override)
     }, [
         hideXAxis,
         hideYAxis,
@@ -338,9 +341,6 @@ export function useChartMargins({
         xLabelExtraBottom,
         normalizedXAxisLabel,
         titleReserve,
-        override?.top,
-        override?.right,
-        override?.bottom,
-        override?.left,
+        override,
     ])
 }

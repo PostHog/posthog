@@ -1485,6 +1485,8 @@ class ExternalDataSourceType(LabeledStrEnum):
     WOOPAYMENTS = "WooPayments", "WooPayments"
     SONIOX = "Soniox", "Soniox"
     NANGO = "Nango", "Nango"
+    FATHOM = "Fathom", "Fathom"
+    STAMPED = "Stamped", "Stamped"
 
 
 def external_data_source_type_choices() -> list[tuple[typing.Any, str]]:

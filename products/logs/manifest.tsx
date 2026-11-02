@@ -10,6 +10,12 @@ import type { LogsSceneActiveTab } from './frontend/logsSceneLogic'
 
 export const manifest: ProductManifest = {
     name: 'Logs',
+    globalModals: {
+        LogsViewerModal: () =>
+            import('./frontend/components/LogsViewer/LogsViewerModal/LogsViewerModalHost').then(
+                (module) => module.LogsViewerModalHost
+            ),
+    },
     scenes: {
         Logs: {
             import: () => import('./frontend/LogsScene'),

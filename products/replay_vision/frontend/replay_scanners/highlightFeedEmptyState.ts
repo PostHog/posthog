@@ -6,6 +6,7 @@ import type { ReplayScannerApi, VisionQuotaApi } from '../generated/api.schemas'
  */
 export type HighlightFeedEmptyReason =
     | 'replay-off'
+    | 'no-recordings'
     | 'no-scanners'
     | 'quota-exhausted'
     | 'all-disabled'
@@ -65,6 +66,7 @@ export interface HighlightFeedEmptyInput {
     /** Null while the team has not loaded, which also reads as "no block seen". */
     sessionRecordingOptIn: boolean | null
     hasFeedFilters: boolean
+    hasRecordings?: boolean | null
 }
 
 /**
@@ -76,11 +78,15 @@ export function resolveHighlightFeedEmptyReason({
     quota,
     sessionRecordingOptIn,
     hasFeedFilters,
+    hasRecordings = null,
 }: HighlightFeedEmptyInput): HighlightFeedEmptyReason {
     if (sessionRecordingOptIn === false) {
         return 'replay-off'
     }
     if (scanners.length === 0) {
+        if (hasRecordings === false) {
+            return 'no-recordings'
+        }
         // The scene gate answers this one first, so the feed sees it only when the setup probe
         // failed open. The tab still has to offer the way in.
         return 'no-scanners'
@@ -99,5 +105,5 @@ export function resolveHighlightFeedEmptyReason({
     if (hasFeedFilters) {
         return 'filtered'
     }
-    return 'quiet-window'
+    return hasRecordings === false ? 'no-recordings' : 'quiet-window'
 }
