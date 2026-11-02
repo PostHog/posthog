@@ -1482,8 +1482,20 @@ describe('EmailService', () => {
             await emailStatusService.flush()
 
             const rows = produce.mock.calls.map(([, message]) => parseJSON(message.value.toString()))
+            // Only an email that reached the provider names the domain it was sent from.
+            const sendingDomain = status === 'sent' || reason === 'provider_error' ? 'posthog-test.com' : ''
             expect(rows).toEqual(
-                status ? [expect.objectContaining({ team_id: team.id, message_id: invocation.id, status, reason })] : []
+                status
+                    ? [
+                          expect.objectContaining({
+                              team_id: team.id,
+                              message_id: invocation.id,
+                              status,
+                              reason,
+                              sending_domain: sendingDomain,
+                          }),
+                      ]
+                    : []
             )
         })
 

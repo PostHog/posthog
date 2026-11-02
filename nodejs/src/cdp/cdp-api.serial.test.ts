@@ -2273,7 +2273,13 @@ describe('CDP API', () => {
                 expect.anything()
             )
             expect(emailStatusRows()).toEqual([
-                expect.objectContaining({ team_id: team.id, message_id: res.body.invocation_id, status: 'queued' }),
+                expect.objectContaining({
+                    team_id: team.id,
+                    message_id: res.body.invocation_id,
+                    status: 'queued',
+                    recipient: 'user@example.com',
+                    function_id: hogFlow.id,
+                }),
             ])
         })
 

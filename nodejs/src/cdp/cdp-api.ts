@@ -1363,7 +1363,13 @@ export class CdpApi {
                     await idempotencyKeys.markQueued(team.id, idempotencyKey, fingerprint, invocation.id)
                 }
                 stages.start('metrics_flush')
-                this.emailStatusService.queue({ teamId: team.id, messageId: invocation.id, status: 'queued' })
+                this.emailStatusService.queue({
+                    teamId: team.id,
+                    messageId: invocation.id,
+                    status: 'queued',
+                    recipient: to,
+                    functionId: hogFlow.id,
+                })
                 // Best-effort rows, so the 202 waits for the hand-off to Kafka (flushed on shutdown) but not the acks.
                 const warnTelemetryFlushFailed = (error: unknown) =>
                     logger.warn('⚠️', 'Transactional email telemetry flush failed', {

@@ -498,6 +498,7 @@ export class EmailService {
         let throttled: boolean = false
         let assetRow: MessageAssetRow | null = null
         let trackingEnabled = true
+        let sendingDomain = ''
 
         try {
             // Team-level kill switches: staff suspend all workflow email for a team whose sender
@@ -583,6 +584,7 @@ export class EmailService {
             }
 
             const from = this.resolveFromSender(integration, params.from, addLog)
+            sendingDomain = from.email.split('@').pop()?.toLowerCase() ?? ''
 
             // An empty `to` comes from the customer's data (a person without an email property, or no
             // person at all), not from a fault in the send path. SES rejects it as an invalid address,
@@ -875,6 +877,7 @@ export class EmailService {
                     messageId: invocation.id,
                     status: success ? 'sent' : 'failed',
                     reason: success ? undefined : 'provider_error',
+                    sendingDomain,
                 })
             }
         }

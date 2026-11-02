@@ -271,7 +271,8 @@ const toHeaderAddresses = (rec: SesEventRecord): Set<string> =>
     )
 
 /**
- * The status change a Delivery, Bounce, Complaint or Reject record makes to the email it reports on, or null.
+ * The status change a Delivery, Bounce, Complaint or Reject record makes to the email it reports on, or the
+ * open or click an Open or Click record adds to it, or null.
  *
  * The status describes the email to its To recipient. SES reports cc and bcc copies under the same
  * message, so a record counts only when one of its recipients is in the To header.
@@ -303,6 +304,10 @@ const resolveEmailStatusUpdate = (
         case 'Reject':
             // SES refuses the whole message, so the email fails for its To recipient too.
             return { status: 'failed', reason: 'provider_rejected', timestamp: rec.mail.timestamp }
+        case 'Open':
+            return { status: 'opened', timestamp: rec.open.timestamp }
+        case 'Click':
+            return { status: 'clicked', timestamp: rec.click.timestamp }
         default:
             return null
     }

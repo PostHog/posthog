@@ -21,7 +21,13 @@ const counterEmailStatusWriteFailed = new Counter({
     labelNames: ['status'],
 })
 
-export type EmailStatus = 'queued' | 'failed' | 'sent' | 'delivered' | 'bounced' | 'complained'
+export type EmailDeliveryStatus = 'queued' | 'failed' | 'sent' | 'delivered' | 'bounced' | 'complained'
+
+// What the recipient did with the email. These rows only reach email_status_events, never email_status,
+// so they never replace a delivery status.
+export type EmailEngagementStatus = 'opened' | 'clicked'
+
+export type EmailStatus = EmailDeliveryStatus | EmailEngagementStatus
 
 export type EmailStatusReason =
     // A bounce type, in the words the `$bounce_type` event property uses.
@@ -63,6 +69,8 @@ const STATUS_RANK: Record<EmailStatus, bigint> = {
     delivered: 5n,
     bounced: 6n,
     complained: 7n,
+    opened: 8n,
+    clicked: 9n,
 }
 
 // A run that fails on its email step fails after the step recorded why, for example
@@ -90,6 +98,9 @@ export interface EmailStatusRow {
     created_at: string
     status_at: string
     reason: string
+    recipient: string
+    function_id: string
+    sending_domain: string
 }
 
 export interface EmailStatusUpdate {
@@ -102,6 +113,11 @@ export interface EmailStatusUpdate {
     statusAt?: Date
     // A failure of the whole run rather than of the email step.
     runOutcome?: boolean
+    // Set on the queued row.
+    recipient?: string
+    functionId?: string
+    // Set on the sent row.
+    sendingDomain?: string
 }
 
 const isoMicroseconds = (date: Date): string => {
@@ -138,6 +154,9 @@ export const buildEmailStatusRow = (update: EmailStatusUpdate): EmailStatusRow =
         created_at: isoMicroseconds(uuidtCreatedAt(update.messageId)),
         status_at: isoMicroseconds(statusAt),
         reason: update.reason ?? '',
+        recipient: update.recipient ?? '',
+        function_id: update.functionId ?? '',
+        sending_domain: update.sendingDomain ?? '',
     }
 }
 
