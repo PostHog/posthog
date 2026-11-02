@@ -1796,6 +1796,31 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("legacy_task_key", ["signal_scout:write", "task:write"], status.HTTP_200_OK),
+            ("inbox_key", ["signal_scout:write", "inbox:write"], status.HTTP_200_OK),
+            ("narrow_key", ["signal_scout:write"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_adding_an_inbox_tool_accepts_the_legacy_task_scope(
+        self, _name: str, key_scopes: list[str], expected: int
+    ) -> None:
+        self._become_admin()
+        config = self._config()
+        SignalScoutConfig.objects.filter(pk=config.pk).update(allowed_mcp_tools=["insight-get"])
+        raw = self._personal_api_key(key_scopes)
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.patch(
+                self._detail_url(str(config.id)),
+                data={"allowed_mcp_tools": ["insight-get", "inbox-reports-claim"]},
+                format="json",
+                HTTP_AUTHORIZATION=f"Bearer {raw}",
+            )
+
+        assert response.status_code == expected, response.json()
+
+    @parameterized.expand(
+        [
             ("read", ["insight-get"], []),
             ("write", ["dashboard-create"], ["dashboard:write"]),
             ("empty", [], []),

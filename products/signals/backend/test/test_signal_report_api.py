@@ -3663,9 +3663,16 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
                 f"/api/projects/{self.team.id}/signals/reports/{report.id}/", {"title": "Edited"}, format="json"
             )
             changed = self.client.post(self._state_url(str(report.id)), {"state": "suppressed"})
+            for_me = self.client.get(f"/api/projects/{self.team.id}/signals/reports/for_me/")
+            bulk_claimed = self.client.post(
+                f"/api/projects/{self.team.id}/signals/reports/bulk_claim/", {"ids": [str(report.id)]}, format="json"
+            )
 
         assert listed.status_code == list_status
         assert changed.status_code == state_status
+        assert bulk_claimed.status_code == state_status, bulk_claimed.content
+        # The ranking flag is off here, so a request that passes the scope check gets a 404.
+        assert for_me.status_code == (status.HTTP_404_NOT_FOUND if list_status == status.HTTP_200_OK else list_status)
         assert edited.status_code == (status.HTTP_200_OK if can_edit else status.HTTP_403_FORBIDDEN), edited.content
         if state_status == status.HTTP_403_FORBIDDEN:
             assert "inbox:write" in changed.json()["detail"]

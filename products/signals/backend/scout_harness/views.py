@@ -3173,7 +3173,7 @@ def assert_can_grant_scout_write_scopes(
     user = cast(User, request.user)
     token_scopes = get_authenticator_scopes(request.successful_authenticator)
     if token_scopes is not None and "*" not in token_scopes:
-        missing = sorted(added_scopes - set(token_scopes))
+        missing = scopes_missing_after_legacy_fallback(request, None, token_scopes, sorted(added_scopes))
         if missing:
             raise exceptions.PermissionDenied(
                 f"This API key does not carry {', '.join(missing)}, so it cannot grant that access to a scout."

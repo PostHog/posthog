@@ -97,9 +97,22 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         assert self.client.get(self._url()).status_code == 200
         self.config.refresh_from_db()
         assert getattr(self.config, field) in (None, [])
+        form_response = self.client.post(
+            self._url(),
+            {f"{field}[0]" if field == "implementation_repositories" else field: "example/assets"},
+            format="multipart",
+        )
+        assert form_response.status_code == 403, form_response.content
 
     @parameterized.expand(
         [
+            (
+                "implementation_repositories",
+                "implementation_repositories",
+                ["example/assets"],
+                ["inbox:write"],
+                status.HTTP_403_FORBIDDEN,
+            ),
             ("inbox_only", "implementation_instructions", "Push to main.", ["inbox:write"], status.HTTP_403_FORBIDDEN),
             (
                 "inbox_and_task",
@@ -115,7 +128,7 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         ]
     )
     def test_task_run_fields_need_task_scope(
-        self, _name: str, field: str, value: str, scopes: list[str], expected: int
+        self, _name: str, field: str, value: str | list[str], scopes: list[str], expected: int
     ) -> None:
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
@@ -128,6 +141,21 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         assert response.status_code == expected, response.content
         self.config.refresh_from_db()
         assert (getattr(self.config, field) == value) is (expected == status.HTTP_200_OK)
+
+    def test_form_encoded_task_run_field_needs_task_scope(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        api_key = self.create_personal_api_key_with_scopes(["inbox:write"])
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        response = self.client.post(
+            self._url(), {"autostart_base_branches.example/repo": "release"}, format="multipart"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        self.config.refresh_from_db()
+        assert self.config.autostart_base_branches != {"example/repo": "release"}
 
     def test_steering_save_preserves_a_concurrent_autonomy_change(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.MEMBER

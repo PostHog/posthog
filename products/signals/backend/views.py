@@ -678,12 +678,17 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 _SANDBOX_PROTECTED_CONFIG_FIELDS = (*STEERING_FIELDS.values(), "implementation_repositories")
 
 
+def _submitted_config_fields(request: Request) -> set[str]:
+    # A form encoding sends a nested value as `field.key` or `field[0]`, and DRF folds it back into `field`.
+    if not isinstance(request.data, dict):
+        return set()
+    return {re.split(r"[.\[]", key, maxsplit=1)[0] for key in request.data}
+
+
 class SignalSteeringPermission(BasePermission):
     def has_permission(self, request: Request, view: APIView) -> bool:
-        if (
-            request.method in ("GET", "HEAD", "OPTIONS")
-            or not isinstance(request.data, dict)
-            or not any(field in request.data for field in _SANDBOX_PROTECTED_CONFIG_FIELDS)
+        if request.method in ("GET", "HEAD", "OPTIONS") or _submitted_config_fields(request).isdisjoint(
+            _SANDBOX_PROTECTED_CONFIG_FIELDS
         ):
             return True
         if is_sandbox_oauth_request(request):
@@ -717,13 +722,14 @@ class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "issue_tracking_config",
         "pull_request_label_enabled",
         "pull_request_label",
+        "implementation_repositories",
         *STEERING_FIELDS.values(),
     )
 
     def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
         if request.method in ("GET", "HEAD", "OPTIONS"):
             return ["inbox:read"]
-        if isinstance(request.data, dict) and any(field in request.data for field in self.TASK_RUN_FIELDS):
+        if not _submitted_config_fields(request).isdisjoint(self.TASK_RUN_FIELDS):
             return ["inbox:write", "task:write"]
         return ["inbox:write"]
 
@@ -1768,7 +1774,7 @@ class SignalReportViewSet(
             "for the new list. Only the user the list is about can read it."
         ),
     )
-    @action(detail=False, methods=["get"], url_path="for_me", required_scopes=["task:read"], pagination_class=None)
+    @action(detail=False, methods=["get"], url_path="for_me", required_scopes=["inbox:read"], pagination_class=None)
     def for_me(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         user = request.user
         # A list describes one person, so only that person's own credentials can read it.
@@ -4462,7 +4468,7 @@ class SignalReportViewSet(
         ),
         operation_id="signals_reports_bulk_claim",
     )
-    @action(detail=False, methods=["post"], url_path="bulk_claim", required_scopes=["task:write"])
+    @action(detail=False, methods=["post"], url_path="bulk_claim", required_scopes=["inbox:write"])
     def bulk_claim(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
         data = request.validated_data
         ordered_ids = list(dict.fromkeys(str(raw_id) for raw_id in data["ids"]))
