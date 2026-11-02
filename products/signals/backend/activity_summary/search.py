@@ -197,7 +197,6 @@ def search_summaries(
         candidates[row.user_id] = candidate
     not_ready_count = len(members) - ready_count
 
-    terms = _terms(query)
     if not query or not query.strip():
         ordered = sorted(
             candidates.values(),
@@ -210,7 +209,7 @@ def search_summaries(
     keyword_ranking: list[int] = []
     keyword_matches: dict[int, tuple[SearchMatch, ...]] = {}
     if search_mode != SearchMode.SEMANTIC:
-        keyword_ranking, keyword_matches = _keyword_ranking(candidates, terms)
+        keyword_ranking, keyword_matches = _keyword_ranking(candidates, _terms(query))
 
     semantic_ranking: list[int] = []
     semantic_used = False
