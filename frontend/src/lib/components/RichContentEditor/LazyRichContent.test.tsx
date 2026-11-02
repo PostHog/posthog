@@ -7,7 +7,6 @@ import { LazyLemonRichContentEditor, LazyTextContent } from './LazyRichContent'
 let mockFailImports = true
 const mockChunkLoadError = (): Error => new Error('Failed to fetch dynamically imported module: /static/chunk.js')
 
-// A getter makes the import fail while the flag is set, the way a chunk fetch fails, and succeed after.
 jest.mock('lib/components/Cards/TextCard/TextContent', () => ({
     __esModule: true,
     get TextContent() {

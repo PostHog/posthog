@@ -54,10 +54,7 @@ interface ChunkRecovery {
     onClick: () => void
 }
 
-/**
- * Keeps a failed rich text chunk local to the component that needs it. Without it the error reaches the
- * app's ChunkLoadErrorBoundary, which reloads the page and drops what the user was doing.
- */
+// Without this boundary a failed chunk reaches ChunkLoadErrorBoundary, which reloads the page unasked.
 class LazyChunk<T extends ComponentType<any>> extends Component<
     LazyChunkProps<T>,
     { error: unknown; retried: boolean }
@@ -79,8 +76,7 @@ class LazyChunk<T extends ComponentType<any>> extends Component<
         this.setState({ error: null, retried: true })
     }
 
-    // The browser caches a chunk that fails to parse, and a deploy deletes old chunks, so a second
-    // failure or a parse failure needs a reload. The user chooses it, so no unsaved work is lost by surprise.
+    // A failed parse stays cached and a deploy deletes old chunks, so only a reload recovers those.
     recovery(error: unknown): ChunkRecovery {
         const needsReload = this.state.retried || (error as { name?: string }).name === 'SyntaxError'
         return needsReload
@@ -96,15 +92,11 @@ class LazyChunk<T extends ComponentType<any>> extends Component<
         if (error) {
             return this.props.renderError(this.recovery(error))
         }
-        // Read on every render, so a retry renders the new lazy component.
         return <Suspense fallback={this.props.loading}>{this.props.render(this.props.chunk.get())}</Suspense>
     }
 }
 
-/**
- * Starts loading the rich text stack before a component needs it. Call it from a logic as soon as
- * its data shows that rich text will render, so the chunk loads while the rest of the scene renders.
- */
+/** Call from a logic once its data shows rich text will render, so the chunk loads alongside the scene. */
 export function preloadRichContent(): void {
     void Promise.all([retryImport(importTextContent), retryImport(importLemonRichContentEditor)]).catch(() => {
         // The lazy component retries the import when it renders, and its error boundary handles a failure.
