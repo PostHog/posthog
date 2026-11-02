@@ -8,7 +8,7 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 TOKEN_SCOPES = "transactions:read reimbursements:read users:read cards:read departments:read"
 
 
-@dataclass
+@dataclass(frozen=True)
 class RampEndpointConfig:
     name: str
     # Path under {host}/developer/v1.
