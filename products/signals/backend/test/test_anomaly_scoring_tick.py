@@ -13,7 +13,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 import numpy as np
 from parameterized import parameterized
@@ -26,6 +26,7 @@ from posthog.schema import IntervalType
 
 from posthog.hogql.errors import QueryError, ResolutionError, TableAccessDeniedError
 
+from posthog.clickhouse.client import sync_execute
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.models import Organization, Team, User
 from posthog.tasks.alerts.detectors.base import ARTIFACT_SCHEMA_VERSION
@@ -44,6 +45,7 @@ from products.signals.backend.anomaly_scores.config import (
     ScoringRun,
     covers_team,
     parse_config,
+    read_payload,
 )
 from products.signals.backend.anomaly_scores.due_list import record_scored, refresh_due_list
 from products.signals.backend.anomaly_scores.emission import SCORER_DISTINCT_ID, score_events
@@ -79,6 +81,14 @@ from products.signals.backend.anomaly_scores.scoring import (
     trends_query_for,
 )
 from products.signals.backend.anomaly_scores.selection import SelectionConfig, Weighting
+from products.signals.backend.anomaly_scores.spend import (
+    _CACHE_KEY,
+    SpendSnapshot,
+    SpendStatus,
+    TeamSpend,
+    cpu_gate,
+    read_spend,
+)
 from products.signals.backend.anomaly_scores.state import RunPlan, load_state, plan_run, save_state
 from products.signals.backend.anomaly_scores.tick import (
     AnomalyScoringTickInput,
@@ -127,16 +137,23 @@ def _series(key: str, starts: list[datetime]) -> ScoredSeries:
     )
 
 
+_MISSING_OR_MALFORMED_PAYLOADS: list[tuple[str, Any]] = [
+    ("missing", None),
+    ("not_an_object", "enabled"),
+    ("no_enabled", {"organization_ids": [ORGANIZATION_ID]}),
+    ("enabled_not_bool", {"enabled": "true", "organization_ids": [ORGANIZATION_ID]}),
+    ("disabled", {"enabled": False, "organization_ids": [ORGANIZATION_ID], "allow_team_ids": [2]}),
+    ("allowlist_not_a_list", {"enabled": True, "organization_ids": [ORGANIZATION_ID], "allow_team_ids": 2}),
+    ("allowlist_null", {"enabled": True, "organization_ids": [ORGANIZATION_ID], "allow_team_ids": None}),
+    (
+        "allowlist_only_invalid_ids",
+        {"enabled": True, "organization_ids": [ORGANIZATION_ID], "allow_team_ids": ["2", True]},
+    ),
+]
+
+
 class TestTickConfig(SimpleTestCase):
-    @parameterized.expand(
-        [
-            ("missing", None),
-            ("not_an_object", "enabled"),
-            ("no_enabled", {"organization_ids": [ORGANIZATION_ID]}),
-            ("enabled_not_bool", {"enabled": "true", "organization_ids": [ORGANIZATION_ID]}),
-            ("disabled", {"enabled": False, "organization_ids": [ORGANIZATION_ID], "allow_team_ids": [2]}),
-        ]
-    )
+    @parameterized.expand(_MISSING_OR_MALFORMED_PAYLOADS)
     def test_a_missing_or_malformed_payload_does_no_work(self, _name: str, payload: Any) -> None:
         with (
             patch("products.signals.backend.anomaly_scores.config.read_flag_payload", return_value=payload),
@@ -180,6 +197,56 @@ class TestTickConfig(SimpleTestCase):
             IntervalType.MONTH: 3,
         }
         assert config.active_window_days == 90
+
+    @parameterized.expand([("missing", {}), ("empty", {"allow_team_ids": []})])
+    def test_an_absent_or_empty_allowlist_enrolls_every_team_of_the_listed_organizations(
+        self, _name: str, allowlist: dict[str, Any]
+    ) -> None:
+        config = parse_config({"enabled": True, "organization_ids": [ORGANIZATION_ID], **allowlist})
+
+        assert (config.enabled, config.allow_team_ids) == (True, ())
+
+    @parameterized.expand(
+        [
+            ("no_deployments", "US", {}, 1.0, 8),
+            ("matching_deployment", "US", {"deployments": {"US": {"self_driving_organization_percentage": 5}}}, 5.0, 8),
+            ("other_deployment", "EU", {"deployments": {"US": {"self_driving_organization_percentage": 5}}}, 1.0, 8),
+            ("no_cloud_deployment", None, {"deployments": {"US": {"self_driving_organization_percentage": 5}}}, 1.0, 8),
+            ("override_capped", "US", {"deployments": {"US": {"max_insights_per_tick": 100}}}, 1.0, 50),
+            (
+                "invalid_override_value",
+                "US",
+                {"deployments": {"US": {"self_driving_organization_percentage": "50"}}},
+                0.0,
+                8,
+            ),
+            ("deployments_not_an_object", "US", {"deployments": ["US"]}, 1.0, 8),
+            ("override_not_an_object", "US", {"deployments": {"US": 50}}, 1.0, 8),
+            (
+                "nested_deployments",
+                "US",
+                {"deployments": {"US": {"self_driving_organization_percentage": 50, "deployments": {}}}},
+                1.0,
+                8,
+            ),
+        ]
+    )
+    def test_the_deployment_override_merges_over_the_top_level_fields(
+        self, _name: str, deployment: str | None, overrides: dict[str, Any], percentage: float, max_insights: int
+    ) -> None:
+        payload = {"enabled": True, "self_driving_organization_percentage": 1, "max_insights_per_tick": 8, **overrides}
+
+        with (
+            override_settings(CLOUD_DEPLOYMENT=deployment),
+            patch("products.signals.backend.anomaly_scores.config.read_flag_payload", return_value=payload),
+        ):
+            config = parse_config(read_payload())
+
+        assert (config.enabled, config.self_driving_organization_percentage, config.max_insights_per_tick) == (
+            True,
+            percentage,
+            max_insights,
+        )
 
     @parameterized.expand(
         [
@@ -256,6 +323,72 @@ class TestShardPicks(SimpleTestCase):
         lists = shard_picks(picks, shards)
 
         assert [[(pick.team_id, pick.insight_id) for pick in shard] for shard in lists] == expected
+
+
+class TestCpuGate(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("limits_off", 0, 0, None, False, SpendStatus.FRESH, set(), set()),
+            ("team_over_its_limit", 10, 0, None, False, SpendStatus.FRESH, {1}, set()),
+            ("fleet_near_its_limit_stops_train", 0, 20, None, False, SpendStatus.FRESH, set(), {ScoringRun.TRAIN}),
+            (
+                "fleet_at_its_limit_stops_both",
+                0,
+                17,
+                None,
+                False,
+                SpendStatus.FRESH,
+                set(),
+                {ScoringRun.TRAIN, ScoringRun.SCORE},
+            ),
+            (
+                "recent_cache_skips_the_read",
+                10,
+                17,
+                5,
+                True,
+                SpendStatus.FRESH,
+                {1},
+                {ScoringRun.TRAIN, ScoringRun.SCORE},
+            ),
+            ("stale_spend_blocks_nothing", 10, 17, 40, True, SpendStatus.STALE, set(), set()),
+            ("missing_spend_blocks_nothing", 10, 17, None, True, SpendStatus.MISSING, set(), set()),
+        ]
+    )
+    def test_cpu_limits_block_only_with_fresh_spend(
+        self,
+        _name: str,
+        project_limit: int,
+        fleet_limit: int,
+        cached_minutes_ago: int | None,
+        read_fails: bool,
+        status: SpendStatus,
+        blocked_teams: set[int],
+        blocked_runs: set[ScoringRun],
+    ) -> None:
+        def snapshot(read_at: datetime) -> SpendSnapshot:
+            return SpendSnapshot(
+                day=read_at.date(),
+                read_at=read_at,
+                teams={1: TeamSpend(cpu_seconds=12.0, read_bytes=100), 2: TeamSpend(cpu_seconds=5.0, read_bytes=50)},
+            )
+
+        cache.delete(_CACHE_KEY)
+        if cached_minutes_ago is not None:
+            cache.set(_CACHE_KEY, snapshot(NOW - timedelta(minutes=cached_minutes_ago)))
+        config = AnomalyScoringConfig(
+            enabled=True,
+            max_cpu_seconds_per_project_per_day=project_limit,
+            max_fleet_cpu_seconds_per_day=fleet_limit,
+        )
+
+        with patch(
+            "products.signals.backend.anomaly_scores.spend.read_spend",
+            side_effect=ClickHouseQueryTimeOut() if read_fails else snapshot,
+        ):
+            gate = cpu_gate(config, NOW)
+
+        assert (gate.status, set(gate.blocked_teams), set(gate.blocked_runs)) == (status, blocked_teams, blocked_runs)
 
 
 class TestQueryBudget(SimpleTestCase):
@@ -635,7 +768,8 @@ class TestCaptureCensus(SimpleTestCase):
                 capture_census(census, now)
 
         sent = [
-            (call.kwargs["properties"]["day"], call.kwargs["properties"]["team_id"]) for call in capture.call_args_list
+            (call.kwargs["properties"]["census_date"], call.kwargs["properties"]["team_id"])
+            for call in capture.call_args_list
         ]
         assert sent == [("2026-10-22", 901), ("2026-10-22", 902), ("2026-10-23", 901), ("2026-10-23", 902)]
 
@@ -1091,6 +1225,47 @@ class TestDueList(ClickhouseTestMixin, BaseTest):
         assert sorted(rows) == sorted((team_id, insight.id) for team_id, insight in active.items())
 
 
+class TestReadSpend(ClickhouseTestMixin, BaseTest):
+    def test_sums_the_scoring_queries_of_the_day_per_team(self) -> None:
+        today = NOW.replace(hour=1)
+        other_team_id = self.team.id + 1_000_000
+        rows = [
+            # One distributed train query: the initial row holds the bytes, and every node row holds its CPU.
+            (today, self.team.id, "train", 1, 2_000_000, 300, "signals", "alerting", "anomaly_scoring_train"),
+            (today, self.team.id, "train", 0, 1_000_000, 0, "signals", "alerting", "anomaly_scoring_train"),
+            (today, self.team.id, "score", 1, 500_000, 40, "signals", "alerting", "anomaly_scoring_score"),
+            (today, other_team_id, "other_team", 1, 4_000_000, 7, "signals", "alerting", "anomaly_scoring_score"),
+            # Not a scoring query: the scored-buckets read, and a query of another product with the same name.
+            (today, self.team.id, "buckets", 1, 9_000_000, 9, "signals", "alerting", ""),
+            (today, self.team.id, "foreign", 1, 9_000_000, 9, "insights", "alerting", "anomaly_scoring_train"),
+            (
+                today - timedelta(days=1),
+                self.team.id,
+                "yesterday",
+                1,
+                9_000_000,
+                9,
+                "signals",
+                "alerting",
+                "anomaly_scoring_train",
+            ),
+        ]
+        sync_execute(
+            """INSERT INTO sharded_query_log_archive_v3
+            (initial_query_start_time, team_id, initial_query_id, is_initial_query,
+             ProfileEvents_OSCPUVirtualTimeMicroseconds, read_bytes, lc_product, lc_feature, lc_name) VALUES""",
+            rows,
+        )
+
+        snapshot = read_spend(NOW)
+
+        # The query log also holds the real queries of other tests.
+        assert {team_id: snapshot.teams.get(team_id) for team_id in (self.team.id, other_team_id)} == {
+            self.team.id: TeamSpend(cpu_seconds=3.5, read_bytes=340),
+            other_team_id: TeamSpend(cpu_seconds=4.0, read_bytes=7),
+        }
+
+
 class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
     def test_reads_the_newest_scored_bucket_of_each_series(self) -> None:
         def score(insight_id: int, series_key: str, bucket: datetime, source: str = "insight") -> None:
@@ -1247,6 +1422,47 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
 
         assert [pick.insight_id for pick in selection.picks] == [insights[self.team.id].id]
         assert (selection.teams_planned, selection.teams_skipped) == (1, 1)
+
+    @time_machine.travel(NOW, tick=False)
+    def test_select_insights_skips_a_project_over_its_cpu_limit(self) -> None:
+        heavy_team = Team.objects.create(organization=self.organization, name="Heavy")
+        insights = {}
+        for team in (self.team, heavy_team):
+            insight = Insight.objects.create(team=team, name=team.name, query=_trends(interval="day"))
+            DashboardTile.objects.create(dashboard=Dashboard.objects.create(team=team, name="Main"), insight=insight)
+            cache.delete_many([_cooldown_key(insight.id), _team_loaded_key(team.id)])
+            insights[team.id] = insight.id
+        cache.delete_many(
+            [_CACHE_KEY, _fleet_budget_key(NOW), *(_project_budget_key(team_id, NOW) for team_id in insights)]
+        )
+        config = AnomalyScoringConfig(
+            enabled=True,
+            organization_ids=(str(self.organization.id),),
+            allow_team_ids=(self.team.id, heavy_team.id),
+            max_cpu_seconds_per_project_per_day=60,
+        )
+        spend = SpendSnapshot(
+            day=NOW.date(),
+            read_at=NOW,
+            teams={
+                heavy_team.id: TeamSpend(cpu_seconds=61.0, read_bytes=1),
+                self.team.id: TeamSpend(cpu_seconds=1.0, read_bytes=1),
+            },
+        )
+
+        with (
+            patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=[]),
+            patch("products.signals.backend.anomaly_scores.spend.read_spend", return_value=spend),
+        ):
+            selection = select_insights(config, SelectionConfig(weighting=Weighting.UNIFORM), NOW, limit=10)
+
+        assert [pick.insight_id for pick in selection.picks] == [insights[self.team.id]]
+        assert selection.cpu is not None
+        assert (selection.cpu.status, selection.cpu.teams_over_limit, selection.cpu.train_skipped) == (
+            SpendStatus.FRESH,
+            1,
+            1,
+        )
 
     @time_machine.travel(NOW, tick=False)
     def test_a_plan_past_its_deadline_loads_one_team_and_the_next_plan_starts_from_another(self) -> None:
@@ -1535,17 +1751,19 @@ async def test_the_tick_stops_starting_picks_when_clickhouse_is_at_capacity(
         candidates=8,
         max_concurrency=2,
         skipped_for_budget=3,
+        self_driving_organization_percentage=5.0,
     )
 
     result, ran = await _run_tick(plan, statuses)
 
     assert sorted(ran) == started
-    assert (result.picked, result.queries, result.skipped_for_budget, result.stopped_at_capacity) == (
-        len(started),
-        queries,
-        3,
-        stopped,
-    )
+    assert (
+        result.picked,
+        result.queries,
+        result.skipped_for_budget,
+        result.stopped_at_capacity,
+        result.self_driving_organization_percentage,
+    ) == (len(started), queries, 3, stopped, 5.0)
 
 
 @pytest.mark.asyncio

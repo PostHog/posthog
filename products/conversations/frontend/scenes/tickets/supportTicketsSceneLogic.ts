@@ -269,8 +269,8 @@ export interface supportTicketsSceneLogicActions {
     loadSavedView: (shortId: string) => {
         shortId: string
     }
-    loadTickets: () => {
-        value: true
+    loadTickets: (debounce?: boolean) => {
+        debounce: boolean
     }
     resetFilters: () => {
         value: true
@@ -414,7 +414,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         setSorting: (sorting: Sorting | null) => ({ sorting }),
         setSearchQuery: (query: string) => ({ query }),
         setCurrentPage: (page: number) => ({ page }),
-        loadTickets: true,
+        loadTickets: (debounce: boolean = true) => ({ debounce }),
         setTickets: (tickets: Ticket[]) => ({ tickets }),
         setTotalCount: (count: number) => ({ count }),
         setTicketsLoading: (loading: boolean) => ({ loading }),
@@ -726,8 +726,10 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         ],
     }),
     listeners(({ actions, values, props, cache }) => ({
-        loadTickets: async (_, breakpoint) => {
-            await breakpoint(300)
+        loadTickets: async ({ debounce }, breakpoint) => {
+            if (debounce) {
+                await breakpoint(300)
+            }
             const params: Record<string, any> = {}
 
             if (props.distinctIds && props.distinctIds.length > 0) {
@@ -1074,6 +1076,6 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 }
             }
         }
-        actions.loadTickets()
+        actions.loadTickets(false)
     }),
 ])

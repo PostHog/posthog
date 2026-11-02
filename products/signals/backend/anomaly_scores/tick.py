@@ -68,6 +68,7 @@ from products.signals.backend.anomaly_scores.scoring import (
     score_insight,
 )
 from products.signals.backend.anomaly_scores.selection import parse_selection_config
+from products.signals.backend.anomaly_scores.spend import CpuSpendReport
 from products.signals.backend.anomaly_scores.state import invalidate_state, load_state, save_state
 
 logger = structlog.get_logger(__name__)
@@ -136,9 +137,11 @@ class AnomalyScoringTickPlan:
     enrolled_organizations: int = 0
     teams_planned: int = 0
     teams_skipped: int = 0
+    self_driving_organization_percentage: float = 0.0
     due_insights: int | None = None
     oldest_due_seconds: int | None = None
     oldest_refresh_seconds: int | None = None
+    cpu: CpuSpendReport | None = None
 
 
 @frozen
@@ -194,6 +197,8 @@ class AnomalyScoringTickResult:
     # Teams with active insights that the plan loaded, and the teams that wait for a later tick.
     teams_planned: int = 0
     teams_skipped: int = 0
+    # The percentage rollout after the overrides of this deployment.
+    self_driving_organization_percentage: float = 0.0
     # The plan activity failed, and the tick scored nothing. `plan_error` is the error class.
     plan_failed: bool = False
     plan_error: str | None = None
@@ -202,6 +207,8 @@ class AnomalyScoringTickResult:
     due_insights: int | None = None
     oldest_due_seconds: int | None = None
     oldest_refresh_seconds: int | None = None
+    # The CPU spend that the plan read, and what its CPU limits left out. None when the plan did not run.
+    cpu: CpuSpendReport | None = None
     # Shards that started picks, the most picks that one shard started, and the time of the slowest shard.
     shards: int = 0
     max_shard_picks: int = 0
@@ -249,9 +256,11 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPl
         enrolled_organizations=selection.enrolled_organizations,
         teams_planned=selection.teams_planned,
         teams_skipped=selection.teams_skipped,
+        self_driving_organization_percentage=config.self_driving_organization_percentage,
         due_insights=selection.due_insights,
         oldest_due_seconds=selection.oldest_due_seconds,
         oldest_refresh_seconds=selection.oldest_refresh_seconds,
+        cpu=selection.cpu,
     )
 
 
@@ -409,7 +418,7 @@ def capture_census(census: list[TeamCensus], now: datetime.datetime) -> None:
             properties={
                 "deployment": settings.CLOUD_DEPLOYMENT,
                 "team_id": team.team_id,
-                "day": day.isoformat(),
+                "census_date": day.isoformat(),
                 "active_insights": team.active,
                 **{f"active_{reason}": count for reason, count in team.active_reasons.items()},
                 **{f"interval_{interval}": count for interval, count in team.active_intervals.items()},
@@ -525,6 +534,7 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
         plan_ms=result.plan_ms,
         teams_planned=result.teams_planned,
         teams_skipped=result.teams_skipped,
+        self_driving_organization_percentage=result.self_driving_organization_percentage,
         plan_failed=result.plan_failed,
         plan_error=result.plan_error,
         due_insights=result.due_insights,
@@ -533,7 +543,9 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
         shards=result.shards,
         max_shard_picks=result.max_shard_picks,
         longest_shard_ms=result.longest_shard_ms,
+        cpu=result.cpu,
     )
+    cpu = result.cpu
     ph_background_capture()(
         distinct_id=ANOMALY_SCORING_FLAG_DISTINCT_ID,
         event="anomaly scoring tick",
@@ -563,6 +575,7 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
             "plan_ms": result.plan_ms,
             "teams_planned": result.teams_planned,
             "teams_skipped": result.teams_skipped,
+            "self_driving_organization_percentage": result.self_driving_organization_percentage,
             "plan_failed": result.plan_failed,
             "plan_error": result.plan_error,
             "due_insights": result.due_insights,
@@ -571,6 +584,12 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
             "shards": result.shards,
             "max_shard_picks": result.max_shard_picks,
             "longest_shard_ms": result.longest_shard_ms,
+            "cpu_spend_status": cpu.status if cpu else None,
+            "fleet_cpu_seconds_today": cpu.fleet_cpu_seconds if cpu else None,
+            "fleet_read_bytes_today": cpu.fleet_read_bytes if cpu else None,
+            "teams_over_cpu_limit": cpu.teams_over_limit if cpu else None,
+            "train_skipped_for_cpu": cpu.train_skipped if cpu else None,
+            "score_skipped_for_cpu": cpu.score_skipped if cpu else None,
         },
     )
 
@@ -664,12 +683,14 @@ class AnomalyScoringTickWorkflow:
             plan_ms=plan_ms,
             teams_planned=plan.teams_planned,
             teams_skipped=plan.teams_skipped,
+            self_driving_organization_percentage=plan.self_driving_organization_percentage,
             due_insights=plan.due_insights,
             oldest_due_seconds=plan.oldest_due_seconds,
             oldest_refresh_seconds=plan.oldest_refresh_seconds,
             shards=len(shards),
             max_shard_picks=max((len(shard.started) for shard in shards), default=0),
             longest_shard_ms=max((shard.duration_ms for shard in shards), default=0),
+            cpu=plan.cpu,
         )
         await self._capture(result)
         return result
