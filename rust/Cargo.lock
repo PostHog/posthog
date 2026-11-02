@@ -6607,6 +6607,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "ingestion-framework"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bytes",
+ "chrono",
+ "criterion",
+ "futures",
+ "indexmap 2.13.0",
+ "metrics",
+ "metrics-util",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "ingestion-worker-proto"
 version = "0.1.0"
 dependencies = [

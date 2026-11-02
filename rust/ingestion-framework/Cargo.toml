@@ -1,0 +1,33 @@
+[package]
+name = "ingestion-framework"
+version = "0.1.0"
+edition = "2021"
+description = "Rust port of the Node ingestion pipeline framework (nodejs/src/ingestion/framework)"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+bytes = { workspace = true }
+chrono = { workspace = true }
+futures = { workspace = true }
+indexmap = { version = "2", features = ["serde"] }
+metrics = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["async_tokio"] }
+metrics-util = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
+tracing-subscriber = { workspace = true }
+
+[[bench]]
+name = "framework"
+harness = false
