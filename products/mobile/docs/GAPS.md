@@ -38,8 +38,8 @@ Known gaps and behavior that stays on the device.
 - **The suggested prompts stay visible behind the organization AI notice.** When the organization has not allowed AI processing, the empty state's prompt chips still render above the notice, and a tap on one has no composer to fill.
 - **Legacy conversations are not listed.** The Chats list shows task sessions only.
   LangGraph chats made before the move stay in the web app's legacy view and `/ai?chat=<id>` links.
-- **No message queueing while the agent works.** Stop replaces Send until the turn ends.
-  The web queues messages typed meanwhile and joins them into one `user_message` after `turn_complete`.
+- **Queued messages require review after reopening a chat.** Queued text is saved with the chat's draft in native secure storage before the composer clears. Delivery keeps that saved text until the server acknowledges it. After a restart or reopening, the queue waits for **Send now** because a message may already have reached the agent. Check the conversation before repeating it; delivery is not exactly once.
+  Queued files stay in memory. After reopening, messages that had files cannot send until you copy their text, remove them, and attach the files again. File paths and contents are not saved in the draft store. Storage failures keep the composer or queue visible and show retry feedback. Drafts and queues are isolated by account, host, project, and chat, and cleared on sign-out. The web preview keeps them in memory only.
 - **No PostHog Desktop access pre-check.** A refused user learns it from the 403 on the first send.
   `GET /api/code/invites/check-access/` evaluates the server-side current team, which can differ from the app's project,
   and the project-scoped `desktop/access/` needs `llm_gateway:read`, which the app does not request.

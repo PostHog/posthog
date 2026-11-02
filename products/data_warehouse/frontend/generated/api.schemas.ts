@@ -1871,6 +1871,10 @@ export interface SyncFrequencyOptionApi {
     blocked_by: SyncFrequencyBlockedByEnumApi | null
     /** The source or consumer named in `blocked_by`. Null when allowed, and also when the blocker sits outside the caller's access grants, where `blocked_by` still gives the direction. */
     blocker: SyncFrequencyBlockerApi | null
+    /** Upstream materialized views that would refresh more often than they do now if this cadence were chosen, because a view cannot be fresher than its inputs. Only views the caller may read are listed. Empty when the cadence is blocked. */
+    speeds_up: SyncFrequencyBlockerApi[]
+    /** True when at least one view this cadence speeds up sits outside the caller's access grants, so `speeds_up` is incomplete. */
+    speeds_up_withheld: boolean
 }
 
 export interface SyncFrequencyBoundApi {

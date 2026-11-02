@@ -72,6 +72,16 @@ def _flag_called_constants(expr: ast.Expr) -> list[ast.Constant]:
     return []
 
 
+def count_flag_calls_read_from_events(resolved: ast.AST) -> int:
+    """How many `$feature_flag_called` literals a resolved query compares to the events table's `event` column.
+
+    Unlike the warnings below, it counts a literal that a query builder made, which has no span.
+    """
+    finder = _FlagCalledLiteralFinder(EventsTable)
+    finder.visit(resolved)
+    return len(finder.literals)
+
+
 def flag_called_on_events_warnings(
     node: ast.SelectQuery | ast.SelectSetQuery, context: HogQLContext
 ) -> list[HogQLNotice]:
