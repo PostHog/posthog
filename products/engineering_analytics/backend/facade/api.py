@@ -41,6 +41,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     CurrentBranchHealth,
     DeliveryComparison,
     DeliverySummary,
+    DepotCIRepoUsage,
     DoraOverview,
     FlakyTestList,
     GitHubSource,
@@ -887,3 +888,15 @@ def get_github_team_roster(*, team: Team, user_access_control: "UserAccessContro
     insists on. An unsynced snapshot comes back as ``synced=False``, never an error.
     """
     return logic.build_github_team_roster(team=team, user_access_control=user_access_control)
+
+
+def get_depot_ci_usage(
+    *,
+    team: Team,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> list[DepotCIRepoUsage]:
+    return logic.build_depot_ci_usage(
+        team=team, date_from=date_from, date_to=date_to, user_access_control=user_access_control
+    )

@@ -38429,6 +38429,22 @@ export namespace Schemas {
       deployment_count: number;
     }
 
+    export interface DepotCIRepoUsage {
+      /** Repository the Depot source syncs, as lowercase 'owner/name'. */
+      repo: string;
+      /** Finished Depot CI job attempts that started in the window. */
+      attempts: number;
+      /** Sum of those attempts' run time, start to finish. Includes hand-off jobs and re-runs that the other CI reads hide, because Depot bills them. */
+      elapsed_seconds: number;
+      /** elapsed_seconds at the Depot CI list price, with every attempt priced as the default 2-vCPU sandbox because Depot reports no runner size per attempt. */
+      estimated_cost_usd: number;
+      /**
+         * When the Depot source last synced. Attempts that finished after it are not counted.
+         * @nullable
+         */
+      synced_at: string | null;
+    }
+
     export interface DeprovisionWarehouseResponse {
       /** Deprovisioning lifecycle message, e.g. 'deprovisioning started' */
       status: string;
@@ -135494,6 +135510,17 @@ export namespace Schemas {
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
+    };
+
+    export type EngineeringAnalyticsDepotCiUsageParams = {
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
     };
 
     export type EngineeringAnalyticsDoraParams = {

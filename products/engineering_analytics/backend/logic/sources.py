@@ -598,27 +598,27 @@ def resolve_depot_job_attempts_tables(
     """
     return {
         repository: depot.attempts
-        for repository, depot in _depot_job_attempts_by_repo(team, user_access_control).items()
+        for repository, depot in depot_job_attempts_by_repo(team, user_access_control).items()
     }
 
 
 @frozen
-class _SyncedDepotJobAttempts:
+class SyncedDepotJobAttempts:
     attempts: depot_ci.DepotJobAttempts
     synced_at: datetime | None
 
 
-def _depot_job_attempts_by_repo(
+def depot_job_attempts_by_repo(
     team: Team, user_access_control: "UserAccessControl | None"
-) -> dict[str, _SyncedDepotJobAttempts]:
-    by_repo: dict[str, _SyncedDepotJobAttempts] = {}
+) -> dict[str, SyncedDepotJobAttempts]:
+    by_repo: dict[str, SyncedDepotJobAttempts] = {}
     for source in _accessible_sources(team, ExternalDataSourceType.DEPOT, user_access_control):
         repository = _source_repository(source).casefold()
         schema = _synced_schema(team, source, DEPOT_JOB_ATTEMPTS_SCHEMA) if repository else None
         table = schema.table if schema is not None else None
         attempts = depot_ci.DepotJobAttempts.for_repository(table.name, repository) if table is not None else None
         if schema is not None and attempts is not None:
-            by_repo.setdefault(repository, _SyncedDepotJobAttempts(attempts=attempts, synced_at=schema.last_synced_at))
+            by_repo.setdefault(repository, SyncedDepotJobAttempts(attempts=attempts, synced_at=schema.last_synced_at))
     return by_repo
 
 
@@ -630,7 +630,7 @@ def resolve_ci_data_freshness(
     Runs and jobs of a repository with synced Depot CI job attempts come from two tables each, so each
     time is the older of the two. Every row a read returns is then at least that fresh.
     """
-    depot = _depot_job_attempts_by_repo(team, user_access_control).get(tables.repository.casefold())
+    depot = depot_job_attempts_by_repo(team, user_access_control).get(tables.repository.casefold())
 
     def watermark(github_synced_at: datetime | None) -> datetime | None:
         if depot is None:

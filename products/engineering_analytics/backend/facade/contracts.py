@@ -269,6 +269,21 @@ class GitHubTeamMembership:
 
 
 @dataclass(frozen=True)
+class DepotCIRepoUsage:
+    """The Depot CI time one synced Depot source recorded for its repository in a window.
+
+    Counts every finished job attempt that started in the window, read from the raw source rows, so
+    hand-off jobs and re-runs that the curated CI reads hide are counted here, as Depot bills them.
+    """
+
+    repo: str
+    attempts: int
+    elapsed_seconds: float
+    estimated_cost_usd: float
+    synced_at: datetime | None
+
+
+@dataclass(frozen=True)
 class GitHubTeamRoster:
     """Every synced org team membership, and whether there was a snapshot to read at all.
 
