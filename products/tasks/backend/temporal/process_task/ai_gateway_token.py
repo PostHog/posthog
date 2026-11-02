@@ -129,12 +129,7 @@ _MINT_ATTEMPTS = 2
 _MINT_TIMEOUT_SECONDS = 3
 
 
-def resolve_sandbox_ai_product(
-    origin_product: str | None, ai_stage: str | None, *, internal: bool = False, billing_product: str | None = None
-) -> str:
-    """The `ai_product` the agent server will resolve for this run."""
-    if origin_product in ("signal_report", "signals_scout") and billing_product == "posthog_ai":
-        return "posthog_ai"
+def _origin_gateway_product(origin_product: str | None, *, internal: bool) -> str:
     gateway_product = _ORIGIN_TO_GATEWAY_PRODUCT.get(origin_product or "")
     # Stored rows may carry a caller-set review_hog origin predating its
     # reservation; only the server-stamped `internal` flag admits the mintable product.
@@ -145,7 +140,22 @@ def resolve_sandbox_ai_product(
         logger.warning("account_audit origin without server-stamped internal flag; resolving posthog_code")
         return "posthog_code"
     if gateway_product is None:
-        gateway_product = "background_agents" if internal else "posthog_code"
+        return "background_agents" if internal else "posthog_code"
+    return gateway_product
+
+
+def resolve_sandbox_ai_product(
+    origin_product: str | None,
+    ai_stage: str | None,
+    *,
+    internal: bool = False,
+    billing_product: str | None = None,
+    profile_billing_product: str | None = None,
+) -> str:
+    """The `ai_product` the agent server will resolve for this run."""
+    if origin_product in ("signal_report", "signals_scout") and billing_product == "posthog_ai":
+        return "posthog_ai"
+    gateway_product = profile_billing_product or _origin_gateway_product(origin_product, internal=internal)
     if gateway_product == "signals" and ai_stage:
         stage = "scout" if ai_stage.startswith(_SCOUT_STAGE_PREFIX) else ai_stage
         if stage in _SIGNALS_STAGE_PRODUCTS:

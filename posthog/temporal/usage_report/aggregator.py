@@ -60,6 +60,12 @@ _SANDBOX_COMPUTE_DESTINATION_KEYS = (
 )
 _LOGS_DISTINCT_PATTERNS_QUERY_NAME = "teams_with_logs_distinct_patterns_in_period"
 _TRANSACTIONAL_EMAILS_QUERY_NAME = "teams_with_workflow_transactional_emails_sent_in_period"
+_MCP_EVENT_COUNT_QUERY_NAME = "teams_with_mcp_event_count_in_period"
+_REPLAY_VISION_SPEND_PROJECTION_QUERY_NAME = "replay_vision_spend_projection"
+_REPLAY_VISION_SPEND_PROJECTION_DESTINATION_KEYS = (
+    "teams_with_replay_vision_scanner_projected_credits",
+    "teams_with_replay_vision_backfill_committed_credits",
+)
 
 
 def load_usage_counter_report(inputs: AggregateInputs) -> UsageCounterReport:
@@ -111,6 +117,21 @@ def add_pre_transactional_emails_patch_defaults(
 ) -> None:
     if not any(result.query_name == _TRANSACTIONAL_EMAILS_QUERY_NAME for result in query_results):
         all_data[_TRANSACTIONAL_EMAILS_QUERY_NAME] = {}
+
+
+def add_pre_mcp_event_count_patch_defaults(
+    all_data: dict[str, dict[int, int]], query_results: list[RunQueryToS3Result]
+) -> None:
+    if not any(result.query_name == _MCP_EVENT_COUNT_QUERY_NAME for result in query_results):
+        all_data[_MCP_EVENT_COUNT_QUERY_NAME] = {}
+
+
+def add_pre_replay_vision_spend_projection_patch_defaults(
+    all_data: dict[str, dict[int, int]], query_results: list[RunQueryToS3Result]
+) -> None:
+    if not any(result.query_name == _REPLAY_VISION_SPEND_PROJECTION_QUERY_NAME for result in query_results):
+        for key in _REPLAY_VISION_SPEND_PROJECTION_DESTINATION_KEYS:
+            all_data[key] = {}
 
 
 def iter_chunk_lines(

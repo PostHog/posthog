@@ -154,6 +154,8 @@ On each check run, for every team in the batch:
 
 Teams are split into batches of `batch_size` IDs. Up to `max_concurrent` batches run concurrently, controlled by an `asyncio.Semaphore` in the Temporal workflow. Each batch activity has a retry policy (3 attempts, 30 s initial interval, exponential backoff up to 5 min).
 
+The workflow reads team IDs one page at a time, in ID order, and continues as new between pages when its history grows. A small `batch_size` therefore makes a run longer, but it cannot make Temporal end the run early.
+
 Set the `policy` class attribute on your `HealthCheck` subclass to choose one.
 
 ## Configuration guide
@@ -225,10 +227,68 @@ rows = execute_clickhouse_health_team_query(
 
 Default ClickHouse settings: `max_execution_time=30`, `max_threads=2`.
 
+## Daily rollups
+
+Checks that would scan days of raw `events` read a daily rollup on Postgres instead.
+A Dagster job per rollup reads one UTC day from ClickHouse and replaces that day in a small Postgres table in one transaction.
+
+| Table                               | Product       | Kept    | Dagster job                             | Read by                             |
+| ----------------------------------- | ------------- | ------- | --------------------------------------- | ----------------------------------- |
+| `growth_sdk_versions_daily`         | growth        | 10 days | `growth_sdk_versions_daily_job`         | `sdk_outdated`, the SDK Health page |
+| `web_analytics_events_health_daily` | web analytics | 35 days | `web_analytics_events_health_daily_job` | six web checks, in shadow mode      |
+| `web_analytics_host_proxy_daily`    | web analytics | 35 days | `web_analytics_host_proxy_daily_job`    | `partial_proxy`, in shadow mode     |
+
+### How a day is published
+
+The job runs at 01:00 UTC. It publishes yesterday, and refills the day before only if its rows or events moved by more than 1%, which picks up late events.
+It also publishes every day that retention keeps and that has no rows yet.
+So the first run after a deploy fills the whole retention window, and a day lost to an outage comes back on the next run.
+
+A filled day is refused, and the published day stays as it was, when:
+
+- it has no rows, which is what a ClickHouse outage looks like
+- it has more than 2M rows
+- it has fewer than half the rows of the median of the last 7 published days, unless the run is forced
+
+Rows for teams that no longer exist are dropped before writing, and team deletion removes a team's rows.
+Every run also deletes the rows of teams that no longer exist, which a fill can write while a team deletion runs.
+A refused or failed day does not stop the other days or the clean-up, and the run fails at the end, which alerts the owning team.
+Dagster retries a failed run twice, 15 minutes apart, unless every failed day was refused.
+
+To fill a day by hand, launch the job in Dagster with `days: ["2026-10-01", ...]`, and add `force: true` to publish a day the median rule refused.
+
+### Reading a rollup from a check
+
+Subclass `RollupHealthCheck` instead of `HealthCheck`, set `rollup_model` and `window_days`, and implement `detect_from_rollup(team_ids, window)`.
+The window ends at the latest published day (L).
+When L is missing or more than two days old, or any day of the window is missing, the base class raises `HealthCheckBatchSkipped`.
+The batch then keeps its issues, and the run fails once skipped teams pass `not_processed_threshold`.
+Events after L are not in the rollup, so a check that must see them adds a small live ClickHouse query from `window.live_since`.
+
+A check moving onto a rollup starts in shadow mode with `reads_rollup = False`, and keeps its raw-event query as `detect_from_events`.
+Its issues still come from raw events, and each batch also runs `detect_from_rollup` on a sample of teams and logs `health check rollup comparison` with the agreement rate and the disagreeing team ids.
+Expect some disagreement for teams whose state changed today, because the raw query sees today and the rollup does not.
+`different_payloads` counts teams flagged by both with other hostnames or counts in the payload, which the agreement rate leaves out.
+Counts in a reason, such as the share of pageviews without a session id, differ a little by design, because the two windows end at different times.
+While in shadow mode the check runs in `CLICKHOUSE_BATCH_EXECUTION_POLICY` batches, because the raw-event query still runs.
+Remove `reads_rollup = False` and delete `detect_from_events` when the comparison looks right.
+
+Read rows through `window_rows(model, team_ids, window)` (`rollups/freshness.py`).
+Name the rollup model in `READ_REPLICA_OPT_IN` to read it from the read replica.
+
+### Adding a rollup
+
+Subclass `DailyRollup` (`rollups/framework.py`) next to the product's model, with `columns`, `fill_sql()` and `retention_days`.
+The fill drops rows whose strings exceed a column's `max_length` or hold a NUL byte, but filter client-controlled values in `fill_sql()` too, so the dropped count stays near zero.
+A fill reads every team's events, so read event properties through their materialized columns where they exist.
+Build its job and schedule with `build_daily_rollup_definitions` (`posthog/dags/daily_rollups.py`) in the product's `dags/`, and register both in the product's Dagster location.
+The model needs a composite primary key over the natural key, an index on `day`, no foreign keys, and `EnvironmentScopedManager`, and the product facade must delete its rows on team deletion.
+
 ## ClickHouse kill switch
 
 Health checks are automatically skipped when the ClickHouse kill switch is active (LIGHT or FULL).
-The `get_team_id_batches` activity returns an empty list, and the workflow completes with `total_teams: 0`.
+The `get_team_id_page` activity returns a page marked `stopped_by_kill_switch`, also in the middle of a run.
+The workflow then stops and sends no metrics, so the last-run timestamp still shows the last run that checked every team.
 
 ## Admin UI
 

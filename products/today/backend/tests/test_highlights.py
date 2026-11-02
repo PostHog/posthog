@@ -378,14 +378,6 @@ class TestGetHighlights(BaseTest):
                 1,
                 [],
             ),
-            (
-                "a ready row for the other pulse ranking",
-                {"status": HighlightsStatus.READY, "ready_at": timedelta(minutes=1)},
-                HighlightsStatus.COMPUTING,
-                1,
-                [],
-                "frecency",
-            ),
         ]
     )
     def test_the_request_never_waits_for_a_computation(
@@ -395,15 +387,10 @@ class TestGetHighlights(BaseTest):
         status: HighlightsStatus,
         starts: int,
         pulse: list[str],
-        ranking_later: str = "control",
     ) -> None:
         connect = MagicMock()
         connect.return_value.start_workflow = AsyncMock()
-        ranking = ["control"]
-        with (
-            patch.object(highlights, "sync_connect", connect),
-            patch.object(highlights, "pulse_ranking", side_effect=lambda _user, _team: ranking[0]),
-        ):
+        with patch.object(highlights, "sync_connect", connect):
             if row is not None:
                 highlights.get_highlights(team=self.team, user=self.user, scopes=None)
                 now = timezone.now()
@@ -413,7 +400,6 @@ class TestGetHighlights(BaseTest):
                 )
                 connect.return_value.start_workflow.reset_mock()
                 cache.clear()
-                ranking[0] = ranking_later
             found = highlights.get_highlights(team=self.team, user=self.user, scopes=None)
 
         self.assertEqual(

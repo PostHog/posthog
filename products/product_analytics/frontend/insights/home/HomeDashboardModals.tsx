@@ -22,7 +22,6 @@ export function HomeDashboardModals(): JSX.Element {
         showDashboardPicker,
         copyPostHogHome,
         createHomeDashboardWithAI,
-        openHomeDashboardTemplates,
         restorePostHogHome,
     } = useActions(homeDashboardChoiceLogic)
 
@@ -33,7 +32,6 @@ export function HomeDashboardModals(): JSX.Element {
                 onClose={closeSceneDashboardChoiceModal}
                 onCopyPostHogHome={copyPostHogHome}
                 onTalkToAI={createHomeDashboardWithAI}
-                onStartFromTemplate={openHomeDashboardTemplates}
                 onChooseExisting={showDashboardPicker}
                 hasCustomDashboard={!!currentTeam?.home_tab_dashboard}
                 onRestorePostHogHome={restorePostHogHome}
