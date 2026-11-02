@@ -70,7 +70,7 @@
             "formFields": ["query"],
             "live": false,
             "creationFlag": "metrics",
-            "dashboardFilterKeys": ["date_from", "date_to", "metricFilters"]
+            "dashboardFilterKeys": ["date_from", "date_to"]
         },
         "metrics_table": {
             "configSchemaExport": "metricsTableWidgetConfigSchema",

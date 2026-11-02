@@ -64,7 +64,7 @@ Dashboards already have **insight tiles** for HogQL/query visualizations — com
 
 If intake is chart-only, **stop** — help the engineer add the right insight to the dashboard instead of a new `widget_type`. Lists may include small non-chart metadata (badges, sparklines in a row) when the product scene does; the tile body is still a list, not a chart canvas.
 
-**Exception: `metrics`.** Metrics are not an insight type, so the `metrics` widget is the dashboard chart for them. It reuses the metrics product's editor (builder, PromQL, SQL), runner, and panels, and follows the dashboard date range and metric label filters like an insight tile (`dashboard_filter_keys`). Do not use it as a precedent for a chart over an insight query kind.
+**Exception: `metrics`.** Metrics are not an insight type, so the `metrics` widget is the dashboard chart for them. It reuses the metrics product's editor (builder, PromQL, SQL), runner, and panels, and follows the dashboard date range like an insight tile (`dashboard_filter_keys`). Do not use it as a precedent for a chart over an insight query kind.
 
 Per-type add flow (ordered checklist): [checklist-new-widget-type.md](checklist-new-widget-type.md).
 

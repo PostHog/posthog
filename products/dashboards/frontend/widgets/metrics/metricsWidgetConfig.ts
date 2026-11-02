@@ -59,11 +59,9 @@ export function metricsWidgetQuery(config: Record<string, unknown>): MetricsQuer
     return { ...query, kind: NodeKind.MetricsQuery, clauses: query.clauses ?? [] }
 }
 
-/** Dashboard filters that reach a metric widget: the date range, and label filters on builder queries only,
- * because PromQL and SQL text is not rewritten for them. */
-export function metricsWidgetDashboardControls(config: Record<string, unknown>): DashboardControl[] {
-    const { language } = metricsWidgetQuery(config)
-    return language && language !== 'builder' ? ['dateRange'] : ['dateRange', 'metricLabels']
+/** Dashboard filters that reach a metric widget: the date range, in every query language. */
+export function metricsWidgetDashboardControls(): DashboardControl[] {
+    return ['dateRange']
 }
 
 export function metricsWidgetDefaultTitle(config: Record<string, unknown>): string | undefined {
