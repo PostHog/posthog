@@ -334,8 +334,9 @@ QUOTA_EXHAUSTED_MESSAGE = (
 )
 
 AI_PROCESSING_NOT_APPROVED_MESSAGE = (
-    "PostHog AI is turned off for your organization, so I can't work on this request. "
-    "An organization admin can turn on AI analysis at {settings_url}."
+    ":lock: *PostHog AI is turned off for your organization*\n"
+    "I can't work on this request until AI analysis is on. "
+    "Ask an organization admin to turn it on in <{settings_url}|organization settings>."
 )
 
 
