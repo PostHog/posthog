@@ -169,7 +169,6 @@ class TestErrorsByBucket(ClickhouseTestMixin, BaseTest):
                 ("person-1", "$exception", 2, {"$feature/new-checkout": True}),
                 ("person-2", "$feature_flag_called", 3, called("new-checkout", "Out of rollout bound", False)),
                 ("person-2", "$exception", 4, {"$feature/new-checkout": False}),
-                # The reason of another flag says nothing about the conditions of this one.
                 ("person-3", "$feature_flag_called", 5, called("other-flag", "Matched condition set 2", True)),
                 ("person-3", "$exception", 6, {"$feature/new-checkout": True}),
                 ("person-4", "$exception", 7, {"$feature/new-checkout": True}),

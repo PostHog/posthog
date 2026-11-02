@@ -235,7 +235,6 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
                 ("person-2", 2, called("Out of rollout bound", False)),
                 ("person-3", 3, called("Matched condition set 1", True)),
                 ("person-4", 4, called("Evaluated locally", True)),
-                # The reason before the edit names a condition of the old flag.
                 ("person-5", 5, called("Matched condition set 1", True)),
             ],
             event="$feature_flag_called",
