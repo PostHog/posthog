@@ -646,6 +646,12 @@ class PinnedS3HTTPSession(AIOHTTPSession):
 
         try:
             return await super().send(request)
+        except SSRFBlockedError as err:
+            raise InvalidS3EndpointError(str(err)) from err
+        except botocore.exceptions.HTTPClientError as err:
+            if isinstance(err.kwargs.get("error"), SSRFBlockedError):
+                raise InvalidS3EndpointError(str(err.kwargs["error"])) from err
+            raise
         except (botocore.exceptions.EndpointConnectionError, botocore.exceptions.ConnectTimeoutError):
             if self._proxy_config.proxy_url_for(request.url):  # type: ignore[attr-defined]
                 raise
@@ -693,12 +699,6 @@ async def s3_client(
         ) as s3_client:
             yield s3_client
 
-    except SSRFBlockedError as err:
-        raise InvalidS3EndpointError(str(err)) from err
-    except botocore.exceptions.HTTPClientError as err:
-        if isinstance(err.kwargs.get("error"), SSRFBlockedError):
-            raise InvalidS3EndpointError(str(err.kwargs["error"])) from err
-        raise
     except ValueError as err:
         if "Invalid endpoint" in str(err):
             raise InvalidS3EndpointError(str(err)) from err
