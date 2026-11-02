@@ -40,7 +40,12 @@ from products.signals.backend.activity_summary.logic import (
     update_activity_summary,
 )
 from products.signals.backend.activity_summary.mcp_buffer import publish_team_ids
-from products.signals.backend.activity_summary.prompt import PROMPT_VERSION, summary_profile_text
+from products.signals.backend.activity_summary.prompt import (
+    EMBEDDING_DOCUMENT_TYPE,
+    EMBEDDING_RENDERING,
+    PROMPT_VERSION,
+    summary_profile_text,
+)
 from products.signals.backend.activity_summary.queue import (
     TRIGGERS,
     VIEW_TRIGGERS,
@@ -63,8 +68,6 @@ from products.signals.backend.report_embeddings import EMBEDDING_PRODUCT
 logger = structlog.get_logger(__name__)
 
 TICK_WORKFLOW_NAME = "activity-summary-tick"
-EMBEDDING_DOCUMENT_TYPE = "activity_summary"
-EMBEDDING_RENDERING = "summary_text"
 # The same document as `EMBEDDING_RENDERING`, embedded with the profile, the way report embeddings
 # separate `title` from `title_summary`.
 EMBEDDING_RENDERING_PROFILE = "summary_profile"
