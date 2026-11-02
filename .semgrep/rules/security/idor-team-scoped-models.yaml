@@ -106,6 +106,7 @@ rules:
                               |BriefConfig
                               |ButtonTile
                               |CITrustPolicy
+                              |CITrustPolicyRequest
                               |Canvas
                               |CanvasBuild
                               |CanvasHomePreference
@@ -615,6 +616,7 @@ rules:
                         |BriefConfig
                         |ButtonTile
                         |CITrustPolicy
+                        |CITrustPolicyRequest
                         |Canvas
                         |CanvasBuild
                         |CanvasHomePreference
