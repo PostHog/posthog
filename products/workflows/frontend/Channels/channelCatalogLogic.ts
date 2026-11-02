@@ -27,7 +27,7 @@ export interface channelCatalogLogicValues {
     integrationsLoading: boolean // integrationsLogic
     sandboxEmailSender: IntegrationType | null // integrationsLogic
     sandboxEmailSenderEnabled: boolean // integrationsLogic
-    currentProjectId: number | null // teamLogic
+    currentProjectId: number | string // teamLogic
     activeCount: number
     channels: ChannelSummary[] | null
     sandboxProvisionError: string | null
@@ -56,7 +56,7 @@ export interface channelCatalogLogicActions {
     retrySandboxSenderSetup: () => {
         value: true
     }
-    setUpSandboxSender: (_?: any) => any
+    setUpSandboxSender: (_: void) => void
     setUpSandboxSenderFailure: (
         error: string,
         errorObject?: any
@@ -66,10 +66,10 @@ export interface channelCatalogLogicActions {
     }
     setUpSandboxSenderSuccess: (
         sandboxProvisionError: string | null,
-        payload?: any
+        payload?: void
     ) => {
         sandboxProvisionError: string | null
-        payload?: any
+        payload?: void
     }
     startChannelSetup: (kind: ChannelType) => {
         kind: 'apns' | 'email' | 'firebase' | 'slack' | 'twilio'
@@ -122,7 +122,7 @@ export const channelCatalogLogic = kea<channelCatalogLogicType>([
         sandboxProvisionError: [
             null as string | null,
             {
-                setUpSandboxSender: async (_, breakpoint): Promise<string | null> => {
+                setUpSandboxSender: async (_: void, breakpoint): Promise<string | null> => {
                     let failure: string | null = null
                     try {
                         await integrationsEmailSandboxSenderCreate(String(values.currentProjectId))
