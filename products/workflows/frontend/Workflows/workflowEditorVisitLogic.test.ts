@@ -325,6 +325,21 @@ describe('workflowEditorVisitLogic', () => {
             },
         ],
         [
+            'adding back a variable after discarding it',
+            'variables',
+            async (editor: ReturnType<typeof workflowLogic.build>) => {
+                const saved = editor.values.workflow
+                const variables: HogFlow['variables'] = [
+                    { key: 'plan', label: 'Plan', type: 'string', default: 'free' },
+                ]
+                editor.actions.setWorkflowInfo({ variables })
+                editor.actions.resetWorkflow(saved)
+                await Promise.resolve()
+                editor.actions.setScheduleRepeating(true)
+                editor.actions.setWorkflowInfo({ variables })
+            },
+        ],
+        [
             'adding a schedule',
             'trigger',
             (editor: ReturnType<typeof workflowLogic.build>) => editor.actions.addSchedule(),
@@ -344,7 +359,7 @@ describe('workflowEditorVisitLogic', () => {
         const props = { id: SAVED_ID }
         const visit = await openEditor(props)
 
-        edit(workflowLogic(props))
+        await edit(workflowLogic(props))
         visit.unmount()
 
         expect(captured('workflow editor left')).toEqual([expect.objectContaining({ last_edit: lastEdit })])

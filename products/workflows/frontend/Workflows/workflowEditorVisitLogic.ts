@@ -159,6 +159,10 @@ export const workflowEditorVisitLogic = kea<workflowEditorVisitLogicType>([
             setWorkflowValues: (_, __, ___, previousState) => recordFormEdit(previousState),
             resetWorkflow: (_, __, ___, previousState) => {
                 cache.formBeforeReset = workflowLogic(props).selectors.workflow(previousState)
+                // The save response replays in the same tick, so an edit after a discard or reload is never a replay.
+                queueMicrotask(() => {
+                    cache.formBeforeReset = null
+                })
             },
             setScheduleState: recordScheduleEdit,
             setScheduleStartsAtFromPicker: recordScheduleEdit,
