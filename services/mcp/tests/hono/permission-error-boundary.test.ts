@@ -45,7 +45,6 @@ describe('handleCatchError permission boundary', () => {
 
         const response = handleCatchError(buildWrappedPermissionError(challengeScopes), props)
 
-        // A step-up challenge is an expected answer, so only the other 403 is logged as an error.
         expect(consoleError).toHaveBeenCalledTimes(expectedChallenge ? 0 : 1)
         consoleError.mockRestore()
 

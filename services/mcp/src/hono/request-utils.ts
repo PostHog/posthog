@@ -146,7 +146,6 @@ export async function authenticateAndParse(
 }
 
 export function handleCatchError(error: unknown, props: RequestProperties): Response {
-    // A step-up challenge is an expected answer, not a failure.
     if (!isStepUpChallengeError(error)) {
         console.error('[handleCatchError]', error)
     }
