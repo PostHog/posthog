@@ -124,6 +124,16 @@ export function stripTrailingSlash(path: string): string {
     return path
 }
 
+export const urlPatternOptions = {
+    // :TRICKY: What chars to allow in named segment values i.e. ":key"
+    // in "/url/:key". Default: "a-zA-Z0-9-_~ %".
+    segmentValueCharset: "a-zA-Z0-9-_~ %.@()!'|:",
+}
+
+export function pathFromWindowToRoutes(path: string): string {
+    return stripTrailingSlash(removeProjectIdIfPresent(path))
+}
+
 /**
  * Strips the trailing slash of the path only, so a query string or hash that ends in a slash
  * (e.g. `?next=/oauth/authorize/`) survives. Safe on a full URL as well as a bare path.

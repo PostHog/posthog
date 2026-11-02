@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 81 enabled ops
+ * PostHog API - MCP 82 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -43,6 +43,91 @@ export const SignalsActivitySummaryVersionsRetrieveQueryParams = () => zod.objec
         .min(1)
         .optional()
         .describe('Return only this version, with its full profile. Returns 404 when the version does not exist.'),
+})
+
+/**
+ * Find the project members whose activity summary matches a topic, an object or a product, including people who only open the work and never edit it. Returns 404 when the search is not available for this project.
+ * @summary Search member activity summaries
+ */
+export const SignalsActivitySummaryMembersSearchParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsActivitySummaryMembersSearchQueryIncludeProfileDefault = false
+export const signalsActivitySummaryMembersSearchQueryLimitDefault = 10
+export const signalsActivitySummaryMembersSearchQueryLimitMax = 25
+
+export const signalsActivitySummaryMembersSearchQueryQueryMax = 500
+
+export const signalsActivitySummaryMembersSearchQuerySearchModeDefault = `hybrid`
+
+export const SignalsActivitySummaryMembersSearchQueryParams = () => zod.object({
+    exclude_user_uuids: zod
+        .array(zod.string())
+        .optional()
+        .describe('Members to leave out, such as people you already checked.'),
+    include_profile: zod
+        .boolean()
+        .default(signalsActivitySummaryMembersSearchQueryIncludeProfileDefault)
+        .describe('Add the one-page markdown profile to each result. Set it only for the people you want to read.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(signalsActivitySummaryMembersSearchQueryLimitMax)
+        .default(signalsActivitySummaryMembersSearchQueryLimitDefault)
+        .describe('The most results to return, best match first.'),
+    product: zod
+        .enum([
+            'product_analytics',
+            'dashboards',
+            'web_analytics',
+            'session_replay',
+            'heatmaps',
+            'error_tracking',
+            'experiments',
+            'feature_flags',
+            'early_access_features',
+            'surveys',
+            'product_tours',
+            'notebooks',
+            'cohorts',
+            'persons',
+            'data_management',
+            'data_warehouse',
+            'data_pipelines',
+            'workflows',
+            'ai_observability',
+            'mcp_analytics',
+            'logs',
+            'tracing',
+            'endpoints',
+            'revenue_analytics',
+            'customer_analytics',
+            'inbox',
+            'canvases',
+            'support',
+        ])
+        .optional()
+        .describe(
+            'Only members who work in or visit this product.\n\n\* `product_analytics` - Product Analytics\n\* `dashboards` - Dashboards\n\* `web_analytics` - Web Analytics\n\* `session_replay` - Session Replay\n\* `heatmaps` - Heatmaps\n\* `error_tracking` - Error Tracking\n\* `experiments` - Experiments\n\* `feature_flags` - Feature Flags\n\* `early_access_features` - Early Access Features\n\* `surveys` - Surveys\n\* `product_tours` - Product Tours\n\* `notebooks` - Notebooks\n\* `cohorts` - Cohorts\n\* `persons` - Persons\n\* `data_management` - Data Management\n\* `data_warehouse` - Data Warehouse\n\* `data_pipelines` - Data Pipelines\n\* `workflows` - Workflows\n\* `ai_observability` - Ai Observability\n\* `mcp_analytics` - Mcp Analytics\n\* `logs` - Logs\n\* `tracing` - Tracing\n\* `endpoints` - Endpoints\n\* `revenue_analytics` - Revenue Analytics\n\* `customer_analytics` - Customer Analytics\n\* `inbox` - Inbox\n\* `canvases` - Canvases\n\* `support` - Support'
+        ),
+    query: zod
+        .string()
+        .max(signalsActivitySummaryMembersSearchQueryQueryMax)
+        .optional()
+        .describe(
+            'Natural language or keywords, such as an object name, a topic or a product area. Without a query, the search lists members with a summary, the newest summary first.'
+        ),
+    search_mode: zod
+        .enum(['hybrid', 'semantic', 'keyword'])
+        .default(signalsActivitySummaryMembersSearchQuerySearchModeDefault)
+        .describe(
+            '`hybrid` merges the keyword and semantic rankings. `semantic` ranks by meaning only, and returns 503 when the vector search fails. `keyword` matches query terms in the profile, the headline, the theme labels and the names of owned and watched objects.\n\n\* `hybrid` - Hybrid\n\* `semantic` - Semantic\n\* `keyword` - Keyword'
+        ),
 })
 
 /**
@@ -321,6 +406,7 @@ export const signalsReportsListQueryExcludeMax = 100
 
 export const signalsReportsListQueryIncludeSourceMetadataDefault = true
 export const signalsReportsListQueryIncludeUnlistedDefault = false
+export const signalsReportsListQueryLimitMax = 1000
 
 export const SignalsReportsListQueryParams = () => zod.object({
     actionability: zod
@@ -388,7 +474,11 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .describe(
             'Include reports kept out of the shared inbox. A report is kept out when the scout that authored it turned off its `inbox` output destination. Defaults to false. Fetching a report by id always works, whatever this value is.'
         ),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(signalsReportsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     ordering: zod
         .string()
@@ -435,7 +525,7 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            "Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used."
+            "Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills."
         ),
     source_id: zod
         .string()
