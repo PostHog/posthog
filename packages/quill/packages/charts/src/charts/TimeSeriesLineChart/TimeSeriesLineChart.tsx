@@ -24,6 +24,7 @@ import {
     type MovingAverageConfig,
     type TrendLineConfig,
 } from '../utils/use-derived-series'
+import { useTimeScale } from '../utils/use-time-scale'
 import { useGoalLines, useTimeSeries, useValueBounds } from '../utils/use-time-series'
 import type { ValueLabelsConfig } from '../utils/use-value-labels'
 
@@ -59,6 +60,11 @@ export interface TimeSeriesLineChartConfig {
     showTickMarks?: boolean
     /** Line interpolation: `linear` (default) or `monotone` (smooth curve through every point). */
     curve?: 'linear' | 'monotone'
+    /** `time` places each point at its time, so uneven spacing and gaps in time show. Labels must
+     *  be ascending. Moving averages still use sample order. Defaults to `index`. */
+    xScale?: 'index' | 'time'
+    /** With `xScale: 'time'`, the axis span as `[from, to]` epoch ms. Defaults to the label range. */
+    xDomain?: readonly [number, number]
     /** Tooltip behaviour and built-in content options. A `tooltip` render prop replaces the content. */
     tooltip?: TooltipConfig
     /** Built-in legend with click-to-toggle series visibility. Hidden by default. */
@@ -117,9 +123,12 @@ export function TimeSeriesLineChart<Meta = unknown>({
         showAxisLines,
         showTickMarks,
         curve,
+        xScale,
+        xDomain,
         tooltip: tooltipConfig,
         legend,
     } = config ?? {}
+    const timeScale = useTimeScale(xScale === 'time', labels, xAxis?.timezone ?? 'UTC', xDomain)
     const {
         xTickFormatter,
         yTickFormatter,
@@ -132,11 +141,13 @@ export function TimeSeriesLineChart<Meta = unknown>({
     } = useTimeSeries(series, labels, theme, { xAxis, yAxis, valueLabels, legend })
     const timeSeriesTooltipConfig = useTimeSeriesTooltipConfig(tooltipConfig, xAxis, labels)
 
+    const timeXs = useMemo(() => (timeScale ? labels.map(timeScale.parse) : undefined), [timeScale, labels])
     const finalSeries = useDerivedSeries(chartSeries, {
         confidenceIntervals,
         movingAverage,
         trendLines,
         comparisonOf,
+        xs: timeXs,
     })
 
     // Goal lines scale against the drawn (post-derived) series, unlike bar/combo.
@@ -167,6 +178,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
         showAxisLines,
         showTickMarks,
         curve,
+        timeScale,
         percentStackView,
         showCrosshair,
         tooltip: timeSeriesTooltipConfig,
