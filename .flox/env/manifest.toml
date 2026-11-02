@@ -20,10 +20,11 @@ minimum-cli-version = "1.19.1"
 # Python - Python itself is installed on activation via `uv sync`
 uv = { pkg-path = "flox/uv", pkg-group = "uv", version = "^0.13.4" }
 # Node
-nodejs = { pkg-path = "nodejs_24", pkg-group = "nodejs", version = "24.13.0" } # Same maj.min ver as in Dockerfile; diverges from patch ver
-# Set a lower priority on corepack so it takes precedence over nodejs (both bundle pnpm)
+nodejs = { pkg-path = "nodejs_26", pkg-group = "nodejs", version = "26.13.0" } # Same version as .nvmrc
+# Node 25 and later no longer bundle corepack, so it comes from its own package, pinned like the Dockerfiles.
+# A lower priority keeps its pnpm shim ahead of any pnpm on the nodejs path.
 # https://flox.dev/docs/man/manifest.toml/#catalog-descriptors
-corepack = { pkg-path = "corepack_24", pkg-group = "nodejs", version = "24.13.0", priority = 4 } # Same maj.min as in Dockerfile; diverges from patch ver
+corepack = { pkg-path = "corepack", pkg-group = "nodejs", version = "0.36.0", priority = 4 }
 brotli = { pkg-path = "brotli", pkg-group = "nodejs" }
 zstd = { pkg-path = "zstd", pkg-group = "nodejs" }
 # node-rdkafka's librdkafka dlopens liblz4/libsasl2 at runtime on Linux; the .so files live outside the default outputs
