@@ -9,6 +9,7 @@ from typing import Any
 from posthog.test.base import APIBaseTest, NonAtomicBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.db import close_old_connections, connection
 from django.utils import timezone
 
@@ -22,7 +23,7 @@ from posthog.redis import get_client
 
 from products.workflows.backend.facade import api as workflows_api
 from products.workflows.backend.facade.tasks import refresh_new_email_senders, refresh_settled_email_senders
-from products.workflows.backend.providers.ses import IDENTITY_ATTRIBUTES_BATCH_SIZE
+from products.workflows.backend.providers.ses import AWS_ACCOUNT_ID_CACHE_KEY, IDENTITY_ATTRIBUTES_BATCH_SIZE
 from products.workflows.backend.services.email_sender_verification import EmailSenderVerification
 
 
@@ -242,13 +243,34 @@ class TestEmailSenderVerification(APIBaseTest):
         refresh_new_email_senders()
         assert self._verified(sender) == [True]
 
+    @parameterized.expand(
+        [
+            param("warm_account_lookup", account_lookup_seconds=None, expected_read_times=[0.0, 2.0]),
+            param("slow_cold_account_lookup", account_lookup_seconds=3.0, expected_read_times=[3.0, 5.0]),
+        ]
+    )
     @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
     @patch("products.workflows.backend.providers.ses.boto3.client")
     def test_tenant_reads_for_ready_senders_are_spaced_apart(
-        self, mock_boto_client: MagicMock, mock_resolver: MagicMock
+        self,
+        _name: str,
+        mock_boto_client: MagicMock,
+        mock_resolver: MagicMock,
+        account_lookup_seconds: float | None,
+        expected_read_times: list[float],
     ) -> None:
         senders = [self._create_sender(domain) for domain in ["first.example.com", "second.example.com"]]
         ses = self._mock_ses(mock_boto_client, mock_resolver)
+        if account_lookup_seconds is None:
+            cache.set(AWS_ACCOUNT_ID_CACHE_KEY, "123456789012")
+        else:
+            cache.delete(AWS_ACCOUNT_ID_CACHE_KEY)
+
+            def slow_account_lookup() -> dict[str, str]:
+                self.ses_clock["now"] += account_lookup_seconds
+                return {"Account": "123456789012"}
+
+            ses.get_caller_identity.side_effect = slow_account_lookup
         tenant_read_times: list[float] = []
 
         def read_tenants(ResourceArn: str) -> dict[str, list[dict[str, str]]]:
@@ -260,7 +282,7 @@ class TestEmailSenderVerification(APIBaseTest):
         refresh_new_email_senders()
 
         assert self._verified(*senders) == [True, True]
-        assert tenant_read_times == [0.0, 2.0]
+        assert tenant_read_times == expected_read_times
 
     @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
     @patch("products.workflows.backend.providers.ses.boto3.client")

@@ -222,6 +222,9 @@ class EmailIntegration:
             config__provider=self.integration.config.get("provider", "ses"),
         )
 
+    def _lock_domain_senders(self) -> None:
+        list(self._domain_senders().select_for_update().order_by("id").values_list("id", flat=True))
+
     def _matching_senders(self) -> "models.QuerySet[model.Integration]":
         mail_from_subdomain = self.integration.config.get("mail_from_subdomain", "feedback")
         matching_mail_from = Q(config__mail_from_subdomain=mail_from_subdomain)
@@ -328,9 +331,7 @@ class EmailIntegration:
 
     def _mark_domain_verified(self, on_domain_verified: Callable[[], None] | None) -> None:
         with transaction.atomic():
-            # Lock every sender on the domain, not only this MAIL FROM group, so that two groups verifying at once
-            # agree on whether the domain was already verified and only one of them reports the first verification.
-            list(self._domain_senders().select_for_update().order_by("id").values_list("id", flat=True))
+            self._lock_domain_senders()
             senders = list(self._matching_senders().select_for_update().order_by("id"))
             sender_ids = [sender.id for sender in senders]
             unverified_ids = [sender.id for sender in senders if not sender.config.get("verified")]

@@ -640,9 +640,10 @@ class SESProvider:
                 raise
 
     def _list_identity_tenants(self, domain: str, client: "SESV2Client | None" = None) -> set[str]:
+        identity_arn = self._identity_arn(domain)
         self._pace_read("resource_tenants")
         try:
-            resp = (client or self.ses_v2_client).list_resource_tenants(ResourceArn=self._identity_arn(domain))
+            resp = (client or self.ses_v2_client).list_resource_tenants(ResourceArn=identity_arn)
         except ClientError as e:
             if e.response["Error"]["Code"] == "NotFoundException":
                 return set()
