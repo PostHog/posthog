@@ -1049,6 +1049,27 @@ class TestSignalSpend(BaseTest):
         assert spend.finalized_at is not None
         assert spend.billing_exempt
 
+    def test_completion_settles_default_cloud_run_that_fails_before_gateway_routing(self) -> None:
+        driver = str(uuid4())
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=driver)
+        task = Task.objects.create(
+            team=self.team,
+            title="Example research",
+            description="",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report=report,
+        )
+        run = task.create_run(extra_state={"ai_stage": "research"})
+        run.status = TaskRun.Status.FAILED
+        run.save(update_fields=["status"])
+
+        self._complete_task_spend(team_id=self.team.id, run_id=str(run.id))
+
+        spend = SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id)
+        assert spend.spend == Decimal(4)
+        assert not spend.accounting_failed
+        assert spend.finalized_at is not None
+
     @parameterized.expand([(False,), (True,)])
     @override_settings(SANDBOX_AI_GATEWAY_URL="https://gateway.example", SANDBOX_AI_GATEWAY_MINT_KEY="test-key")
     def test_completion_settles_pending_task_usage_inline(self, is_scout: bool) -> None:
