@@ -6,6 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { ApiError, isApprovalRequiredError } from 'lib/api-error'
+import { PromiseTimeoutError, withTimeout } from 'lib/utils/async'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { pluralize } from 'lib/utils/strings'
 import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
@@ -61,6 +62,13 @@ export const BULK_COPY_MAX_FLAGS = 100
 // Mirrors MAX_COPY_FLAGS_TARGET_PROJECTS in
 // products/feature_flags/backend/api/organization_feature_flag.py, which rejects more. Keep in sync.
 export const BULK_COPY_MAX_TARGET_PROJECTS = 50
+
+/**
+ * Bulk restore waits for each request before it sends the next, and the dialog stays locked until the
+ * last one returns. A request that stalls would keep it locked for good, so each one is cancelled after
+ * this long and counts as a failure the person can retry.
+ */
+export const BULK_RESTORE_REQUEST_TIMEOUT_MS = 30_000
 
 export interface BulkCopyParams {
     /** Project the flags are copied from. */
@@ -162,8 +170,11 @@ function summarizeBulkRestore(
     return { level: 'error', message: 'No flags were restored' }
 }
 
-// The API refuses to restore a flag on config version 2. Say so in the words the flag page uses.
 function restoreErrorMessage(error: unknown): string {
+    if (error instanceof PromiseTimeoutError) {
+        return 'The request timed out. Try again.'
+    }
+    // The API refuses to restore a flag on config version 2. Say so in the words the flag page uses.
     return error instanceof ApiError && error.code === 'unsupported_config_version'
         ? RESTORE_UNAVAILABLE_DISABLED_REASON
         : errorMessageFrom(error)
@@ -766,9 +777,13 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
             // has none, and the API refuses version 2 restores for now. It undoes a delete the person just
             // made, so it covers every deleted flag rather than stopping at a cap.
             for (const [index, flag] of flags.entries()) {
+                const url = `api/projects/${projectId}/feature_flags/${flag.id}`
                 try {
-                    // nosemgrep: prefer-codegen-api -- The generated partial update request type has no `deleted` field.
-                    await api.update(`api/projects/${projectId}/feature_flags/${flag.id}`, { deleted: false })
+                    await withTimeout(
+                        // nosemgrep: prefer-codegen-api -- The generated partial update request type has no `deleted` field.
+                        (signal) => api.update(url, { deleted: false }, { signal }),
+                        BULK_RESTORE_REQUEST_TIMEOUT_MS
+                    )
                     restoredCount += 1
                     actions.bulkRestoreFlagSucceeded(flag.id)
                 } catch (error) {

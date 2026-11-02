@@ -3,7 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { DeletedFlagInfo, flagSelectionLogic } from './flagSelectionLogic'
+import { BULK_RESTORE_REQUEST_TIMEOUT_MS, DeletedFlagInfo, flagSelectionLogic } from './flagSelectionLogic'
 
 const deletedFlag = (id: number): DeletedFlagInfo => ({
     id,
@@ -138,6 +138,33 @@ describe('flagSelectionLogic bulk restore', () => {
         // The retry's success clears the first try's failure, and both restores still count.
         expect(logic.values.bulkRestoredIds).toEqual([1, 2])
         expect(logic.values.bulkRestoreFailures).toEqual([])
+    })
+
+    it('gives up on a restore that stalls, moves on, and leaves that flag to retry', async () => {
+        // A request that never answers used to hold the loop, so the dialog stayed locked for good.
+        useRestoreMocks((id) => (id === 1 ? new Promise<[number, any]>(() => {}) : [200, {}]))
+        logic = flagSelectionLogic()
+        logic.mount()
+        logic.actions.showResultsModal({ deleted: [deletedFlag(1), deletedFlag(2)], errors: [] })
+
+        jest.useFakeTimers()
+        try {
+            logic.actions.bulkRestoreFlags([deletedFlag(1), deletedFlag(2)])
+            await jest.advanceTimersByTimeAsync(BULK_RESTORE_REQUEST_TIMEOUT_MS - 1)
+            expect(logic.values.bulkRestoreRunning).toBe(true)
+            await jest.advanceTimersByTimeAsync(1)
+        } finally {
+            jest.useRealTimers()
+        }
+        await expectLogic(logic).toDispatchActions(['bulkRestoreFlagsFinished'])
+
+        expect(restoreRequests.map(({ id }) => id)).toEqual([1, 2])
+        expect(logic.values.bulkRestoreRunning).toBe(false)
+        expect(logic.values.bulkRestoreFailures).toEqual([
+            { id: 1, key: 'flag-1', errorMessage: 'The request timed out. Try again.' },
+        ])
+        expect(logic.values.stillDeletedFlags).toEqual([deletedFlag(1)])
+        expect(logic.values.resultsModalVisible).toBe(true)
     })
 
     it('starts each bulk delete result without the last restore', async () => {
