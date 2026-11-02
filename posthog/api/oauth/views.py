@@ -685,6 +685,10 @@ class OAuthValidator(OAuth2Validator):
         assertion = self._resolve_request_assertion(request)
         if assertion is None:
             return False
+        # oauthlib's device grant authenticates a confidential client twice per request. The first
+        # check spends the assertion's jti, so a second verification would reject it as a replay.
+        if getattr(request, "verified_client_assertion", None) == assertion.client_assertion:
+            return True
 
         app = self._load_application(assertion.client_id, request)
         # jwks_uri alone gates this, not client_type: a public CIMD client may publish keys
@@ -707,6 +711,7 @@ class OAuthValidator(OAuth2Validator):
             return False
 
         request.client = app
+        request.verified_client_assertion = assertion.client_assertion
         return True
 
     # PostHog deliberately does NOT support OIDC silent authentication (`prompt=none`). Every
@@ -1132,13 +1137,15 @@ class OAuthValidator(OAuth2Validator):
                 token_type="refresh_token" if rt else "access_token",
             )
             return
+        # A rotating family holds every access token of one login, so revoking it ends only that
+        # login. A token already rotated away still ends its family: during the grace period it can
+        # still refresh.
+        if rt and self._is_dynamic_client(request) and self.rotate_refresh_token(request):
+            revoke_oauth_refresh_family(rt)
+            return
+        # A non-rotating token can't be traced to its access tokens, so the whole connection goes.
         if rt and rt.revoked is None and self._is_dynamic_client(request):
-            # A rotating family holds every access token of one login, so revoking it ends only
-            # that login. A non-rotating token can't be traced to its access tokens.
-            if self.rotate_refresh_token(request):
-                revoke_oauth_refresh_family(rt)
-            else:
-                revoke_oauth_session(refresh_token=rt)
+            revoke_oauth_session(refresh_token=rt)
             return
         return super().revoke_token(token, token_type_hint, request, *args, **kwargs)
 

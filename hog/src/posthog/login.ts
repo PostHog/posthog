@@ -1,7 +1,7 @@
 import { clearPending, type ApprovalFlow, type ApprovalWait } from '@/core/approval'
 import type { Runtime } from '@/core/runtime'
 
-import { FileStore, openStore, probeKeychain, type OAuthCredential, type StoredCredential } from './credential-store'
+import { FileStore, openStore, probeKeychain, type OAuthCredential, type StoreChoice, type StoredCredential } from './credential-store'
 import { LOGIN_SCOPES, pollDeviceLogin, startDeviceLogin, type PendingLogin } from './device-auth'
 import { writeLogin } from './logins'
 import { loginFor, readSettings } from './settings'
@@ -11,7 +11,7 @@ export const LOGIN_COMMAND = 'hog auth login'
 export interface LoggedIn {
     host: string
     projectId: string
-    store: 'keychain' | 'file'
+    store: StoreChoice
     // Set when the credentials are in a file.
     credentialsPath: string | null
     // Why hog couldn't use the keychain, when it stored the credentials in a file.

@@ -1,6 +1,7 @@
 import { clearPending } from '@/core/approval'
 import { defineCommand } from '@/core/command'
-import { PERSONAL_API_KEY_ENV_VAR, posthogCliCredentialsPath } from '@/posthog/credentials'
+import { escapeControls } from '@/core/output'
+import { PERSONAL_API_KEY_ENV_VAR, legacyCredentialsPath } from '@/posthog/credentials'
 import { revokeLogin } from '@/posthog/device-auth'
 import { LOGIN_COMMAND } from '@/posthog/login'
 import { readLogin, removeLogin } from '@/posthog/logins'
@@ -15,8 +16,8 @@ interface LogoutResult {
     revokeUrl: string | null
     // Variables that still give hog a key after logout.
     stillSet: string[]
-    // posthog-cli's credentials file, which hog still reads and never changes.
-    posthogCliFile: string | null
+    // The legacy credentials file, which hog still reads and never changes.
+    legacyCredentialsFile: string | null
 }
 
 export default defineCommand({
@@ -25,7 +26,7 @@ export default defineCommand({
     notes: [
         'hog revokes the login on this machine in PostHog. Your hog logins on other machines keep working.',
         'A personal API key you pasted stays valid until you delete it in PostHog under Settings > Personal API keys.',
-        "hog never changes posthog-cli's credentials file, so it still reads a key from there after logout.",
+        'hog never changes the legacy credentials file in ~/.posthog, so it still reads a key from there after logout.',
     ].join('\n'),
     examples: ['hog auth logout', 'hog auth logout --host https://eu.posthog.com'],
 
@@ -44,7 +45,7 @@ export default defineCommand({
             login ? removeLogin(runtime, login) : false,
         ])
         await clearPending(runtime, LOGIN_COMMAND)
-        const posthogCliFile = posthogCliCredentialsPath(runtime)
+        const legacyFile = legacyCredentialsPath(runtime)
         return {
             status: removed ? 'logged_out' : 'not_logged_in',
             host: host ?? null,
@@ -54,14 +55,14 @@ export default defineCommand({
                     ? new URL('settings/user-api-keys', `${host.replace(/\/+$/, '')}/`).toString()
                     : null,
             stillSet: runtime.env[PERSONAL_API_KEY_ENV_VAR] ? [PERSONAL_API_KEY_ENV_VAR] : [],
-            posthogCliFile: (await runtime.exists(posthogCliFile)) ? posthogCliFile : null,
+            legacyCredentialsFile: (await runtime.exists(legacyFile)) ? legacyFile : null,
         }
     },
 
     human({ result, out }) {
         out.line(
             result.status === 'logged_out'
-                ? `${out.style('Logged out', 'green', 'bold')} of ${result.host}.`
+                ? `${out.style('Logged out', 'green', 'bold')} of ${escapeControls(result.host ?? '')}.`
                 : 'hog had no stored login to remove.'
         )
         if (result.revoked === false) {
@@ -80,9 +81,9 @@ export default defineCommand({
                 `${out.style('Still logged in', 'yellow', 'bold')} through ${result.stillSet.join(' and ')}. Unset it to log out fully.`
             )
         }
-        if (result.posthogCliFile) {
+        if (result.legacyCredentialsFile) {
             out.line(
-                `${out.style('Still logged in', 'yellow', 'bold')} through posthog-cli's credentials file, ${result.posthogCliFile}. hog never changes that file.`
+                `${out.style('Still logged in', 'yellow', 'bold')} through the legacy credentials file, ${result.legacyCredentialsFile}. hog never changes that file.`
             )
         }
     },

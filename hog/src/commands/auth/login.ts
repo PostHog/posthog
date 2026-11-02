@@ -4,7 +4,7 @@ import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import { escapeControls } from '@/core/output'
 import type { Prompts } from '@/core/prompts'
-import type { OAuthCredential } from '@/posthog/credential-store'
+import type { OAuthCredential, StoreChoice } from '@/posthog/credential-store'
 import { checkApiKey, checkHost, checkProjectId } from '@/posthog/credentials'
 import { loginFlow, loginWait, saveLogin, type LoggedIn } from '@/posthog/login'
 
@@ -31,7 +31,7 @@ type LoginResult =
           status: 'logged_in'
           host: string
           projectId: string
-          store: 'keychain' | 'file'
+          store: StoreChoice
           credentialsPath: string | null
           keychainProblem: string | null
           scopes: string[]
@@ -162,13 +162,16 @@ export default defineCommand({
             return
         }
         out.line(`${out.style('Logged in', 'green', 'bold')} to ${result.host}, project ${result.projectId}.`)
-        if (result.credentialsPath === null) {
-            out.line(out.style('Credentials saved to the system keychain', 'dim'))
-        } else {
-            if (result.keychainProblem) {
-                out.line(out.style(`${escapeControls(result.keychainProblem).replace(/\.$/, '')}.`, 'yellow'))
-            }
-            out.line(out.style(`Credentials saved to ${result.credentialsPath}, which only you can read`, 'dim'))
+        switch (result.store) {
+            case 'keychain':
+                out.line(out.style('Credentials saved to the system keychain', 'dim'))
+                break
+            case 'file':
+                if (result.keychainProblem) {
+                    out.line(out.style(`${escapeControls(result.keychainProblem).replace(/\.$/, '')}.`, 'yellow'))
+                }
+                out.line(out.style(`Credentials saved to ${result.credentialsPath}, which only you can read`, 'dim'))
+                break
         }
         out.line(`Try it: ${result.next}`)
     },

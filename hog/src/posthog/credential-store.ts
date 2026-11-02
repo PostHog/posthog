@@ -44,6 +44,9 @@ export type StoredSecret = PersonalApiKeySecret | OAuthSecret
 
 export type StoreKind = 'keychain' | 'file' | 'memory'
 
+// The stores a login can use. The memory store exists for tests only.
+export type StoreChoice = Exclude<StoreKind, 'memory'>
+
 // Where hog keeps the secrets of the logins `hog auth login` saves, one per host. Commands only see
 // this interface, so each store behaves the same to them.
 export interface CredentialStore {
@@ -59,7 +62,7 @@ export interface CredentialStore {
 const KEYCHAIN_PROGRESS_MS = 2000
 const KEYCHAIN_TIMEOUT_MS = 60_000
 // A name no host can have, so the probe never touches a real login.
-const PROBE_NAME = 'hog-keychain-probe'
+const PROBE_PREFIX = 'hog-keychain-probe'
 
 // `https://eu.posthog.com/` and `https://eu.posthog.com` are the same login.
 export function hostKey(host: string): string {
@@ -189,7 +192,7 @@ async function keychainCall<T>(runtime: Runtime, operation: () => Promise<T>): P
         }
         throw new HogError(
             'keychain_access_timeout',
-            `hog waited ${KEYCHAIN_TIMEOUT_MS / 1000} seconds for access to the keychain.`,
+            `hog stopped after waiting ${KEYCHAIN_TIMEOUT_MS / 1000} seconds for access to the keychain.`,
             'Close the keychain dialog that is still open. Then run the command again and click "Always Allow".'
         )
     })
@@ -227,11 +230,13 @@ type KeychainProbe = { usable: true } | { usable: false; reason: string }
 // dialog, means hog keeps credentials in a file instead.
 export async function probeKeychain(runtime: Runtime): Promise<KeychainProbe> {
     const value = randomUUID()
+    // Its own item for each probe, so two logins that probe at once don't change each other's item.
+    const name = `${PROBE_PREFIX}-${value}`
     try {
         await keychainCall(runtime, async () => {
-            await runtime.secrets.set(PROBE_NAME, value)
-            const readBack = await runtime.secrets.get(PROBE_NAME)
-            await runtime.secrets.delete(PROBE_NAME)
+            await runtime.secrets.set(name, value)
+            const readBack = await runtime.secrets.get(name)
+            await runtime.secrets.delete(name)
             if (readBack !== value) {
                 throw new Error('it returned a different value than hog stored')
             }
@@ -242,6 +247,6 @@ export async function probeKeychain(runtime: Runtime): Promise<KeychainProbe> {
     }
 }
 
-export function openStore(runtime: Runtime, kind: 'keychain' | 'file'): KeychainStore | FileStore {
+export function openStore(runtime: Runtime, kind: StoreChoice): KeychainStore | FileStore {
     return kind === 'keychain' ? new KeychainStore(runtime) : new FileStore(runtime)
 }

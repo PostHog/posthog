@@ -3,8 +3,8 @@ import { join } from 'node:path'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import type { Env, Runtime } from '@/core/runtime'
 
-import { FileStore } from './credential-store'
-import { readLogin } from './logins'
+import { FileStore, type StoreChoice } from './credential-store'
+import { readLogin, type StoredLogin } from './logins'
 import { freshOAuthCredential } from './oauth'
 import { readSettings } from './settings'
 
@@ -28,7 +28,7 @@ export type ResolvedCredentials = Credentials & {
     kind: 'personal_api_key' | 'oauth'
     source: CredentialSource
     // Set when the source is the store.
-    store?: 'keychain' | 'file'
+    store?: StoreChoice
     // The file the credentials came from, when they came from one.
     path?: string
     scopes?: string[]
@@ -158,7 +158,7 @@ function validate(raw: RawCredentials, host: string): Credentials {
     return { token: raw.token, projectId: raw.projectId, host }
 }
 
-export function posthogCliCredentialsPath(runtime: Runtime): string {
+export function legacyCredentialsPath(runtime: Runtime): string {
     return posthogFile(runtime, 'credentials.json')
 }
 
@@ -216,6 +216,32 @@ export async function resolveCredentials(
         }
     }
 
+    const fromLogin = async ({ credential: stored, store }: StoredLogin): Promise<ResolvedCredentials> => {
+        // Before a renewal, so hog never renews a token it then refuses to send.
+        checkConfigHost(stored.host)
+        const credential = stored.type === 'oauth' ? await freshOAuthCredential(runtime, store, stored) : stored
+        const oauth = credential.type === 'oauth'
+        return withHost(
+            {
+                kind: credential.type,
+                token: oauth ? credential.accessToken : credential.apiKey,
+                projectId: credential.projectId,
+                host: credential.host,
+            },
+            'store',
+            {
+                store: store.kind,
+                path: store instanceof FileStore ? store.path : undefined,
+                ...(oauth
+                    ? { scopes: credential.scopes, expiresAt: credential.expiresAt, loginKey: credential.loginId }
+                    : {}),
+            }
+        )
+    }
+
+    // A login to another host than posthog.json names waits until posthog-cli's file had its turn,
+    // because that file may hold credentials for the right host.
+    let otherHostLogin: StoredLogin | undefined
     if (options.includeStore !== false) {
         const settings = await readSettings(runtime)
         const hosts = options.host !== undefined ? [options.host] : [options.configHost, settings.host]
@@ -224,31 +250,16 @@ export async function resolveCredentials(
             if (!login) {
                 continue
             }
-            const { credential: stored, store } = login
-            // Before a renewal, so hog never renews a token it then refuses to send.
-            checkConfigHost(stored.host)
-            const credential = stored.type === 'oauth' ? await freshOAuthCredential(runtime, store, stored) : stored
-            const oauth = credential.type === 'oauth'
-            return withHost(
-                {
-                    kind: credential.type,
-                    token: oauth ? credential.accessToken : credential.apiKey,
-                    projectId: credential.projectId,
-                    host: credential.host,
-                },
-                'store',
-                {
-                    store: store.kind,
-                    path: store instanceof FileStore ? store.path : undefined,
-                    ...(oauth
-                        ? {
-                              scopes: credential.scopes,
-                              expiresAt: credential.expiresAt,
-                              loginKey: credential.loginId,
-                          }
-                        : {}),
-                }
-            )
+            const { configHost } = options
+            if (
+                options.host === undefined &&
+                configHost !== undefined &&
+                !sameOrigin(configHost, login.credential.host)
+            ) {
+                otherHostLogin ??= login
+                continue
+            }
+            return fromLogin(login)
         }
     }
 
@@ -272,6 +283,10 @@ export async function resolveCredentials(
         }
     }
 
+    if (otherHostLogin) {
+        // Fails with host_mismatch, which says how to log in to the right host.
+        return fromLogin(otherHostLogin)
+    }
     throw new HogError(
         'not_authenticated',
         "hog couldn't find PostHog credentials.",

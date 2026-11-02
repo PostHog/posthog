@@ -38820,6 +38820,16 @@ export namespace Schemas {
       status: DeviceDecisionEnum;
     }
 
+    export interface GrantedScopes {
+      /**
+         * The project these scopes work in. Null for a connection that works in every project.
+         * @nullable
+         */
+      project_id: number | null;
+      /** The scopes granted in the project. */
+      scopes: string[];
+    }
+
     export interface DeviceGrantDetails {
       /** The code, in the form the device shows it. */
       user_code: string;
@@ -38836,8 +38846,8 @@ export namespace Schemas {
       is_verified: boolean;
       /** The scopes the token will carry if the person approves. */
       scopes: string[];
-      /** The scopes the person already gave this client. A step-up asks for these plus new ones, and the page lists only the new ones. */
-      granted_scopes: string[];
+      /** The scopes the person already gave this client, per project. A step-up in a project asks for these plus new ones, and the page lists only the new ones. */
+      granted_scopes: GrantedScopes[];
       /** When the code expires. */
       expires_at: string;
     }

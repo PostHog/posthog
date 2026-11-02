@@ -16,18 +16,19 @@ export function storedPath(root: string, path: string): string {
 
 // hog's own folder, where it keeps its settings, the approvals it waits for and, without a keychain,
 // its credentials. posthog-cli's ~/.posthog folder is not hog's: hog only reads its credentials file.
-export function hogDir(runtime: Pick<Runtime, 'env' | 'platform' | 'homeDir'>): string {
+export function hogDir(runtime: Pick<Runtime, 'env' | 'platform' | 'homeDir' | 'fromSource'>): string {
     const { env, platform } = runtime
     const home = runtime.homeDir()
+    const name = runtime.fromSource ? 'hog-dev' : 'hog'
     let folder: string | undefined
     if (platform === 'win32') {
-        folder = env.APPDATA ? win32.join(env.APPDATA, 'hog') : home && win32.join(home, 'AppData', 'Roaming', 'hog')
+        folder = env.APPDATA ? win32.join(env.APPDATA, name) : home && win32.join(home, 'AppData', 'Roaming', name)
     } else if (platform === 'darwin') {
-        folder = home && posix.join(home, 'Library', 'Application Support', 'hog')
+        folder = home && posix.join(home, 'Library', 'Application Support', name)
     } else {
         // The XDG spec says to ignore a relative XDG_CONFIG_HOME.
         const xdg = env.XDG_CONFIG_HOME && posix.isAbsolute(env.XDG_CONFIG_HOME) ? env.XDG_CONFIG_HOME : undefined
-        folder = xdg ? posix.join(xdg, 'hog') : home && posix.join(home, '.config', 'hog')
+        folder = xdg ? posix.join(xdg, name) : home && posix.join(home, '.config', name)
     }
     if (!folder) {
         throw new HogError(
@@ -39,7 +40,7 @@ export function hogDir(runtime: Pick<Runtime, 'env' | 'platform' | 'homeDir'>): 
     return folder
 }
 
-export function hogFile(runtime: Pick<Runtime, 'env' | 'platform' | 'homeDir'>, name: string): string {
+export function hogFile(runtime: Pick<Runtime, 'env' | 'platform' | 'homeDir' | 'fromSource'>, name: string): string {
     const folder = hogDir(runtime)
     return runtime.platform === 'win32' ? win32.join(folder, name) : posix.join(folder, name)
 }

@@ -1,5 +1,6 @@
 import type { Context } from '@/core/context'
 import { HogError } from '@/core/errors'
+import type { StoreChoice } from '@/posthog/credential-store'
 
 import { ApiError } from './api'
 import type { CredentialSource } from './credentials'
@@ -21,7 +22,7 @@ export type AuthStatus =
           kind: 'personal_api_key' | 'oauth'
           source: CredentialSource
           // Set when the source is the store.
-          store: 'keychain' | 'file' | null
+          store: StoreChoice | null
           credentialsPath: string | null
           // What an OAuth login may do and when its access token expires (ISO 8601). Null for a
           // personal API key, which has no expiry and whose scopes PostHog doesn't report.

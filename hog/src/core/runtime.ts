@@ -33,6 +33,9 @@ export interface Secrets {
 export interface Runtime {
     env: Env
     platform: NodeJS.Platform
+    // True for `bun src/index.ts`, false for a compiled hog. A run from source keeps its credentials
+    // and settings apart, so it never reads or replaces those of an installed hog.
+    fromSource: boolean
     stdinIsTTY: boolean
     stdoutIsTTY: boolean
     stdoutHasColors: boolean
@@ -85,11 +88,8 @@ function browserCommand(url: string): string[] {
     }
 }
 
-// Runs from source use their own keychain service, so they never read or replace the credentials of
-// an installed hog. `bun src/index.ts` runs as the bun executable, a compiled hog as itself.
-function keychainService(): string {
-    return basename(process.execPath).replace(/\.exe$/i, '') === 'bun' ? 'com.posthog.hog.dev' : 'com.posthog.hog'
-}
+// `bun src/index.ts` runs as the bun executable, a compiled hog as itself.
+const FROM_SOURCE = basename(process.execPath).replace(/\.exe$/i, '') === 'bun'
 
 function bunSecrets(service: string): Secrets {
     return {
@@ -121,6 +121,7 @@ export function processRuntime(): Runtime {
     return {
         env: process.env,
         platform: process.platform,
+        fromSource: FROM_SOURCE,
         stdinIsTTY: process.stdin.isTTY === true,
         stdoutIsTTY: process.stdout.isTTY === true,
         stdoutHasColors: process.stdout.isTTY === true && process.stdout.hasColors(),
@@ -213,7 +214,7 @@ export function processRuntime(): Runtime {
             }
         },
         prompts: clackPrompts(),
-        secrets: bunSecrets(keychainService()),
+        secrets: bunSecrets(FROM_SOURCE ? 'com.posthog.hog.dev' : 'com.posthog.hog'),
         telemetryToken: DEFAULT_TELEMETRY_TOKEN,
         skipTlsVerification: () => {
             // Runs only for --skip-ssl-verification, posthog-cli's opt-in flag for self-hosted certificates.

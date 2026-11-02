@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 
 import { HogError } from '@/core/errors'
-import { hogFile } from '@/core/paths'
+import { withFileLock } from '@/core/file-lock'
 import type { Runtime } from '@/core/runtime'
 
 import { sendRequest, type HttpResponse } from './api'
@@ -16,11 +16,6 @@ const REQUEST_TIMEOUT_MS = 30_000
 // Refresh this long before the access token expires, so it doesn't expire during a command.
 // A command resolves its credentials once, so the margin also covers a command that runs for minutes.
 const REFRESH_MARGIN_MS = 10 * 60_000
-// A lock older than this belongs to a process that died before it removed it. A live owner can hold
-// the lock through a keychain read, a token request and a keychain write, so the limit is longer than
-// all three timeouts together.
-const LOCK_STALE_MS = 180_000
-const LOCK_POLL_MS = 250
 
 export interface TokenResponse {
     access_token?: string
@@ -95,58 +90,10 @@ async function refresh(runtime: Runtime, credential: OAuthCredential): Promise<O
     )
 }
 
-interface LockContents {
-    id?: string
-    createdAt?: number
-}
-
-async function readLock(runtime: Runtime, lock: string): Promise<LockContents | undefined> {
-    try {
-        return JSON.parse(await runtime.readFile(lock)) as LockContents
-    } catch {
-        return undefined
-    }
-}
-
-async function withRefreshLock<T>(runtime: Runtime, host: string, work: () => Promise<T>): Promise<T> {
+// Serializes the processes that renew or remove the login to one host.
+export function withLoginLock<T>(runtime: Runtime, host: string, work: () => Promise<T>): Promise<T> {
     const name = createHash('sha256').update(host).digest('hex').slice(0, 16)
-    const lock = hogFile(runtime, `refresh-${name}.lock`)
-    const id = randomUUID()
-    // A lock that can't be read yet may be one another process is still writing, so its age counts
-    // from when this process first saw it.
-    let unreadableSince: number | undefined
-    for (;;) {
-        if (await runtime.createFile(lock, JSON.stringify({ id, createdAt: runtime.now() }))) {
-            break
-        }
-        const contents = await readLock(runtime, lock)
-        let createdAt: number
-        if (contents?.createdAt === undefined) {
-            unreadableSince ??= runtime.now()
-            createdAt = unreadableSince
-        } else {
-            unreadableSince = undefined
-            createdAt = contents.createdAt
-        }
-        if (runtime.now() - createdAt > LOCK_STALE_MS) {
-            // Another process may have taken the stale lock over since the read above. Removing only
-            // the lock this process judged stale keeps it from removing that process's live lock.
-            if ((await readLock(runtime, lock))?.id === contents?.id) {
-                await runtime.removeFile(lock)
-            }
-            unreadableSince = undefined
-            continue
-        }
-        await runtime.sleep(LOCK_POLL_MS)
-    }
-    try {
-        return await work()
-    } finally {
-        // A process that took over this lock as stale owns it now, so leave its lock in place.
-        if ((await readLock(runtime, lock))?.id === id) {
-            await runtime.removeFile(lock)
-        }
-    }
+    return withFileLock(runtime, `refresh-${name}.lock`, work)
 }
 
 // An access token with time left. When PostHog rotates refresh tokens, it revokes the whole login if
@@ -161,7 +108,7 @@ export async function freshOAuthCredential(
     if (credential.expiresAt - runtime.now() > REFRESH_MARGIN_MS) {
         return credential
     }
-    return withRefreshLock(runtime, credential.host, async () => {
+    return withLoginLock(runtime, credential.host, async () => {
         const current = (await readLogin(runtime, await readSettings(runtime), credential.host))?.credential
         if (current?.type !== 'oauth') {
             throw new HogError('not_authenticated', 'You logged out of hog.', 'Run `hog auth login` to log in again.')
@@ -170,7 +117,13 @@ export async function freshOAuthCredential(
             return current
         }
         const renewed = await refresh(runtime, current)
-        await writeLogin(runtime, store, renewed)
+        try {
+            await writeLogin(runtime, store, renewed)
+        } catch {
+            // PostHog already replaced the refresh token, so a lost write ends the login once the
+            // grace period passes. One more try covers a keychain that failed for a moment.
+            await writeLogin(runtime, store, renewed)
+        }
         return renewed
     })
 }

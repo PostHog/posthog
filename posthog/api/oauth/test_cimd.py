@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache as real_cache
 from django.test import SimpleTestCase
+from django.utils import timezone
 from django.utils.html import escape
 
 import requests
@@ -712,6 +713,25 @@ class TestGetOrCreateCimdApplication(APIBaseTest):
         with self.assertRaises(CIMDFetchError):
             get_or_create_cimd_application(VALID_CIMD_URL)
 
+    @time_machine.travel("2026-03-02 10:00:00", tick=False)
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_a_grant_type_change_ends_the_clients_sessions(self, mock_get, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata(), headers={})
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+        assert app is not None
+        OAuthAccessToken.objects.create(
+            user=self.user, application=app, token="pha_before", expires=timezone.now() + timedelta(days=1)
+        )
+        device_only = _make_metadata(grant_types=[DEVICE_CODE_GRANT_TYPE, "refresh_token"])
+        del device_only["redirect_uris"]
+        mock_get.return_value = _mock_response(device_only, headers={})
+
+        refresh_cimd_metadata_task(VALID_CIMD_URL)
+
+        app.refresh_from_db()
+        self.assertEqual(app.authorization_grant_type, AbstractApplication.GRANT_DEVICE_CODE)
+        self.assertFalse(OAuthAccessToken.objects.filter(token="pha_before").exists())
+
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_refresh_task_updates_metadata(self, mock_get, _url_mock):
         metadata1 = _make_metadata(client_name="Original Name")
@@ -1298,8 +1318,9 @@ class TestCIMDDeviceIntegration(APIBaseTest):
         self.assertEqual(token["scope"], "insight:read")
         self.assertEqual(token["scoped_teams"], [self.team.id])
 
+    @parameterized.expand([("the current refresh token", "current"), ("the refresh token it replaced", "rotated")])
     @patch("posthog.api.oauth.cimd.requests.Session.get")
-    def test_revoking_one_device_login_leaves_the_others(self, mock_get, _url_mock):
+    def test_revoking_one_device_login_leaves_the_others(self, _name, revoked_token, mock_get, _url_mock):
         metadata = _make_metadata(grant_types=[DEVICE_CODE_GRANT_TYPE, "refresh_token"])
         del metadata["redirect_uris"]
         mock_get.return_value = _mock_response(metadata)
@@ -1310,7 +1331,9 @@ class TestCIMDDeviceIntegration(APIBaseTest):
             refreshed = self._refresh(laptop["refresh_token"])
             self.assertNotEqual(refreshed["refresh_token"], laptop["refresh_token"])
 
-            revoke_body = {"token": refreshed["refresh_token"], "client_id": VALID_CIMD_URL}
+            # A token rotated away still refreshes during the grace period, so revoking it ends the login too.
+            token = refreshed["refresh_token"] if revoked_token == "current" else laptop["refresh_token"]
+            revoke_body = {"token": token, "client_id": VALID_CIMD_URL}
             revoked = self.client.post("/oauth/revoke/", urlencode(revoke_body), content_type=self.FORM)
 
         self.assertEqual(revoked.status_code, status.HTTP_200_OK, revoked.content)
