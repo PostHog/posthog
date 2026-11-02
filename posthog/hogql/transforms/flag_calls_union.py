@@ -317,6 +317,15 @@ _MATCH_PASSES = {
 }
 
 
+def _compares_like_clickhouse(values: list[object]) -> bool:
+    """Whether Python and ClickHouse agree on how these constants compare.
+
+    ClickHouse converts mixed types before it compares (`1 IN ('1')` is true), which Python does not.
+    NULL and floats are neither str nor int, so they never fold.
+    """
+    return any(all(isinstance(value, kind) for value in values) for kind in (str, int))
+
+
 def _fold(expr: ast.Expr) -> ast.Expr:
     """`expr` with comparisons of constants, and the AND, OR, NOT and `if` they decide, replaced by their value."""
     if (parts := boolean_operands(expr, ast.And)) is not None:
@@ -348,12 +357,11 @@ def _fold(expr: ast.Expr) -> ast.Expr:
     op, left, right = compared.op, _fold(compared.left), _fold(compared.right)
     values = right.exprs if isinstance(right, (ast.Tuple, ast.Array)) else [right]
     constants = [value.value for value in values if isinstance(value, ast.Constant)]
-    # ClickHouse converts mixed types before it compares (`1 IN ('1')` is true), which Python does not.
     if (
         op in _MATCH_PASSES
         and isinstance(left, ast.Constant)
         and len(constants) == len(values)
-        and any(all(isinstance(constant, kind) for constant in (left.value, *constants)) for kind in (str, int))
+        and _compares_like_clickhouse([left.value, *constants])
         and (len(values) == 1 or op in (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn))
     ):
         return ast.Constant(value=(left.value in constants) == _MATCH_PASSES[op])
