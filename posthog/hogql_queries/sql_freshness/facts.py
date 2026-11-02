@@ -15,7 +15,11 @@ from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1
 from posthog.hogql.database.schema.sessions_v2 import SessionsTableV2
 from posthog.hogql.database.schema.sessions_v3 import SessionsTableV3
-from posthog.hogql.database.schema.util.where_clause_extractor import top_level_conjuncts
+from posthog.hogql.database.schema.util.where_clause_extractor import (
+    contains_in_cohort,
+    top_level_conjuncts,
+    unwrap_table_alias_type,
+)
 from posthog.hogql.functions.clickhouse.datetime import DATE_GENERATOR_FUNCTIONS
 from posthog.hogql.functions.mapping import find_hogql_function
 from posthog.hogql.transforms.order_by_pushdown import unwrap_alias
@@ -75,18 +79,17 @@ class _Bound:
 class QueryFacts:
     now: datetime
     start_of_today: datetime
-    start_of_utc_today: datetime
-    start_of_project_today: datetime
+    next_midnight: datetime
     windows: tuple[Window, ...]
     relative_inputs: bool
-    unsupported_field: bool = False
-    join: bool = False
-    foreign_source: bool = False
-    unbounded_select: bool = False
-    unsupported_bound: bool = False
-    clock_outside_bounds: bool = False
-    reads_clock: bool = False
-    reads_now: bool = False
+    unsupported_field: bool
+    join: bool
+    foreign_source: bool
+    unbounded_select: bool
+    unsupported_bound: bool
+    clock_outside_bounds: bool
+    reads_clock: bool
+    reads_now: bool
 
 
 @frozen
@@ -101,17 +104,14 @@ class _UnsupportedBound(Exception):
     pass
 
 
-def clock_name(call: ast.Call) -> Optional[str]:
+def _clock_name(call: ast.Call) -> Optional[str]:
     meta = find_hogql_function(call.name)
     return _CLOCK_FUNCTIONS.get(id(meta)) if meta is not None else None
 
 
-def _events_table_type(table_type: Any) -> Optional[ast.TableType]:
-    if isinstance(table_type, ast.TableAliasType):
-        table_type = table_type.table_type
-    if isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable):
-        return table_type
-    return None
+def _is_events_table(table_type: Any) -> bool:
+    table_type = unwrap_table_alias_type(table_type)
+    return isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable)
 
 
 def _is_subquery_type(table_type: Any) -> bool:
@@ -127,7 +127,7 @@ def _reads_supported_table(table_type: Any) -> bool:
         return isinstance(table_type.lazy_join.join_table, _JOINABLE_TABLES) and _reads_supported_table(
             table_type.table_type
         )
-    return _events_table_type(table_type) is not None
+    return _is_events_table(table_type)
 
 
 def _is_supported_field_type(field_type: Any) -> bool:
@@ -148,7 +148,7 @@ def _is_events_timestamp(expr: ast.Expr) -> bool:
     return (
         isinstance(field_type, ast.FieldType)
         and field_type.name == _TIMESTAMP_COLUMN
-        and _events_table_type(field_type.table_type) is not None
+        and _is_events_table(field_type.table_type)
     )
 
 
@@ -222,7 +222,6 @@ class _QueryScan(TraversingVisitor):
         self.selects: list[ast.SelectQuery] = []
         self.clock_calls: set[int] = set()
         self.unsupported_field = False
-        self.reads_cohort = False
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         self.selects.append(node)
@@ -232,13 +231,8 @@ class _QueryScan(TraversingVisitor):
         if not isinstance(node.type, ast.BaseTableType) and not _is_supported_field_type(node.type):
             self.unsupported_field = True
 
-    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
-        if node.op in (ast.CompareOperationOp.InCohort, ast.CompareOperationOp.NotInCohort):
-            self.reads_cohort = True
-        super().visit_compare_operation(node)
-
     def visit_call(self, node: ast.Call) -> None:
-        if clock_name(node) is not None:
+        if _clock_name(node) is not None:
             self.clock_calls.add(id(node))
         super().visit_call(node)
 
@@ -257,8 +251,9 @@ class _Evaluator:
         if isinstance(expr, ast.Constant):
             return self._constant(expr.value)
         if isinstance(expr, ast.Call):
-            if clock_name(expr) is not None:
-                return self._clock(expr)
+            clock = _clock_name(expr)
+            if clock is not None:
+                return self._clock(expr, clock)
             handler = _CALL_HANDLERS.get(expr.name)
             return handler(self, expr) if handler is not None and expr.args else None
         if isinstance(expr, ast.ArithmeticOperation) and expr.op in (
@@ -288,11 +283,10 @@ class _Evaluator:
             return _parse_string(value, self.timezone)
         return None
 
-    def _clock(self, call: ast.Call) -> Optional[_Value]:
+    def _clock(self, call: ast.Call, clock: str) -> Optional[_Value]:
         if call.args:
             return None
         self.consumed_clock_calls.add(id(call))
-        clock = clock_name(call)
         if clock in ("now64", "now"):
             self.reads_now = True
             return _Value(at=self.now, is_date=False)
@@ -447,7 +441,7 @@ def extract_facts(
         has_join = has_join or join.next_join is not None
         if _is_subquery_type(join.type):
             continue
-        if _events_table_type(join.type) is None:
+        if not _is_events_table(join.type):
             foreign_source = True
             continue
         try:
@@ -461,17 +455,18 @@ def extract_facts(
             unbounded_select = True
             continue
         windows.append(Window(start=max(starts), end=min(ends) if ends else None))
+    start_of_today = _start_of_day(now, timezone)
+    earliest_day_start = min(start_of_today, evaluator.start_of_utc_today, _start_of_day(now, project_timezone))
     return QueryFacts(
         now=now.astimezone(UTC),
-        start_of_today=_start_of_day(now, timezone),
-        start_of_utc_today=evaluator.start_of_utc_today,
-        start_of_project_today=_start_of_day(now, project_timezone),
+        start_of_today=start_of_today,
+        next_midnight=earliest_day_start + timedelta(days=1),
         windows=tuple(windows),
         relative_inputs=relative_inputs,
         unsupported_field=scan.unsupported_field,
         join=has_join,
-        foreign_source=foreign_source or scan.reads_cohort,
-        unbounded_select=unbounded_select,
+        foreign_source=foreign_source or contains_in_cohort(resolved_query),
+        unbounded_select=unbounded_select or not windows,
         unsupported_bound=unsupported_bound,
         clock_outside_bounds=bool(scan.clock_calls - evaluator.consumed_clock_calls),
         reads_clock=bool(evaluator.consumed_clock_calls),

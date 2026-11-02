@@ -3477,7 +3477,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def _read_cache_entry_freshness(self, record: Any) -> None:
         """Restores the decision that `_cache_entry_with_freshness` stored, before the response is parsed."""
-        pass
 
     def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
         query_date_range = getattr(self, "query_date_range", None)

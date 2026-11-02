@@ -99,14 +99,9 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             and self._team_flag_enabled_locally(API_SQL_WINDOW_CACHE_AGE_FLAG)
         )
 
-    @property
-    def _applicable_sql_freshness(self) -> Optional[SqlFreshness]:
-        classification = self._sql_classification
-        return classification if isinstance(classification, SqlFreshness) and self._api_sql_freshness_enabled else None
-
     def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
-        freshness = self._applicable_sql_freshness
-        if freshness is not None and last_refresh is not None:
+        freshness = self._sql_classification
+        if isinstance(freshness, SqlFreshness) and last_refresh is not None and self._api_sql_freshness_enabled:
             return datetime.now(UTC) > freshness.fresh_until
         return super()._is_stale(last_refresh, lazy=lazy)
 
@@ -120,7 +115,11 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
 
     def _staleness_event_properties(self) -> dict[str, Any]:
         classification = self._sql_classification
-        if not self._api_sql_freshness_enabled or getattr(self, "_cache_age_override", None) is not None:
+        if (
+            classification is None
+            or getattr(self, "_cache_age_override", None) is not None
+            or not self._api_sql_freshness_enabled
+        ):
             return {}
         if isinstance(classification, Reject):
             return {"sql_cache_reason": classification.reason.value}
@@ -129,7 +128,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         return {}
 
     def _classify_sql_freshness(
-        self, query: ast.SelectQuery | ast.SelectSetQuery, relative_date_reads: list[str]
+        self, query: ast.SelectQuery | ast.SelectSetQuery, relative_inputs: bool
     ) -> SqlFreshness | Reject:
         if "events" not in {name.lower() for name in self._queried_table_names}:
             return Reject(reason=FreshnessReason.NO_EVENTS)
@@ -144,7 +143,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             timezone=UTC if self.modifiers.convertToProjectTimezone is False else self.team.timezone_info,
             project_timezone=self.team.timezone_info,
             week_start_day=self.team.week_start_day,
-            relative_inputs=bool(relative_date_reads),
+            relative_inputs=relative_inputs,
         )
 
     def _validate_direct_connection(self, *, user: Optional[User] = None, force: bool = False) -> None:
@@ -331,7 +330,8 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         with record_relative_date_reads() as relative_date_reads:
             query = self._parse_query()[0] if self._direct_engine == "trino" else self.to_query()
         if self._api_sql_freshness_enabled:
-            self._sql_classification = self._classify_sql_freshness(query, relative_date_reads)
+            with self.timings.measure("sql_freshness"):
+                self._sql_classification = self._classify_sql_freshness(query, bool(relative_date_reads))
         return query
 
     def _calculate(self) -> HogQLQueryResponse:

@@ -72,7 +72,7 @@ def reject_reason(facts: QueryFacts) -> Optional[FreshnessReason]:
         (facts.join, FreshnessReason.JOIN),
         (facts.foreign_source, FreshnessReason.FOREIGN_SOURCE),
         (facts.unsupported_bound, FreshnessReason.UNSUPPORTED_BOUND),
-        (facts.unbounded_select or not facts.windows, FreshnessReason.UNBOUNDED),
+        (facts.unbounded_select, FreshnessReason.UNBOUNDED),
         (facts.clock_outside_bounds, FreshnessReason.CLOCK_OUTSIDE_BOUNDS),
     )
     return next((reason for failed, reason in checks if failed), None)
@@ -82,8 +82,7 @@ def fresh_until(facts: QueryFacts) -> tuple[datetime, FreshnessReason]:
     """Every limit that applies holds at once, so the earliest one sets the expiry."""
     limits = [(facts.now + SQL_WINDOW_MAX_AGE[shortest_lived_window(facts)], FreshnessReason.WINDOW_AGE)]
     if facts.reads_clock or facts.relative_inputs:
-        start_of_day = min(facts.start_of_today, facts.start_of_utc_today, facts.start_of_project_today)
-        limits.append((start_of_day + timedelta(days=1), FreshnessReason.CLOCK_DAY))
+        limits.append((facts.next_midnight, FreshnessReason.CLOCK_DAY))
     if facts.reads_now or facts.relative_inputs:
         limits += [
             (facts.now + SQL_WINDOW_MAX_AGE[_class_for_length(window.end - window.start)], FreshnessReason.NOW_ANCHORED)

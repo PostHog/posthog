@@ -269,31 +269,18 @@ class TestClassify(BaseTest):
     def test_grants_window_age(
         self, _name: str, sql: str, expected_window: SqlWindowClass, options: dict[str, Any] | None = None
     ) -> None:
-        options = options or {}
-        now = options.get("now", NOW)
-        freshness = self._classify(
-            sql,
-            now=now,
-            relative_inputs=options.get("relative_inputs", False),
-            timezone=options.get("timezone"),
-            project_timezone=options.get("project_timezone"),
-        )
+        options = {"now": NOW, **(options or {})}
+        expected_fresh_until = options.pop("fresh_until", options["now"] + SQL_WINDOW_MAX_AGE[expected_window])
+        freshness = self._classify(sql, **options)
         assert isinstance(freshness, SqlFreshness)
-        expected_fresh_until = options.get("fresh_until", now + SQL_WINDOW_MAX_AGE[expected_window])
         assert (freshness.window, freshness.fresh_until) == (expected_window, expected_fresh_until)
 
     @parameterized.expand(CLOCK_RELATIVE_CASES)
     def test_clock_relative_results_expire_by_midnight(
         self, _name: str, sql: str, _expected_window: SqlWindowClass, options: dict[str, Any] | None = None
     ) -> None:
-        options = options or {}
-        freshness = self._classify(
-            sql,
-            now=NEXT_MIDNIGHT - timedelta(minutes=5),
-            relative_inputs=options.get("relative_inputs", False),
-            timezone=options.get("timezone"),
-            project_timezone=options.get("project_timezone"),
-        )
+        options = {key: value for key, value in (options or {}).items() if key not in ("now", "fresh_until")}
+        freshness = self._classify(sql, now=NEXT_MIDNIGHT - timedelta(minutes=5), **options)
         assert isinstance(freshness, SqlFreshness)
         assert freshness.fresh_until <= NEXT_MIDNIGHT
 

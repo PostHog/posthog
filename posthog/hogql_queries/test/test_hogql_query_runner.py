@@ -50,6 +50,13 @@ from products.warehouse_sources.backend.facade.models import MANAGED_WAREHOUSE_S
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
+def _freshness_flag(on: bool):
+    return patch(
+        "posthog.hogql_queries.query_runner.posthoganalytics.feature_enabled",
+        side_effect=lambda key, *args, **kwargs: on and key == API_SQL_WINDOW_CACHE_AGE_FLAG,
+    )
+
+
 class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
     random_uuid: str
@@ -592,13 +599,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = HogQLQuery(
             query=f"select count() from events where timestamp > now() - interval 7 day and event != '{self.random_uuid}'"
         )
-        with (
-            patch(
-                "posthog.hogql_queries.query_runner.posthoganalytics.feature_enabled",
-                side_effect=lambda key, *args, **kwargs: key == API_SQL_WINDOW_CACHE_AGE_FLAG,
-            ),
-            tags_context(access_method="personal_api_key"),
-        ):
+        with _freshness_flag(on=True), tags_context(access_method="personal_api_key"):
             with time_machine.travel("2026-10-29T15:00:00Z", tick=False):
                 first = self._create_runner(query).run()
             with time_machine.travel("2026-10-29T15:10:00Z", tick=False):
@@ -621,12 +622,6 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestHogQLQueryRunnerApiSqlFreshness(BaseTest):
-    def _flag(self, on: bool):
-        return patch(
-            "posthog.hogql_queries.query_runner.posthoganalytics.feature_enabled",
-            side_effect=lambda key, *args, **kwargs: on and key == API_SQL_WINDOW_CACHE_AGE_FLAG,
-        )
-
     @parameterized.expand(
         [
             ("api_key_uses_its_window", "personal_api_key", True, True, False),
@@ -645,14 +640,14 @@ class TestHogQLQueryRunnerApiSqlFreshness(BaseTest):
             fresh_until=now + timedelta(hours=1),
             reason=FreshnessReason.WINDOW_AGE,
         )
-        with self._flag(flag_on), tags_context(access_method=access_method):
+        with _freshness_flag(on=flag_on), tags_context(access_method=access_method):
             runner = HogQLQueryRunner(team=self.team, query=HogQLQuery(query="select 1"))
             runner._read_cache_entry_freshness(freshness_record(window) if entry_has_window else None)
             stale = runner._is_stale_for_request(last_refresh=now - timedelta(minutes=10))
         assert stale is expected_stale
 
     def _built_freshness(self, query: HogQLQuery) -> SqlFreshness | Reject | None:
-        with self._flag(True), tags_context(access_method="personal_api_key"):
+        with _freshness_flag(on=True), tags_context(access_method="personal_api_key"):
             runner = HogQLQueryRunner(team=self.team, query=query)
             runner._build_query()
         return runner._sql_classification
