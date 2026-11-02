@@ -538,3 +538,25 @@ def test_a_rerun_counts_toward_the_daily_run_cap(team, writer_env, monkeypatch) 
         next_request = intake.submit(_verdict(pull_request_number=456), team_id=team.id)
 
     assert (started.status, rerun.status, next_request.status) == ("started", "started", "capped")
+
+
+@pytest.mark.django_db
+def test_two_requests_that_both_saw_the_failed_run_start_one_rerun(team, writer_env) -> None:
+    verdict = _verdict()
+    assert verdict.request is not None
+
+    with (
+        patch(FLAG_CHECK, return_value=True),
+        patch(LIST_PULL_REQUESTS, side_effect=_open_on_github()),
+        patch(START_WORKFLOW),
+    ):
+        started = intake.submit(verdict, team_id=team.id)
+        assert started.task_id is not None
+        TaskRun.objects.filter(task_id=started.task_id).update(status=TaskRun.Status.FAILED)
+        task_seen_failed = tasks_facade.get_task_by_origin_key(team.id, verdict.request.dedupe_id)
+        with patch.object(intake.tasks_facade, "get_task_by_origin_key", return_value=task_seen_failed):
+            first = intake.submit(verdict, team_id=team.id)
+            second = intake.submit(verdict, team_id=team.id)
+
+    assert (first.status, second.status) == ("started", "duplicate")
+    assert TaskRun.objects.filter(task_id=started.task_id).count() == 2

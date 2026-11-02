@@ -23,6 +23,10 @@ class WriterSectionBusy(Exception):
     pass
 
 
+class WriterRerunTaken(Exception):
+    pass
+
+
 def daily_run_cap_reached(writer: WriterSettings) -> bool:
     recent_run_ids = tasks_facade.owner_origin_recent_run_ids(
         team_id=writer.team_id,

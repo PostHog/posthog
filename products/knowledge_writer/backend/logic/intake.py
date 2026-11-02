@@ -16,6 +16,7 @@ from ..feature_flags import is_agent_launch_enabled
 from ..settings import writer_settings
 from .caps import (
     OPEN_PULL_REQUEST_CAP,
+    WriterRerunTaken,
     WriterSectionBusy,
     alert_cap_reached,
     daily_run_cap_reached,
@@ -85,6 +86,8 @@ def submit(payload: object, *, team_id: int) -> IntakeOutcome:
         return IntakeOutcome(status="duplicate")
     except WriterSectionBusy:
         return IntakeOutcome(status="section_busy")
+    except WriterRerunTaken:
+        return IntakeOutcome(status="duplicate", task_id=existing_task.id if existing_task is not None else None)
     if joining is not None:
         return IntakeOutcome(status="joined", task_id=task_id, pull_request_url=joining.url)
     return IntakeOutcome(status="started", task_id=task_id)
