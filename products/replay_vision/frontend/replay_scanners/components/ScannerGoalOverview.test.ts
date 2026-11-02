@@ -197,6 +197,7 @@ describe('eligibleFilterGroups', () => {
 describe('goalOverviewSectionLabels', () => {
     it('reviews the target recordings before the prompt, under the wizard step names, in the recordings-first arm', () => {
         expect(goalOverviewSectionLabels(false)).toEqual([
+            'What it understood',
             'Name',
             'What it will ask',
             'Eligible recordings',

@@ -413,9 +413,16 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
 
     return (
         <div className="flex flex-col gap-3">
-            <DraftReviewHeader />
-
-            {rationale ? <RationaleSection rationale={rationale} /> : null}
+            {recordingsFirst ? (
+                <>
+                    <DraftReviewHeader />
+                    {rationale ? <RationaleSection rationale={rationale} /> : null}
+                </>
+            ) : (
+                <OverviewSection label="What it understood" scannerId={scannerId}>
+                    <div className="text-sm">{rationale || scanner.description}</div>
+                </OverviewSection>
+            )}
 
             <OverviewSection label="Name" editStep="details" scannerId={scannerId}>
                 <div className="text-sm font-medium">{scanner.name}</div>
@@ -634,7 +641,7 @@ export function goalOverviewSectionLabels(recordingsFirst: boolean): string[] {
     const titles = goalOverviewSectionTitles(recordingsFirst)
     return recordingsFirst
         ? ['Name', titles.triggers, titles.configure, titles.budget]
-        : ['Name', titles.configure, titles.triggers, titles.budget]
+        : ['What it understood', 'Name', titles.configure, titles.triggers, titles.budget]
 }
 
 /** The overview's shape while the draft is still generating, so navigating there reads as progress. */
