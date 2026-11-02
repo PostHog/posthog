@@ -266,11 +266,11 @@ export class EmailValidationService {
         if (!this.valkey) {
             return null
         }
-        // A Valkey outage is a cache miss, never an error. failOpen covers the callback; the catch
-        // covers the pool, which rejects before the callback when no connection can be acquired.
+        // A Valkey outage is a cache miss, never an error. Without failOpen, a failed command and a pool
+        // that cannot hand out a connection both reach the catch, which counts them.
         let value: string | null
         try {
-            value = await this.valkey.useClient({ name: 'email-mx-read', failOpen: true }, (client) =>
+            value = await this.valkey.useClient({ name: 'email-mx-read' }, (client) =>
                 client.get(VALKEY_KEY_PREFIX + domain)
             )
         } catch (error) {
@@ -293,7 +293,7 @@ export class EmailValidationService {
         }
         const ttlSeconds = Math.floor((deliverable ? POSITIVE_TTL_MS : NEGATIVE_TTL_MS) / 1000)
         try {
-            await this.valkey.useClient({ name: 'email-mx-write', failOpen: true }, (client) =>
+            await this.valkey.useClient({ name: 'email-mx-write' }, (client) =>
                 client.set(VALKEY_KEY_PREFIX + domain, deliverable ? '1' : '0', 'EX', ttlSeconds)
             )
         } catch (error) {
