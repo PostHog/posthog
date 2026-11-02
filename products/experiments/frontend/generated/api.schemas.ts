@@ -3357,7 +3357,7 @@ export interface ExperimentHealthInputsZeroMetricApi {
     /** The persons or groups of the result, across the variants. */
     exposures: number
     /**
-     * The side of a ratio that reads zero. Null for the other metric types.
+     * The side of a ratio that reads zero. Each side that reads zero has its own entry. Null for the other metric types.
      * @nullable
      */
     ratio_side: string | null

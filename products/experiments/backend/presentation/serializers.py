@@ -3489,7 +3489,9 @@ class ExperimentHealthInputsZeroMetricSerializer(serializers.Serializer):
     role = serializers.CharField(help_text="Whether the metric is a primary or a secondary metric of the experiment.")
     exposures = serializers.IntegerField(help_text="The persons or groups of the result, across the variants.")
     ratio_side = serializers.CharField(
-        allow_null=True, help_text="The side of a ratio that reads zero. Null for the other metric types."
+        allow_null=True,
+        help_text="The side of a ratio that reads zero. Each side that reads zero has its own entry. Null for the other "
+        "metric types.",
     )
     stopped_events = serializers.ListField(
         child=serializers.CharField(),

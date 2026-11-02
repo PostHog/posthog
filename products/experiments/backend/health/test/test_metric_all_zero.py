@@ -49,6 +49,7 @@ def _metric(**changes: Any) -> ZeroMetric:
         "definition": MEAN,
         "reached_earlier_step": 0,
         "events": ("purchase",),
+        "warehouse_tables": (),
         "has_blank_event": False,
         "has_filters": False,
         "stopped_events": {},
@@ -142,7 +143,25 @@ class TestMetricAllZero(TestCase):
                 "an_outlier_bound_that_counts_zeros",
                 _metric(definition=BOUNDED),
                 {},
-                ("outlier_bound", WARNING, "When fewer than 1% have a value, the bound is 0"),
+                ("outlier_bound", WARNING, "When at most 199 of them have a value, the bound is 0"),
+            ),
+            (
+                "a_bound_that_can_hide_one_value",
+                _metric(role="secondary", definition=BOUNDED, exposures=101),
+                {},
+                ("outlier_bound", INFO, "When at most 1 of them have a value"),
+            ),
+            (
+                "a_threshold_nobody_reaches",
+                _metric(definition={"metric_type": "mean", "threshold": 50}),
+                {},
+                (None, WARNING, 'can reach the threshold of "Purchases" (50).'),
+            ),
+            (
+                "a_data_warehouse_table",
+                _metric(events=(), warehouse_tables=("charges",)),
+                {},
+                (None, WARNING, "counts a warehouse row only for the person or group that was exposed"),
             ),
             (
                 "after_the_end_nobody_can_add_events",
@@ -163,10 +182,22 @@ class TestMetricAllZero(TestCase):
                 ("outlier_bound", WARNING, "Turn on"),
             ),
             (
-                "secondary_metrics_report_only_the_outlier_bound",
+                "secondary_metrics_report_an_outlier_bound",
                 _metric(role="secondary", definition=BOUNDED),
                 {},
                 ("outlier_bound", INFO, 'The secondary metric "Purchases"'),
+            ),
+            (
+                "secondary_metrics_report_an_empty_event_name",
+                _metric(role="secondary", has_blank_event=True, events=(), exposures=100),
+                {},
+                ("blank_event", INFO, "matches no events"),
+            ),
+            (
+                "an_empty_event_name_comes_before_a_bound",
+                _metric(role="secondary", definition=BOUNDED, has_blank_event=True),
+                {},
+                ("blank_event", INFO, "matches no events"),
             ),
         ]
     )
@@ -184,12 +215,8 @@ class TestMetricAllZero(TestCase):
             ("under_the_exposures_floor", _metric(exposures=999), 96),
             ("under_the_data_floor", _metric(), 71),
             ("a_secondary_metric_without_a_bound", _metric(role="secondary"), 96),
-            ("an_empty_event_name_on_a_secondary_metric", _metric(role="secondary", has_blank_event=True), 96),
-            (
-                "an_empty_event_name_is_no_bound",
-                _metric(role="secondary", definition=BOUNDED, has_blank_event=True),
-                96,
-            ),
+            ("an_empty_event_name_under_its_exposures_floor", _metric(has_blank_event=True, exposures=99), 96),
+            ("an_empty_event_name_in_the_first_hours", _metric(has_blank_event=True), 11),
             ("a_bound_under_its_exposures_floor", _metric(definition=BOUNDED, exposures=99), 96),
             ("a_bound_in_the_first_hours", _metric(definition=BOUNDED, exposures=800), 11),
             (
@@ -200,6 +227,11 @@ class TestMetricAllZero(TestCase):
             (
                 "a_bound_on_the_largest_value",
                 _metric(definition={**BOUNDED, "upper_bound_percentile": 1}, exposures=800),
+                96,
+            ),
+            (
+                "a_bound_that_picks_the_largest_of_its_exposures",
+                _metric(role="secondary", definition=BOUNDED, exposures=100),
                 96,
             ),
             (
@@ -233,14 +265,22 @@ class TestMetricAllZero(TestCase):
         assert isinstance(outcome, ExperimentHealthFinding)
         self.assertEqual(outcome.severity, ExperimentHealthFindingSeverity.INFO)
 
-    def test_a_retention_window_that_started_reads_as_zero(self) -> None:
+    @parameterized.expand([("before_the_gate", 119, False), ("at_the_gate", 120, True)])
+    def test_a_retention_metric_counts_its_hours_from_the_window_start(
+        self, _name: str, hours_of_data: float, reports: bool
+    ) -> None:
         definition = {
             "metric_type": "retention",
             "retention_window_start": 2,
             "retention_window_end": 3,
             "retention_window_unit": "day",
         }
-        self.assertIsInstance(_outcome(_metric(definition=definition)), ExperimentHealthFinding)
+
+        outcome = _outcome(_metric(definition=definition), hours_of_data=hours_of_data)
+
+        self.assertEqual(isinstance(outcome, ExperimentHealthFinding), reports)
+        if isinstance(outcome, ExperimentHealthFinding):
+            self.assertIn("reads 0 for all 20,000 users who did its start event", outcome.detail)
 
     def test_the_outlier_bound_on_a_side_of_a_ratio(self) -> None:
         definition = {"metric_type": "ratio", "denominator_outlier_handling": {"upper_bound_percentile": 0.95}}
@@ -251,7 +291,7 @@ class TestMetricAllZero(TestCase):
         assert isinstance(outcome, ExperimentHealthFinding)
         self.assertEqual(outcome.subcode, "outlier_bound")
         self.assertIn('The denominator of the secondary metric "Purchases" reads 0', outcome.detail)
-        self.assertIn("fewer than 5% have a value", outcome.detail)
+        self.assertIn("When at most 39 of them have a value", outcome.detail)
 
     def test_the_outlier_bound_on_the_other_side_of_a_ratio_is_no_cause(self) -> None:
         definition = {"metric_type": "ratio", "denominator_outlier_handling": {"upper_bound_percentile": 0.95}}
@@ -327,9 +367,11 @@ class TestMetricAllZeroFromStoredRuns(BaseTest):
             metrics=metrics,
         )
 
-    def _store(self, experiment: Experiment, results: dict[str, dict | None]) -> None:
+    def _store(
+        self, experiment: Experiment, results: dict[str, dict | None], *, query_to: datetime | None = None
+    ) -> None:
+        query_to = query_to or timezone.now() - timedelta(hours=1)
         with team_scope(self.team.id):
-            query_to = timezone.now() - timedelta(hours=1)
             run = ExperimentMetricsRecalculation.objects.create(
                 team=self.team,
                 experiment=experiment,
@@ -416,17 +458,29 @@ class TestMetricAllZeroFromStoredRuns(BaseTest):
 
     @parameterized.expand(
         [
-            ("numerator", _result(samples=1000, total=0, denominator=20), "The numerator of the primary"),
-            ("denominator", _result(samples=1000, total=20, denominator=0), "The denominator of the primary"),
+            ("numerator", _result(samples=1000, total=0, denominator=20), ["The numerator of the primary"]),
+            ("denominator", _result(samples=1000, total=20, denominator=0), ["The denominator of the primary"]),
+            (
+                "both_sides",
+                _result(samples=1000, total=0, denominator=0),
+                ["The numerator of the primary", "The denominator of the primary"],
+            ),
+            (
+                "a_denominator_with_a_variant_without_exposures",
+                {**_result(samples=1000, total=20, denominator=0), "variant_results": [_variant(samples=0, total=0)]},
+                ["The denominator of the primary"],
+            ),
         ]
     )
-    def test_reads_the_side_of_a_ratio(self, _name: str, result: dict, words: str) -> None:
+    def test_reads_the_side_of_a_ratio(self, _name: str, result: dict, words: list[str]) -> None:
         experiment = self._experiment([self._ratio("primary")])
         self._store(experiment, {"primary": result})
 
         [finding] = self._findings(experiment)
 
-        self.assertIn(words, finding.detail)
+        self.assertEqual(finding.title, "A metric reads zero in every variant")
+        for side in words:
+            self.assertIn(side, finding.detail)
 
     def test_a_denominator_that_cancels_out_is_no_zero(self) -> None:
         experiment = self._experiment([self._ratio("primary")])
@@ -446,15 +500,22 @@ class TestMetricAllZeroFromStoredRuns(BaseTest):
         self.assertIsNone(finding.subcode)
         self.assertIn('the event "viewed"', finding.detail)
 
-    def test_names_an_event_that_stopped_before_launch(self) -> None:
+    @parameterized.expand(
+        [("ingestion_records_the_project", True, "event_stopped"), ("ingestion_skips_it", False, None)]
+    )
+    def test_names_an_event_that_stopped_before_launch(
+        self, _name: str, flag_called_recently: bool, subcode: str | None
+    ) -> None:
         experiment = self._experiment([self._mean("primary")])
         assert experiment.start_date is not None
         self._seen("purchase", experiment.start_date - timedelta(days=1))
+        if flag_called_recently:
+            self._seen("$feature_flag_called", timezone.now())
         self._store(experiment, {"primary": _result(samples=1000, total=0)})
 
         [finding] = self._findings(experiment)
 
-        self.assertEqual(finding.subcode, "event_stopped")
+        self.assertEqual(finding.subcode, subcode)
 
     def test_an_event_that_arrived_after_launch_did_not_stop(self) -> None:
         experiment = self._experiment([self._mean("primary")])
@@ -466,16 +527,19 @@ class TestMetricAllZeroFromStoredRuns(BaseTest):
 
         self.assertIsNone(finding.subcode)
 
-    def test_measures_the_data_at_the_calculation_that_the_page_shows(self) -> None:
+    @parameterized.expand([("under_the_data_floor", 71, False), ("at_the_data_floor", 72, True)])
+    def test_measures_the_data_at_the_calculation_that_the_page_shows(
+        self, _name: str, hours_of_data: int, reports: bool
+    ) -> None:
         experiment = self._experiment([self._mean("primary")], started_days_ago=4)
-        self._store(experiment, {"primary": _result(samples=1000, total=0)})
         assert experiment.start_date is not None
-        with team_scope(self.team.id):
-            ExperimentMetricsRecalculation.objects.filter(experiment=experiment).update(
-                query_to=experiment.start_date + timedelta(hours=48)
-            )
+        self._store(
+            experiment,
+            {"primary": _result(samples=1000, total=0)},
+            query_to=experiment.start_date + timedelta(hours=hours_of_data),
+        )
 
-        self.assertEqual(self._findings(experiment), [])
+        self.assertEqual(bool(self._findings(experiment)), reports)
 
     def test_a_blank_event_name_matches_no_events(self) -> None:
         experiment = self._experiment([self._mean("primary", source={"kind": "EventsNode", "event": ""})])

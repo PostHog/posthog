@@ -1,6 +1,6 @@
 """
-Metrics that read zero in every variant, so the results page shows "Not enough data yet" or a bare "Error" at any sample
-size. Pure functions, no I/O.
+Metrics that read zero in every variant, so the results page shows "Not enough data yet" at any sample size. Pure
+functions, no I/O.
 
 The stored result holds only the zero, so the check names a cause only where the metric's settings or the project's
 event definitions show one, and needs no scan of the events. In every other case the words say what the zero means and
@@ -30,9 +30,12 @@ from products.experiments.backend.health.skips import (
     not_checked,
 )
 from products.experiments.backend.health.split_changes import format_change_time
-from products.experiments.backend.hogql_queries.base_query_utils import conversion_window_to_seconds
+from products.experiments.backend.hogql_queries.base_query_utils import (
+    conversion_window_to_seconds,
+    quantile_exact_position,
+)
 
-# pinned: the finding's subcodes. The page sends them as `finding_subcode` on the health finding events.
+# pinned: the subcodes and `evidence.metric_N_cause`. The page sends the subcode as `finding_subcode` on its events.
 BLANK_EVENT = "blank_event"
 EVENT_STOPPED = "event_stopped"
 OUTLIER_BOUND = "outlier_bound"
@@ -40,9 +43,9 @@ OUTLIER_BOUND = "outlier_bound"
 # With less of either, most zeros are outcomes that take time, so neither gate works alone.
 MIN_EXPOSURES = 1000
 MIN_HOURS_OF_DATA = 72
-# A bound that counts zeros clamps a rare outcome at any traffic, so its cause doesn't need the gates above.
-MIN_EXPOSURES_WITH_OUTLIER_BOUND = 100
-MIN_HOURS_WITH_OUTLIER_BOUND = 12
+# An empty event name or a bound of 0 reads 0 at any traffic, so these causes need only enough data to read.
+MIN_EXPOSURES_WITH_A_SETTING_CAUSE = 100
+MIN_HOURS_WITH_A_SETTING_CAUSE = 12
 
 # A change to these settings recalculates the metric over the events up to the end, so they stay a warning after it.
 _FIXED_BY_A_SETTING = frozenset({BLANK_EVENT, OUTLIER_BOUND})
@@ -75,13 +78,13 @@ def metric_all_zero(ctx: HealthContext) -> CheckOutcome:
     worded = [
         item
         for metric in calculation.zero_metrics
-        if not _explained_elsewhere(metric, ctx, hours_of_data)
-        and (item := _word(metric, ctx, hours_of_data)) is not None
+        if not _explained_elsewhere(metric, ctx) and (item := _word(metric, ctx, hours_of_data)) is not None
     ]
     if not worded:
         return None
     worded.sort(key=lambda item: (item.metric.role != "primary", item.cause is None))
-    count = len(worded)
+    # Both sides of a ratio can read zero, and each is its own item.
+    count = len({item.metric.metric_id for item in worded})
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.METRIC_ALL_ZERO,
         subcode=worded[0].cause,
@@ -95,25 +98,22 @@ def metric_all_zero(ctx: HealthContext) -> CheckOutcome:
     )
 
 
-def _explained_elsewhere(metric: ZeroMetric, ctx: HealthContext, hours_of_data: float) -> bool:
+def _explained_elsewhere(metric: ZeroMetric, ctx: HealthContext) -> bool:
     # `metric_event_not_ingested` reports an event the project never received, until the experiment ends.
     # `metric_calculation_failed` and `zero_exposures` need no rule here: a failed metric has no zero to read, and a
     # result with exposures isn't zero exposures.
-    if not ctx.has_ended and any(ctx.events_received.get(event) is False for event in metric.events):
-        return True
-    return _retention_window_not_reached(metric, hours_of_data)
+    return not ctx.has_ended and any(ctx.events_received.get(event) is False for event in metric.events)
 
 
-def _retention_window_not_reached(metric: ZeroMetric, hours_of_data: float) -> bool:
-    """Whether nobody can have returned yet, because the data ends before the retention window of the first exposed
-    user starts."""
+def _hours_that_count(metric: ZeroMetric, hours_of_data: float) -> float:
+    """The hours of data in which the metric can count an outcome. A retention metric counts a return only from the
+    start of its retention window after the start event, so its hours begin there."""
     definition = metric.definition
     start = definition.get("retention_window_start")
     unit = definition.get("retention_window_unit")
     if definition.get("metric_type") != "retention" or start is None or unit is None:
-        return False
-    window_start = conversion_window_to_seconds(start, FunnelConversionWindowTimeUnit(unit))
-    return hours_of_data * _SECONDS_PER_HOUR < window_start
+        return hours_of_data
+    return hours_of_data - conversion_window_to_seconds(start, FunnelConversionWindowTimeUnit(unit)) / _SECONDS_PER_HOUR
 
 
 def _upper_bound(metric: ZeroMetric) -> float | None:
@@ -130,29 +130,37 @@ def _upper_bound(metric: ZeroMetric) -> float | None:
             assert_never(metric.ratio_side)
     if not handling or handling.get("ignore_zeros"):
         return None
-    percentile = handling.get("upper_bound_percentile")
-    # The percentile 1 is the largest value, so it clamps nothing.
-    return percentile if percentile is not None and percentile < 1 else None
+    return handling.get("upper_bound_percentile")
+
+
+def _values_a_zero_bound_hides(metric: ZeroMetric) -> int:
+    """How many exposures can have a value while the upper outlier bound is still 0. Zero without a bound that counts
+    zeros, and when the bound picks the largest value."""
+    percentile = _upper_bound(metric)
+    if percentile is None:
+        return 0
+    return metric.exposures - quantile_exact_position(percentile, metric.exposures) - 1
 
 
 def _word(metric: ZeroMetric, ctx: HealthContext, hours_of_data: float) -> _Worded | None:
     """The cause and the words for a metric that passes the gate of its cause, or None."""
+    hours = _hours_that_count(metric, hours_of_data)
     reads_zero = _reads_zero(metric)
-    passes_gates = metric.role == "primary" and metric.exposures >= MIN_EXPOSURES and hours_of_data >= MIN_HOURS_OF_DATA
-    if metric.has_blank_event or metric.stopped_events:
+    readable = metric.exposures >= MIN_EXPOSURES_WITH_A_SETTING_CAUSE and hours >= MIN_HOURS_WITH_A_SETTING_CAUSE
+    passes_gates = metric.role == "primary" and metric.exposures >= MIN_EXPOSURES and hours >= MIN_HOURS_OF_DATA
+    if metric.has_blank_event:
+        if not readable:
+            return None
+        detail = f"{reads_zero} It has an event with an empty name, which matches no events. Edit the metric and choose an event."
+        return _Worded(metric=metric, cause=BLANK_EVENT, detail=detail)
+    if metric.stopped_events:
+        # An event that stopped before launch sends no value for a bound to clamp, so the bound is no cause here.
         if not passes_gates:
             return None
-        if metric.has_blank_event:
-            detail = f"{reads_zero} It has an event with an empty name, which matches no events. Edit the metric and choose an event."
-            return _Worded(metric=metric, cause=BLANK_EVENT, detail=detail)
         return _Worded(metric=metric, cause=EVENT_STOPPED, detail=f"{reads_zero} {_stopped(metric, ctx)}")
-    percentile = _upper_bound(metric)
-    if (
-        percentile is not None
-        and metric.exposures >= MIN_EXPOSURES_WITH_OUTLIER_BOUND
-        and hours_of_data >= MIN_HOURS_WITH_OUTLIER_BOUND
-    ):
-        return _Worded(metric=metric, cause=OUTLIER_BOUND, detail=f"{reads_zero} {_bound(percentile)}")
+    hidden = _values_a_zero_bound_hides(metric)
+    if hidden > 0 and readable:
+        return _Worded(metric=metric, cause=OUTLIER_BOUND, detail=f"{reads_zero} {_bound(hidden, metric.exposures)}")
     if passes_gates:
         return _Worded(metric=metric, cause=None, detail=reads_zero)
     return None
@@ -161,12 +169,14 @@ def _word(metric: ZeroMetric, ctx: HealthContext, hours_of_data: float) -> _Word
 def _reads_zero(metric: ZeroMetric) -> str:
     subject = f'{metric.role} metric "{metric.name}"'
     subject = f"The {subject}" if metric.ratio_side is None else f"The {metric.ratio_side} of the {subject}"
+    # A retention result counts only the exposed users who did its start event.
+    counted = "users who did its start event" if metric.definition.get("metric_type") == "retention" else "exposures"
     earlier = (
         f" {metric.reached_earlier_step:,} reached an earlier step, but nobody finished the funnel."
         if metric.reached_earlier_step
         else ""
     )
-    return f"{subject} reads 0 for all {metric.exposures:,} exposures, in every variant.{earlier}"
+    return f"{subject} reads 0 for all {metric.exposures:,} {counted}, in every variant.{earlier}"
 
 
 def _stopped(metric: ZeroMetric, ctx: HealthContext) -> str:
@@ -186,11 +196,11 @@ def _stopped(metric: ZeroMetric, ctx: HealthContext) -> str:
     )
 
 
-def _bound(percentile: float) -> str:
-    share = round((1 - percentile) * 100, 2)
+def _bound(hidden: int, exposures: int) -> str:
     return (
-        f"Its upper outlier bound is taken over all exposures, including those with no value. When fewer than {share:g}% "
-        f"have a value, the bound is 0, so every value becomes 0. Turn on {_BOUND_LABEL} on the metric."
+        f"Its upper outlier bound is taken over all {exposures:,} exposures, including those with no value. When at "
+        f"most {hidden:,} of them have a value, the bound is 0, so every value becomes 0. Turn on {_BOUND_LABEL} on "
+        "the metric."
     )
 
 
@@ -198,19 +208,41 @@ def _detail(worded: list[_Worded]) -> str:
     sentences = [item.detail for item in worded]
     without_a_cause = [item.metric for item in worded if item.cause is None]
     if without_a_cause:
-        sentences.append(_usual_causes(without_a_cause))
+        sentences.extend(_usual_causes(without_a_cause))
     return " ".join(dict.fromkeys(sentences))
 
 
-def _usual_causes(metrics: list[ZeroMetric]) -> str:
+def _usual_causes(metrics: list[ZeroMetric]) -> list[str]:
     events = tuple(dict.fromkeys(event for metric in metrics for event in metric.events))
-    event = f"the event {quoted(events)}" if len(events) == 1 else "the metric events"
-    filters = " Check that the metric filters match the events you send." if any(m.has_filters for m in metrics) else ""
-    return (
-        "PostHog counts an event only for the person or group that was exposed, and only after their first exposure. "
-        f"Check that your code sends {event} with the same ID as the exposure, which a server-side event or another "
-        f"SDK often doesn't.{filters} A rare outcome can also read 0 at this sample size."
-    )
+    tables = tuple(dict.fromkeys(table for metric in metrics for table in metric.warehouse_tables))
+    # A metric on actions names no event, but it still reads events.
+    reads_events = bool(events) or any(not metric.warehouse_tables for metric in metrics)
+    counted = joined([*(["an event"] if reads_events else []), *(["a warehouse row"] if tables else [])], "or")
+    sentences = [
+        f"PostHog counts {counted} only for the person or group that was exposed, and only after their first exposure."
+    ]
+    if reads_events:
+        event = f"the event {quoted(events)}" if len(events) == 1 else "the metric events"
+        sentences.append(
+            f"Check that your code sends {event} with the same ID as the exposure, which a server-side event or another "
+            "SDK often doesn't."
+        )
+    if tables:
+        sentences.append(
+            f"Check that the data warehouse join key of {quoted(tables)} holds the same ID as the exposure."
+        )
+    if any(metric.has_filters for metric in metrics):
+        sentences.append("Check that the metric filters match the data you send.")
+    thresholds = [
+        f'"{metric.name}" ({threshold:g})'
+        for metric in metrics
+        if (threshold := metric.definition.get("threshold")) is not None
+        and metric.definition.get("metric_type") == "mean"
+    ]
+    if thresholds:
+        sentences.append(f"Check that the exposed people or groups can reach the threshold of {joined(thresholds)}.")
+    sentences.append("A rare outcome can also read 0 at this sample size.")
+    return sentences
 
 
 def _severity(worded: list[_Worded], ctx: HealthContext) -> ExperimentHealthFindingSeverity:
@@ -226,6 +258,7 @@ def _evidence(worded: list[_Worded]) -> dict[str, str | int | None]:
     for number, item in enumerate(worded, start=1):
         evidence[f"metric_{number}"] = item.metric.name
         evidence[f"metric_{number}_role"] = item.metric.role
+        evidence[f"metric_{number}_side"] = item.metric.ratio_side
         evidence[f"metric_{number}_exposures"] = item.metric.exposures
         evidence[f"metric_{number}_cause"] = item.cause
     return evidence

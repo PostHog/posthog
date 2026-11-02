@@ -250,7 +250,10 @@ function metricCalculationNote({ evidence }: ExperimentHealthFindingApi): string
 function metricAllZeroNote({ evidence }: ExperimentHealthFindingApi): string {
     const metrics = Object.entries(evidence)
         .filter(([key]) => /^metric_\d+$/.test(key))
-        .map(([key, value]) => `${value} (${evidence[`${key}_cause`] ?? 'no cause shown'})`)
+        .map(([key, value]) => {
+            const side = evidence[`${key}_side`]
+            return `${value}${side ? ` ${side}` : ''} (${evidence[`${key}_cause`] ?? 'no cause shown'})`
+        })
     return `Zero in every variant: ${metrics.join(', ')}.`
 }
 
