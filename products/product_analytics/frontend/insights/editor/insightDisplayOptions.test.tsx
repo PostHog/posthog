@@ -2,6 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
+import { Fragment } from 'react'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -13,7 +14,7 @@ import { NodeKind, TrendsFilter, TrendsQuery } from '~/queries/schema/schema-gen
 import { initKeaTests } from '~/test/init'
 import { BaseMathType, ChartDisplayType, InsightShortId } from '~/types'
 
-import { YAxisRangeFilter } from './YAxisRangeFilter'
+import { useInsightDisplayOptions } from './insightDisplayOptions'
 
 const insightProps = { dashboardItemId: '123' as InsightShortId }
 
@@ -25,7 +26,19 @@ function makeQuery(trendsFilter: TrendsFilter, display = ChartDisplayType.Action
     }
 }
 
-describe('YAxisRangeFilter', () => {
+function YAxisOptions(): JSX.Element {
+    const { tabs } = useInsightDisplayOptions()
+    const items = tabs.flatMap((tab) => tab.sections).find((section) => section.key === 'y-axis')?.items ?? []
+    return (
+        <>
+            {items.map((item) => (
+                <Fragment key={item.name}>{item.element}</Fragment>
+            ))}
+        </>
+    )
+}
+
+describe('insight Y-axis range options', () => {
     beforeEach(() => {
         useMocks({
             get: {
@@ -49,7 +62,7 @@ describe('YAxisRangeFilter', () => {
         return render(
             <Provider>
                 <BindLogic logic={insightLogic} props={insightProps}>
-                    <YAxisRangeFilter />
+                    <YAxisOptions />
                 </BindLogic>
             </Provider>
         ).container

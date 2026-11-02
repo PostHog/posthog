@@ -1,7 +1,7 @@
 import { IconEllipsis } from '@posthog/icons'
 import { Button, Popover, PopoverContent, PopoverTrigger } from '@posthog/quill'
 
-import { DisplayOptionTab } from 'lib/components/ChartOptions/displayOptionLayout'
+import { DisplayOptionTab } from 'lib/components/ChartOptions/displayOptions'
 
 import { InsightDisplayOptionsPanel } from './InsightDisplayOptionsPanel'
 

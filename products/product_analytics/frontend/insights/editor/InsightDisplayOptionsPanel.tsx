@@ -1,10 +1,6 @@
 import { useState } from 'react'
 
-import {
-    DisplayOptionSection,
-    DisplayOptionTab,
-    DisplayOptionTabKey,
-} from 'lib/components/ChartOptions/displayOptionLayout'
+import { DisplayOptionSection, DisplayOptionTab, DisplayOptionTabKey } from 'lib/components/ChartOptions/displayOptions'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { cn } from 'lib/utils/css-classes'
@@ -28,7 +24,7 @@ function DisplayOptionSectionList({ sections }: { sections: DisplayOptionSection
                             data-attr={section.title ? undefined : section.dataAttr}
                         >
                             {section.items.map((item) => (
-                                <li key={item.key}>{item.element}</li>
+                                <li key={item.name}>{item.element}</li>
                             ))}
                         </ul>
                     </section>

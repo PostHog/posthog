@@ -1,78 +1,63 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { AxisLabelOption } from 'lib/components/ChartOptions/AxisLabelOption'
-import { AxisScaleOption } from 'lib/components/ChartOptions/AxisScaleOption'
-import { BeginAtZeroOption } from 'lib/components/ChartOptions/BeginAtZeroOption'
-import { ChartOptionSelect } from 'lib/components/ChartOptions/ChartOptionSelect'
+import { buildDisplayOptions } from 'lib/components/ChartOptions/buildDisplayOptions'
 import { ChartOptionSwitch } from 'lib/components/ChartOptions/ChartOptionSwitch'
-import { ChartOptionTextInput } from 'lib/components/ChartOptions/ChartOptionTextInput'
-import { ChartOptionToggleGroup } from 'lib/components/ChartOptions/ChartOptionToggleGroup'
-import { DisplayOptionTab, groupDisplayOptions } from 'lib/components/ChartOptions/displayOptionLayout'
-import { ExcludeOutliersOption } from 'lib/components/ChartOptions/ExcludeOutliersOption'
+import { DisplayOptionBindings, DisplayOptionTab } from 'lib/components/ChartOptions/displayOptions'
 import { LegendOption } from 'lib/components/ChartOptions/LegendOption'
-import { LineStyleOption } from 'lib/components/ChartOptions/LineStyleOption'
 import { MetricOptions } from 'lib/components/ChartOptions/MetricOptions'
-import { PercentOfTotalOption } from 'lib/components/ChartOptions/PercentOfTotalOption'
 import { PieTotalOption } from 'lib/components/ChartOptions/PieTotalOption'
-import { ValuesOnSeriesOption } from 'lib/components/ChartOptions/ValuesOnSeriesOption'
 import { PART_OF_WHOLE_DISPLAY_TYPES, PIE_DISPLAY_TYPES } from 'lib/constants'
 
 import { ChartDisplayType } from '~/types'
 
 import { dataVisualizationLogic } from '../dataVisualizationLogic'
-import { displayLogic } from '../displayLogic'
+import { displayLogic, type displayLogicType } from '../displayLogic'
 import { buildPieSlices, partOfWholeChartData, showsLegendByDefault, showsPieTotal } from './Charts/sqlPieGraphAdapter'
 import { SQL_METRIC_SUMMARY_DEFAULT } from './Charts/useSqlMetricModel'
 import { seriesBreakdownLogic } from './seriesBreakdownLogic'
 
-const PIE_SLICE_CONTENT_OPTIONS: { value: 'labels' | 'values' | 'none'; label: string }[] = [
-    { value: 'labels', label: 'Labels' },
-    { value: 'values', label: 'Values' },
-    { value: 'none', label: 'Nothing' },
-]
+interface SqlDisplayContext
+    extends
+        Pick<displayLogicType['values'], 'chartSettings'>,
+        Pick<displayLogicType['actions'], 'updateChartSettings'> {
+    isMetric: boolean
+    isPieChart: boolean
+    isDonutChart: boolean
+    isProportionBar: boolean
+    isPartOfWholeChart: boolean
+    isStackedBarChart: boolean
+    isBarChart: boolean
+    isScatterPlot: boolean
+    isBoxPlot: boolean
+    isHorizontalBarChart: boolean
+    isLineChart: boolean
+    isSingleAxisChart: boolean
+    isDateXAxis: boolean
+    supportsAnnotations: boolean
+    showsAxes: boolean
+    showsSeriesOptions: boolean
+    showsRightYAxis: boolean
+    showLegend: boolean
+}
 
-const PIE_VALUE_DISPLAY_OPTIONS: { value: 'absolute' | 'percentage'; label: string }[] = [
-    { value: 'absolute', label: 'Absolute' },
-    { value: 'percentage', label: 'Percentage' },
-]
-
-const VALUE_POSITION_OPTIONS: { value: 'end' | 'center'; label: string }[] = [
-    { value: 'end', label: 'At the end' },
-    { value: 'center', label: 'Inside' },
-]
-
-const FONT_SIZE_OPTIONS = [8, 10, 12, 14, 16, 20, 24, 32].map((value) => ({ value, label: `${value}px` }))
-
-const ROTATION_OPTIONS = [0, -45, -90, 45, 90].map((value) => ({ value, label: `${value}°` }))
-
-// A select value can't be null, so "Automatic" stands in for an unset rotation.
-const TICK_ROTATION_OPTIONS: { value: number | 'auto'; label: string }[] = [
-    { value: 'auto', label: 'Automatic' },
-    ...ROTATION_OPTIONS,
-]
-
-const BAR_GAP_OPTIONS = [
-    { value: 0, label: 'None' },
-    { value: 0.1, label: 'Small' },
-    { value: 0.2, label: 'Medium' },
-    { value: 0.4, label: 'Large' },
-]
-
-type YAxisSettingsName = 'leftYAxisSettings' | 'rightYAxisSettings'
-
-export function useSqlDisplayOptions(): { tabs: DisplayOptionTab[] } {
+function useSqlDisplayContext(): SqlDisplayContext {
     const { effectiveVisualizationType, xData, yData, dataVisualizationProps } = useValues(dataVisualizationLogic)
     const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { chartSettings } = useValues(displayLogic)
     const { updateChartSettings } = useActions(displayLogic)
 
-    const isMetric = effectiveVisualizationType === ChartDisplayType.Metric
-    const isStackedBarChart = effectiveVisualizationType === ChartDisplayType.ActionsStackedBar
-    const isPieChart = PIE_DISPLAY_TYPES.includes(effectiveVisualizationType)
-    const isDonutChart = effectiveVisualizationType === ChartDisplayType.ActionsDonut
-    const isProportionBar = effectiveVisualizationType === ChartDisplayType.ActionsProportionBar
-    const isPartOfWholeChart = PART_OF_WHOLE_DISPLAY_TYPES.includes(effectiveVisualizationType)
+    const type = effectiveVisualizationType
+    const isMetric = type === ChartDisplayType.Metric
+    const isProportionBar = type === ChartDisplayType.ActionsProportionBar
+    const isPartOfWholeChart = PART_OF_WHOLE_DISPLAY_TYPES.includes(type)
+    const isScatterPlot = type === ChartDisplayType.ScatterPlot
+    const isBoxPlot = type === ChartDisplayType.BoxPlot
+    const isHorizontalBarChart = type === ChartDisplayType.ActionsBarValue
+    const isLineChart = type === ChartDisplayType.ActionsLineGraph || type === ChartDisplayType.ActionsAreaGraph
+    // Scatter and box plots have a single Y axis, so there is no separate right axis to configure.
+    const isSingleAxisChart = isScatterPlot || isBoxPlot
+    const showsAxes = !isMetric && !isPartOfWholeChart
     const proportionBarPartCount = useMemo(() => {
         if (!isProportionBar) {
             return 0
@@ -80,376 +65,272 @@ export function useSqlDisplayOptions(): { tabs: DisplayOptionTab[] } {
         const pieData = partOfWholeChartData(seriesBreakdownData, xData, yData)
         return buildPieSlices(pieData.xData, pieData.yData).length
     }, [isProportionBar, seriesBreakdownData, xData, yData])
-    const showLegend = chartSettings.showLegend ?? showsLegendByDefault(isProportionBar, proportionBarPartCount)
-    const isScatterPlot = effectiveVisualizationType === ChartDisplayType.ScatterPlot
-    const isBoxPlot = effectiveVisualizationType === ChartDisplayType.BoxPlot
-    const isHorizontalBarChart = effectiveVisualizationType === ChartDisplayType.ActionsBarValue
-    // Scatter and box plots have a single Y axis, so there is no separate right axis to configure.
-    const isSingleAxisChart = isScatterPlot || isBoxPlot
-    const supportsRightYAxis = !isSingleAxisChart && !isHorizontalBarChart
-    const isLineChart =
-        effectiveVisualizationType === ChartDisplayType.ActionsLineGraph ||
-        effectiveVisualizationType === ChartDisplayType.ActionsAreaGraph
-    const isDateXAxis = xData?.column.type.name === 'DATE' || xData?.column.type.name === 'DATETIME'
-    const supportsAnnotations =
-        isLineChart ||
-        effectiveVisualizationType === ChartDisplayType.ActionsBar ||
-        effectiveVisualizationType === ChartDisplayType.ActionsStackedBar
-    const showsAxes = !isMetric && !isPartOfWholeChart
-    const showsSeriesOptions = showsAxes && !isSingleAxisChart
-    const showsValueLabelOptions = showsSeriesOptions && !!chartSettings.showValuesOnSeries
 
-    // The horizontal bar chart swaps its axes, so the category axis is the Y-axis there.
-    const categoryAxisName = isHorizontalBarChart ? 'Y-axis' : 'X-axis'
-    const valueAxisName = isHorizontalBarChart ? 'X-axis' : 'Y-axis'
-
-    const yAxisOptions = (
-        name: YAxisSettingsName
-    ): {
-        label: JSX.Element
-        beginAtZero: JSX.Element
-        showTicks: JSX.Element
-        gridLines: JSX.Element
-        scale: JSX.Element
-    } => {
-        const leftPlaceholder = isHorizontalBarChart
-            ? 'X-axis label'
-            : supportsRightYAxis
-              ? 'Left Y-axis label'
-              : 'Y-axis label'
-        return {
-            label: (
-                <AxisLabelOption
-                    data-attr={`data-visualization-${name === 'leftYAxisSettings' ? 'left' : 'right'}-y-axis-label-input`}
-                    value={chartSettings[name]?.label}
-                    placeholder={name === 'leftYAxisSettings' ? leftPlaceholder : 'Right Y-axis label'}
-                    onChange={(label) => updateChartSettings({ [name]: { label } })}
-                />
-            ),
-            beginAtZero: (
-                <BeginAtZeroOption
-                    checked={
-                        chartSettings[name]?.startAtZero ??
-                        (isScatterPlot ? false : (chartSettings.yAxisAtZero ?? true))
-                    }
-                    onChange={(startAtZero) => updateChartSettings({ [name]: { startAtZero } })}
-                />
-            ),
-            showTicks: (
-                <ChartOptionSwitch
-                    label="Show tick labels"
-                    checked={chartSettings[name]?.showTicks ?? true}
-                    onChange={(showTicks) => updateChartSettings({ [name]: { showTicks } })}
-                />
-            ),
-            gridLines: (
-                <ChartOptionSwitch
-                    label="Show grid lines"
-                    checked={chartSettings[name]?.showGridLines ?? true}
-                    onChange={(showGridLines) => updateChartSettings({ [name]: { showGridLines } })}
-                />
-            ),
-            scale: (
-                <AxisScaleOption
-                    label="Scale"
-                    value={chartSettings[name]?.scale === 'logarithmic' ? 'log' : 'linear'}
-                    onChange={(scale) =>
-                        updateChartSettings({ [name]: { scale: scale === 'log' ? 'logarithmic' : 'linear' } })
-                    }
-                />
-            ),
-        }
+    return {
+        chartSettings,
+        updateChartSettings,
+        isMetric,
+        isPieChart: PIE_DISPLAY_TYPES.includes(type),
+        isDonutChart: type === ChartDisplayType.ActionsDonut,
+        isProportionBar,
+        isPartOfWholeChart,
+        isStackedBarChart: type === ChartDisplayType.ActionsStackedBar,
+        isBarChart: type === ChartDisplayType.ActionsBar,
+        isScatterPlot,
+        isBoxPlot,
+        isHorizontalBarChart,
+        isLineChart,
+        isSingleAxisChart,
+        isDateXAxis: xData?.column.type.name === 'DATE' || xData?.column.type.name === 'DATETIME',
+        supportsAnnotations:
+            isLineChart || type === ChartDisplayType.ActionsBar || type === ChartDisplayType.ActionsStackedBar,
+        showsAxes,
+        showsSeriesOptions: showsAxes && !isSingleAxisChart,
+        showsRightYAxis: showsAxes && !isSingleAxisChart && !isHorizontalBarChart,
+        showLegend: chartSettings.showLegend ?? showsLegendByDefault(isProportionBar, proportionBarPartCount),
     }
-    const leftYAxis = yAxisOptions('leftYAxisSettings')
-    const rightYAxis = yAxisOptions('rightYAxisSettings')
-    const showsRightYAxis = showsAxes && supportsRightYAxis
+}
 
-    return groupDisplayOptions(
-        {
-            metric: isMetric && {
-                element: (
-                    <MetricOptions
-                        settings={chartSettings.metric ?? {}}
-                        defaultSummary={SQL_METRIC_SUMMARY_DEFAULT}
-                        onChange={(metric) => updateChartSettings({ metric })}
-                        summaryDataAttr="data-visualization-metric-summary"
-                    />
-                ),
-            },
-            valuesOnSeries: showsSeriesOptions && {
-                element: (
-                    <ValuesOnSeriesOption
-                        checked={chartSettings.showValuesOnSeries ?? false}
-                        onChange={(showValuesOnSeries) => updateChartSettings({ showValuesOnSeries })}
-                    />
-                ),
-            },
-            valueLabelPosition: showsValueLabelOptions &&
-                !isLineChart && {
-                    element: (
-                        <ChartOptionSelect
-                            label="Value position"
-                            value={chartSettings.valueLabelPosition ?? 'end'}
-                            options={VALUE_POSITION_OPTIONS}
-                            onChange={(valueLabelPosition) => updateChartSettings({ valueLabelPosition })}
-                        />
-                    ),
-                },
-            valueLabelBackground: showsValueLabelOptions && {
-                element: (
-                    <ChartOptionSwitch
-                        label="Value background"
-                        checked={chartSettings.valueLabelBackground ?? true}
-                        onChange={(valueLabelBackground) => updateChartSettings({ valueLabelBackground })}
-                    />
-                ),
-            },
-            valueLabelFontSize: showsValueLabelOptions && {
-                element: (
-                    <ChartOptionSelect
-                        label="Value font size"
-                        value={chartSettings.valueLabelFontSize ?? 12}
-                        options={FONT_SIZE_OPTIONS}
-                        onChange={(valueLabelFontSize) => updateChartSettings({ valueLabelFontSize })}
-                    />
-                ),
-            },
-            valueLabelRotation: showsValueLabelOptions && {
-                element: (
-                    <ChartOptionSelect
-                        label="Value rotation"
-                        value={chartSettings.valueLabelRotation ?? 0}
-                        options={ROTATION_OPTIONS}
-                        onChange={(valueLabelRotation) => updateChartSettings({ valueLabelRotation })}
-                    />
-                ),
-            },
-            percentStack: isStackedBarChart && {
-                element: (
-                    <PercentOfTotalOption
-                        checked={chartSettings.stackBars100 ?? false}
-                        onChange={(stackBars100) => updateChartSettings({ stackBars100 })}
-                    />
-                ),
-            },
-            pieSliceContent: isPieChart && {
-                element: (
-                    <ChartOptionToggleGroup
-                        label="Show on slices"
-                        value={chartSettings.pie?.sliceContent ?? 'values'}
-                        options={PIE_SLICE_CONTENT_OPTIONS}
-                        onChange={(sliceContent) => updateChartSettings({ pie: { sliceContent } })}
-                    />
-                ),
-            },
-            pieValueDisplay: isPieChart && {
-                element: (
-                    <ChartOptionToggleGroup
-                        label="Show values as"
-                        value={chartSettings.pie?.valueDisplay ?? 'absolute'}
-                        options={PIE_VALUE_DISPLAY_OPTIONS}
-                        onChange={(valueDisplay) => updateChartSettings({ pie: { valueDisplay } })}
-                    />
-                ),
-            },
-            pieTotal: isPartOfWholeChart && {
-                element: (
-                    <PieTotalOption
-                        isDonut={isDonutChart}
-                        checked={showsPieTotal(chartSettings, isProportionBar)}
-                        onChange={(showTotal) => updateChartSettings({ pie: { showTotal } })}
-                    />
-                ),
-            },
-            showTotalRow: showsSeriesOptions && {
-                element: (
-                    <ChartOptionSwitch
-                        label="Show total row"
-                        checked={chartSettings.showTotalRow ?? true}
-                        onChange={(showTotalRow) => updateChartSettings({ showTotalRow })}
-                    />
-                ),
-            },
-            showNullsAsZero: showsSeriesOptions && {
-                element: (
-                    <ChartOptionSwitch
-                        label="Show nulls as zero"
-                        checked={chartSettings.showNullsAsZero ?? false}
-                        onChange={(showNullsAsZero) => updateChartSettings({ showNullsAsZero })}
-                    />
-                ),
-            },
-            barSpacing: (isStackedBarChart ||
-                isHorizontalBarChart ||
-                effectiveVisualizationType === ChartDisplayType.ActionsBar) && {
-                element: (
-                    <ChartOptionSelect
-                        label="Bar spacing"
-                        value={chartSettings.barGap ?? 0.2}
-                        options={BAR_GAP_OPTIONS}
-                        onChange={(barGap) => updateChartSettings({ barGap })}
-                    />
-                ),
-            },
-            legend: !isMetric && {
-                element: (
-                    <LegendOption
-                        showLegend={showLegend}
-                        onShowLegendChange={(value) => updateChartSettings({ showLegend: value })}
-                        position={
-                            chartSettings.legendPosition ?? (isProportionBar ? 'bottom' : isPieChart ? 'right' : 'top')
-                        }
-                        onPositionChange={(legendPosition) => updateChartSettings({ legendPosition })}
-                    />
-                ),
-            },
-            excludeOutliers: isBoxPlot && {
-                element: (
-                    <ExcludeOutliersOption
-                        checked={chartSettings.boxPlot?.excludeOutliers !== false}
-                        onChange={(excludeOutliers) => updateChartSettings({ boxPlot: { excludeOutliers } })}
-                    />
-                ),
-            },
-            annotations: supportsAnnotations && {
-                element: (
-                    <ChartOptionSwitch
-                        label="Show annotations"
-                        data-attr="data-visualization-show-annotations"
-                        disabledReason={
-                            !isDateXAxis ? 'Annotations need a Date or DateTime column on the X-axis' : undefined
-                        }
-                        checked={isDateXAxis && (chartSettings.showAnnotations ?? false)}
-                        onChange={(showAnnotations) => updateChartSettings({ showAnnotations })}
-                    />
-                ),
-            },
+const SQL_DISPLAY_OPTIONS: DisplayOptionBindings<SqlDisplayContext> = {
+    metric: {
+        showCondition: (c) => c.isMetric,
+        render: (c) => (
+            <MetricOptions
+                settings={c.chartSettings.metric ?? {}}
+                defaultSummary={SQL_METRIC_SUMMARY_DEFAULT}
+                onChange={(metric) => c.updateChartSettings({ metric })}
+                summaryDataAttr="data-visualization-metric-summary"
+            />
+        ),
+    },
+    valuesOnSeries: {
+        showCondition: (c) => c.showsSeriesOptions,
+        value: (c) => c.chartSettings.showValuesOnSeries ?? false,
+        onChange: (showValuesOnSeries, c) => c.updateChartSettings({ showValuesOnSeries }),
+    },
+    valueLabelPosition: {
+        showCondition: (c) => c.showsSeriesOptions && !!c.chartSettings.showValuesOnSeries && !c.isLineChart,
+        value: (c) => c.chartSettings.valueLabelPosition ?? 'end',
+        onChange: (valueLabelPosition, c) => c.updateChartSettings({ valueLabelPosition }),
+    },
+    valueLabelBackground: {
+        showCondition: (c) => c.showsSeriesOptions && !!c.chartSettings.showValuesOnSeries,
+        value: (c) => c.chartSettings.valueLabelBackground ?? true,
+        onChange: (valueLabelBackground, c) => c.updateChartSettings({ valueLabelBackground }),
+    },
+    valueLabelFontSize: {
+        showCondition: (c) => c.showsSeriesOptions && !!c.chartSettings.showValuesOnSeries,
+        value: (c) => c.chartSettings.valueLabelFontSize ?? 12,
+        onChange: (valueLabelFontSize, c) => c.updateChartSettings({ valueLabelFontSize }),
+    },
+    valueLabelRotation: {
+        showCondition: (c) => c.showsSeriesOptions && !!c.chartSettings.showValuesOnSeries,
+        value: (c) => c.chartSettings.valueLabelRotation ?? 0,
+        onChange: (valueLabelRotation, c) => c.updateChartSettings({ valueLabelRotation }),
+    },
+    percentStack: {
+        showCondition: (c) => c.isStackedBarChart,
+        value: (c) => c.chartSettings.stackBars100 ?? false,
+        onChange: (stackBars100, c) => c.updateChartSettings({ stackBars100 }),
+    },
+    pieSliceContent: {
+        showCondition: (c) => c.isPieChart,
+        value: (c) => c.chartSettings.pie?.sliceContent ?? 'values',
+        onChange: (sliceContent, c) => c.updateChartSettings({ pie: { sliceContent } }),
+    },
+    pieValueDisplay: {
+        showCondition: (c) => c.isPieChart,
+        value: (c) => c.chartSettings.pie?.valueDisplay ?? 'absolute',
+        onChange: (valueDisplay, c) => c.updateChartSettings({ pie: { valueDisplay } }),
+    },
+    pieTotal: {
+        showCondition: (c) => c.isPartOfWholeChart,
+        render: (c) => (
+            <PieTotalOption
+                isDonut={c.isDonutChart}
+                checked={showsPieTotal(c.chartSettings, c.isProportionBar)}
+                onChange={(showTotal) => c.updateChartSettings({ pie: { showTotal } })}
+            />
+        ),
+    },
+    showTotalRow: {
+        showCondition: (c) => c.showsSeriesOptions,
+        value: (c) => c.chartSettings.showTotalRow ?? true,
+        onChange: (showTotalRow, c) => c.updateChartSettings({ showTotalRow }),
+    },
+    showNullsAsZero: {
+        showCondition: (c) => c.showsSeriesOptions,
+        value: (c) => c.chartSettings.showNullsAsZero ?? false,
+        onChange: (showNullsAsZero, c) => c.updateChartSettings({ showNullsAsZero }),
+    },
+    barSpacing: {
+        showCondition: (c) => c.isStackedBarChart || c.isHorizontalBarChart || c.isBarChart,
+        value: (c) => c.chartSettings.barGap ?? 0.2,
+        onChange: (barGap, c) => c.updateChartSettings({ barGap }),
+    },
+    legend: {
+        showCondition: (c) => !c.isMetric,
+        render: (c) => (
+            <LegendOption
+                showLegend={c.showLegend}
+                onShowLegendChange={(showLegend) => c.updateChartSettings({ showLegend })}
+                position={
+                    c.chartSettings.legendPosition ?? (c.isProportionBar ? 'bottom' : c.isPieChart ? 'right' : 'top')
+                }
+                onPositionChange={(legendPosition) => c.updateChartSettings({ legendPosition })}
+            />
+        ),
+    },
+    excludeOutliers: {
+        showCondition: (c) => c.isBoxPlot,
+        value: (c) => c.chartSettings.boxPlot?.excludeOutliers !== false,
+        onChange: (excludeOutliers, c) => c.updateChartSettings({ boxPlot: { excludeOutliers } }),
+    },
+    annotations: {
+        showCondition: (c) => c.supportsAnnotations,
+        render: (c) => (
+            <ChartOptionSwitch
+                label="Show annotations"
+                data-attr="data-visualization-show-annotations"
+                disabledReason={!c.isDateXAxis ? 'Annotations need a Date or DateTime column on the X-axis' : undefined}
+                checked={c.isDateXAxis && (c.chartSettings.showAnnotations ?? false)}
+                onChange={(showAnnotations) => c.updateChartSettings({ showAnnotations })}
+            />
+        ),
+    },
 
-            xAxisLabel: showsAxes && {
-                element: (
-                    <AxisLabelOption
-                        data-attr="data-visualization-x-axis-label-input"
-                        value={chartSettings.xAxisLabel}
-                        placeholder={`${categoryAxisName} label`}
-                        onChange={(xAxisLabel) => updateChartSettings({ xAxisLabel })}
-                    />
-                ),
-            },
-            xAxisScale: showsAxes &&
-                isScatterPlot && {
-                    element: (
-                        <AxisScaleOption
-                            label="Scale"
-                            value={chartSettings.scatter?.xScale === 'logarithmic' ? 'log' : 'linear'}
-                            onChange={(scale) =>
-                                updateChartSettings({ scatter: { xScale: scale === 'log' ? 'logarithmic' : 'linear' } })
-                            }
-                        />
-                    ),
-                },
-            xAxisBeginAtZero: showsAxes &&
-                isScatterPlot && {
-                    element: (
-                        <BeginAtZeroOption
-                            checked={chartSettings.scatter?.xStartAtZero ?? false}
-                            onChange={(xStartAtZero) => updateChartSettings({ scatter: { xStartAtZero } })}
-                        />
-                    ),
-                },
-            xAxisDateFormat: showsAxes &&
-                isDateXAxis && {
-                    element: (
-                        <ChartOptionTextInput
-                            label="Date format"
-                            info="For example, YYYY-MM-DD, MMM YYYY, or DD/MM/YYYY."
-                            value={chartSettings.xAxisDateFormat}
-                            placeholder="Automatic"
-                            onChange={(xAxisDateFormat) => updateChartSettings({ xAxisDateFormat })}
-                            data-attr="chart-date-format"
-                        />
-                    ),
-                },
-            xAxisTickRotation: showsSeriesOptions && {
-                element: (
-                    <ChartOptionSelect
-                        label="Tick label rotation"
-                        value={chartSettings.xAxisTickRotation ?? 'auto'}
-                        options={TICK_ROTATION_OPTIONS}
-                        onChange={(rotation) =>
-                            updateChartSettings({ xAxisTickRotation: rotation === 'auto' ? undefined : rotation })
-                        }
-                    />
-                ),
-            },
-            xAxisShowTicks: showsAxes && {
-                element: (
-                    <ChartOptionSwitch
-                        label="Show tick labels"
-                        checked={chartSettings.showXAxisTicks ?? true}
-                        onChange={(showXAxisTicks) => updateChartSettings({ showXAxisTicks })}
-                    />
-                ),
-            },
-            // Quill's scatter draws both axis lines together, so a per-edge toggle can't be honored there.
-            xAxisBorder: showsAxes &&
-                !isScatterPlot && {
-                    element: (
-                        <ChartOptionSwitch
-                            label="Show border"
-                            checked={chartSettings.showXAxisBorder ?? true}
-                            onChange={(showXAxisBorder) => updateChartSettings({ showXAxisBorder })}
-                        />
-                    ),
-                },
+    xAxisLabel: {
+        showCondition: (c) => c.showsAxes,
+        value: (c) => c.chartSettings.xAxisLabel,
+        onChange: (xAxisLabel, c) => c.updateChartSettings({ xAxisLabel }),
+        placeholder: (c) => `${c.isHorizontalBarChart ? 'Y-axis' : 'X-axis'} label`,
+        dataAttr: 'data-visualization-x-axis-label-input',
+    },
+    xAxisScale: {
+        showCondition: (c) => c.showsAxes && c.isScatterPlot,
+        value: (c) => (c.chartSettings.scatter?.xScale === 'logarithmic' ? 'log' : 'linear'),
+        onChange: (scale, c) =>
+            c.updateChartSettings({ scatter: { xScale: scale === 'log' ? 'logarithmic' : 'linear' } }),
+    },
+    xAxisBeginAtZero: {
+        showCondition: (c) => c.showsAxes && c.isScatterPlot,
+        value: (c) => c.chartSettings.scatter?.xStartAtZero ?? false,
+        onChange: (xStartAtZero, c) => c.updateChartSettings({ scatter: { xStartAtZero } }),
+    },
+    xAxisDateFormat: {
+        showCondition: (c) => c.showsAxes && c.isDateXAxis,
+        value: (c) => c.chartSettings.xAxisDateFormat,
+        onChange: (xAxisDateFormat, c) => c.updateChartSettings({ xAxisDateFormat }),
+        dataAttr: 'chart-date-format',
+    },
+    xAxisTickRotation: {
+        showCondition: (c) => c.showsSeriesOptions,
+        value: (c) => c.chartSettings.xAxisTickRotation ?? 'auto',
+        onChange: (rotation, c) =>
+            c.updateChartSettings({ xAxisTickRotation: rotation === 'auto' ? undefined : rotation }),
+    },
+    xAxisShowTicks: {
+        showCondition: (c) => c.showsAxes,
+        value: (c) => c.chartSettings.showXAxisTicks ?? true,
+        onChange: (showXAxisTicks, c) => c.updateChartSettings({ showXAxisTicks }),
+    },
+    // Quill's scatter draws both axis lines together, so a per-edge toggle can't be honored there.
+    xAxisBorder: {
+        showCondition: (c) => c.showsAxes && !c.isScatterPlot,
+        value: (c) => c.chartSettings.showXAxisBorder ?? true,
+        onChange: (showXAxisBorder, c) => c.updateChartSettings({ showXAxisBorder }),
+    },
 
-            yAxisLabel: showsAxes && { element: leftYAxis.label },
-            yAxisBeginAtZero: showsAxes && !isBoxPlot && { element: leftYAxis.beginAtZero },
-            yAxisShowTicks: showsAxes && { element: leftYAxis.showTicks },
-            yAxisGridLines: showsAxes && { element: leftYAxis.gridLines },
-            yAxisBorder: showsAxes &&
-                !isScatterPlot && {
-                    element: (
-                        <ChartOptionSwitch
-                            label="Show border"
-                            checked={chartSettings.showYAxisBorder ?? true}
-                            onChange={(showYAxisBorder) => updateChartSettings({ showYAxisBorder })}
-                        />
-                    ),
-                },
-            yAxisScale: showsAxes && { element: leftYAxis.scale },
+    yAxisLabel: {
+        showCondition: (c) => c.showsAxes,
+        value: (c) => c.chartSettings.leftYAxisSettings?.label,
+        onChange: (label, c) => c.updateChartSettings({ leftYAxisSettings: { label } }),
+        placeholder: (c) =>
+            c.isHorizontalBarChart ? 'X-axis label' : c.showsRightYAxis ? 'Left Y-axis label' : 'Y-axis label',
+        dataAttr: 'data-visualization-left-y-axis-label-input',
+    },
+    yAxisBeginAtZero: {
+        showCondition: (c) => c.showsAxes && !c.isBoxPlot,
+        value: (c) =>
+            c.chartSettings.leftYAxisSettings?.startAtZero ??
+            (c.isScatterPlot ? false : (c.chartSettings.yAxisAtZero ?? true)),
+        onChange: (startAtZero, c) => c.updateChartSettings({ leftYAxisSettings: { startAtZero } }),
+    },
+    yAxisShowTicks: {
+        showCondition: (c) => c.showsAxes,
+        value: (c) => c.chartSettings.leftYAxisSettings?.showTicks ?? true,
+        onChange: (showTicks, c) => c.updateChartSettings({ leftYAxisSettings: { showTicks } }),
+    },
+    yAxisGridLines: {
+        showCondition: (c) => c.showsAxes,
+        value: (c) => c.chartSettings.leftYAxisSettings?.showGridLines ?? true,
+        onChange: (showGridLines, c) => c.updateChartSettings({ leftYAxisSettings: { showGridLines } }),
+    },
+    yAxisBorder: {
+        showCondition: (c) => c.showsAxes && !c.isScatterPlot,
+        value: (c) => c.chartSettings.showYAxisBorder ?? true,
+        onChange: (showYAxisBorder, c) => c.updateChartSettings({ showYAxisBorder }),
+    },
+    yAxisScale: {
+        showCondition: (c) => c.showsAxes,
+        value: (c) => (c.chartSettings.leftYAxisSettings?.scale === 'logarithmic' ? 'log' : 'linear'),
+        onChange: (scale, c) =>
+            c.updateChartSettings({ leftYAxisSettings: { scale: scale === 'log' ? 'logarithmic' : 'linear' } }),
+    },
 
-            rightYAxisLabel: showsRightYAxis && { element: rightYAxis.label },
-            rightYAxisBeginAtZero: showsRightYAxis && { element: rightYAxis.beginAtZero },
-            rightYAxisShowTicks: showsRightYAxis && { element: rightYAxis.showTicks },
-            rightYAxisGridLines: showsRightYAxis && { element: rightYAxis.gridLines },
-            rightYAxisScale: showsRightYAxis && { element: rightYAxis.scale },
+    rightYAxisLabel: {
+        showCondition: (c) => c.showsRightYAxis,
+        value: (c) => c.chartSettings.rightYAxisSettings?.label,
+        onChange: (label, c) => c.updateChartSettings({ rightYAxisSettings: { label } }),
+        placeholder: () => 'Right Y-axis label',
+        dataAttr: 'data-visualization-right-y-axis-label-input',
+    },
+    rightYAxisBeginAtZero: {
+        showCondition: (c) => c.showsRightYAxis,
+        value: (c) => c.chartSettings.rightYAxisSettings?.startAtZero ?? c.chartSettings.yAxisAtZero ?? true,
+        onChange: (startAtZero, c) => c.updateChartSettings({ rightYAxisSettings: { startAtZero } }),
+    },
+    rightYAxisShowTicks: {
+        showCondition: (c) => c.showsRightYAxis,
+        value: (c) => c.chartSettings.rightYAxisSettings?.showTicks ?? true,
+        onChange: (showTicks, c) => c.updateChartSettings({ rightYAxisSettings: { showTicks } }),
+    },
+    rightYAxisGridLines: {
+        showCondition: (c) => c.showsRightYAxis,
+        value: (c) => c.chartSettings.rightYAxisSettings?.showGridLines ?? true,
+        onChange: (showGridLines, c) => c.updateChartSettings({ rightYAxisSettings: { showGridLines } }),
+    },
+    rightYAxisScale: {
+        showCondition: (c) => c.showsRightYAxis,
+        value: (c) => (c.chartSettings.rightYAxisSettings?.scale === 'logarithmic' ? 'log' : 'linear'),
+        onChange: (scale, c) =>
+            c.updateChartSettings({ rightYAxisSettings: { scale: scale === 'log' ? 'logarithmic' : 'linear' } }),
+    },
 
-            lineStyle: isLineChart && {
-                element: (
-                    <LineStyleOption
-                        data-attr="data-visualization-line-style"
-                        value={chartSettings.chartStyle?.curve ?? 'smooth'}
-                        onChange={(curve) => updateChartSettings({ chartStyle: { curve } })}
-                    />
-                ),
-            },
-            trendLines: isScatterPlot && {
-                element: (
-                    <ChartOptionSwitch
-                        label="Show line of best fit"
-                        checked={chartSettings.scatter?.showBestFit ?? false}
-                        onChange={(showBestFit) => updateChartSettings({ scatter: { showBestFit } })}
-                    />
-                ),
-            },
+    lineStyle: {
+        showCondition: (c) => c.isLineChart,
+        value: (c) => c.chartSettings.chartStyle?.curve ?? 'smooth',
+        onChange: (curve, c) => c.updateChartSettings({ chartStyle: { curve } }),
+        dataAttr: 'data-visualization-line-style',
+    },
+    trendLines: {
+        showCondition: (c) => c.isScatterPlot,
+        value: (c) => c.chartSettings.scatter?.showBestFit ?? false,
+        onChange: (showBestFit, c) => c.updateChartSettings({ scatter: { showBestFit } }),
+    },
+}
+
+export function useSqlDisplayOptions(): { tabs: DisplayOptionTab[] } {
+    const context = useSqlDisplayContext()
+    // The horizontal bar chart swaps its axes, so the category axis is the Y-axis there.
+    const categoryAxisName = context.isHorizontalBarChart ? 'Y-axis' : 'X-axis'
+    const valueAxisName = context.isHorizontalBarChart ? 'X-axis' : 'Y-axis'
+    return buildDisplayOptions(SQL_DISPLAY_OPTIONS, context, {
+        groups: {
+            'x-axis': { title: categoryAxisName },
+            'y-axis': { title: context.showsRightYAxis ? `Left ${valueAxisName}` : valueAxisName },
+            'right-y-axis': { title: `Right ${valueAxisName}` },
+            annotations: { tooltip: null },
         },
-        {
-            sections: {
-                'x-axis': { title: categoryAxisName },
-                'y-axis': { title: supportsRightYAxis ? `Left ${valueAxisName}` : valueAxisName },
-                'right-y-axis': { title: `Right ${valueAxisName}` },
-                annotations: { tooltip: null },
-            },
-        }
-    )
+    })
 }

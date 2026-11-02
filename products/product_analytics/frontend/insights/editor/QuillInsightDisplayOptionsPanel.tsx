@@ -13,11 +13,7 @@ import {
     TooltipTrigger,
 } from '@posthog/quill'
 
-import {
-    DisplayOptionSection,
-    DisplayOptionTab,
-    DisplayOptionTabKey,
-} from 'lib/components/ChartOptions/displayOptionLayout'
+import { DisplayOptionSection, DisplayOptionTab, DisplayOptionTabKey } from 'lib/components/ChartOptions/displayOptions'
 
 function QuillDisplayOptionSectionList({ sections }: { sections: DisplayOptionSection[] }): JSX.Element {
     return (
@@ -39,7 +35,7 @@ function QuillDisplayOptionSectionList({ sections }: { sections: DisplayOptionSe
                     )}
                     <div className="flex flex-col gap-2" data-attr={section.title ? undefined : section.dataAttr}>
                         {section.items.map((item) => (
-                            <Fragment key={item.key}>{item.element}</Fragment>
+                            <Fragment key={item.name}>{item.element}</Fragment>
                         ))}
                     </div>
                 </FieldSet>

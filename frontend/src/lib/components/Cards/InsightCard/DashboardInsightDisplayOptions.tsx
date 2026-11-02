@@ -1,6 +1,6 @@
 import { IconChevronRight } from '@posthog/icons'
 
-import { DisplayOptionTab } from 'lib/components/ChartOptions/displayOptionLayout'
+import { DisplayOptionTab } from 'lib/components/ChartOptions/displayOptions'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
