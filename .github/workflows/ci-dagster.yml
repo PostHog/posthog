@@ -83,6 +83,15 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
+                  sparse-checkout: |
+                      .github/actions/setup-uv
+                      .github/scripts/check-dagster-paths.py
+                      .github/workflows/ci-dagster.yml
+                      posthog/**/*.py
+                      ee/**/*.py
+                      products/**/*.py
+                      common/**/*.py
+                  sparse-checkout-cone-mode: false
             - uses: ./.github/actions/setup-uv
               with:
                   enable-cache: false
@@ -158,6 +167,7 @@ jobs:
                         # --- DAG code itself ---
                         - 'posthog/dags/**'
                         - 'products/*/dags/**'
+                        - 'posthog/temporal/health_checks/rollups/**' # daily rollup fills run in Dagster
                         # --- posthog submodules that DAGs actually import ---
                         # (verified by tracing imports of all 148 dagster Python files)
                         - 'posthog/clickhouse/**'
@@ -195,6 +205,7 @@ jobs:
                         - 'posthog/event_usage.py'
                         - 'posthog/products.py'
                         - 'posthog/cloud_utils.py'
+                        - 'posthog/run_mode.py'
                         - 'posthog/ph_client.py'
                         - 'products/managed_warehouse/backend/**'
                         # Backward compatibility for unrebased PRs; remove after August 14, 2026.
@@ -281,6 +292,7 @@ jobs:
                       dagster_direct:
                         - 'posthog/dags/**'
                         - 'products/*/dags/**'
+                        - 'posthog/temporal/health_checks/rollups/**' # daily rollup fills run in Dagster
                         - .github/workflows/ci-dagster.yml
                         - .github/actions/setup-uv/**
                         - tools/dagster_test_selection.py

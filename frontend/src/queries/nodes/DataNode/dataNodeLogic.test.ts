@@ -14,8 +14,8 @@ import {
     dataNodeLogic,
 } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { performQuery } from '~/queries/query'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import { DashboardFilter, HogQLVariable, NodeKind } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 
 import { ABANDONED_QUERY_GRACE_PERIOD, RESPONSE_CACHE_TTL } from './responseCache'

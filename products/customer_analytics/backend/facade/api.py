@@ -64,7 +64,8 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Integration, OrganizationMembership, Tag
+from posthog.integrations import IntegrationManager, IntegrationNotFound
+from posthog.models import OrganizationMembership, Tag
 from posthog.models.activity_logging.activity_log import AuditableScope, Detail, Trigger, changes_between, log_activity
 from posthog.models.group.util import get_group_by_key
 from posthog.models.group_type_mapping import get_group_types_for_project
@@ -4712,7 +4713,7 @@ def list_calendar_sync_statuses(team_id: int) -> list[contracts.CalendarSyncStat
     )
 
     statuses = []
-    for integration in Integration.objects.filter(team_id=team_id, kind="google-calendar").order_by("id"):
+    for integration in sorted(IntegrationManager.google_calendar.oauth.list(team_id), key=lambda row: row.id):
         config = integration.config or {}
         last_synced_at = _parse_datetime(config.get(LAST_SYNCED_AT_CONFIG_KEY))
         started_at = _parse_datetime(config.get(SYNC_STARTED_AT_CONFIG_KEY))
@@ -4745,7 +4746,7 @@ def update_calendar_sync_interval(team_id: int, integration_id: int, interval_mi
 
     try:
         update_calendar_sync_config(integration_id, team_id, {SYNC_INTERVAL_CONFIG_KEY: interval_minutes})
-    except Integration.DoesNotExist:
+    except IntegrationNotFound:
         return False
     return True
 
@@ -4770,12 +4771,9 @@ def trigger_calendar_sync(
     schedule. Returns 'started', 'already_running' (a sync for this calendar is in
     flight; the workflow id is deterministic per integration), or None when the
     integration doesn't exist for this team (→ 404)."""
-    integration = (
-        Integration.objects.only("id", "kind", "created_by_id")
-        .filter(id=integration_id, team_id=team_id, kind=Integration.IntegrationKind.GOOGLE_CALENDAR)
-        .first()
-    )
-    if integration is None:
+    try:
+        integration = IntegrationManager.google_calendar.oauth.get(team_id, integration_id)
+    except IntegrationNotFound:
         return None
     if not has_management_access and not integration.can_be_managed_by_creator(user_id):
         raise ResourceForbiddenError
@@ -4812,12 +4810,9 @@ def trigger_google_account_backfill(
     end_date: date,
     has_management_access: bool,
 ) -> str | None:
-    integration = (
-        Integration.objects.only("id")
-        .filter(id=integration_id, team_id=team_id, kind=Integration.IntegrationKind.GOOGLE_CALENDAR)
-        .first()
-    )
-    if integration is None:
+    try:
+        IntegrationManager.google_calendar.oauth.get(team_id, integration_id)
+    except IntegrationNotFound:
         return None
     if not has_management_access:
         raise ResourceForbiddenError
@@ -5739,8 +5734,10 @@ def _to_event_stream_view(stream: EventStream) -> contracts.EventStreamView:
 def _validate_slack_integration(team_id: int, integration_id: int | None) -> None:
     if integration_id is None:
         return
-    if not Integration.objects.filter(team_id=team_id, id=integration_id, kind="slack").exists():
-        raise EventStreamValidationError("Slack integration not found for this team.")
+    try:
+        IntegrationManager.slack.oauth.get(team_id, integration_id)
+    except IntegrationNotFound:
+        raise EventStreamValidationError("Slack integration not found for this team.") from None
 
 
 def _normalize_event_names(event_names: Iterable[str]) -> list[str]:

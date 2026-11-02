@@ -9,7 +9,7 @@ from typing import Any
 
 import structlog
 
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationManager
 
 from products.messaging.backend.facade.categories import list_categories
 from products.workflows.backend.facade.contracts import (
@@ -150,14 +150,14 @@ def _template_from_app_action(app_action: dict[str, Any]) -> dict[str, Any]:
 
 
 def _stored_app_api_key(team_id: int) -> str | None:
-    integration = Integration.objects.filter(team_id=team_id, kind=Integration.IntegrationKind.CUSTOMERIO_APP).first()
+    integration = IntegrationManager.customerio_app.token.find(team_id)
     key = (integration.sensitive_config or {}).get("app_api_key") if integration else None
     return str(key) if key else None
 
 
 def _team_senders(team_id: int) -> dict[str, ImportSender]:
     senders: dict[str, ImportSender] = {}
-    for integration in Integration.objects.filter(team_id=team_id, kind=Integration.IntegrationKind.EMAIL):
+    for integration in IntegrationManager.email.credentials.list(team_id):
         config = integration.config or {}
         address = str(config.get("email") or integration.integration_id or "").lower()
         if address:
