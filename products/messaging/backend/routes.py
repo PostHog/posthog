@@ -9,6 +9,7 @@ from products.messaging.backend.presentation.views.message_templates import (
     MessageTemplatesViewSet,
     MessagingSendViewSet,
 )
+from products.messaging.backend.presentation.views.messaging_preferences import MessagingPreferencesViewSet
 from products.messaging.backend.presentation.views.provider_imports import ProviderImportViewSet
 from products.messaging.backend.presentation.views.supabase_auth_emails import (
     SupabaseAuthEmailsViewSet,
@@ -50,3 +51,6 @@ def register_routes(routers: RouterRegistry) -> None:
         ["team_id"],
     )
     routers.projects.register(r"messaging/emails", MessagingEmailsViewSet, "project_messaging_emails", ["team_id"])
+    routers.projects.register(
+        r"messaging/preferences", MessagingPreferencesViewSet, "project_messaging_set_preferences", ["team_id"]
+    )
