@@ -15,11 +15,17 @@ trust the per-event flag `$ai_cache_reporting_exclusive` (boolean).
 Ingestion writes it when it calculates the event's cost, and callers can
 set it explicitly when manually capturing.
 
-The flag is often missing. Events whose cost arrives precomputed
-(`$ai_cost_model_source = 'passthrough'`) skip that step, so they carry no
-flag. For those, apply the same fallback ingestion uses: an event is
-exclusive when `input_tokens < cache_read + cache_creation`, since an
-inclusive count can never be smaller than its cache tokens.
+The flag is often missing. Ingestion writes it only when it calculates
+the cost, so events with a precomputed (`passthrough`) cost, an unknown
+model, or no input token count carry no flag. For those, apply the same
+fallback ingestion uses: Anthropic-style events (provider `anthropic`, or a
+model name with `anthropic` or starting with `claude`, except through the
+Vercel AI Gateway) are exclusive.
+
+Every event is also exclusive when `input_tokens < cache_read +
+cache_creation`, since an inclusive count can never be smaller than its
+cache tokens. This check also corrects a flag set to `false` by mistake,
+and it keeps the rate at or below 1.
 
 ## Cache-hit rate, resolved per event
 
@@ -41,8 +47,14 @@ FROM (
         ifNull(toInt(properties.$ai_input_tokens), 0) AS input,
         ifNull(toInt(properties.$ai_cache_read_input_tokens), 0) AS cache_read,
         ifNull(toInt(properties.$ai_cache_creation_input_tokens), 0) AS cache_write,
+        lower(ifNull(properties.$ai_provider, '')) AS provider,
         properties.$ai_cache_reporting_exclusive IS NULL AS flag_missing,
-        ifNull(properties.$ai_cache_reporting_exclusive, input < cache_read + cache_write) AS exclusive
+        (provider = 'anthropic'
+            OR positionCaseInsensitive(ifNull(properties.$ai_model, ''), 'anthropic') > 0
+            OR startsWith(lower(ifNull(properties.$ai_model, '')), 'claude'))
+            AND NOT (provider = 'gateway' AND lower(ifNull(properties.$ai_framework, '')) = 'vercel') AS anthropic_style,
+        if(flag_missing, anthropic_style, toString(properties.$ai_cache_reporting_exclusive) = 'true')
+            OR input < cache_read + cache_write AS exclusive
     FROM events
     WHERE event = '$ai_generation'
         AND timestamp >= now() - INTERVAL 30 DAY
@@ -50,13 +62,14 @@ FROM (
 GROUP BY model
 ```
 
-The flag is a boolean, so compare it as one (`IS NULL`, `ifNull(...)`),
-not against the string `'true'`.
+Compare the flag through `toString(...) = 'true'` behind an `IS NULL`
+check. Its type depends on the project's property definition (boolean or
+string), and `toString` of a missing value returns `''`, not null.
 
-The inferred fallback is a lower bound on exclusivity: an exclusive event
-whose fresh input outweighs its cache tokens reads as inclusive, which
-overstates its rate. When `calls_with_inferred_flag` is a large share of
-`calls`, say the rate is partly inferred.
+The inferred fallback can still miss: an exclusive event from another
+provider, whose fresh input outweighs its cache tokens, reads as
+inclusive, which overstates its rate. When `calls_with_inferred_flag` is a
+large share of `calls`, say the rate is partly inferred.
 
 The [breakdown patterns](./breakdown-patterns.md) "input vs output vs
 cache economics" recipe and the

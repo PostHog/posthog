@@ -174,7 +174,14 @@ FROM (
         ifNull(toInt(properties.$ai_output_tokens), 0) AS output,
         ifNull(toInt(properties.$ai_cache_read_input_tokens), 0) AS cache_read,
         ifNull(toInt(properties.$ai_cache_creation_input_tokens), 0) AS cache_write,
-        ifNull(properties.$ai_cache_reporting_exclusive, input < cache_read + cache_write) AS exclusive
+        lower(ifNull(properties.$ai_provider, '')) AS provider,
+        properties.$ai_cache_reporting_exclusive IS NULL AS flag_missing,
+        (provider = 'anthropic'
+            OR positionCaseInsensitive(ifNull(properties.$ai_model, ''), 'anthropic') > 0
+            OR startsWith(lower(ifNull(properties.$ai_model, '')), 'claude'))
+            AND NOT (provider = 'gateway' AND lower(ifNull(properties.$ai_framework, '')) = 'vercel') AS anthropic_style,
+        if(flag_missing, anthropic_style, toString(properties.$ai_cache_reporting_exclusive) = 'true')
+            OR input < cache_read + cache_write AS exclusive
     FROM events
     WHERE event = '$ai_generation'
         AND timestamp >= now() - INTERVAL 30 DAY
