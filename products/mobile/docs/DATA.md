@@ -29,6 +29,12 @@ Each interface names the serializer it mirrors.
 Query keys (`reportKeys` in `src/api/reports.ts`) carry the host and project id, so a project switch never shows another project's cache.
 `useProjectScope()` reads both from the auth store and returns null until the session is signed in.
 
+## Connectivity
+
+`src/lib/connectivity.ts` shares the device link state (`unknown`, `connected` or `offline`) and the native connection cost hint (`isConnectionExpensive`, or null when unknown). TanStack Query pauses reads when the link is offline and resumes on reconnect. Report task streams use the same signal, retain their cursor, and resume interrupted viewing when the link returns. Fatal and terminal streams stay stopped. The monitor refreshes the native state once when the app returns to the foreground and removes its listeners when disposed. NetInfo's active internet probes are disabled; a connected link does not establish backend reachability. No network names, addresses or other connection details are stored.
+
+The NetInfo dependency needs new iOS and Android binaries. This change cannot ship to an earlier native runtime as an OTA update.
+
 ## The inbox list
 
 `useInboxItems()` reads `signals/reports/?view=for_you&sort=priority` one page of 20 reports at a time, with `useInfiniteQuery`.

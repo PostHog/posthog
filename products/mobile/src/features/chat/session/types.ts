@@ -189,6 +189,7 @@ export interface Session {
     answer: (input: DecisionAnswerInput) => Promise<void>
     /** Asks the agent to stop the current turn. Only while `phase` is not `idle`. */
     stop: () => void
+    reconnect?: () => void
     reloadHistory: () => Promise<void>
     reset: () => void
     dismissNotice: () => void

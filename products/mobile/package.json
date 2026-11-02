@@ -48,6 +48,7 @@
         "@expo/metro-runtime": "~57.0.7",
         "@react-native-async-storage/async-storage": "2.2.0",
         "@react-native-community/datetimepicker": "9.1.0",
+        "@react-native-community/netinfo": "12.0.1",
         "@react-native-masked-view/masked-view": "0.3.2",
         "@shopify/react-native-skia": "2.6.2",
         "@tanstack/react-query": "^5.90.12",

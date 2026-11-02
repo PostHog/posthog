@@ -614,7 +614,8 @@ export function ChatScreen({
                                     topInset={insets.top + CHAT_HEADER_HEIGHT}
                                     onRetryHistory={() => {
                                         track('mobile_session_load_retried')
-                                        session.reloadHistory().catch(() => undefined)
+                                        if (session.reconnect) session.reconnect()
+                                        else session.reloadHistory().catch(() => undefined)
                                     }}
                                 />
                             )}
@@ -634,6 +635,7 @@ export function ChatScreen({
                                         pending={session.isSending}
                                         onAnswer={(answerInput) => void session.answer(answerInput)}
                                         onDismissNotice={dismissNotice}
+                                        onReconnect={session.reconnect}
                                     />
                                     {/* A pending decision has its own reply field, so it replaces the composer, as on the web. */}
                                     {session.decision ? null : (
