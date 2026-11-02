@@ -51,7 +51,7 @@ SCHEMA_MAPPERS: list[tuple[str, collections.abc.Callable[[pa.Schema], object], c
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "column_type",
-    [pa.decimal128(38, 9), pa.map_(pa.string(), pa.string()), pa.struct([("a", pa.int64())]), pa.null()],
+    [pa.decimal256(76, 9), pa.map_(pa.string(), pa.string()), pa.struct([("a", pa.int64())]), pa.null()],
     ids=str,
 )
 async def test_schema_mapping_logs_and_retries_an_unsupported_column_type(
