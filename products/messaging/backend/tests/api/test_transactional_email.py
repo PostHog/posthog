@@ -35,6 +35,7 @@ from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
 
 PASSWORD_RESET_HASH = "v1:973d41bbe3fdca5c52bb951cd4b5fd7159ae630b56c8f3997cbb31afd1ea76fd"
 SUPERSEDED_HASH = f"v1:{'1' * 64}"
+BOTH_EMAIL_FLAGS = {TRANSACTIONAL_EMAIL_API_FLAG, EMAIL_FROM_CODE_FLAG}
 
 
 def _stage_counts() -> dict[str, float]:
@@ -537,25 +538,36 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("by_default", {}, "transactional_email", None),
+            ("by_default", {}, BOTH_EMAIL_FLAGS, "transactional_email", None),
             (
                 "without_engagement_capture",
                 {"capture_engagement": False},
+                BOTH_EMAIL_FLAGS,
                 "transactional_email/send",
                 {"tracking": {"captureEngagement": False}},
+            ),
+            (
+                "without_engagement_capture_while_the_code_flag_is_off",
+                {"capture_engagement": False},
+                {TRANSACTIONAL_EMAIL_API_FLAG},
+                "transactional_email",
+                None,
             ),
         ]
     )
     def test_a_send_by_template_id_carries_its_engagement_capture(
-        self, mock_post, _flag, _capture, _name, fields, route, sent
+        self, mock_post, flag, _capture, _name, fields, enabled_flags, route, sent
     ):
         self._cdp_accepts(mock_post)
+        flag.side_effect = lambda key, *_args, **_kwargs: key in enabled_flags
 
         response = self._send(self._psak_client(["hog_flow:write"]), "send_email", {**self.body, **fields})
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
         assert mock_post.call_args.args[0].endswith(f"/hog_flows/{self.hog_flow_id}/{route}")
-        assert mock_post.call_args.kwargs["json"].get("send") == sent
+        payload = mock_post.call_args.kwargs["json"]
+        assert payload.get("send") == sent
+        assert ("send" in payload) == (sent is not None)
 
     def _keyed(self) -> dict[str, Any]:
         MessageTemplate.objects.filter(id=self.template.id).update(
