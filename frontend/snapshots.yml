@@ -8358,6 +8358,10 @@ snapshots:
         hash: v1.k794b7964.b86dd0589d4176cecbfdfec32ed5fd8d9d6b4da89571a78f3d46567b13b095a7.pmXKJhqonqv2m0izV0rqZGqzaKcC7NuPqds4ykm428Y
     products-workflows-editor-configuration-panel--email-in-side-panel--light:
         hash: v1.k794b7964.5148ef83b4ffa0066217d18ab900c6c7fc93e6c7024dd16c30d3adce5be0ad95.fmtMjqlnEFw4qXHvkmJrJtAAzPGgwrBGTrPYwjoQtQY
+    products-workflows-editor-configuration-panel--email-view-only--dark:
+        hash: v1.k794b7964.c6a7aa5096880ec68b6b8b5d7721fa971bf6db94c881ca43520bb1d655e1ce9c.ztk1Q_sLVxRo0JEcC6Xut6DWSCNXL15ERcU3g5_foIc
+    products-workflows-editor-configuration-panel--email-view-only--light:
+        hash: v1.k794b7964.40d7459804b39d56e605ea928ebf91286abb85901f9c5fb03181b69c2fc40872.4xoRqhC1FBgdo6KPV-WVaJC3yVthL019IOlQz5MeBSM
     products-workflows-editor-configuration-panel--logs--dark:
         hash: v1.k794b7964.beabe0c2c69154a7e7b8e5709226f710bbb707c7a2a96ea3b908e7b5348ad177.l8BzDM-8b8Z6jYzADnoiRggNuU02m3lgVa6vtNm2VOw
     products-workflows-editor-configuration-panel--logs--light:
