@@ -283,14 +283,20 @@ function topLevelPropertyGroups(scanner: ReplayScanner): EligibleFilterGroup[] {
  */
 export function eligibleFilterGroups(
     scanner: ReplayScanner,
-    { experimentName, cohortNames }: { experimentName?: string; cohortNames?: Record<string, string> } = {}
+    {
+        experimentName,
+        cohortNames,
+        recordingsFirst,
+    }: { experimentName?: string; cohortNames?: Record<string, string>; recordingsFirst?: boolean } = {}
 ): EligibleFilterGroup[] {
+    // The recordings-first experiment arm uses the filter's own name from the recordings filter.
+    const [pageSingular, pagePlural] = recordingsFirst ? ['Visited page', 'Visited pages'] : ['Page', 'Pages']
     const kinds: [key: string, singular: string, plural: string, values: string[]][] = [
         ['experiment', 'Experiment', 'Experiments', experimentValues(scanner, experimentName)],
         ...pageValueLists(scanner).map((values, index): [string, string, string, string[]] => [
             `page:${index}`,
-            'Page',
-            'Pages',
+            pageSingular,
+            pagePlural,
             values,
         ]),
         ['event', 'Event', 'Events', namedQueryEntities(scanner, 'events')],
@@ -345,6 +351,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
     const filterGroups = eligibleFilterGroups(scanner, {
         experimentName: experimentContext?.experiment.name,
         cohortNames,
+        recordingsFirst,
     })
     // Read against the form, so an addition the person removed by hand is not credited to the AI.
     const currentFilterValues = new Set(filterGroups.flatMap((group) => group.values))
