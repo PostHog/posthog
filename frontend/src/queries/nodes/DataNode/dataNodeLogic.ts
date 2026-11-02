@@ -27,17 +27,30 @@ import { inStorybook, inStorybookTestRunner, uuid } from 'lib/utils/dom'
 import { shouldCancelQuery } from 'lib/utils/requests'
 import type { TaskQueue } from 'scenes/dashboard/dashboardUtils'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
-import { compareDataNodeQuery, haveVariablesOrFiltersChanged, validateQuery } from 'scenes/insights/utils/queryUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { DataNodeCollectionProps, dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
+import { hasInvalidRegexFilter } from '~/queries/nodes/DataNode/hasInvalidRegexFilter'
 import { QueryScanPollResult, QueryScanState, resolveQueryScan } from '~/queries/nodes/DataNode/queryScan'
 import { getSingleRequestServerMs } from '~/queries/nodes/DataNode/queryTimeBreakdown'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
+import {
+    compareDataNodeQuery,
+    haveVariablesOrFiltersChanged,
+    validateQuery,
+} from '~/queries/nodes/InsightViz/queryUtils'
 import { performQuery } from '~/queries/query'
+import {
+    isActorsQuery,
+    isDataVisualizationNode,
+    isHogQLQuery,
+    isInsightQueryNode,
+    isPersonsNode,
+    isWebStatsTableQuery,
+} from '~/queries/schema/node-guards'
 import {
     AccountsQuery,
     AccountsQueryResponse,
@@ -83,21 +96,15 @@ import {
 import {
     isAccountsQuery,
     isAccountsTableQuery,
-    isActorsQuery,
     isErrorTrackingIssueEventsQuery,
     isErrorTrackingQuery,
     isEventsQuery,
     isGroupsQuery,
-    isDataVisualizationNode,
-    isHogQLQuery,
     isInsightActorsQuery,
-    isInsightQueryNode,
     isMarketingAnalyticsTableQuery,
-    isPersonsNode,
     isSessionQuery,
     isSessionsQuery,
     isTracesQuery,
-    isWebStatsTableQuery,
 } from '~/queries/utils'
 import { TeamType } from '~/types'
 
@@ -1195,7 +1202,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         return null
                     }
 
-                    if (!validateQuery(query)) {
+                    if (!validateQuery(query, hasInvalidRegexFilter)) {
                         return null
                     }
 

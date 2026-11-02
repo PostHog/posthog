@@ -214,6 +214,7 @@ jobs:
               id: targets
               env:
                   RESOLVED: ${{ steps.changes.outputs.resolved }}
+                  LANE_TELEMETRY_FILE: ${{ runner.temp }}/lane-telemetry.json
                   # Empty when the determinator was skipped or failed, which the
                   # script reads as every crate. Its own rebuild-all verdict
                   # needs no special case: it fills `crates` with the whole
@@ -248,7 +249,12 @@ jobs:
               run: |
                   set -uo pipefail
                   touch "$RUNNER_TEMP/changed-files.txt"
-                  properties="$(node .github/scripts/trunk-lane-telemetry.js < "$RUNNER_TEMP/changed-files.txt")"
+                  # Unrebased PRs can still have the target script without telemetry output.
+                  if [ -f "$RUNNER_TEMP/lane-telemetry.json" ]; then
+                      properties="$(cat "$RUNNER_TEMP/lane-telemetry.json")"
+                  else
+                      properties="$(node .github/scripts/trunk-lane-telemetry.js < "$RUNNER_TEMP/changed-files.txt")"
+                  fi
                   printf 'properties=%s\n' "$properties" >> "$GITHUB_OUTPUT"
 
     upload:

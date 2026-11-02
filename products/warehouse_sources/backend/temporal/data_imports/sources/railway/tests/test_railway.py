@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
+import time_machine
 
 from parameterized import parameterized
 
@@ -36,6 +37,17 @@ def _connection(path: tuple[str, ...], nodes: list[dict[str, Any]], end_cursor: 
 
 def _projects_page(ids: list[str], end_cursor: str | None = None) -> dict[str, Any]:
     return _connection(("projects",), [{"id": project_id} for project_id in ids], end_cursor)
+
+
+def _usage_page(usage: list[dict[str, Any]], end_cursor: str | None = None) -> dict[str, Any]:
+    return {
+        "data": {
+            "projectServiceUsage": {
+                "usage": usage,
+                "pageInfo": {"hasNextPage": end_cursor is not None, "endCursor": end_cursor},
+            }
+        }
+    }
 
 
 def _run(endpoint: str, responses: list[dict[str, Any]], **inputs: Any) -> DriveResult:
@@ -150,6 +162,178 @@ class TestRailway:
         assert _batch_ids(result) == [["d1", "d2"], ["d3", "d4"]]
         assert len(result.requests) == 3
 
+    def test_deployment_events_carry_deployment_context_and_skip_deployments_before_watermark(self):
+        result = _run(
+            "deployment_events",
+            [
+                _projects_page(["p1"]),
+                _connection(
+                    ("deployments",),
+                    [
+                        {"id": "d1", "serviceId": "s1", "environmentId": "e1", "createdAt": "2024-07-01T00:00:00Z"},
+                    ],
+                    end_cursor="c1",
+                ),
+                _connection(
+                    ("deploymentEvents",),
+                    [{"id": "ev1", "step": "BUILD_IMAGE", "createdAt": "2024-07-01T00:01:00Z"}],
+                ),
+                _connection(("deployments",), [{"id": "d2", "createdAt": "2024-05-01T00:00:00Z"}], end_cursor="c2"),
+                # d2 predates the watermark: no events request for it, and the page after it is never
+                # requested.
+            ],
+            incremental_field="createdAt",
+            db_incremental_field_last_value=datetime(2024, 6, 1, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert result.items == [
+            [
+                {
+                    "deployment_id": "d1",
+                    "project_id": "p1",
+                    "service_id": "s1",
+                    "environment_id": "e1",
+                    "id": "ev1",
+                    "step": "BUILD_IMAGE",
+                    "createdAt": "2024-07-01T00:01:00Z",
+                }
+            ]
+        ]
+        assert len(result.requests) == 4
+        assert _request_variables(result, 2)["deploymentId"] == "d1"
+
+    def test_deployment_events_resume_at_the_saved_deployment_and_stage_the_next_position(self):
+        result = _run(
+            "deployment_events",
+            [
+                _projects_page(["p1", "p2"]),
+                _connection(("deployments",), [{"id": "d1"}, {"id": "d2"}, {"id": "d3"}]),
+                _connection(("deploymentEvents",), [{"id": "ev2"}]),
+                _connection(("deploymentEvents",), [{"id": "ev3"}]),
+            ],
+            resume_state=RailwayResumeConfig(cursor="c4", project_id="p2", parent_id="d2", child_cursor="e1"),
+        )
+
+        assert _request_variables(result, 1) == {"projectId": "p2", "first": 100, "after": "c4"}
+        assert _request_variables(result, 2) == {"deploymentId": "d2", "first": 100, "after": "e1"}
+        assert _request_variables(result, 3)["after"] is None
+        assert _batch_ids(result) == [["ev2"], ["ev3"]]
+        # The state staged before each batch points past it, so a resumed full refresh appends no
+        # batch twice. The last batch keeps the earlier position rather than restarting the walk.
+        assert [(state.cursor, state.project_id, state.parent_id) for state in result.saved_states] == [
+            ("c4", "p2", "d3")
+        ]
+
+    def test_deployment_events_resume_pages_forward_to_a_saved_deployment_pushed_off_the_first_page(self):
+        result = _run(
+            "deployment_events",
+            [
+                _projects_page(["p1"]),
+                # New deployments now fill the first page, and d1 and d2 were already read.
+                _connection(("deployments",), [{"id": "d9"}, {"id": "d1"}, {"id": "d2"}], end_cursor="c1"),
+                _connection(("deployments",), [{"id": "d3"}]),
+                _connection(("deploymentEvents",), [{"id": "ev3"}]),
+            ],
+            resume_state=RailwayResumeConfig(project_id="p1", parent_id="d3"),
+        )
+
+        assert result.raised is None
+        assert _request_variables(result, 2)["after"] == "c1"
+        assert _request_variables(result, 3)["deploymentId"] == "d3"
+        assert _batch_ids(result) == [["ev3"]]
+        assert len(result.requests) == 4
+
+    @time_machine.travel("2024-07-03T12:00:00Z", tick=False)
+    def test_usage_reads_one_day_window_per_workspace_from_the_watermark_day(self):
+        result = _run(
+            "usage",
+            [
+                _connection(
+                    ("projects",),
+                    [{"id": "p1", "workspaceId": "w1"}, {"id": "p2", "workspaceId": "w1"}],
+                ),
+                _usage_page(
+                    [{"measurement": "CPU_USAGE", "value": 1.5, "tags": {"projectId": "p1", "serviceId": None}}],
+                    end_cursor="p1",
+                ),
+                _usage_page([{"measurement": "CPU_USAGE", "value": 2.0, "tags": {"projectId": "p2"}}]),
+                _usage_page([]),
+            ],
+            incremental_field="date",
+            db_incremental_field_last_value=datetime(2024, 7, 2, 0, 0, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        windows = [
+            (variables["workspaceId"], variables["startDate"], variables["endDate"], variables["after"])
+            for variables in (_request_variables(result, index) for index in range(1, len(result.requests)))
+        ]
+        assert windows == [
+            ("w1", "2024-07-02T00:00:00+00:00", "2024-07-03T00:00:00+00:00", None),
+            ("w1", "2024-07-02T00:00:00+00:00", "2024-07-03T00:00:00+00:00", "p1"),
+            ("w1", "2024-07-03T00:00:00+00:00", "2024-07-03T12:00:00+00:00", None),
+        ]
+        # Null tags must still give a non-null, stable key, or merges seed duplicate rows.
+        assert _batch_ids(result) == [["2024-07-02:p1:::CPU_USAGE"], ["2024-07-02:p2:::CPU_USAGE"]]
+        assert result.items[0][0]["date"] == datetime(2024, 7, 2, tzinfo=UTC)
+        assert [(state.window_start, state.parent_id, state.cursor) for state in result.saved_states] == [
+            ("2024-07-02T00:00:00+00:00", "w1", "p1"),
+            ("2024-07-03T00:00:00+00:00", None, None),
+        ]
+
+    @time_machine.travel("2024-07-10T01:30:00Z", tick=False)
+    def test_metrics_retry_resumes_at_the_saved_window_and_drops_samples_on_the_window_end(self):
+        window_end = int(datetime(2024, 7, 10, 1, 30, tzinfo=UTC).timestamp())
+        result = _run(
+            "metrics",
+            [
+                _projects_page(["p1"]),
+                {
+                    "data": {
+                        "metrics": [
+                            {
+                                "measurement": "CPU_USAGE",
+                                "tags": {"serviceId": "s1", "environmentId": "e1"},
+                                "values": [{"ts": window_end - 1800, "value": 0.5}, {"ts": window_end, "value": 0.7}],
+                            }
+                        ]
+                    }
+                },
+            ],
+            # A first sync that an earlier attempt, an hour and a half ago, left in its 07-08 00:00 window.
+            # The grid this attempt derives from the current time starts at 01:00, which would skip an hour.
+            resume_state=RailwayResumeConfig(window_start="2024-07-08T00:00:00+00:00"),
+        )
+
+        assert result.raised is None
+        variables = _request_variables(result, 1)
+        assert (variables["startDate"], variables["endDate"]) == (
+            "2024-07-08T00:00:00+00:00",
+            "2024-07-10T01:30:00+00:00",
+        )
+        assert _batch_ids(result) == [[f"p1:s1:e1:CPU_USAGE:{window_end - 1800}"]]
+
+    @time_machine.travel("2024-07-10T15:00:00Z", tick=False)
+    def test_metrics_retry_keeps_the_saved_window_end_for_the_remaining_projects(self):
+        result = _run(
+            "metrics",
+            [_projects_page(["p1", "p2"]), {"data": {"metrics": []}}],
+            # p1 finished the 07-10 window, which ended at noon, before the earlier attempt stopped.
+            resume_state=RailwayResumeConfig(
+                window_start="2024-07-10T00:00:00+00:00", window_end="2024-07-10T12:00:00+00:00", parent_id="p2"
+            ),
+        )
+
+        assert result.raised is None
+        assert len(result.requests) == 2
+        variables = _request_variables(result, 1)
+        assert (variables["projectId"], variables["startDate"], variables["endDate"]) == (
+            "p2",
+            "2024-07-10T00:00:00+00:00",
+            "2024-07-10T12:00:00+00:00",
+        )
+
     def test_not_authorized_error_matches_non_retryable_catalog(self):
         result = _run("projects", [{"errors": [{"message": "Not Authorized"}], "data": None}])
 
@@ -187,6 +371,10 @@ class TestRailway:
         # rows that every later merge multi-matches.
         assert members.primary_keys == ["project_id", "id"]
         assert members.partition_mode is None
+
+        deployment_events = _run("deployment_events", [_projects_page([])]).response
+        assert deployment_events is not None
+        assert deployment_events.primary_keys == ["deployment_id", "id"]
 
     @parameterized.expand(
         [

@@ -9,13 +9,23 @@ So the request thread does no network I/O: it only appends to a bounded in-proce
 thread writes the queue to Redis about once a second, with short timeouts and a circuit breaker, and
 refreshes the enrolled teams in the background.
 
+The hourly tick publishes the buffer's teams to `as:mcp:teams`, so web processes do not read the
+enrollment from Postgres. An enrollment change, such as a revoked AI data processing approval, reaches
+the buffer within one tick plus one refresh. `mcp_buffer_enabled: false` takes effect within one refresh.
+A missing key means no teams, so the buffer stops when the tick stops publishing.
+
+The intent is masked with `clean_text` before it goes to Redis.
+
 Redis keys, each with a TTL of `mcp_buffer_days`:
 
 - `as:mcp:{team_id}:{user_id}:{yyyymmdd}`: a list of the latest `mcp_calls_per_day` records.
 - `as:mcp:n:{team_id}:{user_id}:{yyyymmdd}`: the count of all records of the day, trimmed or not.
 - `as:mcp:dirty`: a set of `{team_id}:{user_id}` members that have new records.
 
+`as:mcp:teams` holds the comma-separated team ids, with a TTL of `TEAMS_TTL_SECONDS`.
+
 A record is `ts|session_or_conversation_id|route_name|intent`, with `ts` in Unix seconds.
+`inputs.user_mcp_records` reads the buffer through the key and record helpers of this module.
 """
 
 import os
@@ -36,10 +46,12 @@ from prometheus_client import Counter, Histogram
 from posthog.dataclasses import frozen
 from posthog.redis import get_client
 
+from products.signals.backend.activity_summary.render import MCP_INTENT_CHARS, McpItem, clean_text
+
 logger = structlog.get_logger(__name__)
 
 QUEUE_SIZE = 10_000
-INTENT_MAX_CHARS = 200
+INTENT_MAX_CHARS = MCP_INTENT_CHARS
 # Session ids and route names are much shorter. The cap only bounds a caller-asserted header.
 _FIELD_MAX_CHARS = 100
 FLUSH_INTERVAL_SECONDS = 1.0
@@ -47,7 +59,12 @@ CIRCUIT_OPEN_SECONDS = 30.0
 SETTINGS_REFRESH_SECONDS = 300.0
 # The default client timeouts can stall the flush thread for seconds.
 REDIS_TIMEOUT_SECONDS = 0.05
+# The team list is read off the request thread, and it can hold many ids.
+TEAMS_REDIS_TIMEOUT_SECONDS = 1.0
 DIRTY_KEY = "as:mcp:dirty"
+TEAMS_KEY = "as:mcp:teams"
+# Three hourly ticks, so one failed tick does not stop the buffer.
+TEAMS_TTL_SECONDS = 3 * 3600
 
 RECORDS = Counter(
     "activity_summary_mcp_intent_records",
@@ -59,6 +76,11 @@ FLUSH_SECONDS = Histogram(
     "Wall-clock time of one Redis flush of the MCP intent buffer.",
     buckets=(0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1),
 )
+TEAMS_PUBLISHES = Counter(
+    "activity_summary_mcp_teams_publishes",
+    "Tick writes of the MCP intent buffer's team list by outcome: published, deleted or failed.",
+    ["outcome"],
+)
 
 
 def records_key(team_id: int, user_id: int, day: str) -> str:
@@ -67,6 +89,48 @@ def records_key(team_id: int, user_id: int, day: str) -> str:
 
 def count_key(team_id: int, user_id: int, day: str) -> str:
     return f"as:mcp:n:{team_id}:{user_id}:{day}"
+
+
+def format_team_ids(team_ids: list[int]) -> str:
+    return ",".join(str(team_id) for team_id in sorted(team_ids))
+
+
+def parse_team_ids(value: bytes | str | None) -> frozenset[int]:
+    """The ids that `format_team_ids` wrote. A missing key or an invalid id gives no team."""
+    text = value.decode() if isinstance(value, bytes) else value
+    team_ids: set[int] = set()
+    for part in (text or "").split(","):
+        try:
+            team_ids.add(int(part))
+        except ValueError:
+            continue
+    return frozenset(team_ids)
+
+
+def record_day(at: datetime.datetime) -> str:
+    """The UTC day of a record, as its keys name it."""
+    return at.astimezone(datetime.UTC).strftime("%Y%m%d")
+
+
+def window_days(start: datetime.datetime, end: datetime.datetime, max_days: int) -> list[str]:
+    """The UTC days that hold the records of [start, end), the newest `max_days` only, oldest first."""
+    last = (end - datetime.timedelta(microseconds=1)).astimezone(datetime.UTC).date()
+    first = max(start.astimezone(datetime.UTC).date(), last - datetime.timedelta(days=max_days - 1))
+    return [(first + datetime.timedelta(days=offset)).strftime("%Y%m%d") for offset in range((last - first).days + 1)]
+
+
+def parse_record(value: bytes | str) -> McpItem | None:
+    """The record that `build_record` wrote, or None when the value is not one."""
+    text = value.decode("utf-8", errors="replace") if isinstance(value, bytes) else value
+    parts = text.split("|", 3)
+    if len(parts) != 4:
+        return None
+    ts, session_id, route_name, intent = parts
+    try:
+        at = datetime.datetime.fromtimestamp(int(ts), tz=datetime.UTC)
+    except (ValueError, OverflowError, OSError):
+        return None
+    return McpItem(at=at, session_id=session_id, route_name=route_name, intent=intent)
 
 
 @frozen
@@ -89,6 +153,11 @@ def _field(value: str | None, max_chars: int) -> str:
     return " ".join((value or "").replace("|", " ").split())[:max_chars]
 
 
+def _intent(value: str) -> str:
+    # The header is bounded, and `clean_text` reads a bounded prefix, so this stays cheap on the request thread.
+    return clean_text(value.replace("|", " "), INTENT_MAX_CHARS)
+
+
 def build_record(
     *, team_id: int, user_id: int, session_id: str | None, route_name: str | None, intent: str, at: datetime.datetime
 ) -> McpIntentRecord:
@@ -97,23 +166,20 @@ def build_record(
             str(int(at.timestamp())),
             _field(session_id, _FIELD_MAX_CHARS),
             _field(route_name, _FIELD_MAX_CHARS),
-            _field(intent, INTENT_MAX_CHARS),
+            _intent(intent),
         )
     )
-    return McpIntentRecord(
-        team_id=team_id, user_id=user_id, day=at.astimezone(datetime.UTC).strftime("%Y%m%d"), value=value
-    )
+    return McpIntentRecord(team_id=team_id, user_id=user_id, day=record_day(at), value=value)
 
 
-def load_settings() -> BufferSettings:
-    """The enrolled teams and the buffer limits, from the `activity-summary` flag payload and Postgres."""
+def load_settings(redis_client: Callable[[], redis.Redis]) -> BufferSettings:
+    """The buffer's teams that the tick published, and the limits of the `activity-summary` flag payload.
+
+    Raises on a Redis error, so the caller keeps its previous settings."""
     from products.signals.backend.activity_summary.config import (  # noqa: PLC0415 — keeps heavy deps off the middleware import path
         ACTIVITY_SUMMARY_FLAG,
         ACTIVITY_SUMMARY_FLAG_DISTINCT_ID,
         parse_config,
-    )
-    from products.signals.backend.activity_summary.queue import (  # noqa: PLC0415 — keeps heavy deps off the middleware import path
-        mcp_buffer_team_ids,
     )
     from products.signals.backend.scout_harness.team_limits import (  # noqa: PLC0415 — keeps heavy deps off the middleware import path
         read_flag_payload,
@@ -121,11 +187,30 @@ def load_settings() -> BufferSettings:
 
     # Not `read_config`, which logs on every read: each web process refreshes every few minutes.
     config = parse_config(read_flag_payload(ACTIVITY_SUMMARY_FLAG, ACTIVITY_SUMMARY_FLAG_DISTINCT_ID))
+    team_ids = parse_team_ids(redis_client().get(TEAMS_KEY)) if config.mcp_buffer_enabled else frozenset()
     return BufferSettings(
-        team_ids=frozenset(mcp_buffer_team_ids(config)),
+        team_ids=team_ids,
         calls_per_day=config.mcp_calls_per_day,
         buffer_days=config.mcp_buffer_days,
     )
+
+
+def publish_team_ids(team_ids: list[int] | None) -> None:
+    """Write the buffer's teams for the web processes, or delete the key when `team_ids` is None.
+
+    The tick calls this, so a failure logs and never raises."""
+    try:
+        client = _teams_redis_client()
+        if team_ids is None:
+            client.delete(TEAMS_KEY)
+            TEAMS_PUBLISHES.labels(outcome="deleted").inc()
+            return
+        client.set(TEAMS_KEY, format_team_ids(team_ids), ex=TEAMS_TTL_SECONDS)
+    except Exception:
+        TEAMS_PUBLISHES.labels(outcome="failed").inc()
+        logger.warning("activity_summary.mcp_buffer_teams_publish_failed", exc_info=True)
+        return
+    TEAMS_PUBLISHES.labels(outcome="published").inc()
 
 
 def _redis_client() -> redis.Redis:
@@ -136,17 +221,27 @@ def _redis_client() -> redis.Redis:
     )
 
 
+def _teams_redis_client() -> redis.Redis:
+    return get_client(
+        settings.ACTIVITY_SUMMARY_MCP_BUFFER_REDIS_URL or None,
+        socket_timeout=TEAMS_REDIS_TIMEOUT_SECONDS,
+        socket_connect_timeout=TEAMS_REDIS_TIMEOUT_SECONDS,
+    )
+
+
 class McpIntentBuffer:
     def __init__(
         self,
         *,
         queue_size: int = QUEUE_SIZE,
         redis_client: Callable[[], redis.Redis] = _redis_client,
+        teams_redis_client: Callable[[], redis.Redis] = _teams_redis_client,
         clock: Callable[[], float] = monotonic,
         start_thread: bool = True,
     ) -> None:
         self._queue_size = queue_size
         self._redis_client = redis_client
+        self._teams_redis_client = teams_redis_client
         self._clock = clock
         self._start_thread = start_thread
         self._lock = threading.Lock()
@@ -216,7 +311,7 @@ class McpIntentBuffer:
 
     def refresh_settings(self) -> None:
         try:
-            self.buffer_settings = load_settings()
+            self.buffer_settings = load_settings(self._teams_redis_client)
         except Exception:
             logger.warning("activity_summary.mcp_buffer_settings_failed", exc_info=True)
 

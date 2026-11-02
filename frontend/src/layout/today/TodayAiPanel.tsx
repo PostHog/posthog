@@ -5,15 +5,15 @@ import { Button, Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia,
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { PhaiSidePanelChat } from 'scenes/max/components/PhaiSidePanelChat'
-import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { sidePanelMaxLogic } from 'scenes/max/maxLogic'
 
 import { REPORT_AI_PANEL, SCOUT_AI_PANEL } from '~/layout/ai/aiPanelIds'
+import { aiShellLogic } from '~/layout/ai/aiShellLogic'
 import { SidePanelMax } from '~/layout/navigation-3000/sidepanel/panels/max/SidePanelMax'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 
 export function TodayAiPanel(): JSX.Element {
-    const { isMaxAvailable, effectivePhaiView } = useValues(maxGlobalLogic)
+    const { isMaxAvailable, effectivePhaiView } = useValues(aiShellLogic)
     const { selectedTabOptions } = useValues(sidePanelStateLogic)
 
     // Closing the panel unmounts this tree, so hold the chat logic to keep the open chat and draft.
