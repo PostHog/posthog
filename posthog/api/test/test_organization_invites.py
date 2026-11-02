@@ -17,6 +17,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
+from posthog.helpers.email_utils import ESPSuppressionReason, ESPSuppressionResult
 from posthog.models import User
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.instance_setting import set_instance_setting
@@ -224,6 +225,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 "is_expired": False,
                 "level": 1,
                 "emailing_attempt_made": True,
+                "email_suppressed": False,
                 "message": None,
                 "private_project_access": [],
             },
@@ -263,6 +265,35 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.assertEqual(len(mail.outbox), 1)
         self.assertListEqual(mail.outbox[0].to, [email])
         self.assertEqual(mail.outbox[0].reply_to, [self.user.email])  # Reply-To is set to the inviting user
+
+    @parameterized.expand(
+        [
+            ("suppressed", ESPSuppressionReason.SUPPRESSED, True),
+            ("not_suppressed", None, False),
+            ("api_failure", ESPSuppressionReason.API_FAILURE_FALLBACK, False),
+        ]
+    )
+    @patch("posthog.tasks.email.EmailMessage")
+    @patch("posthog.tasks.email.check_esp_suppression")
+    @patch("posthog.tasks.email.ph_scoped_capture")
+    def test_add_organization_invite_flags_esp_suppressed_email(
+        self, _name, reason, expected_suppressed, mock_scoped_capture, mock_check, _mock_email_message
+    ):
+        set_instance_setting("EMAIL_HOST", "localhost")
+        mock_check.return_value = ESPSuppressionResult(
+            is_suppressed=reason is not None, from_cache=False, reason=reason
+        )
+        capture = mock_scoped_capture.return_value.__enter__.return_value
+
+        with self.settings(EMAIL_ENABLED=True, SITE_URL="http://test.posthog.com", CUSTOMER_IO_API_KEY="test-key"):
+            response = self.client.post("/api/organizations/@current/invites/", {"target_email": "x@x.com"})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        mock_check.assert_called_once_with("x@x.com")
+        list_response = self.client.get("/api/organizations/@current/invites/")
+        self.assertEqual(list_response.json()["results"][0]["email_suppressed"], expected_suppressed)
+        events = [c.kwargs["event"] for c in capture.call_args_list]
+        self.assertEqual(events, ["invite email suppressed"] if expected_suppressed else [])
 
     @patch("posthoganalytics.capture")
     def test_add_organization_invite_with_email_on_instance_but_send_email_prop_false(self, mock_capture):

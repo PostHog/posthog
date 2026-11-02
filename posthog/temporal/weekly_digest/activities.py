@@ -869,11 +869,16 @@ def generate_product_suggestion_lookup(input: GenerateDigestDataBatchInput) -> N
         _generate_product_suggestion_lookup(input)
 
 
+def _organizations_to_send(organization_ids: list[str] | None) -> QuerySet:
+    organizations = query_orgs_for_digest()
+    return organizations if organization_ids is None else organizations.filter(id__in=organization_ids)
+
+
 @activity.defn(name="count-organizations")
 @asyncify
-def count_organizations() -> int:
+def count_organizations(organization_ids: list[str] | None = None) -> int:
     with HeartbeaterSync(logger=LOGGER):
-        return query_orgs_for_digest().count()
+        return _organizations_to_send(organization_ids).count()
 
 
 def _cut_team_id_ranges(team_ids: list[int], batch_size: int) -> list[TeamIdRange]:
@@ -1195,7 +1200,7 @@ def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
     try:
         with _digest_redis(input.common) as r:
             batch_start, batch_end = input.batch
-            for organization in query_orgs_for_digest()[batch_start:batch_end]:
+            for organization in _organizations_to_send(input.organization_ids)[batch_start:batch_end]:
                 _raise_if_cancelled()
                 partial = False
                 try:
@@ -1262,6 +1267,13 @@ def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                             empty_user_digest_count += 1
                             continue
 
+                        # One evaluation decides the route. A second one could disagree and send a Workflows-only
+                        # resend to Customer.io.
+                        routes_to_workflows = _routes_to_workflows(user)
+                        # A Workflows-only resend never captures for Customer.io, so nobody there gets a second copy.
+                        if input.workflows_only and not routes_to_workflows:
+                            continue
+
                         payload = digest_for_user.render_payload(input.digest)
 
                         if input.dry_run:
@@ -1270,7 +1282,7 @@ def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                                 digest=payload,
                                 user_email=user.email,
                             )
-                        elif _routes_to_workflows(user):
+                        elif routes_to_workflows:
                             workflows_payload = digest_for_user.render_payload(
                                 input.digest, event_definitions_limit=WORKFLOWS_EVENT_DEFINITIONS_LIMIT
                             )
