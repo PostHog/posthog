@@ -61,7 +61,7 @@ export interface TimeSeriesLineChartConfig {
     /** Line interpolation: `linear` (default) or `monotone` (smooth curve through every point). */
     curve?: 'linear' | 'monotone'
     /** `time` places each point at its time, so uneven spacing and gaps in time show. Labels must
-     *  be ascending. Trend lines and moving averages still use sample order. Defaults to `index`. */
+     *  be ascending. Moving averages still use sample order. Defaults to `index`. */
     xScale?: 'index' | 'time'
     /** With `xScale: 'time'`, the axis span as `[from, to]` epoch ms. Defaults to the label range. */
     xDomain?: readonly [number, number]
@@ -145,11 +145,13 @@ export function TimeSeriesLineChart<Meta = unknown>({
     } = useTimeSeries(series, labels, theme, { xAxis: tickXAxis, yAxis, valueLabels, legend })
     const timeSeriesTooltipConfig = useTimeSeriesTooltipConfig(tooltipConfig, xAxis, labels)
 
+    const timeXs = useMemo(() => (time ? labels.map(time.timeScale.parse) : undefined), [time, labels])
     const finalSeries = useDerivedSeries(chartSeries, {
         confidenceIntervals,
         movingAverage,
         trendLines,
         comparisonOf,
+        xs: timeXs,
     })
 
     // Goal lines scale against the drawn (post-derived) series, unlike bar/combo.

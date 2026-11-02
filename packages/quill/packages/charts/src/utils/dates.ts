@@ -323,10 +323,8 @@ export function buildTimeTickLabels(from: number, to: number, interval: TimeInte
 
 function firstTick(from: number, unit: TimeInterval, timezone: string): Dayjs {
     const local = dayjs(from).tz(timezone)
-    // dayjs `startOf` in a timezone can apply the wrong offset on a daylight saving day.
-    if (unit === 'second' || unit === 'minute' || unit === 'hour') {
-        const offsetMs = local.utcOffset() * 60 * 1000
-        return dayjs(Math.floor((from + offsetMs) / INTERVAL_MS[unit]) * INTERVAL_MS[unit] - offsetMs).tz(timezone)
+    if (isClockUnit(unit)) {
+        return floorToLocal(from, unit, timezone)
     }
     if (unit === 'quarter') {
         const month = local.startOf('month')
@@ -338,10 +336,22 @@ function firstTick(from: number, unit: TimeInterval, timezone: string): Dayjs {
 // dayjs keeps the old UTC offset when adding calendar units, so step the wall-clock date and
 // resolve it in the timezone again to stay on midnight across a daylight saving change.
 function nextTick(tick: Dayjs, unit: TimeInterval, timezone: string): Dayjs {
-    if (unit === 'second' || unit === 'minute' || unit === 'hour') {
-        return dayjs(tick.valueOf() + INTERVAL_MS[unit]).tz(timezone)
+    if (isClockUnit(unit)) {
+        const next = floorToLocal(tick.valueOf() + INTERVAL_MS[unit], unit, timezone)
+        // After a half-hour daylight saving change the floor can land before the change, off the hour.
+        return next.minute() === 0 || unit !== 'hour' ? next : floorToLocal(next.valueOf() + HOUR_MS, unit, timezone)
     }
     const date = dayjs.utc(tick.format('YYYY-MM-DD'))
     const wallClock = unit === 'quarter' ? date.add(3, 'month') : date.add(1, unit)
     return parseDateInTimezone(wallClock.format('YYYY-MM-DD'), timezone)
+}
+
+function isClockUnit(unit: TimeInterval): unit is 'second' | 'minute' | 'hour' {
+    return unit === 'second' || unit === 'minute' || unit === 'hour'
+}
+
+// dayjs `startOf` in a timezone can apply the wrong offset on a daylight saving day, so round in epoch time.
+function floorToLocal(t: number, unit: 'second' | 'minute' | 'hour', timezone: string): Dayjs {
+    const offsetMs = dayjs(t).tz(timezone).utcOffset() * 60 * 1000
+    return dayjs(Math.floor((t + offsetMs) / INTERVAL_MS[unit]) * INTERVAL_MS[unit] - offsetMs).tz(timezone)
 }
