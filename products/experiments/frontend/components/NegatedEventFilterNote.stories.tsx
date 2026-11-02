@@ -9,7 +9,8 @@ const meta: Meta<typeof NegatedEventFilterNote> = {
     title: 'Experiments/NegatedEventFilterNote',
     component: NegatedEventFilterNote,
     args: {
-        experiment: {},
+        launched: false,
+        groupTypeIndex: null,
         config: {
             kind: NodeKind.ExperimentEventExposureConfig,
             event: '$pageview',

@@ -15,6 +15,7 @@ import { ChartDisplayCategory } from '~/types'
 
 import { NegatedEventFilterNote } from 'products/experiments/frontend/components/NegatedEventFilterNote'
 import { SelectableCard } from 'products/experiments/frontend/components/SelectableCard'
+import { isLaunched } from 'products/experiments/frontend/experimentStatus'
 
 import { experimentLogic } from '../experimentLogic'
 import { EXPOSURE_DEFAULT_EVENT, getActivationConfig, resolveFilterTestAccounts } from '../exposureContract'
@@ -29,6 +30,8 @@ type ExposureCriteriaModalProps = {
 export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): JSX.Element | null {
     const { isExposureCriteriaModalOpen, exposureCriteria } = useValues(exposureCriteriaModalLogic)
     const { experiment, resolvedExposureEvent } = useValues(experimentLogic)
+    const launched = isLaunched(experiment)
+    const groupTypeIndex = experiment.feature_flag?.filters?.aggregation_group_type_index
     const { closeExposureCriteriaModal, setExposureCriteria } = useActions(exposureCriteriaModalLogic)
 
     const { currentTeam } = useValues(teamLogic)
@@ -175,7 +178,11 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                         {...commonActionFilterProps}
                         actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
                     />
-                    <NegatedEventFilterNote config={exposureCriteria.exposure_config} experiment={experiment} />
+                    <NegatedEventFilterNote
+                        config={exposureCriteria.exposure_config}
+                        launched={launched}
+                        groupTypeIndex={groupTypeIndex}
+                    />
                 </div>
             )}
             {isActivation && exposureCriteria?.activation_config && (
@@ -203,7 +210,11 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                         {...commonActionFilterProps}
                         actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
                     />
-                    <NegatedEventFilterNote config={exposureCriteria.activation_config} experiment={experiment} />
+                    <NegatedEventFilterNote
+                        config={exposureCriteria.activation_config}
+                        launched={launched}
+                        groupTypeIndex={groupTypeIndex}
+                    />
                 </div>
             )}
             <div className="w-[405px]">
