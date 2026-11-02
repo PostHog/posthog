@@ -36,6 +36,9 @@ class _FakeResumableManager:
     def save_state(self, data: ReplicateResumeConfig) -> None:
         self.saved.append(data)
 
+    def safe_point(self) -> None:
+        pass
+
 
 class TestFormatIncrementalValue:
     @parameterized.expand(
@@ -274,6 +277,146 @@ class TestGetRows:
             assert rows == expected
             assert fetched == [base]
             assert manager.saved == []
+
+
+def _http_error(status: int, url: str) -> requests.HTTPError:
+    response = requests.Response()
+    response.status_code = status
+    response.url = url
+    return requests.HTTPError(f"{status} Client Error for url: {url}", response=response)
+
+
+class TestFanOut:
+    def test_model_versions_fan_out_over_deployed_and_trained_models(self, monkeypatch: Any) -> None:
+        base = "https://api.replicate.com/v1"
+        trainings_page2 = f"{base}/trainings?cursor=t2"
+        sdxl_page2 = f"{base}/models/stability-ai/sdxl/versions?cursor=v2"
+        gone = f"{base}/models/acme/deleted-model/versions"
+        pages: dict[str, Any] = {
+            f"{base}/deployments": {
+                "results": [{"owner": "acme", "name": "prod", "current_release": {"model": "acme/my-model"}}],
+                "next": None,
+            },
+            f"{base}/trainings": {
+                "results": [
+                    {"id": "t1", "model": "stability-ai/sdxl", "output": {"version": "acme/my-model:abc"}},
+                    {"id": "t2", "model": "acme/deleted-model", "output": None},
+                ],
+                "next": trainings_page2,
+            },
+            trainings_page2: {"results": [{"id": "t3", "model": "stability-ai/sdxl", "output": {}}], "next": None},
+            f"{base}/models/acme/my-model/versions": {"results": [{"id": "abc"}], "next": None},
+            f"{base}/models/stability-ai/sdxl/versions": {"results": [{"id": "v1"}], "next": sdxl_page2},
+            sdxl_page2: {"results": [{"id": "v0"}], "next": None},
+        }
+        fetched: list[str] = []
+
+        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> Any:
+            fetched.append(url)
+            if url == gone:
+                raise _http_error(404, url)
+            return pages[url]
+
+        monkeypatch.setattr(replicate, "_fetch_page", fake_fetch)
+        rows = [
+            row
+            for page in get_rows(
+                api_key="r8_test",
+                endpoint="model_versions",
+                logger=MagicMock(),
+                resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+            )
+            for row in page
+        ]
+
+        assert rows == [
+            {"id": "abc", "model_owner": "acme", "model_name": "my-model"},
+            {"id": "v1", "model_owner": "stability-ai", "model_name": "sdxl"},
+            {"id": "v0", "model_owner": "stability-ai", "model_name": "sdxl"},
+        ]
+        # Each referenced model is fetched once, however many deployments or trainings use it.
+        assert fetched.count(f"{base}/models/stability-ai/sdxl/versions") == 1
+        assert gone in fetched
+
+    def test_model_versions_raise_non_skippable_child_errors(self, monkeypatch: Any) -> None:
+        base = "https://api.replicate.com/v1"
+        pages: dict[str, Any] = {
+            f"{base}/deployments": {"results": [], "next": None},
+            f"{base}/trainings": {"results": [{"id": "t1", "model": "acme/my-model"}], "next": None},
+        }
+
+        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> Any:
+            if url in pages:
+                return pages[url]
+            raise _http_error(401, url)
+
+        monkeypatch.setattr(replicate, "_fetch_page", fake_fetch)
+        with pytest.raises(requests.HTTPError):
+            list(
+                get_rows(
+                    api_key="r8_test",
+                    endpoint="model_versions",
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                )
+            )
+
+    def test_collection_models_fan_out_tags_each_model_with_its_collection(self, monkeypatch: Any) -> None:
+        base = "https://api.replicate.com/v1"
+        collections_page2 = f"{base}/collections?cursor=c2"
+        pages = {
+            f"{base}/collections": {"results": [{"slug": "super-resolution"}], "next": collections_page2},
+            collections_page2: {"results": [{"slug": "empty"}, {"slug": "image-to-text"}], "next": None},
+            f"{base}/collections/super-resolution": {
+                "slug": "super-resolution",
+                "models": [{"owner": "acme", "name": "upscaler"}, {"owner": "acme", "name": "esrgan"}],
+            },
+            f"{base}/collections/empty": {"slug": "empty", "models": []},
+            f"{base}/collections/image-to-text": {
+                "slug": "image-to-text",
+                "models": [{"owner": "acme", "name": "upscaler"}],
+            },
+        }
+        rows, _ = _collect(_FakeResumableManager(), monkeypatch, pages, "collection_models")
+
+        assert rows == [
+            {"owner": "acme", "name": "upscaler", "collection_slug": "super-resolution"},
+            {"owner": "acme", "name": "esrgan", "collection_slug": "super-resolution"},
+            {"owner": "acme", "name": "upscaler", "collection_slug": "image-to-text"},
+        ]
+
+    def test_model_versions_resume_from_the_saved_model_and_page(self, monkeypatch: Any) -> None:
+        base = "https://api.replicate.com/v1"
+        resume_url = f"{base}/models/acme/b-model/versions?cursor=v2"
+        pages: dict[str, Any] = {
+            f"{base}/deployments": {"results": [], "next": None},
+            f"{base}/trainings": {
+                "results": [{"model": "acme/c-model"}, {"model": "acme/b-model"}, {"model": "acme/a-model"}],
+                "next": None,
+            },
+            resume_url: {"results": [{"id": "b1"}], "next": None},
+            f"{base}/models/acme/c-model/versions": {"results": [{"id": "c1"}], "next": None},
+        }
+        manager = _FakeResumableManager(ReplicateResumeConfig(next_url=resume_url, fan_out_parent="acme/b-model"))
+        rows, fetched = _collect(manager, monkeypatch, pages, "model_versions")
+
+        assert [r["id"] for r in rows] == ["b1", "c1"]
+        assert f"{base}/models/acme/a-model/versions" not in fetched
+        assert manager.saved[-1] == ReplicateResumeConfig(next_url=None, fan_out_parent="acme/c-model")
+
+    def test_collection_models_resume_after_the_saved_collection(self, monkeypatch: Any) -> None:
+        base = "https://api.replicate.com/v1"
+        page2 = f"{base}/collections?cursor=c2"
+        pages = {
+            page2: {"results": [{"slug": "done"}, {"slug": "next"}], "next": None},
+            f"{base}/collections/next": {"slug": "next", "models": [{"owner": "acme", "name": "m"}]},
+        }
+        manager = _FakeResumableManager(ReplicateResumeConfig(next_url=page2, fan_out_parent="done"))
+        rows, fetched = _collect(manager, monkeypatch, pages, "collection_models")
+
+        assert rows == [{"owner": "acme", "name": "m", "collection_slug": "next"}]
+        assert fetched == [page2, f"{base}/collections/next"]
+        assert manager.saved == [ReplicateResumeConfig(next_url=page2, fan_out_parent="next")]
 
 
 class TestFetchPageRetries:

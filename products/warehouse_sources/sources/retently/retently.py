@@ -1,26 +1,26 @@
 import dataclasses
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from requests import Request, Response
 
-from products.warehouse_sources.sources.retently.settings import RETENTLY_ENDPOINTS
+from products.warehouse_sources.sources.retently.settings import PAGE_SIZE, RETENTLY_ENDPOINTS, RetentlyEndpointConfig
 from products.warehouse_sources.sources.sdk import (
     BasePaginator,
+    ClientConfig,
     Endpoint,
+    Resource,
     RESTAPIConfig,
     ResumableSourceManager,
     SinglePagePaginator,
     SourceResponse,
+    build_dependent_resource,
     make_tracked_session,
     rest_api_resource,
     validate_via_probe,
 )
 
 RETENTLY_BASE_URL = "https://app.retently.com/api/v2"
-# Documented maximum page size; the largest page minimises round trips against the ~150 req/min
-# rate limit.
-PAGE_SIZE = 1000
 FIRST_PAGE = 1
 
 
@@ -113,6 +113,45 @@ class RetentlyPaginator(BasePaginator):
         return f"RetentlyPaginator(page={self.page})"
 
 
+def _client_config(api_key: str) -> ClientConfig:
+    return {
+        "base_url": RETENTLY_BASE_URL,
+        "headers": _non_secret_headers(),
+        "auth": {"type": "api_key", "api_key": api_key, "name": "X-Api-Key", "location": "header"},
+    }
+
+
+def _trends_resource(api_key: str, config: RetentlyEndpointConfig, team_id: int, job_id: str) -> Resource:
+    assert config.fanout is not None
+    parent = RETENTLY_ENDPOINTS[config.fanout.parent_name]
+    # Trend groups and the trends of a group are unpaginated, so a full refresh re-fetches the
+    # handful of groups instead of resuming mid fan-out.
+    return cast(
+        Resource,
+        build_dependent_resource(
+            endpoint_configs={config.name: config, parent.name: parent},
+            child_endpoint=config.name,
+            fanout=config.fanout,
+            client_config=_client_config(api_key),
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            page_size_param=None,
+            parent_endpoint_extra={
+                "paginator": SinglePagePaginator(),
+                "data_selector": parent.data_selector,
+                "data_selector_malformed_retryable": True,
+            },
+            child_endpoint_extra={
+                "paginator": SinglePagePaginator(),
+                "data_selector": config.data_selector,
+                "data_selector_malformed_retryable": True,
+            },
+        ),
+    )
+
+
 def retently_source(
     api_key: str,
     endpoint: str,
@@ -125,6 +164,15 @@ def retently_source(
     config = RETENTLY_ENDPOINTS[endpoint]
     supports_incremental = bool(config.incremental_fields)
 
+    if config.fanout is not None:
+        trends = _trends_resource(api_key, config, team_id, job_id)
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: trends,
+            primary_keys=config.primary_keys,
+            column_hints=trends.column_hints,
+        )
+
     params: dict[str, Any] = {}
     paginator: BasePaginator
     if config.paginated:
@@ -133,8 +181,8 @@ def retently_source(
             params["sort"] = config.sort_param
         paginator = RetentlyPaginator()
     else:
-        # Campaigns, templates and reports are documented without pagination and return the full
-        # collection in one response — no page/limit/sort params.
+        # Campaigns, templates, reports, scores and suppressions are documented without pagination
+        # and return the full collection in one response — no page/limit/sort params.
         paginator = SinglePagePaginator()
 
     endpoint_config: Endpoint = {
@@ -143,8 +191,9 @@ def retently_source(
         "data_selector": config.data_selector,
         # A 200 whose payload isn't the expected list shape (an HTML proxy error, a transient
         # error envelope) is retried, matching the old transport which raised a retryable error
-        # from its extraction step so one malformed page reissues instead of failing the sync.
-        "data_selector_malformed_retryable": True,
+        # from its extraction step so one malformed page reissues instead of failing the sync. The
+        # score endpoints legitimately return one object, which this list-shape check would reject.
+        "data_selector_malformed_retryable": not config.single_object,
         "paginator": paginator,
     }
 
@@ -159,11 +208,7 @@ def retently_source(
         }
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": RETENTLY_BASE_URL,
-            "headers": _non_secret_headers(),
-            "auth": {"type": "api_key", "api_key": api_key, "name": "X-Api-Key", "location": "header"},
-        },
+        "client": _client_config(api_key),
         "resource_defaults": {},
         "resources": [{"name": endpoint, "endpoint": endpoint_config}],
     }

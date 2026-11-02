@@ -3,6 +3,7 @@ from typing import Optional, cast
 from products.warehouse_sources.sources.fleetio._config import FleetioSourceConfig
 from products.warehouse_sources.sources.fleetio.fleetio import (
     DEFAULT_VERSION,
+    FLEETIO_LEGACY_VERSION,
     SUPPORTED_VERSIONS,
     FleetioResumeConfig,
     fleetio_source,
@@ -24,6 +25,7 @@ from products.warehouse_sources.sources.sdk import (
     SourceRegistry,
     SourceResponse,
     SourceSchema,
+    VersionDeprecation,
     build_endpoint_schemas,
     detect,
 )
@@ -35,6 +37,9 @@ class FleetioSource(ResumableSource[FleetioSourceConfig, FleetioResumeConfig]):
 
     supported_versions = SUPPORTED_VERSIONS
     default_version = DEFAULT_VERSION
+    # Fleetio deprecated path-segment endpoint versions (`/api/v1`, `/api/v2`), which the "v1" pin
+    # still reads, but still serves them and has announced no sunset date.
+    deprecated_versions = (VersionDeprecation(version=FLEETIO_LEGACY_VERSION, sunset_at=None),)
     api_docs_url = "https://developer.fleetio.com/docs/overview/versioning"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
