@@ -882,8 +882,10 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         if experiment is None:
             raise MaxToolRetryableError(context.get_not_found_message())
 
-        await self.check_object_access(experiment, "viewer", resource="experiment", action="read")
-        return await context.format_experiment(experiment)
+        await self.check_object_access(
+            context.object_access_ref(experiment), "viewer", resource="experiment", action="read"
+        )
+        return context.format_experiment(experiment)
 
     async def _read_account(self, account_id: str | None, external_id: str | None) -> str:
         if account_id is None and external_id is None:
