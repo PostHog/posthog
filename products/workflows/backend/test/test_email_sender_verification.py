@@ -1,11 +1,17 @@
 from collections.abc import Callable
+from concurrent.futures import (
+    ThreadPoolExecutor,
+    TimeoutError as FutureTimeoutError,
+)
 from datetime import timedelta
+from threading import Event
 from types import SimpleNamespace
 from typing import Any
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, NonAtomicBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import close_old_connections, connection
 from django.utils import timezone
 
 import dns.resolver
@@ -16,6 +22,7 @@ from posthog.models.integration import Integration
 from posthog.models.integration.email import EmailIntegration
 from posthog.redis import get_client
 
+from products.workflows.backend.facade import api as workflows_api
 from products.workflows.backend.facade.tasks import refresh_new_email_senders, refresh_settled_email_senders
 from products.workflows.backend.providers.ses import IDENTITY_ATTRIBUTES_BATCH_SIZE
 from products.workflows.backend.services.email_sender_verification import EmailSenderVerification
@@ -417,3 +424,69 @@ class TestEmailSenderVerification(APIBaseTest):
 
             refresh_new_email_senders()
             assert self._verified(*senders, arrival) == [True, True, True]
+
+
+class TestDomainVerificationConcurrency(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    @patch("posthog.models.integration.email.reload_integrations_on_workers")
+    @patch(
+        "products.workflows.backend.facade.api.verify_ses_email_domain",
+        return_value={"status": "success", "dnsRecords": []},
+    )
+    def test_two_mail_from_groups_verifying_at_once_report_the_domain_once(
+        self, _verify: MagicMock, _reload: MagicMock
+    ) -> None:
+        senders = [
+            Integration.objects.create(
+                team=self.team,
+                kind="email",
+                integration_id=f"{subdomain}@example.com",
+                config={
+                    "email": f"{subdomain}@example.com",
+                    "domain": "example.com",
+                    "provider": "ses",
+                    "mail_from_subdomain": subdomain,
+                    "verified": False,
+                },
+            )
+            for subdomain in ["feedback", "bounce"]
+        ]
+        on_domain_verified = MagicMock()
+        first_inside_transaction = Event()
+        release_first = Event()
+
+        set_default = workflows_api.set_default_email_sender_if_unset
+
+        def pause_first_verification(team_id: int, integration_id: int) -> None:
+            if integration_id == senders[0].id:
+                first_inside_transaction.set()
+                release_first.wait(timeout=10)
+            set_default(team_id, integration_id)
+
+        def verify(sender: Integration) -> None:
+            close_old_connections()
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute("SET lock_timeout = '10s'")
+                EmailIntegration(Integration.objects.get(id=sender.id)).verify(on_domain_verified=on_domain_verified)
+            finally:
+                close_old_connections()
+
+        with (
+            patch.object(workflows_api, "set_default_email_sender_if_unset", side_effect=pause_first_verification),
+            ThreadPoolExecutor(max_workers=2) as executor,
+        ):
+            first = executor.submit(verify, senders[0])
+            assert first_inside_transaction.wait(timeout=10)
+            second = executor.submit(verify, senders[1])
+            try:
+                second.result(timeout=1)
+            except FutureTimeoutError:
+                pass
+            release_first.set()
+            first.result(timeout=10)
+            second.result(timeout=10)
+
+        assert [Integration.objects.get(id=sender.id).config["verified"] for sender in senders] == [True, True]
+        assert on_domain_verified.call_count == 1

@@ -59,7 +59,10 @@ class EmailSenderVerification:
     PACED_CALL_WORST_CASE_SECONDS = BACKGROUND_CALL_WORST_CASE_SECONDS + READ_MIN_INTERVAL_SECONDS
     STATUS_READ_WORST_CASE_SECONDS = IDENTITY_STATUS_READS_PER_BATCH * PACED_CALL_WORST_CASE_SECONDS
     # Verifying a ready sender reuses its status, so it reads only the tenant links and the DMARC record.
-    SENDER_CHECK_WORST_CASE_SECONDS = PACED_CALL_WORST_CASE_SECONDS + DNS_LOOKUP_LIFETIME_SECONDS
+    # The tenant read also resolves the AWS account through STS when the account cache is cold.
+    SENDER_CHECK_WORST_CASE_SECONDS = (
+        PACED_CALL_WORST_CASE_SECONDS + BACKGROUND_CALL_WORST_CASE_SECONDS + DNS_LOOKUP_LIFETIME_SECONDS
+    )
 
     def __init__(self, work_budget_seconds: int) -> None:
         self.deadline = monotonic() + work_budget_seconds
