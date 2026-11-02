@@ -140,6 +140,7 @@ class TestHedgeboxMatrixLocalDemoInbox(APIBaseTest):
         inbox = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?view=for_you")
         assert inbox.status_code == 200, inbox.content
         assert len(inbox.json()["results"]) == 3
+        assert {row["status"] for row in inbox.json()["results"]} == {"ready", "pending_input"}
         assert not SignalReportTask.objects.filter(team_id=self.team.id).exists()
 
         tasks_url = f"/api/projects/{self.team.id}/tasks/"
