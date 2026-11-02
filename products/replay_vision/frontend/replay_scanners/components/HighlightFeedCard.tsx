@@ -396,6 +396,9 @@ function HighlightFeedScannerLink({
 const CATEGORY_CLASS =
     'inline-flex items-center gap-0.5 rounded border border-primary bg-surface-primary px-1.5 font-semibold text-default'
 
+// More pills than this overflow a narrow card's answer line, so the rest collapse into a count.
+const MAX_CATEGORY_PILLS = 3
+
 const CONFIDENCE_ICON: Record<ConfidenceLevel['type'], typeof IconCheck> = {
     success: IconCheck,
     warning: IconMinus,
@@ -441,21 +444,23 @@ function highlightCardResult(
     if (scannerType === 'classifier') {
         const tags = readFixedTags(observation)
         const freeform = readFreeformTags(observation)
-        return tags.length === 0 && freeform.length === 0 ? (
-            <span className="font-normal text-secondary">None</span>
-        ) : (
+        const categories = [
+            ...tags.map((tag) => ({ tag, isFreeform: false })),
+            ...freeform.map((tag) => ({ tag, isFreeform: true })),
+        ]
+        if (categories.length === 0) {
+            return <span className="font-normal text-secondary">None</span>
+        }
+        const hidden = categories.length - MAX_CATEGORY_PILLS
+        return (
             <span className="flex min-w-0 items-center gap-1 overflow-hidden">
-                {tags.map((tag) => (
-                    <span key={`tag-${tag}`} className={CATEGORY_CLASS}>
+                {categories.slice(0, MAX_CATEGORY_PILLS).map(({ tag, isFreeform }, index) => (
+                    <span key={`${index}-${tag}`} className={CATEGORY_CLASS}>
+                        {isFreeform && <IconSparkles aria-hidden />}
                         {tag}
                     </span>
                 ))}
-                {freeform.map((tag) => (
-                    <span key={`freeform-${tag}`} className={CATEGORY_CLASS}>
-                        <IconSparkles aria-hidden />
-                        {tag}
-                    </span>
-                ))}
+                {hidden > 0 && <span className={clsx(CATEGORY_CLASS, 'shrink-0')}>+{hidden}</span>}
             </span>
         )
     }
@@ -475,7 +480,7 @@ function HighlightCardConfidence({ observation }: { observation: ReplayObservati
             <span
                 className={clsx('flex items-center gap-0.5 font-semibold tabular-nums', CONFIDENCE_CLASS[level.type])}
             >
-                <Icon className="shrink-0" aria-label={`${level.label} confidence`} />
+                <Icon className="shrink-0" role="img" aria-label={`${level.label} confidence`} />
                 {Math.round(confidence * 100)}%
             </span>
         </span>
@@ -492,21 +497,28 @@ function HighlightCardAnswer({
 }: {
     observation: ReplayObservationApi
     scannerType: ScannerType | undefined
-}): JSX.Element {
+}): JSX.Element | null {
     const question = observation.prompt_question
     const result = highlightCardResult(observation, scannerType)
+    if (!question && !result) {
+        return null
+    }
     return (
         <div
             className="grid min-w-0 grid-cols-[max-content_minmax(0,1fr)] items-center gap-x-2 gap-y-1 rounded-md border border-primary bg-surface-secondary px-3 py-2 text-xs"
             data-attr="vision-highlight-feed-answer"
         >
-            <span className="text-secondary">Question</span>
-            <span className="min-w-0 truncate" title={question ?? undefined}>
-                {question}
-            </span>
+            {question && (
+                <>
+                    <span className="text-secondary">Question</span>
+                    <span className="min-w-0 truncate">{question}</span>
+                </>
+            )}
             <span className="text-secondary">Answer</span>
             <span className="flex h-5 min-w-0 items-center gap-3">
-                <span className="flex min-w-0 items-center overflow-hidden font-semibold">{result}</span>
+                <span className="flex min-w-0 items-center overflow-hidden font-semibold">
+                    {result ?? <span className="font-normal text-secondary">None</span>}
+                </span>
                 <span className="ml-auto">
                     <HighlightCardConfidence observation={observation} />
                 </span>
