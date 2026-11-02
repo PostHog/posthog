@@ -28,13 +28,14 @@ const BLOCKED_EVENT_WINDOW_SECONDS = 3600
 // The send is already skipped when this runs, and the worker's batch waits for it, so a stalled
 // store must not hold the invocation open.
 const BLOCKED_EVENT_TIMEOUT_MS = 1000
-// A capture that outlives its deadline keeps its Redis connection or pending acquisition, so while the
-// store stalls only this many may wait at once; the rest are dropped.
-const MAX_PENDING_BLOCKED_EVENTS = 10
+// A capture that outlives its deadline keeps its Redis connection or pending acquisition. Once this many
+// are stuck, new captures are dropped until some settle; captures still inside their deadline never count,
+// so a burst against a healthy store keeps every event.
+const MAX_STALLED_BLOCKED_EVENTS = 10
 
 export class SandboxEmailSender {
     public readonly canSend: boolean
-    private pendingBlockedEvents = 0
+    private stalledBlockedEvents = 0
 
     constructor(
         public readonly config: SandboxEmailSenderConfig,
@@ -62,17 +63,21 @@ export class SandboxEmailSender {
         reason: SandboxEmailBlockReason,
         blockedRecipientCount: number
     ): Promise<void> {
-        if (this.pendingBlockedEvents >= MAX_PENDING_BLOCKED_EVENTS) {
-            logger.warn('Dropped a sandbox email event: too many captures are waiting on the event store', { teamId })
+        if (this.stalledBlockedEvents >= MAX_STALLED_BLOCKED_EVENTS) {
+            logger.warn('Dropped a sandbox email event: too many captures are stuck on the event store', { teamId })
             return
         }
-        this.pendingBlockedEvents++
+        let stalled = false
         const capture = this.captureBlockedEvent(teamId, isTest, reason, blockedRecipientCount).finally(() => {
-            this.pendingBlockedEvents--
+            if (stalled) {
+                this.stalledBlockedEvents--
+            }
         })
         let timer: NodeJS.Timeout | undefined
         const deadline = new Promise<void>((resolve) => {
             timer = setTimeout(() => {
+                stalled = true
+                this.stalledBlockedEvents++
                 logger.warn('Gave up capturing a sandbox email event: the event store did not answer', { teamId })
                 resolve()
             }, BLOCKED_EVENT_TIMEOUT_MS)
