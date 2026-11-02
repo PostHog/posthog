@@ -942,6 +942,7 @@ describe('EmailTrackingService', () => {
                 email_sent: '$workflows_email_sent',
                 email_failed: '$workflows_email_failed',
                 email_delivered: '$workflows_email_delivered',
+                email_delivery_delayed: '$workflows_email_delivery_delayed',
                 email_opened: '$workflows_email_opened',
                 email_link_clicked: '$workflows_email_link_clicked',
                 email_bounced: '$workflows_email_bounced',

@@ -252,6 +252,7 @@ export type MinimalAppMetric = {
         | 'email_queued'
         | 'email_sent'
         | 'email_delivered'
+        | 'email_delivery_delayed'
         | 'email_failed'
         | 'email_opened'
         | 'email_link_clicked'

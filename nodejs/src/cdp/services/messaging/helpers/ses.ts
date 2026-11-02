@@ -146,8 +146,10 @@ const SesRejectEventSchema = SesCommonEventBase.extend({
     reject: z.object({ reason: z.string().optional() }).optional(),
 })
 
-// Acknowledged so SNS doesn't retry forever; details aren't surfaced.
-const SesDeliveryDelayEventSchema = SesCommonEventBase.extend({ eventType: z.literal('DeliveryDelay') })
+const SesDeliveryDelayEventSchema = SesCommonEventBase.extend({
+    eventType: z.literal('DeliveryDelay'),
+    deliveryDelay: z.object({ timestamp: z.string(), delayType: z.string().optional() }).optional(),
+})
 
 const SesEventRecordSchema = z.union([
     SesOpenEventSchema,
@@ -186,6 +188,8 @@ const EVENT_TYPE_TO_METRIC_NAME: Partial<Record<SesEventRecord['eventType'], Min
     Open: 'email_opened',
     Click: 'email_link_clicked',
     Delivery: 'email_delivered',
+    // SES keeps retrying a delayed message, so a later Delivery or Bounce still follows.
+    DeliveryDelay: 'email_delivery_delayed',
     Bounce: 'email_bounced',
     // A Complaint is a recipient's "report spam" relayed through the provider's feedback loop.
     // It stays recorded under email_blocked because complaint counts have always been stored
@@ -229,6 +233,14 @@ export const SES_SENSITIVE_TAG = 'ph_sensitive'
 // and echoed back on every event for that message. SES allows only ASCII letters, digits, underscores
 // and dashes in a tag, so the value is 'true' as for SES_SENSITIVE_TAG.
 export const SES_EMAIL_STATUS_TAG = 'ph_email_status'
+
+// A transactional email's run id is the message id its send API returned, so a delivery event carries it for the
+// sender to match against.
+const transactionalEmailMessageId = (
+    rec: { mail: { tags?: Record<string, string[]> } },
+    invocationId: string | undefined
+): { $email_message_id?: string } =>
+    invocationId && rec.mail.tags?.[SES_EMAIL_STATUS_TAG]?.[0] === 'true' ? { $email_message_id: invocationId } : {}
 
 export type SesEmailStatusUpdate = {
     teamId: string
@@ -829,6 +841,7 @@ export class SesWebhookHandler {
                 const properties: Record<string, any> = {
                     $email_to: rec.mail.destination?.[0],
                     ...(isSensitive ? {} : { $email_subject: rec.mail.commonHeaders?.subject }),
+                    ...transactionalEmailMessageId(rec, invocationId),
                 }
 
                 // Each SES event detail carries its own timestamp (open.timestamp, click.timestamp, etc.)
@@ -847,6 +860,8 @@ export class SesWebhookHandler {
                     }
                 } else if ('delivery' in rec && rec.delivery) {
                     timestamp = rec.delivery.timestamp
+                } else if ('deliveryDelay' in rec && rec.deliveryDelay) {
+                    timestamp = rec.deliveryDelay.timestamp
                 } else if ('bounce' in rec && rec.bounce) {
                     timestamp = rec.bounce.timestamp
                     // Whether the address will ever accept mail again. A hard bounce is also written
