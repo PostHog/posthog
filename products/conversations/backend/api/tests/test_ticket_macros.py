@@ -65,6 +65,18 @@ class TestTicketMacroAPI(APIBaseTest):
         assert [row["name"] for row in response.json()["results"]] == ["Popular", "Quiet"]
         assert quiet["id"] != popular["id"]
 
+    def test_list_pages_cover_every_macro_once(self):
+        created = {self._create(name=f"Macro {i}", shortcut=f"m{i}")["id"] for i in range(3)}
+
+        first = self.client.get(self.base_url, {"limit": 2})
+        assert first.status_code == status.HTTP_200_OK
+        assert first.json()["next"] is not None
+        second = self.client.get(self.base_url, {"limit": 2, "offset": 2})
+        assert second.json()["next"] is None
+
+        ids = [row["id"] for row in first.json()["results"] + second.json()["results"]]
+        assert sorted(ids) == sorted(created)
+
     def test_blank_shortcuts_do_not_collide(self):
         self._create(name="One", shortcut="")
         self._create(name="Two", shortcut=None)
