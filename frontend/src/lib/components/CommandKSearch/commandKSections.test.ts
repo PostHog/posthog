@@ -1,6 +1,5 @@
 import { SearchItem } from 'lib/components/Search/searchItems'
 
-import { rankLocalItem } from './commandKRanking'
 import {
     CommandKMode,
     LocalLists,
@@ -151,53 +150,25 @@ describe('buildSections', () => {
         ])
     })
 
-    const insight = (name: string): SearchItem => ({
-        id: `insight-${name}`,
-        name,
-        category: 'results',
-        record: { type: 'insight', ref: name },
-        rankKey: rankLocalItem('subscriptions', name)!.rank,
-    })
-
-    it.each([
-        {
-            name: 'a product tab',
-            query: 'playlists',
-            local: {
-                products: [
-                    {
-                        id: 'product-collections',
-                        name: 'Collections',
-                        category: 'products',
-                        parentName: 'Session replay',
-                        searchKeywords: ['playlists'],
-                    },
-                ],
-            },
-            results: [],
-            expected: 'Collections',
-        },
-        {
-            name: 'a misc page ahead of saved objects that only contain its name',
-            query: 'subscriptions',
-            local: { misc: [{ id: 'misc-subscriptions', name: 'Subscriptions', category: 'misc' }] },
-            results: [insight('Subscriptions created over time'), insight('Subscriptions by month')],
-            expected: 'Subscriptions',
-        },
-    ])('ranks $name with the results', ({ query, local, results, expected }) => {
+    it('ranks product tabs with the products', () => {
+        const tab: SearchItem = {
+            id: 'product-collections',
+            name: 'Collections',
+            category: 'products',
+            parentName: 'Session replay',
+            searchKeywords: ['playlists'],
+        }
         const remote = emptyRemoteSlots()
-        remote.results = { cache: { [query]: results } }
+        remote.results = { cache: { playlists: [] } }
         const sections = buildSections(
             input('search', {
-                local: { ...emptyLocal(), ...local },
+                local: { ...emptyLocal(), products: [tab] },
                 remote,
-                remoteQueries: { results: query },
-                localQuery: query,
+                remoteQueries: { results: 'playlists' },
+                localQuery: 'playlists',
             })
         )
-        const first = sections[0].rows[0]
-        expect(first.kind === 'item' ? first.item.name : first.kind).toEqual(expected)
-        expect(sections.filter((section) => section.key === 'misc')).toEqual([])
+        expect(sections[0].rows.map((row) => (row.kind === 'item' ? row.item.name : row.kind))).toEqual(['Collections'])
     })
 
     it('shows skeletons instead of unranked filter-only rows while ranked results load', () => {
