@@ -26,6 +26,7 @@ import { makeSkillFile, SkillCatalog } from '@/skills/skill-catalog'
 import { GENERATED_TOOL_MAP } from '@/tools/generated'
 import { getToolDefinition, getToolDefinitions } from '@/tools/toolDefinitions'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY } from '@/tools/types'
+import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 import { makeToolExecutorState, mockApi } from '../shared/test-utils'
 
@@ -836,6 +837,90 @@ describe('ToolExecutor', () => {
 
             expect(result.isError).toBe(true)
             expect(result.content[0].text).toContain('not found')
+        })
+
+        // Some hosts (Claude Code 2.1.308+) never forward the app's own `tools/call`, so the
+        // first view must draw from data the render-ui result already carries.
+        describe('preloaded app data', () => {
+            let getToolByNameSpy: MockInstance | undefined
+
+            afterEach(() => {
+                getToolByNameSpy?.mockRestore()
+                getToolByNameSpy = undefined
+            })
+
+            function stubInnerTool(handler: () => Promise<unknown>): void {
+                getToolByNameSpy = vi.spyOn(catalog, 'getToolByName').mockReturnValue({
+                    build() {
+                        return this.base
+                    },
+                    base: { schema: z.object({ surveyId: z.string() }), handler, _meta: uiAppTool._meta },
+                } as any)
+            }
+
+            async function renderSurvey(): Promise<any> {
+                const state = makeToolExecutorState([uiAppTool], { useSingleExec: true, renderUiEnabled: true })
+                return executor.handleToolCall(
+                    { name: 'render-ui', arguments: { tool_name: 'survey-get', tool_input: { surveyId: 'abc' } } },
+                    state
+                )
+            }
+
+            it('carries the data the app would fetch on app-only _meta', async () => {
+                stubInnerTool(async () => ({ id: 'abc', name: 'NPS' }))
+
+                const result = await renderSurvey()
+
+                expect(result._meta[APP_DATA_META_KEY]).toMatchObject({ id: 'abc', name: 'NPS' })
+                expect(result.structuredContent).not.toHaveProperty('name')
+            })
+
+            it('preloads query charts through exec as JSON, like the app does', async () => {
+                const data = { results: [{ label: '$pageview', data: [3] }] }
+                // Exec runs the tools on the state's roster, so the stub carries a schema and handler.
+                const queryTool = {
+                    name: 'query-trends',
+                    annotations: { readOnlyHint: true },
+                    _meta: { ui: { resourceUri: URI_MAP['query-results'] } },
+                    schema: z.object({}),
+                    handler: async () => data,
+                }
+                const state = makeToolExecutorState([queryTool], { useSingleExec: true, renderUiEnabled: true })
+
+                const result = (await executor.handleToolCall(
+                    { name: 'render-ui', arguments: { tool_name: 'query-trends', tool_input: {} } },
+                    state
+                )) as any
+
+                expect(result._meta[APP_DATA_META_KEY]).toEqual(data)
+            })
+
+            it('preloads through a normal tool call, so input validation still applies', async () => {
+                const handler = vi.fn(async () => ({ id: 'abc' }))
+                stubInnerTool(handler)
+                const state = makeToolExecutorState([uiAppTool], { useSingleExec: true, renderUiEnabled: true })
+
+                const result = (await executor.handleToolCall(
+                    { name: 'render-ui', arguments: { tool_name: 'survey-get', tool_input: { surveyId: 123 } } },
+                    state
+                )) as any
+
+                expect(handler).not.toHaveBeenCalled()
+                expect(result.isError).toBeFalsy()
+                expect(result._meta).not.toHaveProperty(APP_DATA_META_KEY)
+            })
+
+            it('still renders, leaving the app to fetch, when the preload fails', async () => {
+                stubInnerTool(async () => {
+                    throw new Error('boom')
+                })
+
+                const result = await renderSurvey()
+
+                expect(result.isError).toBeFalsy()
+                expect(result.structuredContent.tool_name).toBe('survey-get')
+                expect(result._meta).not.toHaveProperty(APP_DATA_META_KEY)
+            })
         })
 
         it('rejects a cached render-ui choice that is not allowed for the current account', async () => {

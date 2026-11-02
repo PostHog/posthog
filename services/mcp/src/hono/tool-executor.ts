@@ -1,4 +1,4 @@
-import type { ListToolsResult } from '@modelcontextprotocol/sdk/types.js'
+import type { CallToolResult, ListToolsResult } from '@modelcontextprotocol/sdk/types.js'
 
 import type { PreparedToolCall } from '@posthog/mcp-analytics'
 
@@ -41,6 +41,7 @@ import {
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeErrorToken } from '@/lib/posthog/analytics'
 import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
+import type { UiAppKey } from '@/resources/ui-apps.generated'
 import {
     createExecTool,
     describeApiValidationError,
@@ -64,6 +65,7 @@ import { skillAnalyticsProperties, skillLookupMissProperties } from '@/tools/ski
 import { type BuiltInSkillHint, formatSkillLookupMiss, type SkillLookupMissKind } from '@/tools/skills/notFound'
 import { getToolDefinitions, getToolIngestedData } from '@/tools/toolDefinitions'
 import type { Context, Tool, ZodObjectAny } from '@/tools/types'
+import { readRenderUiData, renderUiDataRequest } from '@/ui-apps/apps/render-ui-data'
 
 import {
     getModelMissingReason,
@@ -1088,6 +1090,32 @@ export class ToolExecutor {
         }
     }
 
+    /**
+     * Runs the call the render-ui app would make for its data, through the normal dispatch so
+     * scopes, validation and per-tool metrics apply. Any failure leaves the app to fetch.
+     */
+    private async loadRenderUiAppData(
+        toolName: string,
+        toolInput: Record<string, unknown>,
+        appKey: UiAppKey,
+        state: ResolvedState,
+        analyticsMeta: ToolCallAnalyticsMeta
+    ): Promise<unknown> {
+        const request = renderUiDataRequest(toolName, toolInput, appKey)
+        try {
+            const result = await this.dispatchToolCall(
+                request.name,
+                { arguments: request.arguments },
+                state,
+                analyticsMeta
+            )
+            const data = readRenderUiData(result as CallToolResult, appKey)
+            return data.isError ? undefined : (data.structuredContent ?? undefined)
+        } catch {
+            return undefined
+        }
+    }
+
     private async callRenderUiTool(
         params: Record<string, unknown> | undefined,
         state: ResolvedState,
@@ -1096,7 +1124,9 @@ export class ToolExecutor {
         const renderUiTool = createRenderUiTool(
             state.allTools,
             state.context,
-            getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext).mcpClientName
+            getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext).mcpClientName,
+            (toolName, toolInput, appKey) =>
+                this.loadRenderUiAppData(toolName, toolInput, appKey, state, analyticsMeta ?? {})
         )
         if (!renderUiTool) {
             return {
