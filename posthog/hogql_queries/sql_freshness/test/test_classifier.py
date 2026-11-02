@@ -203,6 +203,12 @@ GRANT_CASES: list[tuple[Any, ...]] = [
         },
     ),
     (
+        "age_counts_elapsed_time_across_a_dst_fall_back",
+        "select count() from events where timestamp >= now() - interval 7 day",
+        SqlWindowClass.UP_TO_NOW_LONG,
+        {"timezone": AMSTERDAM, "now": datetime(2026, 10, 25, 0, 30, tzinfo=UTC)},
+    ),
+    (
         "date_truncation_plus_integer_adds_days",
         "select count() from events where timestamp >= toStartOfMonth(toDate('2026-10-29')) "
         "and timestamp < toStartOfMonth(toDate('2026-10-29')) + 31",

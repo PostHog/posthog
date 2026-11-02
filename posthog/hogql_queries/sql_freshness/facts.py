@@ -455,14 +455,14 @@ def extract_facts(
         except _UnsupportedBound:
             unsupported_bound = True
             continue
-        starts = [bound.start for bound in bounds if bound.start is not None]
-        ends = [bound.end for bound in bounds if bound.end is not None]
+        starts = [bound.start.astimezone(UTC) for bound in bounds if bound.start is not None]
+        ends = [bound.end.astimezone(UTC) for bound in bounds if bound.end is not None]
         if not starts:
             unbounded_select = True
             continue
         windows.append(Window(start=max(starts), end=min(ends) if ends else None))
     return QueryFacts(
-        now=now,
+        now=now.astimezone(UTC),
         start_of_today=_start_of_day(now, timezone),
         start_of_utc_today=evaluator.start_of_utc_today,
         start_of_project_today=_start_of_day(now, project_timezone),
