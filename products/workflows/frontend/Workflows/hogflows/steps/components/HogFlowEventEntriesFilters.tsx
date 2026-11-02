@@ -21,8 +21,22 @@ export function HogFlowEventEntriesFilters({
     ...filterProps
 }: HogFlowEventEntriesFiltersProps): JSX.Element {
     const allEntriesEnabled = useFeatureFlag('WORKFLOWS_GOAL_EVENT_ENTRIES')
-    const editableEntries = allEntriesEnabled ? entries : entries.slice(0, 1)
-    const shownEntries: EventEntry[] = editableEntries.length ? editableEntries : [{}]
+
+    if (!allEntriesEnabled) {
+        return (
+            <HogFlowEventFilters
+                {...filterProps}
+                filtersKey={typeKey}
+                typeKey={typeKey}
+                filters={entries[0]?.filters ?? {}}
+                setFilters={(filters) => onChange(filters ? [{ filters }] : [])}
+            />
+        )
+    }
+
+    const shownEntries: EventEntry[] = entries.length ? entries : [{}]
+    const replaceEntry = (index: number, nextEntry: EventEntry): void =>
+        onChange(shownEntries.map((entry, i) => (i === index ? nextEntry : entry)))
 
     return (
         <div className="flex flex-col gap-2 items-start w-full">
@@ -37,11 +51,7 @@ export function HogFlowEventEntriesFilters({
                             typeKey={entryTypeKey}
                             filters={entry.filters ?? {}}
                             setFilters={(filters) =>
-                                onChange(
-                                    shownEntries.map((shown, i) =>
-                                        i === index ? { ...shown, filters: { ...shown.filters, ...filters } } : shown
-                                    )
-                                )
+                                replaceEntry(index, { ...entry, filters: { ...entry.filters, ...filters } })
                             }
                         />
                     </Fragment>

@@ -43,7 +43,6 @@ describe('ConversionGoalEditor', () => {
         actionsModel.mount()
         groupsModel.mount()
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_GOAL_EVENT_ENTRIES]: true })
         unmountWorkflowLogic = workflowLogic(LOGIC_PROPS).mount()
     })
 
@@ -53,7 +52,10 @@ describe('ConversionGoalEditor', () => {
         cleanup()
     })
 
-    it('shows every stored event entry and keeps the rest of the goal when one entry is edited', async () => {
+    function renderEditor(allEntriesEnabled: boolean): jest.Mock {
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.WORKFLOWS_GOAL_EVENT_ENTRIES]: allEntriesEnabled,
+        })
         const onChange = jest.fn()
         const conversion: ConversionGoalValue = { filters: [], events: [downloadedFileEntry, signedUpEntry] }
         render(
@@ -61,23 +63,31 @@ describe('ConversionGoalEditor', () => {
                 <ConversionGoalEditor conversion={conversion} onChange={onChange} pageKey="goal" />
             </BindLogic>
         )
+        return onChange
+    }
 
-        fireEvent.click(screen.getByTestId('more-button-1'))
-        fireEvent.click(await screen.findByTestId('delete-prop-filter-1'))
+    it.each([
+        {
+            flag: 'on',
+            allEntriesEnabled: true,
+            firstEntryProperties: downloadedFileEntry.filters.properties,
+            otherEntries: [signedUpEntry],
+        },
+        { flag: 'off', allEntriesEnabled: false, firstEntryProperties: undefined, otherEntries: [] },
+    ])(
+        'with the flag $flag, an event edit writes the expected entries',
+        async ({ allEntriesEnabled, firstEntryProperties, otherEntries }) => {
+            const onChange = renderEditor(allEntriesEnabled)
 
-        expect(onChange).toHaveBeenLastCalledWith(
-            expect.objectContaining({
-                events: [
-                    {
-                        filters: expect.objectContaining({
-                            events: [downloadedFileEntry.filters.events[0]],
-                            properties: downloadedFileEntry.filters.properties,
-                        }),
-                    },
-                    signedUpEntry,
-                ],
-            })
-        )
-        expect(screen.getByText('signed_up')).toBeInTheDocument()
-    })
+            fireEvent.click(screen.getByTestId('more-button-1'))
+            fireEvent.click(await screen.findByTestId('delete-prop-filter-1'))
+
+            const [firstEntry, ...restEntries] = onChange.mock.lastCall[0].events
+            expect(Object.keys(firstEntry)).toEqual(['filters'])
+            expect(firstEntry.filters.events).toEqual([downloadedFileEntry.filters.events[0]])
+            expect(firstEntry.filters.properties).toEqual(firstEntryProperties)
+            expect(restEntries).toEqual(otherEntries)
+            expect(screen.queryByText('signed_up') !== null).toBe(allEntriesEnabled)
+        }
+    )
 })
