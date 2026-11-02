@@ -1,6 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { useActions, useValues } from 'kea'
 
+import { IconPlus } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { useStorybookMocks } from '~/mocks/browser'
 
 import { ByokModelPickerNotice } from './ByokModelPickerNotice'
@@ -20,24 +23,43 @@ function providerKey(state: LLMProviderKeyState): Partial<LLMProviderKey> {
 }
 
 function PickerWithNotice({ systemOne = false }: { systemOne?: boolean }): JSX.Element {
-    const { providerModelGroups, evaluationProviderModelGroups, hasByokKeys, byokModelsLoading, providerKeysLoading } =
-        useValues(modelPickerLogic)
+    const {
+        providerModelGroups,
+        evaluationProviderModelGroups,
+        hasByokKeys,
+        byokModelsLoading,
+        providerKeysLoading,
+        byokModelNotice,
+        evaluationModelNotice,
+    } = useValues(modelPickerLogic)
     const { setNewKeyModalOpen } = useActions(llmProviderKeysLogic)
 
     return (
         // The story root has no width of its own, so the picker column is sized here to match the form it sits in.
         <div className="w-[560px]">
-            <ModelPicker
-                model=""
-                selectedProviderKeyId={null}
-                onSelect={() => {}}
-                groups={systemOne ? evaluationProviderModelGroups : providerModelGroups}
-                loading={byokModelsLoading || providerKeysLoading}
-                footerActions={getModelPickerFooterActions(
-                    systemOne ? evaluationProviderModelGroups.some((group) => !group.disabledReason) : hasByokKeys,
-                    () => setNewKeyModalOpen(true)
-                )}
-            />
+            {(systemOne ? evaluationModelNotice : byokModelNotice)?.kind === 'no-keys' ? (
+                <LemonButton
+                    type="secondary"
+                    icon={<IconPlus />}
+                    fullWidth
+                    center
+                    onClick={() => setNewKeyModalOpen(true)}
+                >
+                    Add API key
+                </LemonButton>
+            ) : (
+                <ModelPicker
+                    model=""
+                    selectedProviderKeyId={null}
+                    onSelect={() => {}}
+                    groups={systemOne ? evaluationProviderModelGroups : providerModelGroups}
+                    loading={byokModelsLoading || providerKeysLoading}
+                    footerActions={getModelPickerFooterActions(
+                        systemOne ? evaluationProviderModelGroups.some((group) => !group.disabledReason) : hasByokKeys,
+                        () => setNewKeyModalOpen(true)
+                    )}
+                />
+            )}
             <ByokModelPickerNotice forEvaluation={systemOne} />
             <AddKeyModal />
         </div>

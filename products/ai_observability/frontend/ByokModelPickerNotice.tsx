@@ -4,7 +4,6 @@ import { LemonBanner, Link } from '@posthog/lemon-ui'
 
 import { PROVIDER_SETTINGS_URL } from './ModelPicker'
 import { modelPickerLogic } from './modelPickerLogic'
-import { llmProviderKeysLogic } from './settings/llmProviderKeysLogic'
 import { providerLabel } from './settings/providerKeyStateUtils'
 
 /** Explains an empty or short model picker on the surfaces that only run on the team's own provider keys. */
@@ -12,18 +11,8 @@ export function ByokModelPickerNotice({ forEvaluation = false }: { forEvaluation
     const { byokModelNotice: generativeModelNotice, evaluationModelNotice } = useValues(modelPickerLogic)
     const byokModelNotice = forEvaluation ? evaluationModelNotice : generativeModelNotice
     const { loadByokModels } = useActions(modelPickerLogic)
-    const { setNewKeyModalOpen } = useActions(llmProviderKeysLogic)
 
     switch (byokModelNotice?.kind) {
-        case 'no-keys':
-            return (
-                <p className="text-xs text-secondary mt-1">
-                    <Link onClick={() => setNewKeyModalOpen(true)} data-attr="byok-notice-add-api-key">
-                        Add an API key
-                    </Link>{' '}
-                    from your AI provider to choose a model.
-                </p>
-            )
         case 'models-failed': {
             const [firstKey] = byokModelNotice.keys
             return (
