@@ -36,6 +36,7 @@ export function metricsHistogramQueryFor(query: MetricsQuery): MetricsHistogramQ
         ...(clause.filters?.length ? { filters: clause.filters } : {}),
         ...(query.dateRange ? { dateRange: query.dateRange } : {}),
         ...(query.interval ? { interval: query.interval } : {}),
+        ...(query.display?.unit ? { unit: query.display.unit } : {}),
     }
 }
 
