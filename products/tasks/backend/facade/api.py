@@ -2147,7 +2147,7 @@ def owner_origin_task_ids_with_state_entry(
             origin_product=origin_product,
             state__has_key=key,
         )
-        .exclude(**{f"state__{key}": None})
+        .exclude(state__contains={key: None})
         .values_list("id", flat=True)
     )
 
