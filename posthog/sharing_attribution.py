@@ -65,18 +65,18 @@ class SharingAttributionBackfill:
                     .distinct("team_id", "item_id")
                     .values_list("team_id", "item_id", "user_id", "detail")
                 }
-                by_publisher: dict[int, list[int]] = defaultdict(list)
+                by_publisher: dict[tuple[int, int], list[int]] = defaultdict(list)
                 for configuration_id, configuration_team_id, log_id in batch:
                     publisher = latest_publishers.get((configuration_team_id, log_id))
                     if publisher is not None:
-                        by_publisher[publisher].append(configuration_id)
+                        by_publisher[(configuration_team_id, publisher)].append(configuration_id)
                 updated = 0
-                for publisher, ids in by_publisher.items():
+                for (publisher_team_id, publisher), ids in by_publisher.items():
                     if dry_run:
                         updated += len(ids)
                     else:
                         # Keep attribution written by a concurrent sharing request.
-                        updated += SharingConfiguration.objects.filter(pk__in=ids, shared_by__isnull=True).update(
-                            shared_by_id=publisher
-                        )
+                        updated += SharingConfiguration.objects.filter(
+                            team_id=publisher_team_id, pk__in=ids, shared_by__isnull=True
+                        ).update(shared_by_id=publisher)
                 yield SharingAttributionBatch(kind=kind, scanned=len(batch), updated=updated)
