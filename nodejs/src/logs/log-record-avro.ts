@@ -17,24 +17,6 @@ import {
     runPipelineStages,
 } from './pipeline/log-processing-pipeline'
 
-type AvscTap = { _invalidate(): void; readFixed(len: number): Buffer | undefined }
-
-/**
- * avsc reads a long past 2^28 as a float, so a crafted bytes length can come out as NaN. NaN passes
- * avsc's bounds checks and sets the position of the buffer pool that every decoder in the process
- * shares, after which every bytes field decodes empty until restart. Such a length invalidates the
- * read here, as avsc already does for a negative length, so the message fails and goes to the DLQ.
- */
-const avscTap = (require('avsc/lib/utils') as { Tap: { prototype: AvscTap } }).Tap.prototype
-const readAvscFixed = avscTap.readFixed
-avscTap.readFixed = function (this: AvscTap, len: number): Buffer | undefined {
-    if (!Number.isSafeInteger(len) || len < 0) {
-        this._invalidate()
-        return undefined
-    }
-    return readAvscFixed.call(this, len)
-}
-
 const MAX_JSON_ATTRIBUTES = 50
 const MAX_JSON_NODES = 10_000
 const MAX_JSON_DEPTH = 128
