@@ -23,6 +23,7 @@ use replay_core_v4::keys::table::{AwsKeyTable, CachedKeyTable};
 use tokio::sync::Semaphore;
 
 use crate::batch::Block;
+use crate::history::{without_fresh, FetchHistory};
 use crate::index::{Index, IndexMessage};
 use crate::store::BlobStore;
 use crate::urls::{fetch_jobs, records};
@@ -33,6 +34,9 @@ use crate::write::{
 
 /// How long a fetch job may wait for room in the producer queue.
 const ENQUEUE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// The read runs while the flush stores its images, so a slow read rarely makes the flush longer.
+const HISTORY_READ_BUDGET: Duration = Duration::from_secs(5);
 
 /// Fetch job records sent at once, so a slow broker slows the flush instead of filling the producer queue.
 const SENDS_IN_FLIGHT: usize = 64;
@@ -50,9 +54,11 @@ pub struct Writer {
     /// The flush does not wait for index rows, so they get their own producer with a delivery timeout of minutes.
     pub index_producer: FutureProducer<KafkaContext>,
     pub index_topic: String,
-    /// Remote image references this process sent to the fetcher, by UTC day. A reference goes out again each day, so
-    /// the fetcher sees it within every refresh interval and keeps the image as long as the blocks that reference it.
+    /// Remote image references this process sent to the fetcher, or found fresh in its history, by UTC day. A
+    /// reference goes out again each day unless its stored image needs no refresh, so the fetcher refreshes it within
+    /// every refresh interval and keeps the image as long as the blocks that reference it.
     pub sent_urls: moka::sync::Cache<(String, String), ()>,
+    pub fetch_history: Option<Arc<dyn FetchHistory>>,
     /// Seals running at once, over all attempts: the flush concurrency.
     pub seal_permits: Arc<Semaphore>,
 }
@@ -253,18 +259,21 @@ pub async fn write_flush(
     );
 
     let session_frames = session_keyed_frames(&sealed);
-    let image_rows = write_images(
-        new_images(&mut sealed),
-        &keys,
-        &day,
-        month,
-        &writer.images_bucket,
-        &writer.store,
-        now,
-        concurrency,
-        &writer.seal_permits,
-    )
-    .await?;
+    let (jobs, image_rows) = tokio::join!(
+        without_fresh_jobs(writer, jobs, &day, now.timestamp_millis()),
+        write_images(
+            new_images(&mut sealed),
+            &keys,
+            &day,
+            month,
+            &writer.images_bucket,
+            &writer.store,
+            now,
+            concurrency,
+            &writer.seal_permits,
+        )
+    );
+    let image_rows = image_rows?;
     counter!("ai_research_v4_recorder_stored_images_total").increment(image_rows.len() as u64);
     // What sealing images under session keys would store, to compare with the frames above.
     counter!("ai_research_v4_recorder_session_keyed_image_frames_total").increment(session_frames);
@@ -295,6 +304,25 @@ pub async fn write_flush(
     produce_jobs(writer, jobs, &day, now.timestamp_millis()).await;
     send_index(&writer.index_producer, &writer.index_topic, &day, index);
     Ok(())
+}
+
+/// A mark lasts until the end of the UTC day at most. The `images-v4` lifecycle is the raw window plus the refresh
+/// interval plus one day, so an image that needs no refresh now outlives every block written before its mark ends.
+async fn without_fresh_jobs(
+    writer: &Writer,
+    jobs: BTreeMap<String, Vec<serde_json::Value>>,
+    day: &str,
+    now_ms: i64,
+) -> BTreeMap<String, Vec<serde_json::Value>> {
+    let Some(history) = &writer.fetch_history else {
+        return jobs;
+    };
+    let deadline = tokio::time::Instant::now() + HISTORY_READ_BUDGET;
+    let (jobs, fresh) = without_fresh(history.as_ref(), jobs, now_ms, deadline).await;
+    for reference in fresh {
+        writer.sent_urls.insert((day.to_owned(), reference), ());
+    }
+    jobs
 }
 
 /// Sends every fetch job of the flush, then waits for all deliveries before the flush commits, as the v3 mirror does.

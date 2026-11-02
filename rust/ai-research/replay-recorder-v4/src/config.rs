@@ -127,6 +127,11 @@ pub struct Config {
     )]
     pub image_fetch_topic: String,
 
+    /// The fetcher's crawl history table, read so that no job goes out that the fetcher would drop. Empty sends every
+    /// new reference of the day.
+    #[envconfig(from = "AI_RESEARCH_V4_IMAGE_FETCH_HISTORY_TABLE", default = "")]
+    pub image_fetch_history_table: String,
+
     /// Where the block and image index rows go for the Parquet sink.
     #[envconfig(from = "AI_RESEARCH_V4_INDEX_TOPIC", default = "ai_research_v4_index")]
     pub index_topic: String,

@@ -675,5 +675,11 @@ The fetcher keeps a crawl history per URL reference, so per team and month, in i
 
 A URL is therefore fetched from its origin about once per team and month, as v3 fetches it about once in 30 days.
 Unlike v3, the history is per team: a sealed image is readable only with its team's key, so two teams that refer to one URL each fetch it.
-The recorder sends a job for each referenced URL at least once per day, so the fetcher sees a reference in every 7-day refresh interval.
+The recorder sends a job for each referenced URL at least once per day, unless the fetcher's history shows that the fetcher would drop it (see below). So the fetcher sees a reference in every 7-day refresh interval.
 The fetcher drops a job whose team month row is missing, expired or deleted.
+
+Each recorder pod sends a reference at most once per UTC day. When `AI_RESEARCH_V4_IMAGE_FETCH_HISTORY_TABLE` is set, the recorder also reads the fetcher's history before a flush sends its jobs, as the v3 mirror did:
+
+- It does not send a job that the fetcher would drop. That is a job before the refetch time of its reference, when the reference has no stored copy or a stored copy less than 7 days old. It marks that reference as sent for the day.
+- It sends every other job, so the fetcher still refreshes each stored copy within its interval.
+- A read that fails or takes more than 5 seconds checks nothing, and its jobs go out.

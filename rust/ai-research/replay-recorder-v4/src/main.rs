@@ -19,6 +19,7 @@ use replay_core_v4::keys::table::{AwsKeyTable, CachedKeyTable};
 use replay_recorder_v4::config::Config;
 use replay_recorder_v4::consumer::{run, RecorderConsumer, Settings, Sources};
 use replay_recorder_v4::flush::{Writer, PRODUCER_FLUSH_ON_SHUTDOWN};
+use replay_recorder_v4::history::{AwsFetchHistory, FetchHistory};
 use replay_recorder_v4::limits::{Restrictions, SessionLimiter};
 use replay_recorder_v4::store::S3Store;
 use replay_recorder_v4::teams::TeamCache;
@@ -246,6 +247,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await?,
             index_topic: config.index_topic.clone(),
             sent_urls: replay_recorder_v4::urls::sent_urls(500_000),
+            fetch_history: (!config.image_fetch_history_table.is_empty()).then(
+                || -> Arc<dyn FetchHistory> {
+                    Arc::new(AwsFetchHistory::new(
+                        aws_sdk_dynamodb::Client::new(&aws),
+                        config.image_fetch_history_table.clone(),
+                    ))
+                },
+            ),
             seal_permits: Arc::new(tokio::sync::Semaphore::new(settings.flush_concurrency)),
         })
     } else {
