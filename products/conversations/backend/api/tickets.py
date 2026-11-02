@@ -70,6 +70,7 @@ from products.access_control.backend.presentation.access_control import (
 from products.conversations.backend.ai.evidence import citations_for_ticket, hydrate_ai_sources
 from products.conversations.backend.ai.human_outcome import AiDraftHumanOutcome, record_human_outcome
 from products.conversations.backend.api.serializers import TicketAssignmentSerializer
+from products.conversations.backend.api.external_references import TicketExternalReferenceResultSerializer
 from products.conversations.backend.api.ticket_filters import (
     AI_TRIAGE_FILTER_VALUES,
     apply_ticket_filters,
@@ -413,6 +414,7 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
     person = TicketPersonSerializer(read_only=True, allow_null=True)
     email_to = serializers.SerializerMethodField()
     session_context = TicketSessionContextField(read_only=True)
+    external_references = TicketExternalReferenceResultSerializer(many=True, read_only=True)
 
     class Meta:
         model = Ticket
@@ -456,6 +458,7 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
             "person",
             "tags",
             "user_access_level",
+            "external_references",
         ]
         read_only_fields = [
             "id",
@@ -799,7 +802,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         """Filter tickets by team."""
         queryset = queryset.filter(team_id=self.team_id)
-        queryset = queryset.select_related("assignment", "assignment__user", "assignment__role", "email_config")
+        queryset = queryset.select_related("assignment", "assignment__user", "assignment__role", "email_config").prefetch_related("external_references", "external_references__integration")
 
         filters: dict[str, Any] = {}
         view_short_id = self.request.query_params.get("view")
