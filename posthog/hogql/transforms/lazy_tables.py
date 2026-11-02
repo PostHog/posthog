@@ -935,7 +935,9 @@ class LazyTableResolver(TraversingVisitor):
                 continue
 
             if isinstance(field_or_property, ast.FieldType):
-                field_or_property.name = export_names.get(id(field_or_property), field_or_property.name)
+                # A field already rebound to a wrapper subquery keeps the export name the wrapper gave it.
+                if isinstance(field_or_property.table_type, ast.VirtualTableType):
+                    field_or_property.name = export_names.get(id(field_or_property), field_or_property.name)
                 field_or_property.table_type = table_type
             elif isinstance(field_or_property, ast.PropertyType):
                 field_or_property.field_type.table_type = table_type

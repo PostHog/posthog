@@ -209,6 +209,26 @@ class TestVirtualFieldExports(SimpleTestCase):
         outer = printed.split(" FROM ", 1)[0]
         assert len(set(re.findall(r"probe\.(\w+)", outer))) == 3
 
+    def test_virtual_field_read_through_a_wrapped_lazy_join_names_the_column_the_wrapper_exports(self) -> None:
+        context = HogQLContext(
+            team_id=1,
+            team=Team(id=1, organization=Organization()),
+            database=Database(),
+            enable_select_queries=True,
+            apply_events_retention_floor=False,
+            use_new_events_schema=False,
+        )
+        query = (
+            "SELECT r.events.poe.created_at, r.events.created_at FROM events AS e "
+            "JOIN raw_session_replay_events AS r ON r.events.event = e.event"
+        )
+
+        with patch("posthog.hogql.transforms.property_types.load_property_metadata", return_value=PropertyMetadata()):
+            printed, _ = prepare_and_print_ast(parse_select(query), context, "clickhouse")
+
+        assert printed.startswith("SELECT r.events___poe___created_at, r.events___created_at AS created_at FROM")
+        assert "AS events___poe___created_at" in printed
+
 
 class TestWrappedEventJoins(SimpleTestCase):
     @parameterized.expand([("legacy", False), ("native", True)])

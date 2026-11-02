@@ -837,7 +837,7 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
         assert json.loads(flag_call[4]) == {"email": "r@x.com"}
         assert pageview[:3] == ("$pageview", None, "r@x.com")
         assert json.loads(pageview[4]) == {"email": "r@x.com"}
-        assert all(row[5] != row[6] for row in response.results)
+        assert all(row[6] is not None and row[5] != row[6] for row in response.results)
 
     def test_prewhere_reads_both_tables(self):
         response = self._run(
