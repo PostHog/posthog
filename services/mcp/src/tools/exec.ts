@@ -10,6 +10,7 @@ import { isEmptyToolResult } from '@/lib/discovery-hints'
 import {
     ExecCommandError,
     type ExecCommandErrorReason,
+    MissingToolScopeError,
     findRecoverableApiError,
     PostHogApiError,
     ToolInputValidationError,
@@ -1718,6 +1719,17 @@ function missingScopeRecovery(context: Context | undefined, oauthClientId: strin
     }
 }
 
+export function missingToolScopeError(
+    tool: ScopeGatedTool,
+    context: Context | undefined,
+    oauthClientId: string | undefined
+): MissingToolScopeError {
+    return new MissingToolScopeError(
+        `Tool "${tool.name}" exists, but this MCP connection is missing the required scope(s): ${tool.missingScopes.join(', ')}. ${missingScopeRecovery(context, oauthClientId)} Logging in to PostHog in a browser does not update MCP permissions.`,
+        tool.requiredScopes
+    )
+}
+
 function findTool(
     tools: Tool<ZodObjectAny>[],
     scopeGatedTools: ScopeGatedTool[],
@@ -1739,10 +1751,7 @@ function findTool(
         }
         const scopeGatedTool = scopeGatedTools.find((candidate) => candidate.name === name)
         if (scopeGatedTool) {
-            throw new ExecCommandError(
-                `Tool "${name}" exists, but this MCP connection is missing the required scope(s): ${scopeGatedTool.missingScopes.join(', ')}. ${missingScopeRecovery(context, oauthClientId)} Logging in to PostHog in a browser does not update MCP permissions.`,
-                'missing_scope'
-            )
+            throw missingToolScopeError(scopeGatedTool, context, oauthClientId)
         }
         if (isNotGranted(name)) {
             throw new ExecCommandError(

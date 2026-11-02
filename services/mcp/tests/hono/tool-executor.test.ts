@@ -1016,6 +1016,66 @@ describe('ToolExecutor', () => {
         )
     })
 
+    describe('a tool that needs a scope the token lacks', () => {
+        const scopeGatedTools = [
+            {
+                name: 'endpoint-create',
+                title: 'Create endpoint',
+                description: 'Create a new endpoint',
+                missingScopes: ['endpoint:write'],
+                requiredScopes: ['endpoint:write', 'query:read'],
+            },
+        ]
+        const gated = {
+            scopeGatedTools,
+            findScopeGatedTool: (name: string) => scopeGatedTools.find((tool) => tool.name === name),
+        }
+        const calls = [
+            { mode: 'tools', useSingleExec: false, params: { name: 'endpoint-create', arguments: {} } },
+            {
+                mode: 'exec',
+                useSingleExec: true,
+                params: { name: 'exec', arguments: { command: 'call endpoint-create {}' } },
+            },
+        ]
+
+        it.each(calls)('throws the step-up challenge before the tool runs in $mode mode', async (call) => {
+            const result = executor.handleToolCall(
+                call.params,
+                makeToolExecutorState([], { useSingleExec: call.useSingleExec, ...gated, supportsStepUp: true })
+            )
+
+            await expect(result).rejects.toMatchObject({
+                challenge: 'Bearer error="insufficient_scope", scope="endpoint:write query:read"',
+            })
+        })
+
+        it.each([
+            ...calls.map((call) => ({ ...call, supportsStepUp: false })),
+            {
+                mode: 'exec info',
+                useSingleExec: true,
+                params: { name: 'exec', arguments: { command: 'info endpoint-create' } },
+                supportsStepUp: true,
+            },
+        ])('returns the tool error with the challenge in _meta in $mode mode', async (call) => {
+            const result = (await executor.handleToolCall(
+                call.params,
+                makeToolExecutorState([], {
+                    useSingleExec: call.useSingleExec,
+                    ...gated,
+                    supportsStepUp: call.supportsStepUp,
+                })
+            )) as any
+
+            expect(result.isError).toBe(true)
+            expect(result.content[0].text).toContain('missing the required scope(s): endpoint:write')
+            expect(result._meta['mcp/www_authenticate']).toEqual([
+                'Bearer error="insufficient_scope", scope="endpoint:write query:read", error_description="Reconnect PostHog and approve these scopes: endpoint:write query:read"',
+            ])
+        })
+    })
+
     describe('ignored input keys in tools mode', () => {
         let getToolByNameSpy: MockInstance | undefined
 

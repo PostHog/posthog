@@ -393,6 +393,7 @@ export interface ScopeGatedTool {
     description: string
     /** Scopes the tool requires that the current API key is missing. */
     missingScopes: string[]
+    requiredScopes: readonly string[]
 }
 
 /**
@@ -426,6 +427,7 @@ export function getScopeGatedTools(scopes: string[], options?: ToolFilterOptions
             title: definition.title,
             description: definition.description,
             missingScopes: required.filter((scope) => !hasScope(scopes, scope)),
+            requiredScopes: required,
         })
     }
 

@@ -1839,12 +1839,14 @@ describe('exec tool', () => {
                     title: 'Refresh available schemas',
                     description: 'Fetch the latest table list from the remote database',
                     missingScopes: ['external_data_source:write'],
+                    requiredScopes: ['external_data_source:write'],
                 },
                 {
                     name: 'external-data-schemas-list',
                     title: 'List data import schemas',
                     description: 'List all table schemas',
                     missingScopes: ['external_data_source:read'],
+                    requiredScopes: ['external_data_source:read'],
                 },
             ])
             const result = JSON.parse(
@@ -1869,6 +1871,7 @@ describe('exec tool', () => {
                     title: 'List data import schemas',
                     description: 'List all table schemas',
                     missingScopes: ['external_data_source:read'],
+                    requiredScopes: ['external_data_source:read'],
                 },
             ])
             const result = await exec.handler(mockContext, { command: 'search feature-flag' })
@@ -1914,6 +1917,7 @@ describe('exec tool', () => {
                     title: 'Create experiment',
                     description: 'Create a new experiment',
                     missingScopes: ['experiment:write'],
+                    requiredScopes: ['experiment:write'],
                 },
             ])
             const result = JSON.parse(
@@ -2142,6 +2146,7 @@ describe('exec tool', () => {
                         title: 'Create endpoint',
                         description: 'Create a new endpoint',
                         missingScopes: ['endpoint:write'],
+                        requiredScopes: ['endpoint:write'],
                     },
                 ])
 
@@ -2178,6 +2183,7 @@ describe('exec tool', () => {
                         title: 'Create endpoint',
                         description: 'Create a new endpoint',
                         missingScopes: ['endpoint:write'],
+                        requiredScopes: ['endpoint:write'],
                     },
                 ]
                 const exec = createExecTool(

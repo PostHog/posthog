@@ -78,6 +78,7 @@ function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
         },
         allTools: [],
         scopeGatedTools: [],
+        findScopeGatedTool: () => undefined,
         supportsStepUp: false,
         flagGatedTools: [],
         gatewayToolsEnabled: false,
