@@ -21258,6 +21258,11 @@ export namespace Schemas {
       claims: CIProviderClaims;
     }
 
+    /**
+     * What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care.
+     */
+    export type CIProvidersResponseRiskyScopes = {[key: string]: string};
+
     export interface UnsupportedCIProvider {
       /** Stable identifier of the provider. */
       key: string;
@@ -21274,6 +21279,8 @@ export namespace Schemas {
       unsupported: UnsupportedCIProvider[];
       /** Every scope a policy's ceiling may hold. */
       grantable_scopes: string[];
+      /** What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care. */
+      risky_scopes: CIProvidersResponseRiskyScopes;
     }
 
     /**

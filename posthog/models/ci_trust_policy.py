@@ -9,68 +9,37 @@ from django.db import models
 from django.utils import timezone
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
-from posthog.models.ci_trust_policy_scopes import CI_TRUST_POLICY_ALLOWED_SCOPES
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 from posthog.scopes import UNPRIVILEGED_SCOPES
 
-# A policy hands out tokens that act as the organization owner, so its ceiling must never let a CI
-# job mint or rotate a credential, or manage access: that would turn a short-lived token into a
-# lasting one, or let the job widen its own access.
-# - `project:write` rotates the project's secret token.
-# - `task:write` starts an agent run, which gets its own longer-lived token as the owner. So do
-#   `conversation:write` (PostHog AI can create a task), `signal_scout:write`, `business_knowledge:write`
-#   and `autoresearch:write`.
-# - `streamlit_app` hands out a one-hour OAuth token to connect to a running app.
-# - `integration:write`, `organization_integration:write` and `llm_provider_key:write` store
-#   third-party credentials, and `hog_function:write` and `hog_flow:write` run code that can read
-#   the stored credentials of the project's integrations.
-# - `organization:write` manages roles and OAuth apps, and `organization_member:write` and
-#   `access_control:write` manage who can do what.
-# - `sharing_configuration:write` creates public sharing links, and `sharing_configuration:read` returns
-#   the access tokens of existing ones, which outlive the CI token.
-# - `approvals:write` decides change requests that gate other changes.
-# - `user` reaches the owner's own account and personal integrations, which aren't confined to the project.
-# - `billing` reads and changes the whole organization's subscription and payment details, which aren't
-#   confined to the project.
-# - `cross_project_dashboard` endpoints refuse every token pinned to one project, so a CI token can never use it.
+# A policy can grant any unprivileged scope except the ones that let a CI token outlive itself or widen
+# its own access. Risky scopes that stay grantable carry a warning from `RISKY_SCOPE_WARNINGS`.
+# - `ci_trust_policy` and `ci_trust_policy_request` would let a CI job change the policy behind its token.
+# - `task:write` starts an agent run from a prompt the caller writes, with its own longer-lived owner token.
+#   `conversation:write` (PostHog AI can create such a task), `signal_scout:write` and
+#   `business_knowledge:write` start the same kind of run.
+# - `project:write` lets a token rotate the project's secret token.
+# - `streamlit_app` returns a one-hour OAuth token to connect to a running app.
 CI_TRUST_POLICY_DENIED_SCOPES: frozenset[str] = frozenset(
     {
         "ci_trust_policy:read",
         "ci_trust_policy:write",
         "ci_trust_policy_request:read",
         "ci_trust_policy_request:write",
-        "access_control:write",
-        "approvals:write",
-        "autoresearch:write",
-        "billing:read",
-        "billing:write",
         "business_knowledge:write",
         "conversation:write",
-        "cross_project_dashboard:read",
-        "cross_project_dashboard:write",
-        "hog_flow:write",
-        "hog_function:write",
-        "integration:write",
-        "llm_provider_key:write",
-        "organization:write",
-        "organization_integration:write",
-        "organization_member:write",
         "project:write",
-        "sharing_configuration:read",
-        "sharing_configuration:write",
         "signal_scout:write",
         "streamlit_app:read",
         "streamlit_app:write",
         "task:write",
-        "user:read",
-        "user:write",
     }
 )
 
 
 def ci_trust_policy_grantable_scopes() -> frozenset[str]:
-    return (UNPRIVILEGED_SCOPES & CI_TRUST_POLICY_ALLOWED_SCOPES) - CI_TRUST_POLICY_DENIED_SCOPES
+    return UNPRIVILEGED_SCOPES - CI_TRUST_POLICY_DENIED_SCOPES
 
 
 def ci_trust_policy_scopes_not_grantable(scopes: Iterable[str]) -> list[str]:

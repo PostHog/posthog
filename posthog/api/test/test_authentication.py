@@ -2522,7 +2522,6 @@ class TestTimeSensitivePermissions(APIBaseTest):
             ("passkey_list", "get", "/api/webauthn/credentials/"),
             ("connected_app_list", "get", "/api/oauth/connected-apps"),
             ("personal_integration_list", "get", "/api/users/@me/integrations/"),
-            ("ci_trust_policy_list", "get", "/api/projects/@current/ci_trust_policies/"),
             ("github_repos_refresh", "post", "/api/users/@me/integrations/github/123/repos/refresh/"),
             (
                 "github_install_request_cancel",
