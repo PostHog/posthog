@@ -1075,7 +1075,6 @@ export type PluginConfigsLogsListParams = {
     offset?: number
     /**
      * Case-insensitive substring search across log messages.
-     * @minLength 1
      */
     search?: string
     /**
