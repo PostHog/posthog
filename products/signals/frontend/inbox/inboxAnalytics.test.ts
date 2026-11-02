@@ -127,7 +127,7 @@ describe('inboxAnalytics', () => {
                         status: 'scored',
                         model: 'report_embeddings@2026-09-30',
                         scored_at: '2026-09-30T12:00:00Z',
-                        predictions: [{ outcome: 'fix', probability: 0.4, lift: null, readable: true }],
+                        predictions: [{ outcome: 'fix', probability: 0.4, lift: 2.5, readable: true }],
                     },
                 }),
                 makeReport({ id: 'b', priority: null, actionability: null, source_products: ['error_tracking'] }),
@@ -141,6 +141,7 @@ describe('inboxAnalytics', () => {
             sortDirection: 'desc',
             createdWindow: '7d',
             rankerId: 'fix',
+            rankingPill: true,
         })
         const props = lastCapture(INBOX_EVENTS.REPORTS_IMPRESSED)
         expect(props).toMatchObject({
@@ -152,6 +153,7 @@ describe('inboxAnalytics', () => {
             sort_direction: 'desc',
             created_window: '7d',
             ranker_id: 'fix',
+            ranking_pill: true,
             has_pr: true,
         })
         expect(props?.impressions).toEqual([
@@ -162,11 +164,17 @@ describe('inboxAnalytics', () => {
                 signal_count: 3,
                 is_suggested_reviewer: true,
                 ranking_served_key: 'report_embeddings@2026-09-30',
+                pill_shown: true,
+                pill_open: null,
+                pill_action: null,
+                pill_fix: 2.5,
             }),
             expect.objectContaining({
                 report_id: 'b',
                 rank: 2,
                 ranking_served_key: null,
+                pill_shown: false,
+                pill_fix: null,
                 priority: null,
                 actionability: null,
                 source_products: ['error_tracking'],

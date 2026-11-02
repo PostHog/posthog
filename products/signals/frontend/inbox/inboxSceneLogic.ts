@@ -272,8 +272,9 @@ function findReportRank(id: string): {
     listSize: number | null
     section: InboxReportSectionKey | null
     rankerId: string | null
+    rankingPill: boolean
 } {
-    const notFound = { rank: null, listSize: null, section: null, rankerId: null }
+    const notFound = { rank: null, listSize: null, section: null, rankerId: null, rankingPill: false }
     const filterValues = inboxFiltersLogic.findMounted()?.values
     if (!filterValues) {
         return notFound
@@ -297,10 +298,17 @@ function findReportRank(id: string): {
     const idx = rows.findIndex((row) => row.report.id === id)
     if (idx >= 0) {
         const sectionKey = rows[idx].sectionKey
-        const rankerId =
-            reportListLogic.findMounted({ sectionKey, listParams: INBOX_REPORT_SECTION_LIST_PARAMS[sectionKey] })
-                ?.values.loadedRanker ?? null
-        return { rank: idx + 1, listSize: rows.length, section: sectionKey, rankerId }
+        const sectionValues = reportListLogic.findMounted({
+            sectionKey,
+            listParams: INBOX_REPORT_SECTION_LIST_PARAMS[sectionKey],
+        })?.values
+        return {
+            rank: idx + 1,
+            listSize: rows.length,
+            section: sectionKey,
+            rankerId: sectionValues?.loadedRanker ?? null,
+            rankingPill: sectionValues?.loadedRankingPill ?? false,
+        }
     }
     return notFound
 }
@@ -350,6 +358,7 @@ function captureOpenWhenRanked(
                 listSize: resolved.listSize,
                 section: resolved.section,
                 rankerId: resolved.rankerId,
+                rankingPill: resolved.rankingPill,
             },
             // The wait puts the capture up to `OPEN_RANK_WAIT_MS` after the report opened, and
             // posthog-js stamps an event at the capture moment. Without the override, a scroll or an
