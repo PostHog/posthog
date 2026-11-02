@@ -693,6 +693,53 @@ describe('restoreFeatureFlag', () => {
     })
 })
 
+describe('switching into and out of the deleted view', () => {
+    let logic: ReturnType<typeof featureFlagsLogic.build>
+
+    beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/projects/:projectId/feature_flags/': ({ request }) =>
+                    new URL(request.url).searchParams.get('deleted') === 'true'
+                        ? [200, { results: [{ id: 1, key: 'old-flag:deleted:1', deleted: true }], count: 1 }]
+                        : [200, { results: [{ id: 2, key: 'live-flag', deleted: false, active: true }], count: 1 }],
+            },
+        })
+        initKeaTests()
+        logic = featureFlagsLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic?.unmount()
+    })
+
+    // Regression guard: the table blocks row selection on this flag. Without it, live rows picked while the
+    // deleted view loads stay selected once it lands, and bulk actions then act on flags the view hides.
+    it('flags the switch until the new view lands', async () => {
+        logic.actions.setFeatureFlagsFilters({}, true)
+        await expectLogic(logic).toDispatchActions(['loadFeatureFlagsSuccess'])
+        expect(logic.values.switchingDeletedView).toBe(false)
+
+        logic.actions.setFeatureFlagsFilters({ deleted: 'true' }, true)
+        expect(logic.values.displayedFlags.map((flag) => flag.id)).toEqual([2])
+        expect(logic.values.switchingDeletedView).toBe(true)
+        await expectLogic(logic).toDispatchActions(['loadFeatureFlagsSuccess'])
+        expect(logic.values.displayedFlags.map((flag) => flag.id)).toEqual([1])
+        expect(logic.values.switchingDeletedView).toBe(false)
+
+        // A search inside the deleted view keeps showing deleted rows, so it isn't a switch.
+        logic.actions.setFeatureFlagsFilters({ search: 'old' })
+        expect(logic.values.switchingDeletedView).toBe(false)
+        await expectLogic(logic).toDispatchActions(['loadFeatureFlagsSuccess'])
+
+        logic.actions.setFeatureFlagsFilters({}, true)
+        expect(logic.values.switchingDeletedView).toBe(true)
+        await expectLogic(logic).toDispatchActions(['loadFeatureFlagsSuccess'])
+        expect(logic.values.switchingDeletedView).toBe(false)
+    })
+})
+
 describe('updateFeatureFlagArchived', () => {
     let logic: ReturnType<typeof featureFlagsLogic.build>
 

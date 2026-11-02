@@ -512,6 +512,7 @@ export function OverviewTab({
         shouldShowEmptyState,
         filtersChanged,
         hasActiveFilters,
+        switchingDeletedView,
     } = useValues(flagLogic)
     const { setFeatureFlagsFilters, resetFilters } = useActions(flagLogic)
 
@@ -772,13 +773,15 @@ export function OverviewTab({
                     isRowSelectable: (flag: FeatureFlagType) =>
                         flag.id === null
                             ? false
-                            : flag.deleted
-                              ? { disabledReason: 'Restore deleted flags one at a time from the row menu.' }
-                              : !isV1FeatureFlagConfig(flag.filters)
-                                ? { disabledReason: 'Bulk actions are not available for this flag yet.' }
-                                : flag.can_edit
-                                  ? true
-                                  : { disabledReason: "You don't have permission to edit this feature flag." },
+                            : switchingDeletedView
+                              ? { disabledReason: 'Wait for the list to finish loading.' }
+                              : flag.deleted
+                                ? { disabledReason: 'Restore deleted flags one at a time from the row menu.' }
+                                : !isV1FeatureFlagConfig(flag.filters)
+                                  ? { disabledReason: 'Bulk actions are not available for this flag yet.' }
+                                  : flag.can_edit
+                                    ? true
+                                    : { disabledReason: "You don't have permission to edit this feature flag." },
                     rowAriaLabel: (flag: FeatureFlagType) => `Select feature flag ${flag.key}`,
                     headerAriaLabel: 'Select all feature flags on this page',
                     noun: ['flag', 'flags'],
