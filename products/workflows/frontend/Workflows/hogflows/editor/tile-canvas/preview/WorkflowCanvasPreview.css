@@ -1,0 +1,42 @@
+/* The preview runs inside MCP hosts, so its canvas colors come from the host theme variables. */
+.WorkflowCanvasPreview {
+    --tile-canvas-edge: color-mix(in sRGB, var(--color-text-secondary) 60%, transparent);
+    --tile-canvas-dot: var(--color-border-secondary);
+    --tile-canvas-background: var(--color-background-secondary);
+
+    background-color: var(--tile-canvas-background);
+    background-image: radial-gradient(var(--tile-canvas-dot) 1px, transparent 1px);
+    background-attachment: local;
+    background-size: 36px 36px;
+}
+
+@keyframes WorkflowCanvasPreview__edges {
+    0%,
+    55% {
+        opacity: 0;
+    }
+
+    100% {
+        opacity: 1;
+    }
+}
+
+.WorkflowCanvasPreview--moving .WorkflowCanvasPreview__node,
+.WorkflowCanvasPreview--moving .WorkflowCanvasPreview__zoom {
+    transition: transform 420ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.WorkflowCanvasPreview--moving .WorkflowCanvasPreview__edges {
+    animation: WorkflowCanvasPreview__edges 760ms ease both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .WorkflowCanvasPreview--moving .WorkflowCanvasPreview__node,
+    .WorkflowCanvasPreview--moving .WorkflowCanvasPreview__zoom {
+        transition: none;
+    }
+
+    .WorkflowCanvasPreview--moving .WorkflowCanvasPreview__edges {
+        animation: none;
+    }
+}

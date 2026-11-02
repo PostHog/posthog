@@ -52,11 +52,18 @@ jobs:
                         - 'services/mcp/definitions/*.yaml'
                         - 'common/mosaic/**'
                         # Compiled into the UI apps: the quill packages they render with, the
-                        # product-analytics chart transforms they import, and the generated
-                        # API types their views are typed against.
+                        # product-analytics chart transforms they import, the generated
+                        # API types their views are typed against, and the workflow editor's
+                        # tile canvas with the web app modules it imports.
                         - 'packages/quill/**'
                         - 'products/product_analytics/frontend/insights/**'
                         - 'products/*/frontend/generated/**'
+                        - 'products/workflows/frontend/Workflows/hogflows/**'
+                        - 'frontend/src/lib/components/EmailPreviewThumbnail/**'
+                        - 'frontend/src/lib/lemon-ui/LemonBadge/**'
+                        - 'frontend/src/lib/lemon-ui/icons/**'
+                        - 'frontend/src/lib/utils/**'
+                        - 'frontend/src/lib/elk.ts'
                         - '.github/workflows/ci-mcp-ui-apps.yml'
                         - '.github/actions/setup-uv/**'
 

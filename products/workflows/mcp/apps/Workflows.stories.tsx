@@ -2,6 +2,13 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import { McpThemeDecorator } from '@posthog/mcp-ui/storybook/decorator'
 
+import type { HogFlowActionApi, HogFlowEdgeApi } from '../../frontend/generated/api.schemas'
+import {
+    AI_SUPPORT_TRIAGE,
+    LONG_EMAILS,
+    TRIAL_TO_PAID,
+} from '../../frontend/Workflows/hogflows/editor/tile-canvas/tileCanvasStoryFixtures'
+import type { HogFlow } from '../../frontend/Workflows/hogflows/types'
 import {
     WorkflowDataSuggestionsView,
     type WorkflowDataSuggestionsData,
@@ -77,6 +84,32 @@ export const Archived: Story = {
     render: () => <WorkflowView workflow={archivedWorkflow} />,
     name: 'Archived workflow',
 }
+
+const withSteps = (flow: HogFlow): WorkflowData => ({
+    id: flow.id,
+    name: flow.name ?? 'Workflow',
+    status: flow.status,
+    version: flow.version,
+    exit_condition: flow.exit_condition,
+    created_at: flow.created_at,
+    updated_at: flow.updated_at,
+    actions: flow.actions as unknown as HogFlowActionApi[],
+    edges: flow.edges as HogFlowEdgeApi[],
+})
+
+const stepsStory = (flow: HogFlow, name: string): Story => ({
+    render: () => (
+        <div className="w-[42rem]">
+            <WorkflowView workflow={withSteps(flow)} />
+        </div>
+    ),
+    name,
+    parameters: { testOptions: { skipDarkMode: true, waitForSelector: '.WorkflowCanvasPreview__edges' } },
+})
+
+export const LinearSteps = stepsStory(LONG_EMAILS, 'Workflow with linear steps')
+export const BranchingSteps = stepsStory(AI_SUPPORT_TRIAGE, 'Workflow with branching steps')
+export const LongSteps = stepsStory(TRIAL_TO_PAID, 'Workflow with many steps')
 
 const sampleListData: WorkflowListData = {
     count: 3,

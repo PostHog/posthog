@@ -165,8 +165,8 @@ jobs:
                         - '!products/*/backend/**/conftest.py'
                       # Source outside services/mcp/ that the MCP build compiles: the quill
                       # packages the UI apps render with, the chart transforms and generated
-                      # API types those UI apps import, and the insight fixtures the tests
-                      # load. Directory-wide on purpose, so a relative import inside the
+                      # API types those UI apps import, the insight fixtures the tests load,
+                      # and the workflow editor tree the workflow app draws its steps with. Directory-wide on purpose, so a relative import inside the
                       # tree comes along.
                       #
                       # Its own filter because it reaches a different set of jobs: `build`
@@ -180,6 +180,7 @@ jobs:
                         - 'products/product_analytics/frontend/insights/**'
                         - 'products/*/frontend/generated/**'
                         - 'frontend/src/mocks/fixtures/**'
+                        - 'products/workflows/frontend/Workflows/hogflows/**'
     build:
         name: Build Package
         runs-on: ubuntu-24.04

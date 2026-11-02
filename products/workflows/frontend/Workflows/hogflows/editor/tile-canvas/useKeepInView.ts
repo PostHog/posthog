@@ -14,7 +14,7 @@ export function useKeepInView(ref: RefObject<HTMLElement>, active: boolean, bott
             return
         }
         const measure = (): void => {
-            const canvas = card.closest('.react-flow')?.getBoundingClientRect()
+            const canvas = card.closest('.react-flow, .WorkflowCanvasPreview')?.getBoundingClientRect()
             const box = card.getBoundingClientRect()
             if (!canvas || !card.offsetWidth) {
                 return
