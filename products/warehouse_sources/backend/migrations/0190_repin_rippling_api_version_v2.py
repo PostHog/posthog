@@ -23,7 +23,7 @@ def repin_rippling_v1_to_v2(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("warehouse_sources", "0188_reset_trunkio_v2_failing_tests"),
+        ("warehouse_sources", "0189_repin_lovable_api_version_2026_09_11"),
     ]
 
     operations = [
