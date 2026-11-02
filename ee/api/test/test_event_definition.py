@@ -935,7 +935,7 @@ class TestEventDefinitionStopIngestingAPI(APIBaseTest):
         assert event.verified_at is None
 
         log = ActivityLog.objects.get(team_id=self.team.pk, scope="EventDefinition", item_id=str(event.id))
-        assert log.activity == "changed"
+        assert log.activity == "stopped_ingesting"
         assert log.user == self.user
         assert log.detail is not None
         assert {(c["field"], c["before"], c["after"]) for c in log.detail["changes"]} == {

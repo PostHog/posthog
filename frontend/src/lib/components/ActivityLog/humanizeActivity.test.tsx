@@ -210,6 +210,21 @@ describe('humanizeActivity', () => {
         expect(text(result.summary?.action)).toBe(action)
     })
 
+    it('describes stopping the ingestion of an event', () => {
+        const logItem = makeLogItem({
+            scope: ActivityScope.EVENT_DEFINITION,
+            activity: 'stopped_ingesting',
+            detail: { merge: null, trigger: null, changes: null, name: 'spam_event' },
+        })
+        const result = dataManagementActivityDescriber(logItem)
+        const text = (value: Description | undefined): string =>
+            (render(<>{value}</>).container.textContent || '').replace(/\s+/g, ' ').trim()
+
+        expect(text(result.description)).toBe('A user stopped ingesting event spam_event')
+        expect(text(result.summary?.action)).toBe('Stopped ingesting the event')
+        expect(text(result.summary?.target)).toBe('spam_event')
+    })
+
     it.each([
         ['minted', 'A user created Developer mode token for a@posthog.com'],
         ['revoked', 'A user revoked Developer mode token for a@posthog.com'],
