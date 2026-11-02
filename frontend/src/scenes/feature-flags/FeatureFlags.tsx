@@ -204,6 +204,13 @@ function WarningStatusTag({ label, heading, detail }: { label: string; heading: 
     )
 }
 
+// Deleting a flag that an experiment uses renames its key to `<key>:deleted:<id>`. Code still calls the flag by
+// its old key, so that's the key to copy.
+function keyBeforeDelete(featureFlag: FeatureFlagType): string {
+    const suffix = `:deleted:${featureFlag.id}`
+    return featureFlag.key.endsWith(suffix) ? featureFlag.key.slice(0, -suffix.length) : featureFlag.key
+}
+
 // Component for feature flag row actions that needs to use hooks
 function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
     const { currentProjectId } = useValues(projectLogic)
@@ -257,7 +264,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                         )}
                         <LemonButton
                             onClick={() => {
-                                void copyToClipboard(featureFlag.key, 'feature flag key')
+                                void copyToClipboard(keyBeforeDelete(featureFlag), 'feature flag key')
                             }}
                             fullWidth
                         >
