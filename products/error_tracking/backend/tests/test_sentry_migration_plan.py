@@ -156,6 +156,16 @@ class TestSentryMigrationRuleMatching(BaseTest):
                     ({}, False),
                 ],
             ),
+            (
+                "release_with_build_number",
+                {"release_globs": ("com.acme.app@2.4.0+118",)},
+                [
+                    ({"$app_version": "2.4.0", "$app_build": "118"}, True),
+                    ({"$app_version": "2.4.0", "$app_build": 118}, True),
+                    ({"$app_version": "2.4.0", "$app_build": "119"}, False),
+                    ({"$app_version": "2.4.0"}, False),
+                ],
+            ),
         ]
     )
     def test_converted_rule_matches_what_sentry_filtered(

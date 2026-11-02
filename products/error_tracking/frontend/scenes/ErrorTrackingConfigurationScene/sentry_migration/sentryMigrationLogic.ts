@@ -455,5 +455,9 @@ export const sentryMigrationLogic = kea<sentryMigrationLogicType>([
             builtInFiltersLogic.findMounted()?.actions.loadBuiltInFilters()
             actions.loadPreview({ keepSelection: true })
         },
+        // Only a new preview has item IDs that match Sentry again, and no other control in the wizard reloads it.
+        applyImportFailure: () => {
+            actions.loadPreview({ keepSelection: true })
+        },
     })),
 ])

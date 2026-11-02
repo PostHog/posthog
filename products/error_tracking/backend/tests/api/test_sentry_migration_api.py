@@ -68,6 +68,7 @@ class TestSentryMigrationAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.requested: list[tuple[str, str | None]] = []
+        self.client_options: list[dict[str, Any]] = []
 
     def _url(self, action: str) -> str:
         return f"/api/projects/{self.team.id}/error_tracking/sentry_migration/{action}/"
@@ -80,16 +81,24 @@ class TestSentryMigrationAPI(APIBaseTest):
             return routes[route]() if route in routes else httpx.Response(404, json={"detail": "not found"})
 
         def client(url: str, pinned_ips: object, **kwargs: Any) -> httpx.Client:
+            self.client_options.append(kwargs)
             return httpx.Client(transport=httpx.MockTransport(handle), follow_redirects=kwargs["follow_redirects"])
 
         return client
 
-    def _post(self, action: str, routes: dict[str, Callable[[], httpx.Response]], body: dict) -> Any:
+    def _post(
+        self,
+        action: str,
+        routes: dict[str, Callable[[], httpx.Response]],
+        body: dict,
+        *,
+        url_allowed: bool = True,
+    ) -> Any:
+        verdict = PinnedUrlVerdict(
+            allowed=url_allowed, reason=None if url_allowed else "Internal address", pinned_ips=set()
+        )
         with (
-            patch(
-                f"{sentry_client.__name__}.validate_url_and_pin_ips",
-                return_value=PinnedUrlVerdict(allowed=True, reason=None, pinned_ips=set()),
-            ),
+            patch(f"{sentry_client.__name__}.validate_url_and_pin_ips", return_value=verdict),
             patch(f"{sentry_client.__name__}.pinned_client", side_effect=self._fake_sentry(routes)),
         ):
             return self.client.post(self._url(action), {"auth_token": TOKEN, **body}, format="json")
@@ -102,7 +111,7 @@ class TestSentryMigrationAPI(APIBaseTest):
             "/api/0/organizations/": _response(
                 [
                     {"slug": "acme", "name": "Acme", "links": {"regionUrl": "https://de.sentry.io"}},
-                    {"slug": "rogue", "name": "Rogue", "links": {"regionUrl": "https://sentry.example.com"}},
+                    {"slug": "rogue", "name": "Rogue", "links": {"regionUrl": "https://evilsentry.io"}},
                 ],
                 headers=_no_more_pages(),
             ),
@@ -155,14 +164,28 @@ class TestSentryMigrationAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("plain_http_url", {"base_url": "http://sentry.example.com"}, None, "https://", 0),
-            ("malformed_url", {"base_url": "https://[sentry.example.com"}, None, "https://", 0),
-            ("more_pages_than_allowed", {}, ("MAX_PAGES", 1), "more Sentry data than PostHog can read", 1),
-            ("slower_than_the_total_budget", {}, ("TOTAL_TIMEOUT_SECONDS", 0), "took too long", 0),
+            ("plain_http_url", {"base_url": "http://sentry.example.com"}, None, True, "https://", 0),
+            ("malformed_url", {"base_url": "https://[sentry.example.com"}, None, True, "https://", 0),
+            ("internal_address", {"base_url": "https://sentry.internal"}, None, False, "can't connect", 0),
+            (
+                "more_pages_than_allowed",
+                {},
+                ("MAX_PAGES", 1),
+                True,
+                "more Sentry data than PostHog can read",
+                1,
+            ),
+            ("slower_than_the_total_budget", {}, ("TOTAL_TIMEOUT_SECONDS", 0), True, "took too long", 0),
         ]
     )
     def test_connection_limits_return_a_message_instead_of_partial_results(
-        self, _name: str, body: dict, client_override: tuple[str, int] | None, message: str, requests_sent: int
+        self,
+        _name: str,
+        body: dict,
+        client_override: tuple[str, int] | None,
+        url_allowed: bool,
+        message: str,
+        requests_sent: int,
     ) -> None:
         routes = {
             "/api/0/organizations/": _response(
@@ -173,11 +196,21 @@ class TestSentryMigrationAPI(APIBaseTest):
         override = patch.object(sentry_client, *client_override) if client_override else nullcontext()
 
         with override:
-            response = self._post("projects", routes, body)
+            response = self._post("projects", routes, body, url_allowed=url_allowed)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert message in response.json()["detail"]
         assert len(self.requested) == requests_sent
+
+    def test_every_sentry_call_caps_the_response_and_the_time_it_takes(self) -> None:
+        response = self._post("preview", PROJECT_RESPONSES, self._project_body())
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert self.client_options
+        for options in self.client_options:
+            assert options["follow_redirects"] is False
+            assert options["max_response_bytes"] == sentry_client.MAX_RESPONSE_BYTES
+            assert 0 < options["total_timeout"] <= sentry_client.REQUEST_TIMEOUT_SECONDS
 
     def test_preview_then_apply_imports_only_the_selected_items(self) -> None:
         preview = self._post("preview", PROJECT_RESPONSES, self._project_body())
