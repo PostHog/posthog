@@ -425,7 +425,7 @@ describe('evaluationBackfillsLogic', () => {
     it('anchors a relative preset on the project timezone', async () => {
         jest.useFakeTimers()
         try {
-            // New York leaves daylight time on Nov 1, so the 7-day window spans the change.
+            // New York leaves daylight time on Nov 1, so a 14-day window spans the change.
             jest.setSystemTime(new Date('2026-11-02T15:00:00Z'))
             teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, timezone: 'America/New_York' })
             mountLogic()
@@ -433,13 +433,14 @@ describe('evaluationBackfillsLogic', () => {
             await expectLogic(logic).toDispatchActions(['loadBackfillsSuccess', 'requestEstimateSuccess'])
             estimateMock.mockClear()
 
-            logic.actions.setWindowRange('-7d', null)
+            // Not the -7d default, so the request differs from the one the mount already sent.
+            logic.actions.setWindowRange('-14d', null)
             await jest.advanceTimersByTimeAsync(ESTIMATE_DEBOUNCE_MS)
             await expectLogic(logic).toDispatchActions(['requestEstimateSuccess'])
 
             const body = estimateMock.mock.calls[estimateMock.mock.calls.length - 1][2]
-            // Midnight on Oct 26 is still daylight time (UTC-4), not today's UTC-5.
-            expect(body.window_start).toEqual('2026-10-26T04:00:00.000Z')
+            // Midnight on Oct 19 is still daylight time (UTC-4), not today's UTC-5.
+            expect(body.window_start).toEqual('2026-10-19T04:00:00.000Z')
             expect(body.window_end).toEqual(new Date().toISOString())
         } finally {
             jest.useRealTimers()
