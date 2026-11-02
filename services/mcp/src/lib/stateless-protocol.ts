@@ -90,7 +90,6 @@ export function parseRequestProtocolMeta(params: unknown): RequestProtocolMeta {
     }
 }
 
-/** The multi-round-trip fields of a 2026-07-28 `tools/call`, which a handler needs to ask the client for input. */
 export interface ToolCallInputExchange {
     clientCapabilities: Record<string, unknown>
     requestState: string | undefined

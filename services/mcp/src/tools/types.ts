@@ -163,10 +163,7 @@ export type Context = {
         /** Integration id of the connection. */
         connectionId: string
     }
-    /**
-     * Set per call only in the 2026-07-28 dialect. A handler that reads it may return
-     * `inputRequired(...)`, and the client retries the same call with the answers.
-     */
+    /** Set only in the 2026-07-28 dialect. See "Asking the user for input" in src/tools/README.md. */
     inputExchange?: ToolCallInputExchange
 }
 
