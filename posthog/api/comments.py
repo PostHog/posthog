@@ -656,10 +656,13 @@ class CommentPagination(StableCursorPagination):
     ordering = ("-created_at", "-id")
     page_size = 100
 
+    def paginate_queryset(self, queryset: Any, request: Request, view: Any = None) -> list[Any] | None:
+        self.is_first_page = self.cursor_query_param not in request.query_params
+        return super().paginate_queryset(queryset, request, view)
+
     def get_paginated_response(self, data: Any) -> Response:
         # A short first page holds every row, so the total needs no query over the whole set.
-        is_first_page = self.cursor_query_param not in self.request.query_params
-        if is_first_page and len(data) < self.get_page_size(self.request):
+        if self.is_first_page and len(data) < self.page_size:
             count = len(data)
         else:
             count = self.counted_rows.count()
