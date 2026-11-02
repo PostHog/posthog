@@ -66,7 +66,6 @@ from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_sour
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
-from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
 from posthog.permissions import (
     AccessControlPermission,
     get_authenticator_scoped_team_ids,
@@ -177,6 +176,7 @@ from products.workflows.backend.facade.blast_radius import (
     get_audience_size,
     is_account_audience,
     parse_account_audience_filters,
+    reject_flag_conditions_in_audience,
 )
 from products.workflows.backend.facade.broadcast_conversion import (
     BROADCAST_CONVERSION_CANDIDATE_LIMIT,
@@ -597,23 +597,6 @@ def strip_proposal_secrets(content: dict, live_content: dict, template_cache: Op
         for key in secret_keys_for_action(deep_merge(deepcopy(live_step), item), template_cache):
             inputs.pop(key, None)
     return stripped
-
-
-# A batch audience is a one-time snapshot of everyone matching the conditions at run time, so each
-# condition must resolve to a concrete set of persons/groups. Feature flag evaluation is dynamic
-# (rollout %, distinct_id hashing, super-conditions, holdouts) and has no such fixed membership, so a
-# flag condition can't be turned into an audience query — it falls through to a NotImplementedError
-# deeper in HogQL property compilation. Reject it up front with a clear 400 instead.
-BATCH_FLAG_CONDITION_REJECTION = (
-    "Feature flags can't be used as a batch audience condition. Use person properties or cohorts instead."
-)
-
-
-def reject_flag_conditions_in_audience(team: Team, filters: dict) -> None:
-    # Cohorts are expanded so a flag condition nested inside one is still caught.
-    property_groups = expand_cohort_properties(parse_property_group_data((filters or {}).get("properties")), team)
-    if any(prop.type == "flag" for prop in property_groups.flat):
-        raise exceptions.ValidationError(BATCH_FLAG_CONDITION_REJECTION)
 
 
 def _validation_error_message(error: exceptions.ValidationError) -> str:

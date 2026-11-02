@@ -23,6 +23,7 @@ from products.workflows.backend.tasks.batch_jobs import resolve_batch_job_audien
 PERSON_IDS = [f"0197000{i}-0000-0000-0000-000000000000" for i in range(1, 8)]
 
 QUERY = "products.workflows.backend.services.batch_audience_snapshot.get_batch_audience_person_ids_snapshot"
+EXECUTE_QUERY = "products.workflows.backend.services.batch_audience.execute_hogql_query"
 REPLACE_MEMBERS = "products.workflows.backend.services.batch_audience_snapshot._replace_audience_members"
 RESOLVE_TASK = "products.workflows.backend.tasks.batch_jobs.resolve_batch_job_audience_snapshot.delay"
 DELETE_TASK = "products.workflows.backend.tasks.batch_jobs.delete_batch_job_audience_snapshot.delay"
@@ -109,6 +110,22 @@ class TestBatchAudienceSnapshot(TestCase):
         assert job.audience_status == HogFlowBatchJobAudienceStatus.FAILED
         assert expected_reason in (job.audience_error or "")
         assert "connection reset" not in (job.audience_error or "")
+
+    def test_resolve_rejects_a_flag_condition_before_querying(self, _dispatch):
+        job = self._job(
+            audience_status=HogFlowBatchJobAudienceStatus.RESOLVING,
+            filters={"properties": [{"key": "beta", "type": "flag", "value": "true", "operator": "exact"}]},
+        )
+
+        with patch(EXECUTE_QUERY) as mock_execute:
+            resolve_audience_snapshot(
+                team_id=self.team.pk, batch_job_id=str(job.id), dedupe_key=None, max_audience_size=100
+            )
+
+        mock_execute.assert_not_called()
+        job.refresh_from_db()
+        assert job.audience_status == HogFlowBatchJobAudienceStatus.FAILED
+        assert "Feature flags can't be used" in (job.audience_error or "")
 
     def test_request_releases_the_claim_when_the_task_cannot_be_queued(self, _dispatch):
         job = self._job()
