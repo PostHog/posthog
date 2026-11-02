@@ -1,10 +1,13 @@
+from collections.abc import Callable, Hashable
 from datetime import datetime, timedelta
+from threading import Lock
 from typing import Any, TypeVar, Union
 
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
 from django.utils.timezone import now
 
+from cachetools import TTLCache, cached
 from pydantic import BaseModel, ConfigDict, Field
 
 from posthog.schema import (
@@ -39,7 +42,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.hogql.taxonomy_validation import TaxonomyReferenceVisitor
 
 from posthog.cache_utils import cache_for
@@ -102,35 +105,39 @@ class HogQLQueryReferences:
     properties: list[str]
 
 
-class _HogQLReferenceVisitor(TaxonomyReferenceVisitor):
-    """Adds `<alias>.properties.<name>` and `<alias>.properties['<name>']` reads to the base visitor.
+_IsEventsTableByAlias = dict[str, bool]
+_QualifiedRead = tuple[tuple[_IsEventsTableByAlias, ...], str, str]
 
-    The base visitor only knows the unqualified `properties` field. A qualified read counts as an event
-    property only when its alias names the events table, because `persons AS p` also has `p.properties`.
+
+class _HogQLReferenceVisitor(TaxonomyReferenceVisitor):
+    """Adds reads qualified by a table alias to the base visitor.
+
+    The base visitor only knows the unqualified `properties` and `event` fields, and `events.event`. This visitor adds
+    `<alias>.properties.<name>`, `<alias>.properties['<name>']` and comparisons on `<alias>.event`. A qualified read
+    counts only when its alias names the events table in the nearest SELECT that defines the alias, because
+    `persons AS p` also has `p.properties`, and two UNION branches can give the same alias to different tables.
     """
 
     def __init__(self) -> None:
         super().__init__()
-        self._events_aliases: set[str] = {"events"}
-        self._qualified_reads: list[tuple[str, str]] = []
+        self._scopes: list[_IsEventsTableByAlias] = []
+        self._qualified_property_reads: list[_QualifiedRead] = []
+        self._qualified_event_reads: list[_QualifiedRead] = []
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        self._scopes.append({})
+        super().visit_select_query(node)
+        self._scopes.pop()
 
     def visit_join_expr(self, node: ast.JoinExpr) -> None:
-        # The chains are compared as strings because this visitor reads unresolved parse output, and
-        # metadata extraction has no database context. Building one per query to resolve the table
-        # costs more than usage attribution is worth. A missed alias only drops a usage count.
-        if (
-            isinstance(node.table, ast.Field)
-            # nosemgrep: hogql-no-string-table-chain
-            and (node.table.chain == ["events"] or node.table.chain == ["posthog", "events"])
-            and node.alias
-        ):
-            self._events_aliases.add(node.alias)
+        if node.alias and self._scopes:
+            self._scopes[-1][node.alias] = _is_events_table(node.table)
         super().visit_join_expr(node)
 
     def visit_field(self, node: ast.Field) -> None:
         chain = node.chain
         if len(chain) >= 3 and isinstance(chain[0], str) and chain[1] == "properties" and isinstance(chain[2], str):
-            self._qualified_reads.append((chain[0], chain[2]))
+            self._add_read(self._qualified_property_reads, chain[0], chain[2])
         super().visit_field(node)
 
     def visit_array_access(self, node: ast.ArrayAccess) -> None:
@@ -143,24 +150,79 @@ class _HogQLReferenceVisitor(TaxonomyReferenceVisitor):
             and isinstance(node.property, ast.Constant)
             and isinstance(node.property.value, str)
         ):
-            self._qualified_reads.append((array.chain[0], node.property.value))
+            self._add_read(self._qualified_property_reads, array.chain[0], node.property.value)
         super().visit_array_access(node)
 
+    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
+        if node.op == ast.CompareOperationOp.Eq:
+            for field, value in ((node.left, node.right), (node.right, node.left)):
+                alias = _qualified_event_field_alias(field)
+                if alias and isinstance(value, ast.Constant) and isinstance(value.value, str):
+                    self._add_read(self._qualified_event_reads, alias, value.value)
+        elif node.op in (ast.CompareOperationOp.In, ast.CompareOperationOp.GlobalIn):
+            alias = _qualified_event_field_alias(node.left)
+            if alias and isinstance(node.right, (ast.Array, ast.Tuple)):
+                for expr in node.right.exprs:
+                    if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
+                        self._add_read(self._qualified_event_reads, alias, expr.value)
+        super().visit_compare_operation(node)
+
+    def _add_read(self, reads: list[_QualifiedRead], alias: str, name: str) -> None:
+        reads.append((tuple(self._scopes), alias, name))
+
+    # Aliases resolve after the walk, so the order in which the visitor meets a FROM clause and a read does not matter.
+    def qualified_event_names(self) -> list[str]:
+        return [name for scopes, alias, name in self._qualified_event_reads if _alias_names_events(scopes, alias)]
+
     def qualified_event_property_names(self) -> list[str]:
-        # Aliases resolve after the walk, so the order in which the visitor meets a FROM clause and a read does not matter.
-        return [name for alias, name in self._qualified_reads if alias in self._events_aliases]
+        return [name for scopes, alias, name in self._qualified_property_reads if _alias_names_events(scopes, alias)]
 
 
-def _parse_hogql_references(query_str: str) -> HogQLQueryReferences:
+def _is_events_table(table: ast.Expr | None) -> bool:
+    # The chains are compared as strings because this visitor reads unresolved parse output, and
+    # metadata extraction has no database context. Building one per query to resolve the table
+    # costs more than usage attribution is worth. A missed alias only drops a usage count.
+    return isinstance(table, ast.Field) and (
+        # nosemgrep: hogql-no-string-table-chain
+        table.chain == ["events"] or table.chain == ["posthog", "events"]
+    )
+
+
+def _qualified_event_field_alias(expr: ast.Expr) -> str | None:
+    # The base visitor already collects `events.event`.
+    if (
+        isinstance(expr, ast.Field)
+        and len(expr.chain) == 2
+        and isinstance(expr.chain[0], str)
+        and expr.chain[0] != "events"
+        and expr.chain[1] == "event"
+    ):
+        return expr.chain[0]
+    return None
+
+
+def _alias_names_events(scopes: tuple[_IsEventsTableByAlias, ...], alias: str) -> bool:
+    for scope in reversed(scopes):
+        if alias in scope:
+            return scope[alias]
+    # No SELECT defines the name, so it is a table name, as in `FROM events` without `AS`, or an
+    # EventsQuery expression, which has no FROM clause.
+    return alias == "events"
+
+
+def _parse_hogql_references(hogql: str, parse: Callable[[str], ast.Expr]) -> HogQLQueryReferences:
     try:
-        select = parse_select(query_str)
+        node = parse(hogql)
         visitor = _HogQLReferenceVisitor()
-        visitor.visit(select)
+        visitor.visit(node)
     except Exception:
         # Extraction is advisory: an unparseable query contributes no references.
         return HogQLQueryReferences(events=[], properties=[])
     return HogQLQueryReferences(
-        events=[reference.name for reference in visitor.event_literals],
+        events=[
+            *(reference.name for reference in visitor.event_literals),
+            *visitor.qualified_event_names(),
+        ],
         properties=[
             *(reference.name for reference in visitor.property_names),
             *visitor.qualified_event_property_names(),
@@ -180,7 +242,7 @@ class HogQLReferenceExtractor:
 
     def extract(self, query_str: str) -> HogQLQueryReferences:
         if query_str not in self._references:
-            self._references[query_str] = _parse_hogql_references(query_str)
+            self._references[query_str] = _parse_hogql_references(query_str, parse_select)
         return self._references[query_str]
 
 
@@ -399,6 +461,7 @@ class QueryPropertiesExtractor:
         self._collect_breakdowns(node, found)
         self._collect_math_property(node, found)
         self._collect_hogql_properties(node, found)
+        self._collect_events_query_expression_properties(node, found)
         self._collect_action_step_properties(node, found)
         for value in node.values():
             self._walk(value, found)
@@ -467,6 +530,21 @@ class QueryPropertiesExtractor:
         for name in self.hogql_references.extract(hogql).properties:
             self._add(found, "event", name)
 
+    def _collect_events_query_expression_properties(
+        self, node: dict, found: dict[_PropertyKey, QueryPropertyMetadata]
+    ) -> None:
+        if node.get("kind") != "EventsQuery":
+            return
+        for field, parse in (("select", parse_expr), ("where", parse_expr), ("orderBy", parse_order_expr)):
+            expressions = node.get(field)
+            if not isinstance(expressions, list):
+                continue
+            for expression in expressions:
+                if not isinstance(expression, str) or not expression.strip():
+                    continue
+                for name in _parse_hogql_references(expression, parse).properties:
+                    self._add(found, "event", name)
+
     def _collect_action_step_properties(self, node: dict, found: dict[_PropertyKey, QueryPropertyMetadata]) -> None:
         # Series and funnel exclusions name an action by `kind`; retention entities name it by `type`.
         if node.get("kind") not in ("ActionsNode", "FunnelExclusionActionsNode") and node.get("type") != "actions":
@@ -497,7 +575,13 @@ class QueryPropertiesExtractor:
         )
 
 
-@cache_for(timedelta(minutes=1))
+# `cache_for` never drops an entry, so a long-lived process, such as a metadata backfill across every team,
+# would keep the step filters of every action it meets. TTLCache drops expired entries, and the least
+# recently used entry when it is full.
+_action_step_properties_cache: TTLCache[Hashable, list[list[dict]]] = TTLCache(maxsize=1024, ttl=60)
+
+
+@cached(_action_step_properties_cache, lock=Lock())
 def _get_action_step_properties(action_id: int, project_id: int) -> list[list[dict]]:
     try:
         action = Action.objects.get(pk=action_id, team__project_id=project_id)

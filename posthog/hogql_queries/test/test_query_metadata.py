@@ -37,6 +37,7 @@ from posthog.hogql_queries.query_metadata import (
     MAX_PROPERTIES_PER_QUERY_METADATA,
     QueryEventsExtractor,
     QueryPropertiesExtractor,
+    _action_step_properties_cache,
     extract_query_metadata,
 )
 
@@ -335,15 +336,27 @@ class TestQueryEventsExtractor(TestCase):
         result = self.extractor.extract_events(query)
         self.assertCountEqual(result, ["pageview", "click"])
 
-    @parameterized.expand([("data_table_node", "DataTableNode"), ("saved_sql_insight", "DataVisualizationNode")])
-    def test_extract_events_hogql_query(self, _name, wrapper_kind):
-        query = {
-            "kind": wrapper_kind,
-            "source": {
-                "kind": "HogQLQuery",
-                "query": "select count() from events where event = '$pageview' or event in ('signup', 'purchase')",
-            },
-        }
+    @parameterized.expand(
+        [
+            (
+                "data_table_node",
+                "DataTableNode",
+                "select count() from events where event = '$pageview' or event in ('signup', 'purchase')",
+            ),
+            (
+                "saved_sql_insight",
+                "DataVisualizationNode",
+                "select count() from events where event = '$pageview' or event in ('signup', 'purchase')",
+            ),
+            (
+                "events_table_alias",
+                "DataVisualizationNode",
+                "select count() from events e where e.event = '$pageview' or e.event in ('signup', 'purchase')",
+            ),
+        ]
+    )
+    def test_extract_events_hogql_query(self, _name, wrapper_kind, hogql):
+        query = {"kind": wrapper_kind, "source": {"kind": "HogQLQuery", "query": hogql}}
         result = self.extractor.extract_events(query)
         self.assertCountEqual(result, ["$pageview", "signup", "purchase"])
 
@@ -500,6 +513,29 @@ class TestQueryPropertiesExtractor(SimpleTestCase):
                 [("event", "$browser")],
             ),
             (
+                "hogql_alias_resolves_within_its_select",
+                {
+                    "kind": "HogQLQuery",
+                    "query": (
+                        "select p.properties.email from persons p union all select p.properties.$browser from events p"
+                    ),
+                },
+                [("event", "$browser")],
+            ),
+            (
+                "events_query_expressions",
+                {
+                    "kind": "DataTableNode",
+                    "source": {
+                        "kind": "EventsQuery",
+                        "select": ["*", "properties.revenue", "person.properties.email -- Email"],
+                        "where": ["properties.plan = 'pro'"],
+                        "orderBy": ["properties['$browser'] DESC"],
+                    },
+                },
+                [("event", "revenue"), ("event", "plan"), ("event", "$browser")],
+            ),
+            (
                 "legacy_session_duration_math_without_type",
                 {
                     "kind": "TrendsQuery",
@@ -543,6 +579,8 @@ class TestQueryPropertiesExtractor(SimpleTestCase):
 
     @patch("products.actions.backend.models.action.Action.objects.get")
     def test_extract_properties_from_action_steps(self, mock_action_get):
+        _action_step_properties_cache.clear()
+        self.addCleanup(_action_step_properties_cache.clear)
         mock_action_get.return_value = Mock(
             steps=[Mock(properties=[{"key": "plan", "type": "person", "value": "pro"}]), Mock(properties=None)]
         )
