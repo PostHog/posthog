@@ -908,6 +908,7 @@ class TestFakePersonHogClientRepairWrites:
     def test_write_distinct_ids_applies_each_write_only_from_its_expected_state(self):
         insert = person_pb2.DISTINCT_ID_WRITE_ACTION_INSERT
         raise_ = person_pb2.DISTINCT_ID_WRITE_ACTION_RAISE
+        tombstone = person_pb2.DISTINCT_ID_WRITE_ACTION_TOMBSTONE
         applied = person_pb2.DISTINCT_ID_WRITE_OUTCOME_APPLIED
         failed = person_pb2.DISTINCT_ID_WRITE_OUTCOME_PRECONDITION_FAILED
         not_live = person_pb2.DISTINCT_ID_WRITE_OUTCOME_PERSON_NOT_LIVE
@@ -919,6 +920,7 @@ class TestFakePersonHogClientRepairWrites:
             ("live-did", raise_, self.LIVE, 3),
             ("other-did-2", raise_, self.LIVE, 3),
             ("dead-did-raise", raise_, self.TOMB, 3),
+            ("stray-did", tombstone, self.TOMB, 4),
         )
         assert [
             (
@@ -934,7 +936,18 @@ class TestFakePersonHogClientRepairWrites:
             ("live-did", applied, (1, 3, False)),
             ("other-did-2", failed, None),
             ("dead-did-raise", not_live, None),
+            ("stray-did", applied, (3, 4, True)),
         ]
+        (live_owner,) = self._write(("other-did", tombstone, self.OTHER, 4))
+        assert (live_owner.outcome, live_owner.row.version, live_owner.row.is_deleted) == (failed, 0, False)
+        (other_owner,) = self._write(("other-did", tombstone, self.TOMB, 4))
+        assert (other_owner.outcome, other_owner.row.is_deleted) == (failed, False)
+        (retried,) = self._write(("stray-did", tombstone, self.TOMB, 4))
+        assert (retried.outcome, retried.row.version, retried.row.is_deleted) == (
+            person_pb2.DISTINCT_ID_WRITE_OUTCOME_UNCHANGED,
+            4,
+            True,
+        )
 
     def test_rejects_the_whole_batch_before_any_write(self):
         with pytest.raises(ValueError, match="must not be negative"):
