@@ -337,9 +337,8 @@ class EmailIntegration:
             unverified_ids = [sender.id for sender in senders if not sender.config.get("verified")]
             domain_was_verified = self._domain_senders().filter(config__verified=True).exists()
             model.Integration.objects.filter(id__in=unverified_ids).update(config=_with_config_key("verified", True))
-            # A concurrent edit can move this sender off the checked MAIL FROM subdomain, so it may not be among them.
-            verifies_this_sender = self.integration.id in sender_ids
-            if verifies_this_sender:
+            sender_still_uses_checked_mail_from = self.integration.id in sender_ids
+            if sender_still_uses_checked_mail_from:
                 from products.workflows.backend.facade.api import (
                     set_default_email_sender_if_unset,  # noqa: PLC0415 — keeps the workflows facade off the model import path
                 )
@@ -348,7 +347,7 @@ class EmailIntegration:
 
         if sender_ids:
             self._reload_senders_on_workers(sender_ids)
-        if not verifies_this_sender:
+        if not sender_still_uses_checked_mail_from:
             return
         self.integration.config["verified"] = True
         # A sender added to a domain that is already verified joins it, so only the first verification counts.

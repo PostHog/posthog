@@ -941,7 +941,7 @@ class SESProvider:
             id_attrs = self.ses_client.get_identity_verification_attributes(Identities=domains)
             verification = {d: a["VerificationStatus"] for d, a in id_attrs["VerificationAttributes"].items()}
         except ClientError:
-            pass
+            logger.warning("Could not read the SES verification attributes for %s", domains, exc_info=True)
 
         dkim: dict[str, str] = {}
         try:
@@ -949,7 +949,7 @@ class SESProvider:
             dkim_attrs = self.ses_client.get_identity_dkim_attributes(Identities=domains)
             dkim = {d: a["DkimVerificationStatus"] for d, a in dkim_attrs["DkimAttributes"].items()}
         except ClientError:
-            pass
+            logger.warning("Could not read the SES DKIM attributes for %s", domains, exc_info=True)
 
         mail_from: dict[str, IdentityMailFromDomainAttributesTypeDef] = {}
         try:
@@ -957,7 +957,7 @@ class SESProvider:
             mail_from_attrs = self.ses_client.get_identity_mail_from_domain_attributes(Identities=domains)
             mail_from = dict(mail_from_attrs["MailFromDomainAttributes"])
         except ClientError:
-            pass
+            logger.warning("Could not read the SES MAIL FROM attributes for %s", domains, exc_info=True)
 
         return {
             domain: SESIdentityStatus(
