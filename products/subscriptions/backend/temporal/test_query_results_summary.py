@@ -4,12 +4,15 @@ from types import SimpleNamespace
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import override_settings
+
 import httpx
 from openai import APIConnectionError, APIStatusError
 from parameterized import parameterized
 
 from products.subscriptions.backend.temporal.query_results_summary import (
     MAX_CONDENSATION_INPUT_LENGTH,
+    _get_async_openai_client,
     condense_query_results,
 )
 
@@ -82,7 +85,6 @@ class TestCondenseQueryResults:
         }
         assert payload["has_more"] is True
         assert payload["resolved_date_range"] == query_results["resolved_date_range"]
-        assert client.chat.completions.create.call_args.kwargs["posthog_privacy_mode"] is True
 
     async def test_rejects_invalid_summary_without_cutting_it(self) -> None:
         client = MagicMock()
@@ -143,3 +145,29 @@ class TestCondenseQueryResults:
                 with pytest.raises(type(error)):
                     await condense_query_results("EventsQuery", {"result": [["example_event"]]})
         assert client.chat.completions.create.call_count == (2 if retryable else 1)
+
+
+class TestCondensationGatewayClient:
+    @parameterized.expand(
+        [
+            ("team", SimpleNamespace(id=42), {"team_id": "42"}, None),
+            ("no_team", None, {}, "false"),
+        ]
+    )
+    @override_settings(AI_GATEWAY_URL="https://ai-gateway.example.com/v1", AI_GATEWAY_API_KEY="phs_test")
+    def test_bills_the_team_or_opts_out_and_keeps_privacy_mode(
+        self, _name, team, expected_properties, expected_billable
+    ) -> None:
+        client = _get_async_openai_client(team=team, delivery_id=None, user_tag="US/subscription-summary-team-42")
+
+        headers = client.default_headers
+        assert str(client.base_url) == "https://ai-gateway.example.com/v1/"
+        assert client.max_retries == 0
+        assert headers["X-PostHog-Product"] == "subscriptions"
+        assert json.loads(headers["X-PostHog-Properties"]) == {
+            **expected_properties,
+            "summary_stage": "query_condensation",
+            "ai_product": "subscriptions",
+        }
+        assert headers["X-PostHog-Privacy-Mode"] == "true"
+        assert headers.get("X-PostHog-Billable") == expected_billable
