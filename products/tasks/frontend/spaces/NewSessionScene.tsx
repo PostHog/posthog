@@ -33,6 +33,7 @@ export function NewSessionScene(): JSX.Element {
 
     const resolving = !space && spacesLoading
     const failed = !space && spacesUnavailable
+    const noSpace = !space && !spacesLoading && !spacesUnavailable
 
     return (
         <SceneContent className="flex-1">
@@ -52,6 +53,25 @@ export function NewSessionScene(): JSX.Element {
                                     loading={spacesLoading}
                                     onClick={() => loadSpaces()}
                                     data-attr="today-new-session-retry"
+                                >
+                                    Try again
+                                </Button>
+                            </EmptyContent>
+                        </Empty>
+                    ) : noSpace ? (
+                        <Empty className="py-12">
+                            <EmptyHeader>
+                                <EmptyTitle>Your chat space isn’t ready</EmptyTitle>
+                                <EmptyDescription>
+                                    We couldn’t set up a space for your chats. Try again, and if it keeps happening
+                                    contact support.
+                                </EmptyDescription>
+                            </EmptyHeader>
+                            <EmptyContent>
+                                <Button
+                                    variant="outline"
+                                    onClick={() => loadSpaces()}
+                                    data-attr="today-new-session-no-space-retry"
                                 >
                                     Try again
                                 </Button>

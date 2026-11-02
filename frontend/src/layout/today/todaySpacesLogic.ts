@@ -19,6 +19,7 @@ import {
     taskActivityList,
     taskActivityMarkReadCreate,
     taskChannelsList,
+    taskChannelsProvisionDefaultsCreate,
     taskChannelsStarCreate,
     tasksList,
     tasksSummariesCreate,
@@ -389,9 +390,18 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                     if (!values.currentTeamId) {
                         return []
                     }
-                    const response = await taskChannelsList(String(values.currentTeamId))
+                    const projectId = String(values.currentTeamId)
+                    const response = await taskChannelsList(projectId)
                     // Without `limit` the endpoint answers with a bare array rather than a page.
-                    return Array.isArray(response) ? (response as ChannelDTOApi[]) : response.results
+                    const spaces = Array.isArray(response) ? (response as ChannelDTOApi[]) : response.results
+                    if (spaces.some((space) => space.system_role === 'personal')) {
+                        return spaces
+                    }
+                    try {
+                        return (await taskChannelsProvisionDefaultsCreate(projectId)).channels
+                    } catch {
+                        return spaces
+                    }
                 },
             },
         ],
