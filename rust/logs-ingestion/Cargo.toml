@@ -11,26 +11,38 @@ path = "src/lib.rs"
 ahash = { workspace = true }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
+axum = { workspace = true }
 base64 = { workspace = true }
+bytes = { workspace = true }
 chrono = { workspace = true }
 common-alloc = { path = "../common/alloc" }
+common-database = { path = "../common/database" }
+envconfig = { workspace = true }
 futures = { workspace = true }
 hashbrown = { version = "0.15", default-features = false }
 hex = "0.4"
 hmac = { workspace = true }
 itoa = { workspace = true }
 ingestion-framework = { path = "../ingestion-framework" }
+lifecycle = { path = "../common/lifecycle" }
 metrics = { workspace = true }
 rand = { workspace = true }
+rdkafka = { workspace = true }
 redis = { workspace = true }
 regex = { workspace = true }
 regex-automata = "0.4"
+reqwest = { workspace = true }
 serde = { workspace = true }
+serve-metrics = { path = "../common/serve_metrics" }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
+sqlx = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
+tonic = { workspace = true }
 tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+usage-ingestion-proto = { path = "../usage-ingestion-proto" }
 uuid = { workspace = true }
 zstd = { workspace = true }
 

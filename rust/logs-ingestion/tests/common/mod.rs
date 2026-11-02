@@ -108,3 +108,68 @@ pub fn canonical(value: &AvroValue) -> JsValue {
 pub fn canonical_text(records: &[AvroValue]) -> String {
     json_stringify(&JsValue::Array(records.iter().map(canonical).collect()))
 }
+
+/// The inverse of `canonical` for one schema: a fixture's canonical record back to Avro.
+pub fn avro_from_canonical(
+    schema: &logs_ingestion::avro::Schema,
+    value: &JsValue,
+) -> logs_ingestion::avro::AvroValue {
+    use logs_ingestion::avro::{AvroMap, AvroValue, Schema};
+    use std::sync::Arc;
+    let field = |v: &JsValue, k: &str| match v {
+        JsValue::Object(o) => o.get(k).cloned().unwrap_or(JsValue::Null),
+        _ => JsValue::Null,
+    };
+    match (schema, value) {
+        (Schema::Union(branches), v) => {
+            let pick = branches.iter().find(|b| {
+                matches!(
+                    (b, v),
+                    (Schema::Null, JsValue::Null)
+                        | (Schema::Boolean, JsValue::Bool(_))
+                        | (Schema::String | Schema::Enum(_), JsValue::String(_))
+                        | (
+                            Schema::Int | Schema::Long | Schema::Float | Schema::Double,
+                            JsValue::Number(_)
+                        )
+                        | (Schema::Array(_), JsValue::Array(_))
+                        | (
+                            Schema::Bytes | Schema::Fixed(_) | Schema::Map(_) | Schema::Record(_),
+                            JsValue::Object(_)
+                        )
+                )
+            });
+            avro_from_canonical(pick.unwrap_or_else(|| panic!("no branch for {v:?}")), v)
+        }
+        (Schema::Null, _) => AvroValue::Null,
+        (Schema::Boolean, JsValue::Bool(b)) => AvroValue::Boolean(*b),
+        (Schema::Int, JsValue::Number(n)) => AvroValue::Int(*n as i64),
+        (Schema::Long, JsValue::Number(n)) => AvroValue::Long(*n as i64),
+        (Schema::Float, JsValue::Number(n)) => AvroValue::Float(*n),
+        (Schema::Double, JsValue::Number(n)) => AvroValue::Double(*n),
+        (Schema::String, JsValue::String(s)) => AvroValue::String(s.to_string()),
+        (Schema::Bytes, v) => AvroValue::Bytes(hex::decode(string(&field(v, "$bytes"))).unwrap()),
+        (Schema::Array(items), JsValue::Array(a)) => {
+            AvroValue::Array(a.iter().map(|v| avro_from_canonical(items, v)).collect())
+        }
+        (Schema::Map(values), JsValue::Object(o)) => {
+            let mut map = AvroMap::new();
+            for (k, v) in o.iter() {
+                map.assign(k.to_string(), avro_from_canonical(values, v));
+            }
+            AvroValue::Map(map)
+        }
+        (Schema::Record(r), v) => AvroValue::Record(
+            r.fields
+                .iter()
+                .map(|f| {
+                    (
+                        Arc::from(&*f.name),
+                        avro_from_canonical(&f.schema, &field(v, &f.name)),
+                    )
+                })
+                .collect(),
+        ),
+        (s, v) => panic!("cannot rebuild {v:?} as {s:?}"),
+    }
+}

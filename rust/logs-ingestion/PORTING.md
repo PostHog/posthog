@@ -29,13 +29,16 @@ Node writes lone surrogates as `\udXXX`, and serde_json rejects them.
 | `log-record-avro.ts` (normalize, flatten, enrich), `log-record-size.ts`                       | `normalize`       | Done                                        |
 | `sampling/filter-group-match.ts`                                                              | `filter_group`    | Done                                        |
 | `sampling/property-filter-match.ts`, node-re2 `new RE2(p, flags).test`                        | `property_filter` | Done                                        |
-| `sampling/compile-rules.ts`, `sampling/evaluate.ts`, `sampling/logs-sampling.service.ts`     | `sampling`        | Done (rules cache not ported)               |
+| `sampling/compile-rules.ts`, `sampling/evaluate.ts`, `sampling/logs-sampling.service.ts`     | `sampling`        | Done                                        |
 | `retention/*.ts` except the rules and tracing-config caches                                    | `retention`       | Done                                        |
-| `metrics-rules/*.ts`                                                                          | `metric_rules`    | Done (HTTP POST and Postgres cache: traits) |
+| `metrics-rules/*.ts`                                                                          | `metric_rules`    | Done (POST and cache in `service`)          |
 | `internal-logs.ts`                                                                            | `internal_logs`   | Done                                        |
 | `pipeline/log-processing-pipeline.ts`                                                         | `content_weights` | Done                                        |
 | `services/logs-rate-limiter.service.ts`, `common/services/keyed-rate-limiter.service.ts`     | `rate_limiter`    | Done (Redis behind `TokenBucketRedis`)      |
 | `pipeline/*.ts`, `logs-ingestion-consumer.ts`, `traces-ingestion-consumer.ts`, `processLogMessageBuffer`, `app-metrics-aggregator.ts` | `pipeline` | Done (hog transformations: trait slot only) |
+| `servers/ingestion-logs-server.ts`, `servers/ingestion-traces-server.ts`, `logs/config.ts`, `logs/outputs/*`, `common/kafka/consumer/consumer-v2.ts` (batch loop) | `service`, `bin/logs-ingestion.rs` | Done, with shadow mode |
+| `common/utils/team-manager.ts`, `common/utils/lazy-loader.ts`, `quota-limiting.service.ts`, `sampling-rules-cache.ts`, `retention-rules-cache.ts`, `tracing-config-cache.ts`, `metric-rules-cache.ts`, `pattern-message-keys-cache.ts`, `metrics-emitter.ts` (POST), `usage-ingestion/*` | `service` | Done |
+| (no Node counterpart) shadow output comparison | `compare`, `bin/logs-shadow-compare.rs` | Done |
 
 ## API
 
@@ -233,6 +236,25 @@ A parsed `FilterGroupNode` implements `metric_rules::FilterGroupMatcher` with `f
 - Dependencies are traits in `pipeline::deps`. The caller passes the token-bucket transport, the Redis key root and the clock, so a test can pin all three.
 - `pipeline::scenario` builds a consumer from a parity scenario with the in-memory dependencies of `parity-harness.ts`. `tests/parity_corpus.rs` replays all scenarios with it; `PARITY_SCENARIO=<name>` runs one.
 - `src/bin/logs-ingestion-bench.rs` runs a workload in the same format and prints the Node benchmark's result JSON.
+- `scenario_parts` returns the consumer inputs of a scenario before they become a consumer, so a test can swap the outputs.
+- `LogsIngestionConsumerDeps::source_offset_header` stamps `source_offset` on `logs` outputs. Only shadow mode sets it.
+- `KeyRoot::Shadow` (`@posthog-logs-rust-shadow`) is the shadow's Redis key root.
+
+### `service`
+
+[README.md](README.md) covers configuration, the modes and the shadow guards.
+
+- `config::ServiceConfig::from_env(&Env)` reads the Node keys with `overrideConfigWithEnv` semantics (`node_env`) and the `LOGS_RUST_*` keys with envconfig, and applies the shadow guards (`ConfigError`).
+- `consumer_loop::run_consumer_loop(source, processor, config, shutdown, on_tick)` is the batch loop. `BatchSource` (Kafka: `kafka_source::KafkaBatchSource`) and `BatchProcessor` (implemented by `LogsIngestionConsumer`) are its seams.
+- `kafka_outputs::KafkaOutputs` implements `IngestionOutputs` and awaits each delivery report.
+- `postgres` holds `PgTeamManager` and the rule caches, `redis_deps` holds `RedisQuotaLimiting` and a reconnecting Redis connection, `usage::GrpcUsageRecordBatch` the usage client, `lazy_loader::LazyLoader` the `LazyLoader` port.
+- `build_deps` builds what the Node server builds. `shadow_deps` applies the shadow rules to any deps.
+- Postgres errors from a lost connection, a pool timeout or one of Node's `POSTGRES_UNAVAILABLE_ERROR_MESSAGES` become `DependencyUnavailableError`.
+- A Kafka produce error becomes `MessageSizeTooLarge` for code 10, `DependencyUnavailableError` for a full queue, else `Error`.
+
+### `compare`
+
+`Comparator` matches items by `Key` and compares their fields. `compare::kafka::run_compare` feeds it from a consumer. Nothing in the module produces.
 
 ## Not reproduced
 
@@ -242,8 +264,6 @@ A parsed `FilterGroupNode` implements `metric_rules::FilterGroupMatcher` with `f
 - **An `int` that decodes past i64.** avsc keeps the float; this port stores an `i64`.
 - **Decode error precedence across blocks.** When an early block has a bad record and a later block fails to decompress, avsc's async order decides which error comes first. This port reports the first block in order.
 - **Encode error text.** It follows avsc's `invalid <schema>: <value>` shape, but the value is printed with Rust `Debug`. Only a hog transformation that writes a wrongly typed value can reach it. Port it with the transformations.
-- **The HTTP POST of `LogsMetricsEmitter`.** The crate has no HTTP client. `LogsMetricsEmitter` takes an `OtlpTransport` and keeps the body, the two attempts, the 2xx check and the `logs_metrics_rules_export_failed_total{team_id}` counter.
-- **`MetricRulesCache`.** Only its interface is ported, as `MetricRulesSource`.
 - **Flattened JSON keys that differ only by a lone surrogate.** A body such as `{"\ud800":1,"\ud801":2}` gives two attribute keys in Node, and avsc writes both as U+FFFD, so the map holds a duplicate key. `AvroMap` keys are Rust strings, so this port keeps one entry. The same holds for such a key next to a sender key `\ufffd`.
 - **The OpenTelemetry skip counter** (`recordJsonEnrichmentSkipped`). `normalize` emits only the Prometheus `logs_ingestion_json_enrichment_skipped_total`.
 - **`logs_ingestion_pattern_stage_error_total`.** The Rust stamping cannot fail, so it has no catch path.
@@ -254,7 +274,20 @@ A parsed `FilterGroupNode` implements `metric_rules::FilterGroupMatcher` with `f
 - **A Kafka header with a null value.** `parseKafkaHeaders` would throw on it in Node; this port reads it as an empty string.
 - **The OpenTelemetry usage counters** (`recordLogsReceived` and the others in `ingestion-otel-metrics.ts`). The Prometheus counters are ported.
 - **`re2_objects_created_total`.** The tracked-RE2 allocation counter and its LRU cache are not ported; they do not change a result.
-- **The sampling and retention rules caches** (`sampling-rules-cache.ts`, `retention-rules-cache.ts`, `tracing-config-cache.ts`). The compilers take rows.
+
+### Service gaps
+
+- **`first team event ingested`.** `setTeamIngestedEvent` captures a PostHog analytics event to every organization member after the first `ingested_event` write. `PgTeamManager` writes the flag and refreshes the cache, but captures nothing.
+- **Hog transformations in primary mode.** No `LogsTransformer` exists, so a team in `LOGS_TRANSFORMATIONS_ENABLED_TEAMS` is not transformed and writes no `log_entries`. Keep that allowlist empty for a Rust primary.
+- **Offsets after a failed background task.** Node's default consumer (`consumer-v1.ts`, `CONSUMER_USE_V2=false`) stores a batch's offsets in a `finally`, so a failed task's offsets can still commit before the process exits. The port follows `consumer-v2.ts`: a failed task stores nothing from it or any later batch.
+- **Rebalance fencing.** `consumer-v2.ts` fences offset stores by a per-partition epoch and drains in-flight tasks on revoke. The port relies on librdkafka rejecting a store for a partition it no longer holds, so a partition revoked and reassigned to the same member while a task runs can still store that task's offset.
+- **Consumer telemetry.** The node-rdkafka statistics, loop-stall health check and batch histograms are not ported. Liveness is the lifecycle heartbeat on every loop turn.
+- **Produce error classes.** Node marks a produce error retriable from node-rdkafka's `isRetriable`, which a delivery report rarely sets. The port treats only a full producer queue as `DependencyUnavailableError`.
+- **`USAGE_INGESTION_TLS=true`.** The workspace `tonic` has no TLS feature, so the service refuses to start with it.
+- **`LazyLoader` instrumentation.** The OpenTelemetry spans and the hit and miss counters are not ported; `lazy_loader_cache_size` is. Loader retries are not ported, because the logs servers build their loaders without `loaderRetry`.
+- **Rule-cache spans.** The `logs.sampling.*`, `logs.retention.*`, `traces.retention.*` and `logs.patterns.*` span attributes are not ported.
+- **`USAGE_INGESTION_REPORT_TEAMS` with spaces around `*`.** `buildIntegerMatcher` matches all teams only for an exact `*`; the port also accepts ` * `.
+- **The logs Redis password.** Node never passes `LOGS_REDIS_PASSWORD` to the logs Redis client, and neither does the port.
 
 ## Regenerating references
 

@@ -1,4 +1,4 @@
-//! Only the interface of `metric-rules-cache.ts` is ported, not its Postgres-backed cache.
+//! The interface of `metric-rules-cache.ts`. `service::postgres::PgMetricRules` implements it.
 
 use std::sync::Arc;
 
