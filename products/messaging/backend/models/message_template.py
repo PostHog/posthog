@@ -1,7 +1,10 @@
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
 from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import UUIDTModel
+
+from products.messaging.backend.facade.contracts import TemplateManagedBy
 
 KEY_CONSTRAINT = "unique_message_template_key_per_team"
 
@@ -37,6 +40,33 @@ class MessageTemplate(Taggable, UUIDTModel):
         help_text="Client-chosen identifier, unique within this environment among templates that are not deleted. "
         "Letters, numbers, hyphens (-) and underscores (_) only.",
     )
+    managed_by = models.CharField(
+        max_length=400,
+        choices=TemplateManagedBy.choices,
+        null=True,
+        blank=True,
+        help_text="Who owns the template content: `code` for uploads from a repository, `gui` for a template released "
+        "from code to the PostHog app. Null for a template made in PostHog and never uploaded.",
+    )
+    source_repository = models.CharField(
+        max_length=400,
+        null=True,
+        blank=True,
+        help_text="Repository the template was last uploaded from, such as `github.com/example/app`.",
+    )
+    source_path = models.CharField(
+        max_length=400, null=True, blank=True, help_text="Path of the template file in the source repository."
+    )
+    source_ref = models.CharField(
+        max_length=400, null=True, blank=True, help_text="Commit or branch of the last upload."
+    )
+    content_hash = models.CharField(
+        max_length=80,
+        null=True,
+        blank=True,
+        help_text="Hash of the published subject, preheader, HTML and text, as `v1:` and 64 hex characters.",
+    )
+    superseded_content_hashes = ArrayField(models.CharField(max_length=80), null=True, blank=True)
 
     class Meta:
         db_table = "posthog_messagetemplate"

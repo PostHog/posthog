@@ -193,3 +193,8 @@ class EmailStatus:
     status_at: datetime
     # Why a send failed, or the bounce type of a bounced email.
     reason: str | None = None
+
+
+class TemplateManagedBy(LabeledStrEnum):
+    GUI = "gui", "GUI"
+    CODE = "code", "Code"
