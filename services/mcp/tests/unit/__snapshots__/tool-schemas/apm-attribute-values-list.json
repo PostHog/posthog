@@ -41,7 +41,6 @@
         },
         "value": {
             "description": "Search filter for attribute values.",
-            "minLength": 1,
             "type": "string"
         }
     },

@@ -36,7 +36,6 @@
         },
         "search": {
             "description": "Search filter for attribute names.",
-            "minLength": 1,
             "type": "string"
         },
         "search_values": {

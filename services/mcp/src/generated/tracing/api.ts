@@ -328,7 +328,7 @@ export const TracingSpansAttributesRetrieveQueryParams = () => zod.object({
         .min(tracingSpansAttributesRetrieveQueryOffsetMin)
         .default(tracingSpansAttributesRetrieveQueryOffsetDefault)
         .describe('Pagination offset (default: 0).'),
-    search: zod.string().min(1).optional().describe('Search filter for attribute names.'),
+    search: zod.string().optional().describe('Search filter for attribute names.'),
     search_values: zod
         .boolean()
         .default(tracingSpansAttributesRetrieveQuerySearchValuesDefault)
@@ -1212,5 +1212,5 @@ export const TracingSpansValuesRetrieveQueryParams = () => zod.object({
         .min(tracingSpansValuesRetrieveQueryOffsetMin)
         .default(tracingSpansValuesRetrieveQueryOffsetDefault)
         .describe('Pagination offset (default: 0).'),
-    value: zod.string().min(1).optional().describe('Search filter for attribute values.'),
+    value: zod.string().optional().describe('Search filter for attribute values.'),
 })
