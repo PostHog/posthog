@@ -481,6 +481,8 @@ class ApplicableRulesCollector implements RobotsParseHandler {
     private forWildcard = false
     private hasRules = false
 
+    constructor(private readonly maxLineLength: number) {}
+
     handleRobotsStart(): void {}
     handleRobotsEnd(): void {}
     reportLineMetadata(): void {}
@@ -513,11 +515,16 @@ class ApplicableRulesCollector implements RobotsParseHandler {
             return
         }
         this.hasRules = true
+        const line = `${directive}:${value}`
+        // The second parse truncates a line past the limit. A truncated Allow permits more than its rule, so it goes. A truncated Disallow only refuses more.
+        if (directive === 'Allow' && line.length > this.maxLineLength) {
+            return
+        }
         if (this.forBot) {
-            this.botRules.push(`${directive}:${value}`)
+            this.botRules.push(line)
         }
         if (this.forWildcard) {
-            this.wildcardRules.push(`${directive}:${value}`)
+            this.wildcardRules.push(line)
         }
     }
 }
@@ -525,9 +532,10 @@ class ApplicableRulesCollector implements RobotsParseHandler {
 /** The robots.txt that decides the same URLs for this bot, with one group for the bot and one for `*`. */
 export function applicableRobotsBody(
     body: string,
-    parseRobotsTxt: typeof import('@trybyte/robotstxt-parser').parseRobotsTxt
+    { parseRobotsTxt, K_MAX_LINE_LEN }: typeof import('@trybyte/robotstxt-parser')
 ): string {
-    const collector = new ApplicableRulesCollector()
+    // The parser keeps one character less than K_MAX_LINE_LEN on a line.
+    const collector = new ApplicableRulesCollector(K_MAX_LINE_LEN - 1)
     parseRobotsTxt(body, collector)
     return [
         ...(collector.botRules.length ? [`User-agent:${BOT_NAME}`, ...collector.botRules] : []),
@@ -573,7 +581,7 @@ async function parseRobotsConfiguration(body: string): Promise<ParsedRobotsConfi
     const robotsParser = await import('@trybyte/robotstxt-parser')
     const { ParsedRobots, parseRobotsTxt } = robotsParser
     return {
-        matcher: ParsedRobots.parse(applicableRobotsBody(body, parseRobotsTxt)),
+        matcher: ParsedRobots.parse(applicableRobotsBody(body, robotsParser)),
         fields: selectedExtensionFields(body, parseRobotsTxt),
     }
 }

@@ -136,7 +136,7 @@ describe('robots policy', () => {
     })
 
     it('keeps only the rules that apply to this bot, and decides the same URLs', async () => {
-        const { parseRobotsTxt } = await import('@trybyte/robotstxt-parser')
+        const robotsParser = await import('@trybyte/robotstxt-parser')
         const body = [
             'Disallow: /no-group',
             'User-agent: otherbot',
@@ -154,7 +154,7 @@ describe('robots policy', () => {
             'Allow: /second/public.png',
         ].join('\n')
 
-        expect(applicableRobotsBody(body, parseRobotsTxt)).toBe(
+        expect(applicableRobotsBody(body, robotsParser)).toBe(
             [
                 'User-agent:PostHogImageFetcherBot',
                 'Disallow:/first',
@@ -174,6 +174,16 @@ describe('robots policy', () => {
         ] as const) {
             await expect(parseRobotsPolicy(body, `${ORIGIN}${path}`)).resolves.toMatchObject({ allowed })
         }
+    })
+
+    it('refuses a URL when only a shortened copy of a long Allow rule would permit it', async () => {
+        const accents = 'é'.repeat(300)
+        const body = `User-agent: *\nDisallow: /\nAllow: /${accents}${'*'.repeat(15_000)}/kept.png`
+
+        await expect(parseRobotsPolicy(body, `${ORIGIN}/${encodeURI(accents)}/other.png`)).resolves.toMatchObject({
+            allowed: false,
+            reason: 'robots_disallow',
+        })
     })
 
     it('applies a path-scoped Content-Signal only to a matching URL', async () => {
