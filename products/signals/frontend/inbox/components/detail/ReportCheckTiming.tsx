@@ -31,7 +31,9 @@ export function ReportCheckTiming({
                     <span>
                         {timing.state === 'monitoring'
                             ? 'Final verification scheduled for: '
-                            : timing.state === 'window_ended' || timing.state === 'verifying'
+                            : ['window_ended', 'verifying', 'assessment_required', 'verification_complete'].includes(
+                                    timing.state
+                                )
                               ? 'Window ended: '
                               : 'Window end: '}
                     </span>

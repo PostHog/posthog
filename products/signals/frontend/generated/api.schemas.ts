@@ -5788,6 +5788,8 @@ export type SignalReportCheckConfigApi = MetricThresholdConfigApi | AgentCheckCo
 /**
  * * `monitoring` - Monitoring
  * * `verifying` - Verifying
+ * * `assessment_required` - Assessment required
+ * * `verification_complete` - Verification complete
  * * `scheduled` - Scheduled
  * * `due` - Due
  * * `window_ended` - Window ended
@@ -5804,6 +5806,8 @@ export type MonitoringCheckTimingStateEnumApi =
 export const MonitoringCheckTimingStateEnumApi = {
     Monitoring: 'monitoring',
     Verifying: 'verifying',
+    AssessmentRequired: 'assessment_required',
+    VerificationComplete: 'verification_complete',
     Scheduled: 'scheduled',
     Due: 'due',
     WindowEnded: 'window_ended',
@@ -5816,10 +5820,12 @@ export const MonitoringCheckTimingStateEnumApi = {
 } as const
 
 export interface MonitoringCheckTimingApi {
-    /** Whether this check is Monitoring, awaiting or running final verification, has an interim measurement due, or is paused. No state implies a final verdict.
+    /** Server-derived Monitoring phase, including interim measurements, final verification, and assessment. Read the check outcome for its verdict.
      *
      * * `monitoring` - Monitoring
      * * `verifying` - Verifying
+     * * `assessment_required` - Assessment required
+     * * `verification_complete` - Verification complete
      * * `scheduled` - Scheduled
      * * `due` - Due
      * * `window_ended` - Window ended

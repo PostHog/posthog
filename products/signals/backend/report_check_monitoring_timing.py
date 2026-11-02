@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -11,7 +12,9 @@ from posthog.dataclasses import frozen
 from products.signals.backend.models import SignalReportMonitoringResult, SignalScoutRun
 from products.signals.backend.report_check_final_agents import MonitoringScoutCheck, _monitoring_binding_for_run
 from products.signals.backend.report_checks import MAX_CHECK_HORIZON, monitoring_window_end
+from products.signals.backend.report_monitoring_aggregation import MonitoringMemberState
 from products.signals.backend.report_monitoring_attempts import check_definition_version
+from products.signals.backend.report_monitoring_outcomes import _member_results, _member_state
 from products.signals.backend.report_monitoring_results import InvalidMonitoringResult
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S, TRIGGERED_BY_MONITORING
 
@@ -22,6 +25,8 @@ if TYPE_CHECKING:
 class MonitoringCheckTimingState(TextChoices):
     MONITORING = "monitoring", "Monitoring"
     VERIFYING = "verifying", "Verifying"
+    ASSESSMENT_REQUIRED = "assessment_required", "Assessment required"
+    VERIFICATION_COMPLETE = "verification_complete", "Verification complete"
     SCHEDULED = "scheduled", "Scheduled"
     DUE = "due", "Due"
     WINDOW_ENDED = "window_ended", "Window ended"
@@ -34,6 +39,12 @@ class MonitoringCheckTimingState(TextChoices):
 
 
 @frozen
+class MonitoringCheckVerification:
+    run: MonitoringScoutCheck | None = None
+    results: tuple[SignalReportMonitoringResult, ...] = ()
+
+
+@frozen
 class MonitoringCheckTiming:
     state: MonitoringCheckTimingState
     started_at: datetime | None
@@ -41,11 +52,28 @@ class MonitoringCheckTiming:
     next_measurement_at: datetime | None = None
 
     @classmethod
-    def running_verifications(
+    def final_verifications(
         cls, report: SignalReport, *, now: datetime, attempt: SignalReportMonitoringAttempt
-    ) -> dict[UUID, MonitoringScoutCheck]:
-        submitted = SignalReportMonitoringResult.objects.for_team(report.team_id).filter(attempt_id=attempt.id)
-        submitted_ids = set(submitted.values_list("submission_id", flat=True))
+    ) -> dict[UUID, MonitoringCheckVerification]:
+        submitted = list(
+            SignalReportMonitoringResult.objects.for_team(report.team_id)
+            .filter(attempt_id=attempt.id)
+            .only(
+                "report_check_id",
+                "submission_id",
+                "definition_version",
+                "window_start",
+                "window_end",
+                "evaluated_at",
+                "evidence_status",
+                "outcome",
+                "expectation_matches",
+            )
+        )
+        submitted_ids = {result.submission_id for result in submitted}
+        results_by_check: defaultdict[UUID, list[SignalReportMonitoringResult]] = defaultdict(list)
+        for result in submitted:
+            results_by_check[result.report_check_id].append(result)
         runs = (
             SignalScoutRun.objects.for_team(report.team_id)
             .only("team_id", "metadata")
@@ -71,7 +99,10 @@ class MonitoringCheckTiming:
                 and binding.submission_id not in submitted_ids
             ):
                 running[binding.check_id] = binding
-        return running
+        return {
+            check_id: MonitoringCheckVerification(run=running.get(check_id), results=tuple(results_by_check[check_id]))
+            for check_id in running.keys() | results_by_check.keys()
+        }
 
     @staticmethod
     def _agent_state(
@@ -81,7 +112,7 @@ class MonitoringCheckTiming:
         start: datetime,
         end: datetime,
         attempt: SignalReportMonitoringAttempt | None,
-        verification: MonitoringScoutCheck | None,
+        verification: MonitoringCheckVerification | None,
     ) -> MonitoringCheckTimingState:
         version = check_definition_version(check)
         if (
@@ -89,16 +120,25 @@ class MonitoringCheckTiming:
             or attempt.report_id != check.report_id
             or attempt.monitoring_started_at != start
             or attempt.check_versions.get(str(check.id)) != version
+            or check.report.team.parent_team_id is not None
         ):
             return MonitoringCheckTimingState.PAUSED
         if now < end:
             return MonitoringCheckTimingState.MONITORING
+        if verification is None:
+            return MonitoringCheckTimingState.WINDOW_ENDED
+        state = _member_state(_member_results(check, version, attempt, list(verification.results), now))
+        if state in {MonitoringMemberState.INCONCLUSIVE, MonitoringMemberState.EXHAUSTED}:
+            return MonitoringCheckTimingState.ASSESSMENT_REQUIRED
+        if state in {MonitoringMemberState.PASSED, MonitoringMemberState.FAILED}:
+            return MonitoringCheckTimingState.VERIFICATION_COMPLETE
+        run = verification.run
         if (
-            verification is not None
-            and verification.check_id == check.id
-            and verification.window_start == start
-            and verification.window_end == end
-            and verification.definition_version == version
+            run is not None
+            and run.check_id == check.id
+            and run.window_start == start
+            and run.window_end == end
+            and run.definition_version == version
         ):
             return MonitoringCheckTimingState.VERIFYING
         return MonitoringCheckTimingState.WINDOW_ENDED
@@ -110,7 +150,7 @@ class MonitoringCheckTiming:
         *,
         now: datetime,
         attempt: SignalReportMonitoringAttempt | None = None,
-        verification: MonitoringScoutCheck | None = None,
+        verification: MonitoringCheckVerification | None = None,
     ) -> MonitoringCheckTiming | None:
         report = check.report
         archived = (

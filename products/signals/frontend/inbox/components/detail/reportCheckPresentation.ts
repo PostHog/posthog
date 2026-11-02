@@ -134,6 +134,14 @@ const MONITORING_CHECK_ROWS: Record<
         tag: { label: 'Verifying', type: 'primary' },
         detail: 'The scout is running the final check.',
     },
+    assessment_required: {
+        tag: { label: 'Inconclusive', type: 'warning' },
+        detail: 'Final verification could not settle this check. Further assessment is needed.',
+    },
+    verification_complete: {
+        tag: { label: 'Verification complete', type: 'info' },
+        detail: 'A final verdict has been recorded for this check.',
+    },
     scheduled: {
         tag: { label: 'Scheduled', type: 'primary' },
         detail: 'Interim measurements collect evidence during this check’s observation window.',

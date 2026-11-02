@@ -4,6 +4,8 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.models import Team
+
 from products.signals.backend.models import SignalReport, SignalReportCheck, SignalReportMonitoringAttempt
 from products.signals.backend.report_check_monitoring_timing import MonitoringCheckTiming
 from products.signals.backend.report_monitoring_attempts import check_definition_version
@@ -94,15 +96,29 @@ class TestMonitoringCheckTiming(SimpleTestCase):
             ("agent_exact_deadline", "agent", "active", 360, False, True, "window_ended"),
             ("agent_past_deadline", "agent", "active", 60, False, True, "window_ended"),
             ("agent_zero_soak", "agent", "active", 0, False, True, "window_ended"),
+            ("child_before_deadline", "agent", "active", 1440, True, True, "paused", 2),
+            ("child_after_deadline", "agent", "active", 60, True, True, "paused", 2),
             ("terminal", "metric_threshold", "errored", 1440, True, True, None),
         ]
     )
     def test_only_armed_monitoring_metrics_offer_measurements(
-        self, _name: str, kind: str, status: str, soak: int | None, definition: bool, has_start: bool, state: str | None
+        self,
+        _name: str,
+        kind: str,
+        status: str,
+        soak: int | None,
+        definition: bool,
+        has_start: bool,
+        state: str | None,
+        parent_team_id: int | None = None,
     ) -> None:
         now = datetime(2026, 10, 20, tzinfo=UTC)
         start = now - timedelta(hours=6)
-        report = SignalReport(team_id=1, status="monitoring", monitoring_started_at=start if has_start else None)
+        report = SignalReport(
+            team=Team(id=1, parent_team_id=parent_team_id),
+            status="monitoring",
+            monitoring_started_at=start if has_start else None,
+        )
         check = SignalReportCheck(
             team_id=1,
             report=report,

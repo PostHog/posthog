@@ -45,8 +45,11 @@ from products.signals.backend.enums import (
     SignalSourceType,
     SuggestedSourceProduct,
 )
-from products.signals.backend.report_check_final_agents import MonitoringScoutCheck
-from products.signals.backend.report_check_monitoring_timing import MonitoringCheckTiming, MonitoringCheckTimingState
+from products.signals.backend.report_check_monitoring_timing import (
+    MonitoringCheckTiming,
+    MonitoringCheckTimingState,
+    MonitoringCheckVerification,
+)
 from products.signals.backend.report_checks import (
     CHECK_CONFIG_SCHEMAS,
     DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN,
@@ -2862,7 +2865,7 @@ def redact_check_config(config: Mapping[str, object], policy: ReportMetricAccess
 class MonitoringCheckTimingSerializer(serializers.Serializer):
     state = serializers.ChoiceField(
         choices=MonitoringCheckTimingState.choices,
-        help_text="Whether this check is Monitoring, awaiting or running final verification, has an interim measurement due, or is paused. No state implies a final verdict.",
+        help_text="Server-derived Monitoring phase, including interim measurements, final verification, and assessment. Read the check outcome for its verdict.",
     )
     started_at = serializers.DateTimeField(
         allow_null=True, help_text="Original Monitoring start for this check's report."
@@ -2916,16 +2919,19 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
         timing = MonitoringCheckTiming.for_check(instance, now=now, attempt=attempt)
         if timing is None or timing.state != MonitoringCheckTimingState.WINDOW_ENDED or attempt is None:
             return timing
-        running_by_report = cast(
-            dict[uuid.UUID, dict[uuid.UUID, MonitoringScoutCheck]],
-            self.context.setdefault("report_check_running_verifications", {}),
+        verifications_by_report = cast(
+            dict[uuid.UUID, dict[uuid.UUID, MonitoringCheckVerification]],
+            self.context.setdefault("report_check_final_verifications", {}),
         )
-        if instance.report_id not in running_by_report:
-            running_by_report[instance.report_id] = MonitoringCheckTiming.running_verifications(
+        if instance.report_id not in verifications_by_report:
+            verifications_by_report[instance.report_id] = MonitoringCheckTiming.final_verifications(
                 instance.report, now=now, attempt=attempt
             )
         return MonitoringCheckTiming.for_check(
-            instance, now=now, attempt=attempt, verification=running_by_report[instance.report_id].get(instance.id)
+            instance,
+            now=now,
+            attempt=attempt,
+            verification=verifications_by_report[instance.report_id].get(instance.id),
         )
 
     @extend_schema_field(MonitoringCheckTimingSerializer(allow_null=True))

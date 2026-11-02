@@ -170,6 +170,32 @@ describe('reportCheckPresentation', () => {
                 'The scout is running the final check.',
             ],
             [
+                'a settled inconclusive evaluation needs assessment',
+                {
+                    monitoring_timing: {
+                        state: 'assessment_required',
+                        started_at: '2026-09-20T09:00:00Z',
+                        ends_at: '2026-09-27T09:00:00Z',
+                        next_measurement_at: null,
+                    },
+                },
+                'Inconclusive',
+                'Final verification could not settle this check. Further assessment is needed.',
+            ],
+            [
+                'a recorded verdict does not promise another final run',
+                {
+                    monitoring_timing: {
+                        state: 'verification_complete',
+                        started_at: '2026-09-20T09:00:00Z',
+                        ends_at: '2026-09-27T09:00:00Z',
+                        next_measurement_at: null,
+                    },
+                },
+                'Verification complete',
+                'A final verdict has been recorded for this check.',
+            ],
+            [
                 'a paused Monitoring check does not promise a scout run',
                 {
                     monitoring_timing: {
