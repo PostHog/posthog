@@ -30,6 +30,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.raygun.ray
 from products.warehouse_sources.backend.temporal.data_imports.sources.raygun.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    METRICS_ENDPOINTS,
+    METRICS_INCREMENTAL_LOOKBACK_SECONDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -42,6 +44,10 @@ Grant the token these read scopes for the tables you want to sync:
 - `customers:read` — Customers
 - `rum.sessions:read` — Sessions
 - `rum.pages:read` — Pages
+- `cr.errors:read` — Error instances
+- `deployments:read` and `cr.errors:read` — Deployment error groups
+- `metrics:errors` — Error metrics
+- `metrics:pages` — Page metrics
 """
 
 
@@ -128,9 +134,15 @@ class RaygunSource(ResumableSource[RaygunSourceConfig, RaygunResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Raygun exposes no server-side "updated since" filter, so every endpoint is full refresh —
-        # no endpoint declares incremental fields, so none support incremental/append sync.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        # Incremental endpoints re-read rows at the watermark (metric buckets, the last page of error
+        # instances), so append would duplicate them; they merge on their primary keys instead.
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=[name for name, fields in INCREMENTAL_FIELDS.items() if fields],
+            default_incremental_lookback_seconds=dict.fromkeys(METRICS_ENDPOINTS, METRICS_INCREMENTAL_LOOKBACK_SECONDS),
+        )
 
     def validate_credentials(
         self,
@@ -170,7 +182,9 @@ class RaygunSource(ResumableSource[RaygunSourceConfig, RaygunResumeConfig]):
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
-            db_incremental_field_last_value=None,  # every Raygun endpoint is full refresh
+            db_incremental_field_last_value=(
+                inputs.db_incremental_field_last_value if inputs.should_use_incremental_field else None
+            ),
         )
 
     @property

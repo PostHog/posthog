@@ -10,23 +10,19 @@ import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { projectLogic } from 'scenes/projectLogic'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { urls } from 'scenes/urls'
 
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import { REPORT_AI_PANEL } from '~/layout/ai/aiPanelIds'
+import { attachedContextItemKey } from '~/layout/ai/attachedContext'
+import type { AttachedContextItem } from '~/layout/ai/attachedContext'
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
+import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
+import type { ActiveCreation } from '~/layout/ai/runnerPanelLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
-import {
-    attachedContextItemKey,
-    attachedContextLogic,
-    runnerPanelLogic,
-    runStreamLogic,
-    taskRunDefaultsLogic,
-    wrapWithPosthogContext,
-} from 'products/posthog_ai/frontend/api/logics'
-import type { ActiveCreation } from 'products/posthog_ai/frontend/api/logics'
-import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
+import { runStreamLogic, taskRunDefaultsLogic, wrapWithPosthogContext } from 'products/posthog_ai/frontend/api/logics'
 import { submitWithWarmRunRetry } from 'products/posthog_ai/frontend/utils/warmRunSubmission'
 import {
     tasksCreate,

@@ -163,7 +163,8 @@ class TestWizardSessionViewSet(APIBaseTest):
 
         self.assertEqual(WizardSession.objects.unscoped().filter(team=self.team).count(), 2)
 
-    def test_list_returns_sessions_ordered_by_started_at_desc(self):
+    @parameterized.expand([("1", "1"), ("1.0", "1.0")])
+    def test_list_returns_sessions_ordered_by_started_at_desc(self, limit, offset):
         self.client.post(
             self._url(),
             self._payload(
@@ -187,6 +188,10 @@ class TestWizardSessionViewSet(APIBaseTest):
         self.assertEqual(len(results), 2)
         self.assertEqual(results[0]["started_at"], "2026-05-19T19:00:00Z")
         self.assertEqual(results[1]["started_at"], "2026-05-19T09:00:00Z")
+
+        second_page = self.client.get(self._url() + f"?limit={limit}&offset={offset}").json()
+        self.assertEqual(second_page["count"], 2)
+        self.assertEqual([row["started_at"] for row in second_page["results"]], ["2026-05-19T09:00:00Z"])
 
     def test_list_filters_by_workflow_and_skill(self):
         self.client.post(

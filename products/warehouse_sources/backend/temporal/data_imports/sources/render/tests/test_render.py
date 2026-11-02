@@ -359,6 +359,82 @@ class TestFanOut:
 
         assert result.requests[1].param("startTime") == "2024-01-01T00:00:00Z"
 
+    def test_metric_series_explode_into_one_row_per_point(self) -> None:
+        with time_machine.travel(datetime(2026, 6, 1, tzinfo=UTC), tick=False):
+            result = _run(
+                "metrics_http_requests",
+                _pages(
+                    self.SERVICES_PAGE,
+                    [
+                        {
+                            "labels": [{"field": "statusCode", "value": "500"}, {"field": "host", "value": "a.io"}],
+                            "unit": "count",
+                            "values": [
+                                {"timestamp": "2026-05-31T00:00:00Z", "value": 3},
+                                {"timestamp": "2026-05-31T00:05:00Z", "value": 1},
+                            ],
+                        },
+                        {
+                            "labels": [{"field": "statusCode", "value": "200"}, {"field": "host", "value": "a.io"}],
+                            "unit": "count",
+                            "values": [{"timestamp": "2026-05-31T00:00:00Z", "value": 40}],
+                        },
+                    ],
+                    [{"labels": [], "unit": "count", "values": []}],
+                ),
+            )
+
+        metric_requests = result.requests[1:]
+        assert [request.path for request in metric_requests] == ["/v1/metrics/http-requests"] * 2
+        assert [request.param("resource") for request in metric_requests] == ["srv-1", "srv-2"]
+        # Without an explicit startTime Render returns only the last hour.
+        assert {request.param("startTime") for request in metric_requests} == {"2026-05-03T00:00:00Z"}
+        assert {request.param("resolutionSeconds") for request in metric_requests} == {"300"}
+        # Two series share a timestamp, so the labels must make the (service, series, timestamp) key unique.
+        assert result.rows == [
+            {
+                "serviceId": "srv-1",
+                "seriesKey": "host=a.io,statusCode=500",
+                "labels": {"statusCode": "500", "host": "a.io"},
+                "unit": "count",
+                "timestamp": "2026-05-31T00:00:00Z",
+                "value": 3,
+            },
+            {
+                "serviceId": "srv-1",
+                "seriesKey": "host=a.io,statusCode=500",
+                "labels": {"statusCode": "500", "host": "a.io"},
+                "unit": "count",
+                "timestamp": "2026-05-31T00:05:00Z",
+                "value": 1,
+            },
+            {
+                "serviceId": "srv-1",
+                "seriesKey": "host=a.io,statusCode=200",
+                "labels": {"statusCode": "200", "host": "a.io"},
+                "unit": "count",
+                "timestamp": "2026-05-31T00:00:00Z",
+                "value": 40,
+            },
+        ]
+
+    def test_postgres_insights_read_the_list_out_of_the_response_object(self) -> None:
+        result = _run(
+            "postgres_table_scans",
+            [
+                *_pages([{"postgres": {"id": "dpg-1"}}, {"postgres": {"id": "dpg-2"}}]),
+                # Insights are unavailable on some instances; one must not fail the table.
+                ScriptedResponse(status=400, json={"message": "unavailable"}),
+                *_pages({"tableScans": [{"Database": "app", "Schema": "public", "Table": "users", "Scans": 7}]}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths[1:] == ["/v1/postgres/dpg-1/query/table-scans", "/v1/postgres/dpg-2/query/table-scans"]
+        assert result.rows == [
+            {"postgresId": "dpg-2", "Database": "app", "Schema": "public", "Table": "users", "Scans": 7}
+        ]
+
 
 class TestSensitiveEndpointHandling:
     def test_env_group_secret_values_are_redacted_from_rows(self) -> None:
