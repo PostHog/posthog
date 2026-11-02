@@ -26,12 +26,17 @@ EVENTS_DATA_RETENTION_FLAG = "events-data-retention"
 EVENTS_DATA_RETENTION_FEATURE = AvailableFeature.PRODUCT_ANALYTICS_DATA_RETENTION
 
 
-def should_enforce_events_retention(team_id: int) -> bool:
-    """Whether events-data-retention is enforced for this team — the cohort gate.
+def plan_retention_months(team: Team) -> int:
+    return team.event_retention_months or DEFAULT_EVENT_RETENTION_MONTHS
 
-    Keyed on team_id so it stays DB-free on the HogQL hot path: the settings override wins (ops kill switch /
-    local + test toggle), otherwise a cohort flag on cloud, evaluated locally against the team's distinct id.
-    Self-hosted never enforces — those users own their data.
+
+def should_enforce_events_retention(team: Team) -> bool:
+    """Whether events-data-retention is enforced for this team.
+
+    The settings override wins (ops kill switch, local and test toggle). Otherwise, on cloud, the cohort flag decides.
+    The flag is evaluated locally against the team's distinct id, its plan window and its organization, so a rollout
+    can target a plan window such as the free plan's 12 months and leave out organizations by id.
+    Self-hosted never enforces, because those users own their data.
     """
     if settings.EVENTS_DATA_RETENTION_ENFORCED is not None:
         return settings.EVENTS_DATA_RETENTION_ENFORCED
@@ -42,7 +47,11 @@ def should_enforce_events_retention(team_id: int) -> bool:
     return bool(
         posthoganalytics.feature_enabled(
             EVENTS_DATA_RETENTION_FLAG,
-            str(team_id),
+            str(team.id),
+            person_properties={
+                "plan_retention_months": plan_retention_months(team),
+                "organization_id": str(team.organization_id),
+            },
             only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
@@ -53,23 +62,20 @@ def events_retention_months_for_team(team: Optional[Team], team_id: Optional[int
     """Months of events retention to floor a query's events scans to, or None if retention isn't enforced.
 
     The plan's window, shortened by the window set in project or organization settings. Computed once per query in
-    prepare_ast_for_printing. The cohort gate runs first and is DB-free, so non-cohort teams (the vast majority during
-    rollout) never hit Postgres here — only an enforced team triggers the lean field load.
+    prepare_ast_for_printing. A caller without a team object pays one lean field load, because the flag targets
+    the plan window and the organization.
     """
-    if team_id is None:
+    if team is None:
+        if team_id is None:
+            return None
+        team = Team.objects.filter(id=team_id).only("organization_id", "event_retention_months").first()
         if team is None:
             return None
-        team_id = team.id
 
-    if not should_enforce_events_retention(team_id):
+    if not should_enforce_events_retention(team):
         return None
 
-    if team is None:
-        team = Team.objects.filter(id=team_id).only("event_retention_months").first()
-        if team is None:
-            return None
-
-    plan_months = team.event_retention_months or DEFAULT_EVENT_RETENTION_MONTHS
+    plan_months = plan_retention_months(team)
     configured_months = _configured_events_retention_months(team)
     return min(plan_months, configured_months) if configured_months is not None else plan_months
 

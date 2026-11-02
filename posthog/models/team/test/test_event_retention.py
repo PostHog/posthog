@@ -2,18 +2,22 @@ from datetime import timedelta
 from typing import cast
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
+from posthoganalytics.client import Client
 
 from posthog.models.events_retention_config import TeamEventsRetentionConfig
 from posthog.models.organization import Organization, ProductFeature
 from posthog.models.team.event_retention import (
+    EVENTS_DATA_RETENTION_FLAG,
     events_retention_months_for_team,
     parse_events_feature_to_months,
     reconcile_organization_events_retention,
+    should_enforce_events_retention,
 )
 from posthog.models.team.team import Team
 
@@ -40,6 +44,55 @@ class TestParseEventsFeatureToMonths:
     )
     def test_parse(self, feature: dict | None, expected: int) -> None:
         assert parse_events_feature_to_months(cast(ProductFeature | None, feature)) == expected
+
+
+EXCLUDED_ORGANIZATION_ID = "00000000-0000-0000-0000-000000000001"
+OTHER_ORGANIZATION_ID = "00000000-0000-0000-0000-000000000002"
+
+FREE_PLANS_EXCEPT_ONE_ORGANIZATION = {
+    "id": 1,
+    "key": EVENTS_DATA_RETENTION_FLAG,
+    "active": True,
+    "filters": {
+        "groups": [
+            {
+                "properties": [
+                    {"key": "plan_retention_months", "type": "person", "operator": "exact", "value": ["12"]},
+                    {
+                        "key": "organization_id",
+                        "type": "person",
+                        "operator": "is_not",
+                        "value": [EXCLUDED_ORGANIZATION_ID],
+                    },
+                ],
+                "rollout_percentage": 100,
+            }
+        ]
+    },
+}
+
+
+@override_settings(EVENTS_DATA_RETENTION_ENFORCED=None)
+class TestShouldEnforceEventsRetention(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("free_plan", 12, OTHER_ORGANIZATION_ID, True),
+            ("free_plan_in_excluded_organization", 12, EXCLUDED_ORGANIZATION_ID, False),
+            ("paid_plan", 84, OTHER_ORGANIZATION_ID, False),
+        ]
+    )
+    def test_flag_can_target_free_plans_and_leave_out_organizations(
+        self, _name: str, plan_months: int, organization_id: str, enforced: bool
+    ) -> None:
+        client = Client(project_api_key="test-key", send=False, enable_exception_autocapture=False)
+        client.feature_flags = [FREE_PLANS_EXCEPT_ONE_ORGANIZATION]
+        team = Team(id=1, organization_id=organization_id, event_retention_months=plan_months)
+
+        with (
+            patch("posthog.models.team.event_retention.is_cloud", return_value=True),
+            patch("posthog.models.team.event_retention.posthoganalytics.feature_enabled", client.feature_enabled),
+        ):
+            assert should_enforce_events_retention(team) is enforced
 
 
 class TestReconcileOrganizationEventsRetention(BaseTest):
