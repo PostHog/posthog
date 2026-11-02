@@ -16,6 +16,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.apple_sear
     AppleSearchAdsAuthError,
     AppleSearchAdsResumeConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.apple_search_ads.oauth import (
+    MISSING_TOKEN_MESSAGE,
+    TOKEN_REFRESH_FAILED_MESSAGE,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.apple_search_ads.settings import (
     APPLE_ADS_API_VERSION_V1,
     APPLE_SEARCH_ADS_API_VERSION_V5,
@@ -134,6 +138,17 @@ class TestAppleSearchAdsSource:
 
         assert any(str(status) in key and host in key for key in errors)
         assert all(message for message in errors.values())
+
+    @parameterized.expand(
+        [
+            ("token_refresh_failed", TOKEN_REFRESH_FAILED_MESSAGE),
+            ("missing_access_token", MISSING_TOKEN_MESSAGE),
+        ]
+    )
+    def test_non_retryable_errors_cover_oauth_grant_failures(self, _name: str, error_msg: str) -> None:
+        # Raised by `apple_ads_access_token` when the stored Apple Ads grant can't be refreshed;
+        # retrying mints no new token, so this must stop the sync rather than retry it forever.
+        assert error_message_matches(error_msg, self.source.get_non_retryable_errors().keys())
 
     @parameterized.expand(
         [
