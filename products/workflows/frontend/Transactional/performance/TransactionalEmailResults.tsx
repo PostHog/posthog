@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { AnalyticsMetricCard } from 'lib/components/AnalyticsMetricCard/AnalyticsMetricCard'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -12,8 +12,10 @@ import { messageTemplatesLogic } from '../../TemplateLibrary/messageTemplatesLog
 import { transactionalEmailPerformanceLogic } from './transactionalEmailPerformanceLogic'
 
 export function TransactionalEmailResults(): JSX.Element {
-    const { resultsQuery, results, resultsLoading, canLoadResults } = useValues(transactionalEmailPerformanceLogic)
-    const { setResultsQuery } = useActions(transactionalEmailPerformanceLogic)
+    const { resultsQuery, results, resultsLoading, resultsFailed, canLoadResults } = useValues(
+        transactionalEmailPerformanceLogic
+    )
+    const { setResultsQuery, loadResults } = useActions(transactionalEmailPerformanceLogic)
     const { transactionalTemplates } = useValues(messageTemplatesLogic)
 
     const emailOptions = transactionalTemplates
@@ -72,6 +74,17 @@ export function TransactionalEmailResults(): JSX.Element {
                 <p className="text-secondary text-sm m-0">
                     Choose an email and the event that counts as a conversion, such as a signup or a purchase.
                 </p>
+            ) : resultsFailed && !resultsLoading ? (
+                <LemonBanner
+                    type="error"
+                    action={{
+                        children: 'Try again',
+                        onClick: () => loadResults(),
+                        'data-attr': 'transactional-email-results-retry',
+                    }}
+                >
+                    These results couldn't load. Try again, or pick a shorter window.
+                </LemonBanner>
             ) : !resultsLoading && results?.recipients === 0 ? (
                 <p className="text-secondary text-sm m-0">
                     Nobody was sent this email in this period, or the sends named no distinct ID.
