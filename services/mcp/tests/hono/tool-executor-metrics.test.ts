@@ -1081,6 +1081,52 @@ describe('ToolExecutor metrics', () => {
                 expect(trackToolCallExtras('skill-get')).toMatchObject({ $mcp_skill_name: 'conductor' })
             })
         })
+
+        // Most issue reads arrive as JSON inside a command string. Without this the event
+        // records that an agent read *an* issue, but not which one it can be followed to.
+        describe('error tracking issue calls', () => {
+            const issueId = '01890c6b-3f1a-7d2e-9b4c-5a6d7e8f9a0b'
+
+            function contextResolving(request: ReturnType<typeof vi.fn>): any {
+                return {
+                    api: mockApi({ request, getProjectBaseUrl: () => 'https://us.posthog.com/project/2' }),
+                    cache: {},
+                    env: {},
+                    stateManager: { getProjectId: vi.fn().mockResolvedValue('2') },
+                    sessionManager: {},
+                    getDistinctId: vi.fn(),
+                    trackEvent: vi.fn(),
+                }
+            }
+
+            it('records the issue when an exec-routed read succeeds', async () => {
+                await executor.handleToolCall(
+                    {
+                        name: 'exec',
+                        arguments: { command: `call query-error-tracking-issue {"issueId":"${issueId}"}` },
+                    },
+                    { ...execState(), context: contextResolving(vi.fn().mockResolvedValue({ id: issueId })) }
+                )
+
+                expect(mockTrackToolCall.mock.calls.at(-1)?.[2]).toBe(false)
+                expect(mockTrackToolCall.mock.calls.at(-1)?.[4]).toMatchObject({ error_tracking_issue_id: issueId })
+            })
+
+            // A failed update changed nothing, so stamping it would count as an action taken.
+            it('records no issue when the call fails', async () => {
+                await executor.handleToolCall(
+                    {
+                        name: 'exec',
+                        arguments: {
+                            command: `call error-tracking-issues-partial-update {"id":"${issueId}","status":"resolved"}`,
+                        },
+                    },
+                    { ...execState(), context: contextResolving(vi.fn().mockRejectedValue(new Error('boom'))) }
+                )
+
+                expect(mockTrackToolCall.mock.calls.at(-1)?.[4]).not.toHaveProperty('error_tracking_issue_id')
+            })
+        })
     })
 
     describe('render-ui', () => {
