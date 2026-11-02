@@ -425,12 +425,19 @@ jobs:
             # The image keeps its .map files when the sourcemap upload fails, and they must not be public.
             # The build marker is written last: a pod-start gate reads it as proof that every file above
             # is in the bucket.
+            #
+            # Each environment publishes only once its role variable is set, so the publish rolls out one
+            # bucket at a time and a missing variable skips the bucket instead of blocking every deploy.
+            # A step timeout keeps a stalled upload from eating the job's whole budget.
             - name: Assume the dev static-assets role
+              if: vars.AWS_STATIC_ASSETS_DEV_UPLOAD_IAM_ROLE != ''
               uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
               with:
                   role-to-assume: ${{ vars.AWS_STATIC_ASSETS_DEV_UPLOAD_IAM_ROLE }}
                   aws-region: us-east-1
             - name: Publish frontend assets to dev
+              if: vars.AWS_STATIC_ASSETS_DEV_UPLOAD_IAM_ROLE != ''
+              timeout-minutes: 10
               env:
                   BUCKET: posthog-cloud-dev-us-east-1-static-assets
               run: |
@@ -440,11 +447,14 @@ jobs:
                   aws s3api put-object --bucket "$BUCKET" --key "static/builds/$GITHUB_SHA" --cache-control "no-cache"
 
             - name: Assume the prod-us static-assets role
+              if: vars.AWS_STATIC_ASSETS_PROD_US_UPLOAD_IAM_ROLE != ''
               uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
               with:
                   role-to-assume: ${{ vars.AWS_STATIC_ASSETS_PROD_US_UPLOAD_IAM_ROLE }}
                   aws-region: us-east-1
             - name: Publish frontend assets to prod-us
+              if: vars.AWS_STATIC_ASSETS_PROD_US_UPLOAD_IAM_ROLE != ''
+              timeout-minutes: 10
               env:
                   BUCKET: posthog-cloud-prod-us-east-1-static-assets
               run: |
@@ -454,11 +464,14 @@ jobs:
                   aws s3api put-object --bucket "$BUCKET" --key "static/builds/$GITHUB_SHA" --cache-control "no-cache"
 
             - name: Assume the prod-eu static-assets role
+              if: vars.AWS_STATIC_ASSETS_PROD_EU_UPLOAD_IAM_ROLE != ''
               uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
               with:
                   role-to-assume: ${{ vars.AWS_STATIC_ASSETS_PROD_EU_UPLOAD_IAM_ROLE }}
                   aws-region: eu-central-1
             - name: Publish frontend assets to prod-eu
+              if: vars.AWS_STATIC_ASSETS_PROD_EU_UPLOAD_IAM_ROLE != ''
+              timeout-minutes: 10
               env:
                   BUCKET: posthog-cloud-prod-eu-central-1-static-assets
               run: |
