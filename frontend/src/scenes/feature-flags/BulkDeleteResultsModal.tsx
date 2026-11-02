@@ -205,9 +205,7 @@ export function BulkDeleteResultsModal(): JSX.Element | null {
                     <div className="space-y-2">
                         <div className="flex items-center gap-2 text-success font-medium">
                             <IconCheck className="text-lg" />
-                            <span>
-                                Deleted {stillDeletedFlags.length} flag{stillDeletedFlags.length !== 1 ? 's' : ''}
-                            </span>
+                            <span>Deleted {pluralize(stillDeletedFlags.length, 'flag')}</span>
                         </div>
                         <FlagResultsList flags={stillDeletedFlags} />
                     </div>
