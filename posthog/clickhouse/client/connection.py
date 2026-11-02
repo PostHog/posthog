@@ -24,7 +24,7 @@ from posthog.dataclasses import frozen
 if TYPE_CHECKING:
     from clickhouse_connect.driver import Client as HttpClient
 
-from posthog.clickhouse.workload import Workload
+from posthog.clickhouse.workload import LogsClusterSignal, Workload
 from posthog.settings import data_stores
 from posthog.utils import patchable
 
@@ -160,6 +160,11 @@ class ClickHouseUser(StrEnum):
     ALERTS_PLATFORM_INSIGHT = "alerts_platform_insight"
     # Exists on the logs cluster only. Pass it with Workload.LOGS, never as a query tag.
     ALERTS_PLATFORM_LOGS = "alerts_platform_logs"
+    # One user per logs-cluster signal. Each exists on the logs cluster only; pass it with Workload.LOGS,
+    # never as a query tag. A HogQL query picks the user from the signal of the tables that it reads.
+    LOGS = "logs"
+    METRICS = "metrics"
+    TRACES = "traces"
     # The platform's own bookkeeping, shared by every source: its check history and the default
     # user of its evaluation worker. A source's checks keep their own user, so a new source never
     # takes from another source's budget.
@@ -451,7 +456,20 @@ def get_http_client(**overrides):
 
 # Named users that exist on the logs cluster. Every other named user exists on the main cluster
 # only, and sync_execute assigns some of them (APP, API) from tags without checking the workload.
-LOGS_CLUSTER_USERS: frozenset[ClickHouseUser] = frozenset({ClickHouseUser.ALERTS_PLATFORM_LOGS})
+LOGS_CLUSTER_USERS: frozenset[ClickHouseUser] = frozenset(
+    {
+        ClickHouseUser.ALERTS_PLATFORM_LOGS,
+        ClickHouseUser.LOGS,
+        ClickHouseUser.METRICS,
+        ClickHouseUser.TRACES,
+    }
+)
+
+LOGS_CLUSTER_SIGNAL_USERS: Mapping[LogsClusterSignal, ClickHouseUser] = {
+    LogsClusterSignal.LOGS: ClickHouseUser.LOGS,
+    LogsClusterSignal.METRICS: ClickHouseUser.METRICS,
+    LogsClusterSignal.TRACES: ClickHouseUser.TRACES,
+}
 
 
 def connection_creds(workload: Workload, ch_user: ClickHouseUser) -> ClickHouseCredentials | None:

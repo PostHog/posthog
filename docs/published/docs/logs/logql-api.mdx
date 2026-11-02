@@ -68,8 +68,9 @@ When the budget is empty, the next request returns `429` with `Retry-After`. Gra
 
 The endpoint proxies to [Snuffle](https://github.com/PostHog/snuffle), which runs next to the logs ClickHouse cluster. Configure it with these environment variables on the web pods:
 
-| Variable                                    | Purpose                                                                                              |
-| ------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `SNUFFLE_APM_URL`                           | Base URL of Snuffle. Empty turns the endpoint off and it answers `501`.                              |
-| `SNUFFLE_APM_USER` / `SNUFFLE_APM_PASSWORD` | ClickHouse credential that Snuffle uses. Defaults to the logs cluster user. Prefer a read-only user. |
-| `SNUFFLE_APM_TIMEOUT_SECONDS`               | Upstream request timeout. Default `60`.                                                              |
+| Variable                                                 | Purpose                                                                                                                                                                                   |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SNUFFLE_APM_URL`                                        | Base URL of Snuffle. Empty turns the endpoint off and it answers `501`.                                                                                                                   |
+| `SNUFFLE_APM_USER` / `SNUFFLE_APM_PASSWORD`              | ClickHouse credential that Snuffle uses. Defaults to the logs cluster user. Prefer a read-only user.                                                                                      |
+| `CLICKHOUSE_LOGS_USER` / `CLICKHOUSE_LOGS_PASSWORD_FILE` | Optional ClickHouse user for logs queries, this endpoint included. When set, the endpoint sends it in place of `SNUFFLE_APM_USER`. `CLICKHOUSE_LOGS_PASSWORD` works in place of the file. |
+| `SNUFFLE_APM_TIMEOUT_SECONDS`                            | Upstream request timeout. Default `60`.                                                                                                                                                   |

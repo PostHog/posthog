@@ -7,12 +7,14 @@ from parameterized import parameterized
 from posthog.hogql import ast
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.logs import LogAttributesTable, LogsKafkaMetricsTable, LogsTable
+from posthog.hogql.database.schema.spans import TraceSpansTable
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.workload import WorkloadCollector
 
-from posthog.clickhouse.workload import Workload
+from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.workload import LogsClusterSignal, Workload
 
 
 class TestWorkloadCollector:
@@ -103,6 +105,20 @@ class TestWorkloadCollector:
         assert Workload.LOGS in collector.workloads
         assert collector.get_workload() == Workload.LOGS
 
+    @parameterized.expand(
+        [
+            ("one_signal", [LogsTable(), LogAttributesTable()], LogsClusterSignal.LOGS),
+            ("two_signals", [LogsTable(), TraceSpansTable()], None),
+            ("logs_table_without_signal", [LogsTable(), LogsTable(logs_cluster_signal=None)], None),
+        ]
+    )
+    def test_collector_finds_one_logs_cluster_signal(self, _name, tables, expected):
+        collector = WorkloadCollector()
+        for table in tables:
+            collector.visit(ast.TableType(table=table))
+
+        assert collector.get_logs_cluster_signal() == expected
+
 
 class TestExecuteHogQLQueryWorkload(BaseTest):
     @parameterized.expand(
@@ -120,3 +136,33 @@ class TestExecuteHogQLQueryWorkload(BaseTest):
             execute_hogql_query(query=parse_select(query), team=self.team, workload=requested)
 
         assert sync_execute.call_args.kwargs["workload"] == expected
+
+    @parameterized.expand(
+        [
+            ("logs", "SELECT 1 FROM logs", ClickHouseUser.DEFAULT, ClickHouseUser.LOGS),
+            ("log_attributes", "SELECT 1 FROM log_attributes", ClickHouseUser.DEFAULT, ClickHouseUser.LOGS),
+            ("metric_samples", "SELECT 1 FROM posthog.metric_samples", ClickHouseUser.DEFAULT, ClickHouseUser.METRICS),
+            ("spans", "SELECT 1 FROM posthog.trace_spans", ClickHouseUser.DEFAULT, ClickHouseUser.TRACES),
+            ("app_user_on_metrics", "SELECT 1 FROM posthog.metric_samples", ClickHouseUser.APP, ClickHouseUser.METRICS),
+            (
+                "logs_and_spans",
+                "SELECT 1 FROM logs WHERE trace_id IN (SELECT trace_id FROM posthog.trace_spans)",
+                ClickHouseUser.DEFAULT,
+                ClickHouseUser.DEFAULT,
+            ),
+            (
+                "named_logs_user",
+                "SELECT 1 FROM logs",
+                ClickHouseUser.ALERTS_PLATFORM_LOGS,
+                ClickHouseUser.ALERTS_PLATFORM_LOGS,
+            ),
+            ("events", "SELECT 1 FROM events", ClickHouseUser.APP, ClickHouseUser.APP),
+        ]
+    )
+    def test_logs_cluster_tables_pick_the_user_of_their_signal(
+        self, _name: str, query: str, requested: ClickHouseUser, expected: ClickHouseUser
+    ) -> None:
+        with patch("posthog.hogql.query.sync_execute", return_value=([], [])) as sync_execute:
+            execute_hogql_query(query=parse_select(query), team=self.team, workload=Workload.ONLINE, ch_user=requested)
+
+        assert sync_execute.call_args.kwargs["ch_user"] == expected
