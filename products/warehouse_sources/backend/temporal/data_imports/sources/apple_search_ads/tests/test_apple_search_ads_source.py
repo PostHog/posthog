@@ -1,3 +1,4 @@
+import time
 from datetime import date
 from typing import Any, cast
 
@@ -6,6 +7,8 @@ from unittest import mock
 
 import requests
 from parameterized import parameterized
+
+from posthog.models.integration import Integration, OauthIntegration
 
 from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldCredentialAccountSelectConfig,
@@ -19,6 +22,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.apple_sear
 from products.warehouse_sources.backend.temporal.data_imports.sources.apple_search_ads.oauth import (
     MISSING_TOKEN_MESSAGE,
     TOKEN_REFRESH_FAILED_MESSAGE,
+    AppleAdsOauthError,
+    apple_ads_access_token,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.apple_search_ads.settings import (
     APPLE_ADS_API_VERSION_V1,
@@ -441,3 +446,43 @@ class TestAppleSearchAdsSource:
 
         assert accounts == []
         mock_client.assert_not_called()
+
+
+def _apple_ads_integration(*, refreshed_seconds_ago: int, **config: Any) -> Integration:
+    return Integration(
+        kind="apple-ads",
+        config={"expires_in": 3600, "refreshed_at": int(time.time()) - refreshed_seconds_ago, **config},
+        sensitive_config={"access_token": "old-token", "refresh_token": "refresh-token"},
+    )
+
+
+class TestAppleAdsAccessToken:
+    def test_a_transient_refresh_failure_keeps_the_old_token(self) -> None:
+        # `refresh_access_token` also sets `errors` for a network error, a 429, or a 5xx - none
+        # of which say the grant is dead. Regression: this used to raise on `errors` alone, which
+        # would have disabled a sync over one self-recovering blip.
+        integration = _apple_ads_integration(refreshed_seconds_ago=7200)
+
+        def fake_refresh(oauth: OauthIntegration) -> None:
+            oauth.integration.errors = "TOKEN_REFRESH_FAILED"
+
+        with mock.patch.object(OauthIntegration, "refresh_access_token", fake_refresh):
+            token = apple_ads_access_token(integration)
+
+        assert token == "old-token"
+
+    def test_a_terminal_refresh_failure_raises_the_reconnect_error(self) -> None:
+        integration = _apple_ads_integration(refreshed_seconds_ago=7200)
+
+        def fake_refresh(oauth: OauthIntegration) -> None:
+            oauth.integration.config["refresh_terminal"] = True
+
+        with mock.patch.object(OauthIntegration, "refresh_access_token", fake_refresh):
+            with pytest.raises(AppleAdsOauthError, match=TOKEN_REFRESH_FAILED_MESSAGE):
+                apple_ads_access_token(integration)
+
+    def test_no_access_token_raises(self) -> None:
+        integration = Integration(kind="apple-ads", config={}, sensitive_config={})
+
+        with pytest.raises(AppleAdsOauthError, match=MISSING_TOKEN_MESSAGE):
+            apple_ads_access_token(integration)
