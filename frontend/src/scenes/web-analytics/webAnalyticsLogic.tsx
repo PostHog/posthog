@@ -50,7 +50,6 @@ import { userLogic } from 'scenes/userLogic'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { WEB_VITALS_COLORS, WEB_VITALS_THRESHOLDS } from '~/queries/nodes/WebVitals/definitions'
 import { hogqlQuery } from '~/queries/query'
-import { isCompareFilter, isWebAnalyticsPropertyFilters } from '~/queries/schema-guards'
 import {
     ActionConversionGoal,
     ActionsNode,
@@ -73,6 +72,7 @@ import {
     WebStatsTableQuery,
     WebVitalsMetric,
 } from '~/queries/schema/schema-general'
+import { isCompareFilter, isWebAnalyticsPropertyFilters } from '~/queries/web-analytics-schema-guards'
 import {
     AvailableFeature,
     BaseMathType,
