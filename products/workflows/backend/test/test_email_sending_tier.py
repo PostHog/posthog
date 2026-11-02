@@ -262,7 +262,7 @@ class TestEmailSendingTierDecision(SimpleTestCase):
         self, _name: str, sent: int, bounced: int, complained: int, expected_tier: int
     ) -> None:
         decision = decide_tier(
-            history=history(sent=sent, hard_bounced=bounced, complained=complained),
+            history=history(sent=sent, hard_bounced=bounced, complained=complained, daily_sends=clean_days(1, sent)),
             current_tier=2,
             tier_updated_at=timezone.now() - timedelta(days=30),
             suspended=False,
@@ -289,6 +289,17 @@ class TestEmailSendingTierDecision(SimpleTestCase):
         )
         assert decision.new_tier == expected_tier
         assert decision.reason == expected_reason
+
+    def test_sandbox_sends_alone_do_not_hold_off_inactivity_decay(self) -> None:
+        # Sandbox sends leave the team's own domain idle, so its reputation goes stale all the same.
+        decision = decide_tier(
+            history=history(sent=500, daily_sends={}),
+            current_tier=3,
+            tier_updated_at=timezone.now() - timedelta(days=40),
+            suspended=False,
+        )
+        assert decision.new_tier == 2
+        assert decision.reason == "inactive"
 
     @parameterized.expand([("dwell met at the low tier", 0, 1), ("dwell not met at the high tier", 2, 2)])
     @override_settings(WORKFLOWS_EMAIL_TIER_MIN_DAYS_AT_TIER=[3, 3, 5])

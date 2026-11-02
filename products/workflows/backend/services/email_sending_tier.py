@@ -48,8 +48,8 @@ class TeamSendingHistory:
     hard_bounced: int
     complained: int
     auto_paused: bool
-    # Sends per calendar day, keyed "YYYY-MM-DD". Used to tell steady use of a tier apart from one
-    # burst of the same total.
+    # Own-domain sends per calendar day, keyed "YYYY-MM-DD", without sandbox sends. Used to tell
+    # steady use of a tier apart from one burst of the same total, and an idle domain from a used one.
     daily_sends: dict[str, int]
 
     @property
@@ -220,7 +220,7 @@ def decide_tier(
     if (
         decay_days > 0
         and current_tier > MIN_EMAIL_SENDING_TIER
-        and history.sent == 0
+        and not history.daily_sends
         and tier_updated_at is not None
         and now - tier_updated_at >= timedelta(days=decay_days)
     ):
