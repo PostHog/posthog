@@ -9,7 +9,7 @@ from typing import Any
 
 import structlog
 
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationManager
 
 from products.messaging.backend.facade.categories import list_categories
 from products.workflows.backend.facade.contracts import (
@@ -26,7 +26,7 @@ from products.workflows.backend.services.customerio_import.app_api import Custom
 
 logger = structlog.get_logger(__name__)
 
-_MESSAGE_ACTION_TYPES = {"email_action", "webhook_action", "attribute_update_action"}
+_MESSAGE_ACTION_TYPES = {"email_action", "webhook_action", "attribute_update_action", "create_event_action"}
 
 
 def import_content(
@@ -40,6 +40,7 @@ def import_content(
 ) -> ImportContent:
     sender_addresses = {**_identity_addresses(sender_identities), **options.sender_addresses}
     segment_info = {**_segment_info(segments), **options.segments}
+    snippets = options.snippets
     fetch_notes: dict[str, tuple[ImportNote, ...]] = {}
     fetched = False
 
@@ -57,6 +58,8 @@ def import_content(
                 sender_addresses = _identity_addresses(api.sender_identities())
             if not segment_info:
                 segment_info = _segment_info(api.segments())
+            if not snippets:
+                snippets = _snippet_values(api.snippets())
         except CustomerioApiError as error:
             logger.info("workflows.import.customerio_lookup_failed", team_id=team_id, status=error.status)
         filled: list[CampaignSource] = []
@@ -81,7 +84,7 @@ def import_content(
     return ImportContent(
         sources=sources,
         options=ImportOptions(
-            snippets=options.snippets,
+            snippets=snippets,
             segment_cohorts=options.segment_cohorts,
             layouts=options.layouts,
             sender_addresses=sender_addresses,
@@ -147,14 +150,14 @@ def _template_from_app_action(app_action: dict[str, Any]) -> dict[str, Any]:
 
 
 def _stored_app_api_key(team_id: int) -> str | None:
-    integration = Integration.objects.filter(team_id=team_id, kind=Integration.IntegrationKind.CUSTOMERIO_APP).first()
+    integration = IntegrationManager.customerio_app.token.find(team_id)
     key = (integration.sensitive_config or {}).get("app_api_key") if integration else None
     return str(key) if key else None
 
 
 def _team_senders(team_id: int) -> dict[str, ImportSender]:
     senders: dict[str, ImportSender] = {}
-    for integration in Integration.objects.filter(team_id=team_id, kind=Integration.IntegrationKind.EMAIL):
+    for integration in IntegrationManager.email.credentials.list(team_id):
         config = integration.config or {}
         address = str(config.get("email") or integration.integration_id or "").lower()
         if address:
@@ -191,4 +194,12 @@ def _segment_info(segments: list[dict[str, Any]]) -> dict[str, ImportSegment]:
         str(segment["id"]): ImportSegment(name=str(segment.get("name") or ""), type=str(segment.get("type") or ""))
         for segment in segments
         if isinstance(segment, dict) and segment.get("id") is not None
+    }
+
+
+def _snippet_values(snippets: list[dict[str, Any]]) -> dict[str, str]:
+    return {
+        str(snippet["name"]): str(snippet.get("value") or "")
+        for snippet in snippets
+        if isinstance(snippet, dict) and snippet.get("name")
     }

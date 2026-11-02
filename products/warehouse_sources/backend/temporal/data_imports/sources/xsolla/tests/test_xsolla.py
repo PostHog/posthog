@@ -121,6 +121,77 @@ def test_project_tables_read_each_project_and_resume_after_finished_projects(dri
     assert result.saved_states[-1] == XsollaResumeConfig(project_id=31)
 
 
+def test_promotion_rewards_read_each_promotion_skip_deleted_ones_and_resume(driver: SourceDriver) -> None:
+    result = driver.run(
+        "promotion_rewards",
+        route(
+            {
+                "/merchants/123/promotions": [ScriptedResponse(json=[{"id": 40}, {"id": 10}, {"id": 30}, {"id": 20}])],
+                "/merchants/123/promotions/20/rewards": [
+                    ScriptedResponse(json={"id": 20, "purchase": {"discount_percent": 15}})
+                ],
+                "/merchants/123/promotions/30/rewards": [
+                    ScriptedResponse(status=404, json={"http_status_code": 404, "message": "Promotion not found"})
+                ],
+                "/merchants/123/promotions/40/rewards": [ScriptedResponse(json={"subscription": {"trial_days": 7}})],
+            }
+        ),
+        resume_state=XsollaResumeConfig(promotion_id=20),
+    )
+
+    assert result.raised is None
+    assert [(row["promotion_id"], row.get("purchase"), row.get("subscription")) for row in result.rows] == [
+        (20, {"discount_percent": 15}, None),
+        (40, None, {"trial_days": 7}),
+    ]
+    assert not any("/promotions/10/" in url for url in result.urls)
+    assert result.saved_states[-1] == XsollaResumeConfig(promotion_id=41)
+
+
+@pytest.mark.parametrize(
+    "now,resume_state,expected_periods",
+    [
+        (
+            "2010-03-15T12:00:00Z",
+            None,
+            [("2010-01-01", "2010-01-31"), ("2010-02-01", "2010-02-28"), ("2010-03-01", "2010-03-15")],
+        ),
+        (
+            "2012-03-01T12:00:00Z",
+            XsollaResumeConfig(window_start="2011-12-01"),
+            [
+                ("2011-12-01", "2011-12-31"),
+                ("2012-01-01", "2012-01-31"),
+                ("2012-02-01", "2012-02-29"),
+                ("2012-03-01", "2012-03-01"),
+            ],
+        ),
+    ],
+)
+def test_payouts_breakdown_reads_calendar_months_and_stamps_the_period(
+    driver: SourceDriver,
+    now: str,
+    resume_state: XsollaResumeConfig | None,
+    expected_periods: list[tuple[str, str]],
+) -> None:
+    def breakdown(request: RecordedRequest) -> ScriptedResponse:
+        return ScriptedResponse(
+            json=[
+                {"IsoCurrency": "USD", "PaymentsAmount": 10.5, "SumPayoutSum": 9.1},
+                {"IsoCurrency": "EUR", "PaymentsAmount": 4.0, "SumPayoutSum": 3.2},
+            ]
+        )
+
+    with time_machine.travel(now, tick=False):
+        result = driver.run("payouts_breakdown", breakdown, resume_state=resume_state)
+
+    assert result.raised is None
+    assert [(r.param("datetime_from"), r.param("datetime_to")) for r in result.requests] == expected_periods
+    assert [(row["period_start"], row["period_end"], row["IsoCurrency"]) for row in result.rows] == [
+        (start, end, currency) for start, end in expected_periods for currency in ("USD", "EUR")
+    ]
+
+
 @pytest.mark.parametrize(
     "table,path",
     [

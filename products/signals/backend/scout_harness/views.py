@@ -73,6 +73,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.signals.backend.artefact_schemas import ReviewerState
 from products.signals.backend.background_pilot import OPT_OUT_DELETED, capture_background_scout_opted_out
 from products.signals.backend.constants import SYSTEM_SCOUT_NAMES
+from products.signals.backend.facade.source_scouts import SOURCE_TEMPLATE_METADATA_KEYS
 from products.signals.backend.models import (
     SignalProjectProfile,
     SignalReport,
@@ -3017,7 +3018,8 @@ def _skill_matches_scout_definition(
         and skill.category == "scout"
         and skill.license == ""
         and skill.compatibility == ""
-        and skill.metadata == {}
+        # A source product's template record is server-owned, so a retried create still matches.
+        and {k: v for k, v in (skill.metadata or {}).items() if k not in SOURCE_TEMPLATE_METADATA_KEYS} == {}
         and set(skill.allowed_tools or []) == REPORT_CHANNEL_TOOLS
         and stored_files == requested_files
     )

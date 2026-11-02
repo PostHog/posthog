@@ -244,7 +244,7 @@ class SnapchatAdsSource(ResumableSource[SnapchatAdsSourceConfig, SnapchatResumeC
         # The refresh sweep can fall behind, and an expired token gets a 401 on every request. A
         # failed refresh is recorded on the integration and the run continues with the old token.
         oauth = OauthIntegration(integration)
-        if not refresh_backoff_active(integration) and oauth.access_token_expired():
+        if not refresh_backoff_active(oauth.integration) and oauth.access_token_expired():
             oauth.refresh_access_token()
             if integration.config.get("refresh_terminal"):
                 raise ValueError(f"{SNAPCHAT_REAUTHORIZATION_REQUIRED_ERROR} for job {inputs.job_id}")

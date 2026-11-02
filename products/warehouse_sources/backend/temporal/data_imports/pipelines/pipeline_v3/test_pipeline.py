@@ -1643,6 +1643,56 @@ class TestDescWatermarkAcrossResumedAttempts:
 
         assert schema.sync_type_config["incremental_field_last_value"] == self._NEWEST.isoformat()
 
+    @pytest.mark.asyncio
+    async def test_a_reset_run_promotes_the_oldest_row_it_loaded_as_the_earliest_value(self) -> None:
+        # The deleted table held the same rows, so no row of the reload is older than its stored earliest value.
+        oldest_row = self._NEWEST - timedelta(hours=5)
+        schema = self._schema()
+        schema.sync_type_config.update(
+            incremental_field_last_value=self._NEWEST.isoformat(),
+            incremental_field_earliest_value=oldest_row.isoformat(),
+        )
+        pipeline = self._attempt(schema, 1)
+        pipeline._reset_pipeline = True
+        pipeline._resumable_source_manager = None
+        pipeline._delta_table_ref = MagicMock(is_first_sync=True, reset_table=AsyncMock())
+        resource = pipeline._resource
+        resource.items = MagicMock(return_value=iter([]))
+        pipeline._sinks = MagicMock(clear=AsyncMock(), cdp_producer=MagicMock(should_run=AsyncMock(return_value=False)))
+        table = pa.table({"created_at": pa.array([self._NEWEST, oldest_row], pa.timestamp("us", tz="UTC"))})
+
+        with ExitStack() as stack:
+            for name in (
+                "reset_rows_synced_if_needed",
+                "setup_row_tracking_with_billing_check",
+                "persist_primary_keys",
+                "handle_corrupted_delta_log",
+            ):
+                stack.enter_context(patch(f"{_PIPELINE}.{name}", new_callable=AsyncMock))
+            stack.enter_context(patch(f"{_PIPELINE}.validate_incremental_sync"))
+            stack.enter_context(patch(f"{_PIPELINE}.update_sync_type_config_keys"))
+            stack.enter_context(patch(f"{_PIPELINE}.activity")).in_activity.return_value = False
+            stack.enter_context(
+                patch.object(
+                    schema_models, "update_sync_type_config_keys", side_effect=_in_memory_config_update(schema)
+                )
+            )
+            await pipeline.run()
+            run_uuid = cast(str, pipeline._run_uuid)
+            await update_incremental_field_values(
+                schema,
+                table,
+                resource,
+                pipeline._last_incremental_field_value,
+                pipeline._earliest_incremental_field_value,
+                _make_logger(),
+                staging_run_uuid=run_uuid,
+            )
+            assert schema.promote_staged_incremental_values(run_uuid)
+
+        assert schema.sync_type_config["incremental_field_last_value"] == self._NEWEST.isoformat()
+        assert schema.sync_type_config["incremental_field_earliest_value"] == oldest_row.isoformat()
+
 
 class TestZeroBatchRunStampsTheFullRunMarker:
     @pytest.mark.asyncio
