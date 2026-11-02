@@ -6,7 +6,7 @@ import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixture
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { LocalSes } from '~/tests/helpers/ses'
@@ -29,6 +29,8 @@ describe('EmailService with local SES', () => {
     let params: CyclotronInvocationQueueParametersEmailType
     let ses: LocalSes
     let limiter: RateLimiterService
+    // One pool for the whole suite: RedisV2 has no close, so a pool per test would leave a connection per test.
+    let redis: RedisV2 | undefined
     let configService: TeamWorkflowsConfigService
     let suppression: EmailSuppressionService
     let assets: MessageAssetsService
@@ -116,7 +118,7 @@ describe('EmailService with local SES', () => {
         ses = new LocalSes()
         await ses.start()
         hub = await createHub({ SITE_URL: 'http://localhost:8000' })
-        const redis = createRedisV2PoolFromConfig({
+        redis ??= createRedisV2PoolFromConfig({
             connection: {
                 url: hub.CDP_VALKEY_HOST,
                 options: { port: hub.CDP_VALKEY_PORT, password: hub.CDP_VALKEY_PASSWORD },
