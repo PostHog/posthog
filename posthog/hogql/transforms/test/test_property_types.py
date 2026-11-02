@@ -227,8 +227,9 @@ class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers,
             printed = self._print_select(
                 select, use_new_events_schema=use_new_events_schema, event_properties={"amount": {"type": "Numeric"}}
             )
+            untyped = self._print_select(select, use_new_events_schema=use_new_events_schema, event_properties={})
             assert "accurateCastOrNull" not in printed, printed
-            assert "JSONExtractRaw(" in printed
+            assert printed == untyped
 
     def test_property_converted_inside_a_user_subquery_is_not_converted_again(self) -> None:
         printed = self._print_select(
