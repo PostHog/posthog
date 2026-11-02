@@ -8,7 +8,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import type { PreflightStatus, UserType } from '~/types'
 
-import { webmcpExecCreate, webmcpToolRetrieve } from '../generated/api'
+import { webmcpExecCreate } from '../generated/api'
 import type { WebMCPExecResultApi } from '../generated/api.schemas'
 import { WebMCPToolError } from '../webmcpToolError'
 
@@ -106,7 +106,7 @@ export const webmcpLogic = kea<webmcpLogicType>([
     }),
     listeners(({ actions, cache, values }) => ({
         // The preflight and the team can arrive after mount, and the tool needs both.
-        // No part of the first paint uses the tool, so its request also waits for the scene's own requests.
+        // No part of the first paint uses the tool, so its chunk also waits for the scene's own requests.
         sceneRendered: () => {
             actions.registerTool()
         },
@@ -133,7 +133,8 @@ export const webmcpLogic = kea<webmcpLogicType>([
             const teamId = values.currentTeamId
 
             const register = async (signal: AbortSignal): Promise<void> => {
-                const tool = await webmcpToolRetrieve(String(teamId), { signal })
+                // A separate chunk keeps the long description out of the main bundle.
+                const { WEBMCP_EXEC_TOOL: tool } = await import('../execTool.generated')
                 if (signal.aborted) {
                     return
                 }
@@ -142,7 +143,7 @@ export const webmcpLogic = kea<webmcpLogicType>([
                         name: tool.name,
                         title: 'PostHog',
                         description: tool.description,
-                        inputSchema: tool.input_schema,
+                        inputSchema: tool.inputSchema,
                         annotations: {
                             // Event and person properties come from end users, so results can carry prompt injection.
                             untrustedContentHint: true,

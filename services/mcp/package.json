@@ -40,6 +40,7 @@
         "generate-tools": "tsx scripts/generate-tools.ts",
         "generate-exec-docs": "tsx scripts/generate-exec-docs.ts",
         "generate-cli-agent-scopes": "tsx scripts/build-cli-agent-scopes.ts",
+        "generate-webmcp-exec-tool": "tsx scripts/generate-webmcp-exec-tool.ts",
         "scaffold-yaml": "tsx scripts/scaffold-yaml.ts",
         "lint-tool-names": "tsx scripts/lint-tool-names.ts",
         "lint": "oxlint --quiet",
