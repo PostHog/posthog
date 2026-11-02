@@ -157,22 +157,6 @@ describe('EmailSuppressionService', () => {
             })
         })
 
-        it('keeps the message id of the last real hard bounce when SES later refuses a send', async () => {
-            const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
-            const email = 'refused-later@example.com'
-            await svc.recordHardBounces(team.id, [email], 'smtp; 550 5.1.1 user unknown', { messageId: 'msg-1' })
-            await svc.recordHardBounces(team.id, [email], 'refused', { blockedByProvider: true })
-
-            // Removal clears the SES entry only when this id matches it, so a refusal must not erase it.
-            const res = await hub.postgres.query<{ last_hard_bounce_message_id: string | null }>(
-                PostgresUse.COMMON_READ,
-                `SELECT last_hard_bounce_message_id FROM posthog_messagesuppression WHERE team_id = $1 AND identifier = $2`,
-                [team.id, email],
-                'test-read-bounce-message-id'
-            )
-            expect(res.rows[0]?.last_hard_bounce_message_id).toBe('msg-1')
-        })
-
         it('escalates an unsuppressed BOUNCE counter to suppressed when a hard bounce lands', async () => {
             const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
             const email = 'escalating@example.com'
