@@ -249,6 +249,11 @@ describe('EmailValidationService', () => {
             await expect(withValkey.getRecipientSkipReason(2, 'user@example.com')).resolves.toBeNull()
             expect(mockResolveMx).toHaveBeenCalledTimes(1)
             expect(valkey.useClient).toHaveBeenCalledTimes(2)
+            const errors = await register.getSingleMetric('cdp_email_mx_cache_errors_total')?.get()
+            expect(Object.fromEntries((errors?.values ?? []).map((v) => [v.labels.operation, v.value]))).toEqual({
+                read: 1,
+                write: 1,
+            })
         })
     })
     describe('out-of-band domain detection', () => {
