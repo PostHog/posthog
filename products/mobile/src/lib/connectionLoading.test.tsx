@@ -2,15 +2,17 @@ import NetInfo from '@react-native-community/netinfo'
 import { onlineManager, QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, renderHook, waitFor } from '@testing-library/react-native'
 import type { ReactElement, ReactNode } from 'react'
-
+import { AppState } from 'react-native'
 import { setAuthProvider } from '@/api/client'
 import { useAuthStore } from '@/auth/authStore'
 import { useChatList } from '@/features/chats/hooks'
 import { useInboxItems } from '@/features/inbox/hooks'
+import { useReport } from '@/features/report/hooks'
 import { useBrowseDashboards } from '@/features/views/browseHooks'
 import { usePins, useRecentViews } from '@/features/views/pinHooks'
 import { viewsQueue } from '@/features/views/refreshQueue'
 import { useDashboardScreen } from '@/features/views/viewHooks'
+import { reportFixture } from '@/model/adapters/testFixtures'
 import type { QueryState } from '@/model/types'
 
 import { useConnectivity } from './connectivity'
@@ -38,6 +40,8 @@ const NO_PINS = new Set<string>()
 describe('paused reads without cached data', () => {
     beforeEach(() => {
         viewsQueue.reset()
+        AppState.currentState = 'active'
+        jest.spyOn(AppState, 'addEventListener').mockReturnValue({ remove: jest.fn() })
         useAuthStore.setState({
             status: 'signed_in',
             signedIn: true,
@@ -66,7 +70,13 @@ describe('paused reads without cached data', () => {
                 JSON.stringify(
                     url.includes('/dashboards/1/')
                         ? { id: 1, name: 'Example dashboard', tiles: [] }
-                        : { count: 0, next: null, results: [] }
+                        : url.endsWith('/signals/reports/offline-report/')
+                          ? reportFixture({ id: 'offline-report' })
+                          : url.includes('/today/')
+                            ? { lead: '', evidence: [], impact_sentence: '', impact_numbers: [], last_seen: null }
+                            : url.endsWith('/signals/')
+                              ? { signals: [] }
+                              : { count: 0, next: null, results: [] }
                 ),
         })) as unknown as typeof fetch
     })
@@ -75,11 +85,13 @@ describe('paused reads without cached data', () => {
         onlineManager.setOnline(true)
         useConnectivity.setState({ status: 'unknown' })
         setAuthProvider(null)
+        jest.restoreAllMocks()
     })
 
     test.each<[string, () => QueryState<unknown>]>([
         ['inbox', () => useInboxItems()],
         ['chats', () => useChatList()],
+        ['report', () => useReport('offline-report')],
         ['pinned views', () => usePins().pins],
         ['recent views', () => useRecentViews(NO_PINS).recent],
         ['browse dashboards', () => useBrowseDashboards()],

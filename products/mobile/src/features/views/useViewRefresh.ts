@@ -425,6 +425,8 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
     // biome-ignore lint/correctness/useExhaustiveDependencies: the key strings stand for the items, read through the ref.
     useEffect(() => {
         if (!enabled || !isFocused) {
+            seen.current.clear()
+            containerKey.current = null
             return
         }
         const current = optionsRef.current

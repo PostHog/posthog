@@ -104,6 +104,29 @@ describe('useViewRefresh on a dashboard', () => {
         viewsQueue.reset()
     })
 
+    test('reconnect retries tile work interrupted while awaiting its dashboard container', async () => {
+        const current = {
+            ...options('7d', tiles('7d', 2, false)),
+            container: { ...dashboard('7d'), read: read('7d-dashboard', true) },
+        }
+        const { rerender, unmount } = renderHook(
+            ({ enabled }: { enabled: boolean }) => useViewRefresh({ ...current, enabled }),
+            { initialProps: { enabled: true } }
+        )
+        try {
+            await flush()
+            expect(reads).toEqual(['7d-dashboard'])
+            rerender({ enabled: false })
+            await flush()
+            rerender({ enabled: true })
+            await flush()
+            await settle('7d-dashboard')
+            expect(reads).toEqual(['7d-dashboard', '7d-tile-0', '7d-tile-1'])
+        } finally {
+            unmount()
+        }
+    })
+
     test('computes only the first rows before the list reports what it shows', async () => {
         const { unmount } = renderHook(() => useViewRefresh(options('7d', tiles('7d', 10, false))))
         await flush()

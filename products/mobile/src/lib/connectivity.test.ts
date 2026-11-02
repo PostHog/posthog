@@ -19,6 +19,7 @@ describe('connectivity', () => {
     let remove: jest.Mock
     const originalAppState = AppState.currentState
     beforeEach(() => {
+        jest.useFakeTimers()
         AppState.currentState = 'active'
         useConnectivity.setState({ status: 'unknown', isConnectionExpensive: null })
         unsubscribe = jest.fn()
@@ -40,6 +41,7 @@ describe('connectivity', () => {
         jest.restoreAllMocks()
         onlineManager.setEventListener(() => undefined)
         onlineManager.setOnline(true)
+        jest.useRealTimers()
     })
     test('unknown allows reads, offline pauses them, and reconnect resumes one request', async () => {
         onlineManager.setEventListener(monitorConnectivity)
@@ -48,15 +50,17 @@ describe('connectivity', () => {
         const fetch = jest.fn(async () => 'loaded')
         const observer = new QueryObserver(client, { queryKey: ['connectivity-read'], queryFn: fetch })
         update(state(false))
+        await jest.advanceTimersByTimeAsync(0)
         const stop = observer.subscribe(() => undefined)
         expect(observer.getCurrentResult().fetchStatus).toBe('paused')
         expect(fetch).not.toHaveBeenCalled()
         update(state(null))
-        await observer.refetch()
+        await jest.advanceTimersByTimeAsync(0)
         expect(observer.getCurrentResult().data).toBe('loaded')
         expect(fetch).toHaveBeenCalledTimes(1)
         expect(useConnectivity.getState().status).toBe('unknown')
         update(state(true, true))
+        await jest.advanceTimersByTimeAsync(0)
         expect(useConnectivity.getState()).toEqual({ status: 'connected', isConnectionExpensive: true })
         stop()
         client.unmount()
@@ -90,8 +94,7 @@ describe('connectivity', () => {
             update(state(false))
             if (outcome === 'success') resolve(state(true))
             else reject(new Error('Native state unavailable'))
-            await Promise.resolve()
-            await Promise.resolve()
+            await jest.advanceTimersByTimeAsync(0)
             expect(useConnectivity.getState().status).toBe('offline')
             stop()
             update(state(true))

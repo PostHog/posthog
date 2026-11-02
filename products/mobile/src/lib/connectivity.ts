@@ -9,17 +9,43 @@ export interface Connectivity {
 
 export const useConnectivity = create<Connectivity>(() => ({ status: 'unknown', isConnectionExpensive: null }))
 
+export class OfflineError extends Error {
+    constructor() {
+        super("You're offline. Reconnect and try again.")
+        this.name = 'OfflineError'
+    }
+}
+
+// Stop an action waiting on a read when the link drops, without canceling a query another screen may share.
+export async function whileOnline<T>(read: () => Promise<T>): Promise<T> {
+    if (useConnectivity.getState().status === 'offline') throw new OfflineError()
+    let unsubscribe = (): void => undefined
+    const disconnected = new Promise<never>((_resolve, reject) => {
+        unsubscribe = useConnectivity.subscribe((state) => {
+            if (state.status === 'offline') reject(new OfflineError())
+        })
+    })
+    try {
+        return await Promise.race([read(), disconnected])
+    } finally {
+        unsubscribe()
+    }
+}
+
 let configured = false
 
 export function monitorConnectivity(setOnline: (online: boolean) => void): () => void {
     if (!configured) {
         // Connectivity is a hint, not a backend health check. Do not send NetInfo's external reachability probes.
-        NetInfo.configure({ reachabilityShouldRun: () => false })
+        NetInfo.configure({ reachabilityShouldRun: () => false, useNativeReachability: false })
         configured = true
     }
     let disposed = false
     let revision = 0
     let refreshing = false
+    let events: NetInfoState[] = []
+    let flushTimer: ReturnType<typeof setTimeout> | undefined
+    const discarded = new WeakSet<NetInfoState>()
     let appState = AppState.currentState
     const apply = (state: NetInfoState): void => {
         if (disposed) return
@@ -38,7 +64,9 @@ export function monitorConnectivity(setOnline: (online: boolean) => void): () =>
         const started = revision
         void NetInfo.refresh()
             .then((state) => {
-                if (revision === started) apply(state)
+                const ownEvents = events.filter((event) => event === state).length
+                if (revision > started + ownEvents) discarded.add(state)
+                else if (ownEvents === 0) apply(state)
             })
             .catch(() => {
                 // A failed native read does not prove the device is offline. Keep the last observed state.
@@ -49,7 +77,18 @@ export function monitorConnectivity(setOnline: (online: boolean) => void): () =>
     }
     const unsubscribe = NetInfo.addEventListener((state) => {
         revision += 1
-        apply(state)
+        events.push(state)
+        if (flushTimer === undefined) {
+            // NetInfo publishes refresh snapshots before resolving their promise. Identify stale snapshots before delivery.
+            flushTimer = setTimeout(() => {
+                flushTimer = undefined
+                const pending = events
+                events = []
+                for (const event of pending) {
+                    if (!discarded.has(event)) apply(event)
+                }
+            }, 0)
+        }
     })
     const subscription = AppState.addEventListener('change', (next) => {
         const becameActive = next === 'active' && appState !== 'active'
@@ -59,6 +98,8 @@ export function monitorConnectivity(setOnline: (online: boolean) => void): () =>
     refresh()
     return () => {
         disposed = true
+        if (flushTimer !== undefined) clearTimeout(flushTimer)
+        events = []
         unsubscribe()
         subscription.remove()
     }

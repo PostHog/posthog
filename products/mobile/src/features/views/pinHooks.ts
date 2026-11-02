@@ -15,6 +15,7 @@ import { useAuthStore } from '@/auth/authStore'
 import { sessionGeneration } from '@/auth/tokens'
 import { useDemoViews } from '@/demo/views'
 import { abortError } from '@/lib/abort'
+import { OfflineError, useConnectivity, whileOnline } from '@/lib/connectivity'
 import { toError } from '@/lib/errors'
 import { mergeRecent, pinsFromShortcuts, shortcutMatchKey } from '@/model/adapters/viewPins'
 import { connectionLoadingQuery, errorQuery, loadingQuery, successQuery } from '@/model/queryStates'
@@ -203,10 +204,12 @@ function assertCurrentWrite(list: PinWriteTarget): void {
 // being dropped. An unpin that waits for a pin then finds the row the pin created and deletes it.
 const pinWrites = new Map<string, Promise<void>>()
 
-function queuePinWrite(list: PinWriteTarget, matchKey: string, run: () => Promise<void>): Promise<void> {
+async function queuePinWrite(list: PinWriteTarget, matchKey: string, run: () => Promise<void>): Promise<void> {
+    if (!list.demo && useConnectivity.getState().status === 'offline') throw new OfflineError()
     const key = `${list.demo ? 'demo' : freshnessKey(list.listKey)}|${matchKey}`
     const next = (pinWrites.get(key) ?? Promise.resolve()).then(() => {
         assertCurrentWrite(list)
+        if (!list.demo && useConnectivity.getState().status === 'offline') throw new OfflineError()
         return run()
     })
     const settled = next.catch(() => undefined)
@@ -241,15 +244,17 @@ export function pinView(list: PinWriteTarget, target: PinTarget, from: PinSource
         const page =
             state?.data && Date.now() - state.dataUpdatedAt < READ_FLOOR_MS
                 ? state.data
-                : await client.fetchQuery({
-                      queryKey: listKey,
-                      queryFn: async ({ signal }) => {
-                          const page = await readShortcuts(signal, () => assertCurrentWrite(list))
-                          assertCurrentWrite(list)
-                          return page
-                      },
-                      staleTime: 0,
-                  })
+                : await whileOnline(() =>
+                      client.fetchQuery({
+                          queryKey: listKey,
+                          queryFn: async ({ signal }) => {
+                              const page = await readShortcuts(signal, () => assertCurrentWrite(list))
+                              assertCurrentWrite(list)
+                              return page
+                          },
+                          staleTime: 0,
+                      })
+                  )
         assertCurrentWrite(list)
         if (rowsFor(page).some((row) => shortcutMatchKey(row.type, row.ref) === key)) {
             return
