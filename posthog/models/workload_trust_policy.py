@@ -159,7 +159,7 @@ class WorkloadTrustPolicyRequest(ModelActivityMixin, TeamScopedRootMixin, UUIDMo
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        indexes = [models.Index(fields=["team", "status", "-created_at"], name="posthog_ci_policy_req_team_idx")]
+        indexes = [models.Index(fields=["team", "status", "-created_at"], name="posthog_workload_req_team_idx")]
 
     @property
     def effective_status(self) -> str:

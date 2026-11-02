@@ -112,7 +112,7 @@ class Migration(migrations.Migration):
                 "indexes": [
                     models.Index(
                         fields=["team", "status", "-created_at"],
-                        name="posthog_ci_policy_req_team_idx",
+                        name="posthog_workload_req_team_idx",
                     )
                 ],
             },
