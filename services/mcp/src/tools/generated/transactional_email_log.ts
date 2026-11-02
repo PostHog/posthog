@@ -6,36 +6,6 @@ import * as orvalSchemas from '@/generated/transactional_email_log/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const WorkflowsTransactionalEmailsListSchema = () => {
-    const TransactionalEmailLogListQueryParams = orvalSchemas.TransactionalEmailLogListQueryParams()
-    return TransactionalEmailLogListQueryParams
-}
-
-const workflowsTransactionalEmailsList = (): ToolBase<
-    ReturnType<typeof WorkflowsTransactionalEmailsListSchema>,
-    Schemas.TransactionalEmailLogList
-> => ({
-    name: 'workflows-transactional-emails-list',
-    schema: WorkflowsTransactionalEmailsListSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsTransactionalEmailsListSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.TransactionalEmailLogList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/transactional_email_log/`,
-            query: {
-                date_from: params.date_from,
-                date_to: params.date_to,
-                limit: params.limit,
-                offset: params.offset,
-                search: params.search,
-                status: params.status,
-                workflow_id: params.workflow_id,
-            },
-        })
-        return result
-    },
-})
-
 const WorkflowsTransactionalEmailGetSchema = () => {
     const TransactionalEmailLogRetrieveParams = orvalSchemas.TransactionalEmailLogRetrieveParams()
     return TransactionalEmailLogRetrieveParams.omit({ project_id: true })
@@ -54,32 +24,6 @@ const workflowsTransactionalEmailGet = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/transactional_email_log/${encodeURIComponent(String(params.id))}/`,
         })
         return await withPostHogUrl(context, result, `/transactional/log/${result.message_id}`)
-    },
-})
-
-const WorkflowsTransactionalEmailStatsSchema = () => {
-    const TransactionalEmailLogStatsRetrieveQueryParams = orvalSchemas.TransactionalEmailLogStatsRetrieveQueryParams()
-    return TransactionalEmailLogStatsRetrieveQueryParams
-}
-
-const workflowsTransactionalEmailStats = (): ToolBase<
-    ReturnType<typeof WorkflowsTransactionalEmailStatsSchema>,
-    Schemas.TransactionalEmailStats
-> => ({
-    name: 'workflows-transactional-email-stats',
-    schema: WorkflowsTransactionalEmailStatsSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsTransactionalEmailStatsSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.TransactionalEmailStats>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/transactional_email_log/stats/`,
-            query: {
-                date_from: params.date_from,
-                date_to: params.date_to,
-                group_by: params.group_by,
-            },
-        })
-        return result
     },
 })
 
@@ -113,9 +57,65 @@ const workflowsTransactionalEmailResults = (): ToolBase<
     },
 })
 
+const WorkflowsTransactionalEmailStatsSchema = () => {
+    const TransactionalEmailLogStatsRetrieveQueryParams = orvalSchemas.TransactionalEmailLogStatsRetrieveQueryParams()
+    return TransactionalEmailLogStatsRetrieveQueryParams
+}
+
+const workflowsTransactionalEmailStats = (): ToolBase<
+    ReturnType<typeof WorkflowsTransactionalEmailStatsSchema>,
+    Schemas.TransactionalEmailStats
+> => ({
+    name: 'workflows-transactional-email-stats',
+    schema: WorkflowsTransactionalEmailStatsSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsTransactionalEmailStatsSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.TransactionalEmailStats>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/transactional_email_log/stats/`,
+            query: {
+                date_from: params.date_from,
+                date_to: params.date_to,
+                group_by: params.group_by,
+            },
+        })
+        return result
+    },
+})
+
+const WorkflowsTransactionalEmailsListSchema = () => {
+    const TransactionalEmailLogListQueryParams = orvalSchemas.TransactionalEmailLogListQueryParams()
+    return TransactionalEmailLogListQueryParams
+}
+
+const workflowsTransactionalEmailsList = (): ToolBase<
+    ReturnType<typeof WorkflowsTransactionalEmailsListSchema>,
+    Schemas.TransactionalEmailLogList
+> => ({
+    name: 'workflows-transactional-emails-list',
+    schema: WorkflowsTransactionalEmailsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsTransactionalEmailsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.TransactionalEmailLogList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/transactional_email_log/`,
+            query: {
+                date_from: params.date_from,
+                date_to: params.date_to,
+                limit: params.limit,
+                offset: params.offset,
+                search: params.search,
+                status: params.status,
+                workflow_id: params.workflow_id,
+            },
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'workflows-transactional-emails-list': workflowsTransactionalEmailsList,
     'workflows-transactional-email-get': workflowsTransactionalEmailGet,
-    'workflows-transactional-email-stats': workflowsTransactionalEmailStats,
     'workflows-transactional-email-results': workflowsTransactionalEmailResults,
+    'workflows-transactional-email-stats': workflowsTransactionalEmailStats,
+    'workflows-transactional-emails-list': workflowsTransactionalEmailsList,
 }
