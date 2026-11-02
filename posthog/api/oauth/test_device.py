@@ -1,3 +1,4 @@
+import json
 import base64
 from datetime import timedelta
 from urllib.parse import quote_plus, urlencode
@@ -6,11 +7,16 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
+from django.test import override_settings
 from django.utils import timezone
 
+import jwt
+from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.oauth.client_assertion import CLIENT_ASSERTION_TYPE_JWT_BEARER
 from posthog.api.oauth.device import DEVICE_CODE_GRANT_TYPE
 from posthog.models import Organization, Team
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthDeviceGrant, revoke_oauth_session
@@ -195,13 +201,13 @@ class TestOAuthDeviceGrant(APIBaseTest):
             redirect_uris="",
             algorithm="RS256",
         )
-        # The poll names the client only in Basic auth, which form-encodes it (RFC 6749 section 2.3.1).
+        # The client names itself only in Basic auth, which form-encodes the client_id (RFC 6749 section 2.3.1).
         basic = "Basic " + base64.b64encode(f"{quote_plus(client_id)}:the-secret".encode()).decode()
 
         with time_machine.travel(START, tick=False) as clock:
             started = self.client.post(
                 "/oauth/device-authorization/",
-                urlencode({"client_id": client_id, "scope": "insight:read"}),
+                urlencode({"scope": "insight:read"}),
                 content_type=FORM,
                 HTTP_AUTHORIZATION=basic,
             )
@@ -217,6 +223,49 @@ class TestOAuthDeviceGrant(APIBaseTest):
 
         self.assertEqual(token.status_code, status.HTTP_200_OK, token.content)
 
+    def test_a_private_key_jwt_client_logs_in(self) -> None:
+        client_id = "signing-device-client"
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        OAuthApplication.objects.create(
+            name="signing device client",
+            client_id=client_id,
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_DEVICE_CODE,
+            redirect_uris="",
+            algorithm="RS256",
+            jwks_uri="https://cli.example.com/.well-known/jwks.json",
+        )
+        jwk = json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(private_key.public_key()))
+        jwk.update({"kid": "device-key-1", "use": "sig", "alg": "RS256"})
+
+        def assertion(jti: str) -> dict[str, str]:
+            now = int(timezone.now().timestamp())
+            claims = {"iss": client_id, "sub": client_id, "aud": "http://testserver/oauth/token/", "jti": jti}
+            token = jwt.encode(
+                {**claims, "iat": now, "exp": now + 60}, private_key, algorithm="RS256", headers={"kid": "device-key-1"}
+            )
+            return {"client_assertion_type": CLIENT_ASSERTION_TYPE_JWT_BEARER, "client_assertion": token}
+
+        with (
+            time_machine.travel(START, tick=False) as clock,
+            override_settings(SITE_URL="http://testserver"),
+            patch(
+                "posthog.api.oauth.client_assertion.fetch_client_json_document", return_value=({"keys": [jwk]}, None)
+            ),
+        ):
+            started = self.client.post(
+                "/oauth/device-authorization/",
+                urlencode({"client_id": client_id, "scope": "insight:read", **assertion("start")}),
+                content_type=FORM,
+            )
+            self.assertEqual(started.status_code, status.HTTP_200_OK, started.content)
+            self._approve(started.json()["user_code"])
+            clock.shift(timedelta(seconds=6))
+            token = self._poll(started.json()["device_code"], client_id=client_id, **assertion("poll"))
+
+        self.assertEqual(token.status_code, status.HTTP_200_OK, token.content)
+
     def test_approval_needs_access_to_the_project(self) -> None:
         other_team = Team.objects.create(organization=Organization.objects.create(name="Elsewhere"), name="Theirs")
         started = self._start()
@@ -224,6 +273,23 @@ class TestOAuthDeviceGrant(APIBaseTest):
         response = self._approve(started["user_code"], project_id=other_team.id)
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(OAuthDeviceGrant.objects.get().status, OAuthDeviceGrant.AUTHORIZATION_PENDING)
+
+    def test_approval_follows_the_2fa_policy_of_the_projects_organization(self) -> None:
+        strict = Organization.objects.create(name="Strict", enforce_2fa=True)
+        strict_team = Team.objects.create(organization=strict, name="Strict project")
+        self.user.join(organization=strict)
+        self.user.current_organization = self.organization
+        self.user.save()
+        session = self.client.session
+        session[settings.SESSION_COOKIE_CREATED_AT_KEY] = 1_800_000_000
+        session.save()
+        started = self._start()
+
+        response = self._approve(started["user_code"], project_id=strict_team.id)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.assertEqual(response.json()["error"], "two_factor_required")
         self.assertEqual(OAuthDeviceGrant.objects.get().status, OAuthDeviceGrant.AUTHORIZATION_PENDING)
 
     @parameterized.expand(

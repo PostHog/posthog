@@ -50,6 +50,7 @@ class Migration(migrations.Migration):
                 "verbose_name_plural": "OAuth Device Grants",
                 "abstract": False,
                 "swappable": "OAUTH2_PROVIDER_DEVICE_GRANT_MODEL",
+                "indexes": [models.Index(fields=["expires"], name="oauthdevicegrant_expires_idx")],
             },
         ),
         migrations.RemoveConstraint(

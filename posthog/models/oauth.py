@@ -705,6 +705,8 @@ class OAuthDeviceGrant(AbstractDeviceGrant):
         verbose_name = "OAuth Device Grant"
         verbose_name_plural = "OAuth Device Grants"
         swappable = "OAUTH2_PROVIDER_DEVICE_GRANT_MODEL"
+        # The cleanup job deletes grants by expiry.
+        indexes = [models.Index(fields=["expires"], name="oauthdevicegrant_expires_idx")]
 
     # No database constraint, so creating this table takes no lock on posthog_user. The ORM
     # still cascades a user delete to their grants.
