@@ -6,6 +6,8 @@ from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
 from products.workflows.backend.services.batch_audience_snapshot import (
+    AUDIENCE_QUERY_TRANSIENT_ERRORS,
+    audience_failure_reason,
     delete_audience_snapshot,
     record_audience_snapshot_failure,
     resolve_audience_snapshot,
@@ -40,9 +42,10 @@ def resume_batch_jobs_waiting_for_realtime_cohort(team_id: int, cohort_id: int) 
     # The run parks until this finishes, so a task a dying worker held runs again instead of waiting out the deadline.
     acks_late=True,
     reject_on_worker_lost=True,
-    # The query's own failures are recorded on the run; only a database error around them escapes here.
-    autoretry_for=(DatabaseError,),
-    retry_backoff=True,
+    # Failures that clear on their own escape here; the query's other failures are recorded on the run.
+    autoretry_for=(DatabaseError, *AUDIENCE_QUERY_TRANSIENT_ERRORS),
+    # Seconds apart, a ClickHouse capacity error would still be there on every retry.
+    retry_backoff=30,
     max_retries=3,
 )
 @skip_team_scope_audit
@@ -53,11 +56,11 @@ def resolve_batch_job_audience_snapshot(
         resolve_audience_snapshot(
             team_id=team_id, batch_job_id=batch_job_id, dedupe_key=dedupe_key, max_audience_size=max_audience_size
         )
-    except DatabaseError:
+    except (DatabaseError, *AUDIENCE_QUERY_TRANSIENT_ERRORS) as error:
         # Without this the run waits out the resolver's two-hour limit for an audience nothing resolves.
         if self.request.retries >= self.max_retries:
             record_audience_snapshot_failure(
-                team_id=team_id, batch_job_id=batch_job_id, reason="Audience couldn't be saved. Start the run again."
+                team_id=team_id, batch_job_id=batch_job_id, reason=audience_failure_reason(error)
             )
         raise
 

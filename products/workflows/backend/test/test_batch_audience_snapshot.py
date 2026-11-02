@@ -6,7 +6,7 @@ from django.test import TestCase
 from parameterized import parameterized
 from rest_framework import exceptions
 
-from posthog.errors import ClickHouseQueryTimeOut
+from posthog.errors import ClickHouseAtCapacity, ClickHouseQueryTimeOut
 from posthog.models.user import User
 
 from products.workflows.backend.facade.enums import HogFlowBatchJobAudienceStatus, HogFlowBatchJobState
@@ -169,14 +169,24 @@ class TestBatchAudienceSnapshot(TestCase):
         assert job.audience_size == len(first_delivery)
         assert self._members(job) == first_delivery
 
-    def test_a_database_error_while_storing_reaches_celery_and_the_last_retry_fails_the_audience(self, _dispatch):
+    @parameterized.expand(
+        [
+            ("clickhouse_at_capacity", {"side_effect": ClickHouseAtCapacity()}, {}, "Audience query failed"),
+            (
+                "database_error_while_storing",
+                {"return_value": PERSON_IDS},
+                {"side_effect": DatabaseError("connection lost")},
+                "Audience couldn't be saved",
+            ),
+        ]
+    )
+    def test_a_failure_that_clears_on_its_own_is_retried_and_the_last_retry_fails_the_audience(
+        self, _dispatch, _name, query, replace_members, expected_reason
+    ):
         job = self._job(audience_status=HogFlowBatchJobAudienceStatus.RESOLVING)
 
-        with (
-            patch(QUERY, return_value=PERSON_IDS),
-            patch(REPLACE_MEMBERS, side_effect=DatabaseError("connection lost")),
-        ):
-            with self.assertRaises(DatabaseError):
+        with patch(QUERY, **query), patch(REPLACE_MEMBERS, **replace_members):
+            with self.assertRaises(Exception):
                 resolve_audience_snapshot(
                     team_id=self.team.pk, batch_job_id=str(job.id), dedupe_key=None, max_audience_size=100
                 )
@@ -192,6 +202,7 @@ class TestBatchAudienceSnapshot(TestCase):
         assert last_attempt.failed()
         job.refresh_from_db()
         assert job.audience_status == HogFlowBatchJobAudienceStatus.FAILED
+        assert expected_reason in (job.audience_error or "")
 
     def test_resolve_skips_a_run_that_already_ended(self, _dispatch):
         job = self._job(status=HogFlowBatchJobState.CANCELLED, audience_status=HogFlowBatchJobAudienceStatus.RESOLVING)

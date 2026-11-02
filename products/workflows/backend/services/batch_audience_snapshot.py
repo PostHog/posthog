@@ -4,14 +4,15 @@ from itertools import batched
 from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import transaction
+from django.db import DatabaseError, transaction
 from django.utils import timezone
 
 import structlog
+from clickhouse_driver.errors import UnknownPacketFromServerError
 from rest_framework import exceptions
 
 from posthog.dataclasses import frozen
-from posthog.errors import ClickHouseQueryTimeOut
+from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorQueryWasCancelled, ClickHouseQueryTimeOut
 from posthog.exceptions_capture import capture_exception
 
 from products.feature_flags.backend.person_sampling import bounded_memory_settings
@@ -29,6 +30,9 @@ logger = structlog.get_logger(__name__)
 # One scan of the person table for the whole audience; the cohort calculator runs the same shape under this cap.
 AUDIENCE_SNAPSHOT_QUERY_TIMEOUT_SECONDS = 1200
 AUDIENCE_SNAPSHOT_WRITE_CHUNK = 5000
+
+# The query only reads, so a stale pooled socket or a query a deploy cancelled is safe to run again too.
+AUDIENCE_QUERY_TRANSIENT_ERRORS = (*CH_TRANSIENT_ERRORS, UnknownPacketFromServerError, CHQueryErrorQueryWasCancelled)
 
 TERMINAL_STATES = {HogFlowBatchJobState.COMPLETED, HogFlowBatchJobState.FAILED, HogFlowBatchJobState.CANCELLED}
 
@@ -93,7 +97,9 @@ def audience_failure_reason(error: Exception) -> str:
         )
     if isinstance(error, exceptions.ValidationError):
         return f"Audience filters can't be evaluated: {' '.join(_validation_messages(error.detail))}"
-    return "Audience query failed"
+    if isinstance(error, DatabaseError):
+        return "Audience couldn't be saved. Start the run again."
+    return "Audience query failed. Start the run again."
 
 
 def _validation_messages(detail: object) -> list[str]:
@@ -123,6 +129,8 @@ def resolve_audience_snapshot(
             limit=max_audience_size + 1,
             settings=query_settings,
         )
+    except AUDIENCE_QUERY_TRANSIENT_ERRORS:
+        raise
     except Exception as error:
         logger.exception("batch_audience_snapshot_failed", batch_job_id=str(job.id), team_id=team_id, error=str(error))
         capture_exception(error)
