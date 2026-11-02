@@ -11,7 +11,7 @@ from django.core.management.base import BaseCommand, CommandError
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.signals.backend.report_generation.research import ReportResearchOutput
+from products.signals.backend.facade.research import ReportResearchOutput
 from products.tasks.backend.logic.services.custom_prompt_internals import CustomPromptSandboxContext
 from products.tasks.backend.logic.services.mts_example import run_cursed_identifier_research
 
