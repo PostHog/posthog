@@ -105,9 +105,9 @@ def _related_saved_queries(
 
     if warehouse_table_ids:
         tables = list(
-            DataWarehouseTable.objects.filter(id__in=warehouse_table_ids, team_id=saved_query.team_id).exclude(
-                deleted=True
-            )
+            DataWarehouseTable.raw_objects.only("id", "created_by_id", "external_data_source_id")
+            .filter(id__in=warehouse_table_ids, team_id=saved_query.team_id)
+            .exclude(deleted=True)
         )
         user_access_control.preload_object_access_controls(cast(list[Model], tables))
         visible_identifiers.update(

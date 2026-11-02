@@ -524,6 +524,7 @@ class UserAccessControl:
         # Pop from __dict__ rather than hasattr/delattr
         # hasattr on an un-computed cached_property would re-populate the value we're clearing
         self.__dict__.pop("_cached_access_controls", None)
+        self.__dict__.pop("_cached_access_controls_by_object", None)
         self.__dict__.pop("_dashboard_edit_limits", None)
         self.__dict__.pop("_is_project_admin", None)
         self.__dict__.pop("blocked_resource_ids_by_scope", None)
@@ -612,6 +613,13 @@ class UserAccessControl:
         # No org-id annotation: this team-scoped pool is only ever matched on team_id (never
         # team__organization_id), so `_row_matches` never reads that attribute off these rows.
         return list(AccessControl.objects.filter(self._filter_options({"team_id": self._team.id})))
+
+    @cached_property
+    def _cached_access_controls_by_object(self) -> dict[tuple[str, str | None], list[_AccessControl]]:
+        access_controls_by_object: defaultdict[tuple[str, str | None], list[_AccessControl]] = defaultdict(list)
+        for access_control in self._cached_access_controls:
+            access_controls_by_object[(access_control.resource, access_control.resource_id)].append(access_control)
+        return dict(access_controls_by_object)
 
     @property
     def user(self) -> User:
@@ -726,22 +734,30 @@ class UserAccessControl:
         if not EE_AVAILABLE or not self.access_controls_supported:
             return []
 
+        key = json.dumps(filters, sort_keys=True)
+        if key in self._cache:
+            return self._cache[key]
+
         # Team-scoped lookups are served from the single bulk preload (filtered in memory);
         # org-scoped lookups fall through to a targeted query.
         if self._can_serve_from_preload(filters):
-            return [ac for ac in self._cached_access_controls if self._row_matches(ac, filters)]
+            if set(filters) == {"team_id", "resource", "resource_id"}:
+                self._cache[key] = self._cached_access_controls_by_object.get(
+                    (filters["resource"], filters["resource_id"]), []
+                )
+            else:
+                self._cache[key] = [ac for ac in self._cached_access_controls if self._row_matches(ac, filters)]
+            return self._cache[key]
 
-        key = json.dumps(filters, sort_keys=True)
-        if key not in self._cache:
-            with tracer.start_as_current_span("rbac.access_controls.db") as span:
-                resource = filters.get("resource")
-                if isinstance(resource, str):
-                    span.set_attribute("rbac.resource", resource)
-                span.set_attribute("rbac.has_resource_id", filters.get("resource_id") is not None)
-                # No org-id annotation here: these rows return straight to the caller and never
-                # reach `_row_matches`, so joining posthog_team for it would be wasted work.
-                self._cache[key] = list(AccessControl.objects.filter(self._filter_options(filters)))
-                span.set_attribute("rbac.row_count", len(self._cache[key]))
+        with tracer.start_as_current_span("rbac.access_controls.db") as span:
+            resource = filters.get("resource")
+            if isinstance(resource, str):
+                span.set_attribute("rbac.resource", resource)
+            span.set_attribute("rbac.has_resource_id", filters.get("resource_id") is not None)
+            # No org-id annotation here: these rows return straight to the caller and never
+            # reach `_row_matches`, so joining posthog_team for it would be wasted work.
+            self._cache[key] = list(AccessControl.objects.filter(self._filter_options(filters)))
+            span.set_attribute("rbac.row_count", len(self._cache[key]))
 
         return self._cache[key]
 
@@ -814,7 +830,8 @@ class UserAccessControl:
             return
 
         if all(self._can_serve_from_preload(filters) for filters in filter_groups):
-            self._fill_filters_cache(filter_groups, self._cached_access_controls)
+            for filters in filter_groups:
+                self._get_access_controls(filters)
             return
 
         q = Q()
