@@ -1966,7 +1966,11 @@ class ProjectViewSet(
         project.passthrough_team.rotate_secret_token_and_save(
             user=request.user, is_impersonated_session=is_impersonated(request)
         )
-        return response.Response(ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data)
+        data = ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data
+        # Show-once: this response is the only read of the minted token; every other response nulls it.
+        data["secret_api_token"] = project.passthrough_team.secret_api_token
+        data["secret_api_token_backup"] = project.passthrough_team.secret_api_token_backup
+        return response.Response(data)
 
     @extend_schema(request=None, responses=ProjectBackwardCompatSerializer)
     @action(

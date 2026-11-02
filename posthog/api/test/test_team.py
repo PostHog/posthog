@@ -4396,6 +4396,23 @@ class TestSecretApiTokenVisibility(APIBaseTest):
             body = response.json()
             assert (body["secret_api_token"], body["secret_api_token_backup"]) == (None, None), serializer_name
 
+    @patch("posthog.event_usage.report_user_action")
+    def test_project_rotation_shows_the_minted_token_once(self, _mock_report_user_action: MagicMock) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        old_primary = self.team.secret_api_token
+
+        rotate = self.client.patch(f"/api/projects/{self.project.id}/rotate_secret_token/")
+
+        assert rotate.status_code == status.HTTP_200_OK, rotate.json()
+        body = rotate.json()
+        assert body["secret_api_token"] is not None and body["secret_api_token"].startswith("phs_")
+        assert body["secret_api_token"] != old_primary
+        assert body["secret_api_token_backup"] == old_primary
+
+        read = self.client.get(f"/api/projects/{self.project.id}/")
+        assert (read.json()["secret_api_token"], read.json()["secret_api_token_backup"]) == (None, None)
+
     def _read_both_serializers(self, headers: dict[str, str]) -> dict[str, Any]:
         return {
             "ProjectBackwardCompatSerializer": self.client.get(f"/api/projects/{self.project.id}/", headers=headers),

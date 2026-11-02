@@ -291,7 +291,11 @@ class TeamViewSet(
         # Rotation mints a PSAK mirror row, so the caller must hold the scopes it grants.
         _enforce_caller_holds_scopes(request, MIRRORED_LEGACY_TOKEN_SCOPES)
         team.rotate_secret_token_and_save(user=request.user, is_impersonated_session=is_impersonated(request))
-        return response.Response(team_serializer.TeamSerializer(team, context=self.get_serializer_context()).data)
+        data = team_serializer.TeamSerializer(team, context=self.get_serializer_context()).data
+        # Show-once: this response is the only read of the minted token; every other response nulls it.
+        data["secret_api_token"] = team.secret_api_token
+        data["secret_api_token_backup"] = team.secret_api_token_backup
+        return response.Response(data)
 
     @action(
         methods=["PATCH"],
