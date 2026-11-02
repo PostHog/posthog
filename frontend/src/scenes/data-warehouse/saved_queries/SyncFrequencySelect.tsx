@@ -91,8 +91,12 @@ export function SyncFrequencySelect({
     disabledReason,
     'data-attr': dataAttr,
 }: SyncFrequencySelectProps): JSX.Element {
-    // A cadence that also speeds up upstream views waits here until it is confirmed.
-    const [pending, setPending] = useState<DataModelingSyncInterval | null>(null)
+    // A cadence that also speeds up upstream views waits here until it is confirmed. It is tied to the
+    // value it was picked against, so a value that changes underneath it (Discard changes) drops it.
+    const [pendingChoice, setPending] = useState<{ cadence: DataModelingSyncInterval; against: typeof value } | null>(
+        null
+    )
+    const pending = pendingChoice && pendingChoice.against === value ? pendingChoice.cadence : null
     const pendingWarning = pending ? speedUpWarning(bounds, pending) : null
     const inherited = inheritedCadence(bounds, value)
     const selectedSpeedUp = !pending && value && value !== 'never' ? speedUpWarning(bounds, value) : null
@@ -132,7 +136,7 @@ export function SyncFrequencySelect({
                     value={pending ?? inherited?.cadence ?? (value && value !== 'never' ? value : undefined)}
                     onChange={(next) => {
                         if (next !== value && speedUpWarning(bounds, next)) {
-                            setPending(next)
+                            setPending({ cadence: next, against: value })
                             return
                         }
                         setPending(null)
@@ -171,7 +175,7 @@ export function SyncFrequencySelect({
                             }}
                             data-attr="sync-frequency-speeds-up-confirm"
                         >
-                            Refresh every {CADENCE_LABELS[pending]}
+                            <span>{`Refresh every ${CADENCE_LABELS[pending]}`}</span>
                         </LemonButton>
                     </div>
                 </div>
@@ -223,7 +227,7 @@ const UPSTREAM_RULE =
 function WithUpstreamRule({ text }: { text: string }): JSX.Element {
     return (
         <>
-            {text}{' '}
+            <span>{text}</span>{' '}
             <Tooltip title={UPSTREAM_RULE}>
                 <IconInfo className="inline align-text-bottom text-sm" aria-label={UPSTREAM_RULE} />
             </Tooltip>

@@ -345,7 +345,7 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
         ancestors = ancestors_of(str(node.id), graph.edges)
         best_effort |= graph.best_effort_source_ids & ancestors
         candidates = [option.value for option in per_dag[-1].options if option.allowed]
-        for cadence, sped_up in _speeds_up_by_cadence(str(node.id), graph, ancestors, candidates).items():
+        for cadence, sped_up in _speeds_up_by_cadence(team_id, str(node.id), graph, ancestors, candidates).items():
             speeds_up.setdefault(cadence, set()).update(sped_up)
         data_ages.append(max_data_age(str(node.id), graph.edges, graph.source_intervals, graph.declared_targets))
 
@@ -360,7 +360,7 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
 
 
 def _speeds_up_by_cadence(
-    node_id: str, graph: FrequencyGraph, ancestors: set[str], candidates: list[timedelta]
+    team_id: int, node_id: str, graph: FrequencyGraph, ancestors: set[str], candidates: list[timedelta]
 ) -> dict[timedelta, set[str]]:
     """The materializing ancestors that would run more often if `node_id` were set to each candidate.
 
@@ -376,7 +376,9 @@ def _speeds_up_by_cadence(
     upstream = ancestors & graph.nodes
     ephemeral = {
         str(view_id)
-        for view_id in Node.objects.filter(id__in=upstream, type=NodeType.VIEW).values_list("id", flat=True)
+        for view_id in Node.objects.filter(team_id=team_id, id__in=upstream, type=NodeType.VIEW).values_list(
+            "id", flat=True
+        )
     }
     materializing = upstream - ephemeral
     if not materializing:
