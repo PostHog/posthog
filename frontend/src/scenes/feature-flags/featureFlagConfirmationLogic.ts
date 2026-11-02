@@ -140,7 +140,7 @@ export function checkFeatureFlagConfirmation(
                 featureFlagConfirmationEnabled: featureFlagConfirmationEnabled,
                 releasesToEveryone: releasesToEveryone,
                 onConfirm: onConfirm,
-                onCancel: releasesToEveryone
+                onDismiss: releasesToEveryone
                     ? () => posthog.capture('feature flag release to everyone confirmation canceled')
                     : undefined,
             })

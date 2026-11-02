@@ -3915,6 +3915,30 @@ describe('featureFlagLogic', () => {
             dialogOpenSpy.mockRestore()
         })
 
+        it.each([
+            { scenario: 'dismissed with Escape, the close icon or the overlay', confirm: false, canceled: 1 },
+            { scenario: 'confirmed', confirm: true, canceled: 0 },
+        ])('counts a cancellation only when the warning is $scenario', async ({ confirm, canceled }) => {
+            const dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            const update = jest.spyOn(api, 'update').mockResolvedValue(withRollout(100))
+            logic.actions.setOriginalFeatureFlag(withRollout(50))
+            logic.actions.setFeatureFlag(withRollout(100))
+            await expectLogic(logic, () =>
+                logic.actions.submitFeatureFlagWithValidation(logic.values.featureFlag)
+            ).toFinishAllListeners()
+
+            const dialogProps = dialogOpenSpy.mock.calls[0][0]
+            if (confirm) {
+                dialogProps.primaryButton?.onClick?.(undefined as any)
+            }
+            dialogProps.onAfterClose?.()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(capturesOf('feature flag release to everyone confirmation canceled')).toHaveLength(canceled)
+            dialogOpenSpy.mockRestore()
+            update.mockRestore()
+        })
+
         it('saves a partial rollout change without asking', async () => {
             const dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
             jest.spyOn(api, 'update').mockResolvedValueOnce(withRollout(60))

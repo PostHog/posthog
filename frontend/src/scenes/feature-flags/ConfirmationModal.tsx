@@ -22,6 +22,7 @@ interface ConfirmationModalProps {
     releasesToEveryone?: boolean // Whether saving turns the flag on for everyone (only for multi-changes type)
     onConfirm: () => void
     onCancel?: () => void
+    onDismiss?: () => void // Called when the dialog closes any way other than confirming
 }
 
 /**
@@ -40,6 +41,7 @@ export function openConfirmationModal({
     releasesToEveryone = false,
     onConfirm,
     onCancel,
+    onDismiss,
 }: ConfirmationModalProps): void {
     let title: string
     let description: JSX.Element
@@ -152,6 +154,7 @@ export function openConfirmationModal({
 
     // Determine if the primary button should be disabled
     const hasBlockingDependentFlags = isBeingDisabled && dependentFlags && dependentFlags.length > 0
+    let confirmed = false
 
     LemonDialog.open({
         title,
@@ -166,12 +169,22 @@ export function openConfirmationModal({
                         ? 'Release to all users'
                         : 'Save changes',
             status: type === 'flag-status' && !activeNewValue ? 'danger' : 'default',
-            onClick: hasBlockingDependentFlags ? undefined : onConfirm,
+            onClick: hasBlockingDependentFlags
+                ? undefined
+                : () => {
+                      confirmed = true
+                      onConfirm()
+                  },
             disabled: hasBlockingDependentFlags,
         },
         secondaryButton: {
             children: 'Cancel',
             onClick: onCancel,
+        },
+        onAfterClose: () => {
+            if (!confirmed) {
+                onDismiss?.()
+            }
         },
     })
 }
