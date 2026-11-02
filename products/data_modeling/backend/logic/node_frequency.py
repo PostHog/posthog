@@ -20,6 +20,7 @@ from products.data_modeling.backend.logic.freshness import (
     STREAMING,
     InvalidTarget,
     TargetBounds,
+    all_source_floor_bounds,
     all_source_floors,
     ancestors_of,
     clamp_to_source_floor,
@@ -263,6 +264,26 @@ class FrequencyGraph:
     names: dict[str, str]  # node id -> display name, so a bound can name what set it
     identities: dict[str, NodeIdentity]  # node id -> the resource its name belongs to
     managed_node_ids: set[str]  # nodes whose target the managed viewset provider declares
+    stand_ins: dict[str, str]  # stand-in source id -> the node that sets its interval
+
+    def target_bounds(self, node_id: str) -> TargetBounds:
+        """Every cadence `node_id` may be set to, with each blocker given as a real node id."""
+        bounds = compute_target_bounds(
+            node_id=node_id,
+            edges=self.edges,
+            declared_targets=self.declared_targets,
+            source_intervals=self.source_intervals,
+        )
+
+        def real(blocker: str | None) -> str | None:
+            return self.stand_ins.get(blocker, blocker) if blocker is not None else None
+
+        # A stand-in is a source with no parents, so only the floor side of the bounds can name one.
+        return dataclasses.replace(
+            bounds,
+            options=tuple(dataclasses.replace(option, blocker=real(option.blocker)) for option in bounds.options),
+            floor=bounds.floor and dataclasses.replace(bounds.floor, blocker=real(bounds.floor.blocker)),
+        )
 
     def invalid_targets(self, declared_targets: dict[str, timedelta] | None = None) -> list[InvalidTarget]:
         """Declared targets outside their bounds. A provider's cadence may sit below its source floor."""
@@ -275,7 +296,7 @@ class FrequencyGraph:
 
 
 def _managed_view_source_id(managed_node_id: str) -> str:
-    """The source a managed view's readers see in its place, syncing as often as it refreshes."""
+    """The stand-in source a managed view's readers see in its place."""
     return f"{managed_node_id}:managed-view"
 
 
@@ -312,23 +333,36 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
     names = {str(node.id): node.name for node in nodes}
     identities = {str(node.id): node_identity(node) for node in nodes}
 
-    # A reader never sets a managed view's cadence, but it cannot be fresher than the cadence the
-    # scheduler runs that view at. A query-time view has none, so its readers see its sources' floor.
+    # A reader never sets a managed view's cadence, and it cannot be fresher than that view's data.
+    # The view's readers see a stand-in source that changes as often as that data does.
+    stand_ins: dict[str, str] = {}
     if managed_reader_edges:
         runs_every, _clamped = clamp_to_source_floor(
             compute_effective_cadences(nodes=schedulable, edges=edges, declared_targets=declared_targets),
             edges=edges,
             source_intervals=source_intervals,
         )
-        floors = all_source_floors(edges, source_intervals)
+        # A materialized view's data changes once per run, whatever its inputs do, so it counts as a
+        # source at its run cadence. A query-time view passes its inputs' changes straight through.
+        materialized = {str(node.id) for node in nodes if node.type == NodeType.MAT_VIEW}
+        run_intervals = {
+            node_id: interval
+            for node_id, interval in runs_every.items()
+            if node_id in materialized and interval is not None
+        }
+        refreshes = all_source_floor_bounds(edges, {**source_intervals, **run_intervals})
         for managed_id, reader_id in managed_reader_edges:
             if managed_id not in names:
                 continue
-            source_id = _managed_view_source_id(managed_id)
-            source_intervals[source_id] = runs_every.get(managed_id) or floors.get(managed_id, STREAMING)
-            names[source_id] = names[managed_id]
-            identities[source_id] = identities[managed_id]
-            edges.append((source_id, reader_id))
+            stand_in = _managed_view_source_id(managed_id)
+            if stand_in not in stand_ins:
+                refresh = refreshes.get(managed_id)
+                blamed = refresh.blocker if refresh is not None and refresh.blocker in names else managed_id
+                stand_ins[stand_in] = blamed
+                source_intervals[stand_in] = refresh.value if refresh is not None else STREAMING
+                names[stand_in] = names[blamed]
+                identities[stand_in] = identities[blamed]
+            edges.append((stand_in, reader_id))
 
     return FrequencyGraph(
         nodes=schedulable,
@@ -340,6 +374,7 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
         names=names,
         identities=identities,
         managed_node_ids=managed_node_ids,
+        stand_ins=stand_ins,
     )
 
 
@@ -379,14 +414,7 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
         if dag_key not in graphs:
             graphs[dag_key] = build_frequency_graph(node.dag)
         graph = graphs[dag_key]
-        per_dag.append(
-            compute_target_bounds(
-                node_id=str(node.id),
-                edges=graph.edges,
-                declared_targets=graph.declared_targets,
-                source_intervals=graph.source_intervals,
-            )
-        )
+        per_dag.append(graph.target_bounds(str(node.id)))
         names.update(graph.names)
         identities.update(graph.identities)
         # a best-effort source elsewhere in the DAG says nothing about this node's freshness
