@@ -37,6 +37,11 @@ from products.signals.backend.activity_summary.read import (
     ActivitySummaryVersionView as ActivitySummaryVersionView,
     ActivitySummaryView as ActivitySummaryView,
 )
+from products.signals.backend.activity_summary.search import (
+    ActivitySummarySearchResult as ActivitySummarySearchResult,
+    SearchMode,
+    search_summaries,
+)
 from products.signals.backend.anomaly_scores import search as anomaly_search
 from products.signals.backend.anomaly_scores.search import (
     AnomalyDashboardNotFound as AnomalyDashboardNotFound,
@@ -236,6 +241,28 @@ def list_activity_summary_versions(
 ) -> list[ActivitySummaryVersionView] | None:
     """The user's own summary versions, newest first, or None when the flag payload does not enroll the team."""
     return activity_summary_read.list_versions(team, user_id, limit=limit, version=version)
+
+
+def search_activity_summaries(
+    *,
+    team: Team,
+    query: str | None,
+    search_mode: SearchMode,
+    product: str | None,
+    exclude_user_uuids: list[str],
+    include_profile: bool,
+    limit: int,
+) -> ActivitySummarySearchResult | None:
+    """The project members whose activity summary matches `query`, or None when search is off for the team."""
+    return search_summaries(
+        team,
+        query=query,
+        search_mode=search_mode,
+        product=product,
+        exclude_user_uuids=exclude_user_uuids,
+        include_profile=include_profile,
+        limit=limit,
+    )
 
 
 def search_anomalies(*, team: Team, user: User, filters: AnomalySearchFilters, now: datetime) -> AnomalySearchResult:
