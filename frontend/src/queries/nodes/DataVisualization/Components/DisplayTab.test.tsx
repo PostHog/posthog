@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 
@@ -51,7 +51,9 @@ describe('DisplayTab', () => {
 
         const user = userEvent.setup()
 
-        await user.click(await screen.findByText('Axes'))
+        await user.click(await screen.findByText('X-axis'))
+        await user.click(await screen.findByText('Left Y-axis'))
+        await user.click(await screen.findByText('Right Y-axis'))
 
         expect(screen.getAllByText('Show tick labels')).toHaveLength(3)
         expect(screen.queryByText('Show X-axis labels')).not.toBeInTheDocument()
@@ -97,7 +99,7 @@ describe('DisplayTab', () => {
         dataVisualizationLogic(props).mount()
         displayLogic({ key }).mount()
 
-        render(
+        const { container } = render(
             <BindLogic logic={dataVisualizationLogic} props={props}>
                 <BindLogic logic={displayLogic} props={{ key }}>
                     <DisplayTab />
@@ -105,10 +107,12 @@ describe('DisplayTab', () => {
             </BindLogic>
         )
 
-        const annotationsToggle = await screen.findByLabelText('Show annotations')
-        expect(annotationsToggle).not.toBeChecked()
+        await screen.findByText('Annotations')
+        const annotationsSelect = container.querySelector('[data-attr="data-visualization-show-annotations"]')
+        expect(annotationsSelect).toHaveTextContent('None')
 
-        await userEvent.click(annotationsToggle)
+        await userEvent.click(annotationsSelect as HTMLElement)
+        await userEvent.click(await screen.findByText('All'))
 
         await waitFor(() => {
             expect(query.chartSettings?.showAnnotations).toBe(true)
@@ -160,7 +164,9 @@ describe('DisplayTab', () => {
 
         const user = userEvent.setup()
 
-        await user.click(await screen.findByText('Axes'))
+        await user.click(await screen.findByText('X-axis'))
+        await user.click(await screen.findByText('Left Y-axis'))
+        await user.click(await screen.findByText('Right Y-axis'))
         await user.type(screen.getByPlaceholderText('X-axis label'), 'Company size')
         await user.tab()
         await user.type(screen.getByPlaceholderText('Left Y-axis label'), 'Accounts')
@@ -221,14 +227,13 @@ describe('DisplayTab', () => {
 
         const user = userEvent.setup()
 
-        expect(await screen.findByText('Axes')).toBeInTheDocument()
+        expect(await screen.findByText('Y-axis')).toBeInTheDocument()
         expect(screen.queryByText('Goal lines')).not.toBeInTheDocument()
         expect(screen.queryByText('Show total row')).not.toBeInTheDocument()
-        expect(screen.queryByText('Show annotations')).not.toBeInTheDocument()
+        expect(screen.queryByText('Annotations')).not.toBeInTheDocument()
 
         await user.click(screen.getByText('Exclude outliers'))
-        await user.click(screen.getByText('Axes'))
-        expect(screen.getByText('Y-axis')).toBeInTheDocument()
+        await user.click(screen.getByText('Y-axis'))
         expect(screen.queryByText('Right Y-axis')).not.toBeInTheDocument()
         expect(screen.queryByText('Begin at zero')).not.toBeInTheDocument()
 
@@ -273,7 +278,7 @@ describe('DisplayTab', () => {
 
         expect(await screen.findByText('Headline value')).toBeInTheDocument()
         expect(screen.queryByText('Show legend')).not.toBeInTheDocument()
-        expect(screen.queryByText('Axes')).not.toBeInTheDocument()
+        expect(screen.queryByText('X-axis')).not.toBeInTheDocument()
         expect(screen.queryByText('Goal lines')).not.toBeInTheDocument()
 
         await user.click(screen.getByText('Show change'))
@@ -323,10 +328,10 @@ describe('DisplayTab', () => {
         expect(screen.queryByText('Goal lines')).not.toBeInTheDocument()
 
         // One gutter per axis.
-        await user.click(screen.getByText('Axes'))
         expect(screen.getByText('Y-axis')).toBeInTheDocument()
         expect(screen.queryByText('Right Y-axis')).not.toBeInTheDocument()
-        await user.click(within(screen.getByText('X-axis').closest('section')!).getByText('Begin at zero'))
+        await user.click(screen.getByText('X-axis'))
+        await user.click(screen.getByText('Begin at zero'))
 
         // Both live under `scatter`, so the second write must merge into the first rather than replace it.
         await waitFor(() => {
@@ -338,43 +343,42 @@ describe('DisplayTab', () => {
         })
     })
 
-    it.each([
-        [ChartDisplayType.ActionsPie, 'Show total below chart'],
-        [ChartDisplayType.ActionsDonut, 'Show total in center'],
-        [ChartDisplayType.ActionsProportionBar, 'Show total below chart'],
-    ])('honors the legacy top-level showPieTotal when pie.showTotal is unset (%s)', async (display, switchLabel) => {
-        initKeaTests()
+    it.each([ChartDisplayType.ActionsPie, ChartDisplayType.ActionsDonut, ChartDisplayType.ActionsProportionBar])(
+        'honors the legacy top-level showPieTotal when pie.showTotal is unset (%s)',
+        async (display) => {
+            initKeaTests()
 
-        const key = `display-tab-legacy-show-total-test-${display}`
-        const query: VisualizationNode = {
-            kind: NodeKind.DataVisualizationNode,
-            source: {
-                kind: NodeKind.HogQLQuery,
-                query: 'select label, total from numbers(2)',
-            },
-            display,
-            chartSettings: { showPieTotal: false },
-        }
+            const key = `display-tab-legacy-show-total-test-${display}`
+            const query: VisualizationNode = {
+                kind: NodeKind.DataVisualizationNode,
+                source: {
+                    kind: NodeKind.HogQLQuery,
+                    query: 'select label, total from numbers(2)',
+                },
+                display,
+                chartSettings: { showPieTotal: false },
+            }
 
-        const props: DataVisualizationLogicProps = {
-            key,
-            query,
-            dataNodeCollectionId: key,
-            setQuery: jest.fn(),
-        }
+            const props: DataVisualizationLogicProps = {
+                key,
+                query,
+                dataNodeCollectionId: key,
+                setQuery: jest.fn(),
+            }
 
-        dataVisualizationLogic(props).mount()
-        displayLogic({ key }).mount()
+            dataVisualizationLogic(props).mount()
+            displayLogic({ key }).mount()
 
-        render(
-            <BindLogic logic={dataVisualizationLogic} props={props}>
-                <BindLogic logic={displayLogic} props={{ key }}>
-                    <DisplayTab />
+            render(
+                <BindLogic logic={dataVisualizationLogic} props={props}>
+                    <BindLogic logic={displayLogic} props={{ key }}>
+                        <DisplayTab />
+                    </BindLogic>
                 </BindLogic>
-            </BindLogic>
-        )
+            )
 
-        const toggle = (await screen.findByText(switchLabel)).closest('div')?.querySelector('[role="switch"]')
-        expect(toggle).toHaveAttribute('aria-checked', 'false')
-    })
+            const toggle = (await screen.findByText('Show total')).closest('div')?.querySelector('[role="switch"]')
+            expect(toggle).toHaveAttribute('aria-checked', 'false')
+        }
+    )
 })

@@ -1,12 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { ChartOptionSwitch } from 'lib/components/ChartOptions/ChartOptionSwitch'
 import { DisplayOptionBindings } from 'lib/components/ChartOptions/displayOptions'
-import { LegendOption } from 'lib/components/ChartOptions/LegendOption'
-import { MetricOptions } from 'lib/components/ChartOptions/MetricOptions'
-import { PieTotalOption } from 'lib/components/ChartOptions/PieTotalOption'
 import type { DisplayOptionsAdapter } from 'lib/components/ChartOptions/useDisplayOptions'
+import {
+    METRIC_COLOR_BY_DIRECTION_DEFAULT,
+    METRIC_DEFAULT_DECREASE_COLOR,
+    METRIC_DEFAULT_INCREASE_COLOR,
+    METRIC_SHOW_CHANGE_DEFAULT,
+} from 'lib/components/Metric/metricSummary'
 import { PART_OF_WHOLE_DISPLAY_TYPES, PIE_DISPLAY_TYPES } from 'lib/constants'
 
 import { ChartDisplayType } from '~/types'
@@ -23,7 +25,6 @@ interface SqlDisplayContext
         Pick<displayLogicType['actions'], 'updateChartSettings'> {
     isMetric: boolean
     isPieChart: boolean
-    isDonutChart: boolean
     isProportionBar: boolean
     isPartOfWholeChart: boolean
     isStackedBarChart: boolean
@@ -71,7 +72,6 @@ function useSqlDisplayContext(): SqlDisplayContext {
         updateChartSettings,
         isMetric,
         isPieChart: PIE_DISPLAY_TYPES.includes(type),
-        isDonutChart: type === ChartDisplayType.ActionsDonut,
         isProportionBar,
         isPartOfWholeChart,
         isStackedBarChart: type === ChartDisplayType.ActionsStackedBar,
@@ -91,17 +91,48 @@ function useSqlDisplayContext(): SqlDisplayContext {
     }
 }
 
+function showsMetricChange(c: SqlDisplayContext): boolean {
+    return c.chartSettings.metric?.showChange ?? METRIC_SHOW_CHANGE_DEFAULT
+}
+
+function colorsMetricByDirection(c: SqlDisplayContext): boolean {
+    return c.chartSettings.metric?.colorByDirection ?? METRIC_COLOR_BY_DIRECTION_DEFAULT
+}
+
 const SQL_BINDINGS: DisplayOptionBindings<SqlDisplayContext> = {
-    metric: {
+    metricSummary: {
         showCondition: (c) => c.isMetric,
-        render: (c) => (
-            <MetricOptions
-                settings={c.chartSettings.metric ?? {}}
-                defaultSummary={SQL_METRIC_SUMMARY_DEFAULT}
-                onChange={(metric) => c.updateChartSettings({ metric })}
-                summaryDataAttr="data-visualization-metric-summary"
-            />
-        ),
+        value: (c) => c.chartSettings.metric?.summary ?? SQL_METRIC_SUMMARY_DEFAULT,
+        onChange: (summary, c) => c.updateChartSettings({ metric: { summary } }),
+        dataAttr: 'data-visualization-metric-summary',
+    },
+    metricShowChange: {
+        showCondition: (c) => c.isMetric,
+        value: showsMetricChange,
+        onChange: (showChange, c) => c.updateChartSettings({ metric: { showChange } }),
+    },
+    metricChangeColors: {
+        showCondition: (c) => c.isMetric && showsMetricChange(c),
+        value: (c) => ({
+            increase: c.chartSettings.metric?.changeIncreaseColor ?? METRIC_DEFAULT_INCREASE_COLOR,
+            decrease: c.chartSettings.metric?.changeDecreaseColor ?? METRIC_DEFAULT_DECREASE_COLOR,
+        }),
+        onChange: ({ increase, decrease }, c) =>
+            c.updateChartSettings({ metric: { changeIncreaseColor: increase, changeDecreaseColor: decrease } }),
+    },
+    metricColorByDirection: {
+        showCondition: (c) => c.isMetric,
+        value: colorsMetricByDirection,
+        onChange: (colorByDirection, c) => c.updateChartSettings({ metric: { colorByDirection } }),
+    },
+    metricTrendColors: {
+        showCondition: (c) => c.isMetric && colorsMetricByDirection(c),
+        value: (c) => ({
+            increase: c.chartSettings.metric?.lineIncreaseColor ?? METRIC_DEFAULT_INCREASE_COLOR,
+            decrease: c.chartSettings.metric?.lineDecreaseColor ?? METRIC_DEFAULT_DECREASE_COLOR,
+        }),
+        onChange: ({ increase, decrease }, c) =>
+            c.updateChartSettings({ metric: { lineIncreaseColor: increase, lineDecreaseColor: decrease } }),
     },
     valuesOnSeries: {
         showCondition: (c) => c.showsSeriesOptions,
@@ -145,13 +176,8 @@ const SQL_BINDINGS: DisplayOptionBindings<SqlDisplayContext> = {
     },
     pieTotal: {
         showCondition: (c) => c.isPartOfWholeChart,
-        render: (c) => (
-            <PieTotalOption
-                isDonut={c.isDonutChart}
-                checked={showsPieTotal(c.chartSettings, c.isProportionBar)}
-                onChange={(showTotal) => c.updateChartSettings({ pie: { showTotal } })}
-            />
-        ),
+        value: (c) => showsPieTotal(c.chartSettings, c.isProportionBar),
+        onChange: (showTotal, c) => c.updateChartSettings({ pie: { showTotal } }),
     },
     showTotalRow: {
         showCondition: (c) => c.showsSeriesOptions,
@@ -170,16 +196,14 @@ const SQL_BINDINGS: DisplayOptionBindings<SqlDisplayContext> = {
     },
     legend: {
         showCondition: (c) => !c.isMetric,
-        render: (c) => (
-            <LegendOption
-                showLegend={c.showLegend}
-                onShowLegendChange={(showLegend) => c.updateChartSettings({ showLegend })}
-                position={
-                    c.chartSettings.legendPosition ?? (c.isProportionBar ? 'bottom' : c.isPieChart ? 'right' : 'top')
-                }
-                onPositionChange={(legendPosition) => c.updateChartSettings({ legendPosition })}
-            />
-        ),
+        value: (c) => c.showLegend,
+        onChange: (showLegend, c) => c.updateChartSettings({ showLegend }),
+    },
+    legendPosition: {
+        showCondition: (c) => !c.isMetric,
+        value: (c) => c.chartSettings.legendPosition ?? (c.isProportionBar ? 'bottom' : c.isPieChart ? 'right' : 'top'),
+        onChange: (legendPosition, c) => c.updateChartSettings({ legendPosition }),
+        disabledReason: (c) => (c.showLegend ? undefined : 'Turn the legend on to set its position'),
     },
     excludeOutliers: {
         showCondition: (c) => c.isBoxPlot,
@@ -188,15 +212,16 @@ const SQL_BINDINGS: DisplayOptionBindings<SqlDisplayContext> = {
     },
     annotations: {
         showCondition: (c) => c.supportsAnnotations,
-        render: (c) => (
-            <ChartOptionSwitch
-                label="Show annotations"
-                data-attr="data-visualization-show-annotations"
-                disabledReason={!c.isDateXAxis ? 'Annotations need a Date or DateTime column on the X-axis' : undefined}
-                checked={c.isDateXAxis && (c.chartSettings.showAnnotations ?? false)}
-                onChange={(showAnnotations) => c.updateChartSettings({ showAnnotations })}
-            />
-        ),
+        value: (c) =>
+            c.isDateXAxis && c.chartSettings.showAnnotations ? (c.chartSettings.annotationsScope ?? 'all') : 'none',
+        onChange: (selection, c) =>
+            c.updateChartSettings({
+                showAnnotations: selection !== 'none',
+                annotationsScope: selection === 'all' || selection === 'none' ? undefined : selection,
+            }),
+        disabledReason: (c) =>
+            !c.isDateXAxis ? 'Annotations need a Date or DateTime column on the X-axis' : undefined,
+        dataAttr: 'data-visualization-show-annotations',
     },
 
     xAxisLabel: {
@@ -282,7 +307,6 @@ const SQL_BINDINGS: DisplayOptionBindings<SqlDisplayContext> = {
         showCondition: (c) => c.showsRightYAxis,
         value: (c) => c.chartSettings.rightYAxisSettings?.label,
         onChange: (label, c) => c.updateChartSettings({ rightYAxisSettings: { label } }),
-        placeholder: () => 'Right Y-axis label',
         dataAttr: 'data-visualization-right-y-axis-label-input',
     },
     rightYAxisBeginAtZero: {
@@ -333,7 +357,6 @@ export const sqlDisplayOptions: DisplayOptionsAdapter<SqlDisplayContext> = {
                 'x-axis': { title: categoryAxisName },
                 'y-axis': { title: c.showsRightYAxis ? `Left ${valueAxisName}` : valueAxisName },
                 'right-y-axis': { title: `Right ${valueAxisName}` },
-                annotations: { tooltip: null },
             },
         }
     },

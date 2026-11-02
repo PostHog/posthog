@@ -29,11 +29,16 @@ export const DisplayTab = (): JSX.Element => {
         effectiveVisualizationType !== ChartDisplayType.BoxPlot &&
         !PART_OF_WHOLE_DISPLAY_TYPES.includes(effectiveVisualizationType)
 
-    const panels: DisplayTabPanel[] = tabs.map((tab) => ({
-        key: tab.key,
-        header: tab.label,
-        content: <ChartOptionSections sections={tab.sections} />,
-    }))
+    // Each axis gets its own panel: together they hold too many settings for one.
+    const panels: DisplayTabPanel[] = tabs.flatMap((tab): DisplayTabPanel[] =>
+        tab.key === 'axes'
+            ? tab.sections.map((section) => ({
+                  key: section.key,
+                  header: section.title,
+                  content: <ChartOptionSections sections={[{ ...section, title: undefined }]} />,
+              }))
+            : [{ key: tab.key, header: tab.label, content: <ChartOptionSections sections={tab.sections} /> }]
+    )
     if (supportsGoalLines) {
         panels.push({
             key: 'goals',

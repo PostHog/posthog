@@ -72,7 +72,9 @@ test.describe('SQL editor axis labels', () => {
         await page.getByTestId('sql-editor-visualization-settings-button').click()
         await page.getByRole('tab', { name: 'Display' }).click()
 
-        await page.getByText('Axes', { exact: true }).click()
+        await page.getByText('X-axis', { exact: true }).click()
+        await page.getByText('Left Y-axis', { exact: true }).click()
+        await page.getByText('Right Y-axis', { exact: true }).click()
         await page.getByTestId('data-visualization-x-axis-label-input').fill('Event name')
         await page.getByTestId('data-visualization-left-y-axis-label-input').fill('Events')
         await page.getByTestId('data-visualization-right-y-axis-label-input').fill('People')
@@ -94,7 +96,9 @@ test.describe('SQL editor axis labels', () => {
         await page.getByTestId('sql-editor-visualization-settings-button').click()
         await page.getByRole('tab', { name: 'Display' }).click()
 
-        await page.getByText('Axes', { exact: true }).click()
+        await page.getByText('X-axis', { exact: true }).click()
+        await page.getByText('Left Y-axis', { exact: true }).click()
+        await page.getByText('Right Y-axis', { exact: true }).click()
         await expect(page.getByTestId('data-visualization-x-axis-label-input')).toHaveValue('Event name')
         await expect(page.getByTestId('data-visualization-left-y-axis-label-input')).toHaveValue('Events')
         await expect(page.getByTestId('data-visualization-right-y-axis-label-input')).toHaveValue('People')
