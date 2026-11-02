@@ -1032,6 +1032,26 @@ class EnterpriseExperimentsViewSet(
         then names the filters. A query that read precomputed exposures doesn't apply those filters,
         so it can't get `exposure_criteria`. It is null otherwise.
 
+        `metric_all_zero` reports a metric that reads zero in every variant, from the same latest
+        finished calculation, so the results page shows "Not enough data yet" at any sample size.
+        Each side of a ratio that is zero in every variant counts on its own. It reads the stored
+        result and the project's event definitions, and no events. A primary metric needs 1,000
+        exposures in the result and 72 hours of data, because most zeros before that are outcomes
+        that take time. A retention metric counts those hours from the start of its retention
+        window. The subcode is the cause of the first metric: `blank_event` (an event with an empty
+        name), `event_stopped` (the project last received the event before launch, while ingestion
+        still records the project), `outlier_bound` (an upper outlier bound that is 0 while some
+        exposures have a value) or null when none shows a cause. `blank_event` and `outlier_bound`
+        also report a secondary metric, and need only 100 exposures and 12 hours of data, because
+        they read 0 at any traffic. A bound on the largest value of the exposures can't be 0 while
+        one has a value, so it is no cause. Neither is a bound on a metric with breakdowns, which
+        gets one bound per breakdown group. Until the end, the check leaves out a metric that uses an
+        event `metric_event_not_ingested` reports. Each metric, or side of a ratio, is in the
+        `evidence` keys `metric_N`, `metric_N_role`, `metric_N_side`, `metric_N_exposures` and
+        `metric_N_cause`. It is a warning for a primary metric. After the end it stays a warning only
+        for a cause that a setting fixes, because the calculation after the fix reads the events up
+        to the end. It is info otherwise.
+
         The severity of the `some_conditions_pinned` finding follows the largest share that the
         users of the pinned release conditions make up among the users who got one variant from
         the flag, in the last 7 days, or since launch or the flag's last save if later. It reads
