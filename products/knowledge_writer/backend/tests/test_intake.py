@@ -22,6 +22,7 @@ from products.knowledge_writer.backend.logic.pull_requests import (
     section_marker,
 )
 from products.knowledge_writer.backend.logic.records import (
+    PUBLICATION_CLAIM_STATE_KEY,
     PULL_REQUEST_FAILURE_STATE_KEY,
     PULL_REQUEST_STATE_KEY,
     REQUEST_STATE_KEY,
@@ -311,6 +312,36 @@ def test_a_finished_writer_run_that_cannot_start_its_publish_workflow_records_wh
     create_pull_request.assert_not_called()
     failure = tasks_facade.read_task_state_entry(started.task_id, team.id, PULL_REQUEST_FAILURE_STATE_KEY)
     assert failure == "publish_not_started"
+
+
+@pytest.mark.django_db
+def test_a_publish_retry_reclaims_the_claim_its_crashed_attempt_left_and_opens_the_pull_request(
+    team, writer_env, django_capture_on_commit_callbacks, monkeypatch
+) -> None:
+    monkeypatch.setattr(KNOWLEDGE_WRITER_ENABLED, lambda team_id: True)
+    monkeypatch.setattr(START_PUBLISH, lambda task_run_id, *, team_id: None)
+    with (
+        patch(FLAG_CHECK, return_value=True),
+        patch(LIST_PULL_REQUESTS, side_effect=_open_on_github()),
+        patch(START_WORKFLOW),
+    ):
+        started = intake.submit(_verdict(suggested_page_urls=(SECTION_PAGE,)), team_id=team.id)
+    assert started.task_id is not None
+    _finish_run(started.task_id, django_capture_on_commit_callbacks)
+    run = TaskRun.objects.get(task_id=started.task_id)
+    tasks_facade.update_task_state_entry(
+        started.task_id, team.id, PUBLICATION_CLAIM_STATE_KEY, lambda current: (str(run.id), None)
+    )
+    opened = {"success": True, "pr_url": "https://github.com/PostHog/posthog.com/pull/9", "pr_number": 9}
+    with (
+        patch(LIST_PULL_REQUESTS, side_effect=_open_on_github()),
+        patch(CREATE_PULL_REQUEST, return_value=opened) as create_pull_request,
+        patch(f"{GITHUB}.add_pull_request_labels", return_value={"success": True}),
+    ):
+        pull_request_url = open_or_join_pull_request(run.id, team_id=team.id)
+
+    create_pull_request.assert_called_once()
+    assert pull_request_url == opened["pr_url"]
 
 
 @pytest.mark.django_db

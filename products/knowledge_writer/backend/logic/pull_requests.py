@@ -192,7 +192,7 @@ def open_or_join_pull_request(task_run_id: UUID, *, team_id: int) -> str | None:
 
 def claim_publication(task_id: UUID, team_id: int, task_run_id: UUID) -> bool:
     def claim(current: object) -> tuple[object, bool]:
-        if current is not None:
+        if current is not None and current != str(task_run_id):
             return current, False
         return str(task_run_id), True
 
