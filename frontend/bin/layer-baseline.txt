@@ -12,7 +12,6 @@ frontend/src/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificat
 frontend/src/layout/navigation-3000/sidepanel/panels/max/SidePanelMax.tsx -> frontend/src/scenes/max/maxLogic.tsx
 frontend/src/layout/navigation-3000/sidepanel/panels/support/SidePanelSupport.tsx -> products/conversations/frontend/components/SidePanel/SidePanelTickets.tsx
 frontend/src/layout/navigation-3000/sidepanel/panels/support/SidePanelSupport.tsx -> products/conversations/frontend/components/SidePanel/sidepanelTicketsLogic.ts
-frontend/src/layout/navigation-3000/sidepanel/sidePanelTabs.tsx -> products/conversations/frontend/components/SidePanel/SidePanelSupportIcon.tsx
 frontend/src/layout/navigation/projectNoticeLogic.tsx -> frontend/src/scenes/activity/live/liveEventsLogic.tsx
 frontend/src/layout/navigation/projectNoticeLogic.tsx -> frontend/src/scenes/authentication/verify-email/verifyEmailLogic.ts
 frontend/src/layout/navigation/projectNoticeLogic.tsx -> frontend/src/scenes/insights/EmptyStates/sampleDataStateLogic.ts

@@ -144,6 +144,9 @@ const ROOTS = [
             'products/subscriptions/frontend/components/Subscriptions/exportNudge/exportNudgeLogic.ts',
             // The pay gate loads the payment logic on click. It pulls in the billing product logic.
             'src/scenes/billing/paymentEntryLogic.ts',
+            // The support tab icon loads after the shell renders. Its ticket logic pulls in zod.
+            'products/conversations/frontend/components/SidePanel/sidepanelTicketsLogic.ts',
+            'node_modules/zod/',
             // The rich text editor stack is for the scenes that edit text. Rendered markdown needs none of it.
             'node_modules/@tiptap/',
             'node_modules/prosemirror-',
