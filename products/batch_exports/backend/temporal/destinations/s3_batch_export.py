@@ -646,8 +646,6 @@ class PinnedS3HTTPSession(AIOHTTPSession):
 
         try:
             return await super().send(request)
-        except SSRFBlockedError as err:
-            raise InvalidS3EndpointError(str(err)) from err
         except botocore.exceptions.HTTPClientError as err:
             if isinstance(err.kwargs.get("error"), SSRFBlockedError):
                 raise InvalidS3EndpointError(str(err.kwargs["error"])) from err
