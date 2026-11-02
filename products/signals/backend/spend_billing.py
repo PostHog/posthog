@@ -71,11 +71,11 @@ def usage_billing_cutoff(organization_id: UUID) -> datetime | None:
     return usage_billing_cutoffs(organization_id).get(organization_id)
 
 
-def task_run_uses_usage_billing(team: Team, run_id: UUID) -> bool:
-    cutoff = usage_billing_cutoff(team.organization_id)
+def task_run_uses_usage_billing(*, team_id: int, organization_id: UUID, run_id: UUID) -> bool:
+    cutoff = usage_billing_cutoff(organization_id)
     return (
         cutoff is not None
-        and SignalSpend.objects.for_team(team.id)
+        and SignalSpend.objects.for_team(team_id)
         .filter(task_run_id=run_id, created_at__gte=cutoff, billing_exempt=False)
         .exists()
     )

@@ -6,12 +6,12 @@ from temporalio import activity
 from posthog.models import Team
 from posthog.temporal.common.utils import asyncify
 
+from products.signals.backend.facade.billing import task_run_uses_usage_billing
 from products.signals.backend.quota import (
     capture_signal_report_quota_paused,
     record_quota_check_failed_open,
     self_driving_quota_gate,
 )
-from products.signals.backend.spend_billing import task_run_uses_usage_billing
 from products.tasks.backend.constants import GITHUB_PR_URL_PREFIX
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.observability import log_with_activity_context
@@ -62,7 +62,9 @@ def enforce_self_driving_run_quota(input: EnforceSelfDrivingRunQuotaInput) -> st
         ):
             return SELF_DRIVING_QUOTA_STOP_CHECKING
         team = Team.objects.select_related("organization").get(id=input.team_id)
-        if _has_billable_pr_url(run.output) and not task_run_uses_usage_billing(team, run.id):
+        if _has_billable_pr_url(run.output) and not task_run_uses_usage_billing(
+            team_id=team.id, organization_id=team.organization_id, run_id=run.id
+        ):
             return SELF_DRIVING_QUOTA_STOP_CHECKING
 
         gate = self_driving_quota_gate(team)

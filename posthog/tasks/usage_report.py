@@ -78,7 +78,7 @@ from products.replay_vision.backend.billing import (
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.quota import unreported_spend_by_org
 from products.signals.backend.billing import credited_refund_credits_for_org, get_signals_billing_credits_by_team
-from products.signals.backend.spend_billing import get_signals_spend_billing_credits_by_team
+from products.signals.backend.facade.billing import get_signals_spend_billing_credits_by_team
 from products.surveys.backend.models import Survey
 from products.surveys.backend.util import (
     SurveyEventProperties,
