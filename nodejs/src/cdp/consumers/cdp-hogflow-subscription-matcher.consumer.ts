@@ -35,7 +35,6 @@ import {
 } from '../../types'
 import { CdpInternalEventSchema } from '../schema'
 import { COHORT_MEMBERSHIP_CHANGED_EVENT } from '../services/cohorts/cohort-membership-repository'
-import { calculatedScheduledAt } from '../services/hogflows/actions/delay'
 import {
     hasEventOrActionTarget,
     matchesWaitUntilCondition,
@@ -157,8 +156,6 @@ type ParkedCandidate = {
     actionId: string | null
     distinctId: string | null
     personId: string | null
-    // Already due when found, which only event streams look up.
-    due: boolean
 }
 
 // A distinct_id repointed by a merge: the distinct_id and the survivor person it now resolves to.
@@ -212,8 +209,6 @@ type MatchedJob = {
     recheckMatched: boolean
     conversionMatched: boolean
     exitsOnConversion: boolean
-    foundDue: boolean
-    maxWaitDuration?: string
     // Name, UUID and timestamp of the matched event, so the resume log can name it and link to it.
     eventName?: string
     eventUuid?: string
@@ -404,22 +399,12 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             return
         }
 
-        // Only these waits ever get a recheck wake, so only they can be due with one pending.
-        const recheckWaits = Object.values(hogflows).flatMap((flow) =>
-            source === 'person'
-                ? []
-                : flow.actions
-                      .filter((a: HogFlowAction) => a.type === 'wait_until_condition' && conditionNeedsRunGlobals(a))
-                      .map((a: HogFlowAction) => ({ functionId: flow.id, actionId: a.id }))
-        )
-
         const candidates = await this.findParkedJobs(
             distinctTeamIds,
             distinctIds,
             personTeamIds,
             personIds,
             Object.keys(hogflows),
-            recheckWaits,
             source
         )
         if (candidates.length === 0) {
@@ -509,9 +494,6 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                     recheckMatched,
                     conversionMatched,
                     exitsOnConversion: exitsOnConversion(hogflow),
-                    foundDue: candidate.due,
-                    maxWaitDuration:
-                        action?.type === 'wait_until_condition' ? action.config.max_wait_duration : undefined,
                     eventName: stepMatchedEventName,
                     eventUuid: stepMatchedEventUuid,
                     eventTimestamp: stepMatchedEventTimestamp,
@@ -562,7 +544,6 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         personTeamIds: number[],
         personIds: string[],
         functionIds: string[],
-        recheckWaits: { functionId: string; actionId: string }[],
         source: WakeSource
     ): Promise<ParkedCandidate[]> {
         // Two index-friendly branches with UNION (dedupes rows that match both keys).
@@ -580,37 +561,24 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         // dedicated queue, the following wait parks on that queue, so a queue_name='hogflow'
         // filter would silently miss it. function_id already scopes to hogflow jobs, and
         // waking the job (scheduled = NOW()) lets whichever worker owns that queue resume it.
-        //
-        // Event streams also see due jobs parked on a wait in recheckWaits. A person recheck wake
-        // makes a job due before the worker decides it, and an event the wait listens for can land in
-        // that gap. The worker checks only the condition, so that event would be lost. processMatchedJobs
-        // acts on a due job only while its recheck is still pending.
         const stopTimer = histogramHogflowMatcherFindParkedJobs.startTimer({ stream: source })
         let result
         try {
             result = await this.cyclotronPool.query(
-                `SELECT id, team_id, function_id, parent_run_id, action_id, distinct_id, person_id, scheduled <= NOW() AS due
+                `SELECT id, team_id, function_id, parent_run_id, action_id, distinct_id, person_id
              FROM cyclotron_jobs
              WHERE status = 'available'
-               AND (scheduled > NOW() OR (function_id, action_id) IN (SELECT * FROM unnest($6::uuid[], $7::text[])))
+               AND scheduled > NOW()
                AND function_id = ANY($5::uuid[])
                AND (team_id, distinct_id) IN (SELECT * FROM unnest($1::int[], $2::text[]))
              UNION
-             SELECT id, team_id, function_id, parent_run_id, action_id, distinct_id, person_id, scheduled <= NOW() AS due
+             SELECT id, team_id, function_id, parent_run_id, action_id, distinct_id, person_id
              FROM cyclotron_jobs
              WHERE status = 'available'
-               AND (scheduled > NOW() OR (function_id, action_id) IN (SELECT * FROM unnest($6::uuid[], $7::text[])))
+               AND scheduled > NOW()
                AND function_id = ANY($5::uuid[])
                AND (team_id, person_id) IN (SELECT * FROM unnest($3::int[], $4::text[]))`,
-                [
-                    distinctTeamIds,
-                    distinctIds,
-                    personTeamIds,
-                    personIds,
-                    functionIds,
-                    recheckWaits.map((w) => w.functionId),
-                    recheckWaits.map((w) => w.actionId),
-                ]
+                [distinctTeamIds, distinctIds, personTeamIds, personIds, functionIds]
             )
         } finally {
             stopTimer()
@@ -624,7 +592,6 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             actionId: row.action_id,
             distinctId: row.distinct_id,
             personId: row.person_id,
-            due: row.due === true,
         }))
     }
 
@@ -1588,17 +1555,6 @@ function rewriteStatePersonId(
 
 type MatchOutcome = { state: Buffer; wake: boolean }
 
-function waitDeadlinePassed(state: HogFlowInvocationContext, maxWaitDuration: string | undefined): boolean {
-    if (!maxWaitDuration) {
-        return false
-    }
-    try {
-        return calculatedScheduledAt(maxWaitDuration, state.currentAction?.startedAtTimestamp) === null
-    } catch {
-        return true
-    }
-}
-
 // Applies a batch match to a parked job's state. Returns the new state plus whether the job should
 // be woken (`scheduled = NOW()`) and whether its conversion should be counted this run. Returns null
 // when nothing changed (e.g. the conversion was already counted and there's no wake to apply).
@@ -1606,17 +1562,6 @@ function applyMatchToState(stateBuffer: Buffer, m: MatchedJob): MatchOutcome | n
     try {
         const parsed = parseJSON(stateBuffer.toString('utf-8'))
         const updatedState: HogFlowInvocationContext = { ...parsed.state }
-
-        // A job that was already due when found is left alone unless a recheck is still pending on
-        // it. Any other due job is due for its own reason, such as a passed deadline, and a late
-        // event must not change its path.
-        if (m.foundDue && updatedState.currentAction?.recheckWake !== true) {
-            return null
-        }
-        // A recheck can stay queued past the deadline, where the worker takes the timeout edge.
-        if (m.foundDue && waitDeadlinePassed(updatedState, m.maxWaitDuration)) {
-            return null
-        }
 
         let changed = false
         let wake = false

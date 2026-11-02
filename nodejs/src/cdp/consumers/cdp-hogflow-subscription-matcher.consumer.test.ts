@@ -38,7 +38,6 @@ type MockRow = {
     action_id: string | null
     distinct_id: string | null
     person_id: string | null
-    due?: boolean
     state?: Buffer | null
 }
 
@@ -2294,56 +2293,6 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             await matcher.runWake([personWake()], 'person')
 
             expect(matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))).toBeUndefined()
-        })
-
-        const parkDueOn = (currentAction: Record<string, any>): void => {
-            parkOn(READS_EVENT_AND_PERSON_FILTERS)
-            matcher.findRows = [{ ...matcher.findRows[0], due: true }]
-            matcher.wakeRows = [{ ...matcher.findRows[0], state: stateBuffer({ currentAction }) }]
-        }
-        const matchingEvent = (): HogFunctionInvocationGlobals =>
-            makeGlobals({ event: { ...makeGlobals({}).event, properties: { plan: 'growth' } } })
-
-        it('keeps an event match that lands while a person recheck is pending', async () => {
-            // The person wake made the job due, so the event it waits for arrives before the worker
-            // decides it. The worker checks only the condition, so this event is the only chance.
-            parkDueOn({ id: 'wait_node', recheckWake: true, startedAtTimestamp: Date.now() })
-
-            await matcher.runWake([matchingEvent()])
-
-            const lookup = matcher.calls.find((c) => c.sql.includes('action_id, distinct_id, person_id'))
-            // Step ids repeat across flows, so the lookup pairs each step with its flow.
-            expect([lookup!.params[5], lookup!.params[6]]).toEqual([['flow-1'], ['wait_node']])
-            const update = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
-            expect(update).toBeDefined()
-            const written = parseJSON(update!.params[1][0].toString('utf-8'))
-            expect(written.state.currentAction.eventMatched).toBe(true)
-        })
-
-        it('leaves a job that is due for another reason alone on the events stream', async () => {
-            // Due without a pending recheck means its deadline passed, which an event must not change.
-            parkDueOn({ id: 'wait_node', startedAtTimestamp: Date.now() })
-
-            await matcher.runWake([matchingEvent()])
-
-            expect(matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))).toBeUndefined()
-        })
-
-        it('leaves a pending recheck alone once its deadline passed', async () => {
-            parkDueOn({ id: 'wait_node', recheckWake: true, startedAtTimestamp: Date.now() - 10 * 60 * 1000 })
-
-            await matcher.runWake([matchingEvent()])
-
-            expect(matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))).toBeUndefined()
-        })
-
-        it('looks up no due jobs for a wait that never gets a recheck', async () => {
-            parkOn(READS_EVENT_FILTERS)
-
-            await matcher.runWake([matchingEvent()])
-
-            const lookup = matcher.calls.find((c) => c.sql.includes('action_id, distinct_id, person_id'))
-            expect([lookup!.params[5], lookup!.params[6]]).toEqual([[], []])
         })
 
         it('does not wake on the events stream, where the real event is present', async () => {
