@@ -3,6 +3,7 @@ import { beforeUnload, router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { isSandboxEmailSender } from 'lib/integrations/utils'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { senderAddressError, senderFrom } from 'scenes/hog-functions/email-templater/emailSenderFields'
 import type { EmailTemplate } from 'scenes/hog-functions/email-templater/types'
@@ -210,9 +211,12 @@ export const transactionalEmailWizardLogic = kea<transactionalEmailWizardLogicTy
         senders: [
             (s) => [s.integrations],
             (integrations: IntegrationType[] | null): IntegrationType[] =>
-                // make_transactional only accepts a verified sender.
+                // make_transactional only accepts a verified sender, and never the sandbox sender.
                 (integrations ?? []).filter(
-                    (integration) => integration.kind === 'email' && integration.config?.verified === true
+                    (integration) =>
+                        integration.kind === 'email' &&
+                        !isSandboxEmailSender(integration) &&
+                        integration.config?.verified === true
                 ),
         ],
         stepErrors: [
