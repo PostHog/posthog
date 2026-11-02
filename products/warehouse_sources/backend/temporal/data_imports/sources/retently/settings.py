@@ -11,7 +11,7 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 PAGE_SIZE = 1000
 
 
-@dataclass
+@dataclass(frozen=True)
 class RetentlyEndpointConfig:
     name: str
     path: str
