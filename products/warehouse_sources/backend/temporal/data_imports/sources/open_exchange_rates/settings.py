@@ -7,7 +7,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=False)
 class OpenExchangeRatesEndpointConfig:
     name: str
     # Fields the rows are merged on. The rate endpoints carry one row per (base, currency, date), so
@@ -15,8 +15,8 @@ class OpenExchangeRatesEndpointConfig:
     # currencies.
     primary_keys: list[str]
     incremental_fields: list[IncrementalField] = field(default_factory=list)
-    # Only set on `historical`, which selects a single value date server-side (via the URL path), so
-    # an incremental sync only fetches days newer than the watermark rather than the whole history.
+    # Only set on the dated rate endpoints, which select their value dates server-side, so an
+    # incremental sync only fetches days newer than the watermark rather than the whole history.
     supports_incremental: bool = False
     # `date` is the rate's value date — historical rates never change, so it's a stable partition key.
     partition_keys: list[str] | None = None
@@ -65,6 +65,35 @@ OPEN_EXCHANGE_RATES_ENDPOINTS: dict[str, OpenExchangeRatesEndpointConfig] = {
         partition_mode="datetime",
         partition_format="month",
         description="Daily historical rates per currency, one request per day (walked from the start date). Supports incremental sync on the value date.",
+    ),
+    # /time-series.json — daily rates for a date range in one request, normalized to the same
+    # (base, currency, date) rows as `historical`. The vendor caps a request at one month, so the walk
+    # requests one calendar month at a time. Each day still counts as one request toward the quota.
+    # Only available on the Enterprise and Unlimited plans, so it is off by default.
+    "time_series": OpenExchangeRatesEndpointConfig(
+        name="time_series",
+        primary_keys=["base", "currency", "date"],
+        incremental_fields=[_DATE_INCREMENTAL_FIELD],
+        supports_incremental=True,
+        partition_keys=["date"],
+        partition_mode="datetime",
+        partition_format="month",
+        should_sync_default=False,
+        description="Daily historical rates per currency, fetched one month per request. Needs an Enterprise or Unlimited plan. Supports incremental sync on the value date.",
+    ),
+    # /ohlc.json — open/high/low/close/average rates for one period. Walked one request per day with
+    # `period=1d`, from the start date (or the incremental watermark) up to yesterday, because a
+    # period may not end in the future. Only available on the VIP Platinum plan, so it is off by default.
+    "ohlc": OpenExchangeRatesEndpointConfig(
+        name="ohlc",
+        primary_keys=["base", "currency", "date"],
+        incremental_fields=[_DATE_INCREMENTAL_FIELD],
+        supports_incremental=True,
+        partition_keys=["date"],
+        partition_mode="datetime",
+        partition_format="month",
+        should_sync_default=False,
+        description="Daily open, high, low, close and average rates per currency, one request per day. Needs a VIP Platinum plan. Supports incremental sync on the value date.",
     ),
     # /usage.json — the account's plan and current-period request usage as a single flattened row.
     # Free and does not count toward the monthly request quota. Keyed on a constant synthetic id

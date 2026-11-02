@@ -328,11 +328,12 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
         feature: 'Survey wait period',
         sdkVersions: {
             'posthog-js': '1.105.7',
+            'posthog-react-native': '4.81.5',
             'posthog-ios': '3.44.0',
             'posthog-android': '3.35.0',
             posthog_flutter: '5.18.0',
         },
-        unsupportedSdks: [{ sdk: 'posthog-react-native', issue: 'https://github.com/PostHog/posthog-js/issues/3192' }],
+        unsupportedSdks: [],
         check: (s) => (s.conditions?.seenSurveyWaitPeriodInDays ?? 0) > 0,
     },
     {

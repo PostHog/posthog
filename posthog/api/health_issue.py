@@ -34,6 +34,8 @@ from posthog.rate_limit import HealthIssueRefreshThrottle
 from posthog.utils import relative_date_parse
 
 if TYPE_CHECKING:
+    from posthog.temporal.health_checks.framework import ObjectAccessGate
+
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
@@ -293,12 +295,74 @@ def _kinds_hidden_by_access_control(request: Request, user_access_control: "User
     }
 
 
+def _denied_object_ids_by_kind(
+    request: Request, user_access_control: "UserAccessControl"
+) -> dict[str, tuple["ObjectAccessGate", frozenset[str]]]:
+    """Check kind → (its object gate, ids of that kind's objects this user is denied).
+
+    Only kinds with at least one denied id appear. Resource-level denies are
+    `_kinds_hidden_by_access_control`'s job; this is the per-object rung under it.
+    """
+    from posthog.temporal.health_checks.framework import object_access_gates_by_kind  # noqa: PLC0415
+
+    if is_service_auth(request):
+        return {}
+
+    denied_by_resource = user_access_control.blocked_resource_ids_by_scope
+    denied_by_kind: dict[str, tuple[ObjectAccessGate, frozenset[str]]] = {}
+    for kind, gate in object_access_gates_by_kind().items():
+        denied_ids = denied_by_resource.get(gate.resource)
+        if denied_ids and gate.model is not None and request.user.id is not None:
+            # `blocked_resource_ids_by_scope` has no creator exemption, while the resource's own
+            # endpoints let a creator open what they made, whatever its access level. `_base_manager`
+            # keeps soft-deleted rows that a default manager hides. The ids come from this team's
+            # access controls, so the query needs no team filter.
+            created = gate.model._base_manager.filter(pk__in=denied_ids, created_by_id=request.user.id)
+            denied_ids = denied_ids - {str(pk) for pk in created.values_list("pk", flat=True)}
+        if denied_ids:
+            denied_by_kind[kind] = (gate, denied_ids)
+    return denied_by_kind
+
+
+def _payload_id_values(denied_ids: frozenset[str]) -> list[str | int]:
+    """Both spellings of each id, because `AccessControl.resource_id` is a string and a check
+    writes the id in whatever type its model uses."""
+    values: list[str | int] = list(denied_ids)
+    values.extend(int(denied_id) for denied_id in denied_ids if denied_id.isdigit())
+    return values
+
+
+def _denied_object_filter(kind: str, gate: "ObjectAccessGate", denied_ids: frozenset[str]) -> Q:
+    """The SQL form of `_issue_names_denied_object`, for list and summary.
+
+    The `has_key` guard keeps an issue without the key listed. A missing key reads as NULL,
+    and a NULL inside the excluded condition drops the row, while retrieve reads the same
+    missing key as "not denied" and serves it.
+    """
+    return Q(
+        kind=kind,
+        payload__has_key=gate.object_key,
+        **{f"payload__{gate.object_key}__in": _payload_id_values(denied_ids)},
+    )
+
+
+def _issue_names_denied_object(
+    issue: HealthIssue, denied_by_kind: dict[str, tuple["ObjectAccessGate", frozenset[str]]]
+) -> bool:
+    entry = denied_by_kind.get(issue.kind)
+    if entry is None or not isinstance(issue.payload, dict):
+        return False
+    gate, denied_ids = entry
+    object_id = issue.payload.get(gate.object_key)
+    return object_id is not None and str(object_id) in denied_ids
+
+
 class HealthIssueResourceAccessPermission(BasePermission):
-    """Denies an issue whose check declared an access-controlled resource the user cannot view.
+    """Denies an issue whose check declared an access-controlled resource, or object, the user cannot view.
 
     `health_issue` is not itself an access-controlled resource, but issue payloads
     and rendered titles/summaries embed metadata about resources that are (source
-    pipeline names, view names). List and summary hide such kinds in
+    pipeline names, view names, flag keys). List and summary hide such issues in
     `safely_get_queryset`; this covers retrieve and the object actions with the
     same 403 that `AccessControlPermission` returns on the resource's own endpoints.
     """
@@ -306,7 +370,9 @@ class HealthIssueResourceAccessPermission(BasePermission):
     message = "You do not have viewer access to this resource."
 
     def has_object_permission(self, request: Request, view, obj: HealthIssue) -> bool:
-        return obj.kind not in _kinds_hidden_by_access_control(request, view.user_access_control)
+        if obj.kind in _kinds_hidden_by_access_control(request, view.user_access_control):
+            return False
+        return not _issue_names_denied_object(obj, _denied_object_ids_by_kind(request, view.user_access_control))
 
 
 def _issue_counts(queryset: QuerySet) -> dict[str, Any]:
@@ -471,6 +537,8 @@ class HealthIssueViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMi
             hidden_kinds = _kinds_hidden_by_access_control(self.request, self.user_access_control)
             if hidden_kinds:
                 queryset = queryset.exclude(kind__in=hidden_kinds)
+            for kind, (gate, denied_ids) in _denied_object_ids_by_kind(self.request, self.user_access_control).items():
+                queryset = queryset.exclude(_denied_object_filter(kind, gate, denied_ids))
 
         return queryset
 

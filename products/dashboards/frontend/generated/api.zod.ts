@@ -49,6 +49,13 @@ export const DashboardTemplatesCreateBody = /* @__PURE__ */ zod.object({
                     .describe(
                         'How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
                     ),
+                group_display: zod
+                    .enum(['sections', 'tabs'])
+                    .describe('\* `sections` - sections\n\* `tabs` - tabs')
+                    .optional()
+                    .describe(
+                        'How tile groups show. sections shows each group as a band that opens and closes. tabs shows one group at a time, and tiles outside any group get their own first tab.\n\n\* `sections` - sections\n\* `tabs` - tabs'
+                    ),
                 groups: zod
                     .record(
                         zod.string(),
@@ -160,6 +167,13 @@ export const DashboardTemplatesUpdateBody = /* @__PURE__ */ zod.object({
                     .describe(
                         'How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
                     ),
+                group_display: zod
+                    .enum(['sections', 'tabs'])
+                    .describe('\* `sections` - sections\n\* `tabs` - tabs')
+                    .optional()
+                    .describe(
+                        'How tile groups show. sections shows each group as a band that opens and closes. tabs shows one group at a time, and tiles outside any group get their own first tab.\n\n\* `sections` - sections\n\* `tabs` - tabs'
+                    ),
                 groups: zod
                     .record(
                         zod.string(),
@@ -270,6 +284,13 @@ export const DashboardTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .optional()
                     .describe(
                         'How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
+                    ),
+                group_display: zod
+                    .enum(['sections', 'tabs'])
+                    .describe('\* `sections` - sections\n\* `tabs` - tabs')
+                    .optional()
+                    .describe(
+                        'How tile groups show. sections shows each group as a band that opens and closes. tabs shows one group at a time, and tiles outside any group get their own first tab.\n\n\* `sections` - sections\n\* `tabs` - tabs'
                     ),
                 groups: zod
                     .record(
@@ -432,6 +453,13 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
             ),
+        group_display: zod
+            .enum(['sections', 'tabs'])
+            .describe('\* `sections` - sections\n\* `tabs` - tabs')
+            .optional()
+            .describe(
+                'How tile groups show. sections shows each group as a band that opens and closes. tabs shows one group at a time, and tiles outside any group get their own first tab.\n\n\* `sections` - sections\n\* `tabs` - tabs'
+            ),
         groups: zod
             .record(
                 zod.string(),
@@ -564,6 +592,13 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
+            ),
+        group_display: zod
+            .enum(['sections', 'tabs'])
+            .describe('\* `sections` - sections\n\* `tabs` - tabs')
+            .optional()
+            .describe(
+                'How tile groups show. sections shows each group as a band that opens and closes. tabs shows one group at a time, and tiles outside any group get their own first tab.\n\n\* `sections` - sections\n\* `tabs` - tabs'
             ),
         groups: zod
             .record(
@@ -822,6 +857,13 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
+            ),
+        group_display: zod
+            .enum(['sections', 'tabs'])
+            .describe('\* `sections` - sections\n\* `tabs` - tabs')
+            .optional()
+            .describe(
+                'How tile groups show. sections shows each group as a band that opens and closes. tabs shows one group at a time, and tiles outside any group get their own first tab.\n\n\* `sections` - sections\n\* `tabs` - tabs'
             ),
         groups: zod
             .record(
@@ -1866,6 +1908,27 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Place an existing insight on this dashboard as a new tile. Requires edit access to the dashboard and view access to the insight. Returns the tile. Adding an insight the dashboard already shows returns its tile unchanged, and adding one that was removed from the dashboard restores its tile with its old layout. To take an insight off a dashboard, use delete_tile.
+ */
+export const DashboardsAddInsightCreateBody = /* @__PURE__ */ zod.object({
+    insight_id: zod
+        .number()
+        .describe(
+            'ID of an existing insight to place on the dashboard. The insight must belong to the same environment as the dashboard. Adding an insight the dashboard already shows changes nothing, and adding one that was removed from the dashboard restores its tile.'
+        ),
+})
+
+/**
+ * Copy a group of tiles and its settings to another dashboard.
+ */
+export const dashboardsCopyGroupCreateBodyGroupKeyMax = 100
+
+export const DashboardsCopyGroupCreateBody = /* @__PURE__ */ zod.object({
+    fromDashboardId: zod.number().describe('Dashboard id the group currently belongs to.'),
+    groupKey: zod.string().max(dashboardsCopyGroupCreateBodyGroupKeyMax).describe('Key of the tile group to copy.'),
+})
+
+/**
  * Copy an existing dashboard tile to another dashboard (insight, text card, or widget tile).
  */
 export const DashboardsCopyTileCreateBody = /* @__PURE__ */ zod.object({
@@ -2356,6 +2419,13 @@ export const DashboardsCreateFromTemplateJsonCreateBody = /* @__PURE__ */ zod
             .describe(
                 'How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
             ),
+        group_display: zod
+            .enum(['sections', 'tabs'])
+            .describe('\* `sections` - sections\n\* `tabs` - tabs')
+            .optional()
+            .describe(
+                'How tile groups show. sections shows each group as a band that opens and closes. tabs shows one group at a time, and tiles outside any group get their own first tab.\n\n\* `sections` - sections\n\* `tabs` - tabs'
+            ),
         groups: zod
             .record(
                 zod.string(),
@@ -2495,6 +2565,13 @@ export const DashboardsCreateUnlistedDashboardCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
+            ),
+        group_display: zod
+            .enum(['sections', 'tabs'])
+            .describe('\* `sections` - sections\n\* `tabs` - tabs')
+            .optional()
+            .describe(
+                'How tile groups show. sections shows each group as a band that opens and closes. tabs shows one group at a time, and tiles outside any group get their own first tab.\n\n\* `sections` - sections\n\* `tabs` - tabs'
             ),
         groups: zod
             .record(

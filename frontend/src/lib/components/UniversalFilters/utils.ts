@@ -1,5 +1,7 @@
 import {
     ActionFilter,
+    EntityType,
+    EntityTypes,
     EventPropertyFilter,
     FeaturePropertyFilter,
     FilterLogicalOperator,
@@ -12,6 +14,7 @@ import {
 } from '~/types'
 
 import { isCohortPropertyFilter } from '../PropertyFilters/utils'
+import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 
 export function isUniversalGroupFilterLike(filter?: UniversalFiltersGroupValue): filter is UniversalFiltersGroup {
     return filter?.type === FilterLogicalOperator.And || filter?.type === FilterLogicalOperator.Or
@@ -46,4 +49,18 @@ export function isCommentTextFilter(filter: UniversalFiltersGroupValue): boolean
         filter.type === PropertyFilterType.Recording &&
         filter.key === 'comment_text'
     )
+}
+
+const taxonomicFilterGroupTypeToEntityTypeMapping: Partial<Record<TaxonomicFilterGroupType, EntityTypes>> = {
+    [TaxonomicFilterGroupType.Events]: EntityTypes.EVENTS,
+    [TaxonomicFilterGroupType.Actions]: EntityTypes.ACTIONS,
+    [TaxonomicFilterGroupType.DataWarehouse]: EntityTypes.DATA_WAREHOUSE,
+    [TaxonomicFilterGroupType.DataWarehouseSourceTables]: EntityTypes.DATA_WAREHOUSE,
+    [TaxonomicFilterGroupType.DataWarehouseMaterializedViews]: EntityTypes.DATA_WAREHOUSE,
+}
+
+export function taxonomicFilterGroupTypeToEntityType(
+    taxonomicFilterGroupType: TaxonomicFilterGroupType
+): EntityType | null {
+    return taxonomicFilterGroupTypeToEntityTypeMapping[taxonomicFilterGroupType] || null
 }

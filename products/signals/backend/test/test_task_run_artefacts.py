@@ -603,7 +603,8 @@ class TestReleaseQuotaCancelledImplementation(BaseTest):
         task = self._task()
         assert release_quota_cancelled_implementation(team_id=self.team.id, task_id=str(task.id)) == []
 
-    def test_release_skips_report_whose_billable_pr_shipped_from_a_sibling_run(self):
+    @parameterized.expand([("legacy", None), ("manual", "posthog_ai")])
+    def test_release_skips_report_whose_billable_pr_shipped_from_a_sibling_run(self, _name, billing_product):
         # The cancel decision is run-scoped but this delete is task-scoped: a sibling run of the
         # same task can have shipped the report's billable PR in an earlier period. The bridge row
         # is billing's evidence for that charge (billed-earlier dedup, refund eligibility), so the
@@ -615,14 +616,15 @@ class TestReleaseQuotaCancelledImplementation(BaseTest):
             team=self.team,
             task=task,
             output={"pr_url": "https://github.com/x/y/pull/1"},
+            state={"billing_product": billing_product} if billing_product else {},
             created_at=datetime(2026, 6, 10, tzinfo=UTC),
         )
 
         released = release_quota_cancelled_implementation(team_id=self.team.id, task_id=str(task.id))
+        assert (first_billable_pr_run_at(report.id, team_id=report.team_id) is not None) == (billing_product is None)
 
         assert released == []
         assert SignalReportTask.objects.filter(task_id=task.id, relationship=TASK_RUN_TYPE_IMPLEMENTATION).exists()
-        assert first_billable_pr_run_at(report.id) is not None
         # Auto-start must still see a started implementation — the report is implemented, not stuck.
         assert SignalReport.associated_task_runs(
             report_id=str(report.id), team_id=self.team.id, product=SIGNALS_PRODUCT, type=TASK_RUN_TYPE_IMPLEMENTATION

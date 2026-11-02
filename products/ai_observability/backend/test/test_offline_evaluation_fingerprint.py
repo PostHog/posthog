@@ -1,4 +1,6 @@
-from dataclasses import replace
+import json
+import hashlib
+from dataclasses import asdict, replace
 from datetime import datetime
 from uuid import UUID
 
@@ -48,6 +50,21 @@ class TestOfflineEvaluationFingerprint(SimpleTestCase):
         self.assertNotEqual(
             submission_fingerprint(ItemSubmission(id=ITEM_ID, payload=first)),
             submission_fingerprint(ItemSubmission(id=ITEM_ID, payload=second)),
+        )
+
+    def test_item_model_preserves_legacy_retries_and_detects_model_changes(self) -> None:
+        item = ItemSubmission(id=ITEM_ID)
+        legacy_fields = asdict(item)
+        legacy_fields.pop("model_version")
+        legacy_fields["id"] = str(ITEM_ID)
+        legacy_hash = hashlib.sha256(
+            b"offline-evaluation:v1:" + json.dumps(legacy_fields, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        self.assertEqual(submission_fingerprint(item), legacy_hash)
+        with_model = replace(item, model_version="model-a")
+        self.assertNotEqual(submission_fingerprint(with_model), legacy_hash)
+        self.assertNotEqual(
+            submission_fingerprint(with_model), submission_fingerprint(replace(item, model_version="model-b"))
         )
 
     def test_equivalent_timestamp_offsets_have_the_same_fingerprint(self) -> None:

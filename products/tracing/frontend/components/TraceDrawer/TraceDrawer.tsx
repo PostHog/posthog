@@ -168,6 +168,7 @@ export function TraceDrawer({
                     <TraceAiEventsCapNotice aiEvents={aiEvents} hasMore={hasMoreAiEvents} limit={aiEventsLimit} />
                     <TraceView
                         traceId={traceId ?? ''}
+                        surface="drawer"
                         inspectorOpen={inspectorOpen}
                         sessionId={sessionId}
                         showErrorsTab={showErrorsTab}

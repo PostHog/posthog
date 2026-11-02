@@ -6,9 +6,10 @@ from unittest.mock import MagicMock
 
 import pyarrow as pa
 import pyarrow.parquet as pq
-from google.api_core.exceptions import Forbidden, NotFound, ServiceUnavailable
+from google.api_core.exceptions import BadRequest, Forbidden, NotFound, ServiceUnavailable
 from google.auth.exceptions import RefreshError
 from google.cloud import bigquery
+from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
     DestinationBatchContext,
@@ -135,8 +136,18 @@ class TestSchemaLabel:
 
 
 class TestDdlType:
-    def test_a_scalar_field_renders_its_bare_type(self) -> None:
-        assert _ddl_type(bigquery.SchemaField("clicks", "INTEGER")) == "INTEGER"
+    @parameterized.expand(
+        [
+            ("STRING", "STRING"),
+            # The legacy names `get_table` reports have no DDL alias for FLOAT, unlike INTEGER
+            # (INT64) and BOOLEAN (BOOL) — an unmapped FLOAT fails the ALTER TABLE outright.
+            ("INTEGER", "INT64"),
+            ("FLOAT", "FLOAT64"),
+            ("BOOLEAN", "BOOL"),
+        ]
+    )
+    def test_a_scalar_field_renders_its_standard_sql_type(self, field_type: str, expected: str) -> None:
+        assert _ddl_type(bigquery.SchemaField("clicks", field_type)) == expected
 
     def test_a_repeated_field_renders_as_an_array(self) -> None:
         # Dropping `mode` here would add the element type as a scalar column, which is
@@ -153,7 +164,7 @@ class TestDdlType:
             fields=[bigquery.SchemaField("city", "STRING"), bigquery.SchemaField("zip", "INTEGER")],
         )
 
-        assert _ddl_type(field) == "STRUCT<`city` STRING, `zip` INTEGER>"
+        assert _ddl_type(field) == "STRUCT<`city` STRING, `zip` INT64>"
 
     def test_a_repeated_record_field_renders_as_an_array_of_structs(self) -> None:
         field = bigquery.SchemaField(
@@ -411,7 +422,18 @@ class TestIncremental:
         assert table.types["delivered_at"] == "INTEGER"
         assert sorted((row["id"], row["delivered_at"]) for row in table.rows) == [(1, 1700000500), (2, None)]
 
-    async def test_a_column_a_later_batch_grows_is_added_to_the_target_before_merging(self) -> None:
+    @parameterized.expand(
+        [
+            ("clicks", 10),
+            # Regression: FLOAT64 has no "FLOAT" DDL alias, so adding a float column here used
+            # to fail the ALTER TABLE with "Type not found: FLOAT" before `_evolve_table`
+            # normalized the legacy type name `get_table` reports.
+            ("rate", 0.5),
+        ]
+    )
+    async def test_a_column_a_later_batch_grows_is_added_to_the_target_before_merging(
+        self, column: str, value: float
+    ) -> None:
         # MERGE does not evolve schema on its own, so a column only the second batch carries
         # must be added to the target first, or the MERGE fails referencing a column T lacks.
         client = FakeBigQueryClient()
@@ -422,17 +444,30 @@ class TestIncremental:
         await _deliver(
             writer,
             ctx,
-            pa.RecordBatch.from_pydict({"id": [2], "name": ["b"], "clicks": [10]}),
+            pa.RecordBatch.from_pydict({"id": [2], "name": ["b"], column: [value]}),
             1,
             is_final=True,
         )
 
         table = client.get_table("proj.dataset.charges")
-        assert table.columns == ["id", "name", "clicks"]
-        assert sorted((row["id"], row["name"], row.get("clicks")) for row in table.rows) == [
+        assert table.columns == ["id", "name", column]
+        assert sorted((row["id"], row["name"], row.get(column)) for row in table.rows) == [
             (1, "a", None),
-            (2, "b", 10),
+            (2, "b", value),
         ]
+
+    def test_the_fake_rejects_a_ddl_type_with_no_alias_the_way_bigquery_does(self) -> None:
+        # Guards the float case above: if the fake accepted FLOAT in an ALTER TABLE, that case
+        # would pass with or without `_ddl_type` normalizing it to FLOAT64 first.
+        client = FakeBigQueryClient()
+        client.load_table_from_file(
+            _parquet(_rows([1], ["a"])),
+            "proj.dataset.charges",
+            bigquery.LoadJobConfig(write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE),
+        )
+
+        with pytest.raises(BadRequest, match="FLOAT"):
+            client.query("ALTER TABLE `proj.dataset.charges` ADD COLUMN IF NOT EXISTS `rate` FLOAT")
 
     async def test_text_that_cannot_convert_to_the_int64_column_is_a_configuration_error(self) -> None:
         # A retry sends the same values, so a retryable error would fail until someone changes the table.
@@ -444,3 +479,50 @@ class TestIncremental:
 
         with pytest.raises(DestinationConfigurationError, match="delivered_at"):
             await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [1], "delivered_at": ["soon"]}), 1)
+
+
+@pytest.mark.asyncio
+class TestAppend:
+    """sync_type "incremental" with no primary keys: plain `WRITE_APPEND`, no `MERGE`."""
+
+    async def test_a_whole_number_float_appends_without_changing_the_int64_column(self) -> None:
+        # Regression: the append path used to load the raw batch straight through, so a column
+        # BigQuery had autodetected as INTEGER on an earlier batch failed the whole load job as
+        # soon as a later batch sent it as a float, even when every value still fit as a whole
+        # number. The merge path already aligned to the target's type before this writer existed
+        # for plain appends.
+        client = FakeBigQueryClient()
+        ctx = _ctx(sync_type="incremental")
+        writer = LocalBigQueryWriter(ctx, client)
+
+        await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [1], "count": [1]}), 0)
+        await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [2], "count": [2.0]}), 1, is_final=True)
+
+        table = client.get_table("proj.dataset.charges")
+        assert table.types["count"] == "INTEGER"
+        assert sorted(row["count"] for row in table.rows) == [1, 2]
+
+    async def test_a_fractional_value_that_cannot_fit_the_int64_column_is_a_configuration_error(self) -> None:
+        # A retry sends the same values, so a retryable error would fail until someone widens
+        # the column in BigQuery to FLOAT64.
+        client = FakeBigQueryClient()
+        ctx = _ctx(sync_type="incremental")
+        writer = LocalBigQueryWriter(ctx, client)
+
+        await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [1], "rate": [1]}), 0)
+
+        with pytest.raises(DestinationConfigurationError, match="rate"):
+            await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [2], "rate": [0.5]}), 1)
+
+    async def test_a_number_other_than_0_or_1_cannot_convert_to_the_bool_column(self) -> None:
+        # Regression: `pc.cast` treats any nonzero number as truthy rather than raising, unlike
+        # its float-to-int64 cast, so aligning to a BOOL target used to silently turn 2 into true
+        # instead of raising the way a direct append to BigQuery always did.
+        client = FakeBigQueryClient()
+        ctx = _ctx(sync_type="incremental")
+        writer = LocalBigQueryWriter(ctx, client)
+
+        await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [1], "active": [True]}), 0)
+
+        with pytest.raises(DestinationConfigurationError, match="active"):
+            await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [2], "active": [2]}), 1)

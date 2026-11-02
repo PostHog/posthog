@@ -1,4 +1,6 @@
+import functools
 import dataclasses
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import IO, Any, cast
 
@@ -7,6 +9,7 @@ import boto3
 from adlfs import AzureBlobFileSystem
 from azure.core.exceptions import ClientAuthenticationError, HttpResponseError, ResourceNotFoundError
 from azure.storage.blob import ContainerClient
+from botocore import UNSIGNED
 from botocore.config import Config as BotoConfig
 from botocore.exceptions import ClientError
 from fsspec import AbstractFileSystem
@@ -17,11 +20,18 @@ from posthog.dataclasses import frozen
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import (
     AzureBlobConfig,
     ObjectStoreConfig,
+    ObjectStoreProvider,
     StoreConfig,
+    valid_bucket_name,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.errors import (
+    INVALID_CONFIG_ERROR,
+    NO_SUCH_BUCKET_ERROR,
     TOO_MANY_FILES_ERROR,
     ObjectStorageError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.locations import (
+    S3_EXAMPLE_URL,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.settings import (
     CONNECT_TIMEOUT_SECONDS,
@@ -32,6 +42,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
 
 S3_MAX_PAGE_SIZE = 1000
 AZURE_PAGE_SIZE = 1000
+# S3 names a bucket's region in this header of every answer about the bucket, a refusal included.
+S3_BUCKET_REGION_HEADER = "x-amz-bucket-region"
 
 
 @frozen
@@ -227,6 +239,46 @@ def build_s3_client(config: ObjectStoreConfig) -> Any:
         endpoint_url=config.endpoint_url,
         config=BotoConfig(**_request_config(config)),
     )
+
+
+@functools.lru_cache(maxsize=1024)
+def lookup_s3_bucket_region(bucket: str) -> str:
+    """The region of an AWS S3 bucket, for a files URL that doesn't name it.
+
+    The request is anonymous, so no stored credential goes with it. S3 names the region also when it
+    refuses the request, so this works for a private bucket. A bucket keeps its region, so the
+    answer is cached.
+    """
+    if not valid_bucket_name(ObjectStoreProvider.S3, bucket):
+        raise ObjectStorageError(f"{INVALID_CONFIG_ERROR}: '{bucket}' in the URL isn't a valid bucket name.")
+    client = boto3.client(
+        "s3",
+        region_name="us-east-1",
+        config=BotoConfig(
+            signature_version=UNSIGNED,
+            connect_timeout=CONNECT_TIMEOUT_SECONDS,
+            read_timeout=READ_TIMEOUT_SECONDS,
+            retries={"max_attempts": MAX_REQUEST_ATTEMPTS, "mode": "standard"},
+        ),
+    )
+    try:
+        response = client.head_bucket(Bucket=bucket)
+    except ClientError as e:
+        if (region := _bucket_region(e.response)) is not None:
+            return region
+        if e.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404:
+            raise ObjectStorageError(f"{NO_SUCH_BUCKET_ERROR}: '{bucket}'. Check the bucket name.") from e
+        raise
+    if (region := _bucket_region(response)) is None:
+        raise ObjectStorageError(
+            f"{INVALID_CONFIG_ERROR}: couldn't find the region of '{bucket}'. Use the regional URL, such as "
+            f"{S3_EXAMPLE_URL}"
+        )
+    return region
+
+
+def _bucket_region(response: Mapping[str, Any]) -> str | None:
+    return response.get("ResponseMetadata", {}).get("HTTPHeaders", {}).get(S3_BUCKET_REGION_HEADER)
 
 
 def open_s3_store(config: ObjectStoreConfig) -> S3ObjectStore:

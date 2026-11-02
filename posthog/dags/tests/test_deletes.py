@@ -20,6 +20,7 @@ from posthog.dags.deletes import (
     _DELETE_PREDICATE,
     _SURVIVOR_COUNT_ATTEMPTS,
     DELETES_RUN_CONFIG,
+    SESSIONS_RETENTION_TABLES,
     AdhocEventDeletesDictionary,
     AdhocEventDeletesTable,
     DeleteConfig,
@@ -35,6 +36,7 @@ from posthog.dags.deletes import (
     _watermark_holders,
     cleanup_old_events_by_partition,
     delete_events,
+    delete_team_product_documents_job,
     deletes_job,
     ensure_no_concurrent_deletes_run,
     manual_deletes_job,
@@ -599,6 +601,65 @@ def test_full_job_deletes_events_queued_in_postgres(cluster: ClickhouseCluster):
     assert not AsyncDeletion.objects.filter(deletion_type=DeletionType.Event, delete_verified_at__isnull=True).exists()
 
 
+DOCUMENT_TABLES = (
+    "sharded_posthog_document_embeddings_buffer",
+    "distributed_posthog_document_embeddings_text_embedding_3_large_3072",
+)
+
+
+@pytest.mark.django_db
+def test_delete_team_product_documents_job_keeps_other_products_and_teams(cluster: ClickhouseCluster):
+    timestamp = datetime.now().replace(microsecond=0)
+
+    # Ingestion writes to the buffer, and a materialized view copies each row into its model table,
+    # so every document below exists twice.
+    def insert_documents(client: Client) -> None:
+        client.execute(
+            """INSERT INTO sharded_posthog_document_embeddings_buffer
+               (team_id, product, document_type, model_name, rendering, document_id, timestamp, inserted_at, content, embedding) VALUES""",
+            [
+                (
+                    team_id,
+                    product,
+                    "doc",
+                    "text-embedding-3-large-3072",
+                    "text",
+                    f"trace-{team_id}-{product}::job",
+                    timestamp,
+                    timestamp,
+                    "text",
+                    [0.0] * 3072,
+                )
+                for team_id in (9100, 9101)
+                for product in ("llm-analytics", "error_tracking")
+            ],
+        )
+
+    def surviving_documents(table: str, client: Client) -> set[tuple[int, str]]:
+        result = client.execute(f"SELECT team_id, product FROM {table} WHERE team_id IN (9100, 9101)")
+        return {(row[0], row[1]) for row in result} if isinstance(result, list) else set()
+
+    cluster.any_host(insert_documents).result()
+
+    def run(product: str) -> bool:
+        return delete_team_product_documents_job.execute_in_process(
+            run_config={"ops": {"delete_team_product_documents": {"config": {"team_id": 9100, "product": product}}}},
+            resources={"cluster": cluster},
+            raise_on_error=False,
+        ).success
+
+    # A misspelled product matches nothing, so it must fail rather than report a clean delete.
+    assert not run("llm_analytics")
+    assert run("llm-analytics")
+
+    for table in DOCUMENT_TABLES:
+        assert cluster.any_host(partial(surviving_documents, table)).result() == {
+            (9100, "error_tracking"),
+            (9101, "llm-analytics"),
+            (9101, "error_tracking"),
+        }, table
+
+
 def _mid_month(months_ago: int) -> datetime:
     return (datetime.now() - relativedelta(months=months_ago)).replace(
         day=15, hour=12, minute=0, second=0, microsecond=0
@@ -638,11 +699,46 @@ def _count_by_team_and_partition(cluster: ClickhouseCluster, team_ids: list[int]
     return cluster.any_host(count).result()
 
 
+def _insert_sessions(cluster: ClickhouseCluster, sessions: list[tuple[int, datetime]]) -> None:
+    def insert(client: Client) -> None:
+        rows = [
+            (team_id, started_at, int(started_at.replace(tzinfo=UTC).timestamp() * 1000) << 80)
+            for team_id, started_at in sessions
+        ]
+        v1, v2, v3 = SESSIONS_RETENTION_TABLES
+        client.execute(
+            f"INSERT INTO {v1} (team_id, session_id, min_timestamp) VALUES",
+            [(team_id, str(UUID(int=session_id_v7)), started_at) for team_id, started_at, session_id_v7 in rows],
+        )
+        for table in (v2, v3):
+            client.execute(
+                f"INSERT INTO {table} (team_id, session_id_v7) VALUES",
+                [(team_id, session_id_v7) for team_id, _, session_id_v7 in rows],
+            )
+
+    cluster.any_host(insert).result()
+
+
+def _sessions_by_team_and_partition(cluster: ClickhouseCluster, team_ids: list[int]) -> dict[str, set[tuple[int, int]]]:
+    def read(client: Client) -> dict[str, set[tuple[int, int]]]:
+        return {
+            table: set(
+                client.execute(
+                    f"SELECT DISTINCT team_id, toUInt32(_partition_id) FROM {table} WHERE team_id IN %(team_ids)s",
+                    {"team_ids": team_ids},
+                )
+            )
+            for table in SESSIONS_RETENTION_TABLES
+        }
+
+    return cluster.any_host(read).result()
+
+
 def _teams_with_13_and_18_months() -> tuple[Team, Team, Team]:
     organization = Organization.objects.create(name="Retention")
     thirteen = Team.objects.create(organization=organization, name="13 months")
     eighteen = Team.objects.create(organization=organization, name="18 months")
-    no_retention = Team.objects.create(organization=organization, name="No retention")
+    no_retention = Team.objects.create(organization=organization, name="No retention", event_retention_months=12)
     TeamEventsRetentionConfig.objects.create(team=thirteen, events_retention_months=13)
     TeamEventsRetentionConfig.objects.create(team=eighteen, events_retention_months=18)
     return thirteen, eighteen, no_retention
@@ -724,6 +820,17 @@ def test_monthly_retention_events_cleanup_job(cluster: ClickhouseCluster):
         + _events(eighteen.id, _first_hour_of_month(18), 200, 8)
         + _events(no_retention.id, _mid_month(20), 0, 9),
     )
+    _insert_sessions(
+        cluster,
+        [
+            (thirteen.id, _mid_month(15)),
+            (thirteen.id, _first_hour_of_month(13)),
+            (thirteen.id, _mid_month(24)),
+            (eighteen.id, _mid_month(20)),
+            (eighteen.id, _mid_month(15)),
+            (no_retention.id, _mid_month(20)),
+        ],
+    )
 
     monthly_retention_events_cleanup_job.execute_in_process(resources={"cluster": cluster})
 
@@ -733,6 +840,14 @@ def test_monthly_retention_events_cleanup_job(cluster: ClickhouseCluster):
         (eighteen.id, _partition(_first_hour_of_month(18))): 8,
         (no_retention.id, _partition(_mid_month(20))): 9,
     }
+    surviving_sessions = {
+        (thirteen.id, _partition(_first_hour_of_month(13))),
+        (eighteen.id, _partition(_mid_month(15))),
+        (no_retention.id, _partition(_mid_month(20))),
+    }
+    assert _sessions_by_team_and_partition(cluster, [thirteen.id, eighteen.id, no_retention.id]) == dict.fromkeys(
+        SESSIONS_RETENTION_TABLES, surviving_sessions
+    )
 
 
 @pytest.mark.django_db

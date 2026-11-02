@@ -1,4 +1,5 @@
 from typing import Any
+from urllib.parse import urlsplit
 
 import pytest
 from unittest import mock
@@ -176,11 +177,12 @@ class TestTopLevelPagination:
 
 class TestIncrementalParams:
     def test_conversations_incremental_sends_modified_since_and_sort(self) -> None:
+        # The incremental field is not a valid v2 sortField, so the sort must stay on modifiedAt.
         result = _run(
             "conversations",
             [_page("conversations", [])],
             api_version="v2",
-            incremental_field="modifiedAt",
+            incremental_field="userUpdatedAt",
             db_incremental_field_last_value="2024-01-01T00:00:00Z",
         )
 
@@ -192,6 +194,7 @@ class TestIncrementalParams:
         result = _run("conversations", [_page("conversations", [])], api_version="v2")
 
         assert result.requests[0].param("modifiedSince") is None
+        assert result.requests[0].param("status") == "all"
         assert result.requests[0].param("sortField") == "createdAt"
         assert result.requests[0].param("sortOrder") == "asc"
 
@@ -200,14 +203,19 @@ class TestIncrementalParams:
             "customers",
             [_page("customers", [])],
             api_version="v2",
-            incremental_field="modifiedAt",
+            incremental_field="updatedAt",
             db_incremental_field_last_value="2024-06-01T00:00:00Z",
         )
 
         assert result.requests[0].param("modifiedSince") == "2024-06-01T00:00:00Z"
 
-    @pytest.mark.parametrize("endpoint", ["conversations", "customers"])
-    def test_v3_incremental_sends_only_modified_since(self, endpoint: str) -> None:
+    @pytest.mark.parametrize(
+        "endpoint,static_query",
+        [("conversations", {"status": ("all",)}), ("customers", {})],
+    )
+    def test_v3_incremental_sends_only_modified_since(
+        self, endpoint: str, static_query: dict[str, tuple[str, ...]]
+    ) -> None:
         result = _run(
             endpoint,
             [_page(endpoint, [])],
@@ -216,14 +224,23 @@ class TestIncrementalParams:
             db_incremental_field_last_value="2024-01-01T00:00:00Z",
         )
 
-        assert result.queries[0] == {"modifiedSince": ("2024-01-01T00:00:00Z",)}
+        assert result.queries[0] == {**static_query, "modifiedSince": ("2024-01-01T00:00:00Z",)}
 
-    @pytest.mark.parametrize("endpoint", ["conversations", "customers"])
-    def test_v3_full_refresh_sends_no_sort_params(self, endpoint: str) -> None:
+    @pytest.mark.parametrize(
+        "endpoint,expected_query",
+        [
+            # The API returns only active conversations unless asked for every status.
+            ("conversations", {"status": ("all",)}),
+            ("customers", {}),
+        ],
+    )
+    def test_v3_full_refresh_sends_no_sort_params(
+        self, endpoint: str, expected_query: dict[str, tuple[str, ...]]
+    ) -> None:
         # v3 rejects sortField/sortOrder with a 400, so the v2 full-refresh sort must not leak in.
         result = _run(endpoint, [_page(endpoint, [])], api_version="v3")
 
-        assert result.queries[0] == {}
+        assert result.queries[0] == expected_query
 
     @pytest.mark.parametrize(
         "endpoint,expected_query",
@@ -266,17 +283,30 @@ class TestRetries:
 
 class TestFanout:
     @pytest.mark.parametrize(
-        "api_version,endpoint,parent,child_path,base",
+        "api_version,endpoint,parent,child_path,base,parent_query",
         [
-            ("v2", "threads", "conversations", "conversations/42/threads", HELP_SCOUT_API_BASE),
-            ("v3", "threads", "conversations", "conversations/42/threads", HELP_SCOUT_API_BASE_V3),
-            ("v2", "mailbox_fields", "mailboxes", "mailboxes/42/fields", HELP_SCOUT_API_BASE),
+            ("v2", "threads", "conversations", "conversations/42/threads", HELP_SCOUT_API_BASE, {"status": ("all",)}),
+            (
+                "v3",
+                "threads",
+                "conversations",
+                "conversations/42/threads",
+                HELP_SCOUT_API_BASE_V3,
+                {"status": ("all",)},
+            ),
+            ("v2", "mailbox_fields", "mailboxes", "mailboxes/42/fields", HELP_SCOUT_API_BASE, {}),
             # Mailbox fields have no v3 route, so a v3 pin keeps parent and child on v2.
-            ("v3", "mailbox_fields", "mailboxes", "mailboxes/42/fields", HELP_SCOUT_API_BASE),
+            ("v3", "mailbox_fields", "mailboxes", "mailboxes/42/fields", HELP_SCOUT_API_BASE, {}),
         ],
     )
     def test_parent_and_child_endpoints(
-        self, api_version: str, endpoint: str, parent: str, child_path: str, base: str
+        self,
+        api_version: str,
+        endpoint: str,
+        parent: str,
+        child_path: str,
+        base: str,
+        parent_query: dict[str, tuple[str, ...]],
     ) -> None:
         result = _run(
             endpoint,
@@ -285,8 +315,9 @@ class TestFanout:
         )
 
         assert result.raised is None
-        assert result.urls == [f"{base}/{parent}", f"{base}/{child_path}"]
-        assert result.queries == [{}, {}]
+        base_path = urlsplit(base).path
+        assert result.paths == [f"{base_path}/{parent}", f"{base_path}/{child_path}"]
+        assert result.queries == [parent_query, {}]
 
     @pytest.mark.parametrize(
         "endpoint,parent,parent_key",
@@ -366,15 +397,10 @@ class TestHappinessRatingsReport:
 
 
 class TestSourceResponseShape:
-    @pytest.mark.parametrize(
-        "api_version,desc_endpoints",
-        [
-            ("v2", {}),
-            # v3 lists are newest-first, not ordered by the modifiedAt watermark.
-            ("v3", {"conversations": "desc", "customers": "desc"}),
-        ],
-    )
-    def test_response_metadata_per_top_level_endpoint(self, api_version: str, desc_endpoints: dict[str, str]) -> None:
+    @pytest.mark.parametrize("api_version", ["v2", "v3"])
+    def test_response_metadata_per_top_level_endpoint(self, api_version: str) -> None:
+        # Neither route reads in watermark order, so an "asc" claim would let a resumed sync skip rows.
+        desc_endpoints = {"conversations": "desc", "customers": "desc"}
         for endpoint in ENDPOINTS:
             config = HELP_SCOUT_ENDPOINTS[endpoint]
             if config.fanout or config.is_report:

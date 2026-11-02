@@ -84,7 +84,16 @@ HOGQL_AI_SUBSCRIPTION_RULES = """Scheduled-report query-writing rules:
   reusable window tokens or preserve the failed query's existing tokens or literal bounds.
 - Use only tables, fields, events, and properties present in the supplied project context.
 - Keep results cheap and bounded. Prefer aggregation over raw rows, avoid wildcards on large tables,
-  and cap results with LIMIT 250."""
+  and cap results with LIMIT 250.
+- `group_<index>` and `$group_<index>` exist only on `events`. Data warehouse tables and views have no
+  group columns, so never reference them there. To add an account's name or properties to a warehouse
+  row, LEFT JOIN the `groups` table through an aliased subquery on that row's account key, for example
+  `LEFT JOIN (SELECT key, toString(properties.name) AS account_name FROM groups WHERE index = 0) AS g
+  ON g.key = toString(t.org_id)`. `groups` is always available, and this JOIN subquery does not count
+  against the single-subquery limit. Alias every subquery used in a JOIN and prefix its columns with
+  the alias.
+- An error's "Available fields" list is a hint, not the full schema: it can end with "and N more". Prefer
+  those columns, and keep any other column the project context confirms."""
 
 HOGQL_AI_SUBSCRIPTION_QUERY_WRITING_RULES = "\n\n".join(
     (
@@ -211,8 +220,9 @@ Output rules:
   week"). For sub-windows inside the range (e.g. day-over-day within the window), bucket with
   `toStartOfDay(timestamp)` etc., but keep the outer window filter as `{{date_range}}`. The one exception
   is period-over-period growth ("vs last week/yesterday"), which uses `{{compare_date_range}}` and
-  `{{window_start}}` — see the growth reference pattern below. Boundary tokens `{{window_start}}` /
-  `{{window_end}}` substitute to bare `toDateTime('…')` literals where a pattern needs a single bound.
+  `{{window_start}}` — see the growth reference pattern below. Boundary tokens `{{window_start}}`,
+  `{{window_end}}` and `{{compare_window_start}}` (the start of the comparison period) substitute to
+  bare `toDateTime('…')` literals where a pattern needs a single bound.
 - Each step's `description` must briefly explain *why* that query is relevant to the prompt.
 - Format each query for readability: each clause (SELECT, FROM, WHERE, GROUP BY, ORDER BY, LIMIT) on
   its own line, one selected column per line. Queries are shown to users verbatim.
@@ -307,12 +317,13 @@ with an ASC tail to read both the most- and least-active events regardless of ho
 Joined data available WITHOUT writing a JOIN (the engine joins these automatically on `events`):
 - Person properties: `person.properties.<name>` (e.g. `person.properties.plan`). The property names
   available for this project are listed in <project_context>.
-- Group / account properties: `group_<index>.properties.<name>` (e.g. `group_0.properties.name`).
+- Group / account properties on `events`: `group_<index>.properties.<name>` (e.g. `group_0.properties.name`).
   The index-to-type mapping for this project is listed in <project_context>.
   To COUNT or aggregate the groups/accounts themselves (not a property of theirs), use the raw
   group-key column `$group_<index>` (leading `$`). A bare `group_<index>` without a trailing
   `.properties.<name>` is NOT a scalar column and fails with "Field not found: group_<index>". See
-  the count-distinct-accounts pattern below.
+  the count-distinct-accounts pattern below. These group forms work only on `events`; for a data
+  warehouse table or view, join the `groups` table as described in the query-writing rules above.
 - Session attributes: `session.$session_duration` (seconds), `session.$pageview_count`,
   `session.$channel_type`, `session.$entry_pathname`, `session.$is_bounce`, `session.$end_timestamp`.
 Reference these as plain columns inside a single `FROM events` SELECT — never write `JOIN` for them.
@@ -485,14 +496,18 @@ rewrite MUST follow the same HogQL syntax constraints used by the planner:
   FROM clauses, or scalar/IN comparisons. If the original used a CTE for cross-window comparison,
   rewrite it with conditional aggregation (`countIf(cond)`, `uniqIf(field, cond)`, `sumIf(...)`).
 - No LATERAL joins, recursive CTEs, UNNEST, or ARRAY JOIN on subqueries.
-- Schema note for "Field not found: group_<index>": to count or aggregate a group/account, the raw
+- Schema note for "Field not found: group_<index>" on `events`: to count or aggregate a group/account, the raw
   group-key column is `$group_<index>` with a leading `$` (e.g. `uniq($group_2)`,
   `uniqIf($group_2, cond)`). A bare `group_<index>` is only valid as `group_<index>.properties.<name>`;
   used as a scalar it does not resolve; replace it with `$group_<index>`. The same `$`-prefixed form
-  applies to person/session keys only via their documented paths, so do not add `$` elsewhere.
-- Time window: PRESERVE the original query's window tokens (`{{date_range}}`,
-  `{{compare_date_range}}`, `{{window_start}}`, `{{window_end}}`) or literal `toDateTime('…')` bounds
-  verbatim — those are the report's fixed analysis window. Do NOT introduce `now()` /
+  applies to person/session keys only via their documented paths, so do not add `$` elsewhere. On a data
+  warehouse table or view neither form exists: join the `groups` table as described in the rules above.
+- Time window: PRESERVE the original query's window tokens or literal `toDateTime('…')` bounds
+  verbatim — those are the report's fixed analysis window. `{{date_range}}` and `{{compare_date_range}}`
+  are whole time filters (`timestamp >= … AND timestamp < …`); `{{window_start}}`, `{{window_end}}` and
+  `{{compare_window_start}}` are single timestamps. `{{compare_date_range}}` covers the previous and the
+  current period together; for the previous period alone, use
+  `timestamp >= {{compare_window_start}} AND timestamp < {{window_start}}`. Do NOT introduce `now()` /
   `now() - INTERVAL …` / `today()`, and do NOT resolve a placeholder into dates yourself.
 - The normal result ceiling is `LIMIT 250`. If the error specifically indicates memory pressure,
   excessive result size, or a timeout, simplify or preaggregate the query and lower the final `LIMIT`

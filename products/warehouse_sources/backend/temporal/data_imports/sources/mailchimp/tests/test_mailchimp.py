@@ -1,7 +1,7 @@
 import re
 import json
 import dataclasses
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -16,14 +16,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     route,
     scripted_network,
+    source_inputs,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailchimp import (
     MailchimpSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailchimp.mailchimp import (
+    EVENT_TABLE_APPEND_ERROR,
     MAX_RETRY_ATTEMPTS,
     MailchimpResumeConfig,
     MailchimpRetryableError,
+    _explode_records,
     _format_incremental_value,
     _get_with_retry,
     _incremental_query_params,
@@ -32,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailchimp.
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailchimp.settings import MAILCHIMP_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailchimp.source import MailchimpSource
+from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType
 
 
 class TestExtractDataCenter:
@@ -141,6 +145,10 @@ class TestGetWithRetry:
 
 def _driver() -> SourceDriver:
     return SourceDriver(MailchimpSource(), MailchimpSourceConfig(api_key="key-us6"))
+
+
+_TOMORROW = (datetime.now(UTC) + timedelta(days=1)).isoformat()
+_CLICK = {"action": "click", "timestamp": "2024-01-03T00:00:00+00:00", "url": "https://example.com", "ip": "192.0.2.1"}
 
 
 class TestFetchContactsForList:
@@ -450,6 +458,164 @@ class TestGenericEndpointIterator:
             name: str(value) for name, value in expected_params.items()
         }
         assert len(result.rows) == 1
+
+    @pytest.mark.parametrize(
+        ("endpoint", "path", "data_selector", "field", "kept_events", "late_event"),
+        [
+            (
+                "report_email_activity_events",
+                "email-activity",
+                "emails",
+                "activity",
+                [
+                    {"action": "open", "timestamp": "2024-01-03T00:00:00+00:00", "ip": "192.0.2.1"},
+                    {"action": "click", "timestamp": "2024-01-03T00:01:00+00:00", "url": "https://example.com"},
+                    {"action": "click", "timestamp": "2024-01-03T00:01:00+00:00", "url": "https://example.com"},
+                ],
+                {"action": "open", "timestamp": _TOMORROW},
+            ),
+            (
+                "report_open_events",
+                "open-details",
+                "members",
+                "opens",
+                [
+                    {"timestamp": "2024-01-03T00:00:00+00:00", "is_proxy_open": True},
+                    {"timestamp": "2024-01-03T00:01:00+00:00", "is_proxy_open": False},
+                    {"timestamp": "2024-01-03T00:01:00+00:00", "is_proxy_open": False},
+                ],
+                {"timestamp": _TOMORROW, "is_proxy_open": False},
+            ),
+        ],
+    )
+    def test_event_tables_send_since_to_every_campaign_and_yield_one_row_per_event(
+        self,
+        endpoint: str,
+        path: str,
+        data_selector: str,
+        field: str,
+        kept_events: list[dict[str, Any]],
+        late_event: dict[str, Any],
+    ) -> None:
+        result = _driver().run(
+            endpoint,
+            route(
+                {
+                    "/reports": [ScriptedResponse(json={"reports": [{"id": "c1"}, {"id": "c2"}], "total_items": 2})],
+                    f"/reports/c1/{path}": [
+                        ScriptedResponse(
+                            json={
+                                data_selector: [
+                                    {
+                                        "email_id": "e1",
+                                        "opens_count": 3,
+                                        "_links": [{"rel": "self"}],
+                                        field: [*kept_events, late_event],
+                                    },
+                                    {"email_id": "e2", field: []},
+                                ],
+                                "total_items": 2,
+                            }
+                        )
+                    ],
+                    f"/reports/c2/{path}": [ScriptedResponse(json={data_selector: [], "total_items": 0})],
+                }
+            ),
+            incremental_field="timestamp",
+            db_incremental_field_last_value=datetime(2024, 1, 2, 3, 4, 5),
+        )
+
+        assert result.raised is None
+        assert result.params("since") == [None, "2024-01-01T03:04:05+00:00", "2024-01-01T03:04:05+00:00"]
+        assert [{key: value for key, value in row.items() if key != "event_id"} for row in result.rows] == [
+            {"email_id": "e1", **event, "campaign_id": "c1"} for event in kept_events
+        ]
+        assert len({row["event_id"] for row in result.rows}) == len(kept_events)
+        assert [state.parent_ids for state in result.saved_states] == [["c1"], ["c2"]]
+        assert len({state.events_until for state in result.saved_states} - {None}) == 1
+
+    def test_resumed_event_sync_keeps_the_first_attempt_cutoff(self) -> None:
+        opens = [
+            {"timestamp": "2024-01-04T00:00:00+00:00", "is_proxy_open": False},
+            {"timestamp": "2024-01-06T00:00:00+00:00", "is_proxy_open": False},
+        ]
+        result = _driver().run(
+            "report_open_events",
+            route(
+                {
+                    "/reports": [ScriptedResponse(json={"reports": [{"id": "c1"}], "total_items": 1})],
+                    "/reports/c1/open-details": [
+                        ScriptedResponse(json={"members": [{"email_id": "e1", "opens": opens}], "total_items": 1})
+                    ],
+                }
+            ),
+            incremental_field="timestamp",
+            db_incremental_field_last_value=datetime(2024, 1, 1),
+            resume_state=MailchimpResumeConfig(offset=0, parent_ids=["c1"], events_until="2024-01-05T00:00:00+00:00"),
+        )
+
+        assert result.raised is None
+        assert [row["timestamp"] for row in result.rows] == ["2024-01-04T00:00:00+00:00"]
+
+    def test_filtered_walk_reads_past_an_empty_middle_page(self) -> None:
+        later_page = {"members": [{"email_id": "e1", "opens": [{"timestamp": "2024-01-03T00:00:00+00:00"}]}]}
+        result = _driver().run(
+            "report_open_events",
+            route(
+                {
+                    "/reports": [ScriptedResponse(json={"reports": [{"id": "c1"}], "total_items": 1})],
+                    "/reports/c1/open-details": [
+                        ScriptedResponse(json={"members": [], "total_items": 1500}),
+                        ScriptedResponse(json={**later_page, "total_items": 1500}),
+                    ],
+                }
+            ),
+            incremental_field="timestamp",
+            db_incremental_field_last_value=datetime(2024, 1, 2),
+        )
+
+        assert result.raised is None
+        assert result.params("offset") == ["0", "0", "1000"]
+        assert [row["email_id"] for row in result.rows] == ["e1"]
+
+    def test_event_tables_refuse_append(self) -> None:
+        source = MailchimpSource()
+        inputs = dataclasses.replace(
+            source_inputs("report_open_events", incremental_field="timestamp"),
+            sync_type=ExternalDataSchemaSyncType.APPEND,
+        )
+
+        with pytest.raises(ValueError, match=EVENT_TABLE_APPEND_ERROR):
+            source.source_for_pipeline(
+                MailchimpSourceConfig(api_key="key-us6"), source.get_resumable_source_manager(inputs), inputs
+            )
+
+    @pytest.mark.parametrize(
+        "later_read",
+        [
+            pytest.param({"email_id": "e1", "opens_count": 5, "activity": [_CLICK]}, id="member-counters-change"),
+            pytest.param(
+                {"email_id": "e1", "opens_count": 1, "activity": [{**_CLICK, "user_agent": "Mail"}]},
+                id="new-event-field",
+            ),
+            pytest.param({"email_id": "e1", "opens_count": 1, "activity": [{**_CLICK, "ip": None}]}, id="ip-blanked"),
+            pytest.param(
+                {"email_id": "e1", "opens_count": 1, "activity": [{**_CLICK, "timestamp": "2024-01-03T00:00:00Z"}]},
+                id="same-instant-other-iso-form",
+            ),
+        ],
+    )
+    def test_event_id_ignores_changes_that_are_not_the_event(self, later_read: dict[str, Any]) -> None:
+        events = MAILCHIMP_ENDPOINTS["report_email_activity_events"].events
+        assert events is not None
+        first_read = {"email_id": "e1", "opens_count": 1, "activity": [_CLICK]}
+
+        first_id = next(_explode_records([first_read], events, {"campaign_id": "c1"}, None))["event_id"]
+        later_id = next(_explode_records([later_read], events, {"campaign_id": "c1"}, None))["event_id"]
+
+        assert first_id == later_id
+        # Stored rows merge on this id, so a change to how it is built duplicates every re-read event.
+        assert first_id == "3ae9e90e7be319ae0a3d75038b8b55abe5502a3462db61f522ac4b3e6499f1cf"
 
     def test_fan_out_injects_parent_id_onto_rows_the_api_omits(self) -> None:
         # /reports/{id}/locations rows carry no campaign_id, so without injection the

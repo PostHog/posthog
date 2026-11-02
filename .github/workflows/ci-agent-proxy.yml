@@ -21,6 +21,8 @@ env:
 
 jobs:
     changes:
+        # Push and schedule runs only belong in this repo. Mirrors run CI on their own PRs only.
+        if: github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         name: Determine need to run agent-proxy checks
@@ -57,6 +59,18 @@ jobs:
         timeout-minutes: 10
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      /*
+                      !/*/
+                      package.json
+                      /services/agent-proxy/
+                      /.github/actions/pnpm-install/
+                      /.github/actions/setup-pnpm/
+                      /patches/
+                      /bin/fix-rdkafka-paths
+                      /ee/hogai/sandbox/turn_event_contract.json
+                  sparse-checkout-cone-mode: false
 
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install

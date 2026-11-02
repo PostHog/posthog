@@ -12,7 +12,7 @@
 //! `*-targeting-*`); exact keys (no `*`) match by string equality.
 
 use crate::api::instance_setting::{constance_key, fetch_instance_setting_raw_value};
-use crate::api::types::{FlagDetails, FlagDetailsV3, FlagsResponse};
+use crate::api::types::{FlagDetails, FlagDetailsV4, FlagsResponse};
 use crate::config::BodyLogTeams;
 use crate::metrics::consts::FLAG_BODY_LOG_REFRESH_TOTAL;
 use arc_swap::ArcSwap;
@@ -218,8 +218,8 @@ impl BodyLogger {
     /// decompress, and base64-wrapped bodies are logged as the JSON they
     /// actually parsed as — not as the raw base64 string.
     ///
-    /// Set `serves_v3` when the client receives the `/flags?v=3` record. Each
-    /// logged flag is then that v3 record, because the internal record cannot
+    /// Set `serves_v4` when the client receives the `/flags?v=4` record. Each
+    /// logged flag is then that v4 record, because the internal record cannot
     /// show its typed `value` or its rule fields.
     pub fn log_response(
         &self,
@@ -227,7 +227,7 @@ impl BodyLogger {
         team_id: Option<TeamId>,
         decoded_body: Option<Bytes>,
         response: &FlagsResponse,
-        serves_v3: bool,
+        serves_v4: bool,
     ) {
         let (Some(team_id), Some(decoded)) = (team_id, decoded_body) else {
             return;
@@ -240,7 +240,7 @@ impl BodyLogger {
             truncate_body(&decoded, self.request_max_bytes);
         let request_body = String::from_utf8_lossy(truncated);
         let (response_flags_body, total, logged) =
-            serialize_filtered_response(response, &patterns, serves_v3);
+            serialize_filtered_response(response, &patterns, serves_v4);
 
         // Override the default target (module path) with a stable, semantic
         // identifier. Keeps the `feature_flags::` prefix so `RUST_LOG` filters
@@ -327,12 +327,12 @@ impl<'a, F> LoggedResponse<'a, F> {
 }
 
 /// Serialize the response with `flags` filtered to keys matching `patterns`.
-/// With `serves_v3`, each flag is serialized as its v3 record.
+/// With `serves_v4`, each flag is serialized as its v4 record.
 /// Returns the JSON string plus `(total_flags, logged_flags)` counts.
 fn serialize_filtered_response(
     response: &FlagsResponse,
     patterns: &TeamPatterns,
-    serves_v3: bool,
+    serves_v4: bool,
 ) -> (String, usize, usize) {
     let total = response.flags.len();
 
@@ -340,9 +340,9 @@ fn serialize_filtered_response(
         .flags
         .iter()
         .filter(|(key, _)| patterns.matches(key));
-    let (serialized, logged) = if serves_v3 {
-        let flags: HashMap<&String, FlagDetailsV3> = filtered
-            .map(|(key, flag)| (key, FlagDetailsV3::from(flag.clone())))
+    let (serialized, logged) = if serves_v4 {
+        let flags: HashMap<&String, FlagDetailsV4> = filtered
+            .map(|(key, flag)| (key, FlagDetailsV4::from(flag.clone())))
             .collect();
         let logged = flags.len();
         (
@@ -817,7 +817,7 @@ mod tests {
     }
 
     #[test]
-    fn serialize_filtered_response_logs_v3_record_when_served() {
+    fn serialize_filtered_response_logs_v4_record_when_served() {
         let mut resp = make_response(&["null-default", "other"]);
         let flag = resp.flags.get_mut("null-default").unwrap();
         flag.enabled = false;
@@ -829,15 +829,15 @@ mod tests {
         let v2_flag = &serde_json::from_str::<Value>(&v2_body).unwrap()["flags"]["null-default"];
         assert_eq!(v2_flag["enabled"], Value::Bool(false));
 
-        let (v3_body, total, logged) = serialize_filtered_response(&resp, &patterns, true);
+        let (v4_body, total, logged) = serialize_filtered_response(&resp, &patterns, true);
         assert_eq!((total, logged), (2, 1));
-        let v3_flags = &serde_json::from_str::<Value>(&v3_body).unwrap()["flags"];
-        assert!(v3_flags.get("other").is_none());
-        let v3_flag = &v3_flags["null-default"];
-        assert_eq!(v3_flag.get("value"), Some(&Value::Null));
-        assert_eq!(v3_flag["reason"]["code"], "no_rule_match");
-        assert_eq!(v3_flag["metadata"]["config_version"], 2);
-        assert!(v3_flag.get("enabled").is_none());
+        let v4_flags = &serde_json::from_str::<Value>(&v4_body).unwrap()["flags"];
+        assert!(v4_flags.get("other").is_none());
+        let v4_flag = &v4_flags["null-default"];
+        assert_eq!(v4_flag.get("value"), Some(&Value::Null));
+        assert_eq!(v4_flag["reason"]["code"], "no_rule_match");
+        assert_eq!(v4_flag["metadata"]["config_version"], 2);
+        assert!(v4_flag.get("enabled").is_none());
     }
 
     #[test]

@@ -72,6 +72,10 @@ Make sure to grant the following read permissions:
 - machineUser:read
 - labelType:read
 - tenant:read
+- customerGroup:read
+- customerSurvey:read
+- threadDiscussion:read
+- workflowRule:read
 """,
             iconPath="/static/services/plain.png",
             fields=cast(
@@ -103,7 +107,7 @@ Make sure to grant the following read permissions:
             # Our queries read assignee (user:read), label (label:read, labelType:read), company
             # (company:read), tenant (tenant:read), and machine-user actor (machineUser:read) data on top
             # of the basics, so name every required scope — retrying a key missing one never succeeds.
-            "403 Client Error": "Access forbidden. Grant your Plain API key these read permissions, then reconnect: customer:read, thread:read, timeline:read, user:read, label:read, labelType:read, company:read, tenant:read, machineUser:read.",
+            "403 Client Error": "Access forbidden. Grant your Plain API key these read permissions, then reconnect: customer:read, thread:read, timeline:read, user:read, label:read, labelType:read, company:read, tenant:read, machineUser:read, customerGroup:read, customerSurvey:read, threadDiscussion:read, workflowRule:read.",
         }
 
     def get_retryable_errors(self) -> set[str]:

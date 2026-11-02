@@ -943,9 +943,8 @@ class TestQueryRunner(BaseTest):
 
     def test_cache_hit_and_fresh_events_carry_one_identity(self) -> None:
         runner_class = setup_test_query_runner_class()
-        self.team.modifiers = {"useNewEventsSchema": True}
-        self.team.save()
         with (
+            override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", str(self.team.pk)),
             mock.patch(
                 "posthog.hogql_queries.query_runner.create_default_modifiers_for_user", side_effect=_add_user_modifier
             ),
@@ -1753,167 +1752,6 @@ class TestSeriesCustomNameCaching(BaseTest):
             self.assertNotEqual(cache_key_a, cache_key_b)
 
 
-class TestApplySeriesCustomNames(BaseTest):
-    @parameterized.expand(
-        [
-            (
-                "applies_custom_name_to_single_series",
-                TrendsQuery(series=[EventsNode(event="$pageview", custom_name="My Custom Name")]),
-                [{"action": {"order": 0, "custom_name": None}, "data": [1, 2, 3]}],
-                [{"action": {"order": 0, "custom_name": "My Custom Name"}, "data": [1, 2, 3]}],
-            ),
-            (
-                "applies_custom_names_to_multiple_series",
-                TrendsQuery(
-                    series=[
-                        EventsNode(event="$pageview", custom_name="Series A"),
-                        EventsNode(event="$autocapture", custom_name="Series B"),
-                    ]
-                ),
-                [
-                    {"action": {"order": 0, "custom_name": "Old A"}, "data": [1]},
-                    {"action": {"order": 1, "custom_name": "Old B"}, "data": [2]},
-                ],
-                [
-                    {"action": {"order": 0, "custom_name": "Series A"}, "data": [1]},
-                    {"action": {"order": 1, "custom_name": "Series B"}, "data": [2]},
-                ],
-            ),
-            (
-                "handles_breakdown_results_sharing_same_order",
-                TrendsQuery(series=[EventsNode(event="$pageview", custom_name="Renamed")]),
-                [
-                    {"action": {"order": 0, "custom_name": None}, "breakdown_value": "Chrome"},
-                    {"action": {"order": 0, "custom_name": None}, "breakdown_value": "Firefox"},
-                ],
-                [
-                    {"action": {"order": 0, "custom_name": "Renamed"}, "breakdown_value": "Chrome"},
-                    {"action": {"order": 0, "custom_name": "Renamed"}, "breakdown_value": "Firefox"},
-                ],
-            ),
-            (
-                "sets_none_when_custom_name_removed",
-                TrendsQuery(series=[EventsNode(event="$pageview")]),
-                [{"action": {"order": 0, "custom_name": "Had Name"}, "data": [1]}],
-                [{"action": {"order": 0, "custom_name": None}, "data": [1]}],
-            ),
-            (
-                # Guards the Greptile P1: a `name`-based rename (set via query editor / API, not the
-                # modal) must survive cache normalization, not revert to the raw event name.
-                "applies_name_based_rename_from_cache",
-                TrendsQuery(series=[EventsNode(event="$pageview", name="Renamed")]),
-                [{"action": {"order": 0, "name": "$pageview", "custom_name": None}, "data": [1]}],
-                [{"action": {"order": 0, "name": "$pageview", "custom_name": "Renamed"}, "data": [1]}],
-            ),
-            (
-                "name_echoing_the_event_is_not_a_rename",
-                TrendsQuery(series=[EventsNode(event="$pageview", name="$pageview")]),
-                [{"action": {"order": 0, "name": "$pageview", "custom_name": None}, "data": [1]}],
-                [{"action": {"order": 0, "name": "$pageview", "custom_name": None}, "data": [1]}],
-            ),
-            (
-                "skips_results_without_action",
-                TrendsQuery(series=[EventsNode(event="$pageview", custom_name="Name")]),
-                [{"action": None, "data": [1]}, {"data": [2]}],
-                [{"action": None, "data": [1]}, {"data": [2]}],
-            ),
-            (
-                "skips_results_with_unknown_order",
-                TrendsQuery(series=[EventsNode(event="$pageview", custom_name="Name")]),
-                [{"action": {"order": 99, "custom_name": "Unknown"}, "data": [1]}],
-                [{"action": {"order": 99, "custom_name": "Unknown"}, "data": [1]}],
-            ),
-        ]
-    )
-    def test_apply_series_custom_names(
-        self,
-        _name: str,
-        query: TrendsQuery,
-        cached_results: list[dict],
-        expected_results: list[dict],
-    ):
-        from posthog.schema import CachedTrendsQueryResponse
-
-        runner = TrendsQueryRunner(query=query, team=self.team)
-
-        cached_response = CachedTrendsQueryResponse(
-            results=cached_results,
-            is_cached=True,
-            last_refresh=datetime.now(UTC),
-            next_allowed_client_refresh=datetime.now(UTC),
-            cache_key="test_key",
-            timezone="UTC",
-        )
-
-        patched_response, was_modified = runner.apply_series_custom_names(cached_response)
-
-        self.assertEqual(patched_response.results, expected_results)
-
-    @parameterized.expand(
-        [
-            (
-                "modified_when_name_changes",
-                TrendsQuery(series=[EventsNode(event="$pageview", custom_name="New Name")]),
-                [{"action": {"order": 0, "custom_name": "Old Name"}, "data": [1]}],
-                True,
-            ),
-            (
-                "modified_when_name_added",
-                TrendsQuery(series=[EventsNode(event="$pageview", custom_name="New Name")]),
-                [{"action": {"order": 0, "custom_name": None}, "data": [1]}],
-                True,
-            ),
-            (
-                "modified_when_name_removed",
-                TrendsQuery(series=[EventsNode(event="$pageview")]),
-                [{"action": {"order": 0, "custom_name": "Had Name"}, "data": [1]}],
-                True,
-            ),
-            (
-                "not_modified_when_names_match",
-                TrendsQuery(series=[EventsNode(event="$pageview", custom_name="Same Name")]),
-                [{"action": {"order": 0, "custom_name": "Same Name"}, "data": [1]}],
-                False,
-            ),
-            (
-                "not_modified_when_both_none",
-                TrendsQuery(series=[EventsNode(event="$pageview")]),
-                [{"action": {"order": 0, "custom_name": None}, "data": [1]}],
-                False,
-            ),
-            (
-                "not_modified_when_no_matching_orders",
-                TrendsQuery(series=[EventsNode(event="$pageview", custom_name="Name")]),
-                [{"action": {"order": 99, "custom_name": "Other"}, "data": [1]}],
-                False,
-            ),
-        ]
-    )
-    def test_was_modified_flag(
-        self,
-        _name: str,
-        query: TrendsQuery,
-        cached_results: list[dict],
-        expect_modified: bool,
-    ):
-        from posthog.schema import CachedTrendsQueryResponse
-
-        runner = TrendsQueryRunner(query=query, team=self.team)
-
-        cached_response = CachedTrendsQueryResponse(
-            results=cached_results,
-            is_cached=True,
-            last_refresh=datetime.now(UTC),
-            next_allowed_client_refresh=datetime.now(UTC),
-            cache_key="test_key",
-            timezone="UTC",
-        )
-
-        _, was_modified = runner.apply_series_custom_names(cached_response)
-
-        self.assertEqual(was_modified, expect_modified)
-
-
 class TestSharedInsightsExecutionMode(BaseTest):
     @parameterized.expand(
         [
@@ -2184,6 +2022,18 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
                 False,
             ),
             ("saved view over a system table", "select * from notebook_view", {"notebook"}, False),
+            (
+                "system table with a warehouse scope",
+                "select * from system.data_modeling_views",
+                {"warehouse_view"},
+                False,
+            ),
+            (
+                "saved view over a system table with a warehouse scope",
+                "select * from tables_view",
+                {"warehouse_table"},
+                False,
+            ),
         ]
     )
     def test_shared_link_viewer_partitions_only_on_scopes_a_table_carries(
@@ -2202,6 +2052,11 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
             team=self.team,
             name="notebook_view",
             query={"kind": "HogQLQuery", "query": "select * from system.notebooks"},
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="tables_view",
+            query={"kind": "HogQLQuery", "query": "select name from system.data_warehouse_tables"},
         )
         query = {"kind": "HogQLQuery", "query": sql}
         shared_runner = HogQLQueryRunner(query=query, team=self.team, user=_shared_link_user(self.team))

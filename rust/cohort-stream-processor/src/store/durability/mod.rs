@@ -14,6 +14,8 @@ pub mod config;
 pub mod downloader;
 pub mod error;
 pub mod export;
+#[cfg(test)]
+mod flaky_store;
 pub mod import;
 pub mod lineage;
 pub mod manifest;

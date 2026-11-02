@@ -42,7 +42,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
 from posthog.api.mixins import PydanticModelMixin
-from posthog.api.query import _process_query_request
+from posthog.api.query import CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS, _process_query_request
 from posthog.api.services.query import process_query_model
 from posthog.auth import SessionAuthentication
 from posthog.clickhouse.client.connection import Workload
@@ -78,7 +78,6 @@ from products.endpoints.backend.logic.materialized_serving import serving_state_
 from products.endpoints.backend.logic.pagination import EndpointPagination
 from products.endpoints.backend.logic.rate_limit_signal import EndpointRateLimitReason, record_endpoint_rate_limited
 from products.endpoints.backend.logic.strategies import EndpointQueryStrategy, strategy_for
-from products.endpoints.backend.logic.validation import NATIVE_CLUSTER_UNSUPPORTED
 from products.endpoints.backend.logs import build_execution_message, log_endpoint_execution
 from products.endpoints.backend.metrics import (
     ENDPOINT_CACHE_RESULT_TOTAL,
@@ -375,8 +374,6 @@ class EndpointExecutionService(PydanticModelMixin):
         version: EndpointVersion,
         offset: int | None = None,
     ) -> None:
-        if (version.query.get("modifiers") or {}).get("useNewEventsCluster"):
-            raise ValidationError({"query": NATIVE_CLUSTER_UNSUPPORTED})
         strategy = strategy_for(endpoint, version, self.team)
 
         is_materialized = bool(version.is_materialized and version.saved_query)
@@ -653,7 +650,10 @@ class EndpointExecutionService(PydanticModelMixin):
                 reason=EndpointRateLimitReason.CONCURRENCY,
                 scope=EndpointRateLimitReason.CONCURRENCY.value,
             )
-            raise Throttled(detail="Too many concurrent requests. Please try again later.")
+            raise Throttled(
+                wait=CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS,
+                detail="Too many concurrent requests. Please try again later.",
+            )
         except APIQueriesBudgetExceeded:
             # The platform refused this query on purpose, so it is not an endpoint fault. Leave the
             # execution counter alone: the budget path counts its own refusals.
@@ -794,6 +794,7 @@ class EndpointExecutionService(PydanticModelMixin):
         try:
             if not saved_query:
                 raise ValidationError("No materialized query found for this endpoint")
+            data_freshness_seconds = version.data_freshness_seconds
 
             strategy = strategy_for(endpoint, version, self.team)
             query_kind = strategy.query_kind
@@ -835,16 +836,16 @@ class EndpointExecutionService(PydanticModelMixin):
             ):
                 # Compute dynamic cache TTL: time remaining until data_freshness window expires
                 cache_ttl = None
-                if materialized_at and version.data_freshness_seconds:
+                if materialized_at and data_freshness_seconds:
                     remaining = (
-                        materialized_at + timedelta(seconds=version.data_freshness_seconds) - timezone.now()
+                        materialized_at + timedelta(seconds=data_freshness_seconds) - timezone.now()
                     ).total_seconds()
                     if remaining <= 0:
                         logger.warning(
                             "endpoint_materialization_behind_sla",
                             endpoint_name=endpoint.name,
                             team_id=self.team.pk,
-                            data_freshness_seconds=version.data_freshness_seconds,
+                            data_freshness_seconds=data_freshness_seconds,
                             last_run_at=materialized_at.isoformat(),
                             remaining_seconds=remaining,
                         )
@@ -903,9 +904,9 @@ class EndpointExecutionService(PydanticModelMixin):
 
             # Freshness relative to the configured target: >1.0 means behind SLA.
             # Absolute age is meaningless across endpoints with different frequencies.
-            if materialized_at and version.data_freshness_seconds:
+            if materialized_at and data_freshness_seconds:
                 age_seconds = max((timezone.now() - materialized_at).total_seconds(), 0.0)
-                ENDPOINT_MATERIALIZED_FRESHNESS_RATIO.observe(age_seconds / version.data_freshness_seconds)
+                ENDPOINT_MATERIALIZED_FRESHNESS_RATIO.observe(age_seconds / data_freshness_seconds)
 
             return result
         except Exception as e:

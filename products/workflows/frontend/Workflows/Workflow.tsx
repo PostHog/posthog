@@ -20,7 +20,7 @@ export function Workflow(props: WorkflowLogicProps): JSX.Element {
     const treeViewEnabled = useFeatureFlag('WORKFLOWS_LINEAR_VIEW')
 
     return (
-        <div className="relative flex h-[calc(100vh-13rem)] max-h-full min-h-[25rem] grow flex-col overflow-hidden rounded-md border">
+        <div className="relative flex min-h-[25rem] flex-1 flex-col overflow-hidden rounded-md border">
             <WorkflowStatusBar
                 {...props}
                 editorLayout={editorLayout}
