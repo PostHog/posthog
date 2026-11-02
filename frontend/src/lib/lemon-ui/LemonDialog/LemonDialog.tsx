@@ -185,8 +185,12 @@ function isEnterOnField(e: React.KeyboardEvent<HTMLFormElement>): boolean {
     return e.key === 'Enter' && !(e.target as HTMLElement).closest('button')
 }
 
+function isImeComposing(e: React.KeyboardEvent<HTMLFormElement>): boolean {
+    return e.nativeEvent.isComposing || e.keyCode === 229
+}
+
 function isEnterHandledByField(e: React.KeyboardEvent<HTMLFormElement>): boolean {
-    return e.defaultPrevented || e.nativeEvent.isComposing
+    return e.defaultPrevented || isImeComposing(e)
 }
 
 export const LemonFormDialog = ({

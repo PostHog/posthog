@@ -121,13 +121,14 @@ describe('LemonFormDialog', () => {
     })
 
     it.each([
-        ['an IME composition confirms', true, 0],
-        ['a plain key press', false, 1],
-    ])('Enter from %s in a text field (composing: %s) submits %i times', async (_case, isComposing, submits) => {
+        ['an IME composition confirm', 0, { isComposing: true }],
+        ['a Safari IME composition confirm', 0, { keyCode: 229 }],
+        ['a plain key press', 1, {}],
+    ])('Enter from %s in a text field submits %i times', async (_case, submits, eventInit) => {
         const onSubmit = jest.fn().mockResolvedValue(undefined)
 
         renderDialog(onSubmit)
-        fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter', isComposing })
+        fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter', ...eventInit })
 
         await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(submits))
     })
