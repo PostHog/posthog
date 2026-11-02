@@ -744,9 +744,10 @@ describe('broadcastWizardLogic', () => {
         useMocks({
             post: {
                 '/api/projects/:team_id/hog_flows/user_blast_radius/': async ({ request }) => {
-                    // The recipient email check posts here too, with an extra condition.
-                    const { filters } = (await request.json()) as { filters: { properties: unknown[] } }
-                    if (filters.properties.length > 1) {
+                    // The recipient email check and the channel reach counts post here too. Only the
+                    // audience size asks for the email dedupe, so only it reads the next state.
+                    const { sends_email } = (await request.json()) as { sends_email?: boolean }
+                    if (!sends_email) {
                         return [200, { affected: 0, total: 0 }]
                     }
                     const state = states[Math.min(calls++, states.length - 1)]
