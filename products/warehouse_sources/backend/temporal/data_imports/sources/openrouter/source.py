@@ -33,7 +33,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _MANAGEMENT_KEY_REQUIRED = (
     "Requires an OpenRouter management API key. This key is a regular inference key, which can read only "
-    "the models, model endpoints, providers, task classifications, and batches tables."
+    "the models, model endpoints, providers, task classifications, session costs, and batches tables."
 )
 
 _INFERENCE_KEY_REQUIRED = (
@@ -76,7 +76,7 @@ class OpenRouterSource(ResumableSource[OpenRouterSourceConfig, OpenRouterResumeC
             releaseStatus=ReleaseStatus.GA,
             caption="""Enter your OpenRouter API key to pull your OpenRouter usage and account data into the PostHog Data warehouse.
 
-Use a **management API key** (create one under [Settings -> Management Keys](https://openrouter.ai/settings/keys)) so the activity, API keys, credits, end users, organization members, workspaces, and workspace members tables can sync. A regular inference key can read only the models, model endpoints, providers, task classifications, and batches tables.
+Use a **management API key** (create one under [Settings -> Management Keys](https://openrouter.ai/settings/keys)) so the activity, API keys, credits, end users, organization members, workspaces, and workspace members tables can sync. A regular inference key can read only the models, model endpoints, providers, task classifications, session costs, and batches tables.
 
 A management key can't read batches. To sync them, connect a second OpenRouter source with a regular API key.""",
             iconPath="/static/services/openrouter.png",
@@ -138,6 +138,8 @@ A management key can't read batches. To sync them, connect a second OpenRouter s
                 return (
                     "Share of all OpenRouter traffic by task type over the last 7 days, across every OpenRouter account"
                 )
+            if endpoint == "session_costs":
+                return "Median cost per session by agent harness and model, across every OpenRouter account, refreshed weekly"
             return None
 
         def _build_schema(endpoint: str) -> SourceSchema:
