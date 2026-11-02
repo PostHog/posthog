@@ -185,8 +185,8 @@ export function OrganizationIPRestrictions(): JSX.Element {
                                         key={entry}
                                         closable={!restrictionReason && !saving}
                                         onClose={() => {
-                                            setEntries(entries.filter((current) => current !== entry))
                                             setTestResult(null)
+                                            void persistEntries(entries.filter((current) => current !== entry))
                                         }}
                                     >
                                         {entry}

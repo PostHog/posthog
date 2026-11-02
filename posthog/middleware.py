@@ -54,7 +54,7 @@ from posthog.helpers.impersonation import get_original_user_from_session, get_or
 from posthog.helpers.sso import sso_failure_redirect_url
 from posthog.helpers.user_devices import set_known_device_cookie
 from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_match
-from posthog.ip_restrictions import get_ip_restriction_denial
+from posthog.ip_restrictions import get_ip_restriction_denial, get_restriction_client_ip
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_HEADER,
@@ -236,7 +236,12 @@ def pop_mcp_client_ip(request: HttpRequest) -> str | None:
 
     outcome = verify_signed_client_ip(ip, timestamp, signature, settings.MCP_CLIENT_IP_SIGNING_KEYS)
     MCP_CLIENT_IP_VERIFICATIONS.labels(outcome=outcome.value).inc()
-    return ip if outcome is SignedClientIPOutcome.VALID else None
+    if outcome is SignedClientIPOutcome.VALID:
+        # Keep the verified end-user IP on the request for the IP restriction checks, which run
+        # after this middleware but still need to judge the MCP caller rather than the pod address.
+        request.verified_mcp_client_ip = ip
+        return ip
+    return None
 
 
 class ManagedProxyClientIPMiddleware:
@@ -1666,7 +1671,7 @@ class IPRestrictionsMiddleware:
     Runs after `AuthenticationMiddleware` for session requests, checking every organization the user
     belongs to. Bearer credentials authenticate inside DRF, so `IPRestrictionsPermission` applies the
     same check after their principal is resolved. Both use the cached organization restrictions and
-    `get_trusted_client_ip`, which rejects a spoofed X-Forwarded-For and fails closed when no
+    `get_restriction_client_ip`, which rejects a spoofed X-Forwarded-For and fails closed when no
     verified IP is available.
     """
 
@@ -1674,6 +1679,11 @@ class IPRestrictionsMiddleware:
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
+        # A member who leaves the allowed network must still be able to sign out and switch
+        # accounts. The logout view keeps its POST-only and CSRF protections.
+        if request.path.startswith("/logout"):
+            return self.get_response(request)
+
         if is_impersonated_session(request):
             return self.get_response(request)
 
@@ -1682,7 +1692,7 @@ class IPRestrictionsMiddleware:
             # Bearer-authenticated requests are checked after DRF resolves their principal.
             return self.get_response(request)
 
-        client_ip = get_trusted_client_ip(request)
+        client_ip = get_restriction_client_ip(request)
         denial = get_ip_restriction_denial(user, client_ip)
         if denial is None:
             return self.get_response(request)

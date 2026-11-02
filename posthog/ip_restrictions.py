@@ -12,7 +12,9 @@ from posthog.models.organization_ip_restrictions import MAX_IP_RESTRICTIONS, Org
 __all__ = [
     "IPRestrictionsPermission",
     "MAX_IP_RESTRICTIONS",
+    "enforce_ip_restrictions",
     "get_ip_restriction_denial",
+    "get_restriction_client_ip",
     "is_ip_allowed",
     "validate_ip_restrictions",
 ]
@@ -20,6 +22,25 @@ __all__ = [
 _CACHE_KEY_PREFIX = "ip_restrictions:principal"
 _CACHE_TTL_SECONDS = 60 * 5
 _CACHE_MISS = object()
+
+# Credentials PostHog's own infrastructure uses to serve a request on the user's behalf. They
+# originate from our network, not the member's, so an organization's allowlist cannot judge them and
+# blocking them would break the feature without adding security. `session` is here because
+# `IPRestrictionsMiddleware` already checked it. A delegated credential is handled separately: it
+# only represents a person when the MCP server forwards the signed end-user IP.
+_INTERNAL_CREDENTIAL_TYPES = frozenset(
+    {
+        "session",
+        "internal_jwt",
+        "export_renderer",
+        "service_jwt",
+        "internal_api_secret",
+        "billing_service",
+        "gateway_agent",
+        "cross_region_signature",
+        "webhook",
+    }
+)
 
 
 def validate_ip_restrictions(values: Iterable[str]) -> list[str]:
@@ -159,31 +180,67 @@ def invalidate_ip_restrictions_for_user(user_id: int) -> None:
     cache.delete(_user_cache_key(user_id))
 
 
+def get_restriction_client_ip(request: Any) -> str | None:
+    """The IP an IP restriction decision judges for this request.
+
+    `ActivityLoggingMiddleware` verifies and removes the MCP server's signed end-user IP before this
+    runs. Prefer that verified value so an MCP call is judged as the person, not the pod address.
+    """
+    from posthog.utils import get_trusted_client_ip
+
+    verified_mcp_ip = getattr(request, "verified_mcp_client_ip", None)
+    if verified_mcp_ip:
+        return verified_mcp_ip
+    return get_trusted_client_ip(request)
+
+
+def enforce_ip_restrictions(request: Any, user: Any, authenticator: Any = None) -> None:
+    """Raise `PermissionDenied` when the request's IP is not in one of the user's allowlists.
+
+    Session requests are checked by `IPRestrictionsMiddleware`. Bearer credentials authenticate
+    inside DRF, and a view that overrides `permission_classes` may omit `IPRestrictionsPermission`,
+    so bearer authenticators call this after resolving the principal. It applies to every
+    organization the principal belongs to, not only the current one.
+    """
+    from loginas.utils import is_impersonated_session
+
+    if user is None or not getattr(user, "is_authenticated", False):
+        return
+
+    credential_type = getattr(authenticator, "activity_credential_type", None)
+    if credential_type in _INTERNAL_CREDENTIAL_TYPES:
+        return
+
+    django_request = getattr(request, "_request", request)
+    if is_impersonated_session(django_request):
+        return
+
+    if getattr(authenticator, "is_user_delegated", False) and not getattr(
+        django_request, "verified_mcp_client_ip", None
+    ):
+        # A delegated credential without the signed end-user IP comes from an internal service acting
+        # for the user, such as the export worker. The MCP server always signs its end-user IP, so
+        # MCP delegated calls still reach the check below.
+        return
+
+    denial = get_ip_restriction_denial(user, get_restriction_client_ip(django_request))
+    if denial is not None:
+        raise PermissionDenied(detail=denial, code="ip_not_allowed")
+
+
 class IPRestrictionsPermission(BasePermission):
     """Deny token-authenticated requests when any organization the principal belongs to blocks its IP.
 
     Session-auth requests are handled by `IPRestrictionsMiddleware` before the view runs. Bearer
     credentials authenticate inside DRF, so this permission checks them after the principal is
-    resolved. It applies to every organization the principal belongs to, not only the current one.
+    resolved. `enforce_ip_restrictions` holds the shared rules; bearer authenticators call it too so
+    a view that overrides `permission_classes` cannot skip the check.
     """
 
     def has_permission(self, request, view) -> bool:
-        from loginas.utils import is_impersonated_session
-
-        from posthog.utils import get_trusted_client_ip
-
-        user = getattr(request, "user", None)
-        if user is None or not user.is_authenticated:
-            return True
-        authenticator = getattr(request, "successful_authenticator", None)
-        if getattr(authenticator, "activity_credential_type", None) == "session":
-            return True
-
-        django_request = getattr(request, "_request", request)
-        if is_impersonated_session(django_request):
-            return True
-
-        denial = get_ip_restriction_denial(user, get_trusted_client_ip(django_request))
-        if denial is not None:
-            raise PermissionDenied(detail=denial, code="ip_not_allowed")
+        enforce_ip_restrictions(
+            request,
+            getattr(request, "user", None),
+            getattr(request, "successful_authenticator", None),
+        )
         return True

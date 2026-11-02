@@ -165,7 +165,9 @@ class TestIPRestrictionsMiddleware(APIBaseTest):
         self.client.get("/api/ip-restrictions-cache-test/", REMOTE_ADDR="203.0.113.42")
 
         config.ip_restrictions = ["10.0.0.0/8"]
-        config.save()
+        # The signal invalidates the cache on commit, so run the queued callback before the next request.
+        with self.captureOnCommitCallbacks(execute=True):
+            config.save()
 
         response = self.client.get("/api/ip-restrictions-cache-test/", REMOTE_ADDR="203.0.113.42")
 

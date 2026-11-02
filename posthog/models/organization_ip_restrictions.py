@@ -1,5 +1,5 @@
 from django.contrib.postgres.fields import ArrayField
-from django.db import models
+from django.db import models, transaction
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
@@ -41,7 +41,11 @@ class OrganizationIPRestrictions(UUIDTModel):
 def _invalidate_organization_ip_restrictions_cache(sender, instance: OrganizationIPRestrictions, **kwargs) -> None:
     from posthog.ip_restrictions import invalidate_ip_restrictions_for_organization
 
-    invalidate_ip_restrictions_for_organization(instance.organization_id)
+    organization_id = instance.organization_id
+
+    # Defer to the commit so a concurrent request cannot reload the pre-change rules and cache them
+    # for the full TTL once the write becomes visible.
+    transaction.on_commit(lambda: invalidate_ip_restrictions_for_organization(organization_id))
 
 
 @receiver([post_save, post_delete], sender="posthog.OrganizationMembership")
@@ -50,4 +54,4 @@ def _invalidate_membership_ip_restrictions_cache(sender, instance, **kwargs) -> 
 
     user_id = getattr(instance, "user_id", None)
     if user_id is not None:
-        invalidate_ip_restrictions_for_user(user_id)
+        transaction.on_commit(lambda: invalidate_ip_restrictions_for_user(user_id))

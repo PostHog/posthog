@@ -371,13 +371,22 @@ class OrganizationSerializer(
         user = self.context["request"].user
         ip_restrictions = validated_data.pop("ip_restrictions", None)
         ip_restrictions_enabled = validated_data.pop("ip_restrictions_enabled", None)
-        organization, _, _ = Organization.objects.bootstrap(user, **validated_data)
-        if ip_restrictions is not None or ip_restrictions_enabled is not None:
-            organization._state.fields_cache["ip_restrictions_config"] = OrganizationIPRestrictions.objects.create(
-                organization=organization,
-                ip_restrictions=ip_restrictions or [],
-                enabled=True if ip_restrictions_enabled is None else ip_restrictions_enabled,
-            )
+        with transaction.atomic():
+            organization, _, _ = Organization.objects.bootstrap(user, **validated_data)
+            if ip_restrictions is not None or ip_restrictions_enabled is not None:
+                # A brand-new organization has no paid features yet, so this rejects an allowlist the
+                # plan does not cover instead of enforcing one nobody paid for. The atomic block rolls
+                # the organization back with the rejection.
+                if not organization.is_feature_available(AvailableFeature.IP_RESTRICTIONS):
+                    raise serializers.ValidationError(
+                        "You must upgrade your plan to configure IP restrictions.",
+                        code="payment_required",
+                    )
+                organization._state.fields_cache["ip_restrictions_config"] = OrganizationIPRestrictions.objects.create(
+                    organization=organization,
+                    ip_restrictions=ip_restrictions or [],
+                    enabled=True if ip_restrictions_enabled is None else ip_restrictions_enabled,
+                )
         exclude_internal_organization_from_crm(organization, user)
         return organization
 
@@ -730,7 +739,9 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         user = cast(User, self.request.user)
-        queryset = user.organizations.all()
+        # The serializer reads `ip_restrictions` for every organization in a list response. Load the
+        # config up front so each row does not add its own reverse one-to-one query.
+        queryset = user.organizations.all().select_related("ip_restrictions_config")
         if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication):
             if scoped_organizations := self.request.successful_authenticator.personal_api_key.scoped_organizations:
                 queryset = queryset.filter(id__in=scoped_organizations)
