@@ -1,6 +1,7 @@
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 
+import { isHogQLQuery } from '~/queries/schema/node-guards'
 import {
     EventsQuery,
     HogQLQuery,
@@ -8,13 +9,7 @@ import {
     SessionsQuery,
     TracesQuery,
 } from '~/queries/schema/schema-general'
-import {
-    isEventsQuery,
-    isHogQLQuery,
-    isSessionAttributionExplorerQuery,
-    isSessionsQuery,
-    isTracesQuery,
-} from '~/queries/utils'
+import { isEventsQuery, isSessionAttributionExplorerQuery, isSessionsQuery, isTracesQuery } from '~/queries/utils'
 
 interface DateRangeProps<
     Q extends EventsQuery | HogQLQuery | SessionAttributionExplorerQuery | SessionsQuery | TracesQuery,

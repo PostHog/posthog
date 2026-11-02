@@ -4,7 +4,7 @@ from typing import Literal
 from prometheus_client import Counter
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationManager
 from posthog.otel_metrics import OtelInstrumentFactory
 
 from products.review_hog.backend.automatic_review_rules import AutomaticReviewReason, decide_automatic_review
@@ -46,10 +46,8 @@ def observe_dispatch(outcome: AuthoredPRReviewOutcome) -> None:
 
 def connector_user_id(*, team_id: int, installation_id: str) -> int | None:
     """The active member who connected the installation to the project. Bot pull requests run as them."""
-    creator_ids = Integration.objects.filter(
-        team_id=team_id, kind="github", integration_id=installation_id, created_by__isnull=False
-    ).values_list("created_by_id", flat=True)
-    for creator_id in creator_ids:
+    rows = IntegrationManager.github.oauth.list(team_id, external_id=installation_id)
+    for creator_id in (row.created_by_id for row in rows if row.created_by_id is not None):
         if is_active_member(team_id=team_id, user_id=creator_id):
             return creator_id
     return None
@@ -68,16 +66,12 @@ def plan_automatic_review(
 ) -> AutomaticDispatch:
     """Whether a push gets an automatic Flash review, in which project, and as which user."""
     # These clients pull in the signals product; planning a webhook must not load it at import.
-    from products.signals.backend.report_generation.resolve_reviewers import (  # noqa: PLC0415
-        resolve_org_github_login_to_users,
-    )
+    from products.signals.backend.facade.report_reviewers import org_user_ids_by_github_login  # noqa: PLC0415
 
     if owner is None:
         return AutomaticDispatch(outcome="repository_not_added")
     team_id = owner.team_id
-    has_integration = Integration.objects.filter(
-        team_id=team_id, kind="github", integration_id=owner.installation_id
-    ).exists()
+    has_integration = IntegrationManager.github.oauth.exists(team_id, external_id=owner.installation_id)
     if not has_integration:
         logger.warning(
             "Team %s has no GitHub integration for installation %s; skipping automatic review of %s",
@@ -86,10 +80,14 @@ def plan_automatic_review(
             repository.full_name,
         )
         return AutomaticDispatch(outcome="installation_mismatch", team_id=team_id)
-    author = resolve_org_github_login_to_users(team_id, [author_login]).get(author_login.strip().lower())
+    author_id = org_user_ids_by_github_login(team_id=team_id, github_logins=[author_login]).get(
+        author_login.strip().lower()
+    )
     # An inactive user cannot act: every user-scoped sandbox credential of the run would fail. So an
     # inactive author counts as unmapped, and unmapped authors follow the project's bot rule.
-    author_user_id = author.id if author is not None and is_active_member(team_id=team_id, user_id=author.id) else None
+    author_user_id = (
+        author_id if author_id is not None and is_active_member(team_id=team_id, user_id=author_id) else None
+    )
     decision = decide_automatic_review(
         team_id, repository, owner.row, author_user_id=author_user_id, author_login=author_login
     )

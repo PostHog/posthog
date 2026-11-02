@@ -8,7 +8,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use common_kafka::config::KafkaConfig;
 use futures::FutureExt;
 use lifecycle::Handle;
-use metrics::counter;
+use metrics::{counter, histogram};
 use rdkafka::consumer::{
     BaseConsumer, CommitMode, Consumer, ConsumerContext, RebalanceProtocol, StreamConsumer,
 };
@@ -17,7 +17,7 @@ use rdkafka::message::{BorrowedMessage, Headers as _, Message as _};
 use rdkafka::types::RDKafkaRespErr;
 use rdkafka::{ClientConfig, ClientContext, Offset, TopicPartitionList};
 
-use crate::batch::{Batch, Block, Inspectors, Raw, SessionKey, Tp};
+use crate::batch::{decoded_len, Batch, Block, Inspectors, Raw, SessionKey, Tp};
 use crate::config::{retry_backoff, FLUSH_DEADLINE, MAX_POLL_INTERVAL};
 use crate::flush::{write_flush, FlushWork, Writer, PRODUCER_FLUSH_ON_SHUTDOWN};
 use crate::limits::{Restrictions, SessionLimiter};
@@ -392,6 +392,29 @@ fn header<'m>(message: &'m BorrowedMessage<'_>, name: &str) -> Option<&'m str> {
         .and_then(|v| std::str::from_utf8(v).ok())
 }
 
+/// A flush holds every decompressed payload until it ends and its size is only checked between polls, so one poll of
+/// small compressed messages must not decompress to more than the `room` left in the buffer.
+fn take_ready<M, E>(
+    first: M,
+    room: usize,
+    decoded_len: impl Fn(&M) -> usize,
+    mut next: impl FnMut() -> Option<Result<M, E>>,
+) -> (Vec<M>, Option<E>) {
+    let mut room = room.saturating_sub(decoded_len(&first));
+    let mut messages = vec![first];
+    while messages.len() < POLL_BATCH && room > 0 {
+        match next() {
+            Some(Ok(message)) => {
+                room = room.saturating_sub(decoded_len(&message));
+                messages.push(message);
+            }
+            Some(Err(error)) => return (messages, Some(error)),
+            None => break,
+        }
+    }
+    (messages, None)
+}
+
 pub struct Settings {
     pub sample_percentage: f64,
     pub flush_interval: Duration,
@@ -446,18 +469,17 @@ async fn consume(
             received = consumer.consumer.recv() => match received {
                 Ok(message) => {
                     // The messages Kafka has ready go through the session limiter together, in one Redis round trip.
-                    let mut messages = vec![message];
-                    let mut failed = None;
-                    while messages.len() < POLL_BATCH {
-                        match consumer.consumer.recv().now_or_never() {
-                            Some(Ok(message)) => messages.push(message),
-                            Some(Err(error)) => {
-                                failed = Some(error);
-                                break;
-                            }
-                            None => break,
-                        }
-                    }
+                    let (messages, failed) = take_ready(
+                        message,
+                        batch.room(settings.flush_max_bytes),
+                        |message| {
+                            decoded_len(
+                                message.payload().unwrap_or_default(),
+                                header(message, "content-encoding"),
+                            )
+                        },
+                        || consumer.consumer.recv().now_or_never(),
+                    );
                     handle_messages(&messages, consumer, settings, sources, &mut batch).await;
                     drop(messages);
                     if let Some(error) = failed {
@@ -683,6 +705,7 @@ async fn flush_steps(
     handle: &Handle,
     retries: u32,
 ) -> Result<(), String> {
+    let flush_started = Instant::now();
     let offsets: HashMap<Tp, (u64, i64)> = batch
         .spans
         .iter()
@@ -725,6 +748,7 @@ async fn flush_steps(
                 ));
             }
             let timeout = settings.flush_timeout.min(left);
+            let attempt_started = Instant::now();
             let stored = tokio::time::timeout(
                 timeout,
                 with_heartbeat(
@@ -733,6 +757,13 @@ async fn flush_steps(
                 ),
             )
             .await;
+            let outcome = match &stored {
+                Ok(Ok(())) => "ok",
+                Ok(Err(_)) => "error",
+                Err(_) => "timeout",
+            };
+            histogram!("ai_research_v4_recorder_flush_attempt_duration_seconds", "outcome" => outcome)
+                .record(attempt_started.elapsed().as_secs_f64());
             let error = match stored {
                 Ok(Ok(())) => break,
                 Ok(Err(error)) => error.to_string(),
@@ -748,6 +779,8 @@ async fn flush_steps(
         }
     }
     with_heartbeat(handle, consumer.commit(&offsets)).await?;
+    histogram!("ai_research_v4_recorder_flush_duration_seconds")
+        .record(flush_started.elapsed().as_secs_f64());
     inspectors.evict_idle(settings.session_idle);
     Ok(())
 }
@@ -802,6 +835,22 @@ mod tests {
     }
 
     #[test]
+    fn a_poll_stops_taking_messages_once_they_fill_the_room() {
+        let mut ready = vec![10usize; 5].into_iter();
+        let (messages, failed) =
+            take_ready::<usize, ()>(10, 35, |len| *len, || ready.next().map(Ok));
+        assert_eq!(messages.len(), 4);
+        assert_eq!(failed, None);
+        assert_eq!(ready.len(), 2);
+
+        // A full buffer still takes the first message, which `recv` has already removed from the queue.
+        let mut ready = vec![10usize; 5].into_iter();
+        let (messages, _) = take_ready::<usize, ()>(10, 0, |len| *len, || ready.next().map(Ok));
+        assert_eq!(messages.len(), 1);
+        assert_eq!(ready.len(), 5);
+    }
+
+    #[test]
     fn a_failed_start_commit_stays_pending_at_the_first_offset() {
         let mut state = Assignments::default();
         state.uncommitted.insert(tp(0), None);
@@ -841,6 +890,9 @@ mod tests {
                 image_urls: Vec::new(),
                 remote_urls: Vec::new(),
                 url_limit: None,
+                srcsets: Vec::new(),
+                css_rewrites: Vec::new(),
+                visited_urls: Vec::new(),
                 captured_at_ms: None,
             })
         };

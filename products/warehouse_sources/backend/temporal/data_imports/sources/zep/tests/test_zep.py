@@ -147,21 +147,163 @@ class TestThreadMessagesFanOut:
         assert result.saved_states == [ZepResumeConfig(thread_id="T1", cursor=2)]
 
 
+class TestGraphFanOut:
+    @staticmethod
+    def _owners(users: list[str], graphs: list[str]) -> dict[str, list[ScriptedResponse]]:
+        return {
+            "/users-ordered": [
+                ScriptedResponse(json={"users": [{"user_id": u} for u in users], "total_count": len(users)})
+            ],
+            "/graph/list-all": [
+                ScriptedResponse(json={"graphs": [{"graph_id": g} for g in graphs], "total_count": len(graphs)})
+            ],
+        }
+
+    @parameterized.expand(
+        [
+            ("graph_edges", "edge", 100),
+            ("graph_nodes", "node", 100),
+            ("graph_episodes", "episodes", 50),
+        ]
+    )
+    def test_walks_user_and_standalone_graphs_by_cursor_header(self, endpoint: str, kind: str, limit: int) -> None:
+        result = _run(
+            endpoint,
+            route(
+                {
+                    **self._owners(["U1"], ["G1"]),
+                    f"/graph/{kind}/user/U1": [
+                        ScriptedResponse(json=[{"uuid": "a"}], headers={"Zep-Next-Cursor": "c1"}),
+                        ScriptedResponse(json=[{"uuid": "b"}]),
+                    ],
+                    f"/graph/{kind}/graph/G1": [ScriptedResponse(json=[{"uuid": "c"}])],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"uuid": "a", "graph_scope": "user", "graph_owner_id": "U1", "user_id": "U1", "graph_id": None},
+            {"uuid": "b", "graph_scope": "user", "graph_owner_id": "U1", "user_id": "U1", "graph_id": None},
+            {"uuid": "c", "graph_scope": "graph", "graph_owner_id": "G1", "user_id": None, "graph_id": "G1"},
+        ]
+        graph_requests = [r for r in result.requests if r.path.startswith(f"/api/v2/graph/{kind}/")]
+        assert [r.method for r in graph_requests] == ["POST", "POST", "POST"]
+        assert [r.json() for r in graph_requests] == [
+            {"limit": limit, "order_by": "created_at", "direction": "asc"},
+            {"limit": limit, "order_by": "created_at", "direction": "asc", "cursor": "c1"},
+            {"limit": limit, "order_by": "created_at", "direction": "asc"},
+        ]
+        # Each cursor is staged before the page it follows is yielded.
+        assert result.saved_states == [
+            ZepResumeConfig(graph_scope="user", graph_owner_id="U1", graph_cursor="c1"),
+            ZepResumeConfig(graph_scope="graph", graph_owner_id="G1"),
+            ZepResumeConfig(graph_finished=True),
+        ]
+
+    @parameterized.expand(
+        [
+            ("deleted_graph", ScriptedResponse(status=404, json={"message": "not found"})),
+            ("empty_graph", ScriptedResponse(json=[])),
+            ("null_body", ScriptedResponse(body=b"null")),
+        ]
+    )
+    def test_graph_without_rows_moves_on_to_next_graph(self, _name: str, first_answer: ScriptedResponse) -> None:
+        result = _run(
+            "graph_edges",
+            route(
+                {
+                    **self._owners(["U1", "U2"], []),
+                    "/graph/edge/user/U1": [first_answer],
+                    "/graph/edge/user/U2": [ScriptedResponse(json=[{"uuid": "e2"}])],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [r["uuid"] for r in result.rows] == ["e2"]
+        assert result.committed_states[0] == ZepResumeConfig(graph_scope="user", graph_owner_id="U2")
+
+    def test_repeated_cursor_ends_the_graph(self) -> None:
+        result = _run(
+            "graph_nodes",
+            route(
+                {
+                    **self._owners(["U1"], []),
+                    "/graph/node/user/U1": [
+                        ScriptedResponse(json=[{"uuid": "n1"}], headers={"Zep-Next-Cursor": "c1"}),
+                        ScriptedResponse(json=[{"uuid": "n2"}], headers={"Zep-Next-Cursor": "c1"}),
+                    ],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [r["uuid"] for r in result.rows] == ["n1", "n2"]
+
+    def test_resumes_from_saved_graph_and_cursor(self) -> None:
+        result = _run(
+            "graph_episodes",
+            route(
+                {
+                    **self._owners(["U1"], ["G1", "G2"]),
+                    "/graph/episodes/graph/G1": [ScriptedResponse(json=[{"uuid": "ep2"}])],
+                    "/graph/episodes/graph/G2": [ScriptedResponse(json=[{"uuid": "ep3"}])],
+                }
+            ),
+            resume_state=ZepResumeConfig(graph_scope="graph", graph_owner_id="G1", graph_cursor="c9"),
+        )
+
+        assert [r["uuid"] for r in result.rows] == ["ep2", "ep3"]
+        graph_requests = [r for r in result.requests if r.path.startswith("/api/v2/graph/episodes/")]
+        assert [r.path for r in graph_requests] == [
+            "/api/v2/graph/episodes/graph/G1",
+            "/api/v2/graph/episodes/graph/G2",
+        ]
+        assert graph_requests[0].json()["cursor"] == "c9"
+        assert "cursor" not in graph_requests[1].json()
+
+    def test_resume_into_vanished_graph_ends_cleanly(self) -> None:
+        result = _run(
+            "graph_edges",
+            route(self._owners(["U1"], [])),
+            resume_state=ZepResumeConfig(graph_scope="graph", graph_owner_id="gone"),
+        )
+
+        assert result.raised is None
+        assert result.rows == []
+
+    def test_resume_after_last_graph_reads_nothing_again(self) -> None:
+        result = _run(
+            "graph_edges",
+            route(self._owners(["U1"], [])),
+            resume_state=ZepResumeConfig(graph_finished=True),
+        )
+
+        assert result.raised is None
+        assert result.rows == []
+        assert result.requests == []
+
+
 class TestZepSourceResponse:
     @parameterized.expand(
         [
-            ("users", ["uuid"]),
-            ("threads", ["uuid"]),
-            ("thread_messages", ["uuid"]),
+            ("users", ["uuid"], "asc"),
+            ("threads", ["uuid"], "asc"),
+            ("thread_messages", ["uuid"], "asc"),
+            ("graphs", ["uuid"], "asc"),
+            ("graph_edges", ["graph_scope", "graph_owner_id", "uuid"], None),
+            ("graph_nodes", ["graph_scope", "graph_owner_id", "uuid"], None),
+            ("graph_episodes", ["graph_scope", "graph_owner_id", "uuid"], None),
         ]
     )
-    def test_source_response_shape(self, endpoint: str, expected_pks: list[str]) -> None:
-        result = _run(endpoint, always(ScriptedResponse(json={"users": [], "threads": [], "messages": []})))
+    def test_source_response_shape(self, endpoint: str, expected_pks: list[str], expected_sort: str | None) -> None:
+        result = _run(endpoint, always(ScriptedResponse(json={"users": [], "threads": [], "graphs": []})))
 
         response = result.response
         assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == expected_pks
-        assert response.sort_mode == "asc"
+        assert response.sort_mode == expected_sort
         assert response.partition_keys == ["created_at"]
         assert response.partition_mode == "datetime"

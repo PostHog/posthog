@@ -99,7 +99,8 @@ describe('Hogflow Executor', () => {
             hub.SITE_URL,
             new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
             emailSuppressionService,
-            new RecipientsManagerService(hub.postgres)
+            new RecipientsManagerService(hub.postgres),
+            null
         )
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         const hogExecutor = new HogExecutorAsyncService(
@@ -183,7 +184,8 @@ describe('Hogflow Executor', () => {
             recipientPreferencesService,
             emailValidationService,
             cohortMembershipRepository,
-            hub.integrationManager
+            hub.integrationManager,
+            null
         )
     })
 
@@ -1100,6 +1102,33 @@ describe('Hogflow Executor', () => {
                         expect(result.invocation.state.currentAction?.id).toBe('delay')
                     }
                 })
+            })
+
+            it('a run parked before its message step was protected is protected from its next wake', async () => {
+                const hogFlow = createHogFlow({
+                    actions: {
+                        delay: { type: 'delay', config: { delay_duration: '7d' } },
+                        message: {
+                            type: 'function_push',
+                            config: { template_id: 'template-native-push', inputs: {} },
+                        } as any,
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'delay', type: 'continue' },
+                        { from: 'delay', to: 'message', type: 'continue' },
+                        { from: 'message', to: 'exit', type: 'continue' },
+                    ],
+                })
+                const invocation = parkAt(hogFlow, 'delay', Duration.fromObject({ days: 1 }).toMillis())
+                expect(invocation.state.sensitive).toBeUndefined()
+                editFlow(hogFlow, (flow) => {
+                    ;(flow.actions.find((a) => a.id === 'message')!.config as any).sensitive = true
+                })
+
+                const result = await executor.execute(invocation)
+
+                expect(result.invocation.state.currentAction?.id).toBe('delay')
+                expect(result.invocation.state.sensitive).toBe(true)
             })
 
             describe('wait_until_time_window edits', () => {
@@ -2802,6 +2831,32 @@ describe('Hogflow Executor', () => {
             expect(result.invocation.state.variables?.response).toBeDefined()
             expect(result.invocation.state.variables?.response).toHaveProperty('status', 200)
         })
+
+        it.each([false, true])(
+            'logs stored variable values only for an unprotected run, protected: %s',
+            async (sensitive) => {
+                const hogFlow = await hogFlowBuilder({ key: 'http_status', result_path: 'status' })
+                const invocation = createExampleHogFlowInvocation(hogFlow, {
+                    event: { ...createHogExecutionGlobals().event, properties: { name: 'Test' } },
+                })
+                invocation.state.sensitive = sensitive || undefined
+                const logs: string[] = []
+                let result = await executor.execute(invocation)
+                logs.push(...result.logs.map((log) => log.message))
+                while (!result.finished) {
+                    result = await executor.execute(result.invocation)
+                    logs.push(...result.logs.map((log) => log.message))
+                }
+
+                expect(result.invocation.state.variables).toEqual({ http_status: 200 })
+                const stored = logs.find((message) => message.startsWith('Stored action result'))
+                expect(stored).toBe(
+                    sensitive
+                        ? 'Stored action result in variable(s): http_status'
+                        : 'Stored action result in variable(s): http_status = 200'
+                )
+            }
+        )
 
         it('stores extracted value via result_path', async () => {
             const hogFlow = await hogFlowBuilder({ key: 'http_status', result_path: 'status' })

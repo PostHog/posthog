@@ -16,6 +16,7 @@ from posthog.scopes import (
     INTERNAL_API_SCOPE_OBJECTS,
     MCP_BUILT_IN_AGENT_SCOPE,
     OAUTH_HIDDEN_SCOPE_OBJECTS,
+    SCOUT_MONITORING_RESULT_SCOPE,
     SLACK_RUN_SCOPE,
     resolve_ceiling,
 )
@@ -70,17 +71,6 @@ SIGNALS_OAUTH_APP_CLIENT_IDS = frozenset(
         SIGNALS_APP_CLIENT_ID_US,
         SIGNALS_APP_CLIENT_ID_EU,
         SIGNALS_APP_CLIENT_ID_DEV,
-    }
-)
-
-# Apps that mint tokens for a cloud task's own coding agent, which is what the task-comment
-# channel is restricted to. Signals joined when its runs moved off the Array app; PostHog AI is
-# deliberately absent, as it was before. The `sandbox_task_id` binding on the token is what
-# actually scopes access to one task — this set only keeps unrelated first-party tokens out.
-TASK_AGENT_OAUTH_APP_CLIENT_IDS = frozenset(
-    {
-        *POSTHOG_CODE_OAUTH_APP_CLIENT_IDS,
-        *SIGNALS_OAUTH_APP_CLIENT_IDS,
     }
 )
 
@@ -275,6 +265,15 @@ CONTEXT_LAYER_INTERNAL_SCOPE = "context_layer_internal:write"
 #                          rollout. The extra scopes in `dangerously_get_required_scopes` still
 #                          apply, so the grant alone cannot disable a flag on archive or set the
 #                          team default repository. It can also create an exposure cohort.
+#   event_definition:write Tags on every event definition in the scout's project, and nothing
+#                          else. The scope object also covers creating, describing, verifying,
+#                          hiding, and deleting a definition, its owner and schema enforcement, and
+#                          the property groups and media previews attached to it. Delete is
+#                          PERMANENT and a schema can make ingestion reject events, so
+#                          `posthog/taxonomy/scout_writes.py` refuses all of that for scouts. A
+#                          PATCH may carry `tags` alone, and it replaces the whole list, so a scout
+#                          reads the current tags first. A bulk tag change may add or remove, but
+#                          not set. Every change is in the definition's activity history.
 #
 # `annotation:write` and `alert:write` exceed the "recoverable, project-scoped" bar the other
 # scopes meet. They stay in the v1 set that #94263 puts to the team, because narrowing the set is
@@ -305,6 +304,7 @@ SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
         "ticket:write",
         "canvas:write",
         "experiment:write",
+        "event_definition:write",
     }
 )
 
@@ -649,6 +649,7 @@ def create_oauth_access_token_for_user(
     include_mcp_builtin_agent_scope: bool = False,
     include_interactive_run_scope: bool = False,
     include_slack_run_scope: bool = False,
+    include_monitoring_result_scope: bool = False,
     application: SandboxOAuthApplication = "array",
     sandbox_task_id: UUID | None = None,
     withhold_scopes: Collection[str] = (),
@@ -669,6 +670,8 @@ def create_oauth_access_token_for_user(
         resolved.append(INTERACTIVE_RUN_SCOPE)
     if include_slack_run_scope:
         resolved.append(SLACK_RUN_SCOPE)
+    if include_monitoring_result_scope:
+        resolved.append(SCOUT_MONITORING_RESULT_SCOPE)
     app = get_sandbox_oauth_app(application)
     return _mint_run_access_token(user, team_id, app=app, scopes=list(resolved), sandbox_task_id=sandbox_task_id)
 

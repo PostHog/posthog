@@ -34,6 +34,8 @@ const product = (name: string, searchKeywords: string[] = []): SearchItem => ({
 
 const exactWordRank = (created: number): number[] => [-1, 0, 0, 0, -1, 0, 2, 0, -created]
 
+const account = (id: string, name: string): SearchItem => ({ id, name, category: 'accounts', itemType: 'account' })
+
 const summary = (sections: CommandKSection[]): string[] =>
     sections.map((section) => {
         const rows = section.rows.map((row) => {
@@ -155,6 +157,54 @@ describe('buildRankedResults', () => {
             expected: ['notice: (partial: xyzzy -> report)', 'Results: Weekly report'],
         },
         {
+            name: 'an account identity match hides the dropped-words notice and leads partial matches',
+            query: 'billing customer',
+            results: [
+                result('1', 'Customer report', 'insight', [-1, 0, 0, 1, -1, 0, 5, 0, -1], {
+                    matchedAllWords: false,
+                    matchedWords: ['customer'],
+                }),
+            ],
+            products: [product('Customer analytics')],
+            accounts: [account('account-1', 'Test organization')],
+            expected: ['Results: Test organization'],
+        },
+        {
+            name: 'an account match hides the close-spellings notice',
+            query: 'dashbord',
+            results: [
+                result('1', 'Dashboard', 'dashboard', [-1, 1, 0, 0, 0, 0, 5, 0, -1], {
+                    matchedWords: ['dashbord'],
+                    withTypos: true,
+                }),
+            ],
+            products: [],
+            accounts: [account('account-1', 'Dashbord tools')],
+            expected: ['Results: Dashbord tools'],
+        },
+        {
+            name: 'an account can rank without saved objects or a matching display name',
+            query: 'atlas.example.org',
+            results: [],
+            products: [],
+            accounts: [account('account-1', 'Test organization')],
+            expected: ['Results: Test organization'],
+        },
+        {
+            name: 'distinct accounts with the same name stay separate and get no file-system scope row',
+            query: 'billing',
+            results: [1, 2, 3, 4, 5, 6].map((n) =>
+                result(`insight-${n}`, `Billing insight ${n}`, 'insight', exactWordRank(n), { typeCount: 6 })
+            ),
+            products: [],
+            accounts: [1, 2, 3, 4].map((n) => account(`account-${n}`, 'Billing')),
+            expected: [
+                'Best matches: Billing, Billing insight 6',
+                'Accounts: Billing, Billing, Billing',
+                'Insights: Billing insight 5, Billing insight 4, Billing insight 3, (See all 6 insights)',
+            ],
+        },
+        {
             name: 'a group of persons gets no see-all row, because persons are not a file system type',
             query: 'ada',
             results: [1, 2, 3, 4].map((n) =>
@@ -173,7 +223,7 @@ describe('buildRankedResults', () => {
                 'Persons: ada@b.example.com, ada@c.example.com, ada@d.example.com',
             ],
         },
-    ])('$name', ({ query, results, products, persons = [], expected }) => {
+    ])('$name', ({ query, results, products, persons = [], accounts = [], expected }) => {
         expect(
             summary(
                 buildRankedResults({
@@ -182,6 +232,7 @@ describe('buildRankedResults', () => {
                     results,
                     products,
                     persons,
+                    accounts,
                     state: 'ready',
                     scoped: false,
                 })

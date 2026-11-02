@@ -5,6 +5,8 @@ Loaded on first use through `load_insight_source_config`, never from `ready()`, 
 on `posthog.schema`.
 """
 
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from posthog.schema import AlertCondition, InsightThreshold
@@ -28,8 +30,10 @@ class InsightPlatformAlertCondition(BaseModel):
         ...,
         description="How the value is compared: as it is, or as an increase or decrease from the previous interval.",
     )
-    detector: None = Field(
-        default=None, description="Always null. The platform owns threshold alerts only, so no detector applies."
+    detector: dict[str, Any] | None = Field(
+        default=None,
+        description="The anomaly detector the alert uses in place of its threshold, or null for a threshold alert. "
+        "It can't change through this API.",
     )
 
 

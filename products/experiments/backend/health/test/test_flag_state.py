@@ -1,5 +1,5 @@
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from unittest import TestCase
@@ -53,9 +53,11 @@ SHIPPED_TO_SOME = {
 }
 
 
-def _traffic(people_assigned_outside: int) -> ConditionSetTraffic:
+def _traffic(people_assigned_outside: int, *, window: timedelta = timedelta(days=7)) -> ConditionSetTraffic:
+    since = datetime(2026, 10, 12, 13, 4, tzinfo=UTC)
     return ConditionSetTraffic(
-        since=datetime(2026, 10, 12, 13, 4, tzinfo=UTC),
+        since=since,
+        until=since + window,
         team_timezone="Europe/Berlin",
         people_by_set={},
         calls=3 * people_assigned_outside,
@@ -71,6 +73,7 @@ def _pause_history(*, launched_at: datetime, paused_at: datetime | None) -> Paus
 LAUNCHED_BEFORE_PAUSE_ENTRIES = datetime(2026, 8, 1, 9, 0, tzinfo=UTC)
 LAUNCHED_AFTER_PAUSE_ENTRIES = datetime(2026, 9, 1, 9, 0, tzinfo=UTC)
 PAUSED_AT = datetime(2026, 10, 12, 13, 4, tzinfo=UTC)
+ENDED_AT = datetime(2026, 10, 14, 8, 30, tzinfo=UTC)
 
 
 def _context(
@@ -82,12 +85,15 @@ def _context(
     archived: bool = False,
     traffic: ConditionSetTraffic | None = None,
     pause_history: PauseHistory | None = None,
+    flag_called_after_end: bool | None = None,
 ) -> HealthContext:
     return replace(
         RUNNING_CONTEXT,
         **status,
+        ended_at=ENDED_AT if status["has_ended"] else None,
         is_paused=status["is_running"] and not active,
         archived=archived,
+        flag_called_after_end=flag_called_after_end,
         flag=parse_flag_state(
             active=active,
             deleted=deleted,
@@ -141,6 +147,16 @@ class TestFlagState(TestCase):
             (
                 "ended_flag_distributing_variants",
                 _context(ENDED, active=True, filters=MULTIVARIANT),
+                (ExperimentHealthFindingCode.FLAG_LIVE_AFTER_END, "ended_but_multiple_variants_rolled_out", None),
+            ),
+            (
+                "ended_flag_not_called_since_the_end",
+                _context(ENDED, active=True, filters=MULTIVARIANT, flag_called_after_end=False),
+                (ExperimentHealthFindingCode.FLAG_LIVE_AFTER_END, "ended_flag_not_called", None),
+            ),
+            (
+                "ended_flag_called_after_the_end",
+                _context(ENDED, active=True, filters=MULTIVARIANT, flag_called_after_end=True),
                 (ExperimentHealthFindingCode.FLAG_LIVE_AFTER_END, "ended_but_multiple_variants_rolled_out", None),
             ),
             ("ended_zero_rollout", _context(ENDED, active=True, filters=ZERO_ROLLOUT), None),
@@ -259,6 +275,60 @@ class TestFlagState(TestCase):
                     "The feature flag is active before launch",
                 ),
             ),
+            (
+                "ended_flag_not_called_since_the_end",
+                _context(ENDED, active=True, filters=MULTIVARIANT, flag_called_after_end=False),
+                (
+                    "ended_flag_not_called",
+                    ExperimentHealthFindingSeverity.INFO,
+                    "The feature flag is still active after the experiment ended",
+                ),
+            ),
+            (
+                "ended_flag_called_after_the_end",
+                _context(ENDED, active=True, filters=MULTIVARIANT, flag_called_after_end=True),
+                (
+                    "ended_but_multiple_variants_rolled_out",
+                    ExperimentHealthFindingSeverity.WARNING,
+                    "The experiment is not running, but users are exposed to multiple variants",
+                ),
+            ),
+            (
+                "ended_flag_calls_after_the_end_unknown",
+                _context(ENDED, active=True, filters=MULTIVARIANT),
+                (
+                    "ended_but_multiple_variants_rolled_out",
+                    ExperimentHealthFindingSeverity.WARNING,
+                    "The experiment has ended, but its feature flag is still active with multiple variants",
+                ),
+            ),
+            (
+                "running_zero_rollout_traffic_unknown",
+                _context(RUNNING, active=True, filters=ZERO_ROLLOUT),
+                (
+                    "running_but_no_rollout",
+                    ExperimentHealthFindingSeverity.WARNING,
+                    "The experiment is running, but its feature flag has a 0% rollout",
+                ),
+            ),
+            (
+                "running_zero_rollout_young_window",
+                _context(RUNNING, active=True, filters=ZERO_ROLLOUT, traffic=_traffic(0, window=timedelta(hours=2))),
+                (
+                    "running_but_no_rollout",
+                    ExperimentHealthFindingSeverity.WARNING,
+                    "The experiment is running, but its feature flag has a 0% rollout",
+                ),
+            ),
+            (
+                "running_zero_rollout_too_few_assigned_outside",
+                _context(RUNNING, active=True, filters=ZERO_ROLLOUT, traffic=_traffic(9)),
+                (
+                    "running_but_no_rollout",
+                    ExperimentHealthFindingSeverity.WARNING,
+                    "The experiment is running, but no new users are being exposed",
+                ),
+            ),
         ]
     )
     def test_severity_follows_whether_the_state_needs_action(
@@ -269,27 +339,41 @@ class TestFlagState(TestCase):
         assert isinstance(finding, ExperimentHealthFinding)
         self.assertEqual((finding.subcode, finding.severity, finding.title), expected)
 
-    def test_a_pause_from_the_experiment_names_its_date(self) -> None:
-        finding = flag_state(
-            _context(
-                RUNNING,
-                active=False,
-                filters=MULTIVARIANT,
-                pause_history=_pause_history(launched_at=LAUNCHED_AFTER_PAUSE_ENTRIES, paused_at=PAUSED_AT),
-            )
-        )
-
-        assert isinstance(finding, ExperimentHealthFinding)
-        self.assertEqual(
-            (finding.detail, dict(finding.evidence)),
+    @parameterized.expand(
+        [
             (
+                "pause_from_the_experiment",
+                _context(
+                    RUNNING,
+                    active=False,
+                    filters=MULTIVARIANT,
+                    pause_history=_pause_history(launched_at=LAUNCHED_AFTER_PAUSE_ENTRIES, paused_at=PAUSED_AT),
+                ),
                 "The experiment was paused on October 12, 2026 at 3:04 PM CEST, so the linked feature flag serves no "
                 "variants. Users exposed before the pause stay in the results. Their events during the pause can "
                 "still count toward their variant, although the flag doesn't serve it to them then. Resume the "
                 "experiment when you want to expose users again.",
                 {"paused_at": "2026-10-12T13:04:00+00:00"},
             ),
-        )
+            (
+                "flag_not_called_since_the_end",
+                _context(ENDED, active=True, filters=MULTIVARIANT, flag_called_after_end=False),
+                "The experiment ended on October 14, 2026 at 10:30 AM CEST, and the linked feature flag is still "
+                "active with multiple variants. PostHog hasn't recorded a call of the flag since then. Reading only a "
+                "payload or a list of all flags records no call, and neither does a call with send_event set to "
+                "false, so your code may still read the flag that way. If nothing reads the flag anymore, disable or "
+                "archive it to clean up.",
+                {"ended_at": "2026-10-14T08:30:00+00:00"},
+            ),
+        ]
+    )
+    def test_names_the_date_of_the_state(
+        self, _name: str, ctx: HealthContext, detail: str, evidence: dict[str, str]
+    ) -> None:
+        finding = flag_state(ctx)
+
+        assert isinstance(finding, ExperimentHealthFinding)
+        self.assertEqual((finding.detail, dict(finding.evidence)), (detail, evidence))
 
     def test_variants_assigned_outside_the_flag_service_are_info(self) -> None:
         finding = flag_state(_context(RUNNING, active=True, filters=ZERO_ROLLOUT, traffic=_traffic(1234)))

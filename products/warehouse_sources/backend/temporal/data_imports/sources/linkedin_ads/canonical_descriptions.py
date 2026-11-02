@@ -30,6 +30,13 @@ _STATS_COLUMNS = {
     "follows": "Number of new followers attributed to the ad.",
 }
 
+# Requested from LinkedIn for the campaign and creative performance tables only.
+_PERFORMANCE_ONLY_COLUMNS = {
+    "external_website_post_click_conversions": "Conversions tracked on an external website after a member clicked the ad.",
+    "external_website_post_view_conversions": "Conversions tracked on an external website after a member saw the ad without clicking it.",
+    "approximate_member_reach": "Estimated number of unique members who saw the ad at least once on this day. Do not add it up across days, because one member can count on more than one day.",
+}
+
 # Professional demographic breakdowns carry the same metrics minus conversion value, which LinkedIn
 # only reports for non-demographic pivots.
 _DEMOGRAPHIC_STATS_COLUMNS = {
@@ -105,6 +112,11 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "intended_status": "The creative's intended status (e.g. ACTIVE, PAUSED, DRAFT).",
             "is_serving": "Whether the creative is currently being served.",
             "review": "The creative's ad review status.",
+            "content": "The content the creative sponsors, as LinkedIn returns it: a post reference, or inline text, spotlight or other dynamic ad content.",
+            "content_reference": "URN of the sponsored post (urn:li:share or urn:li:ugcPost) or InMail content. Empty for ads with inline content, such as text ads.",
+            "post_url": "LinkedIn URL of the sponsored post, built from content_reference. Empty when the creative does not sponsor a post.",
+            "landing_page_url": "URL a member goes to when they click the ad, including any UTM parameters. Read from text and spotlight ad content, otherwise from the creative metadata, which needs LinkedIn API version 202610 or later.",
+            "leadgen_call_to_action": "Lead gen form call to action: the form URN (destination) and the button label. Only set for lead generation campaigns.",
             "created_at": "Time the creative was created.",
             "last_modified_at": "Time the creative was last modified.",
             "created_time": "Time the creative was created.",
@@ -115,6 +127,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": "https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/ads-reporting",
         "columns": {
             **_STATS_COLUMNS,
+            **_PERFORMANCE_ONLY_COLUMNS,
             "campaign_id": "ID of the campaign these metrics are for.",
         },
     },
@@ -131,6 +144,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": "https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/ads-reporting",
         "columns": {
             **_STATS_COLUMNS,
+            **_PERFORMANCE_ONLY_COLUMNS,
             "creative_id": "ID of the creative these metrics are for.",
             "date_range": "The reporting date range these metrics cover.",
         },

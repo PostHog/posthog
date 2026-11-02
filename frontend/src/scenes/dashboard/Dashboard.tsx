@@ -36,6 +36,7 @@ import { DashboardFlagCalledBanner } from './DashboardFlagCalledBanner'
 import { DashboardHeader } from './DashboardHeader'
 import { DashboardEmbeddedShareButton } from './DashboardHeaderActions'
 import { DashboardModalLoading } from './DashboardModalLoading'
+import { dashboardPerformanceLogic } from './dashboardPerformanceLogic'
 import { DashboardQueryScanBanner } from './DashboardQueryScanBanner'
 import { DashboardRetentionBanner } from './DashboardRetentionBanner'
 import { dashboardSubscribeNudgeLogic } from './dashboardSubscribeNudgeLogic'
@@ -66,6 +67,12 @@ interface DashboardProps {
     showCreateAnomalyAlertButton?: boolean
     /** Shows the dashboard without tile menus or drag-to-edit controls. */
     readOnly?: boolean
+    /** Extra controls for the dashboard header, when a page shows the dashboard as its main content. */
+    headerActions?: JSX.Element
+    /** Uses less vertical space above the tiles, for a page where the dashboard is a product's home. */
+    compact?: boolean
+    /** The parent page reloads the dashboard when PostHog AI adds charts to it, so the header does not. */
+    parentReloadsOnAIChanges?: boolean
 }
 
 export const parseDashboardId = (id: string | undefined): number => {
@@ -98,12 +105,21 @@ export function Dashboard({
     backTo,
     showCreateAnomalyAlertButton,
     readOnly,
+    headerActions,
+    compact,
+    parentReloadsOnAIChanges,
 }: DashboardProps): JSX.Element {
     useMountedLogic(dataThemeLogic({ themes }))
 
     return (
         <BindLogic logic={dashboardLogic} props={{ id: parseDashboardId(id), placement, dashboard, readOnly }}>
-            <DashboardScene backTo={backTo} showCreateAnomalyAlertButton={showCreateAnomalyAlertButton} />
+            <DashboardScene
+                backTo={backTo}
+                showCreateAnomalyAlertButton={showCreateAnomalyAlertButton}
+                headerActions={headerActions}
+                compact={compact}
+                parentReloadsOnAIChanges={parentReloadsOnAIChanges}
+            />
         </BindLogic>
     )
 }
@@ -111,9 +127,15 @@ export function Dashboard({
 function DashboardScene({
     backTo,
     showCreateAnomalyAlertButton,
+    headerActions,
+    compact,
+    parentReloadsOnAIChanges,
 }: {
     backTo?: { url: string; name: string }
     showCreateAnomalyAlertButton?: boolean
+    headerActions?: JSX.Element
+    compact?: boolean
+    parentReloadsOnAIChanges?: boolean
 }): JSX.Element {
     const {
         placement,
@@ -131,6 +153,8 @@ function DashboardScene({
         hasInvalidDashboardId,
     } = useValues(dashboardLogic)
     const { layoutZoom } = useValues(dashboardLogic)
+    const { id: dashboardId } = useMountedLogic(dashboardLogic).props
+    useMountedLogic(dashboardPerformanceLogic({ dashboardId, placement }))
     const { currentTeamId } = useValues(teamLogic)
     const { reportDashboardViewed, cancelDashboardRefresh, retryDashboardLoad, setLayoutZoom } =
         useActions(dashboardLogic)
@@ -182,9 +206,13 @@ function DashboardScene({
     }
 
     return (
-        <SceneContent className={cn('dashboard')}>
+        <SceneContent className={cn('dashboard', compact && 'gap-y-2')}>
             {placement == DashboardPlacement.Dashboard && (
-                <DashboardHeader loading={!dashboard && !dashboardFailedToLoad} />
+                <DashboardHeader
+                    loading={!dashboard && !dashboardFailedToLoad}
+                    extraActions={headerActions}
+                    reloadOnAIChanges={!parentReloadsOnAIChanges}
+                />
             )}
             {placement == DashboardPlacement.Dashboard && !!dashboard?.id && (
                 <DashboardSubscribeNudgeTrigger dashboardId={dashboard.id} />
@@ -254,7 +282,7 @@ function DashboardScene({
                     <DashboardQueryScanBanner />
                     <DashboardWarehouseSyncBanner />
 
-                    <SceneStickyBar showBorderBottom={false} className="flex gap-2 space-y-0">
+                    <SceneStickyBar showBorderBottom={false} className={cn('flex gap-2 space-y-0', compact && 'py-1')}>
                         <DashboardFilterBar backTo={backTo} />
                         {layoutEditMode &&
                             canEditDashboard &&

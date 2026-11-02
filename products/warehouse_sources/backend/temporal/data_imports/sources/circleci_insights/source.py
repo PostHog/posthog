@@ -93,6 +93,7 @@ You can create a personal API token in your [CircleCI user settings](https://app
                     ),
                     SourceFieldSelectConfig(
                         name="reporting_window",
+                        sync_setting=True,
                         label="Reporting window for aggregated metrics",
                         required=False,
                         defaultValue="last-90-days",
@@ -106,6 +107,7 @@ You can create a personal API token in your [CircleCI user settings](https://app
                     ),
                     SourceFieldSelectConfig(
                         name="branch_scope",
+                        sync_setting=True,
                         label="Branch scope",
                         required=False,
                         defaultValue="default_branch",

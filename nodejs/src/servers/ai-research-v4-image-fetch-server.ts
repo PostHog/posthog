@@ -105,7 +105,12 @@ function getUrlPolicy(): typeof import('@posthog/ai-research-v4-native') {
     return urlPolicy
 }
 
-export function buildFrontierPublisher(producer: KafkaProducer, maxConcurrentRepublishes: number): FrontierPublisher {
+export function buildFrontierPublisher(
+    producer: KafkaProducer,
+    maxConcurrentRepublishes: number,
+    maxUrlAgeMs: number,
+    maxUrlAgeFromMs: number
+): FrontierPublisher {
     return new FrontierPublisher(producer, {
         frontierTopic: V4_IMAGE_FETCH_LANE.frontier,
         delayTiers: [
@@ -114,6 +119,8 @@ export function buildFrontierPublisher(producer: KafkaProducer, maxConcurrentRep
             { topic: V4_IMAGE_FETCH_LANE.retry1h, delayMs: 3_600_000, metricTopic: 'retry_1h' },
         ],
         maxConcurrentRepublishes,
+        maxUrlAgeMs,
+        maxUrlAgeFromMs,
     })
 }
 
@@ -362,7 +369,12 @@ export class AiResearchV4ImageFetchServer extends AiResearchV4ConsumerServer {
         this.topHog.start()
         const topHogMetrics = new ImageFetchTopHogMetrics(this.topHog)
         const producer = this.producerRegistry.getProducer(AI_RESEARCH_V4_IMAGE_FETCH_PRODUCER)
-        const publisher = buildFrontierPublisher(producer, this.config.AI_RESEARCH_V4_IMAGE_FETCH_MAX_PENDING_PUBLISHES)
+        const publisher = buildFrontierPublisher(
+            producer,
+            this.config.AI_RESEARCH_V4_IMAGE_FETCH_MAX_PENDING_PUBLISHES,
+            this.config.AI_RESEARCH_V4_IMAGE_FETCH_MAX_URL_AGE_MS,
+            this.config.AI_RESEARCH_V4_IMAGE_FETCH_MAX_URL_AGE_FROM_MS
+        )
         const deadLetterTopic = this.config.AI_RESEARCH_V4_IMAGE_FETCH_DLQ_TOPIC
         const deadLetters = deadLetterTopic
             ? new KafkaFrontierDeadLetterSink(producer, deadLetterTopic, BLOCKED_IMAGE_FETCH_DEAD_LETTER_TOPICS)

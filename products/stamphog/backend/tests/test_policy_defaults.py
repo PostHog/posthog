@@ -24,6 +24,7 @@ from products.stamphog.backend.temporal.activities import (  # noqa: E402
     _clone_pr,
     _effective_policy_files,
     _prefetch_review_blobs,
+    _review_payload_archive,
     _review_payload_command,
 )
 from products.stamphog.backend.temporal.constants import (  # noqa: E402
@@ -156,6 +157,27 @@ def test_review_payload_command_wipes_optional_paths_from_pr_head() -> None:
     assert ".stamphog/policy.yml" in wipe
     assert "rm -rf tools/pr-approval-agent tools/owners" in wipe
     assert extract
+
+
+@pytest.mark.parametrize("tools_is_symlink", [False, True])
+def test_review_payload_lands_only_in_a_real_tools_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tools_is_symlink: bool
+) -> None:
+    checkout = tmp_path / "checkout"
+    planted_dir = checkout / "a" / "b" / "c"
+    planted_dir.mkdir(parents=True)
+    if tools_is_symlink:
+        (checkout / "tools").symlink_to("a/b/c")
+    payload = tmp_path / "payload.tar.gz"
+    payload.write_bytes(_review_payload_archive({}, "{}"))
+    monkeypatch.setattr(activities, "STAMPHOG_SANDBOX_REPO_DIR", str(checkout))
+    monkeypatch.setattr(activities, "STAMPHOG_SANDBOX_PAYLOAD_PATH", str(payload))
+
+    result = subprocess.run(["bash", "-c", _review_payload_command()], capture_output=True, text=True)
+
+    assert (result.returncode == 0) is not tools_is_symlink
+    assert not (planted_dir / "pr-approval-agent").exists()
+    assert (checkout / "tools" / "pr-approval-agent" / "review_local.py").is_file() is not tools_is_symlink
 
 
 def test_clone_and_prefetch_carry_the_credential_on_every_github_fetch() -> None:

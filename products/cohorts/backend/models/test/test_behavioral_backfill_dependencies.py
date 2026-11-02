@@ -3,7 +3,6 @@ from unittest import mock
 
 from django.test import override_settings
 from django.utils import timezone
-from django.utils.deprecation import RemovedInDjango60Warning
 
 from parameterized import parameterized
 
@@ -13,6 +12,12 @@ from products.cohorts.backend.models.dependencies import (
     COHORT_BACKFILL_TRIGGER_COUNTER,
     COHORT_REALTIME_STATE_ORPHANED_COUNTER,
 )
+from products.cohorts.backend.models.team_access import (
+    RealtimeCohortAccessPurpose,
+    RealtimeCohortLevel,
+    RealtimeCohortTeamAccess,
+)
+from products.cohorts.backend.realtime_teams import _access_rows, is_processing_team
 
 # The catalog drops a leaf with no bytecode or a `conditionHash` that is not 16 characters, and
 # `_calculate_realtime_support` grants `cohort_type=REALTIME` only when every leaf compiled to
@@ -139,20 +144,6 @@ class TestBehavioralBackfillDependencies(BaseTest):
         self.assertIsNone(cohort.last_backfill_events_at)
         self.assertIsNone(cohort.last_realtime_cohort_calculation_at)
 
-    def test_positional_filter_update_persists_maintained_fields(self) -> None:
-        cohort = self._cohort(7)
-        old_hash = cohort.filters_shape_hash
-        Cohort.objects.filter(id=cohort.id).update(last_backfill_events_at=timezone.now())
-        cohort.refresh_from_db()
-
-        cohort.filters = self._filters(30)
-        with self.assertWarns(RemovedInDjango60Warning):
-            cohort.save(False, False, None, ["filters"])
-
-        cohort.refresh_from_db()
-        self.assertNotEqual(cohort.filters_shape_hash, old_hash)
-        self.assertIsNone(cohort.last_backfill_events_at)
-
     def test_non_filter_partial_save_does_not_maintain_shape(self) -> None:
         cohort = self._cohort(7)
         old_hash = cohort.filters_shape_hash
@@ -274,6 +265,26 @@ class TestBehavioralBackfillDependencies(BaseTest):
         self.assertEqual(cohort.last_backfill_events_at, ready_at)
         self.assertEqual(cohort.last_realtime_cohort_calculation_at, ready_at)
         self.assertEqual(self._orphan_count(), before)
+
+    @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="none")
+    def test_edit_right_after_a_grant_maintains_shape_hashes(self) -> None:
+        cohort = self._cohort(7)
+        _access_rows.clear_cache()
+        self.addCleanup(_access_rows.clear_cache)
+
+        with mock.patch("posthog.cache_utils.TEST", False):
+            assert not is_processing_team(self.team.pk)
+            RealtimeCohortTeamAccess.objects.create(
+                team=self.team, level=RealtimeCohortLevel.PROCESSING, purpose=RealtimeCohortAccessPurpose.LOAD_TEST
+            )
+            # The snapshot still predates the grant, so only a fresh read sees the team.
+            assert not is_processing_team(self.team.pk)
+
+            cohort.filters = self._filters(30)
+            cohort.save()
+
+        cohort.refresh_from_db()
+        self.assertIsNotNone(cohort.behavioral_filters_shape_hash)
 
     def _redis(self, *set_results: bool) -> mock.Mock:
         redis = mock.Mock()

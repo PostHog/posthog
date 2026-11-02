@@ -125,7 +125,7 @@ class TestScopedServiceJWTAuthentication(APIBaseTest):
             django_request = self.factory.get(path)
         if url_team_id is not None:
             django_request.resolver_match = resolve(path)
-        return Request(django_request)  # ty: ignore[invalid-return-type]
+        return Request(django_request)
 
     def _authenticate(self, authentication: ScopedServiceJWTAuthentication, request: Request) -> tuple[Any, Any]:
         result = authentication.authenticate(request)

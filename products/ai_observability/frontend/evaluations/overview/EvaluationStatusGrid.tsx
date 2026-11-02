@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { type MouseEvent, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Link, Tooltip } from '@posthog/lemon-ui'
@@ -7,6 +7,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import type { BucketStatusEnumApi, EvaluationResultApi } from '../../generated/api.schemas'
 import { compactHeadline, describeBucket, formatBucket } from './evaluationOverviewDisplay'
+import { evaluationResultDrawerLogic } from './evaluationResultDrawerLogic'
 import { evaluationsOverviewLogic } from './evaluationsOverviewLogic'
 
 /** Below this many graded results the backend never marks a bucket unusual, so the cell is greyed as unreliable. */
@@ -40,7 +41,8 @@ function isLowEvidence(row: EvaluationResultApi, index: number): boolean {
 }
 
 export function EvaluationStatusGrid(): JSX.Element {
-    const { statusGridRows, buckets, interval, evaluationUrl } = useValues(evaluationsOverviewLogic)
+    const { statusGridRows, buckets, interval } = useValues(evaluationsOverviewLogic)
+    const { openDrawer, prefetchDetails } = useActions(evaluationResultDrawerLogic)
     // One tooltip follows the pointer, because a tooltip per cell makes a large grid slow to render.
     const [hovered, setHovered] = useState<HoveredCell | null>(null)
     const gridRef = useRef<HTMLDivElement>(null)
@@ -72,9 +74,10 @@ export function EvaluationStatusGrid(): JSX.Element {
             statusGridRows.map((row, rowIndex) => (
                 <div key={row.id} className={cn('flex items-center gap-3', row.lowEvidence && 'opacity-60')}>
                     <Link
-                        to={evaluationUrl(row.id)}
+                        onClick={() => openDrawer(row.id)}
+                        onMouseEnter={() => prefetchDetails(row.id)}
                         subtle
-                        className="w-28 @2xl:w-48 shrink-0 truncate text-primary"
+                        className="w-28 @2xl:w-48 shrink-0 truncate text-left text-primary"
                         data-attr="evaluation-overview-status-grid-name"
                     >
                         {row.name}
@@ -98,7 +101,7 @@ export function EvaluationStatusGrid(): JSX.Element {
                     </span>
                 </div>
             )),
-        [statusGridRows, buckets, labels, evaluationUrl]
+        [statusGridRows, buckets, labels, openDrawer, prefetchDetails]
     )
 
     const hover = (event: MouseEvent<HTMLDivElement>): void => {

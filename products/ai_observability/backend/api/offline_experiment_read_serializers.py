@@ -4,8 +4,10 @@ from uuid import UUID
 
 from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
+from rest_framework_dataclasses.fields import EnumField
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from posthog.api.pagination import PageLinksSerializer
 from posthog.api.shared import UserBasicSerializer
 
 from products.ai_observability.backend.api.offline_experiment_serializers import (
@@ -24,6 +26,7 @@ from products.ai_observability.backend.models.score_definitions import ScoreDefi
 from products.ai_observability.backend.offline_evaluation_read_types import (
     MAX_READ_SCORER_VERSIONS,
     MAX_RESULT_CELL_ITEMS,
+    OfflineHistoryBreakdown,
     OfflineReadQuery,
     OfflineResultCellQuery,
 )
@@ -211,6 +214,18 @@ class OfflineExperimentQuerySerializer(OfflineHistoryQuerySerializer):
         fields = [*OfflineHistoryQuerySerializer.Meta.fields, "scorer_definition_id"]
 
 
+class OfflineScorerHistoryQuerySerializer(OfflineHistoryQuerySerializer):
+    breakdown = EnumField(
+        enum_class=OfflineHistoryBreakdown,
+        choices=OfflineHistoryBreakdown.choices,
+        required=False,
+        help_text="Split history by this property. Model uses each item's model, falling back to the experiment's model.",
+    )
+
+    class Meta(OfflineHistoryQuerySerializer.Meta):
+        fields = [*OfflineHistoryQuerySerializer.Meta.fields, "breakdown"]
+
+
 class OfflineExperimentReadSerializer(serializers.Serializer):
     created_by = UserBasicSerializer(
         read_only=True, allow_null=True, help_text="User who submitted the experiment, or null for service credentials."
@@ -285,7 +300,7 @@ class OfflineResultFieldsSerializer(serializers.Serializer):
     accepted_at = serializers.DateTimeField(help_text="Original server acceptance time.")
     payload_state = serializers.ChoiceField(choices=PayloadState.choices, help_text="Result payload storage state.")
     payload_expires_at = serializers.DateTimeField(
-        allow_null=True, help_text="Payload retention deadline; cleanup is not yet enabled."
+        allow_null=True, help_text="Payload expires 30 days after first acceptance; deletion runs hourly."
     )
 
 
@@ -310,6 +325,9 @@ class OfflineResultCellsSerializer(serializers.Serializer):
 
 
 class OfflineItemReadSerializer(serializers.Serializer):
+    model_version = serializers.CharField(
+        allow_null=True, required=False, help_text="Model used for the item, falling back to the experiment's model."
+    )
     id = serializers.UUIDField(help_text="Stable item UUID.")
     experiment_id = serializers.UUIDField(help_text="Owning experiment UUID.")
     case_key = serializers.CharField(allow_null=True, help_text="Optional stable case identifier.")
@@ -327,7 +345,7 @@ class OfflineItemReadSerializer(serializers.Serializer):
     accepted_at = serializers.DateTimeField(help_text="Original server acceptance time.")
     payload_state = serializers.ChoiceField(choices=PayloadState.choices, help_text="Item payload storage state.")
     payload_expires_at = serializers.DateTimeField(
-        allow_null=True, help_text="Payload retention deadline; cleanup is not yet enabled."
+        allow_null=True, help_text="Payload expires 30 days after first acceptance; deletion runs hourly."
     )
     results = OfflineResultCellSerializer(
         many=True, help_text="Cells for explicitly selected scorer versions; empty when none selected."
@@ -427,12 +445,17 @@ class OfflineScorerSummarySerializer(serializers.Serializer):
 
 
 class OfflineHistoryPointSerializer(serializers.Serializer):
+    breakdown_value = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Breakdown value for this summary; null when unspecified or no breakdown is selected.",
+    )
     experiment = OfflineExperimentReadSerializer(help_text="Experiment execution and cohort context.")
     summary = OfflineScorerSummarySerializer(help_text="Complete summary for one experiment and scorer version.")
 
 
 @extend_schema_serializer(many=False)
-class OfflinePageSerializer(serializers.Serializer):
+class OfflinePageSerializer(PageLinksSerializer):
     count = serializers.IntegerField(help_text="Total authorized rows matching the filters, independent of this page.")
     next_cursor = serializers.CharField(allow_null=True, help_text="Continuation cursor, or null after the final page.")
 

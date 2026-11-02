@@ -261,6 +261,7 @@ The `daily_campaign_report` table backfills the last 90 days by default. Set a d
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Daily report start date (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -278,6 +279,7 @@ The `daily_campaign_report` table backfills the last 90 days by default. Set a d
                     ),
                     SourceFieldInputConfig(
                         name="flow_teams",
+                        sync_setting=True,
                         label="Flow team names (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

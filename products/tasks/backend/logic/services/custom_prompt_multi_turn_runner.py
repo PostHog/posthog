@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 import asyncio
 import logging
@@ -90,6 +91,7 @@ class MultiTurnSession:
         output_fn: OutputFn = None,
         origin_product: Task.OriginProduct | None = None,
         signal_report_id: str | None = None,
+        spend_signal_id: str | None = None,
         ai_stage: str | None = None,
         ai_agent_name: str | None = None,
         internal: bool = False,
@@ -138,6 +140,7 @@ class MultiTurnSession:
             output_fn=output_fn,
             origin_product=origin_product,
             signal_report_id=signal_report_id,
+            spend_signal_id=spend_signal_id,
             ai_stage=ai_stage,
             ai_agent_name=ai_agent_name,
             internal=internal,
@@ -219,6 +222,7 @@ class MultiTurnSession:
         output_fn: OutputFn = None,
         origin_product: Task.OriginProduct | None = None,
         signal_report_id: str | None = None,
+        spend_signal_id: str | None = None,
         ai_stage: str | None = None,
         ai_agent_name: str | None = None,
         internal: bool = False,
@@ -267,6 +271,7 @@ class MultiTurnSession:
             step_name=step_name,
             origin_product=origin_product,
             signal_report_id=signal_report_id,
+            spend_signal_id=spend_signal_id,
             ai_stage=ai_stage,
             ai_agent_name=ai_agent_name,
             internal=internal,
@@ -344,13 +349,41 @@ class MultiTurnSession:
         *,
         label: str = "",
         validation_context: dict[str, object] | None = None,
+        json_retry_prompt: str | None = None,
+        max_json_retries: int = 1,
     ) -> _ModelT:
-        """Send a follow-up message and wait for the agent's next structured response."""
-        last_message = await self.send_followup_raw(message, label=label)
-        parsed = self._parse_and_validate(
-            last_message, model, label=label or "followup", validation_context=validation_context
-        )
-        return parsed
+        """Correct invalid structured output on the same session, within the caller's retry budget."""
+        if max_json_retries < 0:
+            raise ValueError("max_json_retries must not be negative")
+        retry_count = 0
+        turn_message = message
+        turn_label = label
+        while True:
+            last_message = await self.send_followup_raw(turn_message, label=turn_label)
+            try:
+                return self._parse_and_validate(
+                    last_message, model, label=turn_label or "followup", validation_context=validation_context
+                )
+            except ValueError as error:
+                if json_retry_prompt is None or retry_count >= max_json_retries:
+                    raise
+                retry_count += 1
+                logger.warning(
+                    "multi_turn: followup did not validate against %s for run=%s label=%s, "
+                    "asking for corrected JSON (retry %d/%d, %s)",
+                    model.__name__,
+                    self.task_run.id,
+                    label,
+                    retry_count,
+                    max_json_retries,
+                    type(error).__name__,
+                )
+                turn_message = json_retry_prompt
+                if isinstance(error, ValidationError):
+                    turn_message += "\n\nCorrect these validation errors in your previous output:\n" + json.dumps(
+                        error.errors(include_input=False, include_context=False, include_url=False)
+                    )
+                turn_label = f"{label or 'followup'} json retry {retry_count}"
 
     async def send_followup_raw(
         self,

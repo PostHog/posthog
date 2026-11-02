@@ -117,6 +117,11 @@
         min-height: 0.875rem !important;
         padding: 0.0625rem !important;
         margin-left: 0.1875rem;
+
+        .LemonButton__chrome {
+            min-height: 0;
+            padding: 0;
+        }
     }
 
     // Close on click behavior

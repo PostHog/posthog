@@ -1,5 +1,6 @@
 import { InsertMenuSelectionDirection, TableCellPosition } from './editorTypes'
 import { NotebookTableBlockNode, NotebookTableCell } from './types'
+import { getInlineText } from './utils'
 
 export function getTableCellRefKey(nodeId: string, position: TableCellPosition): string {
     return `${nodeId}:${position.section}:${String(position.rowIndex)}:${String(position.columnIndex)}`
@@ -15,6 +16,10 @@ export function normalizeTableRow(row: NotebookTableCell[], columnCount: number)
 
 export function makeEmptyTableRow(columnCount: number): NotebookTableCell[] {
     return Array.from({ length: columnCount }, () => ({ children: [] }))
+}
+
+export function isTableEmpty(node: NotebookTableBlockNode): boolean {
+    return [node.headers, ...node.rows].every((row) => row.every((cell) => !getInlineText(cell.children).length))
 }
 
 export function getTableCellPositions(node: NotebookTableBlockNode): TableCellPosition[] {

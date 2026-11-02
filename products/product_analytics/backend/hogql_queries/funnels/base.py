@@ -182,35 +182,20 @@ class FunnelBase(ABC):
         people: Optional[list[uuid.UUID]] = None,
         sampling_factor: Optional[float] = None,
     ) -> dict[str, Any]:
-        if isinstance(step, EventsNode):
-            step_type = "events"
-        elif isinstance(step, ActionsNode):
-            step_type = "actions"
-        elif isinstance(step, FunnelsDataWarehouseNode):
-            step_type = "data_warehouse"
-        elif isinstance(step, GroupNode):
-            step_type = "group"
-        else:
-            raise TypeError(f"Unsupported step type {type(step)}")
-
         if self.context.funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
             return {
-                "action_id": None,
                 "name": f"Completed {index + 1} step{'s' if index != 0 else ''}",
                 "custom_name": None,
                 "order": index,
                 "people": people if people else [],
                 "count": correct_result_for_sampling(count, sampling_factor),
-                "type": step_type,
             }
 
-        action_id: Optional[str | int]
+        name: Optional[str]
         if isinstance(step, EventsNode):
             name = step.event
-            action_id = step.event
         elif isinstance(step, FunnelsDataWarehouseNode):
             name = step.table_name
-            action_id = None
         elif isinstance(step, GroupNode):
             action_ids = [int(node.id) for node in step.nodes if isinstance(node, ActionsNode)]
             actions_by_id = {}
@@ -225,20 +210,18 @@ class FunnelBase(ABC):
                 elif isinstance(node, ActionsNode):
                     events.append(actions_by_id.get(int(node.id), "Unnamed action"))
             name = ", ".join(events)
-            action_id = name
-        else:
+        elif isinstance(step, ActionsNode):
             action = Action.objects.get(pk=step.id, team__project_id=self.context.team.project_id)
             name = action.name
-            action_id = step.id
+        else:
+            raise TypeError(f"Unsupported step type {type(step)}")
 
         return {
-            "action_id": action_id,
             "name": name,
             "custom_name": step.custom_name,
             "order": index,
             "people": people if people else [],
             "count": correct_result_for_sampling(count, sampling_factor),
-            "type": step_type,
         }
 
     @property

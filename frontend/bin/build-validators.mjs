@@ -4,7 +4,12 @@ import standaloneCode from 'ajv/dist/standalone/index.js'
 import fs from 'fs'
 
 const inputPath = 'src/queries/schema.json'
-const outputPath = 'src/queries/validators.js'
+// esbuild ships a module whole into one chunk. The web analytics scene parses its URL filters with two
+// small validators, so they live in their own module, apart from the large ones other scenes use.
+const outputs = {
+    'src/queries/validators.js': ['AnyPropertyFilter', 'SessionPropertyFilter', 'ExperimentMetric'],
+    'src/queries/web-analytics-validators.js': ['WebAnalyticsPropertyFilters', 'CompareFilter'],
+}
 
 // Load the schema
 const schema = JSON.parse(fs.readFileSync(inputPath, 'utf-8'))
@@ -23,27 +28,19 @@ const ajv = new Ajv({
 // Add the main schema
 ajv.addSchema(schema)
 
-// Define the validators we need
-const validators = [
-    'AnyPropertyFilter',
-    'WebAnalyticsPropertyFilters',
-    'SessionPropertyFilter',
-    'CompareFilter',
-    'ExperimentMetric',
-]
+for (const [outputPath, validators] of Object.entries(outputs)) {
+    // standaloneCode needs the schema references, not the compiled functions
+    const schemaRefs = {}
+    for (const name of validators) {
+        schemaRefs[name] = `#/definitions/${name}`
+    }
 
-// Compile validators - standaloneCode needs the schema references, not the compiled functions
-const schemaRefs = {}
-for (const name of validators) {
-    schemaRefs[name] = `#/definitions/${name}`
-}
+    const moduleCode = standaloneCode(ajv, schemaRefs)
 
-// Generate standalone code
-const moduleCode = standaloneCode(ajv, schemaRefs)
-
-// Write the output
-const output = `// AUTO-GENERATED FILE - DO NOT EDIT DIRECTLY
+    fs.writeFileSync(
+        outputPath,
+        `// AUTO-GENERATED FILE - DO NOT EDIT DIRECTLY
 ${moduleCode}
 `
-
-fs.writeFileSync(outputPath, output)
+    )
+}

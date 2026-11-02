@@ -34,16 +34,27 @@ const SINGLETON_PACKAGES = [
     '@testing-library/dom',
 ]
 
-const createStoriesPathFor = (storyPath: string): string => `../../../${storyPath}/**/*.stories.@(js|jsx|ts|tsx)`
+const STORY_FILE = /\.stories\.(js|jsx|ts|tsx)$/
+
+const createStoriesPathFor = (storyPath: string): string =>
+    STORY_FILE.test(storyPath) ? `../../../${storyPath}` : `../../../${storyPath}/**/*.stories.@(js|jsx|ts|tsx)`
+
+const DEFAULT_STORY_ROOTS = [
+    'frontend/src',
+    'products/**/frontend',
+    'products/**/mcp/apps',
+    'services/mcp/src/ui-apps',
+    'packages/quill/packages/charts/src',
+]
+
+// Comma-separated directories or story files, relative to the repo root.
+const storyRootsOverride = (process.env.STORYBOOK_STORIES ?? '')
+    .split(',')
+    .map((storyRoot) => storyRoot.trim().replace(/\/+$/, ''))
+    .filter(Boolean)
 
 const config: StorybookConfig = {
-    stories: [
-        createStoriesPathFor('frontend/src'),
-        createStoriesPathFor('products/**/frontend'),
-        createStoriesPathFor('products/**/mcp/apps'),
-        createStoriesPathFor('services/mcp/src/ui-apps'),
-        createStoriesPathFor('packages/quill/packages/charts/src'),
-    ],
+    stories: (storyRootsOverride.length > 0 ? storyRootsOverride : DEFAULT_STORY_ROOTS).map(createStoriesPathFor),
 
     addons: ['@storybook/addon-docs', '@storybook/addon-links', '@storybook/addon-a11y'],
 

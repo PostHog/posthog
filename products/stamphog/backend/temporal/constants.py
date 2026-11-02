@@ -38,10 +38,6 @@ STAMPHOG_BOT_EYES_MAX_AGE_SECONDS = 45 * 60
 STAMPHOG_BOT_REVIEW_POLL_SECONDS = 30
 STAMPHOG_BOT_REVIEW_MAX_POLLS = 10  # ~300s budget at 30s per poll, matching the engine's wait budget
 
-# The GitHub label Stamphog adds to hand a refused/escalated PR to ReviewHog. ReviewHog's `labeled`
-# webhook consumer starts a review for it (stamphog[bot] is the one bot it accepts as a labeler).
-# Kept here so the activity references the same scalar ReviewHog gates on.
-STAMPHOG_REVIEWHOG_LABEL = "posthog-review"
 # The owners-yaml resolver package, expected by the engine as a sibling of its own dir
 # (gates.py resolves `../owners` for the hogli-resolver ownership format). This stays a sibling of
 # the engine dir although the monorepo source moved to packages/owners-yaml, because downstream repos

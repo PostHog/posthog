@@ -86,14 +86,13 @@ class _StubReporter:
 
 class _StubEngine:
     name: ClassVar[str] = "stub"
-    supports_public_experiments: ClassVar[bool] = False
 
     def __init__(self, result: ExperimentResult) -> None:
         self.result = result
         self.calls: list[ExperimentSpec] = []
 
     @classmethod
-    def required_env(cls, *, no_send_logs: bool = False) -> tuple[EnvVarSpec, ...]:
+    def required_env(cls) -> tuple[EnvVarSpec, ...]:
         return ()
 
     async def run_experiment(self, spec: ExperimentSpec) -> ExperimentResult:
@@ -133,8 +132,6 @@ def _build_run(
         cases=[BaseEvalCase(name=case_name, prompt="the prompt"), BaseEvalCase(name="c2", prompt="other")],
         scorers=[],
         ctx=ctx,
-        is_public=False,
-        no_send_logs=True,
         task_fn=task_fn,
     )
 
@@ -238,10 +235,7 @@ def test_case_filter_narrows_eval_cases(tmp_path: Path, monkeypatch: pytest.Monk
 
 
 @pytest.mark.parametrize("opt_out_capture", ["", "1"])
-@pytest.mark.parametrize("no_send_logs", [False, True])
-def test_run_routes_through_the_engine(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, opt_out_capture: str, no_send_logs: bool
-) -> None:
+def test_run_routes_through_the_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, opt_out_capture: str) -> None:
     async def task(case: BaseEvalCase, ctx: EvalContext) -> dict[str, Any]:
         raise AssertionError("the engine is stubbed, so the task must not run")
 
@@ -292,8 +286,6 @@ def test_run_routes_through_the_engine(
             runs = [_build_run(tmp_path, monkeypatch, ctx, task) for _ in range(2)]
             for run in runs:
                 run.engine = engine
-                run.no_send_logs = no_send_logs
-                run.is_public = not no_send_logs
                 run.agent_trace_id_lookup["c1"] = "trace-1"
                 run.case_trace_meta["c1"] = {"prompt": "the prompt", "duration": 1.0, "first_timestamp": ""}
                 asyncio.run(run_suite(run))
@@ -317,7 +309,6 @@ def test_run_routes_through_the_engine(
             "git_sha": "abc123",
             "git_dirty": False,
         }
-        assert experiment.no_send_logs == no_send_logs
     assert reporter.started == [("one-shot-test", 2)] * 2
     assert reporter.summaries == [("one-shot-test", canned.summary, 0)] * 2
 

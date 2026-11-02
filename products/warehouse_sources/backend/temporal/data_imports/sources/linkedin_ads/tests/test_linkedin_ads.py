@@ -11,7 +11,8 @@ from django.db import OperationalError
 import pyarrow as pa
 from parameterized import parameterized
 
-from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
+from posthog.integrations import IntegrationNotFound
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     evolve_pyarrow_schema,
@@ -22,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     LinkedinAdsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client import (
+    LinkedinAdsClient,
     LinkedinAdsDailyRateLimitError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.linkedin_ads import (
@@ -493,7 +495,9 @@ class TestFlattenLinkedinRecord:
         assert result["created_time"] is None
 
 
-@mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.linkedin_ads.Integration")
+@mock.patch(
+    "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.linkedin_ads.IntegrationManager"
+)
 class TestLinkedinAdsClientFunction:
     """Test linkedin_ads_client function."""
 
@@ -501,7 +505,7 @@ class TestLinkedinAdsClientFunction:
         mock_integration = mock.MagicMock()
         mock_integration.access_token = None
         mock_integration.sensitive_config = {}  # no refresh token → not expired, skips refresh
-        mock_integration_model.objects.get.return_value = mock_integration
+        mock_integration_model.linkedin_ads.oauth.get.return_value = mock_integration
 
         config = LinkedinAdsSourceConfig(linkedin_ads_integration_id=123, account_id="456")
 
@@ -525,20 +529,18 @@ class TestLinkedinAdsClientFunction:
         mock_integration.sensitive_config = {}  # no refresh token → not expired, skips refresh
 
         def fake_get(*args, **kwargs):
-            calls.append("Integration.objects.get")
+            calls.append("IntegrationManager.get")
             return mock_integration
 
-        mock_integration_model.objects.get.side_effect = fake_get
+        mock_integration_model.linkedin_ads.oauth.get.side_effect = fake_get
 
         config = LinkedinAdsSourceConfig(linkedin_ads_integration_id=123, account_id="456")
         linkedin_ads_client(config, team_id=789)
 
-        assert calls == ["close_old_connections", "Integration.objects.get"]
+        assert calls == ["close_old_connections", "IntegrationManager.get"]
 
 
-_INTEGRATION_GET_PATH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.linkedin_ads.Integration.objects.get"
-)
+_INTEGRATION_GET_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.linkedin_ads.IntegrationManager.linkedin_ads.oauth.get"
 _CLOSE_CONNECTIONS_PATH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.linkedin_ads.close_old_connections"
 )
@@ -601,10 +603,10 @@ class TestGetIntegrationDbResilience:
         assert sleep.call_args_list == [mock.call(2), mock.call(4), mock.call(6)]
 
     def test_missing_integration_is_not_retried(self):
-        get = mock.Mock(side_effect=Integration.DoesNotExist())
+        get = mock.Mock(side_effect=IntegrationNotFound("SDK text"))
 
         with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH), mock.patch(_SLEEP_PATH):
-            with pytest.raises(Integration.DoesNotExist):
+            with pytest.raises(IntegrationNotFound, match="^Integration not found: 1$"):
                 _get_integration(integration_id=1, team_id=2)
 
         # A deleted integration row is non-retryable — don't mask it as a transient drop.
@@ -614,7 +616,9 @@ class TestGetIntegrationDbResilience:
 @mock.patch(
     "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.linkedin_ads.OauthIntegration"
 )
-@mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.linkedin_ads.Integration")
+@mock.patch(
+    "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.linkedin_ads.IntegrationManager"
+)
 class TestLinkedinAdsClientTokenRefresh:
     """Token refresh behaviour of linkedin_ads_client."""
 
@@ -630,7 +634,7 @@ class TestLinkedinAdsClientTokenRefresh:
         integration = mock.MagicMock()
         integration.access_token = "refreshed-token"
         integration.errors = ""
-        mock_integration_model.objects.get.return_value = integration
+        mock_integration_model.linkedin_ads.oauth.get.return_value = integration
 
         oauth = mock_oauth_cls.return_value
         oauth.access_token_expired.return_value = token_expired
@@ -647,7 +651,7 @@ class TestLinkedinAdsClientTokenRefresh:
         integration = mock.MagicMock()
         integration.access_token = "stale-token"
         integration.errors = ERROR_TOKEN_REFRESH_FAILED
-        mock_integration_model.objects.get.return_value = integration
+        mock_integration_model.linkedin_ads.oauth.get.return_value = integration
 
         oauth = mock_oauth_cls.return_value
         oauth.access_token_expired.return_value = True
@@ -1177,3 +1181,138 @@ class TestConversionsFlattening:
         assert flattened is not None
         assert flattened["value_amount"] is None
         assert flattened["value_currency_code"] is None
+
+
+class TestCreativeDestinationColumns:
+    @pytest.mark.parametrize(
+        "record, expected",
+        [
+            pytest.param(
+                {
+                    "content": {"reference": "urn:li:share:6778045555198214144"},
+                    "metadata": {"landingPage": "https://example.com/offer?utm_source=linkedin&utm_content=c1"},
+                },
+                ("urn:li:share:6778045555198214144", "https://example.com/offer?utm_source=linkedin&utm_content=c1"),
+                id="sponsored_post_with_looked_up_landing_page",
+            ),
+            pytest.param(
+                {"content": {"standardUpdateAd": {"reference": "urn:li:ugcPost:6856810298419044352"}}},
+                ("urn:li:ugcPost:6856810298419044352", None),
+                id="reference_inside_a_format_member",
+            ),
+            pytest.param(
+                {
+                    "content": {"textAd": {"headline": "Try it", "landingPage": "https://example.com/?utm_id=7"}},
+                    "metadata": {"landingPage": "https://example.com/ignored"},
+                },
+                (None, "https://example.com/?utm_id=7"),
+                id="text_ad_without_a_reference",
+            ),
+            pytest.param(
+                {"content": {"reference": "urn:li:adInMailContent:1234"}, "metadata": {"landingPage": ""}},
+                ("urn:li:adInMailContent:1234", None),
+                id="inmail_reference_is_not_a_post",
+            ),
+            pytest.param({"content": None, "metadata": {"landingPage": None}}, (None, None), id="no_content"),
+        ],
+    )
+    def test_creative_row_hoists_post_and_landing_page(self, record: dict, expected: tuple):
+        flattened = _flatten_linkedin_record({"id": "urn:li:sponsoredCreative:1", **record}, get_schemas()["creatives"])
+
+        assert flattened is not None
+        reference, landing_page = expected
+        assert flattened["content_reference"] == reference
+        assert flattened["landing_page_url"] == landing_page
+        is_post = reference is not None and reference.startswith(("urn:li:share:", "urn:li:ugcPost:"))
+        assert flattened["post_url"] == (f"https://www.linkedin.com/feed/update/{reference}/" if is_post else None)
+        assert "metadata" not in flattened
+
+
+@mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
+@mock.patch(
+    "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.linkedin_ads.linkedin_ads_client"
+)
+class TestCreativeLandingPageLookup:
+    _CREATIVES = [
+        {"id": "urn:li:sponsoredCreative:1", "intendedStatus": "ACTIVE", "content": {"reference": "urn:li:share:11"}},
+        {
+            "id": "urn:li:sponsoredCreative:2",
+            "intendedStatus": "ACTIVE",
+            "content": {"textAd": {"landingPage": "https://example.com/text?utm_source=li"}},
+        },
+        {"id": "urn:li:sponsoredCreative:3", "intendedStatus": "DRAFT", "content": {"reference": "urn:li:ugcPost:33"}},
+        {
+            "id": "urn:li:sponsoredCreative:4",
+            "intendedStatus": "ARCHIVED",
+            "content": {"reference": "urn:li:ugcPost:44"},
+        },
+    ]
+
+    @staticmethod
+    def _get_creative(**kwargs: typing.Any) -> mock.MagicMock:
+        creative_urn = kwargs["path_keys"]["creative_urn"]
+        if creative_urn == "urn:li:sponsoredCreative:1":
+            return mock.MagicMock(
+                status_code=200, entity={"metadata": {"landingPage": "https://example.com/post?utm_content=1"}}
+            )
+        not_found = mock.MagicMock(status_code=404)
+        not_found.response.text = '{"status":404,"code":"RESOURCE_NOT_FOUND","message":"Creative not found"}'
+        return not_found
+
+    @pytest.mark.parametrize(
+        "api_version, expected_lookups, expected_landing_pages",
+        [
+            pytest.param(
+                "202610",
+                ["urn:li:sponsoredCreative:1", "urn:li:sponsoredCreative:4"],
+                {
+                    1: "https://example.com/post?utm_content=1",
+                    2: "https://example.com/text?utm_source=li",
+                    3: None,
+                    4: None,
+                },
+                id="metadata_supported",
+            ),
+            pytest.param(
+                "202609",
+                [],
+                {1: None, 2: "https://example.com/text?utm_source=li", 3: None, 4: None},
+                id="metadata_not_in_this_version",
+            ),
+        ],
+    )
+    def test_landing_pages_are_looked_up_only_where_needed(
+        self,
+        mock_client_func,
+        mock_restli_client,
+        api_version: str,
+        expected_lookups: list[str],
+        expected_landing_pages: dict[int, str | None],
+    ):
+        finder_response = mock.MagicMock(status_code=200, elements=[dict(c) for c in self._CREATIVES])
+        finder_response.response.text = '{"metadata": {}}'
+        mock_restli_client.return_value.finder.return_value = finder_response
+        mock_restli_client.return_value.get.side_effect = self._get_creative
+        mock_client_func.return_value = LinkedinAdsClient("token", api_version=api_version)
+        manager = _make_resume_manager()
+
+        result = linkedin_ads_source(
+            config=LinkedinAdsSourceConfig(linkedin_ads_integration_id=123, account_id="456"),
+            resource_name="creatives",
+            team_id=789,
+            resumable_source_manager=manager,
+            logger=mock.MagicMock(),
+        )
+        items = result.items()
+        assert isinstance(items, Iterable)
+        rows = [row for table in items for row in table.to_pylist()]
+
+        get_calls = mock_restli_client.return_value.get.call_args_list
+        assert [call.kwargs["path_keys"]["creative_urn"] for call in get_calls] == expected_lookups
+        for call in get_calls:
+            assert call.kwargs["path_keys"]["account_id"] == "456"
+            assert call.kwargs["query_params"] == {"fields": "metadata"}
+            assert call.kwargs["version_string"] == api_version
+        # Each lookup is preceded by a safe point, so a long page of lookups can still hand off.
+        assert manager.safe_point.call_count == len(expected_lookups)
+        assert {row["id"]: row["landing_page_url"] for row in rows} == expected_landing_pages

@@ -18,7 +18,9 @@ use tokio::sync::Notify;
 use tokio::task::JoinError;
 use tracing::{debug, info, warn};
 
-use crate::filters::loader::{build_catalog_from_rows, load_realtime_cohorts, CohortRow};
+use crate::filters::loader::{
+    build_catalog_from_rows, load_realtime_cohorts, load_realtime_cohorts_for_teams, CohortRow,
+};
 use crate::filters::FilterError;
 use crate::filters::{FilterCatalog, Generation};
 use crate::observability::metrics::{
@@ -202,14 +204,17 @@ impl CatalogHandle {
         self.loaded_notify.notify_waiters();
     }
 
-    /// Query `posthog_cohort`, drop out-of-scope teams, rebuild the catalog, and swap it in.
+    /// Query `posthog_cohort` for the allowlisted teams, rebuild the catalog, and swap it in.
     ///
     /// The staleness metrics are stamped here rather than in [`run_refresh_loop`] so the boot load
     /// in `main` counts too — otherwise a pod that booted fine and then lost its refresh loop would
     /// look identical to one that never loaded.
     #[hotpath::measure(impl_type = "CatalogHandle")]
     pub async fn refresh(&self, pool: &PgPool) -> Result<CatalogStats, CatalogRefreshError> {
-        match self.refresh_from(|| load_realtime_cohorts(pool)).await {
+        match self
+            .refresh_from(|| load_allowlisted(pool, &self.allowlist))
+            .await
+        {
             Ok(stats) => {
                 gauge!(FILTER_CATALOG_LAST_SUCCESS_TIMESTAMP_SECONDS).set(now_unix_seconds());
                 counter!(FILTER_CATALOG_REFRESH_TOTAL, "result" => "success").increment(1);
@@ -277,7 +282,20 @@ fn now_unix_seconds() -> f64 {
         .unwrap_or(0.0)
 }
 
-/// Drop rows outside the configured team scope before catalog construction.
+async fn load_allowlisted(
+    pool: &PgPool,
+    allowlist: &TeamAllowlist,
+) -> Result<Vec<CohortRow>, FilterError> {
+    match allowlist {
+        TeamAllowlist::All => load_realtime_cohorts(pool).await,
+        TeamAllowlist::Only(team_ids) => {
+            let team_ids: Vec<i32> = team_ids.iter().copied().collect();
+            load_realtime_cohorts_for_teams(pool, &team_ids).await
+        }
+    }
+}
+
+/// Backstop for the load query's team filter.
 fn retain_allowlisted(rows: &mut Vec<CohortRow>, allowlist: &TeamAllowlist) {
     rows.retain(|row| allowlist.includes(row.team_id));
 }
@@ -354,7 +372,7 @@ fn next_interval(interval: Duration, jitter: Duration) -> Duration {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
+    use std::collections::{BTreeSet, HashSet};
 
     use super::*;
     use chrono_tz::UTC;
@@ -633,5 +651,27 @@ mod tests {
 
         assert!(handle.is_loaded());
         assert_eq!(handle.load().team_count(), stats.teams);
+
+        // Bypass `retain_allowlisted`, which would hide a missing SQL filter.
+        let keys = |rows: &[CohortRow]| -> BTreeSet<(i32, i32)> {
+            rows.iter().map(|row| (row.team_id, row.id)).collect()
+        };
+        let unscoped = load_allowlisted(&pool, &TeamAllowlist::All)
+            .await
+            .expect("unscoped load against live posthog_cohort");
+        if let Some(team_id) = unscoped.first().map(|row| row.team_id) {
+            let scoped = load_allowlisted(&pool, &TeamAllowlist::Only(HashSet::from([team_id])))
+                .await
+                .expect("team-scoped load against live posthog_cohort");
+            let expected: BTreeSet<_> = keys(&unscoped)
+                .into_iter()
+                .filter(|(team, _)| *team == team_id)
+                .collect();
+            assert_eq!(keys(&scoped), expected);
+        }
+        let none = load_allowlisted(&pool, &TeamAllowlist::Only(HashSet::new()))
+            .await
+            .expect("empty-scope load against live posthog_cohort");
+        assert!(none.is_empty());
     }
 }

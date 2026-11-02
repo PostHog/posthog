@@ -6,7 +6,7 @@ import { IconCollapse, IconExpand } from '@posthog/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 
-import { getColumnWidthCap, getStickyColumnInfo } from './columnLayoutUtils'
+import { getColumnWidthCap, getStickyColumnInfo, virtualColumnIndex, VirtualColumnWindow } from './columnLayoutUtils'
 import { ExpandableConfig, LemonTableColumn, LemonTableColumnGroup, TableCellRepresentation } from './types'
 
 export interface TableRowProps<T extends Record<string, any>> {
@@ -17,7 +17,7 @@ export interface TableRowProps<T extends Record<string, any>> {
     rowRibbonColorDetermined: string | null | undefined
     rowStatusDetermined: 'highlighted' | 'highlight-new' | null | undefined
     columnGroups: LemonTableColumnGroup<T>[]
-    columnWindow?: { startIndex: number; paddingLeft: number; paddingRight: number }
+    columnWindow?: VirtualColumnWindow
     onRow: ((record: T, index: number) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>) | undefined
     expandable: ExpandableConfig<T> | undefined
     firstColumnSticky: boolean | undefined
@@ -111,7 +111,9 @@ function TableRowRaw<T extends Record<string, any>>({
                         )}
                     </td>
                 )}
-                {!!columnWindow?.paddingLeft && <td aria-hidden style={{ padding: 0, border: 0 }} />}
+                {!!columnWindow?.paddingLeft && !firstColumnSticky && (
+                    <td aria-hidden style={{ padding: 0, border: 0 }} />
+                )}
                 {columnGroups.flatMap((columnGroup, columnGroupIndex) =>
                     columnGroup.children
                         .filter((column) => !column.isHidden)
@@ -166,34 +168,40 @@ function TableRowRaw<T extends Record<string, any>>({
                             const spansColumns = extraCellProps.colSpan !== undefined && extraCellProps.colSpan !== 1
                             const widthCap = spansColumns ? undefined : getColumnWidthCap(column)
                             return (
-                                <td
-                                    key={`col-${columnGroupIndex}-${columnKeyOrIndex}`}
-                                    aria-colindex={columnWindow ? columnWindow.startIndex + columnIndex + 1 : undefined}
-                                    className={clsx(
-                                        columnIndex === 0 && 'LemonTable__boundary',
-                                        // Hold the value on one line, because a capped cell that wraps grows the row
-                                        // taller instead of cropping
-                                        widthCap && 'whitespace-nowrap',
-                                        isSticky && 'LemonTable__cell--sticky',
-                                        isColumnSticky && 'LemonTable__cell--pinned',
-                                        column.align && `text-${column.align}`,
-                                        typeof column.className === 'function'
-                                            ? column.className(value as T[keyof T], record, recordIndex)
-                                            : column.className
+                                <React.Fragment key={`col-${columnGroupIndex}-${columnKeyOrIndex}`}>
+                                    <td
+                                        aria-colindex={
+                                            columnWindow ? virtualColumnIndex(columnIndex, columnWindow) + 1 : undefined
+                                        }
+                                        className={clsx(
+                                            columnIndex === 0 && 'LemonTable__boundary',
+                                            // Hold the value on one line, because a capped cell that wraps grows the row
+                                            // taller instead of cropping
+                                            widthCap && 'whitespace-nowrap',
+                                            isSticky && 'LemonTable__cell--sticky',
+                                            isColumnSticky && 'LemonTable__cell--pinned',
+                                            column.align && `text-${column.align}`,
+                                            typeof column.className === 'function'
+                                                ? column.className(value as T[keyof T], record, recordIndex)
+                                                : column.className
+                                        )}
+                                        // eslint-disable-next-line react/forbid-dom-props
+                                        style={{
+                                            ...(typeof column.style === 'function'
+                                                ? column.style(value as T[keyof T], record, recordIndex)
+                                                : column.style),
+                                            ...(widthCap ? { maxWidth: widthCap } : {}),
+                                            ...(isColumnSticky ? { left: `${leftPosition}px` } : {}),
+                                        }}
+                                        onContextMenu={onCellContextMenuChained}
+                                        {...restCellProps}
+                                    >
+                                        {isTableCellRepresentation(contents) ? contents.children : contents}
+                                    </td>
+                                    {columnIndex === 0 && firstColumnSticky && !!columnWindow?.paddingLeft && (
+                                        <td aria-hidden style={{ padding: 0, border: 0 }} />
                                     )}
-                                    // eslint-disable-next-line react/forbid-dom-props
-                                    style={{
-                                        ...(typeof column.style === 'function'
-                                            ? column.style(value as T[keyof T], record, recordIndex)
-                                            : column.style),
-                                        ...(widthCap ? { maxWidth: widthCap } : {}),
-                                        ...(isColumnSticky ? { left: `${leftPosition}px` } : {}),
-                                    }}
-                                    onContextMenu={onCellContextMenuChained}
-                                    {...restCellProps}
-                                >
-                                    {isTableCellRepresentation(contents) ? contents.children : contents}
-                                </td>
+                                </React.Fragment>
                             )
                         })
                 )}

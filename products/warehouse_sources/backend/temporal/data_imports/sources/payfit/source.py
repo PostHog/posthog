@@ -1,3 +1,4 @@
+import datetime
 from typing import Optional, cast
 
 from products.warehouse_sources.backend.facade.codebase_detection import detect
@@ -23,7 +24,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.payfit.pay
     payfit_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.payfit.settings import ENDPOINTS, PAYFIT_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.payfit.settings import (
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    MONTHLY_HISTORY_LOOKBACK,
+    PAYFIT_ENDPOINTS,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -47,7 +53,7 @@ class PayFitSource(ResumableSource[PayFitSourceConfig, PayFitResumeConfig]):
             releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your PayFit API key to pull your HR and payroll data into the PostHog Data warehouse.
 
-You can create an API key from the **API access** tab on the [integrations page](https://app.payfit.com/integrations/hub/api) of your PayFit admin account. Grant it the `collaborators:read`, `contracts:read`, `time:read`, and `contracts:payslips:read` scopes so every table can sync.
+You can create an API key from the **API access** tab on the [integrations page](https://app.payfit.com/integrations/hub/api) of your PayFit admin account. Grant it the `collaborators:read`, `contracts:read`, `time:read`, `contracts:payslips:read`, and `accounting:read` scopes so every table can sync. The `accounting_entries` and `contracts_worked_time` tables are only available for companies based in France.
 """,
             iconPath="/static/services/payfit.png",
             docsUrl="https://posthog.com/docs/cdp/sources/payfit",
@@ -76,7 +82,7 @@ You can create an API key from the **API access** tab on the [integrations page]
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized for url: https://partner-api.payfit.com": "Your PayFit API key is invalid or has been revoked. Create a new key under Integrations → API access in PayFit, then reconnect.",
-            "403 Client Error: Forbidden for url: https://partner-api.payfit.com": "Your PayFit API key is missing a scope this table needs. Create a key with the collaborators:read, contracts:read, time:read, and contracts:payslips:read scopes, then reconnect.",
+            "403 Client Error: Forbidden for url: https://partner-api.payfit.com": "Your PayFit API key is missing a scope this table needs. Create a key with the collaborators:read, contracts:read, time:read, contracts:payslips:read, and accounting:read scopes, then reconnect.",
             "PayFit API key is inactive or invalid": "Your PayFit API key is invalid or has been revoked. Create a new key under Integrations → API access in PayFit, then reconnect.",
         }
 
@@ -89,14 +95,12 @@ You can create an API key from the **API access** tab on the [integrations page]
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Every endpoint is full refresh only — PayFit exposes no server-side updated_after/since
-        # filter on any list endpoint, so there is no incremental cursor to advance.
         schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=False,
+                supports_incremental=endpoint in INCREMENTAL_FIELDS,
                 supports_append=False,
-                incremental_fields=[],
+                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
             )
             for endpoint in ENDPOINTS
         ]
@@ -118,6 +122,14 @@ You can create an API key from the **API access** tab on the [integrations page]
             return check_schema_access(config.api_key, schema_name)
         return validate_credentials(config.api_key)
 
+    def history_lookback_for_schema(
+        self, schema_name: str, config: PayFitSourceConfig | None = None
+    ) -> datetime.timedelta | None:
+        endpoint_config = PAYFIT_ENDPOINTS.get(schema_name)
+        if endpoint_config is not None and endpoint_config.monthly:
+            return MONTHLY_HISTORY_LOOKBACK
+        return None
+
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[PayFitResumeConfig]:
         return ResumableSourceManager[PayFitResumeConfig](inputs, PayFitResumeConfig)
 
@@ -135,4 +147,8 @@ You can create an API key from the **API access** tab on the [integrations page]
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            history_start=inputs.history_start,
+            db_incremental_field_last_value=(
+                inputs.db_incremental_field_last_value if inputs.should_use_incremental_field else None
+            ),
         )

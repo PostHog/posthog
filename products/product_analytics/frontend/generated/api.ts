@@ -21,6 +21,7 @@ import type {
     ElementsStatsRetrieveParams,
     ElementsValuesListParams,
     EventsRetentionApi,
+    EventsRetentionUpdateApi,
     InsightApi,
     InsightBulkDeleteRequestApi,
     InsightBulkDeleteResponseApi,
@@ -29,6 +30,8 @@ import type {
     InsightBulkSetTestAccountFilterResponseApi,
     InsightDataChecksApi,
     InsightDataChecksRequestApi,
+    InsightExplainApi,
+    InsightExplainRequestApi,
     InsightViewedRequestApi,
     InsightsActivityRetrieveParams,
     InsightsAllActivityRetrieveParams,
@@ -41,6 +44,7 @@ import type {
     InsightsDataChecksCreateParams,
     InsightsDataChecksRetrieveParams,
     InsightsDestroyParams,
+    InsightsExplainCreateParams,
     InsightsGenerateMetadataCreateParams,
     InsightsListParams,
     InsightsMyLastViewedRetrieveParams,
@@ -49,6 +53,7 @@ import type {
     InsightsTrendingRetrieveParams,
     InsightsUpdateParams,
     InsightsViewedCreateParams,
+    OrganizationEventsRetentionApi,
     PaginatedColumnConfigurationListApi,
     PaginatedElementListApi,
     PaginatedInsightListApi,
@@ -76,6 +81,45 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getOrganizationEventsRetentionRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/events_retention_setting/`
+}
+
+/**
+ * Returns the events retention window that every project without its own window uses, and the range an organization admin can set.
+ * @summary Get the organization's events retention window
+ */
+export const organizationEventsRetentionRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<OrganizationEventsRetentionApi> => {
+    return apiMutator<OrganizationEventsRetentionApi>(getOrganizationEventsRetentionRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getOrganizationEventsRetentionUpdateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/events_retention_setting/`
+}
+
+/**
+ * Sets how long every project without its own window keeps events. Events older than the window are deleted on the next monthly cleanup and can't be restored. Organization admins only.
+ * @summary Set the organization's events retention window
+ */
+export const organizationEventsRetentionUpdate = async (
+    organizationId: string,
+    eventsRetentionUpdateApi: EventsRetentionUpdateApi,
+    options?: RequestInit
+): Promise<OrganizationEventsRetentionApi> => {
+    return apiMutator<OrganizationEventsRetentionApi>(getOrganizationEventsRetentionUpdateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(eventsRetentionUpdateApi),
+    })
+}
 
 export const getColumnConfigurationsListUrl = (projectId: string, params?: ColumnConfigurationsListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -353,7 +397,7 @@ export const getEventsRetentionRetrieveUrl = (projectId: string) => {
 }
 
 /**
- * Returns how far back events stay queryable for this project. The window comes from the organization's plan and is read-only. Both window fields are null while no retention window applies to the project.
+ * Returns how far back events stay queryable for this project, the windows set for the project and its organization, and the range an admin can set. Both window fields are null while no retention window applies to the project.
  * @summary Get the events retention window for a project
  */
 export const eventsRetentionRetrieve = async (
@@ -363,6 +407,27 @@ export const eventsRetentionRetrieve = async (
     return apiMutator<EventsRetentionApi>(getEventsRetentionRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getEventsRetentionUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/events_retention/`
+}
+
+/**
+ * Sets how long this project keeps events, overriding the organization's window. Events older than the window are deleted on the next monthly cleanup and can't be restored. Organization admins only.
+ * @summary Set the events retention window for a project
+ */
+export const eventsRetentionUpdate = async (
+    projectId: string,
+    eventsRetentionUpdateApi: EventsRetentionUpdateApi,
+    options?: RequestInit
+): Promise<EventsRetentionApi> => {
+    return apiMutator<EventsRetentionApi>(getEventsRetentionUpdateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(eventsRetentionUpdateApi),
     })
 }
 
@@ -862,6 +927,39 @@ export const insightsDataChecksCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(insightDataChecksRequestApi),
+    })
+}
+
+export const getInsightsExplainCreateUrl = (projectId: string, params?: InsightsExplainCreateParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/insights/explain/?${stringifiedParams}`
+        : `/api/projects/${projectId}/insights/explain/`
+}
+
+/**
+ * Classify what most likely caused each moment on a chart. The caller sends chapters of facts that it computed from the chart's data, and gets back one cause from a fixed list for each chapter, with a confidence. The numbers stay with the caller: this endpoint runs no query and reads no insight. Without a decision model on the instance, the list is empty. The organization must approve AI data processing.
+ */
+export const insightsExplainCreate = async (
+    projectId: string,
+    insightExplainRequestApi: InsightExplainRequestApi,
+    params?: InsightsExplainCreateParams,
+    options?: RequestInit
+): Promise<InsightExplainApi> => {
+    return apiMutator<InsightExplainApi>(getInsightsExplainCreateUrl(projectId, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(insightExplainRequestApi),
     })
 }
 

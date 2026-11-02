@@ -19,8 +19,8 @@ use cohort_seeder::app::reconcile_dispatch::{
 };
 use cohort_seeder::app::{eligible_run_ids, fail_exhausted_runs_of_kind};
 use cohort_seeder::domain::{
-    tile_ranges, AttemptCount, ClaimEpoch, PersonRunValidation, PinnedWarning, ProduceHwms,
-    RetryBackoffPolicy, ScanVolume, ScopeKind,
+    tile_ranges, AttemptCount, ClaimCandidate, ClaimCandidates, ClaimEpoch, PersonRunValidation,
+    PinnedWarning, ProduceHwms, RetryBackoffPolicy, RunId, ScanVolume, ScopeKind, SlotLoad,
 };
 use cohort_seeder::store::chunks::{ChunkStoreError, PgChunkStore, PlanOutcome, NO_ERROR_RECORDED};
 use cohort_seeder::store::lease::LeaseFailure;
@@ -46,6 +46,18 @@ const ONE_BAND: NonZeroU16 = NonZeroU16::MIN;
 /// Fail a chunk without holding it out of the claim gate, for the scenarios that assert on
 /// something other than the backoff and want the chunk claimable on the next call.
 const NO_BACKOFF: Duration = Duration::ZERO;
+
+/// Candidates that hold no claim slot, so they claim in kind, day and band order.
+fn idle(run_ids: &[RunId]) -> ClaimCandidates {
+    let candidates = run_ids
+        .iter()
+        .map(|&run_id| ClaimCandidate {
+            run_id,
+            load: SlotLoad::default(),
+        })
+        .collect();
+    ClaimCandidates::new(candidates).expect("every scenario claims from at least one run")
+}
 
 /// Discovery honors an `Only` allowlist (self team only) and `All` admits every eligible run
 /// regardless of team, trigger, or already-seeding status.
@@ -567,7 +579,7 @@ async fn planning_fans_out_bands_and_claims_carry_the_band_count() -> Result<()>
         let attempts5 = MaxAttempts::new(5)?;
         let claimed = store
             .claim_next(
-                &[seeding_run],
+                &idle(&[seeding_run]),
                 &Claimant::new("worker-a")?,
                 lease60,
                 attempts5,
@@ -600,14 +612,14 @@ async fn concurrent_claims_take_disjoint_chunks() -> Result<()> {
 
         let lease60 = LeaseDuration::new(Duration::from_secs(60))?;
         let attempts5 = MaxAttempts::new(5)?;
-        let run_ids = [seeding_run];
+        let candidates = idle(&[seeding_run]);
         let first_store = store.clone();
         let second_store = store.clone();
         let claimant_a = Claimant::new("worker-a")?;
         let claimant_b = Claimant::new("worker-b")?;
         let (first, second) = tokio::join!(
-            first_store.claim_next(&run_ids, &claimant_a, lease60, attempts5),
-            second_store.claim_next(&run_ids, &claimant_b, lease60, attempts5),
+            first_store.claim_next(&candidates, &claimant_a, lease60, attempts5),
+            second_store.claim_next(&candidates, &claimant_b, lease60, attempts5),
         );
         let first = first?.context("first claimant found no chunk")?;
         let second = second?.context("second claimant found no chunk")?;
@@ -632,7 +644,7 @@ async fn expired_lease_reclaim_bumps_epoch_and_fences_the_stale_lease() -> Resul
         let run_ids = [seeding_run];
 
         let first = store
-            .claim_next(&run_ids, &Claimant::new("worker-a")?, lease60, attempts5)
+            .claim_next(&idle(&run_ids), &Claimant::new("worker-a")?, lease60, attempts5)
             .await?
             .context("first claimant found no chunk")?;
         let stale = first.chunk.spec().lease;
@@ -645,7 +657,7 @@ async fn expired_lease_reclaim_bumps_epoch_and_fences_the_stale_lease() -> Resul
         .await?;
 
         let reclaimed = store
-            .claim_next(&run_ids, &Claimant::new("worker-c")?, lease60, attempts5)
+            .claim_next(&idle(&run_ids), &Claimant::new("worker-c")?, lease60, attempts5)
             .await?
             .context("expired chunk was not reclaimed")?;
         let reclaimed_lease = reclaimed.chunk.spec().lease;
@@ -691,7 +703,12 @@ async fn unclaim_returns_chunk_to_pending_and_refunds_one_attempt() -> Result<()
         let run_ids = [seeding_run];
 
         let claimed = store
-            .claim_next(&run_ids, &Claimant::new("worker-a")?, lease60, attempts5)
+            .claim_next(
+                &idle(&run_ids),
+                &Claimant::new("worker-a")?,
+                lease60,
+                attempts5,
+            )
             .await?
             .context("claimant found no chunk")?;
         let lease = claimed.chunk.spec().lease;
@@ -732,7 +749,7 @@ async fn a_failed_chunk_waits_out_its_backoff_before_it_is_claimable_again() -> 
         let run_ids = [seeding_run];
 
         let claimed = store
-            .claim_next(&run_ids, &Claimant::new("worker-a")?, lease60, attempts5)
+            .claim_next(&idle(&run_ids), &Claimant::new("worker-a")?, lease60, attempts5)
             .await?
             .context("claimant found no chunk")?;
         let lease = claimed.chunk.spec().lease;
@@ -761,7 +778,7 @@ async fn a_failed_chunk_waits_out_its_backoff_before_it_is_claimable_again() -> 
             "expected a ~600s hold, got {remaining_secs}s"
         );
         ensure!(store
-            .claim_next(&run_ids, &Claimant::new("worker-b")?, lease60, attempts5)
+            .claim_next(&idle(&run_ids), &Claimant::new("worker-b")?, lease60, attempts5)
             .await?
             .is_none());
 
@@ -774,7 +791,7 @@ async fn a_failed_chunk_waits_out_its_backoff_before_it_is_claimable_again() -> 
         .execute(&pool)
         .await?;
         let retried = store
-            .claim_next(&run_ids, &Claimant::new("worker-c")?, lease60, attempts5)
+            .claim_next(&idle(&run_ids), &Claimant::new("worker-c")?, lease60, attempts5)
             .await?
             .context("chunk past its backoff was not claimable")?;
         ensure!(retried.chunk.spec().attempt.get() == 2);
@@ -829,7 +846,12 @@ async fn the_recovery_path_draws_its_wait_from_the_chunks_attempt_count() -> Res
         let mut longest_wait = Duration::ZERO;
         for day in days {
             let claimed = store
-                .claim_next(&run_ids, &Claimant::new("worker-a")?, lease60, attempts50)
+                .claim_next(
+                    &idle(&run_ids),
+                    &Claimant::new("worker-a")?,
+                    lease60,
+                    attempts50,
+                )
                 .await?
                 .context("a chunk under the cap was not claimable")?;
             let chunk = claimed.chunk;
@@ -896,7 +918,7 @@ async fn the_backoff_gate_applies_only_to_the_failed_claim_arm() -> Result<()> {
         .execute(&pool)
         .await?;
         let pending = store
-            .claim_next(&run_ids, &Claimant::new("worker-a")?, lease60, attempts5)
+            .claim_next(&idle(&run_ids), &Claimant::new("worker-a")?, lease60, attempts5)
             .await?
             .context("a pending chunk was gated by the backoff stamp")?;
         let pending_lease = pending.chunk.spec().lease;
@@ -911,7 +933,7 @@ async fn the_backoff_gate_applies_only_to_the_failed_claim_arm() -> Result<()> {
         .execute(&pool)
         .await?;
         let reclaimed = store
-            .claim_next(&run_ids, &Claimant::new("worker-b")?, lease60, attempts5)
+            .claim_next(&idle(&run_ids), &Claimant::new("worker-b")?, lease60, attempts5)
             .await?
             .context("an unclaimed chunk was gated by the backoff stamp")?;
 
@@ -929,7 +951,7 @@ async fn the_backoff_gate_applies_only_to_the_failed_claim_arm() -> Result<()> {
         .execute(&pool)
         .await?;
         let produced_reclaim = store
-            .claim_next(&run_ids, &Claimant::new("worker-c")?, lease60, attempts5)
+            .claim_next(&idle(&run_ids), &Claimant::new("worker-c")?, lease60, attempts5)
             .await?
             .context("an expired produced lease was gated by the backoff stamp")?;
 
@@ -948,7 +970,7 @@ async fn the_backoff_gate_applies_only_to_the_failed_claim_arm() -> Result<()> {
         .execute(&pool)
         .await?;
         ensure!(store
-            .claim_next(&run_ids, &Claimant::new("worker-d")?, lease60, attempts5)
+            .claim_next(&idle(&run_ids), &Claimant::new("worker-d")?, lease60, attempts5)
             .await?
             .is_some());
         Ok(())
@@ -995,13 +1017,13 @@ async fn a_trailing_day_waits_out_its_hold_and_completes_its_trailing_run() -> R
         );
 
         let historical_claim = store
-            .claim_next(&run_ids, &claimant, lease60, attempts5)
+            .claim_next(&idle(&run_ids), &claimant, lease60, attempts5)
             .await?
             .context("the historical day was not claimable")?;
         ensure!(historical_claim.chunk.spec().day == 100);
         ensure!(
             store
-                .claim_next(&run_ids, &claimant, lease60, attempts5)
+                .claim_next(&idle(&run_ids), &claimant, lease60, attempts5)
                 .await?
                 .is_none(),
             "the trailing day was claimed before its hold lapsed"
@@ -1050,7 +1072,7 @@ async fn a_trailing_day_waits_out_its_hold_and_completes_its_trailing_run() -> R
         ensure!(complete_trailing_runs(&pool, &run_ids).await? == 0);
 
         let trailing_claim = store
-            .claim_next(&run_ids, &claimant, lease60, attempts5)
+            .claim_next(&idle(&run_ids), &claimant, lease60, attempts5)
             .await?
             .context("the trailing day was not claimable after its hold lapsed")?;
         ensure!(trailing_claim.chunk.spec().day == 101);
@@ -1101,7 +1123,12 @@ async fn a_seeding_run_neither_hands_out_a_lapsed_held_chunk_nor_completes_as_tr
         .await?;
         ensure!(
             store
-                .claim_next(&run_ids, &Claimant::new("worker-a")?, lease60, attempts5)
+                .claim_next(
+                    &idle(&run_ids),
+                    &Claimant::new("worker-a")?,
+                    lease60,
+                    attempts5
+                )
                 .await?
                 .is_none(),
             "a held chunk was claimed while its run was still seeding"
@@ -1148,7 +1175,7 @@ async fn mark_produced_records_the_scan_byte_volume_that_planning_defaults_to_ze
 
         let claimed = store
             .claim_next(
-                &[seeding_run],
+                &idle(&[seeding_run]),
                 &Claimant::new("worker-a")?,
                 LeaseDuration::new(Duration::from_secs(60))?,
                 MaxAttempts::new(5)?,
@@ -1199,7 +1226,7 @@ async fn attempt_cap_is_terminal_for_failed_but_reclaims_expired_produced() -> R
             .execute(&pool)
             .await?;
         let retry = store
-            .claim_next(&run_ids, &Claimant::new("worker-d")?, lease60, attempts5)
+            .claim_next(&idle(&run_ids), &Claimant::new("worker-d")?, lease60, attempts5)
             .await?
             .context("chunk under the cap was not claimable")?;
         let retry_lease = retry.chunk.spec().lease;
@@ -1214,14 +1241,14 @@ async fn attempt_cap_is_terminal_for_failed_but_reclaims_expired_produced() -> R
             .await?;
         drop(retry);
         ensure!(store
-            .claim_next(&run_ids, &Claimant::new("worker-terminal")?, lease60, attempts5)
+            .claim_next(&idle(&run_ids), &Claimant::new("worker-terminal")?, lease60, attempts5)
             .await?
             .is_none());
 
         // A second chunk, marked produced then expired at the cap, IS reclaimed.
         ensure!(planned_count(store.plan_chunks(seeding_run, historical([101]), ONE_BAND).await?)? == 1);
         let final_attempt = store
-            .claim_next(&run_ids, &Claimant::new("worker-e")?, lease60, attempts5)
+            .claim_next(&idle(&run_ids), &Claimant::new("worker-e")?, lease60, attempts5)
             .await?
             .context("second chunk was not claimable")?;
         let final_attempt_lease = final_attempt.chunk.spec().lease;
@@ -1235,7 +1262,7 @@ async fn attempt_cap_is_terminal_for_failed_but_reclaims_expired_produced() -> R
         .await?;
 
         let observed = store
-            .claim_next(&run_ids, &Claimant::new("worker-f")?, lease60, attempts5)
+            .claim_next(&idle(&run_ids), &Claimant::new("worker-f")?, lease60, attempts5)
             .await?
             .context("expired produced chunk at the attempt cap was not reclaimed")?;
         let observed_lease = observed.chunk.spec().lease;
@@ -1271,7 +1298,7 @@ async fn expired_scanning_chunk_at_the_cap_is_reaped_not_reclaimed() -> Result<(
         let attempts5 = MaxAttempts::new(5)?;
         let run_ids = [seeding_run];
         let claimed = store
-            .claim_next(&run_ids, &Claimant::new("worker-a")?, lease60, attempts5)
+            .claim_next(&idle(&run_ids), &Claimant::new("worker-a")?, lease60, attempts5)
             .await?
             .context("claimant found no chunk")?;
         let chunk_id = claimed.chunk.spec().lease.chunk_id();
@@ -1292,7 +1319,7 @@ async fn expired_scanning_chunk_at_the_cap_is_reaped_not_reclaimed() -> Result<(
             .execute(&pool)
             .await?;
         ensure!(store
-            .claim_next(&run_ids, &Claimant::new("worker-b")?, lease60, attempts5)
+            .claim_next(&idle(&run_ids), &Claimant::new("worker-b")?, lease60, attempts5)
             .await?
             .is_none());
 
@@ -1306,7 +1333,7 @@ async fn expired_scanning_chunk_at_the_cap_is_reaped_not_reclaimed() -> Result<(
         ensure!(last_error.contains("attempt cap"));
         // Terminal: not claimable, and a second sweep is a no-op.
         ensure!(store
-            .claim_next(&run_ids, &Claimant::new("worker-c")?, lease60, attempts5)
+            .claim_next(&idle(&run_ids), &Claimant::new("worker-c")?, lease60, attempts5)
             .await?
             .is_none());
         ensure!(store.reap_poisoned_chunks(&run_ids, attempts5).await? == 0);
@@ -1478,7 +1505,7 @@ async fn exhausted_chunk_fails_the_run_and_stops_further_claims() -> Result<()> 
 
         // One chunk mid-scan with a live lease, one capped out, one left pending.
         let claimed = store
-            .claim_next(&run_ids, &claimant, lease60, attempts5)
+            .claim_next(&idle(&run_ids), &claimant, lease60, attempts5)
             .await?
             .context("claimant found no chunk")?;
         let live_lease = claimed.chunk.spec().lease;
@@ -1524,7 +1551,7 @@ async fn exhausted_chunk_fails_the_run_and_stops_further_claims() -> Result<()> 
         // The claim and heartbeat predicates both join `runs.status = 'seeding'`, so the pending
         // sibling stops being claimable and the in-flight one halts on its next beat.
         ensure!(store
-            .claim_next(&run_ids, &Claimant::new("worker-b")?, lease60, attempts5)
+            .claim_next(&idle(&run_ids), &Claimant::new("worker-b")?, lease60, attempts5)
             .await?
             .is_none());
         let still_pending: i64 = sqlx::query_scalar(
@@ -1582,7 +1609,12 @@ async fn fail_truncates_chunk_and_run_error_columns() -> Result<()> {
         let attempts5 = MaxAttempts::new(5)?;
         let run_ids = [seeding_run];
         let claimed = store
-            .claim_next(&run_ids, &Claimant::new("worker-a")?, lease60, attempts5)
+            .claim_next(
+                &idle(&run_ids),
+                &Claimant::new("worker-a")?,
+                lease60,
+                attempts5,
+            )
             .await?
             .context("claimant found no chunk")?;
         let lease = claimed.chunk.spec().lease;
@@ -1810,19 +1842,31 @@ async fn person_planning_is_all_or_nothing_and_idempotent() -> Result<()> {
     .await
 }
 
-/// The sentinel day makes person chunks claim strictly after behavioral days on the shared claim
-/// loop, and a person claim decodes its range with `num_bands` = the run's chunk count.
+/// Behavioral days claim newest first across runs with equal slot loads, and person chunks claim
+/// strictly after every behavioral day on the shared claim loop, even though their sentinel day is
+/// the newest and their run holds fewer slots. A person claim decodes its range with `num_bands` =
+/// the run's chunk count.
 #[tokio::test]
-async fn person_chunks_claim_after_behavioral_days_and_carry_ranges() -> Result<()> {
+async fn behavioral_days_claim_newest_first_then_person_chunks_with_ranges() -> Result<()> {
     with_db(|pool| async move {
         let behavioral_run =
             insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
+        // Another team, because a team holds one active team-scoped run per kind.
+        let other_team_run =
+            insert_run(&pool, 3, "team_enablement", "seeding", true, empty_pinned()).await?;
         let person_run = insert_person_run(&pool, 2, "seeding", true, person_pinned(&[])).await?;
         let store = PgChunkStore::new(pool.clone());
         ensure!(
             planned_count(
                 store
-                    .plan_chunks(behavioral_run, historical([100]), ONE_BAND)
+                    .plan_chunks(behavioral_run, historical([98, 100]), ONE_BAND)
+                    .await?
+            )? == 2
+        );
+        ensure!(
+            planned_count(
+                store
+                    .plan_chunks(other_team_run, historical([99]), ONE_BAND)
                     .await?
             )? == 1
         );
@@ -1832,42 +1876,152 @@ async fn person_chunks_claim_after_behavioral_days_and_carry_ranges() -> Result<
 
         let lease60 = LeaseDuration::new(Duration::from_secs(60))?;
         let attempts5 = MaxAttempts::new(5)?;
-        let run_ids = [behavioral_run, person_run];
+        let busy = SlotLoad { team: 1, run: 1 };
+        let candidates = ClaimCandidates::new(vec![
+            ClaimCandidate {
+                run_id: behavioral_run,
+                load: busy,
+            },
+            ClaimCandidate {
+                run_id: other_team_run,
+                load: busy,
+            },
+            ClaimCandidate {
+                run_id: person_run,
+                load: SlotLoad::default(),
+            },
+        ])
+        .context("no claim candidates")?;
         let claimant = Claimant::new("worker-a")?;
 
-        let first = store
-            .claim_next(&run_ids, &claimant, lease60, attempts5)
-            .await?
-            .context("behavioral chunk was not claimed first")?;
-        ensure!(first.chunk.spec().lease.run_id() == behavioral_run);
-        ensure!(first.chunk.spec().person_range.is_none());
+        let mut behavioral_claims = Vec::new();
+        for _ in 0..3 {
+            let claim = store
+                .claim_next(&candidates, &claimant, lease60, attempts5)
+                .await?
+                .context("behavioral chunk was not claimed before person chunks")?;
+            ensure!(claim.chunk.spec().person_range.is_none());
+            behavioral_claims.push((claim.chunk.spec().lease.run_id(), claim.chunk.spec().day));
+        }
+        ensure!(
+            behavioral_claims
+                == [
+                    (behavioral_run, 100),
+                    (other_team_run, 99),
+                    (behavioral_run, 98)
+                ],
+            "expected newest day first across runs, got {behavioral_claims:?}"
+        );
 
-        let second = store
-            .claim_next(&run_ids, &claimant, lease60, attempts5)
+        let first_person = store
+            .claim_next(&candidates, &claimant, lease60, attempts5)
             .await?
             .context("first person chunk was not claimed")?;
-        let second_spec = second.chunk.spec();
-        ensure!(second_spec.lease.run_id() == person_run);
-        ensure!(second_spec.band.band() == 0);
-        ensure!(second_spec.band.num_bands().get() == 2);
-        let second_range = second_spec
+        let first_person_spec = first_person.chunk.spec();
+        ensure!(first_person_spec.lease.run_id() == person_run);
+        ensure!(first_person_spec.band.band() == 0);
+        ensure!(first_person_spec.band.num_bands().get() == 2);
+        let first_person_range = first_person_spec
             .person_range
             .context("person claim lost its range")?;
-        ensure!(second_range.lo() == Uuid::nil());
-        ensure!(second_range.hi() == Some(boundary));
+        ensure!(first_person_range.lo() == Uuid::nil());
+        ensure!(first_person_range.hi() == Some(boundary));
 
-        let third = store
-            .claim_next(&run_ids, &claimant, lease60, attempts5)
+        let second_person = store
+            .claim_next(&candidates, &claimant, lease60, attempts5)
             .await?
             .context("second person chunk was not claimed")?;
-        let third_range = third
+        let second_person_range = second_person
             .chunk
             .spec()
             .person_range
             .context("person claim lost its range")?;
-        ensure!(third_range.lo() == boundary);
-        ensure!(third_range.hi().is_none());
-        drop((first, second, third));
+        ensure!(second_person_range.lo() == boundary);
+        ensure!(second_person_range.hi().is_none());
+        drop((first_person, second_person));
+        Ok(())
+    })
+    .await
+}
+
+/// A claim takes a lapsed trailing day first, then serves the team holding the fewest slots, then
+/// the run holding the fewest, and only then the newest day.
+#[tokio::test]
+async fn claims_serve_the_least_loaded_team_then_run_before_the_newest_day() -> Result<()> {
+    with_db(|pool| async move {
+        let heavy_run =
+            insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
+        // A team holds one active team-scoped run per kind, so the first run moves to cohort
+        // scope before the second is inserted.
+        sqlx::query(
+            "UPDATE cohort_backfill_runs SET scope = 'cohort', cohort_id = 1 WHERE id = $1",
+        )
+        .bind(heavy_run)
+        .execute(&pool)
+        .await?;
+        let sibling_run =
+            insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
+        let other_team_run =
+            insert_run(&pool, 3, "team_enablement", "seeding", true, empty_pinned()).await?;
+        let trailing_run =
+            insert_run(&pool, 4, "team_enablement", "seeding", true, empty_pinned()).await?;
+        let store = PgChunkStore::new(pool.clone());
+        for (run_id, day) in [(heavy_run, 100), (sibling_run, 98), (other_team_run, 97)] {
+            ensure!(
+                planned_count(
+                    store
+                        .plan_chunks(run_id, historical([day]), ONE_BAND)
+                        .await?
+                )? == 1
+            );
+        }
+        let lapsed = Utc::now() - chrono::Duration::hours(1);
+        ensure!(
+            planned_count(
+                store
+                    .plan_chunks(trailing_run, [trailing(96, lapsed)], ONE_BAND)
+                    .await?
+            )? == 1
+        );
+        sqlx::query("UPDATE cohort_backfill_runs SET status = 'trailing' WHERE id = $1")
+            .bind(trailing_run)
+            .execute(&pool)
+            .await?;
+
+        let lease60 = LeaseDuration::new(Duration::from_secs(60))?;
+        let attempts5 = MaxAttempts::new(5)?;
+        let claimant = Claimant::new("worker-a")?;
+        let rounds = [
+            // Team 4 holds the most slots and its trailing day is the oldest day, but the trailing
+            // day still goes first.
+            ([(2, 2), (2, 0), (1, 1), (3, 0)], (trailing_run, 96)),
+            // Team 2 holds two slots and team 3 one, so team 3 goes first, ahead of team 2's newer
+            // days and of its sibling run that holds none.
+            ([(2, 2), (2, 0), (1, 1), (4, 1)], (other_team_run, 97)),
+            // Both teams hold one slot, so inside team 2 the run holding none goes first, ahead of
+            // the heavy run's newer day.
+            ([(1, 1), (1, 0), (1, 1), (4, 1)], (sibling_run, 98)),
+        ];
+        for (loads, expected) in rounds {
+            let candidates = [heavy_run, sibling_run, other_team_run, trailing_run]
+                .into_iter()
+                .zip(loads)
+                .map(|(run_id, (team, run))| ClaimCandidate {
+                    run_id,
+                    load: SlotLoad { team, run },
+                })
+                .collect();
+            let candidates = ClaimCandidates::new(candidates).context("no claim candidates")?;
+            let claim = store
+                .claim_next(&candidates, &claimant, lease60, attempts5)
+                .await?
+                .context("no chunk was claimed")?;
+            let claimed = (claim.chunk.spec().lease.run_id(), claim.chunk.spec().day);
+            ensure!(
+                claimed == expected,
+                "expected {expected:?}, got {claimed:?}"
+            );
+        }
         Ok(())
     })
     .await
@@ -1887,7 +2041,7 @@ async fn cancelling_a_run_kills_its_live_lease_via_the_heartbeat() -> Result<()>
         let attempts5 = MaxAttempts::new(5)?;
         let run_ids = [seeding_run];
         let observed = store
-            .claim_next(&run_ids, &Claimant::new("worker-f")?, lease3, attempts5)
+            .claim_next(&idle(&run_ids), &Claimant::new("worker-f")?, lease3, attempts5)
             .await?
             .context("claimant found no chunk")?;
         let cancelled = observed.lease.cancellation_token();

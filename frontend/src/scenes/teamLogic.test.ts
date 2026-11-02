@@ -57,6 +57,37 @@ describe('teamLogic', () => {
 
             expect(logic.values.currentTeam?.name).toBe(expectedTeamName)
         })
+
+        it('sends blocklist counts, not entries, to analytics', async () => {
+            await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
+            useMocks({
+                patch: {
+                    '/api/environments/:id': async ({ request }) => [
+                        200,
+                        { ...MOCK_DEFAULT_TEAM, ...((await request.json()) as Record<string, any>) },
+                    ],
+                },
+            })
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.updateCurrentTeam({
+                        feature_flag_policy_config: {
+                            require_tags: true,
+                            blocked_hosts: ['example.com', 'example.org'],
+                            blocked_ips: ['203.0.113.7'],
+                        },
+                    })
+                }).toDispatchActions(['updateCurrentTeamSuccess'])
+
+                expect(capture).toHaveBeenCalledWith('feature_flag_policy_config team setting updated', {
+                    setting: 'feature_flag_policy_config',
+                    value: { require_tags: true, blocked_hosts_count: 2, blocked_ips_count: 1 },
+                })
+            } finally {
+                capture.mockRestore()
+            }
+        })
     })
 
     describe('when the team id differs from its project id', () => {

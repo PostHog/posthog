@@ -126,6 +126,7 @@ def snuffle_request(
     params: dict[str, list[str]] | dict[str, str] | None = None,
     data: dict[str, list[str]] | dict[str, str] | None = None,
     accept: str = "application/json",
+    timeout: float | None = None,
 ) -> requests.Response:
     """Send one request to Snuffle as `team_id` and debit the bytes it read from the query budget.
 
@@ -144,7 +145,7 @@ def snuffle_request(
         data=data,
         headers=headers,
         auth=auth,
-        timeout=settings.SNUFFLE_APM_TIMEOUT_SECONDS,
+        timeout=settings.SNUFFLE_APM_TIMEOUT_SECONDS if timeout is None else timeout,
     )
     bytes_read = _read_bytes_from(upstream)
     if bytes_read is not None:

@@ -6,6 +6,7 @@ import { Counter } from 'prom-client'
 import { TRANSPORT_MAX_BACKOFF_MS, TRANSPORT_MAX_RETRIES } from '~/common/personhog/grpc-retry'
 import {
     DistinctIdKey,
+    NOT_APPLIED_METADATA_KEY,
     SEMANTIC_REFUSAL_METADATA_KEY,
     SEMANTIC_REFUSAL_OP_ID_REUSED,
 } from '~/common/personhog/identity'
@@ -23,7 +24,7 @@ import { BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-wri
 import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt } from '~/types'
 
-import { MergeMode, PersonMergeCallFailedError } from './person-merge-types'
+import { MergeMode, PersonMergeCallFailedError, PersonMergeNotAppliedError } from './person-merge-types'
 import { EventOps, applyEventPropertyUpdates, computeOpsScalarUpdates, foldOps, refineEventOps } from './person-update'
 import { mergeOpIdFromRequest } from './person-uuid'
 import { FlushResult, MergePersonsRequest, MergePersonsResult, PersonsStore, isFoldRequest } from './persons-store'
@@ -886,6 +887,17 @@ export class PersonhogPersonsStore implements PersonsStore {
             ) {
                 personhogStoreMergeCallFailedCounter.inc({ error: 'OpIdReusedSettled' })
                 throw error
+            }
+            // Keyed on the header: a hop in between may remap the status code.
+            const notApplied = error instanceof ConnectError ? error.metadata.get(NOT_APPLIED_METADATA_KEY) : null
+            if (notApplied !== null) {
+                const reason = /^[a-z0-9_-]{1,64}$/i.test(notApplied) ? notApplied : 'unknown'
+                personhogStoreMergeCallFailedCounter.inc({ error: `not_applied_${reason}` })
+                throw new PersonMergeNotAppliedError(
+                    `personhog merge refused before it ran (${reason}): ${error.message}`,
+                    reason,
+                    error
+                )
             }
             // No verdict, so an ack could lose the merge. Only the call is
             // wrapped, so a post-verdict bug surfaces as itself.

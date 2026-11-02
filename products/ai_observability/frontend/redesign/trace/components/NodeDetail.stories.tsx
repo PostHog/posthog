@@ -11,6 +11,7 @@ import {
     FIXTURE_GENERATION_OUTPUT,
     FIXTURE_GENERATION_PROPERTIES,
     FIXTURE_SPAN_PROPERTIES,
+    FIXTURE_STEP_FEEDBACK,
     FIXTURE_TREE,
     withWidth,
 } from '../storyFixtures'
@@ -117,4 +118,8 @@ export const FailedGenerationWithImage: Story = {
         onViewInThread: () => {},
         onSelectNode: () => {},
     },
+}
+export const WithFeedback: Story = {
+    args: { ...base, stepFeedback: { feedback: FIXTURE_STEP_FEEDBACK, onOpen: () => {} } },
+    decorators: [withWidth(520)],
 }

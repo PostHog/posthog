@@ -118,6 +118,12 @@ export const UNFILED_FOLDER = 'Unfiled'
 /** The folder that holds every person's own home folder. Its contents are personal, not a team space. */
 export const USERS_FOLDER = 'Users'
 
+/** A space is a top-level folder that is not the unfiled area or someone's home folder. */
+export function isSpacePath(path: string): boolean {
+    const segments = splitPath(path)
+    return segments.length === 1 && !([UNFILED_FOLDER, USERS_FOLDER] as string[]).includes(segments[0])
+}
+
 /** The space an entry sits in: its top-level folder, or null when it is still unfiled (personal). */
 export function analyticsSpaceOfPath(path: string): string | null {
     const [top] = splitPath(path)
