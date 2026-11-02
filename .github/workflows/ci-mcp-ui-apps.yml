@@ -87,6 +87,11 @@ jobs:
                       /common/mosaic/
                       /frontend/bin/ci-report/
                       /frontend/src/generated/
+                      /frontend/src/lib/components/EmailPreviewThumbnail/
+                      /frontend/src/lib/elk.ts
+                      /frontend/src/lib/lemon-ui/LemonBadge/
+                      /frontend/src/lib/lemon-ui/icons/
+                      /frontend/src/lib/utils/
                       /frontend/src/types.ts
                       /packages/llm-normalizer/
                       /packages/quill/
@@ -94,6 +99,7 @@ jobs:
                       /products/*/mcp/
                       /products/*/frontend/generated/
                       /products/product_analytics/frontend/insights/
+                      /products/workflows/frontend/Workflows/hogflows/
                       /services/mcp/
                       /tools/openapi-codegen/
                   sparse-checkout-cone-mode: false
