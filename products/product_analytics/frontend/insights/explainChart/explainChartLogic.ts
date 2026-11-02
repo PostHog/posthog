@@ -25,6 +25,7 @@ import type { InsightLogicProps } from '~/types'
 import { toolStreamEventsLogic } from 'products/posthog_ai/frontend/api/logics'
 import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
+import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 import type { ExplainChartData } from 'products/product_analytics/mcp/apps/explainChart/explainChartTypes'
 import type { StoryPage } from 'products/product_analytics/mcp/apps/explainChart/storyPages'
 
@@ -41,6 +42,7 @@ export interface explainChartLogicValues {
     effectivePhaiView: PhaiViewMode // maxGlobalLogic
     baseCurrency: CurrencyCode // teamLogic
     display: ChartDisplayType | null | undefined // trendsDataLogic
+    indexedResults: IndexedTrendResult[] // trendsDataLogic
     isTrends: boolean // trendsDataLogic
     trendsFilter: TrendsFilter | null | undefined // trendsDataLogic
     consentRequested: boolean
@@ -50,6 +52,7 @@ export interface explainChartLogicValues {
     investigating: boolean
     investigationPrompt: string
     story: ExplainChartData | null
+    storySeriesKey: string | null
     storyShown: boolean
 }
 
@@ -130,6 +133,7 @@ export interface explainChartLogicMeta {
             queryChanged: boolean
         ) => boolean
         investigationPrompt: (insight: Partial<InsightModel<Node<Record<string, any>>>>) => string
+        storySeriesKey: (story: ExplainChartData | null, indexedResults: IndexedTrendResult[]) => string | null
         formatValue: (
             trendsFilter: TrendsFilter | null | undefined,
             baseCurrency: CurrencyCode
@@ -163,7 +167,7 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
             teamLogic,
             ['baseCurrency'],
             trendsDataLogic(props),
-            ['display', 'isTrends', 'trendsFilter'],
+            ['display', 'indexedResults', 'isTrends', 'trendsFilter'],
         ],
         actions: [
             sidePanelStateLogic,
@@ -260,6 +264,16 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
                 return `Explain why the insight ${insight.short_id} looks the way it does. I'm on the insight page, which opens your explain-chart result beside the chart as soon as the tool returns, so skip render-ui. In the chat, just tell me which moment to read first, by its number and title.`
             },
         ],
+        storySeriesKey: [
+            (s) => [s.story, s.indexedResults],
+            (story: ExplainChartData | null, indexedResults: IndexedTrendResult[]): string | null => {
+                if (!story) {
+                    return null
+                }
+                const rendered = indexedResults.find((result) => result.seriesIndex === story.seriesIndex)
+                return String(rendered?.id ?? story.seriesIndex)
+            },
+        ],
         formatValue: [
             (s) => [s.trendsFilter, s.baseCurrency],
             (trendsFilter: TrendsFilter | null | undefined, baseCurrency: teamLogicValues['baseCurrency']) =>
@@ -284,17 +298,25 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
         },
         startInvestigation: () => {
             posthog.capture('explain chart investigation started')
-            actions.openSidePanel(SidePanelTab.Max, autoRunMaxPrompt(values.investigationPrompt))
             cache.disposables.add(() => {
                 const listenerId = `explain-chart-turn-end-${values.insight.short_id}`
+                let runStreamKey: string | null = null
+                const endIfOurs = ({ streamKey }: { streamKey: string }): void => {
+                    if (runStreamKey === null || streamKey === runStreamKey) {
+                        actions.investigationEnded()
+                    }
+                }
                 toolStreamEventsLogic.actions.registerToolListener(listenerId, {
-                    tools: ['explain-chart'],
-                    onEvent: () => {},
-                    onTurnComplete: () => actions.investigationEnded(),
-                    onRunTerminal: () => actions.investigationEnded(),
+                    tools: '*',
+                    onEvent: ({ streamKey }) => {
+                        runStreamKey ??= streamKey
+                    },
+                    onTurnComplete: endIfOurs,
+                    onRunTerminal: endIfOurs,
                 })
                 return () => toolStreamEventsLogic.actions.deregisterToolListener(listenerId)
             }, 'turnEnd')
+            actions.openSidePanel(SidePanelTab.Max, autoRunMaxPrompt(values.investigationPrompt))
         },
         investigationEnded: () => {
             cache.disposables.dispose('turnEnd')
