@@ -22,9 +22,27 @@ const SUMMARY: ErrorTrackingStoredIssueSummaryApi = {
     generated_at: '2026-10-20T12:00:00Z',
     checked_at: '2026-10-20T12:00:00Z',
 }
-const GENERATING: ErrorTrackingIssueSummaryResponseApi = { status: 'generating', summary: null }
-const READY: ErrorTrackingIssueSummaryResponseApi = { status: 'ready', summary: SUMMARY }
-const UNAVAILABLE: ErrorTrackingIssueSummaryResponseApi = { status: 'unavailable', summary: null }
+const GENERATING: ErrorTrackingIssueSummaryResponseApi = {
+    status: 'generating',
+    summary: null,
+    stale: false,
+    reason: null,
+    hint: 'A new summary of this issue is being written.',
+}
+const READY: ErrorTrackingIssueSummaryResponseApi = {
+    status: 'ready',
+    summary: SUMMARY,
+    stale: false,
+    reason: null,
+    hint: null,
+}
+const UNAVAILABLE: ErrorTrackingIssueSummaryResponseApi = {
+    status: 'unavailable',
+    summary: null,
+    stale: false,
+    reason: 'error',
+    hint: null,
+}
 
 describe('issueSummaryLogic', () => {
     const retrieve = jest.mocked(errorTrackingIssuesSummaryRetrieve)
