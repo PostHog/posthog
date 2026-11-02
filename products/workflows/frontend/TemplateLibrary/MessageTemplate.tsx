@@ -142,6 +142,9 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                 : !template.name
                   ? 'Name is required'
                   : undefined)
+    // A test send runs a test workflow, which needs the same Editor access.
+    const sendTestDisabledReason =
+        editDisabledReason ?? (!template.content.email?.subject ? 'Add a subject first' : undefined)
 
     const editor = (
         <div className="flex flex-col flex-1 gap-2 min-h-0 relative">
@@ -231,7 +234,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                             <TransactionalEmailApiExample templateId={props.id} />
                         </div>
                     ) : (
-                        <MakeTransactionalPrompt {...props} />
+                        <MakeTransactionalPrompt {...props} editDisabledReason={editDisabledReason} />
                     ),
                 },
             ]}
@@ -291,9 +294,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                         todayRailNav ? (
                             <QuillMessageTemplateActions
                                 isNew={props.id === 'new'}
-                                sendTestDisabledReason={
-                                    !template.content.email?.subject ? 'Add a subject first' : undefined
-                                }
+                                sendTestDisabledReason={sendTestDisabledReason}
                                 saveDisabledReason={saveDisabledReason}
                                 duplicateDisabledReason={
                                     editDisabledReason ??
@@ -316,9 +317,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                     data-attr="send-test-message-template"
                                     type="secondary"
                                     onClick={() => setSendTestEmailModalOpen(true)}
-                                    disabledReason={
-                                        !template.content.email?.subject ? 'Add a subject first' : undefined
-                                    }
+                                    disabledReason={sendTestDisabledReason}
                                     size="small"
                                 >
                                     Send test

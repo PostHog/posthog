@@ -3,6 +3,9 @@ import '@testing-library/jest-dom'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
@@ -37,8 +40,8 @@ describe('MessageTemplate', () => {
         [AccessControlLevel.Viewer, 'false', 'true'],
         [AccessControlLevel.Editor, 'true', 'false'],
     ])(
-        'gives a workflows %s an editable title=%s and a disabled delete=%s',
-        async (workflowAccess, expectedEditable, expectedDeleteDisabled) => {
+        'gives a workflows %s an editable title=%s and disabled write actions=%s',
+        async (workflowAccess, expectedEditable, expectedWriteDisabled) => {
             window.POSTHOG_APP_CONTEXT = {
                 ...priorAppContext,
                 resource_access_control: {
@@ -47,6 +50,10 @@ describe('MessageTemplate', () => {
                 },
             } as AppContext
             initKeaTests()
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API], {
+                [FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API]: true,
+            })
 
             render(
                 <Provider>
@@ -58,6 +65,11 @@ describe('MessageTemplate', () => {
                 expect(document.querySelector('.scene-title-section')).toHaveTextContent('Order receipt')
             )
             expect(document.querySelector('.scene-title-section')).toHaveAttribute('data-editable', expectedEditable)
+            // Send test runs a test workflow, which the API refuses without editor access.
+            expect(document.querySelector('[data-attr="send-test-message-template"]')).toHaveAttribute(
+                'aria-disabled',
+                expectedWriteDisabled
+            )
 
             fireEvent.click(screen.getByLabelText('more'))
             await waitFor(() =>
@@ -65,7 +77,16 @@ describe('MessageTemplate', () => {
             )
             expect(document.querySelector('[data-attr="delete-message-template"]')).toHaveAttribute(
                 'aria-disabled',
-                expectedDeleteDisabled
+                expectedWriteDisabled
+            )
+
+            fireEvent.click(screen.getByText('API'))
+            await waitFor(() =>
+                expect(document.querySelector('[data-attr="make-message-template-transactional"]')).toBeInTheDocument()
+            )
+            expect(document.querySelector('[data-attr="make-message-template-transactional"]')).toHaveAttribute(
+                'aria-disabled',
+                expectedWriteDisabled
             )
         }
     )

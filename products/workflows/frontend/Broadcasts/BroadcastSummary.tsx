@@ -333,6 +333,9 @@ export function BroadcastSummary(): JSX.Element {
 
     const isArchived = broadcast?.status === 'archived'
     const accessReason = manageDisabledReason(broadcast?.user_access_level)
+    // Sending again creates a new broadcast, so it needs Editor on Workflows, whatever this broadcast grants.
+    // Without an object level, the check reads the user's Workflows level.
+    const createReason = manageDisabledReason(undefined)
     const actionItems = [
         canMoveToDraft
             ? {
@@ -346,7 +349,7 @@ export function BroadcastSummary(): JSX.Element {
             ? {
                   label: 'Send again as a new broadcast',
                   onClick: duplicateBroadcast,
-                  disabledReason: accessReason,
+                  disabledReason: createReason,
                   'data-attr': 'broadcast-send-again',
               }
             : null,
@@ -414,7 +417,7 @@ export function BroadcastSummary(): JSX.Element {
                 {broadcastPath(broadcastId) === 'composer' ? <ComposerDraftFeedback /> : null}
                 {broadcast?.status === 'draft' && accessReason ? (
                     <LemonBanner type="info">
-                        You have view access to Workflows, so this draft opens read-only.
+                        You can view this draft but not edit it. Ask an admin for editor access to make changes.
                     </LemonBanner>
                 ) : broadcast?.status === 'draft' ? (
                     <LemonBanner
