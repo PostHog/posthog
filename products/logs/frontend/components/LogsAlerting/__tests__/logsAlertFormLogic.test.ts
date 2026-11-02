@@ -5,6 +5,9 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
@@ -531,14 +534,30 @@ describe('logsAlertFormLogic', () => {
     })
 
     describe('grouping', () => {
-        it.each<[string, LogsAlertConfigurationApi | null, LogsAlertConfigurationApi[], boolean]>([
-            ['alert the source owns', MOCK_ALERT, [], false],
-            ['alert the source owns in a team that has cut over', MOCK_ALERT, [PLATFORM_ALERT], false],
-            ['alert the platform owns', PLATFORM_ALERT, [], true],
-            ['alert that already groups', GROUPED_BY_SERVICE_ALERT, [], true],
-            ['new alert in a team that has not cut over', null, [MOCK_ALERT], false],
-            ['new alert in a team that has cut over', null, [MOCK_ALERT, PLATFORM_ALERT], true],
-        ])('can group for %s', async (_, alert, teamAlerts, expected) => {
+        const setGroupingFlag = (enabled: boolean): void => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.LOGS_ALERTS_GROUPING]: enabled })
+        }
+
+        beforeEach(() => setGroupingFlag(true))
+
+        it.each<[string, LogsAlertConfigurationApi | null, LogsAlertConfigurationApi[], boolean, boolean]>([
+            ['alert the source owns', MOCK_ALERT, [], true, false],
+            ['alert the source owns in a team that has cut over', MOCK_ALERT, [PLATFORM_ALERT], true, false],
+            ['alert the platform owns', PLATFORM_ALERT, [], true, true],
+            ['alert the platform owns with the flag off', PLATFORM_ALERT, [], false, false],
+            ['alert that already groups', GROUPED_BY_SERVICE_ALERT, [], true, true],
+            ['new alert in a team that has not cut over', null, [MOCK_ALERT], true, false],
+            ['new alert in a team that has cut over', null, [MOCK_ALERT, PLATFORM_ALERT], true, true],
+            [
+                'new alert in a team that has cut over with the flag off',
+                null,
+                [MOCK_ALERT, PLATFORM_ALERT],
+                false,
+                false,
+            ],
+        ])('can group for %s', async (_, alert, teamAlerts, flagEnabled, expected) => {
+            setGroupingFlag(flagEnabled)
             givenTeamAlerts(teamAlerts)
             const logic = logsAlertFormLogic({ alert })
             logic.mount()

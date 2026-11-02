@@ -8,6 +8,8 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -124,6 +126,7 @@ export interface logsAlertFormLogicValues {
     pendingNotifications: PendingLogsAlertNotification[] // logsAlertNotificationLogic
     alerts: LogsAlertConfigurationApi[] // logsAlertingLogic
     currentTeamId: number | null // teamLogic
+    featureFlags: FeatureFlagsSet // featureFlagLogic
     alertForm: LogsAlertFormType
     alertFormAllErrors: Record<string, any>
     alertFormChanged: boolean
@@ -260,7 +263,7 @@ export interface logsAlertFormLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         isEditing: (arg: any) => boolean
-        canGroup: (arg: any, alerts: LogsAlertConfigurationApi[]) => boolean
+        canGroup: (arg: any, alerts: LogsAlertConfigurationApi[], featureFlags: FeatureFlagsSet) => boolean
         regroupConfirmation: (arg: any) => string
         needsRegroupConfirmation: (arg: any, canGroup: boolean, alertForm: LogsAlertFormType) => boolean
         simulationDisabledReason: (canGroup: boolean, alertForm: LogsAlertFormType) => string | undefined
@@ -285,6 +288,8 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
             ['currentTeamId'],
             logsAlertingLogic,
             ['alerts'],
+            featureFlagLogic,
+            ['featureFlags'],
             logsAlertNotificationLogic({ alertId: alert?.id }),
             ['pendingNotifications'],
         ],
@@ -395,9 +400,12 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
     selectors({
         isEditing: [() => [(_, props) => props.alert], (alert: LogsAlertConfigurationApi | null) => alert !== null],
         canGroup: [
-            (s) => [(_, props) => props.alert, s.alerts],
-            (alert: LogsAlertConfigurationApi | null, alerts: LogsAlertConfigurationApi[]): boolean =>
-                canGroupAlert(alert, alerts),
+            (s) => [(_, props) => props.alert, s.alerts, s.featureFlags],
+            (
+                alert: LogsAlertConfigurationApi | null,
+                alerts: LogsAlertConfigurationApi[],
+                featureFlags: FeatureFlagsSet
+            ): boolean => !!featureFlags[FEATURE_FLAGS.LOGS_ALERTS_GROUPING] && canGroupAlert(alert, alerts),
         ],
         regroupConfirmation: [
             () => [(_, props) => props.alert],
