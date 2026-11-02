@@ -12,6 +12,7 @@ use indexmap::IndexMap;
 
 use crate::chunk_pipeline::{process_sequentially, ChunkPipeline, DynChunkPipeline};
 use crate::context::{ChunkResults, OkResultWithContext, ResultWithContext};
+use crate::errors::call_user_fn;
 use crate::interleaving::{InterleavingCallbacks, InterleavingChunkPipeline, PullOutcome};
 use crate::pipeline::DynPipeline;
 use crate::sync::{FifoLimiter, ResettableSignal};
@@ -64,21 +65,50 @@ where
     O: Send + 'static,
     C: Send + 'static,
 {
+    /// Starts the queued items of `key` when the key is free. The completion of a group
+    /// calls it for its own key, so the remove is a `swap_remove`: when a group completes,
+    /// every key still in `queues` belongs to a running group, and their relative order no
+    /// longer decides anything.
     fn start_group_if_queued(self: &Arc<Self>, state: &mut GroupState<K, M, O, C>, key: &K) {
         if state.active.contains(key) {
             return;
         }
-        let Some(queue) = state.queues.shift_remove(key) else {
+        let Some(queue) = state.queues.swap_remove(key) else {
             return;
         };
         if queue.is_empty() {
             return;
         }
+        self.spawn_group(state, key.clone(), queue);
+    }
+
+    /// Starts every queued group whose key is free, in the order the keys first arrived.
+    /// One pass over the queues, so a pull costs O(keys) and not O(keys²).
+    fn start_available(self: &Arc<Self>, state: &mut GroupState<K, M, O, C>) {
+        let mut ready = Vec::new();
+        let GroupState { queues, active, .. } = &mut *state;
+        queues.retain(|key, queue| {
+            if active.contains(key) || queue.is_empty() {
+                return true;
+            }
+            ready.push((key.clone(), std::mem::take(queue)));
+            false
+        });
+        for (key, queue) in ready {
+            self.spawn_group(state, key, queue);
+        }
+    }
+
+    fn spawn_group(
+        self: &Arc<Self>,
+        state: &mut GroupState<K, M, O, C>,
+        key: K,
+        queue: Vec<ResultWithContext<M, C>>,
+    ) {
         // The key is claimed now, so per-key order holds even while the group waits for a slot.
         state.active.insert(key.clone());
 
         let shared = self.clone();
-        let key = key.clone();
         let permit = self.limit.as_ref().map(|limit| limit.acquire());
         tokio::spawn(async move {
             let _permit = match permit {
@@ -100,9 +130,10 @@ where
                     // Poison. The key stays active, so later items for it never start.
                     state.failure.get_or_insert_with(|| Arc::new(error));
                 }
-                Err(_) => {
+                Err(payload) => {
+                    let message = crate::errors::panic_message(payload.as_ref());
                     state.failure.get_or_insert_with(|| {
-                        Arc::new(anyhow::anyhow!("group processor panicked"))
+                        Arc::new(anyhow::anyhow!("group processor panicked: {message}"))
                     });
                 }
             }
@@ -137,13 +168,19 @@ where
         let Some(previous) = self.previous.next().await? else {
             return Ok(PullOutcome::Drained);
         };
-        let mut state = self.shared.state.lock().unwrap();
+        // The grouping function is user code, so it runs before the lock is taken.
+        let mut routed = Vec::with_capacity(previous.len());
         let mut non_ok = Vec::new();
         for item in previous {
             match &item.result {
                 crate::results::Outcome::Ok(value) => {
-                    let key = (self.grouping)(value);
-                    state.queues.entry(key).or_default().push(item);
+                    let key = call_user_fn(
+                        "Grouping function",
+                        "groupingFn",
+                        item.context.debug_context.as_ref(),
+                        || (self.grouping)(value),
+                    )?;
+                    routed.push((key, item));
                 }
                 crate::results::Outcome::NonOk(_) => {
                     let (n, context) = item.into_ok().err().expect("non-OK");
@@ -151,13 +188,14 @@ where
                 }
             }
         }
+        let mut state = self.shared.state.lock().unwrap();
+        for (key, item) in routed {
+            state.queues.entry(key).or_default().push(item);
+        }
         if !non_ok.is_empty() {
             state.completed.push_back(non_ok);
         }
-        let keys: Vec<K> = state.queues.keys().cloned().collect();
-        for key in keys {
-            self.shared.start_group_if_queued(&mut state, &key);
-        }
+        self.shared.start_available(&mut state);
         Ok(PullOutcome::Drain)
     }
 

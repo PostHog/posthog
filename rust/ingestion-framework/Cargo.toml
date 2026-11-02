@@ -12,7 +12,7 @@ anyhow = { workspace = true }
 async-trait = { workspace = true }
 chrono = { workspace = true }
 futures = { workspace = true }
-indexmap = "2"
+indexmap = { version = "2", features = ["serde"] }
 metrics = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }

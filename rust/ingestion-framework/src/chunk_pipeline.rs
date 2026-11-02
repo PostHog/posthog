@@ -85,6 +85,8 @@ where
     // Slots keep each item's position. `Some(context)` marks an item the step will run on.
     enum Slot<U, C> {
         Done(ResultWithContext<U, C>),
+        // An OK item that the budget cut off before the step.
+        CutOff(crate::context::PipelineContext<C>),
         Pending(crate::context::PipelineContext<C>),
     }
 
@@ -99,12 +101,7 @@ where
             Outcome::Ok(value) => {
                 if item.context.budget.as_ref().is_some_and(|b| b.exhausted()) {
                     record_budget_checkpoint(BudgetCheckpoint::Chunk, step_name.clone());
-                    slots.push(Slot::Done(ResultWithContext {
-                        result: Outcome::NonOk(NonOk::Timeout {
-                            reason: format!("budget exceeded before {step_name}"),
-                        }),
-                        context: item.context,
-                    }));
+                    slots.push(Slot::CutOff(item.context));
                 } else {
                     values.push(value);
                     slots.push(Slot::Pending(item.context));
@@ -134,10 +131,11 @@ where
                     "exception",
                     started.elapsed().as_secs_f64(),
                 );
+                // Node logs the origin of every OK item, also of the items the budget cut off.
                 let debug_contexts: Vec<_> = slots
                     .iter()
                     .filter_map(|s| match s {
-                        Slot::Pending(c) => c.debug_context.clone(),
+                        Slot::Pending(c) | Slot::CutOff(c) => c.debug_context.clone(),
                         Slot::Done(_) => None,
                     })
                     .collect();
@@ -166,6 +164,12 @@ where
         .into_iter()
         .map(|slot| match slot {
             Slot::Done(done) => done,
+            Slot::CutOff(context) => ResultWithContext {
+                result: Outcome::NonOk(NonOk::Timeout {
+                    reason: format!("budget exceeded before {step_name}"),
+                }),
+                context,
+            },
             Slot::Pending(mut context) => {
                 let result = step_results.next().expect("length checked above");
                 let outcome = context.absorb_step(step_name, result);

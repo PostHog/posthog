@@ -45,7 +45,27 @@ where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = anyhow::Result<T>>,
 {
-    let tries = options.tries.unwrap_or(DEFAULT_TRIES).max(1);
+    retry_with_input((), |()| f(), options).await
+}
+
+/// `retry_if_retriable` for an `f` that consumes its input. Every attempt but the last
+/// possible one gets a clone, and the last one gets `input` itself, so `tries: 1` clones
+/// nothing. The first attempt cannot take `input`, because a retry needs it again.
+pub async fn retry_with_input<V, T, F, Fut>(
+    input: V,
+    mut f: F,
+    options: &RetryOptions,
+) -> (anyhow::Result<T>, u32)
+where
+    V: Clone,
+    F: FnMut(V) -> Fut,
+    Fut: std::future::Future<Output = anyhow::Result<T>>,
+{
+    let tries = options.tries.unwrap_or(DEFAULT_TRIES);
+    if tries == 0 {
+        // Node's loop runs no attempt and reaches this throw.
+        return (Err(anyhow::anyhow!("Unreachable error in retry")), 0);
+    }
     let backoff = options.backoff_factor.unwrap_or(DEFAULT_BACKOFF_FACTOR);
     let max_sleep = options.max_sleep_ms.unwrap_or(DEFAULT_MAX_SLEEP_MS) as f64;
     let jitter = options.jitter.unwrap_or(DEFAULT_JITTER);
@@ -54,10 +74,16 @@ where
     let past_deadline = || soft_deadline.is_some_and(|d| started.elapsed() >= d);
 
     let mut sleep_ms = options.sleep_ms.unwrap_or(DEFAULT_SLEEP_MS) as f64;
+    let mut input = Some(input);
     let mut attempts = 0;
     loop {
         attempts += 1;
-        match f().await {
+        let value = if attempts >= tries {
+            input.take().expect("the last attempt takes the input once")
+        } else {
+            input.clone().expect("input is kept until the last attempt")
+        };
+        match f(value).await {
             Ok(value) => return (Ok(value), attempts),
             Err(error) => {
                 if is_retriable(&error) == Some(false) || attempts >= tries || past_deadline() {
@@ -104,7 +130,7 @@ where
         let name = name.clone();
         async move {
             let (result, attempts) =
-                retry_if_retriable(|| step.call(value.clone()), &options).await;
+                retry_with_input(value, |value| step.call(value), &options).await;
             match result {
                 Ok(result) => {
                     record_retry_attempts(name, "completed", attempts);
@@ -150,7 +176,7 @@ where
         async move {
             let count = values.len();
             let (result, attempts) =
-                retry_if_retriable(|| step.call(values.clone()), &options).await;
+                retry_with_input(values, |values| step.call(values), &options).await;
             match result {
                 Ok(result) => {
                     record_retry_attempts(name, "completed", attempts);

@@ -119,20 +119,7 @@ impl<T: Send + 'static, U: Send + 'static> ChunkProcessingStep<T, U> {
     /// Runs a per-item step over each value of the chunk concurrently, keeping the per-item
     /// step's name. Same as the `perMessage` helper in the Node metrics pipeline.
     pub fn per_item(step: ProcessingStep<T, U>) -> Self {
-        let name = step.name().clone();
-        Self {
-            name,
-            f: Arc::new(move |values: Vec<T>| {
-                let step = step.clone();
-                async move {
-                    futures::future::join_all(values.into_iter().map(|v| step.call(v)))
-                        .await
-                        .into_iter()
-                        .collect::<anyhow::Result<Vec<_>>>()
-                }
-                .boxed()
-            }),
-        }
+        crate::per_element::per_element(step, None)
     }
 }
 

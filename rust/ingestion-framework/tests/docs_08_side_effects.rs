@@ -41,6 +41,11 @@ async fn steps_can_add_side_effects_to_context() {
         .unwrap();
     assert!(r.is_ok());
     assert_eq!(r.context.side_effects.len(), 1);
+    // The side effect started when it was created, as a Node promise does.
+    assert!(log
+        .lock()
+        .unwrap()
+        .contains(&"Processed: hello -> HELLO".to_string()));
     wait_all(std::mem::take(&mut r.context.side_effects)).await;
     assert!(log
         .lock()

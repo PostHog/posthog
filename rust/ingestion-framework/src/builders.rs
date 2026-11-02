@@ -11,6 +11,9 @@ use std::sync::Arc;
 
 use futures::FutureExt;
 
+// Node exports `perElement` from `builders/index.ts`.
+pub use crate::per_element::per_element;
+
 use crate::batching::{
     AfterBatchInput, AfterBatchOutput, BatchingPipeline, BatchingPipelineOptions, BeforeBatchInput,
     BeforeBatchOutput, WithBatch,
@@ -233,6 +236,10 @@ where
 
     /// Processes each item concurrently and emits in input (FIFO) order. `max_concurrency`
     /// caps how many items run at once; `None` means no cap.
+    ///
+    /// # Panics
+    ///
+    /// Panics on `Some(0)`, as Node's `pLimit(0)` throws.
     pub fn concurrently<U: Send + 'static>(
         self,
         callback: impl FnOnce(StartPipelineBuilder<O, CO>) -> PipelineBuilder<O, U, CO>,
@@ -304,6 +311,10 @@ where
     }
 
     /// Groups items by key and processes groups concurrently, optionally capped.
+    ///
+    /// # Panics
+    ///
+    /// Panics on `Some(0)`, as Node's `pLimit(0)` throws.
     pub fn concurrently_per_group<K, U>(
         self,
         grouping: impl Fn(&O) -> K + Send + Sync + 'static,

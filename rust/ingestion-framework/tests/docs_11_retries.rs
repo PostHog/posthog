@@ -6,7 +6,7 @@ mod common;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
-use common::{items, sleep_ms};
+use common::{items, sleep_ms, within_ms};
 use ingestion_framework::{
     chunk_step, create_ok_context, new_chunk_pipeline, new_pipeline, ok, step, PipelineError,
     PipelineResultType, RetryOptions,
@@ -39,8 +39,7 @@ async fn retriable_errors_are_retried_until_the_step_succeeds() {
             opts(5, 100),
         )
         .build();
-    let r = pipeline
-        .process(create_ok_context("hello".into(), ()))
+    let r = within_ms(300, pipeline.process(create_ok_context("hello".into(), ())))
         .await
         .unwrap();
     assert_eq!(attempts.load(Ordering::SeqCst), 3);
@@ -65,10 +64,12 @@ async fn non_retriable_errors_go_directly_to_dlq() {
             opts(5, 100),
         )
         .build();
-    let r = pipeline
-        .process(create_ok_context("bad-data".into(), ()))
-        .await
-        .unwrap();
+    let r = within_ms(
+        0,
+        pipeline.process(create_ok_context("bad-data".into(), ())),
+    )
+    .await
+    .unwrap();
     assert_eq!(attempts.load(Ordering::SeqCst), 1);
     assert_eq!(r.result.result_type(), PipelineResultType::Dlq);
     assert!(r.result.reason().unwrap().contains("non-retriable"));
@@ -92,8 +93,7 @@ async fn after_max_retries_the_error_is_rethrown() {
             opts(3, 100),
         )
         .build();
-    let err = pipeline
-        .process(create_ok_context("data".into(), ()))
+    let err = within_ms(300, pipeline.process(create_ok_context("data".into(), ())))
         .await
         .unwrap_err();
     assert_eq!(attempts.load(Ordering::SeqCst), 3);
@@ -118,8 +118,7 @@ async fn errors_without_is_retriable_are_retried_then_rethrown() {
             opts(3, 100),
         )
         .build();
-    let err = pipeline
-        .process(create_ok_context("data".into(), ()))
+    let err = within_ms(300, pipeline.process(create_ok_context("data".into(), ())))
         .await
         .unwrap_err();
     assert_eq!(attempts.load(Ordering::SeqCst), 3);
@@ -185,8 +184,7 @@ async fn defaults_to_3_tries_and_100ms_sleep() {
         )
         .build();
     let started = tokio::time::Instant::now();
-    let r = pipeline
-        .process(create_ok_context("data".into(), ()))
+    let r = within_ms(300, pipeline.process(create_ok_context("data".into(), ())))
         .await
         .unwrap();
     assert!(r.is_ok());
@@ -216,7 +214,7 @@ async fn pipe_chunk_retries_the_chunk_step_until_it_succeeds() {
         )
         .build();
     pipeline.feed(items([1, 2]));
-    let results = pipeline.next().await.unwrap().unwrap();
+    let results = within_ms(300, pipeline.next()).await.unwrap().unwrap();
     assert_eq!(attempts.load(Ordering::SeqCst), 3);
     assert_eq!(results.len(), 2);
     assert!(results.iter().all(|r| r.is_ok()));
@@ -236,7 +234,7 @@ async fn pipe_chunk_sends_one_dlq_per_input_on_a_non_retriable_error() {
         )
         .build();
     pipeline.feed(items([1, 2, 3]));
-    let results = pipeline.next().await.unwrap().unwrap();
+    let results = within_ms(0, pipeline.next()).await.unwrap().unwrap();
     assert_eq!(results.len(), 3);
     assert!(results
         .iter()

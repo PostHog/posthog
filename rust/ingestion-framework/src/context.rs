@@ -3,18 +3,23 @@
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 use crate::budget::BatchBudget;
 use crate::results::{NonOk, Outcome, PipelineResult};
 use crate::side_effects::SideEffect;
 
+/// The details of a warning. Keys keep insertion order, as a JavaScript object does, and
+/// `insert` of a present key keeps its place.
+pub type WarningDetails = IndexMap<String, serde_json::Value>;
+
 /// Port of `IngestionWarning`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PipelineWarning {
     #[serde(rename = "type")]
     pub warning_type: String,
-    pub details: serde_json::Map<String, serde_json::Value>,
+    pub details: WarningDetails,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pipeline_step: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -26,18 +31,31 @@ pub struct PipelineWarning {
 }
 
 impl PipelineWarning {
+    /// Takes the keys of `details` in the order of its map. A `json!` object has sorted
+    /// keys unless the build enables serde_json's `preserve_order`, so use `with_detail`
+    /// where the key order of the message matters.
     pub fn new(warning_type: impl Into<String>, details: serde_json::Value) -> Self {
         Self {
             warning_type: warning_type.into(),
             details: match details {
-                serde_json::Value::Object(map) => map,
-                _ => serde_json::Map::new(),
+                serde_json::Value::Object(map) => map.into_iter().collect(),
+                _ => WarningDetails::new(),
             },
             pipeline_step: None,
             key: None,
             always_send: false,
             source: None,
         }
+    }
+
+    /// Appends a detail, or replaces the value of a present key in its place.
+    pub fn with_detail(
+        mut self,
+        key: impl Into<String>,
+        value: impl Into<serde_json::Value>,
+    ) -> Self {
+        self.details.insert(key.into(), value.into());
+        self
     }
 }
 

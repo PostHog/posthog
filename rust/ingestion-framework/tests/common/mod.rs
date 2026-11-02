@@ -29,6 +29,25 @@ pub async fn consume_all<I, O, CI, CO>(pipeline: &dyn ChunkPipeline<I, O, CI, CO
     values
 }
 
+/// Port of `consumeAll(pipeline, advanceTimeMs)` for a paused clock. Node advances the
+/// fake clock by `advance_ms` only, so a pipeline that needs longer never drains. The
+/// bound is 1 ms past `advance_ms`, because tokio fires a timer and this timeout in the
+/// same millisecond tick and could then reject work that Node completes at `advance_ms`.
+pub async fn consume_all_within<I, O, CI, CO>(
+    pipeline: &dyn ChunkPipeline<I, O, CI, CO>,
+    advance_ms: u64,
+) -> Vec<O> {
+    within_ms(advance_ms, consume_all(pipeline)).await
+}
+
+/// Awaits `fut` with the time bound of a `jest.advanceTimersByTimeAsync(advance_ms)`.
+/// See `consume_all_within` for the extra millisecond.
+pub async fn within_ms<T>(advance_ms: u64, fut: impl std::future::Future<Output = T>) -> T {
+    tokio::time::timeout(Duration::from_millis(advance_ms + 1), fut)
+        .await
+        .unwrap_or_else(|_| panic!("did not finish within {advance_ms} ms of virtual time"))
+}
+
 /// Port of `collectChunks`: OK values per emitted chunk.
 pub async fn collect_chunks<I, O, CI, CO>(
     pipeline: &dyn ChunkPipeline<I, O, CI, CO>,

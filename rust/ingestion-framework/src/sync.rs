@@ -65,9 +65,16 @@ pub struct LimiterPermit {
 }
 
 impl FifoLimiter {
+    /// # Panics
+    ///
+    /// Panics when `max` is 0, as `pLimit(0)` throws when the Node pipeline is built.
     pub fn new(max: usize) -> Arc<Self> {
+        assert!(
+            max > 0,
+            "Expected `concurrency` to be a number from 1 and up"
+        );
         Arc::new(Self {
-            max: max.max(1),
+            max,
             state: Mutex::new(LimiterState {
                 running: 0,
                 waiters: VecDeque::new(),

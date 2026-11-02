@@ -280,10 +280,12 @@ async fn warnings_can_include_a_key_for_debouncing() {
         .build();
     pipeline.feed(vec![create_ok_context("user-123", team())]);
     let results = pipeline.next().await.unwrap().unwrap();
-    let w = &results[0].context.warnings[0];
-    assert_eq!(w.warning_type, "cannot_merge_already_identified");
-    assert_eq!(w.key.as_deref(), Some("user-123"));
-    assert!(!w.always_send);
+    let mut expected = PipelineWarning::new(
+        "cannot_merge_already_identified",
+        json!({"distinctId": "user-123"}),
+    );
+    expected.key = Some("user-123".into());
+    assert_eq!(results[0].context.warnings, vec![expected]);
 }
 
 /// it('alwaysSend bypasses debouncing for critical warnings')
@@ -308,8 +310,11 @@ async fn always_send_bypasses_debouncing_for_critical_warnings() {
         .build();
     pipeline.feed(vec![create_ok_context("important_event", team())]);
     let results = pipeline.next().await.unwrap().unwrap();
-    let w = &results[0].context.warnings[0];
-    assert_eq!(w.key.as_deref(), Some("quota"));
-    assert!(w.always_send);
-    assert_eq!(w.details["eventName"], "important_event");
+    let mut expected = PipelineWarning::new(
+        "message_size_too_large",
+        json!({"eventName": "important_event"}),
+    );
+    expected.key = Some("quota".into());
+    expected.always_send = true;
+    assert_eq!(results[0].context.warnings, vec![expected]);
 }

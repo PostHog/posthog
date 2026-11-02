@@ -10,7 +10,7 @@ use std::sync::Arc;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use ingestion_framework::{
     before_batch_step, chunk_step, create_ok_context, new_batching_pipeline, new_chunk_pipeline,
-    new_pipeline, ok, passthrough_after_batch_step, step, BatchingPipelineOptions,
+    new_pipeline, ok, passthrough_after_batch_step, per_element, step, BatchingPipelineOptions,
     ChunkProcessingStep, DynChunkPipeline, OkResultWithContext, ProcessingStep, WithBatch,
 };
 
@@ -123,6 +123,25 @@ fn concurrently(c: &mut Criterion) {
     }
 }
 
+fn per_element_max50(c: &mut Criterion) {
+    let rt = current_thread();
+    let mut group = c.benchmark_group("per_element_max50");
+    for n in SIZES {
+        group.throughput(Throughput::Elements(n as u64));
+        group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, &n| {
+            b.to_async(&rt).iter(|| async move {
+                let pipeline = new_chunk_pipeline::<i64, ()>()
+                    .pipe_chunk(per_element(inc("s1"), Some(50)))
+                    .pipe_chunk(per_element(inc("s2"), Some(50)))
+                    .build();
+                pipeline.feed(inputs(n));
+                assert_eq!(drain(&pipeline).await, n);
+            })
+        });
+    }
+    group.finish();
+}
+
 fn concurrently_per_group(c: &mut Criterion) {
     for (label, rt) in [
         ("concurrently_per_group_16", current_thread()),
@@ -204,6 +223,7 @@ criterion_group!(
     step_pipeline_5_steps,
     pipe_chunk_chain,
     concurrently,
+    per_element_max50,
     concurrently_per_group,
     batching
 );

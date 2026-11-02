@@ -11,6 +11,7 @@ use async_trait::async_trait;
 
 use crate::chunk_pipeline::{ChunkPipeline, DynChunkPipeline};
 use crate::context::{ChunkResults, OkResultWithContext, PipelineContext, ResultWithContext};
+use crate::errors::{call_user_fn, AggregateError};
 use crate::interleaving::{InterleavingCallbacks, InterleavingChunkPipeline, PullOutcome};
 use crate::results::{NonOk, Outcome};
 
@@ -48,6 +49,16 @@ struct PendingParent<T, SO, C> {
     timed_out: Option<(String, Option<Arc<str>>)>,
 }
 
+/// A parent whose last sub-result arrived.
+enum Settled<T, SO, U, C> {
+    Done(ResultWithContext<U, C>),
+    FanIn {
+        original: T,
+        context: PipelineContext<C>,
+        collected: Vec<SO>,
+    },
+}
+
 struct FanState<T, SO, U, C> {
     pending: HashMap<FanOutParentRef, PendingParent<T, SO, C>>,
     ready: Vec<ResultWithContext<U, C>>,
@@ -65,23 +76,45 @@ struct FanCallbacks<I, T, S, SO, U, CI, C> {
 }
 
 impl<I, T, S, SO, U, CI, C> FanCallbacks<I, T, S, SO, U, CI, C> {
+    /// Runs the fan-in. Call it with no lock held: a panic in user code must not poison
+    /// the stage state.
     fn complete_parent(
         &self,
         original: T,
         mut context: PipelineContext<C>,
         collected: Vec<SO>,
-    ) -> ResultWithContext<U, C> {
+    ) -> anyhow::Result<ResultWithContext<U, C>> {
         context.last_step = Some(self.fan_in_name.clone());
-        ResultWithContext {
-            result: Outcome::Ok((self.fan_in)(original, collected)),
+        let merged = call_user_fn(
+            "Fan-in",
+            &self.fan_in_name,
+            context.debug_context.as_ref(),
+            || (self.fan_in)(original, collected),
+        )?;
+        Ok(ResultWithContext {
+            result: Outcome::Ok(merged),
             context,
+        })
+    }
+
+    fn finish(&self, settled: Settled<T, SO, U, C>) -> anyhow::Result<ResultWithContext<U, C>> {
+        match settled {
+            Settled::Done(result) => Ok(result),
+            Settled::FanIn {
+                original,
+                context,
+                collected,
+            } => self.complete_parent(original, context, collected),
         }
     }
 
+    /// Attributes one sub-result to its parent. When it was the parent's last one, pushes
+    /// the parent to `out`; the fan-in for an OK parent runs later, outside the lock.
     fn settle(
         &self,
         state: &mut FanState<T, SO, U, C>,
         sub: ResultWithContext<SO, FanOutSubContext>,
+        out: &mut Vec<Settled<T, SO, U, C>>,
     ) -> anyhow::Result<()> {
         let parent_ref = sub.context.data.parent;
         let Some(parent) = state.pending.get_mut(&parent_ref) else {
@@ -125,12 +158,12 @@ impl<I, T, S, SO, U, CI, C> FanCallbacks<I, T, S, SO, U, CI, C> {
         let mut parent = state.pending.remove(&parent_ref).expect("present");
         let result = if let Some((reason, last_step)) = parent.timed_out.take() {
             parent.context.last_step = last_step;
-            ResultWithContext {
+            Settled::Done(ResultWithContext {
                 result: Outcome::NonOk(NonOk::Timeout {
                     reason: format!("fan-out sub-element timed out: {reason}"),
                 }),
                 context: parent.context,
-            }
+            })
         } else if !parent.dlq_failures.is_empty() {
             let mut reasons: Vec<&str> = Vec::new();
             for (reason, _) in &parent.dlq_failures {
@@ -144,30 +177,26 @@ impl<I, T, S, SO, U, CI, C> FanCallbacks<I, T, S, SO, U, CI, C> {
                 parent.total,
                 reasons.join("; ")
             );
-            let errors: Vec<String> = parent
-                .dlq_failures
-                .iter()
-                .map(|(r, e)| {
-                    e.as_ref()
-                        .map(|e| e.to_string())
-                        .unwrap_or_else(|| r.clone())
-                })
-                .collect();
             parent.context.last_step = parent.dlq_last_step.take();
-            ResultWithContext {
+            let error = AggregateError {
+                message: reason.clone(),
+                errors: parent.dlq_failures.into_iter().map(|(_, e)| e).collect(),
+            };
+            Settled::Done(ResultWithContext {
                 result: Outcome::NonOk(NonOk::Dlq {
-                    error: Some(Arc::new(anyhow::anyhow!(
-                        "{reason} [{}]",
-                        errors.join(", ")
-                    ))),
+                    error: Some(Arc::new(anyhow::Error::new(error))),
                     reason,
                 }),
                 context: parent.context,
-            }
+            })
         } else {
-            self.complete_parent(parent.original, parent.context, parent.collected)
+            Settled::FanIn {
+                original: parent.original,
+                context: parent.context,
+                collected: parent.collected,
+            }
         };
-        state.ready.push(result);
+        out.push(result);
         Ok(())
     }
 }
@@ -194,46 +223,53 @@ where
         };
         let mut settled = Vec::new();
         let mut subs = Vec::new();
-        {
-            let mut state = self.state.lock().unwrap();
-            for element in previous {
-                let ok = match element.into_ok() {
-                    Ok(ok) => ok,
-                    Err((n, context)) => {
-                        settled.push(ResultWithContext::<T, C>::non_ok(n, context));
-                        continue;
-                    }
-                };
-                let sub_values = (self.fan_out)(&ok.value);
-                if sub_values.is_empty() {
-                    settled.push(self.complete_parent(ok.value, ok.context, Vec::new()));
+        let mut parents = Vec::new();
+        // User callbacks run before the lock is taken, so a panic cannot poison it.
+        for element in previous {
+            let ok = match element.into_ok() {
+                Ok(ok) => ok,
+                Err((n, context)) => {
+                    settled.push(ResultWithContext::<T, C>::non_ok(n, context));
                     continue;
                 }
-                let parent_ref = FanOutParentRef(self.next_ref.fetch_add(1, Ordering::Relaxed));
-                let total = sub_values.len();
-                for sub in sub_values {
-                    let mut context = PipelineContext::new(FanOutSubContext { parent: parent_ref });
-                    context.debug_context = ok.context.debug_context.clone();
-                    context.budget = ok.context.budget.clone();
-                    subs.push(OkResultWithContext {
-                        value: sub,
-                        context,
-                    });
-                }
-                state.pending.insert(
-                    parent_ref,
-                    PendingParent {
-                        original: ok.value,
-                        context: ok.context,
-                        outstanding: total,
-                        total,
-                        collected: Vec::new(),
-                        dlq_failures: Vec::new(),
-                        dlq_last_step: None,
-                        timed_out: None,
-                    },
-                );
+            };
+            let sub_values = call_user_fn(
+                "Fan-out",
+                &self.fan_out_name,
+                ok.context.debug_context.as_ref(),
+                || (self.fan_out)(&ok.value),
+            )?;
+            if sub_values.is_empty() {
+                settled.push(self.complete_parent(ok.value, ok.context, Vec::new())?);
+                continue;
             }
+            let parent_ref = FanOutParentRef(self.next_ref.fetch_add(1, Ordering::Relaxed));
+            let total = sub_values.len();
+            for sub in sub_values {
+                let mut context = PipelineContext::new(FanOutSubContext { parent: parent_ref });
+                context.debug_context = ok.context.debug_context.clone();
+                context.budget = ok.context.budget.clone();
+                subs.push(OkResultWithContext {
+                    value: sub,
+                    context,
+                });
+            }
+            parents.push((
+                parent_ref,
+                PendingParent {
+                    original: ok.value,
+                    context: ok.context,
+                    outstanding: total,
+                    total,
+                    collected: Vec::new(),
+                    dlq_failures: Vec::new(),
+                    dlq_last_step: None,
+                    timed_out: None,
+                },
+            ));
+        }
+        if !parents.is_empty() {
+            self.state.lock().unwrap().pending.extend(parents);
         }
         let fed = !subs.is_empty();
         if fed {
@@ -268,10 +304,18 @@ where
                 }
                 return Ok(None);
             };
-            let mut state = self.state.lock().unwrap();
-            for sub_result in sub_results {
-                self.settle(&mut state, sub_result)?;
+            let mut done = Vec::new();
+            {
+                let mut state = self.state.lock().unwrap();
+                for sub_result in sub_results {
+                    self.settle(&mut state, sub_result, &mut done)?;
+                }
             }
+            let mut finished = Vec::with_capacity(done.len());
+            for settled in done {
+                finished.push(self.finish(settled)?);
+            }
+            self.state.lock().unwrap().ready.extend(finished);
         }
     }
 }

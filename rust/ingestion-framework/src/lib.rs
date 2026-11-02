@@ -16,8 +16,10 @@ pub mod filter_map;
 pub mod grouping;
 pub mod helpers;
 pub mod interleaving;
+mod js_json;
 pub mod metrics;
 pub mod outputs;
+pub mod per_element;
 pub mod pipeline;
 pub mod result_handling;
 pub mod results;
@@ -41,13 +43,14 @@ pub use builders::{
 pub use chunk_pipeline::{ChunkPipeline, ChunkPipelineUnwrapper, DynChunkPipeline};
 pub use context::{
     create_ok_context, ChunkResults, OkResultWithContext, PipelineContext, PipelineWarning,
-    ResultWithContext,
+    ResultWithContext, WarningDetails,
 };
 pub use errors::{is_retriable, PipelineError};
 pub use outputs::{
     HasMessage, HasTeamId, Headers, IngestionOutputs, KafkaMessage, MemoryOutputs, OutputMessage,
     DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT,
 };
+pub use per_element::per_element;
 pub use pipeline::{DynPipeline, Pipeline};
 pub use result_handling::PipelineConfig;
 pub use results::{

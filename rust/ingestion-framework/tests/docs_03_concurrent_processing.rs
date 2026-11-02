@@ -5,7 +5,7 @@ mod common;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use common::{consume_all, items, shared, sleep_ms};
+use common::{consume_all_within, items, shared, sleep_ms};
 use ingestion_framework::{new_chunk_pipeline, ok, step};
 
 /// it('concurrently() processes items in parallel')
@@ -30,7 +30,7 @@ async fn concurrently_processes_items_in_parallel() {
         .build();
     pipeline.feed(items([1, 2, 3]));
     let started = tokio::time::Instant::now();
-    let values = consume_all(pipeline.as_ref()).await;
+    let values = consume_all_within(pipeline.as_ref(), 100).await;
     assert_eq!(processed.lock().unwrap().len(), 3);
     assert_eq!(values, [2, 4, 6]);
     // In parallel: the three 100 ms steps take 100 ms in total, not 300 ms.
@@ -77,7 +77,7 @@ async fn result_ordering_matches_input_order() {
         )
         .build();
     pipeline.feed(items([1, 2, 3]));
-    let values = consume_all(pipeline.as_ref()).await;
+    let values = consume_all_within(pipeline.as_ref(), 30).await;
     assert_eq!(*order.lock().unwrap(), vec![3, 2, 1]);
     assert_eq!(values, [10, 20, 30]);
 }
@@ -106,7 +106,7 @@ async fn max_concurrency_caps_how_many_items_run_at_once() {
         )
         .build();
     pipeline.feed(items([1, 2, 3, 4, 5]));
-    let values = consume_all(pipeline.as_ref()).await;
+    let values = consume_all_within(pipeline.as_ref(), 300).await;
     assert_eq!(peak.load(Ordering::SeqCst), 2);
     assert_eq!(values, [2, 4, 6, 8, 10]);
 }

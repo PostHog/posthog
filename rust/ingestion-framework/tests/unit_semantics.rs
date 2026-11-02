@@ -316,7 +316,10 @@ async fn warnings_on_a_timed_out_result_are_dropped_not_emitted() {
             Ok(v.into_iter()
                 .map(|n| {
                     let r = if n == 1 { timeout::<i64>("cut") } else { ok(n) };
-                    r.with_warning(PipelineWarning::new("w", serde_json::json!({})))
+                    r.with_warning(PipelineWarning::new(
+                        "client_ingestion_warning",
+                        serde_json::json!({}),
+                    ))
                 })
                 .collect())
         }))

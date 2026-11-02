@@ -10,6 +10,9 @@ use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+use futures::future::BoxFuture;
+use futures::FutureExt;
+
 use crate::budget::BatchBudget;
 use crate::chunk_pipeline::DynChunkPipeline;
 use crate::context::{create_ok_context, ChunkResults, OkResultWithContext, ResultWithContext};
@@ -158,7 +161,32 @@ pub struct BatchingPipeline<T, O, CI, CO, CB, CF> {
     // Concurrent callers must not interleave inside the stages, which assume one caller.
     // tokio's Mutex is fair (FIFO), like `pLimit(1)`.
     feed_lock: tokio::sync::Mutex<()>,
-    pump_lock: tokio::sync::Mutex<()>,
+    // The pump's work in progress lives under the pump lock, not in the `next()` future.
+    // A dropped `next()` then loses nothing: the next call resumes the stored pull, the
+    // results not yet routed, and the afterBatch run.
+    pump: tokio::sync::Mutex<PumpState<O, CO, CB, CF>>,
+}
+
+type SubPull<O, CO> = BoxFuture<'static, anyhow::Result<Option<ChunkResults<O, CO>>>>;
+type AfterRun<O, CO, CB> =
+    BoxFuture<'static, anyhow::Result<ResultWithContext<AfterBatchOutput<O, CO, CB>, ()>>>;
+
+struct PendingPull<O, CO> {
+    epoch: u64,
+    future: SubPull<O, CO>,
+}
+
+struct RunningAfter<O, CO, CB, CF> {
+    batch_id: u64,
+    batch: TrackedBatch<O, CO, CB, CF>,
+    future: AfterRun<O, CO, CB>,
+}
+
+struct PumpState<O, CO, CB, CF> {
+    pull: Option<PendingPull<O, CO>>,
+    // Results of the last pull that are not yet routed to their batch.
+    unrouted: VecDeque<ResultWithContext<O, CO>>,
+    after: Option<RunningAfter<O, CO, CB, CF>>,
 }
 
 impl<T, O, CI, CO, CB, CF> BatchingPipeline<T, O, CI, CO, CB, CF>
@@ -190,7 +218,11 @@ where
             }),
             feed_epoch: AtomicU64::new(0),
             feed_lock: tokio::sync::Mutex::new(()),
-            pump_lock: tokio::sync::Mutex::new(()),
+            pump: tokio::sync::Mutex::new(PumpState {
+                pull: None,
+                unrouted: VecDeque::new(),
+                after: None,
+            }),
         }
     }
 
@@ -299,20 +331,52 @@ where
         Ok(FeedResult::Ok)
     }
 
+    /// Cancel-safe: a dropped call keeps its pull, its unrouted results and its afterBatch
+    /// run in the pipeline, and the next call resumes them.
     pub async fn next(&self) -> anyhow::Result<Option<BatchResult<O, CO, CB, CF>>> {
-        let _guard = self.pump_lock.lock().await;
-        self.pump().await
+        let mut pump = self.pump.lock().await;
+        self.pump(&mut pump).await
     }
 
-    async fn pump(&self) -> anyhow::Result<Option<BatchResult<O, CO, CB, CF>>> {
-        // A previous pump may have completed more batches while this caller waited.
-        if let Some(done) = self.state.lock().unwrap().completed.pop_front() {
-            return Ok(Some(done));
-        }
-
+    async fn pump(
+        &self,
+        pump: &mut PumpState<O, CO, CB, CF>,
+    ) -> anyhow::Result<Option<BatchResult<O, CO, CB, CF>>> {
         loop {
-            let epoch_at_pull = self.feed_epoch.load(Ordering::SeqCst);
-            let Some(results) = self.sub.next().await? else {
+            // Finish an afterBatch run first. A dropped call may have left one.
+            if let Some(running) = pump.after.as_mut() {
+                let after = running.future.as_mut().await;
+                let running = pump.after.take().expect("present");
+                self.complete_batch(running, after)?;
+            }
+
+            // Route the rest of the last pulled chunk. A finished batch starts its
+            // afterBatch run, which the top of the loop then awaits.
+            while let Some(result) = pump.unrouted.pop_front() {
+                if let Some(running) = self.route(result)? {
+                    pump.after = Some(running);
+                    break;
+                }
+            }
+            if pump.after.is_some() {
+                continue;
+            }
+
+            // Node returns a completed batch only after it routed the whole chunk.
+            if let Some(done) = self.state.lock().unwrap().completed.pop_front() {
+                return Ok(Some(done));
+            }
+
+            if pump.pull.is_none() {
+                let sub = self.sub.clone();
+                pump.pull = Some(PendingPull {
+                    epoch: self.feed_epoch.load(Ordering::SeqCst),
+                    future: async move { sub.next().await }.boxed(),
+                });
+            }
+            let pulled = pump.pull.as_mut().expect("present").future.as_mut().await;
+            let epoch_at_pull = pump.pull.take().expect("present").epoch;
+            let Some(results) = pulled? else {
                 let (batches, messages) = {
                     let state = self.state.lock().unwrap();
                     (state.batches.len(), state.message_to_batch.len())
@@ -328,77 +392,89 @@ where
                 }
                 return Ok(None);
             };
-
-            for result in results {
-                let finished = {
-                    let mut state = self.state.lock().unwrap();
-                    let message_id = result.context.message_id.ok_or_else(|| {
-                        anyhow::anyhow!("batching_pipeline received result without messageId")
-                    })?;
-                    let Some(batch_id) = state.message_to_batch.get(&message_id).copied() else {
-                        anyhow::bail!(
-                            "batching_pipeline received result with unknown messageId {message_id}"
-                        );
-                    };
-                    let Some(batch) = state.batches.get_mut(&batch_id) else {
-                        anyhow::bail!(
-                            "batching_pipeline has batchId mapping but batch {batch_id} is missing for messageId {message_id}"
-                        );
-                    };
-                    batch.inflight.remove(&message_id);
-                    batch.results.insert(message_id, result);
-                    if batch.inflight.is_empty() {
-                        let mut batch = state.batches.remove(&batch_id).expect("present");
-                        for id in &batch.message_ids {
-                            state.message_to_batch.remove(id);
-                        }
-                        let ordered: Vec<_> = batch
-                            .message_ids
-                            .iter()
-                            .map(|id| {
-                                batch
-                                    .results
-                                    .remove(id)
-                                    .expect("every message has a result")
-                            })
-                            .collect();
-                        Some((batch_id, batch, ordered))
-                    } else {
-                        None
-                    }
-                };
-
-                if let Some((batch_id, mut batch, ordered)) = finished {
-                    let after = self
-                        .after
-                        .process(create_ok_context(
-                            AfterBatchInput {
-                                elements: ordered,
-                                batch_context: batch.batch_context.clone(),
-                                batch_id,
-                            },
-                            (),
-                        ))
-                        .await?;
-                    record_budget_overrun(&batch.budget);
-                    let Outcome::Ok(after_output) = after.result else {
-                        anyhow::bail!("batching_pipeline afterBatch hook returned non-ok result for batch {batch_id}");
-                    };
-                    let mut side_effects = std::mem::take(&mut batch.before_side_effects);
-                    side_effects.extend(after.context.side_effects);
-                    self.state.lock().unwrap().completed.push_back(BatchResult {
-                        elements: after_output.elements,
-                        batch_context: batch.batch_context,
-                        feed_context: batch.feed_context.take().expect("set at feed"),
-                        batch_id,
-                        side_effects,
-                    });
-                }
-            }
-
-            if let Some(done) = self.state.lock().unwrap().completed.pop_front() {
-                return Ok(Some(done));
-            }
+            pump.unrouted.extend(results);
         }
+    }
+
+    /// Records one result. When it completes its batch, returns the started afterBatch run.
+    fn route(
+        &self,
+        result: ResultWithContext<O, CO>,
+    ) -> anyhow::Result<Option<RunningAfter<O, CO, CB, CF>>> {
+        let mut state = self.state.lock().unwrap();
+        let message_id = result.context.message_id.ok_or_else(|| {
+            anyhow::anyhow!("batching_pipeline received result without messageId")
+        })?;
+        let Some(batch_id) = state.message_to_batch.get(&message_id).copied() else {
+            anyhow::bail!("batching_pipeline received result with unknown messageId {message_id}");
+        };
+        let Some(batch) = state.batches.get_mut(&batch_id) else {
+            anyhow::bail!(
+                "batching_pipeline has batchId mapping but batch {batch_id} is missing for messageId {message_id}"
+            );
+        };
+        batch.inflight.remove(&message_id);
+        batch.results.insert(message_id, result);
+        if !batch.inflight.is_empty() {
+            return Ok(None);
+        }
+        let mut batch = state.batches.remove(&batch_id).expect("present");
+        for id in &batch.message_ids {
+            state.message_to_batch.remove(id);
+        }
+        drop(state);
+        let ordered: Vec<_> = batch
+            .message_ids
+            .iter()
+            .map(|id| {
+                batch
+                    .results
+                    .remove(id)
+                    .expect("every message has a result")
+            })
+            .collect();
+        let after = self.after.clone();
+        let input = create_ok_context(
+            AfterBatchInput {
+                elements: ordered,
+                batch_context: batch.batch_context.clone(),
+                batch_id,
+            },
+            (),
+        );
+        Ok(Some(RunningAfter {
+            batch_id,
+            batch,
+            future: async move { after.process(input).await }.boxed(),
+        }))
+    }
+
+    fn complete_batch(
+        &self,
+        running: RunningAfter<O, CO, CB, CF>,
+        after: anyhow::Result<ResultWithContext<AfterBatchOutput<O, CO, CB>, ()>>,
+    ) -> anyhow::Result<()> {
+        let RunningAfter {
+            batch_id,
+            mut batch,
+            ..
+        } = running;
+        let after = after?;
+        record_budget_overrun(&batch.budget);
+        let Outcome::Ok(after_output) = after.result else {
+            anyhow::bail!(
+                "batching_pipeline afterBatch hook returned non-ok result for batch {batch_id}"
+            );
+        };
+        let mut side_effects = std::mem::take(&mut batch.before_side_effects);
+        side_effects.extend(after.context.side_effects);
+        self.state.lock().unwrap().completed.push_back(BatchResult {
+            elements: after_output.elements,
+            batch_context: batch.batch_context,
+            feed_context: batch.feed_context.take().expect("set at feed"),
+            batch_id,
+            side_effects,
+        });
+        Ok(())
     }
 }

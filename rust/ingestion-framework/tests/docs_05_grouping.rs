@@ -4,7 +4,7 @@ mod common;
 
 use std::collections::HashMap;
 
-use common::{collect_chunks, consume_all, items, shared, sleep_ms};
+use common::{collect_chunks, consume_all_within, items, shared, sleep_ms};
 use ingestion_framework::{new_chunk_pipeline, ok, step};
 
 type Event = (&'static str, i64);
@@ -42,7 +42,7 @@ async fn concurrently_per_group_partitions_items_by_a_key_function() {
         ("alice", 3),
         ("bob", 4),
     ]));
-    consume_all(pipeline.as_ref()).await;
+    consume_all_within(pipeline.as_ref(), 20).await;
     let groups = groups.lock().unwrap();
     assert_eq!(groups["alice"], vec![1, 3]);
     assert_eq!(groups["bob"], vec![2, 4]);
@@ -72,7 +72,7 @@ async fn items_in_the_same_group_are_processed_sequentially() {
         )
         .build();
     pipeline.feed(events(&[("alice", 1), ("alice", 2), ("alice", 3)]));
-    consume_all(pipeline.as_ref()).await;
+    consume_all_within(pipeline.as_ref(), 30).await;
     assert_eq!(*order.lock().unwrap(), vec![1, 2, 3]);
 }
 
@@ -159,7 +159,7 @@ async fn complex_group_keys_with_token_and_distinct_id() {
         ("token-A", "user-2", "pageview"),
         ("token-A", "user-1", "purchase"),
     ]));
-    consume_all(pipeline.as_ref()).await;
+    consume_all_within(pipeline.as_ref(), 10).await;
     let groups = groups.lock().unwrap();
     assert_eq!(groups["token-A:user-1"], vec!["login", "purchase"]);
     assert_eq!(groups["token-B:user-1"], vec!["signup"]);

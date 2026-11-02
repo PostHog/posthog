@@ -7,7 +7,12 @@
  * `DATABASE_URL=postgres://localhost/bench pnpm exec tsx src/ingestion/framework/benchmarks/framework-bench.ts`
  * Prints one JSON line per workload and size with the mean ns per element.
  */
-import { newBatchingPipeline, newChunkPipelineBuilder, newPipelineBuilder } from '~/ingestion/framework/builders'
+import {
+    newBatchingPipeline,
+    newChunkPipelineBuilder,
+    newPipelineBuilder,
+    perElement,
+} from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
@@ -76,6 +81,14 @@ const WORKLOADS: Record<string, (n: number) => Promise<void>> = {
     concurrently_max50: async (n) => {
         const pipeline = newChunkPipelineBuilder<number, Ctx>()
             .concurrently((b) => b.pipe(inc('s1')).pipe(inc('s2')), { maxConcurrency: 50 })
+            .build()
+        pipeline.feed(inputs(n))
+        assertCount(await drain(pipeline), n)
+    },
+    per_element_max50: async (n) => {
+        const pipeline = newChunkPipelineBuilder<number, Ctx>()
+            .pipeChunk(perElement(inc('s1'), { maxConcurrency: 50 }))
+            .pipeChunk(perElement(inc('s2'), { maxConcurrency: 50 }))
             .build()
         pipeline.feed(inputs(n))
         assertCount(await drain(pipeline), n)

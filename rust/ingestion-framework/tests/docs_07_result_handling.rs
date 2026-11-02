@@ -159,11 +159,11 @@ async fn redirect_sends_items_to_a_named_output_with_optional_key_preservation()
         .iter()
         .all(|r| r.result.result_type() == PipelineResultType::Redirect));
 
-    let mut calls = outputs.calls();
+    // Node produces in item order, so the call order is the feed order.
+    let calls = outputs.calls();
     assert_eq!(calls.len(), 2);
-    calls.sort_by(|a, b| a.0.cmp(&b.0));
-    let (broadcast_out, broadcast) = &calls[0];
-    let (high_out, high) = &calls[1];
+    let (high_out, high) = &calls[0];
+    let (broadcast_out, broadcast) = &calls[1];
     assert_eq!(high_out, "high_priority");
     assert_eq!(high.value, message1.value);
     assert_eq!(high.key.as_deref(), Some(&b"my-partition-key"[..]));
@@ -245,6 +245,5 @@ async fn redirect_with_await_ack_false_does_not_block_on_the_produce_ack() {
         results[0].result.result_type(),
         PipelineResultType::Redirect
     );
-    tokio::task::yield_now().await;
     assert_eq!(outputs.calls().len(), 1);
 }
