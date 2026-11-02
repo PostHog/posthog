@@ -32,7 +32,6 @@ import {
 
 import {
     DEFAULT_GROUPED_MAX_INSTANCES,
-    allowedGroupBysOf,
     LogsAlertGroupBy,
     canGroupAlert,
     groupByOf,
@@ -137,9 +136,9 @@ export interface logsAlertFormLogicValues {
     alertFormTouched: boolean
     alertFormTouches: Record<string, boolean>
     alertFormValidationErrors: DeepPartialMap<LogsAlertFormType, ValidationErrorType>
-    allowedGroupBys: LogsAlertGroupBy[] | null
     canGroup: boolean
     isAlertFormSubmitting: boolean
+    lockedGroupBy: LogsAlertGroupBy | null
     isAlertFormValid: boolean
     isEditing: boolean
     isRegroupConfirmationOpen: boolean
@@ -267,7 +266,7 @@ export interface logsAlertFormLogicMeta {
         isEditing: (arg: any) => boolean
         groupingFlagEnabled: (featureFlags: FeatureFlagsSet) => boolean
         canGroup: (arg: any, alerts: LogsAlertConfigurationApi[], groupingFlagEnabled: boolean) => boolean
-        allowedGroupBys: (arg: any, groupingFlagEnabled: boolean) => LogsAlertGroupBy[] | null
+        lockedGroupBy: (arg: any, groupingFlagEnabled: boolean) => LogsAlertGroupBy | null
         regroupConfirmation: (arg: any) => string
         needsRegroupConfirmation: (arg: any, canGroup: boolean, alertForm: LogsAlertFormType) => boolean
         simulationDisabledReason: (canGroup: boolean, alertForm: LogsAlertFormType) => string | undefined
@@ -415,10 +414,11 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
                 groupingFlagEnabled: boolean
             ): boolean => canGroupAlert(alert, alerts, groupingFlagEnabled),
         ],
-        allowedGroupBys: [
+        // With the flag off, an alert that already groups may only keep its grouping or drop it, as the API allows.
+        lockedGroupBy: [
             (s) => [(_, props) => props.alert, s.groupingFlagEnabled],
-            (alert: LogsAlertConfigurationApi | null, groupingFlagEnabled: boolean): LogsAlertGroupBy[] | null =>
-                allowedGroupBysOf(alert, groupingFlagEnabled),
+            (alert: LogsAlertConfigurationApi | null, groupingFlagEnabled: boolean): LogsAlertGroupBy | null =>
+                groupingFlagEnabled ? null : groupByOf(alert?.grouping),
         ],
         regroupConfirmation: [
             () => [(_, props) => props.alert],

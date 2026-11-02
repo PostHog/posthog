@@ -96,21 +96,6 @@ export function canGroupAlert(
     return alert ? alert.platform_owned : teamAlerts.some((candidate) => candidate.platform_owned)
 }
 
-/**
- * The Group by options a save may pick, or null for all of them. With the flag off, an alert that
- * already groups may only keep its grouping or drop it, as the API allows.
- */
-export function allowedGroupBysOf(
-    alert: LogsAlertConfigurationApi | null,
-    groupingFlagEnabled: boolean
-): LogsAlertGroupBy[] | null {
-    if (groupingFlagEnabled) {
-        return null
-    }
-    const current = groupByOf(alert?.grouping)
-    return current === 'none' ? ['none'] : ['none', current]
-}
-
 /** What a save that changes the grouping does to the state the alert tracks now. */
 export function regroupConfirmationText(alert: LogsAlertConfigurationApi | null): string {
     if (alert?.grouping?.mode === GroupingModeEnumApi.ByResultLabels) {

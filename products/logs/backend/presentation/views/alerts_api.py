@@ -790,18 +790,18 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         return attrs
 
     def _may_group(self, grouping: Grouping) -> bool:
-        # An alert that already groups keeps its keys with the flag off, so it can still change its
-        # group limit or be ungrouped.
-        if self.instance is not None and (runtime := _platform_runtime_of([self.instance]).get(self.instance.id)):
-            if runtime.grouping.splits_like(grouping):
-                return True
         team = self.context["get_team"]()
-        return posthog_feature_flag_enabled(
+        if posthog_feature_flag_enabled(
             LOGS_ALERTS_GROUPING_FLAG,
             str(cast(User, self.context["request"].user).distinct_id),
             organization_id=team.organization_id,
             team_id=team.id,
-        )
+        ):
+            return True
+        # An alert that already groups keeps its keys with the flag off, so it can still change its
+        # group limit or be ungrouped.
+        runtime = _platform_runtime_of([self.instance]).get(self.instance.id) if self.instance else None
+        return runtime is not None and runtime.grouping.splits_like(grouping)
 
     def update(self, instance: LogsAlertConfiguration, validated_data: dict) -> LogsAlertConfiguration:
         if "name" in validated_data and not validated_data.get("name", "").strip():
