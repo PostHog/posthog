@@ -1979,10 +1979,9 @@ class TestPrinter(BaseTest):
             # and prove the marker by the same comparison in a WHERE, where it is guarded.
             alias_guard_sql = _KEY_GUARD_SQL.replace("events.", "a.")
             self.assertIn(alias_guard_sql, optimized_sql("select 1 from events as a where a.properties.key < 'b'"))
-            self.assertNotIn(
-                alias_guard_sql,
-                optimized_sql("select 1 from events as a join events as b on a.properties.key < 'b'"),
-            )
+            join_sql = optimized_sql("select 1 from events as a join events as b on a.properties.key < 'b'")
+            self.assertIn("if(has(a.properties_group_custom, ", join_sql)
+            self.assertNotIn(alias_guard_sql, join_sql)
         # A guarded WHERE comparison next to the same comparison in another clause: only the WHERE one is guarded.
         select_sql = optimized_sql("select less(properties.key, 'b') from events where less(properties.other, 'c')")
         select_part, _, where_part = select_sql.partition("WHERE")

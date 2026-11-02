@@ -1962,8 +1962,8 @@ class ClickHousePropertyResolver(CloningVisitor):
         return self._visit_compare_operation(node, in_filter_chain=self._in_filter_chain(node))
 
     def _in_filter_chain(self, node: ast.Expr) -> bool:
-        # `_collect_key_guard_nodes` records these by id: the comparisons and calls reached from a WHERE or PREWHERE through
-        # `and`/`or` alone.
+        # `_collect_key_guard_nodes` records these by id: the comparisons and calls reached from a WHERE or PREWHERE
+        # through `and`/`or` alone.
         return id(node) in self._key_guard_nodes
 
     def _visit_compare_operation(self, node: ast.CompareOperation, in_filter_chain: bool) -> ast.Expr:
