@@ -795,14 +795,20 @@ def require_email_from_code(team: Any) -> None:
 
 
 def _require_flag(team: Any, flag: str) -> None:
-    if not posthoganalytics.feature_enabled(
-        flag,
-        str(team.uuid),
-        groups={"organization": str(team.organization_id)},
-        group_properties={"organization": {"id": str(team.organization_id)}},
-        send_feature_flag_events=False,
-    ):
+    if not _flag_enabled(team, flag):
         raise NotFound()
+
+
+def _flag_enabled(team: Any, flag: str) -> bool:
+    return bool(
+        posthoganalytics.feature_enabled(
+            flag,
+            str(team.uuid),
+            groups={"organization": str(team.organization_id)},
+            group_properties={"organization": {"id": str(team.organization_id)}},
+            send_feature_flag_events=False,
+        )
+    )
 
 
 class TemplateUploadBurstThrottle(TransactionalEmailBurstThrottle):
@@ -1621,8 +1627,12 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
                 raise NotFound()
             self.check_object_permissions(request, template)
         return self._queue_transactional_email(
-            request, template, route="send_email", options=_template_send_options(request.data, request.validated_data)
+            request, template, route="send_email", options=self._id_send_options(request)
         )
+
+    def _id_send_options(self, request: Any) -> TemplateSendOptions | None:
+        options = _template_send_options(request.data, request.validated_data)
+        return options if options and _flag_enabled(self.team, EMAIL_FROM_CODE_FLAG) else None
 
     def _send_template_by_key(self, request: Any) -> Response:
         with transactional_email_stage("feature_flag"):
