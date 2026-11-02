@@ -81,9 +81,9 @@ import type {
     PeopleImportApi,
     PeopleImportCreateApi,
     SendCalendarFlowApi,
-    T3CodeCallApi,
     T3CodeMachinesApi,
     T3CodeProjectsApi,
+    T3CodeProjectsRequestApi,
     T3CodeWebhookTaskApi,
     T3CodeWebhookTaskRequestApi,
     TeamEmailReputationResponseApi,
@@ -1775,14 +1775,14 @@ export const getWorkflowT3CodeProjectsCreateUrl = (projectId: string) => {
  */
 export const workflowT3CodeProjectsCreate = async (
     projectId: string,
-    t3CodeCallApi: T3CodeCallApi,
+    t3CodeProjectsRequestApi: T3CodeProjectsRequestApi,
     options?: RequestInit
 ): Promise<T3CodeProjectsApi> => {
     return apiMutator<T3CodeProjectsApi>(getWorkflowT3CodeProjectsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(t3CodeCallApi),
+        body: JSON.stringify(t3CodeProjectsRequestApi),
     })
 }
 

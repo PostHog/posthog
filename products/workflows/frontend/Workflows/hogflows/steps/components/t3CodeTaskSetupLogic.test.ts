@@ -78,6 +78,39 @@ describe('t3CodeTaskSetupLogic', () => {
         expect(logic.values).toMatchObject({ projects: projectsOn('devbox').projects, error: null })
     })
 
+    it('appends the next page after the member allows it, keeping the projects already loaded', async () => {
+        const later = { id: 'later-project', title: 'later project', has_default_model: true }
+        projectsCreate.mockImplementation(
+            (_teamId: string, { cursor, approval_token }: { cursor?: number; approval_token?: string }) =>
+                Promise.resolve(
+                    cursor === undefined
+                        ? { ...projectsOn('laptop'), next_cursor: 100 }
+                        : approval_token === 'token-1'
+                          ? { status: 'ok', approval_token: null, projects: [later], next_cursor: null }
+                          : { status: 'needs_approval', approval_token: 'token-1' }
+                )
+        )
+        await expectLogic(logic, () => logic.actions.setMachine('laptop')).toFinishAllListeners()
+
+        await expectLogic(logic, () => logic.actions.loadMoreProjects(undefined)).toFinishAllListeners()
+        expect(logic.values).toMatchObject({
+            projects: projectsOn('laptop').projects,
+            pendingApproval: { kind: 'more-projects', approvalToken: 'token-1' },
+        })
+
+        await expectLogic(logic, () => logic.actions.allowPendingCall()).toFinishAllListeners()
+        expect(logic.values).toMatchObject({
+            projects: [...projectsOn('laptop').projects!, later],
+            nextCursor: null,
+            pendingApproval: null,
+        })
+        expect(projectsCreate).toHaveBeenLastCalledWith(String(logic.values.currentTeamId), {
+            machine: 'laptop',
+            cursor: 100,
+            approval_token: 'token-1',
+        })
+    })
+
     it('drops the webhook URL of a task created for a selection the member left', async () => {
         projectsCreate.mockImplementation((_teamId: string, { machine }: { machine: string }) =>
             Promise.resolve(projectsOn(machine))

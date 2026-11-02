@@ -22,7 +22,7 @@ export interface T3CodeTaskSetupLogicProps {
     onWebhookUrl: (webhookUrl: string) => void
 }
 
-export type T3CodeCallKind = 'projects' | 'task'
+export type T3CodeCallKind = 'projects' | 'more-projects' | 'task'
 
 export interface T3CodePendingApproval {
     kind: T3CodeCallKind
@@ -39,9 +39,13 @@ export interface t3CodeTaskSetupLogicValues {
     currentTeamId: number | null // teamLogic
     createdWebhookUrl: string | null
     error: string | null
+    laterProjects: T3CodeProjectApi[]
     machine: string | null
     machines: T3CodeMachineApi[] | null
     machinesLoading: boolean
+    moreProjectsResult: T3CodeProjectsApi | null
+    moreProjectsResultLoading: boolean
+    nextCursor: number | null
     pendingApproval: T3CodePendingApproval | null
     project: string | null
     projects: T3CodeProjectApi[] | null
@@ -87,6 +91,21 @@ export interface t3CodeTaskSetupLogicActions {
         machines: T3CodeMachineApi[]
         payload?: any
     }
+    loadMoreProjects: (approvalToken: string | undefined) => string | undefined
+    loadMoreProjectsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadMoreProjectsSuccess: (
+        moreProjectsResult: T3CodeProjectsApi | null,
+        payload?: string | undefined
+    ) => {
+        moreProjectsResult: T3CodeProjectsApi | null
+        payload?: string | undefined
+    }
     loadProjects: (approvalToken: string | undefined) => string | undefined
     loadProjectsFailure: (
         error: string,
@@ -114,9 +133,13 @@ export interface t3CodeTaskSetupLogicActions {
 export interface t3CodeTaskSetupLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        projects: (projectsResult: T3CodeProjectsApi | null) => T3CodeProjectApi[] | null
+        projects: (
+            projectsResult: T3CodeProjectsApi | null,
+            laterProjects: T3CodeProjectApi[]
+        ) => T3CodeProjectApi[] | null
         pendingApproval: (
             projectsResult: T3CodeProjectsApi | null,
+            moreProjectsResult: T3CodeProjectsApi | null,
             taskResult: T3CodeWebhookTaskApi | null
         ) => T3CodePendingApproval | null
         createdWebhookUrl: (taskResult: T3CodeWebhookTaskApi | null) => string | null
@@ -188,6 +211,26 @@ export const t3CodeTaskSetupLogic = kea<t3CodeTaskSetupLogicType>([
                 },
             },
         ],
+        moreProjectsResult: [
+            null as T3CodeProjectsApi | null,
+            {
+                loadMoreProjects: async (approvalToken: string | undefined, breakpoint) => {
+                    const { machine, nextCursor } = values
+                    if (!machine || nextCursor === null) {
+                        return null
+                    }
+                    return await replyForSelection(
+                        workflowT3CodeProjectsCreate(String(values.currentTeamId), {
+                            machine,
+                            cursor: nextCursor,
+                            approval_token: approvalToken,
+                        }),
+                        breakpoint,
+                        () => values.machine === machine && values.nextCursor === nextCursor
+                    )
+                },
+            },
+        ],
         taskResult: [
             null as T3CodeWebhookTaskApi | null,
             {
@@ -221,6 +264,27 @@ export const t3CodeTaskSetupLogic = kea<t3CodeTaskSetupLogicType>([
         ],
         taskTitle: [null as string | null, { createTask: (_, { title }) => title }],
         projectsResult: { setMachine: () => null, loadProjectsFailure: () => null },
+        moreProjectsResult: { setMachine: () => null, loadProjects: () => null, loadMoreProjectsFailure: () => null },
+        // Pages after the first, appended as the member loads them.
+        laterProjects: [
+            [] as T3CodeProjectApi[],
+            {
+                setMachine: () => [],
+                loadProjectsSuccess: () => [],
+                loadMoreProjectsSuccess: (state, { moreProjectsResult }) =>
+                    moreProjectsResult?.status === 'ok' ? [...state, ...(moreProjectsResult.projects ?? [])] : state,
+            },
+        ],
+        nextCursor: [
+            null as number | null,
+            {
+                setMachine: () => null,
+                loadProjectsSuccess: (_, { projectsResult }) =>
+                    projectsResult?.status === 'ok' ? (projectsResult.next_cursor ?? null) : null,
+                loadMoreProjectsSuccess: (state, { moreProjectsResult }) =>
+                    moreProjectsResult?.status === 'ok' ? (moreProjectsResult.next_cursor ?? null) : state,
+            },
+        ],
         taskResult: { setMachine: () => null, setProject: () => null, createTaskFailure: () => null },
         error: [
             null as string | null,
@@ -229,11 +293,14 @@ export const t3CodeTaskSetupLogic = kea<t3CodeTaskSetupLogicType>([
                 setProject: () => null,
                 loadMachines: () => null,
                 loadProjects: () => null,
+                loadMoreProjects: () => null,
                 createTask: () => null,
                 loadMachinesFailure: (_, { errorObject }) =>
                     errorDetail(errorObject, "PostHog couldn't load your T3 Code connections. Try again."),
                 loadProjectsFailure: (_, { errorObject }) =>
                     errorDetail(errorObject, "PostHog couldn't load the projects on this machine. Try again."),
+                loadMoreProjectsFailure: (_, { errorObject }) =>
+                    errorDetail(errorObject, "PostHog couldn't load more projects from this machine. Try again."),
                 createTaskFailure: (_, { errorObject }) =>
                     errorDetail(errorObject, "PostHog couldn't create the task in T3 Code. Try again."),
             },
@@ -241,14 +308,15 @@ export const t3CodeTaskSetupLogic = kea<t3CodeTaskSetupLogicType>([
     }),
     selectors({
         projects: [
-            (s) => [s.projectsResult],
-            (projectsResult: T3CodeProjectsApi | null): T3CodeProjectApi[] | null =>
-                projectsResult?.status === 'ok' ? (projectsResult.projects ?? []) : null,
+            (s) => [s.projectsResult, s.laterProjects],
+            (projectsResult: T3CodeProjectsApi | null, laterProjects: T3CodeProjectApi[]): T3CodeProjectApi[] | null =>
+                projectsResult?.status === 'ok' ? [...(projectsResult.projects ?? []), ...laterProjects] : null,
         ],
         pendingApproval: [
-            (s) => [s.projectsResult, s.taskResult],
+            (s) => [s.projectsResult, s.moreProjectsResult, s.taskResult],
             (
                 projectsResult: T3CodeProjectsApi | null,
+                moreProjectsResult: T3CodeProjectsApi | null,
                 taskResult: T3CodeWebhookTaskApi | null
             ): T3CodePendingApproval | null => {
                 if (taskResult?.status === 'needs_approval' && taskResult.approval_token) {
@@ -256,6 +324,9 @@ export const t3CodeTaskSetupLogic = kea<t3CodeTaskSetupLogicType>([
                 }
                 if (projectsResult?.status === 'needs_approval' && projectsResult.approval_token) {
                     return { kind: 'projects', approvalToken: projectsResult.approval_token }
+                }
+                if (moreProjectsResult?.status === 'needs_approval' && moreProjectsResult.approval_token) {
+                    return { kind: 'more-projects', approvalToken: moreProjectsResult.approval_token }
                 }
                 return null
             },
@@ -276,6 +347,8 @@ export const t3CodeTaskSetupLogic = kea<t3CodeTaskSetupLogicType>([
             const pending = values.pendingApproval
             if (pending?.kind === 'projects') {
                 actions.loadProjects(pending.approvalToken)
+            } else if (pending?.kind === 'more-projects') {
+                actions.loadMoreProjects(pending.approvalToken)
             } else if (pending?.kind === 'task' && values.taskTitle) {
                 actions.createTask({ title: values.taskTitle, approvalToken: pending.approvalToken })
             }

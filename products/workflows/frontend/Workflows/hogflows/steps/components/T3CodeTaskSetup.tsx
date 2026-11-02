@@ -13,6 +13,7 @@ import { t3CodeTaskSetupLogic } from './t3CodeTaskSetupLogic'
 
 const APPROVAL_PROMPTS = {
     projects: 'PostHog needs your OK to read the projects on this machine.',
+    'more-projects': 'PostHog needs your OK to read more projects on this machine.',
     task: 'PostHog needs your OK to create the task in T3 Code.',
 }
 
@@ -35,13 +36,16 @@ export function T3CodeTaskSetup({
         machine,
         projects,
         projectsResultLoading,
+        nextCursor,
+        moreProjectsResultLoading,
         project,
         pendingApproval,
         taskResultLoading,
         createdWebhookUrl,
         error,
     } = useValues(logic)
-    const { setMachine, setProject, createTask, allowPendingCall, loadMachines, loadProjects } = useActions(logic)
+    const { setMachine, setProject, createTask, allowPendingCall, loadMachines, loadProjects, loadMoreProjects } =
+        useActions(logic)
     const { workflow } = useValues(workflowLogic)
     const hasWebhookUrl = Boolean(inputs.webhook_url?.value || inputs.webhook_url?.secret)
 
@@ -83,7 +87,26 @@ export function T3CodeTaskSetup({
                         <LemonField.Pure
                             label="Project"
                             help={
-                                projects?.length && projects.every(({ has_default_model }) => !has_default_model) ? (
+                                projects?.length && nextCursor !== null ? (
+                                    <div className="flex items-center gap-1">
+                                        Showing {projects.length} projects. This machine has more.
+                                        <LemonButton
+                                            type="tertiary"
+                                            size="xsmall"
+                                            onClick={() => loadMoreProjects(undefined)}
+                                            loading={moreProjectsResultLoading}
+                                            disabledReason={
+                                                pendingApproval?.kind === 'more-projects'
+                                                    ? 'Allow PostHog to read more projects first'
+                                                    : undefined
+                                            }
+                                            data-attr="workflow-t3-code-more-projects"
+                                        >
+                                            Load more projects
+                                        </LemonButton>
+                                    </div>
+                                ) : projects?.length &&
+                                  projects.every(({ has_default_model }) => !has_default_model) ? (
                                     <>
                                         T3 Code starts threads only in a project with a default model. Set one in the
                                         project's settings in T3 Code.{' '}
@@ -133,7 +156,7 @@ export function T3CodeTaskSetup({
                     action={{
                         children: 'Allow',
                         onClick: allowPendingCall,
-                        loading: projectsResultLoading || taskResultLoading,
+                        loading: projectsResultLoading || moreProjectsResultLoading || taskResultLoading,
                         'data-attr': 'workflow-t3-code-allow',
                     }}
                 >

@@ -119443,16 +119443,6 @@ export namespace Schemas {
       force_refresh?: boolean;
     }
 
-    export interface T3CodeCall {
-      /**
-         * The host of one of the member's T3 Code machines.
-         * @maxLength 253
-         */
-      machine: string;
-      /** The token from a `needs_approval` answer. Send it once the member allowed the call. */
-      approval_token?: string;
-    }
-
     /**
      * * `ok` - OK
      * * `needs_approval` - Needs approval
@@ -119502,8 +119492,28 @@ export namespace Schemas {
          * @nullable
          */
       approval_token: string | null;
-      /** Set with `ok`: the machine's projects. */
+      /** Set with `ok`: one page of the machine's projects. */
       projects?: T3CodeProject[];
+      /**
+         * Set with `ok`: send it as `cursor` to get the next page, or null when this is the last page.
+         * @nullable
+         */
+      next_cursor?: number | null;
+    }
+
+    export interface T3CodeProjectsRequest {
+      /**
+         * The host of one of the member's T3 Code machines.
+         * @maxLength 253
+         */
+      machine: string;
+      /** The token from a `needs_approval` answer. Send it once the member allowed the call. */
+      approval_token?: string;
+      /**
+         * The `next_cursor` from the previous page of projects. Leave it out for the first page.
+         * @minimum 0
+         */
+      cursor?: number;
     }
 
     export interface T3CodeWebhookTask {

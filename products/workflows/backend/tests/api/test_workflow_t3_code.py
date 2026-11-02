@@ -121,7 +121,25 @@ class TestWorkflowT3Code(APIBaseTest):
                 {"id": "project-1", "title": "posthog", "has_default_model": True},
                 {"id": "project-2", "title": "website", "has_default_model": False},
             ],
+            "next_cursor": None,
         }
+
+    @patch(UPSTREAM_CALL)
+    def test_projects_after_the_first_page_are_reachable(self, upstream: MagicMock, _flag: MagicMock) -> None:
+        self._connect("laptop.t3coderelay.com")
+        project = {"workspaceRoot": "/code/x", "defaultModelSelection": None}
+        upstream.side_effect = [
+            {"structuredContent": {"projects": [{**project, "id": "p1", "title": "first"}], "nextCursor": 100}},
+            {"structuredContent": {"projects": [{**project, "id": "p101", "title": "later"}], "nextCursor": None}},
+        ]
+
+        first = self.client.post(self._url("projects"), {"machine": "laptop.t3coderelay.com"})
+        later = self.client.post(self._url("projects"), {"machine": "laptop.t3coderelay.com", "cursor": 100})
+
+        assert first.json()["next_cursor"] == 100, first.json()
+        assert later.json()["projects"] == [{"id": "p101", "title": "later", "has_default_model": False}]
+        assert later.json()["next_cursor"] is None
+        assert [call.args[2] for call in upstream.call_args_list] == [{"limit": 100}, {"limit": 100, "cursor": 100}]
 
     @patch(UPSTREAM_CALL)
     def test_creating_a_webhook_task_returns_its_url(self, upstream: MagicMock, _flag: MagicMock) -> None:

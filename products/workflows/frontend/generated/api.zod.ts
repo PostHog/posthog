@@ -3633,6 +3633,8 @@ export const WorkflowSendingRulesPartialUpdateBody = /* @__PURE__ */ zod.object(
  */
 export const workflowT3CodeProjectsCreateBodyMachineMax = 253
 
+export const workflowT3CodeProjectsCreateBodyCursorMin = 0
+
 export const WorkflowT3CodeProjectsCreateBody = /* @__PURE__ */ zod.object({
     machine: zod
         .string()
@@ -3642,6 +3644,11 @@ export const WorkflowT3CodeProjectsCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe('The token from a `needs_approval` answer. Send it once the member allowed the call.'),
+    cursor: zod
+        .number()
+        .min(workflowT3CodeProjectsCreateBodyCursorMin)
+        .optional()
+        .describe('The `next_cursor` from the previous page of projects. Leave it out for the first page.'),
 })
 
 /**

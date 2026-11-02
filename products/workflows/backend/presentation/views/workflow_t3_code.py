@@ -68,6 +68,14 @@ class T3CodeCallSerializer(serializers.Serializer):
     )
 
 
+class T3CodeProjectsRequestSerializer(T3CodeCallSerializer):
+    cursor = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text="The `next_cursor` from the previous page of projects. Leave it out for the first page.",
+    )
+
+
 class T3CodeWebhookTaskRequestSerializer(T3CodeCallSerializer):
     project_id = serializers.CharField(max_length=200, help_text="The T3 Code project the task starts threads in.")
     title = serializers.CharField(max_length=512, help_text="The task's name in T3 Code.")
@@ -92,7 +100,14 @@ class T3CodeProjectSerializer(serializers.Serializer):
 
 
 class T3CodeProjectsSerializer(T3CodeApprovalSerializer):
-    projects = T3CodeProjectSerializer(many=True, required=False, help_text="Set with `ok`: the machine's projects.")
+    projects = T3CodeProjectSerializer(
+        many=True, required=False, help_text="Set with `ok`: one page of the machine's projects."
+    )
+    next_cursor = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Set with `ok`: send it as `cursor` to get the next page, or null when this is the last page.",
+    )
 
 
 class T3CodeWebhookTaskSerializer(T3CodeApprovalSerializer):
@@ -133,7 +148,7 @@ class WorkflowT3CodeViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(T3CodeMachinesSerializer({"machines": servers}).data)
 
     @validated_request(
-        T3CodeCallSerializer,
+        T3CodeProjectsRequestSerializer,
         responses={
             200: OpenApiResponse(response=T3CodeProjectsSerializer),
             400: OpenApiResponse(response=T3CodeErrorSerializer),
@@ -142,12 +157,27 @@ class WorkflowT3CodeViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=False, methods=["post"])
     def projects(self, request: ValidatedRequest, **kwargs: Any) -> Response:
-        outcome = self._call(request.validated_data, "t3_project_list", {"limit": PROJECT_LIST_LIMIT})
+        arguments: dict[str, Any] = {"limit": PROJECT_LIST_LIMIT}
+        if request.validated_data.get("cursor"):
+            arguments["cursor"] = request.validated_data["cursor"]
+        outcome = self._call(request.validated_data, "t3_project_list", arguments)
         if outcome.status != "ok":
             return Response(T3CodeProjectsSerializer(outcome).data)
-        projects = [_project(project) for project in _structured(outcome).get("projects") or []]
+        structured = _structured(outcome)
+        projects = [_project(project) for project in structured.get("projects") or []]
+        next_cursor = structured.get("nextCursor")
         return Response(
-            T3CodeProjectsSerializer({"status": T3CodeCallStatus.OK, "approval_token": None, "projects": projects}).data
+            T3CodeProjectsSerializer(
+                {
+                    "status": T3CodeCallStatus.OK,
+                    "approval_token": None,
+                    "projects": projects,
+                    # T3 Code is an untrusted upstream, so anything but a page offset ends the list.
+                    "next_cursor": next_cursor
+                    if isinstance(next_cursor, int) and not isinstance(next_cursor, bool) and next_cursor > 0
+                    else None,
+                }
+            ).data
         )
 
     @validated_request(
