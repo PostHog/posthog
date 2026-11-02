@@ -438,7 +438,7 @@ class TestSimplePaginationRefusedFields:
         response.text = ""
         return response
 
-    @pytest.mark.parametrize("subcode", [2446211, 1443048])
+    @pytest.mark.parametrize("subcode", [2446211, 1443048, 1885649])
     def test_refused_row_syncs_without_refusable_fields(self, subcode: int) -> None:
         manager = _build_manager()
         refused_body = {"error": {**self.REFUSED_BODY["error"], "error_subcode": subcode}}

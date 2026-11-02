@@ -472,15 +472,17 @@ META_RATE_LIMIT_ERROR_CODES = {4, 17, 32, 613}
 # scratch with a new cursor.
 META_INVALID_CURSOR_ERROR_CODE = 2642
 
-# Meta error code 100 with one of these subcodes: Meta validates a creative again when it serves the
-# creative-backed fields of an ad or an ad creative, and refuses one it can no longer render.
+# Meta error code 100 with one of these subcodes: Meta refuses to serve a field it cannot compute
+# for one row of a page, rejecting the whole page unless we ask again without it.
 #   2446211: an Advantage+ ("degrees of freedom") creative whose asset feed spec no longer matches
 #            its object story spec.
 #   1443048: a creative whose object story spec is malformed, for example one with no Page.
+#   1885649: an adset's budget fields, when the adset belongs to a Campaign Budget Optimization
+#            campaign and so carries no budget of its own — the campaign does instead.
 # Meta refuses the whole page for one such row, so without a fallback every sync of the table stops
 # at that row. The schema's `refusable_fields` name the fields to drop from the page request and then
 # read again per row (see `_restore_refusable_fields`).
-META_REFUSED_CREATIVE_ERROR_SUBCODES = frozenset({2446211, 1443048})
+META_REFUSED_CREATIVE_ERROR_SUBCODES = frozenset({2446211, 1443048, 1885649})
 
 # Meta's batch endpoint (see `_fetch_refusable_fields`) accepts at most 50 subrequests per call.
 # https://developers.facebook.com/docs/graph-api/batch-requests
