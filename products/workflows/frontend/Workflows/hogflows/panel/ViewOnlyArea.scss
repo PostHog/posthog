@@ -18,4 +18,10 @@
     ) {
         pointer-events: none;
     }
+
+    // The overlay only offers edit actions, which viewers cannot use. Its display comes from an important Tailwind
+    // utility that this rule cannot override, so visibility hides it.
+    .EmailTemplater__preview-overlay {
+        visibility: hidden;
+    }
 }

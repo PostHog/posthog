@@ -830,22 +830,27 @@ function EmailContentPreview({ buttonsAt }: { buttonsAt: 'bottom' | 'center' }):
     const { emailTemplate } = useValues(emailTemplaterLogic)
 
     return (
-        <LemonField name="html" className="flex relative flex-col flex-1">
+        <LemonField name="html" className="flex relative flex-col flex-1 group/email-preview">
             {({ value }: ChildFunctionProps) => (
                 <>
+                    {/* Mouse input passes through to the preview so its text stays selectable; only the buttons take it */}
                     <div
                         className={clsx(
-                            'flex absolute inset-0 justify-center p-2 transition-opacity',
+                            'EmailTemplater__preview-overlay flex absolute inset-0 justify-center p-2 transition-opacity pointer-events-none',
                             buttonsAt === 'bottom' ? 'items-end' : 'items-center',
                             // Persistent start buttons while empty; hover-reveal once there is content
-                            value || emailTemplate.text ? 'opacity-0 hover:opacity-100' : 'opacity-100'
+                            value || emailTemplate.text
+                                ? 'opacity-0 group-hover/email-preview:opacity-100'
+                                : 'opacity-100'
                         )}
                     >
                         <div className="absolute inset-0 opacity-50 bg-surface-primary" />
-                        {/* A plain-text-only email has no html, so content is judged on every shape */}
-                        <EmailPreviewOverlayButtons
-                            hasContent={!!value || !!emailTemplate.text || !!emailTemplate.design}
-                        />
+                        <div className="z-10 pointer-events-auto">
+                            {/* A plain-text-only email has no html, so content is judged on every shape */}
+                            <EmailPreviewOverlayButtons
+                                hasContent={!!value || !!emailTemplate.text || !!emailTemplate.design}
+                            />
+                        </div>
                     </div>
 
                     <EmailBodyPreview html={value} text={emailTemplate.text} />
