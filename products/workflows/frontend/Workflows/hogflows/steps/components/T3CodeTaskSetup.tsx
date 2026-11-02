@@ -1,21 +1,10 @@
-import { useActions, useValues } from 'kea'
-
-import { LemonButton, LemonSelect, Link, Spinner } from '@posthog/lemon-ui'
-
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { urls } from 'scenes/urls'
+import { BindLogic, useValues } from 'kea'
 
 import { CyclotronJobInputType } from '~/types'
 
-import { workflowLogic } from '../../../workflowLogic'
+import { T3CodeMachineField } from './T3CodeMachineField'
 import { t3CodeTaskSetupLogic } from './t3CodeTaskSetupLogic'
-
-const APPROVAL_PROMPTS = {
-    projects: 'PostHog needs your OK to read the projects on this machine.',
-    'more-projects': 'PostHog needs your OK to read more projects on this machine.',
-    task: 'PostHog needs your OK to create the task in T3 Code.',
-}
+import { T3CodeTaskStatus } from './T3CodeTaskStatus'
 
 export function T3CodeTaskSetup({
     actionId,
@@ -26,184 +15,27 @@ export function T3CodeTaskSetup({
     inputs: Record<string, CyclotronJobInputType>
     setInputs: (inputs: Record<string, CyclotronJobInputType>) => void
 }): JSX.Element {
-    const logic = t3CodeTaskSetupLogic({
+    const logicProps = {
         actionId,
-        onWebhookUrl: (webhookUrl) => setInputs({ ...inputs, webhook_url: { value: webhookUrl } }),
-    })
-    const {
-        machines,
-        machinesLoading,
-        machine,
-        projects,
-        projectsResultLoading,
-        nextCursor,
-        moreProjectsResultLoading,
-        project,
-        pendingApproval,
-        taskResultLoading,
-        createdWebhookUrl,
-        error,
-    } = useValues(logic)
-    const { setMachine, setProject, createTask, allowPendingCall, loadMachines, loadProjects, loadMoreProjects } =
-        useActions(logic)
-    const { workflow } = useValues(workflowLogic)
+        onWebhookUrl: (webhookUrl: string) => setInputs({ ...inputs, webhook_url: { value: webhookUrl } }),
+    }
+    const { createdWebhookUrl } = useValues(t3CodeTaskSetupLogic(logicProps))
     const hasWebhookUrl = Boolean(inputs.webhook_url?.value || inputs.webhook_url?.secret)
 
     return (
-        <div className="flex flex-col gap-2 rounded border p-3 mb-2">
-            <div>
-                <div className="font-semibold">Start new threads on a T3 Code machine</div>
-                <div className="text-secondary text-xs">
-                    {hasWebhookUrl && !createdWebhookUrl
-                        ? 'This step already sends its runs to a T3 Code task. Pick a machine and a project to send them to a new task instead.'
-                        : 'Pick a machine and a project. PostHog creates a task there, and each run of this step starts a new thread in that project.'}
+        <BindLogic logic={t3CodeTaskSetupLogic} props={logicProps}>
+            <div className="flex flex-col gap-2 rounded border p-3 mb-2">
+                <div>
+                    <div className="font-semibold">Start new threads on a T3 Code machine</div>
+                    <div className="text-secondary text-xs">
+                        {hasWebhookUrl && !createdWebhookUrl
+                            ? 'This step already sends its runs to a T3 Code task. Pick a machine and a project to send them to a new task instead.'
+                            : 'Pick a machine and a project. PostHog creates a task there, and each run of this step starts a new thread in that project.'}
+                    </div>
                 </div>
+                <T3CodeMachineField />
+                <T3CodeTaskStatus />
             </div>
-            {machinesLoading && machines === null ? (
-                <Spinner />
-            ) : machines?.length === 0 ? (
-                <div className="text-xs">
-                    No T3 Code machine is connected. In T3 Code, copy the machine's MCP URL from Settings &gt;
-                    Environments. Add it in <Link to={urls.settings('mcp-servers')}>MCP servers settings</Link> and
-                    approve the sign-in with Supervised access or more.{' '}
-                    <Link onClick={() => loadMachines()} data-attr="workflow-t3-code-reload-machines">
-                        Check again
-                    </Link>
-                </div>
-            ) : machines ? (
-                <>
-                    <LemonField.Pure label="Machine">
-                        <LemonSelect<string | null>
-                            fullWidth
-                            value={machine}
-                            onChange={setMachine}
-                            options={machines.map(({ host, name }) => ({ label: name, value: host }))}
-                            placeholder="Choose a machine"
-                            disabledReason={taskResultLoading ? 'Wait until the task is created' : undefined}
-                            data-attr="workflow-t3-code-machine"
-                        />
-                    </LemonField.Pure>
-                    {machine && (
-                        <LemonField.Pure
-                            label="Project"
-                            help={
-                                projects?.length && nextCursor !== null ? (
-                                    <div className="flex items-center gap-1">
-                                        Showing {projects.length} projects. This machine has more.
-                                        <LemonButton
-                                            type="tertiary"
-                                            size="xsmall"
-                                            onClick={() => loadMoreProjects(undefined)}
-                                            loading={moreProjectsResultLoading}
-                                            disabledReason={
-                                                pendingApproval?.kind === 'more-projects'
-                                                    ? 'Allow PostHog to read more projects first'
-                                                    : undefined
-                                            }
-                                            data-attr="workflow-t3-code-more-projects"
-                                        >
-                                            Load more projects
-                                        </LemonButton>
-                                    </div>
-                                ) : projects?.length &&
-                                  projects.every(({ has_default_model }) => !has_default_model) ? (
-                                    <>
-                                        T3 Code starts threads only in a project with a default model. Set one in the
-                                        project's settings in T3 Code.{' '}
-                                        <Link
-                                            onClick={() => loadProjects(undefined)}
-                                            data-attr="workflow-t3-code-reload-projects"
-                                        >
-                                            Check again
-                                        </Link>
-                                    </>
-                                ) : undefined
-                            }
-                        >
-                            <LemonSelect<string | null>
-                                fullWidth
-                                value={project}
-                                loading={projectsResultLoading}
-                                onChange={setProject}
-                                options={(projects ?? []).map(({ id, title, has_default_model }) => ({
-                                    label: title,
-                                    value: id,
-                                    disabledReason: has_default_model
-                                        ? undefined
-                                        : 'Set a default model for this project in T3 Code first',
-                                }))}
-                                placeholder={
-                                    projects?.length === 0 ? 'This machine has no projects' : 'Choose a project'
-                                }
-                                disabledReason={
-                                    taskResultLoading
-                                        ? 'Wait until the task is created'
-                                        : projects !== null || projectsResultLoading
-                                          ? undefined
-                                          : pendingApproval?.kind === 'projects'
-                                            ? "Allow PostHog to read this machine's projects first"
-                                            : "PostHog couldn't load this machine's projects"
-                                }
-                                data-attr="workflow-t3-code-project"
-                            />
-                        </LemonField.Pure>
-                    )}
-                </>
-            ) : null}
-            {pendingApproval && (
-                <LemonBanner
-                    type="info"
-                    action={{
-                        children: 'Allow',
-                        onClick: allowPendingCall,
-                        loading: projectsResultLoading || moreProjectsResultLoading || taskResultLoading,
-                        'data-attr': 'workflow-t3-code-allow',
-                    }}
-                >
-                    {APPROVAL_PROMPTS[pendingApproval.kind]}
-                </LemonBanner>
-            )}
-            {error && (
-                <LemonBanner
-                    type="error"
-                    action={
-                        machines === null
-                            ? {
-                                  children: 'Try again',
-                                  onClick: loadMachines,
-                                  loading: machinesLoading,
-                                  'data-attr': 'workflow-t3-code-retry-machines',
-                              }
-                            : machine && projects === null
-                              ? {
-                                    children: 'Try again',
-                                    onClick: () => loadProjects(undefined),
-                                    loading: projectsResultLoading,
-                                    'data-attr': 'workflow-t3-code-retry-projects',
-                                }
-                              : undefined
-                    }
-                >
-                    {error}
-                </LemonBanner>
-            )}
-            {createdWebhookUrl ? (
-                <LemonBanner type="success">
-                    The task is ready in T3 Code, and the step's webhook URL points to it.
-                </LemonBanner>
-            ) : pendingApproval?.kind === 'task' ? null : (
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    className="self-start"
-                    onClick={() => createTask({ title: `PostHog: ${workflow?.name || 'workflow'}` })}
-                    loading={taskResultLoading}
-                    disabledReason={!machine ? 'Choose a machine' : !project ? 'Choose a project' : undefined}
-                    data-attr="workflow-t3-code-create-task"
-                >
-                    Create the T3 Code task
-                </LemonButton>
-            )}
-        </div>
+        </BindLogic>
     )
 }
