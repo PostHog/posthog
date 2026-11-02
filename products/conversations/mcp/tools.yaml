@@ -303,3 +303,50 @@ tools:
                 - filters
                 - is_favorited
                 - created_at
+    conversations-macros-list:
+        operation: conversations_macros_list
+        enabled: true
+        scopes:
+            - ticket:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List support macros
+        description: >
+            List the shared reply macros in the project, most used first. A macro is a saved reply an agent inserts
+            into a ticket. The body is markdown and may contain customer, agent, and ticket variables in double
+            braces. Fill those in for the current ticket before sending the reply. shortcut is the slash command
+            without the leading slash, or null when the macro has none.
+        response:
+            include:
+                - id
+                - name
+                - shortcut
+                - body
+                - usage_count
+    conversations-macros-retrieve:
+        operation: conversations_macros_retrieve
+        enabled: true
+        scopes:
+            - ticket:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get support macro
+        description: >
+            Get one support macro by id, including its markdown body and shortcut. Fill customer, agent, and ticket
+            variables in the body for the current ticket before sending the reply.
+        param_overrides:
+            id:
+                description: UUID of the macro, as returned by conversations-macros-list.
+        response:
+            include:
+                - id
+                - name
+                - shortcut
+                - body
+                - usage_count
+                - last_used_at

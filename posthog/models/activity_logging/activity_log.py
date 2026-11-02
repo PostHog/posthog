@@ -128,6 +128,7 @@ ActivityScope = Literal[
     "DashboardWidget",
     "ProductTour",
     "Ticket",
+    "TicketMacro",
     "KnowledgeSource",
     "KnowledgeLibrary",
     "InstanceSetting",
@@ -651,6 +652,8 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
         "last_precheck_outcome",
         "last_precheck_row_count",
     ],
+    # Inserts bump these on every use. They are not a settings edit.
+    "TicketMacro": ["usage_count", "last_used_at"],
 }
 
 # Activity visibility restrictions - controls which users can see certain activity logs
@@ -746,6 +749,7 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
 
 field_exclusions: dict[AuditableScope, list[str]] = {
     "AccountView": ["version"],
+    "TicketMacro": ["usage_count", "last_used_at"],
     # Tiles are edited through their own endpoint, so diffing the reverse relation only reads every tile row.
     "CrossProjectDashboard": ["tiles", "organization"],
     # The reverse relations are listed because the diff reads each one in full; a scanner's
