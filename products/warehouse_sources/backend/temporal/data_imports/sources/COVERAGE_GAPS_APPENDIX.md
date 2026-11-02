@@ -10042,10 +10042,10 @@ Today (6): `applications`, `customers`, `deployments`, `error_groups`, `pages`, 
 
 Diffed against: <https://api.raygun.com/v3/raygun-openapi-spec.json>
 
-- [ ] `applications/{id}/error-groups/{id}/instances` — Individual error occurrences with stack trace, environment and user context - the event-level data under the groups we already sync (high)
-- [ ] `metrics/{application}/errors/time-series` — Raygun's headline error-rate metric, pre-aggregated over time (medium)
-- [ ] `applications/{id}/deployments/{id}/error-groups` — Maps error groups to the deployment that introduced them, the core regression-detection join (medium)
-- [ ] `metrics/{application}/pages/time-series and /pages/histogram` — Real user monitoring page-load performance over time and its distribution (medium)
+- [x] `applications/{id}/error-groups/{id}/instances` — Individual error occurrences with stack trace, environment and user context - the event-level data under the groups we already sync (high)
+- [x] `metrics/{application}/errors/time-series` — Raygun's headline error-rate metric, pre-aggregated over time (medium)
+- [x] `applications/{id}/deployments/{id}/error-groups` — Maps error groups to the deployment that introduced them, the core regression-detection join (medium)
+- [x] `metrics/{application}/pages/time-series and /pages/histogram` — Real user monitoring page-load performance over time and its distribution (medium) — time-series only; the histogram is a snapshot over a caller-chosen window with no time dimension, and the time-series percentiles cover the distribution over time
 - [ ] `teams` — Lookup resolving team ownership of applications (low)
 
 Note: Spec URL is not linked from the product docs page; found it by reading the Swagger UI bootstrap at https://api.raygun.com/v3/swagger/index.js. Coverage of the top-level collections is good - the gap is one level down, at error instances and the metrics endpoints.
