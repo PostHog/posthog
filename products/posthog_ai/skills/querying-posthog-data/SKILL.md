@@ -2,17 +2,17 @@
 name: querying-posthog-data
 description: >
   Explains how to query PostHog data, defaulting to typed runners for supported product analytics.
-  Read it before you write HogQL/SQL.
-  Also read it before you call execute-sql against PostHog.
-  Use it to find or aggregate PostHog entities.
-  These entities include insights, dashboards, cohorts, feature flags, experiments,
+  Read it before you write HogQL/SQL or call execute-sql.
+  Use it for event counts, unique and active users (DAU, WAU, MAU),
+  breakdowns by event or person property, comparisons with the previous period,
+  conversion between steps, and day-1 or day-7 return rates.
+  Also use it for trends, funnels, retention, lifecycle, paths, stickiness,
+  web analytics, error tracking, logs, sessions, and LLM traces,
+  and to find or aggregate insights, dashboards, cohorts, feature flags, experiments,
   surveys, hog flows, warehouse data, and persons.
-  Use it for trends, funnels, retention, lifecycle, paths, stickiness,
-  web analytics, error tracking, logs, sessions, and LLM traces.
-  Before you calculate a governed business or telemetry measure, check
-  system.information_schema.metrics for an approved definition.
-  Examples include MRR, activation, billable usage, active organizations, and failure rates.
-  Use the approved definition before you derive a measure from raw events or use a typed domain tool.
+  Before you calculate a governed business or telemetry measure, such as MRR, activation,
+  billable usage, active organizations, or failure rates, check system.information_schema.metrics
+  and use its approved definition instead of a measure derived from raw events or a typed domain tool.
   It also covers HogQL differences, system table schemas, functions, query examples, and schema discovery.
 ---
 
