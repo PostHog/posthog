@@ -2228,6 +2228,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-ci-trust-policies',
         title: 'CI trust policies',
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
         settings: [
             {
                 id: 'environment-ci-trust-policies',
