@@ -5,7 +5,6 @@ import structlog
 from posthog.integrations import IntegrationManager
 from posthog.models.integration import SANDBOX_EMAIL_INTEGRATION_ID, SANDBOX_EMAIL_PROVIDER
 from posthog.models.team import Team
-from posthog.permissions import posthog_feature_flag_enabled
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 
 from products.workflows.backend.facade.contracts import SandboxEmailSender, SandboxSenderUnavailable
@@ -43,6 +42,10 @@ def _sandbox_sender_configured() -> bool:
 
 
 def _sandbox_sender_enabled(team: Team) -> bool:
+    # Deferred: posthog.permissions pulls DRF and posthog.auth onto the django.setup() path,
+    # and the workflows facade imports this module at startup.
+    from posthog.permissions import posthog_feature_flag_enabled  # noqa: PLC0415
+
     try:
         return posthog_feature_flag_enabled(
             SANDBOX_SENDER_FLAG,
