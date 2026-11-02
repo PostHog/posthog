@@ -524,11 +524,82 @@ class TestWebExperimentValidationNoDB(SimpleTestCase):
             ],
             ["iframe in html", {"selector": "#t", "html": '<iframe src="https://evil.com"></iframe>'}, "iframe"],
             ["object tag in html", {"selector": "#t", "html": "<object data=x></object>"}, "object"],
-            ["data:text/html in html", {"selector": "#t", "html": "data:text/html,<b>x</b>"}, "data:text/html"],
+            [
+                "data:text/html in html",
+                {"selector": "#t", "html": '<a href="data:text/html,<b>x</b>">x</a>'},
+                "data:text/html",
+            ],
+            [
+                "event handler after slash separator",
+                {"selector": "#t", "html": "<svg/onload=alert(1)>"},
+                "event handler",
+            ],
+            [
+                "event handler in upper case",
+                {"selector": "#t", "html": "<IMG SRC=x ONERROR=alert(1)>"},
+                "event handler",
+            ],
+            [
+                "event handler without space",
+                {"selector": "#t", "html": '<img src="x"onerror=alert(1)>'},
+                "event handler",
+            ],
+            [
+                "javascript protocol with entity colon",
+                {"selector": "#t", "html": '<a href="javascript&#58;alert(1)">x</a>'},
+                "javascript:",
+            ],
+            [
+                "javascript protocol with entity letter",
+                {"selector": "#t", "html": '<a href="&#106;avascript:alert(1)">x</a>'},
+                "javascript:",
+            ],
+            [
+                "javascript protocol with mixed case and whitespace",
+                {"selector": "#t", "html": '<a href=" JaVa&#x09;ScRiPt&#x0A;:alert(1)">x</a>'},
+                "javascript:",
+            ],
+            [
+                "javascript protocol in svg animation values",
+                {"selector": "#t", "html": '<svg><animate attributeName="href" values="x;javascript:alert(1)"/></svg>'},
+                "javascript:",
+            ],
+            ["vbscript protocol in html", {"selector": "#t", "html": '<a href="vbscript:x">x</a>'}, "vbscript:"],
+            [
+                "markup hidden in a style comment",
+                {"selector": "#t", "html": "<style><!--</style><img src=x onerror=alert(1)>--></style>"},
+                "event handler",
+            ],
+            [
+                "markup hidden in an attribute value",
+                {"selector": "#t", "html": '<style><a title="</style><img src=x onerror=alert(1)>"></a></style>'},
+                "event handler",
+            ],
+            [
+                "markup inside svg style",
+                {"selector": "#t", "html": "<svg><style><img src=x onerror=alert(1)></style></svg>"},
+                "event handler",
+            ],
         ]
     )
     def test_rejects_xss_in_transform(self, _name: str, transform: dict, expected_substring: str) -> None:
         self._assert_invalid(_variants_with_test_transform(transform), expected_substring)
+
+    @parameterized.expand(
+        [
+            ["link and image", '<a href="https://example.com/?a=1&amp;b=2">Link</a><img src="/logo.png" alt="Logo">'],
+            ["relative and mailto links", '<a href="/pricing">Pricing</a> <a href="mailto:hi@example.com">Mail</a>'],
+            ["inline style and data attributes", '<p style="color: red" data-testid="hero">Buy now</p>'],
+            ["scheme words in text", "Learn javascript: the basics, or use onload= and data:text/html in docs"],
+            ["scheme words in a non-url attribute", '<span title="javascript is fun" class="online">x</span>'],
+            ["encoded markup in an attribute", '<span title="&lt;b&gt;bold&lt;/b&gt;">x</span>'],
+        ]
+    )
+    def test_accepts_safe_html_in_transform(self, _name: str, html: str) -> None:
+        serializer = WebExperimentsAPISerializer(
+            data={"name": "x", "variants": _variants_with_test_transform({"selector": "#t", "html": html})}
+        )
+        assert serializer.is_valid(), serializer.errors
 
     def test_rejects_missing_control_variant(self) -> None:
         self._assert_invalid({"test": {"rollout_percentage": 50}}, "control variant")

@@ -1,4 +1,5 @@
 import re
+from html.parser import HTMLParser
 from typing import Any
 
 from django.http import HttpResponse, JsonResponse
@@ -23,30 +24,119 @@ from products.experiments.backend.models.web_experiment import WebExperiment
 from products.feature_flags.backend.facade.api import create_flag, update_flag
 from products.feature_flags.backend.facade.filters import replace_variant_distribution
 
-# XSS vector patterns, paired with the error message shown when one matches:
-# script tags (opening and closing), event handlers (onclick, onerror, etc.),
-# javascript: protocol, data:text/html, iframe/object/embed tags
-_XSS_PATTERNS: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r"<script[^>]*>", re.IGNORECASE), "contains disallowed <script> tags"),
-    (re.compile(r"</script>", re.IGNORECASE), "contains disallowed </script> tags"),
-    (re.compile(r"\son\w+\s*=", re.IGNORECASE), "contains disallowed event handlers (onclick, onerror, etc.)"),
-    (re.compile(r"javascript\s*:", re.IGNORECASE), "contains disallowed javascript: protocol"),
-    (re.compile(r"data\s*:\s*text/html", re.IGNORECASE), "contains disallowed data:text/html"),
-    (re.compile(r"<iframe[^>]*>", re.IGNORECASE), "contains disallowed <iframe> tags"),
-    (re.compile(r"<(object|embed)[^>]*>", re.IGNORECASE), "contains disallowed <object> or <embed> tags"),
-]
+_DISALLOWED_TAG_MESSAGES: dict[str, str] = {
+    "script": "contains disallowed <script> tags",
+    "iframe": "contains disallowed <iframe> tags",
+    "object": "contains disallowed <object> or <embed> tags",
+    "embed": "contains disallowed <object> or <embed> tags",
+}
+_EVENT_HANDLER_MESSAGE = "contains disallowed event handlers (onclick, onerror, etc.)"
+_JAVASCRIPT_URL_MESSAGE = "contains disallowed javascript: protocol"
+_VBSCRIPT_URL_MESSAGE = "contains disallowed vbscript: protocol"
+_DATA_HTML_URL_MESSAGE = "contains disallowed data:text/html"
+_NESTING_MESSAGE = "contains markup nested too deeply to check"
+# Legitimate content never nests markup in comments or attribute values this deep.
+_MAX_NESTED_CHECKS = 8
+
+# Browsers ignore ASCII whitespace and control characters inside a URL scheme, so
+# "java\tscript:" still runs. The list separators cover SVG animation "values" lists.
+_URL_CONTROL_CHARS = re.compile(r"[\x00-\x20]+")
+_JAVASCRIPT_URL = re.compile(r"(?:^|[;,])javascript:")
+_VBSCRIPT_URL = re.compile(r"(?:^|[;,])vbscript:")
+_DATA_HTML_URL = re.compile(r"(?:^|[;,])data:text/html")
+
+
+class _UnsafeHTMLFinder(HTMLParser):
+    """
+    Finds markup that runs script when posthog-js writes a transform into the page with innerHTML.
+
+    The finder parses the markup instead of matching the raw string, so that entity encoding,
+    letter case and attribute separators do not hide a handler or a URL scheme.
+    """
+
+    def __init__(self, depth: int = 0) -> None:
+        super().__init__(convert_charrefs=True)
+        self.depth = depth
+        self.problem: str | None = None
+
+    def set_cdata_mode(self, *args: Any, **kwargs: Any) -> None:
+        # The stdlib parser reads <script> and <style> bodies as raw text. Inside <svg> a
+        # browser parses <style> as markup, so the finder reads every body as markup.
+        return
+
+    def _report(self, message: str) -> None:
+        if self.problem is None:
+            self.problem = message
+
+    def _check_nested(self, content: str) -> None:
+        # A browser can close a raw-text element such as <style> inside a comment or an
+        # attribute value and parse the remainder as markup, so the finder also checks the
+        # raw source of comments and tags.
+        if "<" not in content:
+            return
+        if self.depth >= _MAX_NESTED_CHECKS:
+            self._report(_NESTING_MESSAGE)
+            return
+        nested = find_unsafe_html(content, self.depth + 1)
+        if nested:
+            self._report(nested)
+
+    def _check_tag(self, tag: str) -> None:
+        message = _DISALLOWED_TAG_MESSAGES.get(tag)
+        if message:
+            self._report(message)
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self._check_tag(tag)
+        for name, value in attrs:
+            if name.startswith("on"):
+                self._report(_EVENT_HANDLER_MESSAGE)
+            if value is None:
+                continue
+            url = _URL_CONTROL_CHARS.sub("", value).lower()
+            if _JAVASCRIPT_URL.search(url):
+                self._report(_JAVASCRIPT_URL_MESSAGE)
+            elif _VBSCRIPT_URL.search(url):
+                self._report(_VBSCRIPT_URL_MESSAGE)
+            elif _DATA_HTML_URL.search(url):
+                self._report(_DATA_HTML_URL_MESSAGE)
+        raw_tag = self.get_starttag_text()
+        if raw_tag:
+            self._check_nested(raw_tag[1:])
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "script":
+            self._report("contains disallowed </script> tags")
+
+    def handle_comment(self, data: str) -> None:
+        self._check_nested(data)
+
+    def handle_decl(self, decl: str) -> None:
+        self._check_nested(decl)
+
+    def unknown_decl(self, data: str) -> None:
+        self._check_nested(data)
+
+    def handle_pi(self, data: str) -> None:
+        self._check_nested(data)
+
+
+def find_unsafe_html(content: str, depth: int = 0) -> str | None:
+    finder = _UnsafeHTMLFinder(depth)
+    finder.feed(content)
+    finder.close()
+    return finder.problem
 
 
 def validate_no_xss(content: str, field_name: str) -> None:
     """
-    Validates that content doesn't contain XSS vectors.
-    Raises ValidationError if dangerous content is found.
+    Raises ValidationError if the content contains markup that can run script.
 
-    This validation-only approach preserves the original formatting while preventing XSS attacks.
+    The check rejects the content and does not change it, so valid content keeps its original formatting.
     """
-    for pattern, message in _XSS_PATTERNS:
-        if pattern.search(content):
-            raise ValidationError(f"{field_name} {message}")
+    problem = find_unsafe_html(content)
+    if problem:
+        raise ValidationError(f"{field_name} {problem}")
 
 
 class WebExperimentsAPISerializer(serializers.ModelSerializer):
