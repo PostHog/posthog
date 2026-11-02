@@ -144,6 +144,8 @@ const ROOTS = [
             'products/subscriptions/frontend/components/Subscriptions/exportNudge/exportNudgeLogic.ts',
             // The pay gate loads the payment logic on click. It pulls in the billing product logic.
             'src/scenes/billing/paymentEntryLogic.ts',
+            // The surveys scene constants hold the question type tables. lib/api reads its page size from lib/constants.
+            'src/scenes/surveys/constants.tsx',
             // The rich text editor stack is for the scenes that edit text. Rendered markdown needs none of it.
             'node_modules/@tiptap/',
             'node_modules/prosemirror-',
