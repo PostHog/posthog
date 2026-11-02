@@ -911,23 +911,50 @@ async def test_source_sync_matches_without_semantic_rejudgment(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_source_refresh_bypasses_research_buckets_and_emits_telemetry(ateam, patch_side_effects):
+@pytest.mark.parametrize("researching,pending_is_driver", [(False, False), (True, False), (True, True)])
+async def test_source_refresh_bypasses_research_buckets_and_emits_telemetry(
+    ateam, patch_side_effects, researching, pending_is_driver
+):
+    pending_signal_id = uuid.uuid4() if researching else None
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
-        status=SignalReport.Status.READY,
+        status=SignalReport.Status.IN_PROGRESS if researching else SignalReport.Status.READY,
         total_weight=2,
         signal_count=2,
         signals_researched=2,
+        triggering_signal_id=pending_signal_id if pending_is_driver else uuid.uuid4(),
+        pending_triggering_signal_id=pending_signal_id,
     )
+    if pending_signal_id is not None:
+        await database_sync_to_async(record_llm_spend)(
+            team_id=ateam.id, signal_id=str(pending_signal_id), stage="grouping", token_cost_microusd=100
+        )
+        await database_sync_to_async(complete_signal_pipeline)(
+            team_id=ateam.id, signal_id=str(pending_signal_id), report_id=str(report.id)
+        )
+        pending_spend = await database_sync_to_async(
+            lambda: SignalSpend.objects.for_team(ateam.id).get(signal_id=pending_signal_id)
+        )()
+        assert pending_spend.finalized_at is None
     input_ = _build_input(ateam.id, _existing_match(str(report.id), source_synced=True), weight=0.5)
     input_.sync_with_source = True
 
     result = await assign_and_emit_signal_activity(input_)
 
     assert result.report_id == str(report.id)
-    assert result.promoted is True
+    assert result.promoted is not researching
     await database_sync_to_async(report.refresh_from_db)()
-    assert report.status == SignalReport.Status.CANDIDATE
+    assert report.status == (SignalReport.Status.IN_PROGRESS if researching else SignalReport.Status.CANDIDATE)
+    if researching:
+        assert str(report.pending_triggering_signal_id) == input_.signal_id
+        await database_sync_to_async(pending_spend.refresh_from_db)()
+        assert (pending_spend.finalized_at is None) is pending_is_driver
+        assert pending_spend.spend > 0
+        await database_sync_to_async(complete_signal_pipeline)(
+            team_id=ateam.id, signal_id=str(pending_signal_id), report_id=str(report.id)
+        )
+        await database_sync_to_async(pending_spend.refresh_from_db)()
+        assert (pending_spend.finalized_at is None) is pending_is_driver
     events = [call.kwargs["event"] for call in patch_side_effects["capture"].call_args_list]
     assert "signal_source_report_refresh_requested" in events
     refresh = next(
