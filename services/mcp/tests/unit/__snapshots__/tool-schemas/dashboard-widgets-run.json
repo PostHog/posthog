@@ -20,6 +20,10 @@
             "description": "A unique integer value identifying this dashboard.",
             "type": "number"
         },
+        "refresh": {
+            "description": "Recompute widgets that follow dashboard filters (such as metrics) instead of serving their query cache, as a manual refresh of an insight tile does.",
+            "type": "boolean"
+        },
         "tile_ids": {
             "description": "Comma-separated dashboard tile IDs to run widgets for.",
             "type": "string"
