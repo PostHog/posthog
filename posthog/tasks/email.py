@@ -3152,7 +3152,7 @@ WorkloadTrustPolicyChange = Literal["created", "updated", "deleted"]
 
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
-def send_ci_trust_policy_changed(
+def send_workload_trust_policy_changed(
     team_id: int, policy_id: str, policy_name: str, change: WorkloadTrustPolicyChange, actor_user_id: int | None
 ) -> None:
     """Tell every organization admin and owner that a workload trust policy changed.
@@ -3171,12 +3171,12 @@ def send_ci_trust_policy_changed(
     actor_name = sanitize_display_name(
         actor.first_name if actor else "",
         fallback="Someone",
-        context={"task": "send_ci_trust_policy_changed", "field": "actor_first_name", **log_context},
+        context={"task": "send_workload_trust_policy_changed", "field": "actor_first_name", **log_context},
     )
     sanitized_policy_name = sanitize_display_name(
         policy_name,
         fallback="a trust policy",
-        context={"task": "send_ci_trust_policy_changed", "field": "policy_name", **log_context},
+        context={"task": "send_workload_trust_policy_changed", "field": "policy_name", **log_context},
     )
 
     memberships = OrganizationMembership.objects.select_related("user").filter(
@@ -3192,7 +3192,8 @@ def send_ci_trust_policy_changed(
     message = EmailMessage(
         campaign_key=f"workload_trust_policy_{change}_{policy_id}_{timezone.now().timestamp()}",
         subject=f"A workload trust policy was {change} in {team_and_org_context.get('team_name', 'your project')}",
-        template_name="ci_trust_policy_changed",
+        template_name="workload_trust_policy_changed",
+        use_http=True,
         template_context={
             "actor_name": actor_name,
             "actor_email": actor.email if actor else "",

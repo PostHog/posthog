@@ -31,7 +31,7 @@ from posthog.models.workload_trust_policy import (
 )
 from posthog.permissions import OrganizationAdminReadPermissions, TimeSensitiveActionPermission
 from posthog.scopes import RISKY_SCOPE_WARNINGS
-from posthog.tasks.email import WorkloadTrustPolicyChange, send_ci_trust_policy_changed
+from posthog.tasks.email import WorkloadTrustPolicyChange, send_workload_trust_policy_changed
 from posthog.workload_identity.providers import (
     get_supported_workload_providers,
     get_unsupported_workload_providers,
@@ -292,7 +292,8 @@ class WorkloadTrustPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         actor_user_id = cast(User, self.request.user).pk
         # The change already happened, so a broker outage must not turn it into an error response.
         transaction.on_commit(
-            lambda: send_ci_trust_policy_changed.delay(team_id, policy_id, name, change, actor_user_id), robust=True
+            lambda: send_workload_trust_policy_changed.delay(team_id, policy_id, name, change, actor_user_id),
+            robust=True,
         )
 
     @extend_schema(responses={200: WorkloadProvidersResponseSerializer})
