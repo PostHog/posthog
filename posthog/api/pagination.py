@@ -1,4 +1,5 @@
 import json
+import hashlib
 from base64 import b64decode, b64encode
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Optional
@@ -229,6 +230,13 @@ class StableCursorPagination(CursorPagination):
             values.append(None if value is None else str(value))
         return tuple(values)
 
+    def ordering_key(self) -> str:
+        """Return a short token for the list's ordering, so a cursor cannot be read under another ordering.
+
+        It hashes the unreversed ordering, so the next and previous cursors of one list share it.
+        """
+        return hashlib.sha1(",".join(self.ordering).encode("utf-8"), usedforsecurity=False).hexdigest()[:8]
+
     def cursor_link(self, cursor: PageCursor) -> str:
         tokens: dict[str, str] = {}
         if cursor.drf_offset:
@@ -238,6 +246,7 @@ class StableCursorPagination(CursorPagination):
         # A cursor that skips rows came in DRF's format, which `p` and `o` already describe in full.
         if cursor.after and not cursor.offset:
             tokens["v"] = json.dumps(list(cursor.after), separators=(",", ":"))
+            tokens["k"] = self.ordering_key()
         if cursor.drf_position is not None:
             tokens["p"] = cursor.drf_position
         encoded = b64encode(urlencode(tokens).encode("ascii")).decode("ascii")
@@ -253,6 +262,9 @@ class StableCursorPagination(CursorPagination):
             reverse = bool(int(tokens.get("r", ["0"])[0]))
             drf_position = tokens["p"][0] if "p" in tokens else None
             if "v" in tokens:
+                # `v` holds values of the ordering the cursor came from, which another ordering reads as other rows.
+                if "k" in tokens and tokens["k"][0] != self.ordering_key():
+                    raise NotFound(self.invalid_cursor_message)
                 # `v` names the edge row exactly, so no rows are skipped. `o` is there for DRF only.
                 after = json.loads(tokens["v"][0])
                 offset = 0
@@ -297,6 +309,7 @@ class StableCursorPagination(CursorPagination):
         if self.row_past_page is None:
             return None, tied
         # DRF does the same on a change of direction. It is exact unless the tie group also covers that row.
+        # During a rolling deploy, an old pod can mis-page such a `previous` link, and any tie group larger than `offset_cutoff`.
         return self.position_of(self.row_past_page)[0], 0
 
     def next_cursor(self, page: list[Any]) -> PageCursor:
