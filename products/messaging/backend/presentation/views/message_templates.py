@@ -1659,7 +1659,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
                 raise NotFound()
             self.check_object_permissions(request, template)
         return self._queue_transactional_email(
-            request, template, route="send_email", options=_id_send_options(request.validated_data)
+            request, template, route="send_email", options=_id_send_options(request.data, request.validated_data)
         )
 
     def _refuse_engagement_capture_outside_the_beta(self, sent: Mapping[str, Any]) -> None:
@@ -1757,8 +1757,8 @@ ENGAGEMENT_CAPTURE_OUTSIDE_THE_BETA = (
 )
 
 
-def _id_send_options(data: Mapping[str, Any]) -> TemplateSendOptions | None:
-    return _template_send_options(data) if "capture_engagement" in data else None
+def _id_send_options(sent: Mapping[str, Any], data: Mapping[str, Any]) -> TemplateSendOptions | None:
+    return _template_send_options(data) if "capture_engagement" in sent else None
 
 
 def _template_send_options(data: Mapping[str, Any]) -> TemplateSendOptions:
