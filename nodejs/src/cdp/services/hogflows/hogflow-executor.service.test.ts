@@ -142,6 +142,7 @@ describe('Hogflow Executor', () => {
                         backoffBaseMs: 1000,
                         backoffMaxMs: 30000,
                     },
+                    undefined as any,
                     undefined as any
                 ),
             }
