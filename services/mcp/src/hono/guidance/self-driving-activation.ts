@@ -27,9 +27,9 @@ const onboardingSchema = z.object({
 
 function isEligibleCall(state: ResolvedState, call: GuidanceCall): boolean {
     return (
-        call.toolName === 'query-error-tracking-issue' &&
+        (call.toolName === 'query-error-tracking-issues-list' ||
+            (call.toolName === 'query-error-tracking-issue' && typeof call.args?.issueId === 'string')) &&
         !call.isError &&
-        typeof call.args?.issueId === 'string' &&
         !state.isImpersonated &&
         !state.suppressAnalytics &&
         !state.isTaskBound &&

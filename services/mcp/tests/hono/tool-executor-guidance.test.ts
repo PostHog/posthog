@@ -167,18 +167,26 @@ describe('ToolExecutor guidance notices', () => {
     })
 
     it.each([
-        ['direct', false, false],
-        ['exec', false, false],
-        ['exec', true, false],
-        ['direct', false, true],
-        ['exec', true, true],
-    ])(
-        'preserves %s issue results with activation guidance (json=%s, readiness failure=%s)',
-        async (mode, json, fails) => {
+        ['query-error-tracking-issue', 'direct', false, false],
+        ['query-error-tracking-issue', 'exec', false, false],
+        ['query-error-tracking-issue', 'exec', true, false],
+        ['query-error-tracking-issue', 'direct', false, true],
+        ['query-error-tracking-issue', 'exec', true, true],
+        ['query-error-tracking-issues-list', 'direct', false, false],
+        ['query-error-tracking-issues-list', 'exec', false, false],
+        ['query-error-tracking-issues-list', 'exec', true, false],
+        ['query-error-tracking-issues-list', 'direct', false, true],
+        ['query-error-tracking-issues-list', 'exec', true, true],
+    ] as const)(
+        'preserves %s results in %s with activation guidance (json=%s, readiness failure=%s)',
+        async (toolName, mode, json, fails) => {
             const issueId = '019a0000-0000-7000-8000-000000000001'
+            const isList = toolName === 'query-error-tracking-issues-list'
+            const args = isList ? {} : { issueId }
+            const result = isList ? [{ id: issueId }] : { id: issueId }
             const issue = {
-                ...makeTool('query-error-tracking-issue', () => ({ id: issueId })),
-                schema: z.object({ issueId: z.uuid() }),
+                ...makeTool(toolName, () => result),
+                schema: isList ? z.object({}) : z.object({ issueId: z.uuid() }),
             }
             const tools = [
                 issue,
@@ -220,8 +228,8 @@ describe('ToolExecutor guidance notices', () => {
                 name: mode === 'exec' ? 'exec' : issue.name,
                 arguments:
                     mode === 'exec'
-                        ? { command: `call ${json ? '--json ' : ''}${issue.name} ${JSON.stringify({ issueId })}` }
-                        : { issueId },
+                        ? { command: `call ${json ? '--json ' : ''}${issue.name} ${JSON.stringify(args)}` }
+                        : args,
             }
             const first = (await executor.handleToolCall(params, state)) as SqlResult
             const second = (await executor.handleToolCall(params, state)) as SqlResult
@@ -240,7 +248,7 @@ describe('ToolExecutor guidance notices', () => {
             expect(first.content).toHaveLength(second.content.length + 1)
             expect(first.content[json ? 0 : 1]).toEqual(second.content[0])
             if (json) {
-                expect(JSON.parse(first.content[0]?.text ?? '')).toEqual({ id: issueId })
+                expect(JSON.parse(first.content[0]?.text ?? '')).toEqual(result)
             }
             expect(readiness).toHaveBeenCalledTimes(1)
             expect(capture.mock.calls[0]?.[0].properties).toMatchObject({

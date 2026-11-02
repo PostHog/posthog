@@ -264,6 +264,8 @@ describe('Self-driving activation guidance', () => {
         isError: false,
     }
 
+    const listCall: GuidanceCall = { toolName: 'query-error-tracking-issues-list', args: {}, isError: false }
+
     function activationState(overrides: Partial<ResolvedState> = {}): ResolvedState {
         const state = makeToolExecutorState(
             [
@@ -297,41 +299,49 @@ describe('Self-driving activation guidance', () => {
     })
 
     it.each([
-        [true, false],
-        [true, true],
-        [true, undefined],
-        [false, true],
-    ])('records exposure with experiment flag %s and GitHub-optional setup %s', async (enabled, githubOptional) => {
-        const state = activationState({ toolFeatureFlags: { [MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG]: enabled } })
-        vi.mocked(state.context.api.request).mockResolvedValue({
-            completed_at: null,
-            draft: null,
-            github_optional_available: githubOptional,
-        })
-        const notice = await new GuidanceEngine(makeGuidanceRedis()).evaluate(state, issueCall)
+        [issueCall, true, false],
+        [issueCall, true, true],
+        [issueCall, true, undefined],
+        [issueCall, false, true],
+        [listCall, true, false],
+        [listCall, true, true],
+        [listCall, false, true],
+    ] as const)(
+        'records exposure for %j with experiment flag %s and GitHub-optional setup %s',
+        async (call, enabled, githubOptional) => {
+            const state = activationState({
+                toolFeatureFlags: { [MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG]: enabled },
+            })
+            vi.mocked(state.context.api.request).mockResolvedValue({
+                completed_at: null,
+                draft: null,
+                github_optional_available: githubOptional,
+            })
+            const notice = await new GuidanceEngine(makeGuidanceRedis()).evaluate(state, call)
 
-        expect(notice).toMatchObject({
-            ruleId: 'error-tracking-sd-activation',
-            outcome: enabled ? 'shown' : 'flag_off',
-        })
-        expect(notice?.text).toEqual(
-            enabled ? expect.stringContaining('https://example.com/project/2/inbox/activate') : undefined
-        )
-        if (enabled) {
-            expect(notice?.text).toContain(
-                'poll `self-driving-status-get` for the same project every 10 seconds for up to two minutes'
+            expect(notice).toMatchObject({
+                ruleId: 'error-tracking-sd-activation',
+                outcome: enabled ? 'shown' : 'flag_off',
+            })
+            expect(notice?.text).toEqual(
+                enabled ? expect.stringContaining('https://example.com/project/2/inbox/activate') : undefined
             )
-            expect(notice?.text).toContain('Continue helping with the current task')
-            expect(notice?.text?.includes('agent_setup=without_github')).toBe(githubOptional === true)
-            expect(notice?.text).not.toContain('api.example.com')
-            expect(notice?.text).not.toContain('self-driving-activate')
+            if (enabled) {
+                expect(notice?.text).toContain(
+                    'poll `self-driving-status-get` for the same project every 10 seconds for up to two minutes'
+                )
+                expect(notice?.text).toContain('Continue helping with the current task')
+                expect(notice?.text?.includes('agent_setup=without_github')).toBe(githubOptional === true)
+                expect(notice?.text).not.toContain('api.example.com')
+                expect(notice?.text).not.toContain('self-driving-activate')
+            }
+            expect(state.context.api.request).toHaveBeenCalledWith({
+                method: 'GET',
+                path: '/api/projects/2/signals/onboarding/',
+                signal: expect.any(AbortSignal),
+            })
         }
-        expect(state.context.api.request).toHaveBeenCalledWith({
-            method: 'GET',
-            path: '/api/projects/2/signals/onboarding/',
-            signal: expect.any(AbortSignal),
-        })
-    })
+    )
 
     it.each([
         ['impersonation', { isImpersonated: true }],
@@ -353,10 +363,10 @@ describe('Self-driving activation guidance', () => {
 
     it.each([
         { ...issueCall, isError: true },
-        { ...issueCall, toolName: 'query-error-tracking-issues-list' },
+        { ...listCall, isError: true },
         { ...issueCall, toolName: 'query-error-tracking-issue-events' },
         { ...issueCall, args: {} },
-    ])('does not fetch readiness outside a successful issue detail: %j', async (call) => {
+    ])('does not fetch readiness outside a successful issue list or detail: %j', async (call) => {
         const state = activationState()
         expect(await new GuidanceEngine(makeGuidanceRedis()).evaluate(state, call)).toBeUndefined()
         expect(state.context.api.request).not.toHaveBeenCalled()
@@ -416,14 +426,14 @@ describe('Self-driving activation guidance', () => {
         expect(await engine.evaluate(state, issueCall)).toMatchObject({ outcome: 'shown' })
     })
 
-    it('offers once across projects in a session and reserves concurrent eligible calls atomically', async () => {
+    it('offers once across list/detail tools and projects, reserving concurrent eligible calls atomically', async () => {
         const state = activationState()
         const engine = new GuidanceEngine(makeGuidanceRedis())
-        const notices = await Promise.all([engine.evaluate(state, issueCall), engine.evaluate(state, issueCall)])
+        const notices = await Promise.all([engine.evaluate(state, listCall), engine.evaluate(state, issueCall)])
         expect(notices.filter(Boolean)).toHaveLength(1)
         const otherProject = activationState()
         vi.mocked(otherProject.context.stateManager.getProjectId).mockResolvedValue('3')
-        expect(await engine.evaluate(otherProject, issueCall)).toBeUndefined()
+        expect(await engine.evaluate(otherProject, listCall)).toBeUndefined()
         expect(otherProject.context.api.request).not.toHaveBeenCalled()
     })
 
