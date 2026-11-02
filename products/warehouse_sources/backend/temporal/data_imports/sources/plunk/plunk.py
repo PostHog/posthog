@@ -166,7 +166,7 @@ def _make_bounded_session(
     return session
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class PlunkResumeConfig:
     # Exactly one of these is set, matching the endpoint's pagination style.
     cursor: str = ""
