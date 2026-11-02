@@ -6,7 +6,7 @@ from posthog.clickhouse.kafka_engine import (
     kafka_engine,
     ttl_period,
 )
-from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
+from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_EMAIL_STATUS
 
 EMAIL_STATUS_RETENTION_DAYS = 30
@@ -22,6 +22,15 @@ EMAIL_STATUS_DATA_TABLE = f"{EMAIL_STATUS_TABLE}_data"
 KAFKA_EMAIL_STATUS_TABLE = f"kafka_{EMAIL_STATUS_TABLE}"
 EMAIL_STATUS_MV_TABLE = f"{EMAIL_STATUS_TABLE}_mv"
 
+# Keeps every status row of a message, where `email_status` keeps only the latest. The email log reads
+# the timeline, the opens and clicks, and the recipient and sending domain from it.
+EMAIL_STATUS_EVENTS_TABLE = "email_status_events"
+EMAIL_STATUS_EVENTS_DATA_TABLE = f"{EMAIL_STATUS_EVENTS_TABLE}_data"
+EMAIL_STATUS_EVENTS_MV_TABLE = f"{EMAIL_STATUS_EVENTS_TABLE}_mv"
+
+# Rows that record what the recipient did with the email. They never change its delivery status.
+EMAIL_ENGAGEMENT_STATUSES = ("opened", "clicked")
+
 
 EMAIL_STATUS_KAFKA_COLUMNS = """
     team_id Int64,
@@ -31,6 +40,15 @@ EMAIL_STATUS_KAFKA_COLUMNS = """
     created_at DateTime64(6, 'UTC'),
     status_at DateTime64(6, 'UTC'),
     reason String
+""".strip()
+
+# The queued row carries the recipient and the workflow, and the sent row the sending domain. Other rows
+# leave them empty.
+EMAIL_STATUS_EVENTS_KAFKA_COLUMNS = f"""
+    {EMAIL_STATUS_KAFKA_COLUMNS},
+    recipient String,
+    function_id String,
+    sending_domain LowCardinality(String)
 """.strip()
 
 
@@ -71,7 +89,7 @@ KAFKA_EMAIL_STATUS_TABLE_SQL = lambda: (
     f"""
 CREATE TABLE IF NOT EXISTS {KAFKA_EMAIL_STATUS_TABLE}
 (
-    {EMAIL_STATUS_KAFKA_COLUMNS}
+    {EMAIL_STATUS_EVENTS_KAFKA_COLUMNS}
 )
 ENGINE = {
         kafka_engine(
@@ -101,6 +119,60 @@ AS SELECT
     created_at,
     status_at,
     reason,
+    _timestamp,
+    _offset,
+    _partition
+FROM {KAFKA_EMAIL_STATUS_TABLE}
+WHERE status NOT IN {EMAIL_ENGAGEMENT_STATUSES}
+"""
+)
+
+
+# A plain MergeTree, so no row replaces another. Ordered by message, and a message id starts with its
+# creation time, so a team's rows are also in time order.
+EMAIL_STATUS_EVENTS_DATA_TABLE_SQL = lambda: (
+    f"""
+CREATE TABLE IF NOT EXISTS {EMAIL_STATUS_EVENTS_DATA_TABLE}
+(
+    {EMAIL_STATUS_EVENTS_KAFKA_COLUMNS}
+    {KAFKA_COLUMNS_WITH_PARTITION}
+)
+ENGINE = {MergeTreeEngine(EMAIL_STATUS_EVENTS_DATA_TABLE, replication_scheme=ReplicationScheme.REPLICATED)}
+PARTITION BY toYYYYMMDD(created_at)
+ORDER BY (team_id, message_id, status_at)
+{ttl_period("created_at", EMAIL_STATUS_TTL_DAYS, unit="DAY")}
+SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1
+"""
+)
+
+
+DISTRIBUTED_EMAIL_STATUS_EVENTS_TABLE_SQL = lambda: (
+    f"""
+CREATE TABLE IF NOT EXISTS {EMAIL_STATUS_EVENTS_TABLE}
+(
+    {EMAIL_STATUS_EVENTS_KAFKA_COLUMNS}
+    {KAFKA_COLUMNS_WITH_PARTITION}
+)
+ENGINE = {Distributed(data_table=EMAIL_STATUS_EVENTS_DATA_TABLE, cluster=settings.CLICKHOUSE_AUX_CLUSTER)}
+"""
+)
+
+
+EMAIL_STATUS_EVENTS_MV_SQL = lambda: (
+    f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {EMAIL_STATUS_EVENTS_MV_TABLE}
+TO {EMAIL_STATUS_EVENTS_DATA_TABLE}
+AS SELECT
+    team_id,
+    message_id,
+    status,
+    version,
+    created_at,
+    status_at,
+    reason,
+    recipient,
+    function_id,
+    sending_domain,
     _timestamp,
     _offset,
     _partition
