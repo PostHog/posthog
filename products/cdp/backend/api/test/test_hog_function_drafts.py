@@ -636,7 +636,7 @@ class TestHogFunctionRevisions(DraftTestCase):
 
         self._live_edit(function_id, {"hog": EDITED_HOG})
 
-        revisions = list(self._revisions(function_id).order_by("version"))
+        revisions = list(self._revisions(function_id).select_related("created_by").order_by("version"))
         assert [revision.version for revision in revisions] == [1, 2]
         # Rollback to the state before the revision system saw this function must be possible.
         assert revisions[0].content["hog"] == LIVE_HOG

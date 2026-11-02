@@ -108,9 +108,8 @@ reads as alias-free.
 A `learn` call also carries `exec_learn_kind` (`search`, `load`, `list` for `learn skills` and a bare `learn`, `describe`, `guide`),
 stamped before the availability check so a rejected skill command still records its form, plus
 the raw `exec_search_query` for `search` (and for a `load` that searches inside the skill with `-s`) and `exec_learn_target` (the qualified skill) for `load`.
-A successful call carries `mcp_result_empty: true` when the handler returned zero rows, and
-`mcp_discovery_hint` (`empty_state` or `related_capability`) when the response builder appended a
-hint footer (`services/mcp/src/lib/discovery-hints.ts`). `execute-sql` calls additionally emit a separate `$ai_generation` event
+A successful call carries `mcp_result_empty: true` when the handler returned zero rows.
+`execute-sql` calls additionally emit a separate `$ai_generation` event
 carrying `$ai_trace_id`, `$ai_input`, `$ai_output_choices`, and `$ai_latency`.
 
 ## Exec-mode properties
