@@ -34,6 +34,7 @@ from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import AnswerToolCallNot, NoToolCall
+from products.posthog_ai.eval_harness.scorers.contract import Scorer
 from products.posthog_ai.evals.cli_mcp.scorers import FirstRelevantTool
 from products.posthog_ai.evals.offline_config import offline_suite
 from products.posthog_ai.evals.product_analytics.scorers import (
@@ -60,8 +61,8 @@ def _case(
     return SandboxedEvalCase(name=name, prompt=prompt, expected=expected)
 
 
-async def eval_typed_runner_misses(ctx: EvalContext) -> None:
-    cases = [
+def typed_runner_miss_cases() -> list[SandboxedEvalCase]:
+    return [
         _case(
             "scorecard_counts_and_uploaders",
             "For the last 7 days, give me the number of uploaded_file events, the number of downloaded_file events, "
@@ -163,30 +164,39 @@ async def eval_typed_runner_misses(ctx: EvalContext) -> None:
         ),
     ]
 
+
+TYPED_RUNNER_MISS_METRICS = [
+    "no_persistent_insight_save",
+    "answer_from_typed_query",
+    "answer_tool_call_not_forbidden",
+    "insight_shape",
+]
+
+
+def typed_runner_miss_scorers() -> list[Scorer]:
+    return [
+        NoToolCall(forbidden=INSIGHT_WRITE_TOOLS, name="no_persistent_insight_save"),
+        AnswerFromTypedQuery(),
+        AnswerToolCallNot("execute-sql", TYPED_QUERY_TOOLS),
+        InsightShape(),
+    ]
+
+
+async def eval_typed_runner_misses(ctx: EvalContext) -> None:
     await SandboxedEval(
         experiment_name="sandboxed-typed-runner-misses-cli",
         offline_suite=offline_suite(
             "product_analytics/eval_typed_runner_misses::eval_typed_runner_misses",
-            metrics=[
-                "no_persistent_insight_save",
-                "answer_from_typed_query",
-                "answer_tool_call_not_forbidden",
-                "insight_shape",
-            ],
+            metrics=TYPED_RUNNER_MISS_METRICS,
         ),
-        cases=cases,
-        scorers=[
-            NoToolCall(forbidden=INSIGHT_WRITE_TOOLS, name="no_persistent_insight_save"),
-            AnswerFromTypedQuery(),
-            AnswerToolCallNot("execute-sql", TYPED_QUERY_TOOLS),
-            InsightShape(),
-        ],
+        cases=typed_runner_miss_cases(),
+        scorers=typed_runner_miss_scorers(),
         ctx=ctx,
     )
 
 
-async def eval_justified_sql_controls(ctx: EvalContext) -> None:
-    cases = [
+def justified_sql_control_cases() -> list[SandboxedEvalCase]:
+    return [
         _case(
             "sql_explicit_hogql_request",
             "Write and run a HogQL query that counts uploaded_file events per day over the last 14 days.",
@@ -205,16 +215,25 @@ async def eval_justified_sql_controls(ctx: EvalContext) -> None:
         ),
     ]
 
+
+JUSTIFIED_SQL_CONTROL_METRICS = ["no_persistent_insight_save", "first_relevant_tool"]
+
+
+def justified_sql_control_scorers() -> list[Scorer]:
+    return [
+        NoToolCall(forbidden=INSIGHT_WRITE_TOOLS, name="no_persistent_insight_save"),
+        FirstRelevantTool(relevant_tools=ANALYSIS_QUERY_TOOLS),
+    ]
+
+
+async def eval_justified_sql_controls(ctx: EvalContext) -> None:
     await SandboxedEval(
         experiment_name="sandboxed-justified-sql-controls-cli",
         offline_suite=offline_suite(
             "product_analytics/eval_typed_runner_misses::eval_justified_sql_controls",
-            metrics=["no_persistent_insight_save", "first_relevant_tool"],
+            metrics=JUSTIFIED_SQL_CONTROL_METRICS,
         ),
-        cases=cases,
-        scorers=[
-            NoToolCall(forbidden=INSIGHT_WRITE_TOOLS, name="no_persistent_insight_save"),
-            FirstRelevantTool(relevant_tools=ANALYSIS_QUERY_TOOLS),
-        ],
+        cases=justified_sql_control_cases(),
+        scorers=justified_sql_control_scorers(),
         ctx=ctx,
     )
