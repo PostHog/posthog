@@ -1694,61 +1694,36 @@ export enum EntityTypes {
     GROUPS = 'groups',
 }
 
-export type EntityFilter = {
-    type?: EntityType
+export interface ActionFilter {
+    type: EntityType
     id: string | number | null
     name?: string | null
     custom_name?: string | null
     index?: number
     order?: number
     optionalInFunnel?: boolean
-}
-
-export interface ActionFilter extends EntityFilter {
     math?: string
     math_property?: string | null
     math_property_type?: TaxonomicFilterGroupType | null
     math_group_type_index?: integer | null
     math_hogql?: string | null
     properties?: AnyPropertyFilter[]
-    type: EntityType
     days?: string[] // TODO: why was this added here?
     operator?: FilterLogicalOperator | null
-    nestedFilters?: EntityFilter[] | null
+    nestedFilters?:
+        | {
+              type?: EntityType
+              id: string | number | null
+              name?: string | null
+              custom_name?: string | null
+              index?: number
+              order?: number
+              optionalInFunnel?: boolean
+          }[]
+        | null
     /** Replay-only. When true, matches sessions that do NOT contain any event matching this entity */
     negation?: boolean
 }
-
-export const isGroupFilter = (filter: EntityFilter): filter is ActionFilter => filter.type === EntityTypes.GROUPS
-
-export type AnyDataWarehouseFilter =
-    | TrendsDataWarehouseFilter
-    | FunnelDatawarehouseFilter
-    | LifecycleDatawarehouseFilter
-
-export interface TrendsDataWarehouseFilter extends ActionFilter {
-    table_name: string
-    id_field: string
-    timestamp_field: string
-    distinct_id_field: string
-}
-
-export interface FunnelDatawarehouseFilter extends ActionFilter {
-    table_name: string
-    id_field: string
-    timestamp_field: string
-    aggregation_target_field: string
-}
-
-export interface LifecycleDatawarehouseFilter extends ActionFilter {
-    table_name: string
-    timestamp_field: string
-    aggregation_target_field: string
-    created_at_field: string
-}
-
-export const isDataWarehouseFilter = (filter: EntityFilter): filter is AnyDataWarehouseFilter =>
-    filter.type === EntityTypes.DATA_WAREHOUSE
 
 export interface PersonType {
     id?: string
@@ -7388,7 +7363,7 @@ export type CyclotronJobMasking = {
     bytecode?: any
 }
 
-// subset of EntityFilter
+// subset of ActionFilter
 export interface CyclotronJobFilterBase {
     id: string
     name?: string | null
