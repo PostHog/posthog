@@ -454,6 +454,7 @@
   list([
     'DoesNotExist',
     'MultipleObjectsReturned',
+    'NotUpdated',
     '__doc__',
     '__firstlineno__',
     '__module__',
@@ -498,6 +499,7 @@
   list([
     'DoesNotExist',
     'MultipleObjectsReturned',
+    'NotUpdated',
     '__annotate_func__',
     '__doc__',
     '__firstlineno__',
@@ -571,6 +573,7 @@
     'CreationMode',
     'DoesNotExist',
     'MultipleObjectsReturned',
+    'NotUpdated',
     '__annotate_func__',
     '__doc__',
     '__firstlineno__',
@@ -615,6 +618,7 @@
   list([
     'DoesNotExist',
     'MultipleObjectsReturned',
+    'NotUpdated',
     '__annotate_func__',
     '__doc__',
     '__firstlineno__',
@@ -647,6 +651,7 @@
   list([
     'DoesNotExist',
     'MultipleObjectsReturned',
+    'NotUpdated',
     '__doc__',
     '__firstlineno__',
     '__module__',
@@ -668,6 +673,7 @@
     'ActiveStage',
     'DoesNotExist',
     'MultipleObjectsReturned',
+    'NotUpdated',
     'Stage',
     '__doc__',
     '__firstlineno__',
@@ -695,6 +701,7 @@
     'DoesNotExist',
     'ExperimentType',
     'MultipleObjectsReturned',
+    'NotUpdated',
     'Status',
     '__annotate_func__',
     '__doc__',
@@ -756,6 +763,7 @@
   list([
     'DoesNotExist',
     'MultipleObjectsReturned',
+    'NotUpdated',
     '__doc__',
     '__firstlineno__',
     '__module__',
@@ -779,6 +787,7 @@
   list([
     'DoesNotExist',
     'MultipleObjectsReturned',
+    'NotUpdated',
     '__doc__',
     '__firstlineno__',
     '__module__',
@@ -801,6 +810,7 @@
   list([
     'DoesNotExist',
     'MultipleObjectsReturned',
+    'NotUpdated',
     '__doc__',
     '__firstlineno__',
     '__module__',
@@ -826,12 +836,14 @@
     'DoesNotExist',
     'EVALUATION_RUNTIME_CHOICES',
     'MultipleObjectsReturned',
+    'NotUpdated',
     '__annotate_func__',
     '__doc__',
     '__firstlineno__',
     '__module__',
     '__static_attributes__',
     '__str__',
+    '_activity_context',
     '_activity_trigger',
     '_evaluation_tag_names',
     '_has_experiment',
@@ -895,6 +907,7 @@
     'DoesNotExist',
     'MATERIAL_INSIGHT_FIELDS',
     'MultipleObjectsReturned',
+    'NotUpdated',
     '__annotate_func__',
     '__doc__',
     '__firstlineno__',
@@ -954,6 +967,7 @@
   list([
     'DoesNotExist',
     'MultipleObjectsReturned',
+    'NotUpdated',
     'Schedule',
     'SurveySamplingIntervalType',
     'SurveyType',
@@ -995,6 +1009,7 @@
   list([
     'DoesNotExist',
     'MultipleObjectsReturned',
+    'NotUpdated',
     '__doc__',
     '__module__',
     '_meta',
@@ -1008,6 +1023,7 @@
   list([
     'DoesNotExist',
     'MultipleObjectsReturned',
+    'NotUpdated',
     '__doc__',
     '__firstlineno__',
     '__module__',

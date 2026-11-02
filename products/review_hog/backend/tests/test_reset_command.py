@@ -8,7 +8,7 @@ from django.test import override_settings
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact, ReviewSkillConfig, ReviewUserSettings
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, LineRange
-from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.facade.taxonomy import ArtefactAttribution
 
 
 class TestResetReviewHog(BaseTest):

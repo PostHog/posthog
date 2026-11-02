@@ -25,12 +25,12 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { hogql } from 'lib/utils/hogql'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import type { SessionPlayerModalContext } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { hogql } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType, HeatmapType } from '~/types'
 import type { TeamPublicType, TeamType } from '~/types'
 

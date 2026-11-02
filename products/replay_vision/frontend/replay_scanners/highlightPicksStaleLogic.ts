@@ -39,6 +39,7 @@ import { visionScannersListLogic } from '../logics/visionScannersListLogic'
 import { HighlightFeedEmptyReason, resolveHighlightFeedEmptyReason } from './highlightFeedEmptyState'
 import { highlightPicksLogic } from './highlightPicksLogic'
 import { HighlightPicksStaleReason, resolveHighlightPicksStaleReason } from './highlightPicksStaleState'
+import { saveScannerEnabled } from './saveScannerEnabled'
 import { scanDrought } from './scanDrought'
 
 const DROUGHT_SCANNER_CAP = 10
@@ -228,6 +229,9 @@ export interface highlightPicksStaleLogicActions {
     pickBackfillScanner: (scannerId: string | null) => {
         scannerId: string | null
     }
+    pickSharperGoal: (goalKey: string) => {
+        goalKey: string
+    }
     raiseLimit: (
         scannerId: string,
         creditLimit: number
@@ -312,6 +316,7 @@ export const highlightPicksStaleLogic: LogicWrapper<highlightPicksStaleLogicType
         scannerActionDone: (scannerId: string) => ({ scannerId }),
         pickBackfillScanner: (scannerId: string | null) => ({ scannerId }),
         loadBackfillEstimate: true,
+        pickSharperGoal: (goalKey: string) => ({ goalKey }),
     }),
 
     loaders(({ values }) => ({
@@ -512,14 +517,20 @@ export const highlightPicksStaleLogic: LogicWrapper<highlightPicksStaleLogicType
             visionQuotaLogic.findMounted()?.actions.loadQuota()
             highlightPicksLogic.findMounted(props)?.actions.loadPicks()
         }
-        const act = (action: string, scannerId: string): void => {
+        const act = (action: string, scannerId: string | null, extra: Record<string, string> = {}): void => {
             posthog.capture('replay_vision_highlight_picks_stale_action', {
-                reason: values.staleReason,
+                // With no picks there is no stale reason, so the empty reason names the state that held the button.
+                reason: values.staleReason ?? values.blockReason,
                 action,
                 scanner_id: scannerId,
+                ...extra,
             })
         }
         return {
+            pickSharperGoal: ({ goalKey }) => {
+                const running = values.scanners.filter((scanner) => scanner.enabled && !scanner.limit_reached)
+                act('sharper_goal', running.length === 1 ? running[0].id : null, { goal_key: goalKey })
+            },
             loadScannersSuccess: () => {
                 if (values.picks && values.picks.length > 0) {
                     cache.droughtsLoaded = true
@@ -552,8 +563,10 @@ export const highlightPicksStaleLogic: LogicWrapper<highlightPicksStaleLogicType
                 }
                 act(enabled ? 'enable' : 'disable', scannerId)
                 try {
-                    await visionScannersPartialUpdate(String(teamId), scannerId, { enabled })
-                    refresh()
+                    const saved = await saveScannerEnabled(String(teamId), scannerId, enabled)
+                    if (saved) {
+                        refresh()
+                    }
                 } finally {
                     actions.scannerActionDone(scannerId)
                 }

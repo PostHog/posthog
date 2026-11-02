@@ -1,6 +1,7 @@
 import uuid
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
+from typing import Any
 
 import structlog
 from rest_framework.exceptions import ValidationError
@@ -29,11 +30,13 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, get_query_tags, tag_queries, tags_context
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
+from posthog.utils import get_safe_cache, safe_cache_set
 
 from products.access_control.backend.facade.api import (
     get_restricted_properties_with_group_type_index_for_team,
@@ -43,8 +46,17 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.experiments.backend.facade.contracts import ExperimentHealth, ExperimentHealthReaderAccess
 from products.experiments.backend.health.checks.bias_risk import evaluate_bias_risk
-from products.experiments.backend.health.checks.srm import reads_flag_history, sample_ratio_test
+from products.experiments.backend.health.checks.filtered_exposures import reads_share_kept_by_test_account_filter
+from products.experiments.backend.health.checks.srm import (
+    TOP_SEGMENT_VALUES,
+    reads_flag_history,
+    reads_segments,
+    sample_ratio_test,
+    segments_first_exposed_after,
+)
+from products.experiments.backend.health.checks.zero_exposures import reads_exposed_without_test_account_filter
 from products.experiments.backend.health.context import (
+    ExposureSegment,
     ExposureTotals,
     FlagHistory,
     FlagHistoryNotChecked,
@@ -55,15 +67,23 @@ from products.experiments.backend.health.registry import (
     EXPOSURE_HEALTH_CHECKS,
     evaluate as evaluate_health,
 )
+from products.experiments.backend.health.rollout import shows_health_findings
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.base_query_utils import analysis_window, analysis_window_end
 from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
+from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureSegmentDimension
 from products.experiments.backend.hogql_queries.experiment_query_builder import (
     ExperimentQueryBuilder,
+    ExposureQueryParams,
     get_exposure_config_params_for_builder,
 )
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentResultsCacheMixin
-from products.experiments.backend.hogql_queries.exposure_query_logic import aggregates_by_group, get_entity_key
+from products.experiments.backend.hogql_queries.exposure_query_logic import (
+    aggregates_by_group,
+    applies_test_account_filters,
+    get_entity_key,
+    has_positive_test_account_filter,
+)
 from products.experiments.backend.hogql_queries.precompute_policy import (
     ensure_exposures_precomputed,
     team_precompute_skip_reason,
@@ -74,6 +94,12 @@ from products.experiments.backend.models.team_experiments_config import TeamExpe
 logger = structlog.get_logger(__name__)
 
 QUERY_ROW_LIMIT = 5000  # The result has one row per (day, variant) pair
+# The queries that explain a health finding scan the exposure events. A timeout keeps the finding without the
+# explanation, so it must not hold up the exposure answer as long as its own query can.
+HEALTH_QUERY_TIMEOUT_SECONDS = 60
+# The page recalculates an experiment with few exposures on every entry, and the count without the test account filter
+# must not repeat its scan each time.
+EXPOSED_WITHOUT_FILTER_CACHE_SECONDS = 60 * 60
 
 
 def build_experiment_exposure_query(experiment: Experiment) -> ExperimentExposureQuery:
@@ -110,6 +136,8 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         self.error_event_context = error_event_context
         # The user id and whether that user may read the flag's history.
         self._flag_history_access: tuple[int, bool] | None = None
+        self._health_findings_shown: tuple[int, bool] | None = None
+        self._reads_precomputed_exposures = False
 
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
@@ -180,12 +208,8 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             analysis_window_end(self.window_end_date, self.as_of),
         )
 
-    def _get_exposure_query(self) -> ast.SelectQuery:
-        exposure_params = get_exposure_config_params_for_builder(
-            self.exposure_criteria, self.team, self.experiment.start_date
-        )
-
-        builder = ExperimentQueryBuilder(
+    def _query_builder(self, exposure_params: ExposureQueryParams) -> ExperimentQueryBuilder:
+        return ExperimentQueryBuilder(
             team=self.team,
             feature_flag_key=self.feature_flag_key,
             exposure_config=exposure_params.exposure_config,
@@ -196,6 +220,9 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             entity_key=get_entity_key(self.group_type_index),
             activation_config=exposure_params.activation_config,
         )
+
+    def _get_exposure_query(self, exposure_params: ExposureQueryParams) -> ast.SelectQuery:
+        builder = self._query_builder(exposure_params)
 
         # TODO: Add a query-level precomputation_mode override for ExperimentExposureQuery. The main
         # runner lets PrecomputationMode.PRECOMPUTED bypass the duration gate. This path has no such
@@ -218,6 +245,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 if result.ready:
                     job_ids = [str(job_id) for job_id in result.job_ids]
                     tag_queries(experiment_exposures_path="precomputed")
+                    self._reads_precomputed_exposures = True
                     return builder.get_daily_exposures_from_precomputed(job_ids)
                 else:
                     logger.warning("exposure_lazy_computation_not_ready", experiment_id=self.experiment.id)
@@ -306,6 +334,17 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             self._flag_history_access = (self.user.pk, readable)
         return self._flag_history_access[1]
 
+    def _runs_segments_query(self) -> bool:
+        # The segments only explain a finding and the query scans the exposure events, so it runs only for a reader
+        # who sees the findings. A userless run sees none. The answer stays out of the cache key: an async run computes
+        # the key again in a worker, from that worker's flag definitions, and a key that disagrees with the web
+        # request's makes every page load miss the cache.
+        if not isinstance(self.user, User):
+            return False
+        if self._health_findings_shown is None or self._health_findings_shown[0] != self.user.pk:
+            self._health_findings_shown = (self.user.pk, shows_health_findings(self.user, self.team))
+        return self._health_findings_shown[1]
+
     def _flag_history(self) -> FlagHistory | FlagHistoryNotChecked | None:
         try:
             restrictions = get_restricted_properties_with_group_type_index_for_team(
@@ -323,11 +362,92 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         )
         return load_split_history(self.experiment, reader_access=reader_access)
 
-    def _evaluate_health(self, exposures: ExposureTotals) -> ExperimentHealth:
+    def _evaluate_health(self, exposures: ExposureTotals, exposure_params: ExposureQueryParams) -> ExperimentHealth:
         context = load_health_context(self.experiment, exposures)
         if reads_flag_history(context):
             context = replace(context, flag_history=self._flag_history())
+        if self._runs_segments_query() and reads_segments(context):
+            segments = self._segments(exposure_params, segments_first_exposed_after(context))
+            exposures = replace(exposures, segments=segments)
+            context = replace(context, exposures=exposures)
+        # This count runs for every reader. The findings depend on it, and every reader shares the cached answer.
+        if exposures.filters_test_accounts and (
+            reads_exposed_without_test_account_filter(context) or reads_share_kept_by_test_account_filter(context)
+        ):
+            exposed = self._exposed_without_test_account_filter(exposure_params)
+            context = replace(context, exposures=replace(exposures, exposed_without_test_account_filter=exposed))
         return evaluate_health(context, EXPOSURE_HEALTH_CHECKS)
+
+    def _segments(
+        self, exposure_params: ExposureQueryParams, first_exposed_after: date | None
+    ) -> tuple[ExposureSegment, ...] | None:
+        query = self._query_builder(exposure_params).get_exposure_segments_query(
+            TOP_SEGMENT_VALUES, first_exposed_after
+        )
+        rows = self._run_health_query("ExperimentExposureSegmentsQuery", query)
+        if rows is None:
+            return None
+        exposed: dict[tuple[str, str, str], dict[str, int]] = {}
+        for dimension, library, segment, variant, count in rows:
+            exposed.setdefault((dimension, library, segment), {})[variant] = int(count)
+        return tuple(
+            ExposureSegment(
+                dimension=ExposureSegmentDimension(dimension),
+                value=segment,
+                exposed_by_variant=counts,
+                library=library or None,
+            )
+            for (dimension, library, segment), counts in exposed.items()
+        )
+
+    def _exposed_without_test_account_filter(self, exposure_params: ExposureQueryParams) -> int | None:
+        # A cache hit skips the masking of the query, so the key needs the reader's property access from the payload.
+        cache_key = self._cache_key_for(
+            {
+                **self.get_cache_payload(),
+                "exposed_without_test_account_filter": {
+                    "variants": self.variants,
+                    "group_type_index": self.group_type_index,
+                },
+            }
+        )
+        cached = get_safe_cache(cache_key)
+        if cached is not None:
+            return cached["exposed"]
+        query = self._query_builder(replace(exposure_params, filter_test_accounts=False)).get_exposed_count_query()
+        rows = self._run_health_query("ExperimentExposuresWithoutTestAccountFilterQuery", query)
+        exposed = None if rows is None else int(rows[0][0]) if rows else 0
+        # The cache keeps a failed count too, so a project that hits the timeout doesn't wait for it on every entry.
+        safe_cache_set(cache_key, {"exposed": exposed}, EXPOSED_WITHOUT_FILTER_CACHE_SECONDS)
+        return exposed
+
+    def _run_health_query(self, query_type: str, query: ast.SelectQuery) -> list[Any] | None:
+        """The rows of a query that only explains a health finding. None when it fails, so that the finding keeps the
+        wording without the explanation and the exposure answer doesn't fail."""
+        try:
+            with tags_context(experiment_query_surface="exposure_health", experiment_exposures_path="direct_scan"):
+                response = execute_hogql_query(
+                    query_type=query_type,
+                    query=query,
+                    team=self.team,
+                    user=self.user,
+                    timings=self.timings,
+                    modifiers=self.modifiers,
+                    # A profile that breaks on timeout returns partial counts, which would read as real ones.
+                    settings=HogQLGlobalSettings(
+                        max_execution_time=HEALTH_QUERY_TIMEOUT_SECONDS, timeout_overflow_mode="throw"
+                    ),
+                    # The exposure query runs both on a page load and in the background, and this query follows it.
+                    workload=self.workload,
+                )
+        except ClickHouseQueryTimeOut:
+            # The timeout above is the query's budget, so hitting it on a large project is expected, not an error.
+            logger.warning("exposure_health_query_timed_out", experiment_id=self.experiment.id, query_type=query_type)
+            return None
+        except Exception as error:
+            capture_exception(error)
+            return None
+        return response.results or []
 
     @staticmethod
     def _health_findings(health: ExperimentHealth) -> list[ExperimentExposureHealthFinding]:
@@ -335,6 +455,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             ExperimentExposureHealthFinding(
                 code=ExperimentExposureHealthFindingCode(finding.code.value),
                 subcode=finding.subcode,
+                reason=finding.reason,
                 severity=ExperimentExposureHealthFindingSeverity(finding.severity.value),
                 title=finding.title,
                 detail=finding.detail,
@@ -371,8 +492,11 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             experiment_query_group_id=uuid.uuid4(),
         )
 
+        exposure_params = get_exposure_config_params_for_builder(
+            self.exposure_criteria, self.team, self.experiment.start_date
+        )
         # Set limit to avoid being cut-off by the default 100 rows limit
-        query = self._get_exposure_query()
+        query = self._get_exposure_query(exposure_params)
         query.limit = ast.Constant(value=QUERY_ROW_LIMIT)
 
         response = execute_hogql_query(
@@ -423,9 +547,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         for variant, series in variant_series.items():
             total_exposures[variant] = int(series.exposure_counts[-1]) if series.exposure_counts else 0
 
-        multiple_variant_handling = get_exposure_config_params_for_builder(
-            self.exposure_criteria, self.team, self.experiment.start_date
-        ).multiple_variant_handling
+        multiple_variant_handling = exposure_params.multiple_variant_handling
         sample_ratio_mismatch = self._calculate_srm(total_exposures)
         bias_risk = self._evaluate_bias_risk(total_exposures, multiple_variant_handling)
         health = self._evaluate_health(
@@ -437,7 +559,11 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 daily_exposures=daily_exposures,
                 hours_since_launch=self.experiment.hours_since_launch,
                 counts_groups=aggregates_by_group(self.group_type_index),
-            )
+                filters_test_accounts=applies_test_account_filters(self.team, self.exposure_criteria),
+                has_positive_test_account_filter=has_positive_test_account_filter(self.team),
+                reads_precomputed_exposures=self._reads_precomputed_exposures,
+            ),
+            exposure_params,
         )
 
         return ExperimentExposureQueryResponse(
@@ -486,9 +612,12 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
-        payload["experiment_exposures_response_version"] = 2
+        payload["experiment_exposures_response_version"] = 4
         # The sample ratio finding can name a split change from the flag's history, so a reader who can't read the
         # history, a userless run included, must not get a cached answer of one who can.
         if not self._can_read_flag_history():
             payload["flag_history_hidden"] = True
+        # The test account filter finding asks the user to edit these filters, so an edit must not serve the old answer.
+        if applies_test_account_filters(self.team, self.exposure_criteria):
+            payload["test_account_filters"] = self.team.test_account_filters
         return payload

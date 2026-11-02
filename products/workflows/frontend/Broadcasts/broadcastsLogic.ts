@@ -260,6 +260,9 @@ export interface broadcastsLogicActions {
     deleteBroadcast: (broadcast: ManagedBroadcast) => {
         broadcast: ManagedBroadcast
     }
+    fillMissingFilters: () => {
+        value: true
+    }
     loadBroadcasts: () => {
         value: true
     }
@@ -333,6 +336,7 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
         loadBroadcasts: true,
         setFilters: (filters: Partial<BroadcastsFilters>) => ({ filters }),
         setFiltersFromUrl: (filters: BroadcastsFilters) => ({ filters }),
+        fillMissingFilters: true,
         setRowDetails: (id: string, details: BroadcastRowDetails) => ({ id, details }),
         clearRowDetails: (id: string) => ({ id }),
         setLoadedFilters: (filters: BroadcastsFilters) => ({ filters }),
@@ -452,9 +456,14 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                 // Any change other than the page itself starts the list over from the first page.
                 setFilters: (state, { filters }) => ({ ...state, page: 1, ...filters }),
                 setFiltersFromUrl: (_, { filters }) => filters,
+                fillMissingFilters: (state) => ({ ...DEFAULT_FILTERS, ...state }),
             },
         ],
     })),
+    // Filters saved before a field existed come back without it. This runs before urlToAction reads them.
+    afterMount(({ actions }) => {
+        actions.fillMissingFilters()
+    }),
     selectors({
         filtersPending: [
             (s) => [s.filters, s.loadedFilters],

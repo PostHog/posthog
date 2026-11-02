@@ -18,7 +18,7 @@ test.describe('SQL editor axis labels', () => {
 
     test.beforeAll(async ({ playwrightSetup }) => {
         workspace = await playwrightSetup.createWorkspace({
-            use_current_time: true,
+            no_demo_data: true,
             skip_onboarding: true,
             insights: [
                 {
@@ -27,7 +27,7 @@ test.describe('SQL editor axis labels', () => {
                         kind: NodeKind.DataVisualizationNode,
                         source: {
                             kind: NodeKind.HogQLQuery,
-                            query: 'SELECT event, count() AS events, uniq(distinct_id) AS people FROM events GROUP BY event ORDER BY events DESC LIMIT 5',
+                            query: "SELECT 'sample' AS event, 10 AS events, 5 AS people",
                         },
                         display: ChartDisplayType.ActionsBar,
                         chartSettings: {

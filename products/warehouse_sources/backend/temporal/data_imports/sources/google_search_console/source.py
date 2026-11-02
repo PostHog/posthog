@@ -4,7 +4,7 @@ import requests
 from google.auth.exceptions import RefreshError
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationNotFound
 
 from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
@@ -122,6 +122,8 @@ class GoogleSearchConsoleSource(
             # references an OAuth integration row that has since been deleted (account disconnected).
             # No retry can recreate the row, so stop and ask the user to reconnect.
             "Integration matching query does not exist": "The Google Search Console connection for this source no longer exists. Please reconnect your Google account.",
+            # `_get_integration` raises `IntegrationNotFound("Integration not found: <id>")` for the same case.
+            "Integration not found": "The Google Search Console connection for this source no longer exists. Please reconnect your Google account.",
             # `RefreshError: invalid_grant` is raised while AuthorizedSession refreshes the OAuth
             # access token — the stored refresh token has been revoked, expired, or invalidated
             # (app access revoked, password change, long inactivity). It never recovers on retry,
@@ -157,7 +159,7 @@ class GoogleSearchConsoleSource(
         # Search Console sites are few, so `search` is ignored here and the endpoint filters the list.
         try:
             session = google_search_console_session(integration_id, team_id)
-        except Integration.DoesNotExist:
+        except IntegrationNotFound:
             raise IntegrationAccountListingError(
                 "The Google Search Console connection for this source no longer exists. "
                 "Please reconnect your Google account."
@@ -298,7 +300,7 @@ class GoogleSearchConsoleSource(
 
         try:
             session = google_search_console_session(config.google_search_console_integration_id, team_id)
-        except Integration.DoesNotExist:
+        except IntegrationNotFound:
             return (
                 False,
                 "The Google Search Console connection for this source no longer exists. Please reconnect your Google account.",

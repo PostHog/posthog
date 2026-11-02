@@ -86,6 +86,13 @@ You can generate an API token in your Skio dashboard: click **API** in the left 
             FIELD_NOT_FOUND_ERROR: "Your Skio API token does not have access to this table. Generate a new token under API in your Skio dashboard, then reconnect.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_post_query` (skio.py) already retries a read timeout or dropped connection with
+        # backoff, since the transport's own retry only covers idempotent methods and this
+        # GraphQL endpoint is queried over POST. If that budget still exhausts, Temporal retries
+        # the whole activity, so the failure is transient and self-recovering.
+        return {"HTTPSConnectionPool(host='graphql.skio.com', port=443)"}
+
     def get_schemas(
         self,
         config: SkioSourceConfig,

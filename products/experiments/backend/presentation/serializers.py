@@ -220,6 +220,15 @@ class ExperimentHealthFindingSerializer(serializers.Serializer):
             "'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case."
         ),
     )
+    reason = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "A stable qualifier below the subcode: where a sample ratio mismatch is located ('library', 'page'), "
+            "what leaves nobody exposed ('test_account_filter'), what made a metric reach a query limit "
+            "('metric', 'exposure_criteria'), or why a check could not read what it needs ('no_history_access'). "
+            "Null when the finding names none."
+        ),
+    )
     severity = serializers.ChoiceField(
         choices=ExperimentHealthFindingSeverity.choices,
         help_text="How much the problem affects the results: critical, warning, or info.",
@@ -1641,9 +1650,11 @@ class _ExperimentMetricsRecalculationBaseSerializer(serializers.Serializer):
     metric_errors = serializers.JSONField(
         read_only=True,
         help_text=(
-            "Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is "
-            "true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can "
-            "succeed; false when the metric config, the data, or a resource limit must change first"
+            "Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp, exposures_path}. "
+            "retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry "
+            "can succeed; false when the metric config, the data, or a resource limit must change first. "
+            "exposures_path is where the query read the exposures, and is missing when the query failed before it "
+            "was built"
         ),
     )
     created_at = serializers.DateTimeField(read_only=True, help_text="When the job was created")

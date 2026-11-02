@@ -7,6 +7,7 @@ import type { Series, TimeSeriesLineChartConfig, TooltipContext } from '@posthog
 import { useChartTheme } from 'lib/charts/hooks'
 import { getColorVar } from 'lib/colors'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { midEllipsis } from 'lib/utils/strings'
 
 import { EvaluationBackfillHint } from './EvaluationBackfillHint'
 import {
@@ -20,6 +21,8 @@ import {
 import { evaluationsOverviewLogic } from './evaluationsOverviewLogic'
 
 const MEDIAN_KEY = '__median'
+// Fits the tooltip name column and cuts in the middle, so the end that tells similar names apart stays visible.
+const TOOLTIP_NAME_CHARS = 30
 
 export function EvaluationPassRateCompareChart({ colors }: { colors: Map<string, string> }): JSX.Element {
     const theme = useChartTheme()
@@ -89,7 +92,7 @@ export function EvaluationPassRateCompareChart({ colors }: { colors: Map<string,
                         <Fragment key={row.id}>
                             <span className="flex items-center gap-2 min-w-0">
                                 <TooltipSwatch color={colors.get(row.id) ?? ''} />
-                                <span className="truncate max-w-72">{row.name}</span>
+                                <span className="truncate max-w-72">{midEllipsis(row.name, TOOLTIP_NAME_CHARS)}</span>
                             </span>
                             {/* The value stays short, so the name gets the rest of the tooltip's fixed width. */}
                             <span className="text-right whitespace-nowrap tabular-nums">

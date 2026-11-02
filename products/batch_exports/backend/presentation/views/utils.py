@@ -1,11 +1,14 @@
 import uuid
 import typing
+from collections.abc import Callable
 
 import pydantic
 import posthoganalytics
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.pagination import LimitOffsetPagination
+from rest_framework.request import Request
 
 from posthog.schema import HogQLQueryModifiers
 
@@ -77,8 +80,6 @@ def check_high_frequency_batch_exports_enabled(team: Team) -> None:
 class HogQLModifiersField(serializers.JSONField):
     """HogQL modifiers, validated against `HogQLQueryModifiers` and stored as a plain dict."""
 
-    loaded: HogQLQueryModifiers | None = None
-
     def to_internal_value(self, data: typing.Any) -> dict[str, typing.Any]:
         value = super().to_internal_value(data)
         try:
@@ -89,8 +90,6 @@ class HogQLModifiersField(serializers.JSONField):
                 location = ".".join(str(part) for part in error["loc"])
                 messages.append(f"{location}: {error['msg']}" if location else error["msg"])
             raise serializers.ValidationError(messages) from e
-        else:
-            self.loaded = modifiers
         return modifiers.model_dump(mode="json", exclude_none=True)
 
     def to_representation(self, value: typing.Any) -> typing.Any:
@@ -99,3 +98,22 @@ class HogQLModifiersField(serializers.JSONField):
         if isinstance(value, dict):
             value = drop_unknown_hogql_modifiers(value)
         return super().to_representation(value)
+
+
+def fetch_facade_page[T](
+    paginator: LimitOffsetPagination, request: Request, fetch_page: Callable[[int, int], tuple[list[T], int]]
+) -> list[T]:
+    """Fetch one page of a list through the facade with ``fetch_page(offset, limit)``, and set up the paginator for it.
+
+    The facade slices the page, so the paginator gets its state set directly instead of a queryset.
+    """
+    limit = paginator.get_limit(request)
+    offset = paginator.get_offset(request)
+    # PAGE_SIZE gives every request a limit.
+    assert limit is not None
+    items, count = fetch_page(offset, limit)
+    paginator.request = request
+    paginator.limit = limit
+    paginator.offset = offset
+    paginator.count = count
+    return items

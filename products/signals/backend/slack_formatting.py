@@ -299,6 +299,24 @@ _OPEN_MARKDOWN_LINK_RE = re.compile(r"\[[^\[\]]*\]\([^()]*$|\[[^\[\]]*$")
 _MIN_LINE_BREAK_FILL = 0.6
 
 
+# Bounds the sentence scan: each candidate end re-checks the prefix for an open link, so an
+# unclosed `[` followed by many sentence ends would otherwise cost quadratic time on a long line.
+_FIRST_SENTENCE_SCAN_LIMIT = 2000
+
+
+def first_sentence(text: str) -> str:
+    """The text up to its first sentence end, or all of it when no sentence end is found.
+
+    A sentence end inside a Markdown link, such as `[see e.g. this](https://…)`, is skipped, so the
+    link reaches Slack whole."""
+    text = text.strip()
+    window = text[:_FIRST_SENTENCE_SCAN_LIMIT]
+    for match in _SENTENCE_END_RE.finditer(window):
+        if _OPEN_MARKDOWN_LINK_RE.search(window[: match.end()]) is None:
+            return window[: match.end()].strip()
+    return text
+
+
 def _pull_back_before_open_link(window: str, index: int) -> int:
     """Move a cut back before a Markdown link it would otherwise split, or leave it alone."""
     match = _OPEN_MARKDOWN_LINK_RE.search(window[:index])

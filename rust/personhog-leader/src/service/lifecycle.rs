@@ -56,6 +56,9 @@ struct CommittedRelease {
     person_uuid: String,
     sealed_version: i64,
     created_at: i64,
+    /// The version the saga committed its Postgres tombstone at, when the
+    /// saga recorded one; the death document is produced at or above it.
+    tombstone_version: Option<i64>,
 }
 
 impl CommittedRelease {
@@ -65,6 +68,7 @@ impl CommittedRelease {
         person_uuid: String,
         sealed_version: Option<i64>,
         created_at: i64,
+        tombstone_version: Option<i64>,
     ) -> Result<Self, Status> {
         // 0 is a legitimate sealed version (a fresh stub's), which is why
         // the field is explicitly optional in the proto.
@@ -88,11 +92,19 @@ impl CommittedRelease {
                 "person_uuid must be a valid UUID for a committed release",
             ));
         }
+        // The saga tombstones at no less than sealed + 1; anything lower is
+        // a caller bug, not a version the death document could honor.
+        if tombstone_version.is_some_and(|version| version <= sealed_version) {
+            return Err(Status::invalid_argument(
+                "tombstone_version must be above sealed_version for a committed release",
+            ));
+        }
         Ok(Self {
             person_id,
             person_uuid,
             sealed_version,
             created_at,
+            tombstone_version,
         })
     }
 }
@@ -248,6 +260,10 @@ impl PersonHogLeaderService {
         // The death version is sealed + 1, floored by the emitted floor and
         // the cached version in case a deposed or indeterminate produce spent
         // a higher version; a cold leader falls back to the request's seal.
+        // The saga's committed tombstone version floors it too: a direct
+        // Postgres writer can move the row past the seal while the fence
+        // only stops leader writes, and a death document below the
+        // tombstone would relay a live version over it to ClickHouse.
         let base_version = self.emitted_versions.floor_for(
             partition,
             &cache_key,
@@ -260,6 +276,14 @@ impl PersonHogLeaderService {
         let death_version = base_version.checked_add(1).ok_or_else(|| {
             Status::invalid_argument("sealed_version leaves no room for the death version")
         })?;
+        let floored_by_tombstone = release
+            .tombstone_version
+            .is_some_and(|tombstone_version| tombstone_version > death_version);
+        let death_version = if floored_by_tombstone {
+            release.tombstone_version.unwrap_or(death_version)
+        } else {
+            death_version
+        };
         let death = CachedPerson {
             id: release.person_id,
             uuid: release.person_uuid.clone(),
@@ -287,6 +311,11 @@ impl PersonHogLeaderService {
         // writer confirms, and PG answers from then on.
         self.fences.remove(&cache_key);
         counter!("personhog_leader_fences_total", "action" => "released_committed").increment(1);
+        // Its own counter, not a `fences_total` action: the release above is
+        // already counted there, and a sum over `action` must count it once.
+        if floored_by_tombstone {
+            counter!("personhog_leader_death_documents_floored_by_tombstone_total").increment(1);
+        }
         Ok(())
     }
 
@@ -542,6 +571,7 @@ impl PersonHogLeaderService {
                     req.person_uuid,
                     req.sealed_version,
                     req.created_at,
+                    req.tombstone_version,
                 )?;
                 // Producing to the changelog must respect the handoff
                 // write freeze like any write.
@@ -611,6 +641,7 @@ impl PersonHogLeaderService {
                             person.person_uuid,
                             person.sealed_version,
                             person.created_at,
+                            person.tombstone_version,
                         )
                     })
                     .collect::<Result<Vec<_>, Status>>()?;

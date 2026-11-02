@@ -17,6 +17,7 @@ from posthoganalytics.ai.anthropic.anthropic import WrappedMessages
 from posthoganalytics.client import Client as PostHogClient
 from pydantic import BaseModel
 
+from products.ai_observability.backend.llm.attachments import AttachmentPart, convert_attachment_parts
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
     ContextWindowExceededError,
@@ -39,6 +40,7 @@ from products.ai_observability.backend.llm.types import (
     AnalyticsContext,
     CompletionRequest,
     CompletionResponse,
+    ReasoningLevel,
     StreamChunk,
     Usage,
 )
@@ -118,6 +120,20 @@ def _is_quota_or_billing_error(error: Exception) -> bool:
 class AnthropicConfig:
     MAX_TOKENS: int = 8192
     MAX_THINKING_TOKENS: int = 4096
+    # Thinking tokens count against max_tokens, so each level also raises max_tokens by its budget.
+    REASONING_BUDGET_TOKENS: dict[ReasoningLevel, int] = {"minimal": 1024, "low": 2048, "medium": 4096, "high": 8192}
+    # Models before Claude 4.6 take a fixed thinking budget. Newer models reject it and take an effort level.
+    BUDGET_THINKING_MODEL_PREFIXES: tuple[str, ...] = (
+        "claude-opus-4-5",
+        "claude-sonnet-4-5",
+        "claude-haiku-4-5",
+        "claude-opus-4-1",
+        "claude-opus-4-0",
+        "claude-sonnet-4-0",
+        # Dated IDs of Claude 4.0, such as claude-sonnet-4-20250514.
+        "claude-opus-4-20",
+        "claude-sonnet-4-20",
+    )
     # Timeout in seconds for API calls. Set high to accommodate slow reasoning models.
     # Note: Infrastructure-level timeouts (load balancers, proxies) may still limit actual request duration.
     TIMEOUT: float = 300.0
@@ -170,6 +186,11 @@ class AnthropicConfig:
         "claude-sonnet-4-0",
     ]
 
+    @staticmethod
+    def supports_reasoning_level(model: str) -> bool:
+        # Every Claude model after the 3 family can think, including ones newer than our model lists.
+        return model.startswith("claude-") and not model.startswith("claude-3")
+
 
 class AnthropicAdapter:
     """Anthropic provider implementing the unified Client interface."""
@@ -209,7 +230,7 @@ class AnthropicAdapter:
         effective_api_key = api_key or self._get_default_api_key()
         client = self._create_client(effective_api_key, analytics)
 
-        messages: Any = request.messages
+        messages: Any = convert_attachment_parts(request.messages, _anthropic_attachment_block)
         system_prompt = request.system or ""
         use_structured = request.response_format and issubclass(request.response_format, BaseModel)
 
@@ -236,6 +257,9 @@ class AnthropicAdapter:
                     "schema": json_schema,
                 }
             }
+
+        if request.reasoning_level and AnthropicConfig.supports_reasoning_level(request.model):
+            self._apply_reasoning_level(create_kwargs, request.model, request.reasoning_level)
 
         try:
             response = client.messages.create(**create_kwargs)
@@ -272,6 +296,17 @@ class AnthropicAdapter:
             if mapped is not None:
                 raise mapped from e
             raise
+
+    @staticmethod
+    def _apply_reasoning_level(create_kwargs: dict[str, Any], model: str, level: ReasoningLevel) -> None:
+        budget = AnthropicConfig.REASONING_BUDGET_TOKENS[level]
+        create_kwargs["max_tokens"] += budget
+        if model.startswith(AnthropicConfig.BUDGET_THINKING_MODEL_PREFIXES):
+            create_kwargs["thinking"] = {"type": "enabled", "budget_tokens": budget}
+            return
+        create_kwargs["thinking"] = {"type": "adaptive"}
+        # Claude has no "minimal" effort level.
+        create_kwargs.setdefault("output_config", {})["effort"] = "low" if level == "minimal" else level
 
     def _mapped_error(self, error: Exception, model: str) -> LLMError | None:
         """Normalize a provider exception into the shared taxonomy, or None when it isn't ours.
@@ -325,7 +360,7 @@ class AnthropicAdapter:
         tools = self._convert_tools(request.tools) if request.tools else None
 
         system = request.system or ""
-        messages = request.messages
+        messages = convert_attachment_parts(request.messages, _anthropic_attachment_block)
 
         # Handle cache control for supported models
         system_prompt: list[TextBlockParam] = []
@@ -604,3 +639,10 @@ class AnthropicAdapter:
             prepared_messages.append(prepared_message)
 
         return prepared_messages
+
+
+def _anthropic_attachment_block(part: AttachmentPart) -> dict[str, Any]:
+    block_type = "document" if part.is_pdf else "image"
+    if part.url is not None:
+        return {"type": block_type, "source": {"type": "url", "url": part.url}}
+    return {"type": block_type, "source": {"type": "base64", "media_type": part.mime_type, "data": part.base64()}}

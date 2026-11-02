@@ -5,6 +5,7 @@ import base64
 import asyncio
 import hashlib
 from collections.abc import AsyncGenerator, Iterator
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, ClassVar, cast
@@ -63,6 +64,7 @@ from products.tasks.backend.facade import (
     api as tasks_facade,
     contracts as tasks_contracts,
 )
+from products.tasks.backend.facade.profiles import NetworkAccess, NetworkPolicy, TaskProfile, get_task_profile
 from products.tasks.backend.facade.repo_selection import RepoSelectionResult
 from products.tasks.backend.facade.run_config import TaskArtifactAdapter, TaskArtifactType
 from products.tasks.backend.logic.services.ai_run_defaults import update_team_ai_run_preferences
@@ -125,6 +127,8 @@ from products.tasks.backend.redis import get_tasks_cache, get_tasks_stream_redis
 from products.tasks.backend.temporal.process_task.utils import get_cached_github_user_token
 
 from ee.billing.quota_limiting import QuotaResource
+
+BUSINESS_KNOWLEDGE = get_task_profile("business_knowledge")
 
 # The catalog gates no model behind a rollout flag now, so the write paths that re-check
 # entitlement are exercised with a stand-in rather than with whichever model is mid-rollout.
@@ -2823,6 +2827,27 @@ class TestTaskAPI(BaseTaskAPITest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    @parameterized.expand([("empty_string",), ("other_team",)])
+    def test_create_task_github_integration_reference(self, case: str) -> None:
+        github_integration: int | str = ""
+        if case == "other_team":
+            other_team = Team.objects.create(organization=self.organization, name="Other team")
+            github_integration = Integration.objects.create(team=other_team, kind="github", integration_id="999").id
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {"title": "New Task", "description": "New Description", "github_integration": github_integration},
+            format="json",
+        )
+
+        if case == "empty_string":
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            self.assertIsNone(Task.objects.get(id=response.json()["id"]).github_integration_id)
+        else:
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(response.json()["attr"], "github_integration")
+            self.assertFalse(Task.objects.filter(title="New Task").exists())
 
     def test_create_task_defaults_origin_product(self):
         response = self.client.post(
@@ -7886,6 +7911,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "ai_agent_name": "signals-scout-general",
                     # the stamped branch is the unforgeable run->PR link; a writable value re-aims it
                     "self_driving_head_branch": "posthog-self-driving/attacker-000000",
+                    # a writable access list widens what the run's GitHub token can write to
+                    "github_access_repositories": ["attacker/attacker"],
                     "runtime_adapter": "codex",
                     "provider": "openai",
                     "model": "claude-opus-4-8",
@@ -7959,6 +7986,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["sandbox_gone"] is False
         assert run.state["ai_stage"] == "research"  # cannot forge implementation provenance
         assert run.state["self_driving_head_branch"] == "posthog-self-driving/real-3f9a2c"
+        assert "github_access_repositories" not in run.state
         assert run.state["runtime_adapter"] == "claude"
         assert run.state["provider"] == "anthropic"
         assert run.state["model"] == "claude-sonnet-5"
@@ -10903,6 +10931,68 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(static.json()["scripts_available"], scripts_available)
         self.assertEqual(scripted.status_code, status.HTTP_200_OK if scripts_available else status.HTTP_403_FORBIDDEN)
 
+    @parameterized.expand(
+        [
+            ("restricted_profile_without_environment", BUSINESS_KNOWLEDGE, None, False),
+            ("restricted_profile_on_an_open_internal_environment", BUSINESS_KNOWLEDGE, True, False),
+            ("restricted_profile_on_an_open_picked_environment", BUSINESS_KNOWLEDGE, False, True),
+            (
+                "open_profile_without_environment",
+                replace(
+                    BUSINESS_KNOWLEDGE, key="test.open_network", network=NetworkPolicy(levels=(NetworkAccess.FULL,))
+                ),
+                None,
+                True,
+            ),
+        ]
+    )
+    @override_settings(
+        CANVAS_ARTIFACT_ORIGIN="https://usercontent.example", ALLOWED_HOSTS=["testserver", "usercontent.example"]
+    )
+    @patch("posthog.storage.object_storage.write")
+    @patch("posthog.storage.object_storage.tag")
+    def test_html_artifact_scripts_follow_the_profile_network_of_a_profiled_run(
+        self, _name, profile: TaskProfile, internal_environment: bool | None, scripts_available: bool, *_mocks
+    ):
+        task = self.create_task()
+        task.profile = profile.key
+        task.save(update_fields=["profile"])
+        state: dict[str, Any] = {}
+        started_at = django_timezone.now()
+        if internal_environment is not None:
+            environment = SandboxEnvironment.objects.create(
+                team=self.team,
+                name="Writer env",
+                created_by=self.user,
+                network_access_level=SandboxEnvironment.NetworkAccessLevel.FULL,
+                internal=internal_environment,
+            )
+            state["sandbox_environment_id"] = str(environment.id)
+            started_at = environment.updated_at + timedelta(minutes=1)
+        run = TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, state=state, created_at=started_at
+        )
+
+        with patch.dict("products.tasks.backend.facade.profiles._profiles", {profile.key: profile}):
+            uploaded = self._sandbox_oauth_client(task.id).post(
+                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/",
+                {
+                    "artifacts": [
+                        {"name": "report.html", "type": "output", "source": "agent_output", "content": "<p>Report</p>"}
+                    ]
+                },
+                format="json",
+            )
+        self.assertEqual(uploaded.status_code, status.HTTP_200_OK)
+
+        preview = self.client.get(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/"
+            f"{uploaded.json()['artifacts'][0]['id']}/preview/"
+        )
+
+        self.assertEqual(preview.status_code, status.HTTP_200_OK)
+        self.assertEqual(preview.json()["scripts_available"], scripts_available)
+
     @override_settings(
         CANVAS_ARTIFACT_ORIGIN="https://usercontent.example", ALLOWED_HOSTS=["testserver", "usercontent.example"]
     )
@@ -11311,14 +11401,16 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("default_keeps_the_copy", "", status.HTTP_200_OK, True),
-            ("thread_drops_the_copy", "?view=thread", status.HTTP_200_OK, False),
-            ("thread_drops_the_copy_from_a_page", "?tail_bytes=1&view=thread", status.HTTP_200_OK, False),
-            ("unknown_view_rejected", "?view=compact", status.HTTP_400_BAD_REQUEST, None),
+            ("default_keeps_the_copy", "logs/", status.HTTP_200_OK, True),
+            ("thread_drops_the_copy", "logs/?view=thread", status.HTTP_200_OK, False),
+            ("thread_drops_the_copy_from_a_page", "logs/?tail_bytes=1&view=thread", status.HTTP_200_OK, False),
+            ("unknown_view_rejected", "logs/?view=compact", status.HTTP_400_BAD_REQUEST, None),
+            ("log_entries_drops_the_copy", "log_entries?view=thread", status.HTTP_200_OK, False),
+            ("log_entries_rejects_unknown_view", "log_entries?view=compact", status.HTTP_400_BAD_REQUEST, None),
         ]
     )
     @patch("posthog.storage.object_storage.read")
-    def test_logs_endpoint_view(self, _name: str, query: str, expected_status: int, has_copy: bool | None, mock_read):
+    def test_logs_endpoint_view(self, _name: str, path: str, expected_status: int, has_copy: bool | None, mock_read):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team)
         entry = {
@@ -11329,10 +11421,11 @@ class TestTaskRunAPI(BaseTaskAPITest):
         }
         mock_read.side_effect = lambda path, missing_ok=False: json.dumps(entry) + "\n" if path == run.log_url else None
 
-        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/logs/{query}")
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/{path}")
 
         self.assertEqual(response.status_code, expected_status)
         if has_copy is not None:
+            self.assertEqual(response["Cache-Control"], "no-cache")
             claude_code = json.loads(response.content.decode("utf-8").splitlines()[0])["notification"]["params"][
                 "update"
             ]["_meta"]["claudeCode"]
