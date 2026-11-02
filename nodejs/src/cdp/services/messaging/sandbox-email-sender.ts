@@ -82,10 +82,10 @@ const BLOCKED_EVENT_WINDOW_SECONDS = 3600
 // The send is already decided when this runs, and the worker's batch waits for it, so a stalled
 // store must not hold the invocation open.
 const EVENT_CAPTURE_TIMEOUT_MS = 1000
-// The deadline cannot cancel a store call, so a stalled call keeps its connection or pending acquisition
-// until the store answers. At most this many run at once; a capture waiting for a slot holds nothing and
-// gives up at its deadline, so a burst against a healthy store keeps every event.
-const MAX_OPEN_STORE_CALLS = 10
+// The deadline cannot cancel a store call, so a stalled call keeps its connection until the store answers.
+// At most this many run at once, on a pool of their own this size; a capture waiting for a slot holds
+// nothing and gives up at its deadline, so a burst against a healthy store keeps every event.
+export const MAX_OPEN_STORE_CALLS = 10
 
 function htmlBody(document: DefaultTreeAdapterMap['document']): DefaultTreeAdapterMap['element'] | undefined {
     const root = document.childNodes.find(defaultTreeAdapter.isElementNode)
