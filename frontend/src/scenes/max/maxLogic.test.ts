@@ -129,7 +129,11 @@ describe('maxLogic', () => {
         })
     })
 
-    it('shares the initial history request and does not load actions when Max mounts', async () => {
+    it.each([
+        { age: 0, expectedRequests: 1 },
+        { age: 29_999, expectedRequests: 1 },
+        { age: 30_000, expectedRequests: 2 },
+    ])('shares history requests until the result is stale ($age ms)', async ({ age, expectedRequests }) => {
         logic = maxLogic({ panelId: 'test' })
         logic.mount()
 
@@ -137,6 +141,17 @@ describe('maxLogic', () => {
 
         expect(actionsRequestCount).toBe(0)
         expect(conversationRequestCount).toBe(1)
+
+        const loadedAt = maxGlobalLogic.values.conversationHistoryLoadedAt!
+        const clock = jest.spyOn(Date, 'now').mockReturnValue(loadedAt + age)
+        const unmountPanel = maxLogic({ panelId: 'another-panel' }).mount()
+        try {
+            await expectLogic(maxGlobalLogic).toFinishAllListeners()
+            expect(conversationRequestCount).toBe(expectedRequests)
+        } finally {
+            unmountPanel()
+            clock.mockRestore()
+        }
     })
 
     it.each([

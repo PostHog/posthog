@@ -39,6 +39,7 @@ from products.signals.backend.activity_summary.logic import (
     record_update_exception,
     update_activity_summary,
 )
+from products.signals.backend.activity_summary.mcp_buffer import publish_team_ids
 from products.signals.backend.activity_summary.prompt import PROMPT_VERSION
 from products.signals.backend.activity_summary.queue import (
     TRIGGERS,
@@ -50,6 +51,7 @@ from products.signals.backend.activity_summary.queue import (
     feed_queue,
     is_team_enrolled_for_generation,
     max_update_cost_usd,
+    mcp_buffer_team_ids,
     select_pairs,
     sync_pair_state,
 )
@@ -97,6 +99,7 @@ class EnrollmentCounts:
     qualifying_organizations: int = 0
     enrolled_organizations: int = 0
     enrolled_teams: int = 0
+    mcp_buffer_teams: int = 0
 
 
 @frozen
@@ -184,12 +187,15 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> ActivitySummaryTickP
     enabled = config.enabled and not gateway_missing
     # One enrollment read serves the feed, the selection and the counts.
     enrolled = enrollment(config)
+    buffer_team_ids = mcp_buffer_team_ids(config, enrolled)
     counts = EnrollmentCounts(
         qualifying_organizations=len(enrolled.qualifying_organization_ids),
         enrolled_organizations=len(enrolled.organization_ids),
         enrolled_teams=len(enrolled.team_ids),
+        mcp_buffer_teams=len(buffer_team_ids),
     )
     logger.info("activity_summary_enrollment_read", **dataclasses.asdict(counts))
+    publish_team_ids(buffer_team_ids if config.enabled and config.mcp_buffer_enabled else None)
     if config.enabled:
         # The cursors move even when a cap stops the tick, so new rows do not pile up behind them.
         feed_queue(config, now, enrolled.team_ids)

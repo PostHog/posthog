@@ -3,7 +3,7 @@ import {
     defaultAggregationAxisFormatForDisplay,
     formatAggregationAxisValue,
     formatAggregationAxisValueWithShareOfTotal,
-} from 'scenes/insights/aggregationAxisFormat'
+} from 'lib/insights/aggregationAxisFormat'
 
 import { CurrencyCode } from '~/queries/schema/schema-general'
 import { ChartDisplayType, FilterType } from '~/types'

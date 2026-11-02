@@ -5464,7 +5464,7 @@ export namespace Schemas {
          * @nullable
          */
       strength: string | null;
-      /** Refs into `computed.owned`, `computed.watched` and `computed.pages` of the same version, such as `o1` or `p2`, that show this thread. A ref is valid only inside one version. */
+      /** Refs into `computed.owned`, `computed.watched`, `computed.pages`, `computed.tasks` and `computed.mcp_sessions` of the same version, such as `o1`, `p2`, `t3` or `m1`, that show this thread. A ref is valid only inside one version. */
       refs: string[];
       /**
          * The last day of activity on the refs of this thread, as YYYY-MM-DD.
@@ -5618,6 +5618,13 @@ export namespace Schemas {
       visits: ActivitySummaryProductEnum[];
     }
 
+    export interface ActivitySummaryLineRef {
+      /** The ref that themes cite, such as `t1` for a task or `m1` for an MCP session. */
+      ref: string;
+      /** The day of the task or MCP session, as YYYY-MM-DD. */
+      last_at: string;
+    }
+
     export interface ActivitySummaryComputed {
       /** The version of the shape of these fields. */
       schema_version: number;
@@ -5631,6 +5638,10 @@ export namespace Schemas {
       products: ActivitySummaryProductSplit;
       /** The number of tasks the user gave to PostHog AI or the Slack agent. */
       task_count: number;
+      /** Tasks the user gave to PostHog AI or the Slack agent that the summary input showed, oldest first. Empty on summaries from before task refs existed. */
+      tasks: ActivitySummaryLineRef[];
+      /** Sessions of the user's AI agent over MCP that the summary input showed, oldest first. Empty on summaries from before MCP refs existed. */
+      mcp_sessions: ActivitySummaryLineRef[];
     }
 
     export interface ActivitySummary {
@@ -24808,6 +24819,75 @@ export namespace Schemas {
       date_created: string | null;
     }
 
+    /**
+     * * `emerging` - Emerging
+     * * `active` - Active
+     * * `fading` - Fading
+     * * `dormant` - Dormant
+     */
+    export type ClusterStatusEnum = typeof ClusterStatusEnum[keyof typeof ClusterStatusEnum];
+
+
+    export const ClusterStatusEnum = {
+      Emerging: 'emerging',
+      Active: 'active',
+      Fading: 'fading',
+      Dormant: 'dormant',
+    } as const;
+
+    export interface VariantCount {
+      /** The variant key, or `__unattributed__` for members with none. */
+      key: string;
+      /** The group's members in this variant in the window. */
+      observation_count: number;
+      /** Distinct people among them. */
+      people_count: number;
+    }
+
+    export interface Cluster {
+      /** The cluster id. Pass it as `theme` or `group` to `vision-scanners-observations-list` to read members. */
+      id: string;
+      /** The scanner whose observations the cluster groups. */
+      scanner_id: string;
+      /** The scanner's name. */
+      scanner_name: string;
+      /**
+         * A short model-written search phrase for a theme. Null for a group, and for a theme too small to be named; `example_summary` stands in.
+         * @nullable
+         */
+      name: string | null;
+      /** Where the cluster stands, from its members: `emerging` (first member this week), `active`, `fading` (last week under half of the week before) or `dormant` (no member for two weeks).
+       *
+       * * `emerging` - Emerging
+       * * `active` - Active
+       * * `fading` - Fading
+       * * `dormant` - Dormant */
+      status: ClusterStatusEnum;
+      /** Readable observations in the window: issue observations, plus routine ones with `include_routine`. */
+      observation_count: number;
+      /** Distinct people among them; a session without an identified person counts as one. */
+      people_count: number;
+      /** Members in the same-length window just before `date_from`, to compare the trend against. */
+      previous_observation_count: number;
+      /** When the window's oldest member was observed. */
+      first_seen: string;
+      /** When the window's newest member was observed. */
+      last_seen: string;
+      /** Up to 3 of the window's highest-ranked members, best first. */
+      example_observation_ids: string[];
+      /** One-line summary of the best example; the readable label for a group, which has no name. */
+      example_summary: string;
+      /** The window's members split by experiment variant, largest first. Empty unless `by_variant` is set. Compare each variant's share of the group with its share of the scanner's sessions, since variants are sampled at different rates. */
+      variants: VariantCount[];
+    }
+
+    export interface ClusterList {
+      /** Clusters with at least one member in the window. */
+      results: Cluster[];
+      /** Whether another page follows at `offset + limit`. */
+      has_more: boolean;
+    }
+
     export interface DiffCluster {
       x: number;
       y: number;
@@ -34325,6 +34405,7 @@ export namespace Schemas {
      * * `Soniox` - Soniox
      * * `Nango` - Nango
      * * `Fathom` - Fathom
+     * * `Stamped` - Stamped
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -35744,6 +35825,7 @@ export namespace Schemas {
       Soniox: 'Soniox',
       Nango: 'Nango',
       Fathom: 'Fathom',
+      Stamped: 'Stamped',
     } as const;
 
     /**
@@ -37176,7 +37258,8 @@ export namespace Schemas {
        * * `WooPayments` - WooPayments
        * * `Soniox` - Soniox
        * * `Nango` - Nango
-       * * `Fathom` - Fathom */
+       * * `Fathom` - Fathom
+       * * `Stamped` - Stamped */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -40168,7 +40251,8 @@ export namespace Schemas {
        * * `WooPayments` - WooPayments
        * * `Soniox` - Soniox
        * * `Nango` - Nango
-       * * `Fathom` - Fathom */
+       * * `Fathom` - Fathom
+       * * `Stamped` - Stamped */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -53461,7 +53545,8 @@ export namespace Schemas {
        * * `WooPayments` - WooPayments
        * * `Soniox` - Soniox
        * * `Nango` - Nango
-       * * `Fathom` - Fathom */
+       * * `Fathom` - Fathom
+       * * `Stamped` - Stamped */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -54914,7 +54999,8 @@ export namespace Schemas {
        * * `WooPayments` - WooPayments
        * * `Soniox` - Soniox
        * * `Nango` - Nango
-       * * `Fathom` - Fathom */
+       * * `Fathom` - Fathom
+       * * `Stamped` - Stamped */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -79560,6 +79646,8 @@ export namespace Schemas {
        * * `template` - Template
        * * `scratch` - From scratch */
       creation_method?: ScannerCreationMethodEnum | null;
+      /** Set with `enabled: true` to turn on a scanner whose creator can no longer view recordings. The caller becomes the scanner's creator, and scheduled scans then run as the caller. Without it, that request fails with code `scanner_creator_lost_access`. */
+      take_over_as_creator?: boolean;
       /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
       scanner_config: unknown;
       /** The current prompt condensed by AI into the one question the scanner answers about a session. Falls back to the prompt's first line when no question matches the current prompt. */
@@ -92469,6 +92557,8 @@ export namespace Schemas {
        * * `template` - Template
        * * `scratch` - From scratch */
       creation_method?: ScannerCreationMethodEnum | null;
+      /** Set with `enabled: true` to turn on a scanner whose creator can no longer view recordings. The caller becomes the scanner's creator, and scheduled scans then run as the caller. Without it, that request fails with code `scanner_creator_lost_access`. */
+      take_over_as_creator?: boolean;
       /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
       scanner_config?: unknown;
       /** The current prompt condensed by AI into the one question the scanner answers about a session. Falls back to the prompt's first line when no question matches the current prompt. */
@@ -108553,6 +108643,28 @@ export namespace Schemas {
     }
 
     /**
+     * * `variant-analysis` - Variant analysis
+     * * `daily-digest` - Daily digest
+     * * `root-cause` - Root cause
+     * * `weekly-themes` - Weekly themes
+     * * `trend-watch` - Trend watch
+     * * `new-issues` - New issue watch
+     * * `scratch` - Start from scratch
+     */
+    export type ScoutTemplateKeyEnum = typeof ScoutTemplateKeyEnum[keyof typeof ScoutTemplateKeyEnum];
+
+
+    export const ScoutTemplateKeyEnum = {
+      VariantAnalysis: 'variant-analysis',
+      DailyDigest: 'daily-digest',
+      RootCause: 'root-cause',
+      WeeklyThemes: 'weekly-themes',
+      TrendWatch: 'trend-watch',
+      NewIssues: 'new-issues',
+      Scratch: 'scratch',
+    } as const;
+
+    /**
      * A scout to stand up for this scanner. The scanner comes from the URL, never the body: it is
      * what the caller's access is checked against, and what the scout is recorded as belonging to.
      *
@@ -108581,6 +108693,16 @@ export namespace Schemas {
       config?: SignalScoutConfigOptions;
       /** Make this the experiment scanner's variant analysis scout: its runs record a structured comparison of the variants, which the scanner's variants readout shows. Experiment scanners only. */
       variant_analysis?: boolean;
+      /** The template the body came from. A body left exactly as the template rendered it keeps following later edits to that template; an edited body stays as written.
+       *
+       * * `variant-analysis` - Variant analysis
+       * * `daily-digest` - Daily digest
+       * * `root-cause` - Root cause
+       * * `weekly-themes` - Weekly themes
+       * * `trend-watch` - Trend watch
+       * * `new-issues` - New issue watch
+       * * `scratch` - Start from scratch */
+      template_key?: ScoutTemplateKeyEnum;
     }
 
     export type ScoutRoleEnum = typeof ScoutRoleEnum[keyof typeof ScoutRoleEnum];
@@ -108874,6 +108996,29 @@ export namespace Schemas {
       created: boolean;
       /** The scout's config, including the source recorded for it. */
       config: SignalScoutConfig;
+    }
+
+    export interface ScannerScoutTemplate {
+      /** The template's id.
+       *
+       * * `variant-analysis` - Variant analysis
+       * * `daily-digest` - Daily digest
+       * * `root-cause` - Root cause
+       * * `weekly-themes` - Weekly themes
+       * * `trend-watch` - Trend watch
+       * * `new-issues` - New issue watch
+       * * `scratch` - Start from scratch */
+      key: ScoutTemplateKeyEnum;
+      /** The template's name, as the template picker shows it. */
+      title: string;
+      /** What a scout made from this template does. */
+      description: string;
+      /** The name the create form starts with. */
+      default_name: string;
+      /** The default run schedule, as a cron expression in the project timezone. */
+      cron: string;
+      /** The scout's instructions, rendered for this scanner. */
+      body: string;
     }
 
     export interface SelfDrivingReport {
@@ -110916,6 +111061,26 @@ export namespace Schemas {
      */
     export type SendEmailMessageData = {[key: string]: unknown};
 
+    export interface SendEmail {
+      /** Email address of the recipient. */
+      to: string;
+      /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
+      message_data?: SendEmailMessageData;
+      /** ID of the email template to send. The template must be made transactional first. */
+      template_id: string;
+      /**
+         * Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`.
+         * @maxLength 400
+         * @nullable
+         */
+      distinct_id?: string | null;
+    }
+
+    /**
+     * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
+     */
+    export type SendTransactionalEmailMessageData = {[key: string]: unknown};
+
     export interface TransactionalEmailIdentifiers {
       /**
          * Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`.
@@ -110925,34 +111090,13 @@ export namespace Schemas {
       distinct_id?: string | null;
     }
 
-    export interface SendEmailTemplate {
-      /** ID of the email template to send. The template must be made transactional first. */
-      id: string;
-    }
-
-    export interface SendEmail {
-      /** Email address of the recipient. */
-      to: string;
-      /** Who the email is for, used to attribute engagement events. */
-      identifiers?: TransactionalEmailIdentifiers;
-      /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
-      message_data?: SendEmailMessageData;
-      /** The transactional email template to send. */
-      template: SendEmailTemplate;
-    }
-
-    /**
-     * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
-     */
-    export type SendTransactionalEmailMessageData = {[key: string]: unknown};
-
     export interface SendTransactionalEmail {
       /** Email address of the recipient. */
       to: string;
-      /** Who the email is for, used to attribute engagement events. */
-      identifiers?: TransactionalEmailIdentifiers;
       /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
       message_data?: SendTransactionalEmailMessageData;
+      /** Who the email is for, used to attribute engagement events. */
+      identifiers?: TransactionalEmailIdentifiers;
     }
 
     export interface SendTransactionalEmailResponse {
@@ -114847,7 +114991,8 @@ export namespace Schemas {
        * * `WooPayments` - WooPayments
        * * `Soniox` - Soniox
        * * `Nango` - Nango
-       * * `Fathom` - Fathom */
+       * * `Fathom` - Fathom
+       * * `Stamped` - Stamped */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -116331,7 +116476,8 @@ export namespace Schemas {
        * * `WooPayments` - WooPayments
        * * `Soniox` - Soniox
        * * `Nango` - Nango
-       * * `Fathom` - Fathom */
+       * * `Fathom` - Fathom
+       * * `Stamped` - Stamped */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -117782,7 +117928,8 @@ export namespace Schemas {
        * * `WooPayments` - WooPayments
        * * `Soniox` - Soniox
        * * `Nango` - Nango
-       * * `Fathom` - Fathom */
+       * * `Fathom` - Fathom
+       * * `Stamped` - Stamped */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -144044,6 +144191,97 @@ export namespace Schemas {
       Unsnooze: 'unsnooze',
     } as const;
 
+    export type VisionGroupsListParams = {
+    /**
+     * Split each group's window counts by experiment variant in `variants`. Use it on experiment scanners.
+     */
+    by_variant?: boolean;
+    /**
+     * Count members from this time: ISO 8601 or relative like `-7d`. Defaults to `-30d`. The window spans at most 90 days with `scanner_id`, and at most 30 days without it.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * Count members up to this time: ISO 8601, relative, or `now`. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
+     * Also count routine observations, so groups describe ordinary behavior and not only issues. Use it for experiment scanners, where the question is how each variant's users behave.
+     */
+    include_routine?: boolean;
+    /**
+     * Page size.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Rows to skip, for the next page.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * `people` (distinct people affected), `observations` (member count), `growth` (members gained over the same-length window before `date_from`), or `recent` (newest member first).
+     *
+     * * `people` - People
+     * * `observations` - Observations
+     * * `growth` - Growth
+     * * `recent` - Recent
+     * @minLength 1
+     */
+    order?: VisionGroupsListOrder;
+    /**
+     * Only this scanner's clusters. Defaults to every scanner you can read.
+     */
+    scanner_id?: string;
+    /**
+     * Experiment scanners only: count only members attributed to these variant keys (comma-separated). `__unattributed__` matches members with no attributed variant.
+     * @minLength 1
+     */
+    variant?: string;
+    };
+
+    export type VisionGroupsListOrder = typeof VisionGroupsListOrder[keyof typeof VisionGroupsListOrder];
+
+
+    export const VisionGroupsListOrder = {
+      People: 'people',
+      Observations: 'observations',
+      Growth: 'growth',
+      Recent: 'recent',
+    } as const;
+
+    export type VisionGroupsRetrieveParams = {
+    /**
+     * Split each group's window counts by experiment variant in `variants`. Use it on experiment scanners.
+     */
+    by_variant?: boolean;
+    /**
+     * Count members from this time: ISO 8601 or relative like `-7d`. Defaults to `-30d`. The window spans at most 90 days with `scanner_id`, and at most 30 days without it.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * Count members up to this time: ISO 8601, relative, or `now`. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
+     * Also count routine observations, so groups describe ordinary behavior and not only issues. Use it for experiment scanners, where the question is how each variant's users behave.
+     */
+    include_routine?: boolean;
+    /**
+     * Only this scanner's clusters. Defaults to every scanner you can read.
+     */
+    scanner_id?: string;
+    /**
+     * Experiment scanners only: count only members attributed to these variant keys (comma-separated). `__unattributed__` matches members with no attributed variant.
+     * @minLength 1
+     */
+    variant?: string;
+    };
+
     export type VisionObservationsListParams = {
     /**
      * Number of results to return per page.
@@ -144077,9 +144315,17 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
+     * Only issue observations in this group of near duplicates, an `id` from the groups list. Pair it with the same `date_from`, `date_to`, `include_routine` and `variant` to list the observations the group counted.
+     */
+    group?: string;
+    /**
+     * With `group`, also list the group's routine observations, as the groups list does with the same flag.
+     */
+    include_routine?: boolean;
+    /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
-    labeled?: string;
+    labeled?: boolean;
     /**
      * Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
      */
@@ -144108,6 +144354,10 @@ export namespace Schemas {
      * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
      */
     tags?: string;
+    /**
+     * Only issue observations in this search theme, an `id` from the themes list. Pair it with the same `date_from` and `date_to` to list the observations the theme counted.
+     */
+    theme?: string;
     /**
      * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
@@ -144319,6 +144569,14 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
+     * Only issue observations in this group of near duplicates, an `id` from the groups list. Pair it with the same `date_from`, `date_to`, `include_routine` and `variant` to list the observations the group counted.
+     */
+    group?: string;
+    /**
+     * With `group`, also list the group's routine observations, as the groups list does with the same flag.
+     */
+    include_routine?: boolean;
+    /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
     labeled?: boolean;
@@ -144359,6 +144617,10 @@ export namespace Schemas {
      */
     tags?: string;
     /**
+     * Only issue observations in this search theme, an `id` from the themes list. Pair it with the same `date_from` and `date_to` to list the observations the theme counted.
+     */
+    theme?: string;
+    /**
      * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string;
@@ -144394,9 +144656,17 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
+     * Only issue observations in this group of near duplicates, an `id` from the groups list. Pair it with the same `date_from`, `date_to`, `include_routine` and `variant` to list the observations the group counted.
+     */
+    group?: string;
+    /**
+     * With `group`, also list the group's routine observations, as the groups list does with the same flag.
+     */
+    include_routine?: boolean;
+    /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
-    labeled?: string;
+    labeled?: boolean;
     /**
      * Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
      */
@@ -144425,6 +144695,10 @@ export namespace Schemas {
      * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
      */
     tags?: string;
+    /**
+     * Only issue observations in this search theme, an `id` from the themes list. Pair it with the same `date_from` and `date_to` to list the observations the theme counted.
+     */
+    theme?: string;
     /**
      * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
@@ -144461,6 +144735,14 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
+     * Only issue observations in this group of near duplicates, an `id` from the groups list. Pair it with the same `date_from`, `date_to`, `include_routine` and `variant` to list the observations the group counted.
+     */
+    group?: string;
+    /**
+     * With `group`, also list the group's routine observations, as the groups list does with the same flag.
+     */
+    include_routine?: boolean;
+    /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
     labeled?: boolean;
@@ -144492,6 +144774,10 @@ export namespace Schemas {
      * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
      */
     tags?: string;
+    /**
+     * Only issue observations in this search theme, an `id` from the themes list. Pair it with the same `date_from` and `date_to` to list the observations the theme counted.
+     */
+    theme?: string;
     /**
      * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
@@ -144552,9 +144838,17 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
+     * Only issue observations in this group of near duplicates, an `id` from the groups list. Pair it with the same `date_from`, `date_to`, `include_routine` and `variant` to list the observations the group counted.
+     */
+    group?: string;
+    /**
+     * With `group`, also list the group's routine observations, as the groups list does with the same flag.
+     */
+    include_routine?: boolean;
+    /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
-    labeled?: string;
+    labeled?: boolean;
     /**
      * Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
      */
@@ -144583,6 +144877,10 @@ export namespace Schemas {
      * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
      */
     tags?: string;
+    /**
+     * Only issue observations in this search theme, an `id` from the themes list. Pair it with the same `date_from` and `date_to` to list the observations the theme counted.
+     */
+    theme?: string;
     /**
      * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
@@ -144675,6 +144973,71 @@ export namespace Schemas {
       Summarizer: 'summarizer',
       Experiment: 'experiment',
     } as const;
+
+    export type VisionThemesListParams = {
+    /**
+     * Count members from this time: ISO 8601 or relative like `-7d`. Defaults to `-30d`. The window spans at most 90 days with `scanner_id`, and at most 30 days without it.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * Count members up to this time: ISO 8601, relative, or `now`. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
+     * Page size.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Rows to skip, for the next page.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * `people` (distinct people affected), `observations` (member count), `growth` (members gained over the same-length window before `date_from`), or `recent` (newest member first).
+     *
+     * * `people` - People
+     * * `observations` - Observations
+     * * `growth` - Growth
+     * * `recent` - Recent
+     * @minLength 1
+     */
+    order?: VisionThemesListOrder;
+    /**
+     * Only this scanner's clusters. Defaults to every scanner you can read.
+     */
+    scanner_id?: string;
+    };
+
+    export type VisionThemesListOrder = typeof VisionThemesListOrder[keyof typeof VisionThemesListOrder];
+
+
+    export const VisionThemesListOrder = {
+      People: 'people',
+      Observations: 'observations',
+      Growth: 'growth',
+      Recent: 'recent',
+    } as const;
+
+    export type VisionThemesRetrieveParams = {
+    /**
+     * Count members from this time: ISO 8601 or relative like `-7d`. Defaults to `-30d`. The window spans at most 90 days with `scanner_id`, and at most 30 days without it.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * Count members up to this time: ISO 8601, relative, or `now`. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
+     * Only this scanner's clusters. Defaults to every scanner you can read.
+     */
+    scanner_id?: string;
+    };
 
     export type VisualReviewReposListParams = {
     /**

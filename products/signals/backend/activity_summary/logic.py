@@ -202,6 +202,7 @@ def _inputs_used(rendered: RenderedInput, limits: RenderLimits, mcp: McpRead | N
         "tasks": rendered.n_tasks,
         "activity_lines": rendered.n_activity_lines,
         "view_lines": rendered.n_view_lines,
+        "page_units": rendered.n_page_units,
         "input_chars": rendered.input_chars,
         "intent_lines": rendered.intent_lines,
         "intent_chars": rendered.intent_chars,
@@ -421,10 +422,11 @@ def update_activity_summary(
     )
     # An incremental update reads only the rows after the watermark, so the computed fields read the full window.
     if start == window_start:
-        computed = compute_fields(tasks, activity, views).as_json()
+        fields = compute_fields(tasks, activity, views)
     else:
         full = _read_inputs(team_id, user_id, window_start, now)
-        computed = compute_fields(full.tasks, full.activity, full.views).as_json()
+        fields = compute_fields(full.tasks, full.activity, full.views)
+    computed = fields.with_line_refs(rendered).as_json()
     previous = stored.summary if stored is not None and not rebuild else None
     outcome, cost = _call_model(team_id, user_id, rendered, computed, previous=previous, as_of=now, limits=limits)
     if outcome.summary is not None:
@@ -540,7 +542,9 @@ def render_as_of(
     inputs_used = _inputs_used(rendered, limits, window.mcp)
     inputs_used["drops"] = {**rendered.drops, **excluded}
     return AsOfInput(
-        rendered=rendered, computed=compute_fields(tasks, activity, views).as_json(), inputs_used=inputs_used
+        rendered=rendered,
+        computed=compute_fields(tasks, activity, views).with_line_refs(rendered).as_json(),
+        inputs_used=inputs_used,
     )
 
 

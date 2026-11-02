@@ -1,14 +1,15 @@
+import { hasInvalidRegexFilter } from '~/queries/nodes/DataNode/hasInvalidRegexFilter'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
-import { Node, NodeKind, TrendsFilter, TrendsQuery } from '~/queries/schema/schema-general'
+import { FunnelsQuery, Node, NodeKind, TrendsFilter, TrendsQuery } from '~/queries/schema/schema-general'
 import { ChartDisplayType, InsightType } from '~/types'
 
 import {
     compareDataNodeQuery,
     compareQuery,
     filterVariablesReferencedInQuery,
-    hasInvalidRegexFilter,
-    isBoxPlotMissingProperty,
     isDraftQueryWorthSaving,
+    isFunnelWithEnoughSteps,
+    isFunnelWithIncompleteDataWarehouseStep,
     syncSelectedVariablesToQuery,
     validateQuery,
 } from './queryUtils'
@@ -61,86 +62,13 @@ describe('syncSelectedVariablesToQuery', () => {
     })
 })
 
-describe('hasInvalidRegexFilter', () => {
-    it.each([
-        ['valid regex in property filter', { operator: 'regex', value: 'test.*' }, false],
-        ['valid not_regex in property filter', { operator: 'not_regex', value: '^foo$' }, false],
-        ['invalid regex - lookahead', { operator: 'regex', value: '(?=test)' }, true],
-        ['invalid regex - unclosed bracket', { operator: 'regex', value: '[unclosed' }, true],
-        ['invalid not_regex - backreference', { operator: 'not_regex', value: '(test)\\1' }, true],
-        ['non-regex operator with invalid pattern is ok', { operator: 'exact', value: '(?=test)' }, false],
-        ['regex operator with non-string value', { operator: 'regex', value: 123 }, false],
-        ['empty object', {}, false],
-        ['null', null, false],
-        ['string', 'test', false],
-        ['number', 42, false],
-    ])('%s', (_name, input, expected) => {
-        expect(hasInvalidRegexFilter(input)).toBe(expected)
-    })
-
-    it('finds invalid regex nested in arrays', () => {
-        const nested = [
-            { operator: 'exact', value: 'ok' },
-            { operator: 'regex', value: '(?=bad)' },
-        ]
-        expect(hasInvalidRegexFilter(nested)).toBe(true)
-    })
-
-    it('finds invalid regex deeply nested in objects', () => {
-        const deeplyNested = {
-            properties: {
-                type: 'AND',
-                values: [
-                    {
-                        type: 'OR',
-                        values: [{ operator: 'regex', value: '(?=lookahead)' }],
-                    },
-                ],
-            },
-        }
-        expect(hasInvalidRegexFilter(deeplyNested)).toBe(true)
-    })
-
-    it('returns false for valid regex deeply nested', () => {
-        const deeplyNested = {
-            properties: {
-                type: 'AND',
-                values: [
-                    {
-                        type: 'OR',
-                        values: [{ operator: 'regex', value: 'valid.*pattern' }],
-                    },
-                ],
-            },
-        }
-        expect(hasInvalidRegexFilter(deeplyNested)).toBe(false)
-    })
-
-    it('handles query-like structure with multiple property filters', () => {
-        const queryLike = {
-            kind: 'TrendsQuery',
-            series: [
-                {
-                    kind: 'EventsNode',
-                    event: '$pageview',
-                    properties: [
-                        { type: 'event', key: 'url', operator: 'regex', value: '^/valid/' },
-                        { type: 'event', key: 'path', operator: 'not_regex', value: '(?!invalid)' },
-                    ],
-                },
-            ],
-        }
-        expect(hasInvalidRegexFilter(queryLike)).toBe(true)
-    })
-})
-
 describe('validateQuery', () => {
     it('returns false for funnels with less than 2 steps', () => {
         const funnelQuery = {
             kind: NodeKind.FunnelsQuery,
             series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
         }
-        expect(validateQuery(funnelQuery)).toBe(false)
+        expect(validateQuery(funnelQuery, hasInvalidRegexFilter)).toBe(false)
     })
 
     it('returns true for funnels with 2+ steps', () => {
@@ -151,7 +79,7 @@ describe('validateQuery', () => {
                 { kind: NodeKind.EventsNode, event: '$signup' },
             ],
         }
-        expect(validateQuery(funnelQuery)).toBe(true)
+        expect(validateQuery(funnelQuery, hasInvalidRegexFilter)).toBe(true)
     })
 
     it('returns false for funnels with incomplete data warehouse step', () => {
@@ -167,7 +95,7 @@ describe('validateQuery', () => {
                 { kind: NodeKind.EventsNode, event: '$signup' },
             ],
         }
-        expect(validateQuery(funnelQuery)).toBe(false)
+        expect(validateQuery(funnelQuery, hasInvalidRegexFilter)).toBe(false)
     })
 
     it('returns false for query with invalid regex property filter', () => {
@@ -176,7 +104,7 @@ describe('validateQuery', () => {
             series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
             properties: [{ type: 'event', key: 'url', operator: 'regex', value: '(?=lookahead)' }],
         }
-        expect(validateQuery(trendsQuery)).toBe(false)
+        expect(validateQuery(trendsQuery, hasInvalidRegexFilter)).toBe(false)
     })
 
     it('returns true for query with valid regex property filter', () => {
@@ -185,7 +113,7 @@ describe('validateQuery', () => {
             series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
             properties: [{ type: 'event', key: 'url', operator: 'regex', value: '^/api/.*' }],
         }
-        expect(validateQuery(trendsQuery)).toBe(true)
+        expect(validateQuery(trendsQuery, hasInvalidRegexFilter)).toBe(true)
     })
 
     it('returns true for query without regex filters', () => {
@@ -194,31 +122,7 @@ describe('validateQuery', () => {
             series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
             properties: [{ type: 'event', key: 'url', operator: 'exact', value: '/home' }],
         }
-        expect(validateQuery(trendsQuery)).toBe(true)
-    })
-})
-
-describe('isBoxPlotMissingProperty', () => {
-    it('returns true when there are no series', () => {
-        expect(isBoxPlotMissingProperty([])).toBe(true)
-    })
-
-    it('returns true when a series is missing math_property', () => {
-        expect(
-            isBoxPlotMissingProperty([
-                { kind: NodeKind.EventsNode, event: '$pageview', math_property: 'duration' },
-                { kind: NodeKind.EventsNode, event: '$signup' },
-            ])
-        ).toBe(true)
-    })
-
-    it('returns false when all series have math_property', () => {
-        expect(
-            isBoxPlotMissingProperty([
-                { kind: NodeKind.EventsNode, event: '$pageview', math_property: 'duration' },
-                { kind: NodeKind.EventsNode, event: '$signup', math_property: 'revenue' },
-            ])
-        ).toBe(false)
+        expect(validateQuery(trendsQuery, hasInvalidRegexFilter)).toBe(true)
     })
 })
 
@@ -326,5 +230,85 @@ describe('compareDataNodeQuery', () => {
         // throw here crashed propsChanged before loadData and left tables permanently empty.
         const query = { kind: NodeKind.HogQLQuery, query: 'select 1' } as Node
         expect(compareDataNodeQuery(query, undefined as unknown as Node)).toBe(false)
+    })
+})
+
+describe('isFunnelWithEnoughSteps', () => {
+    it.each([
+        { scenario: 'no steps', series: [], expected: false },
+        { scenario: 'one step', series: [{ kind: NodeKind.EventsNode }], expected: false },
+        {
+            scenario: 'two steps',
+            series: [{ kind: NodeKind.EventsNode }, { kind: NodeKind.EventsNode }],
+            expected: true,
+        },
+    ])('returns $expected for $scenario', ({ series, expected }) => {
+        expect(isFunnelWithEnoughSteps(series as FunnelsQuery['series'])).toBe(expected)
+    })
+})
+
+describe('isFunnelWithIncompleteDataWarehouseStep', () => {
+    it.each([
+        {
+            scenario: 'no steps',
+            series: [],
+            expected: false,
+        },
+        {
+            scenario: 'non-funnel data warehouse step',
+            series: [
+                {
+                    kind: NodeKind.DataWarehouseNode,
+                    id: 'warehouse_orders',
+                    name: 'Orders',
+                    table_name: 'warehouse_orders',
+                    timestamp_field: 'created_at',
+                    id_field: 'order_id',
+                    distinct_id_field: 'customer_id',
+                },
+            ],
+            expected: false,
+        },
+        {
+            scenario: 'complete funnel data warehouse step',
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    name: '$pageview',
+                    event: '$pageview',
+                },
+                {
+                    kind: NodeKind.FunnelsDataWarehouseNode,
+                    id: 'warehouse_orders',
+                    name: 'Orders',
+                    table_name: 'warehouse_orders',
+                    timestamp_field: 'created_at',
+                    id_field: 'order_id',
+                    aggregation_target_field: 'customer_id',
+                },
+            ],
+            expected: false,
+        },
+        {
+            scenario: 'missing aggregation target field',
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    name: '$pageview',
+                    event: '$pageview',
+                },
+                {
+                    kind: NodeKind.FunnelsDataWarehouseNode,
+                    id: 'warehouse_orders',
+                    name: 'Orders',
+                    table_name: 'warehouse_orders',
+                    timestamp_field: 'created_at',
+                    id_field: 'order_id',
+                },
+            ],
+            expected: true,
+        },
+    ])('returns $expected for $scenario', ({ series, expected }) => {
+        expect(isFunnelWithIncompleteDataWarehouseStep(series as FunnelsQuery['series'])).toBe(expected)
     })
 })

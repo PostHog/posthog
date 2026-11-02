@@ -1,11 +1,26 @@
+import { isBoxPlotMissingProperty } from 'lib/components/ChartFilter/isBoxPlotMissingProperty'
 import { objectCleanWithEmpty, objectsEqual, removeUndefinedAndNull } from 'lib/utils/objects'
-import { isValidRE2 } from 'lib/utils/regexp'
 
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/defaults'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import {
+    isEventsNode,
+    isFunnelsDataWarehouseNode,
+    isFunnelsQuery,
+    isHogQLQuery,
+    isInsightQueryNode,
+    isInsightQueryWithSeries,
+    isInsightVizNode,
+    isLifecycleQuery,
+    isPathsQuery,
+    isRetentionQuery,
+    isStickinessQuery,
+    isTrendsQuery,
+} from '~/queries/schema/node-guards'
+import {
     DataNode,
+    FunnelsQuery,
     HogQLVariable,
     InsightQueryNode,
     InsightVizNode,
@@ -17,26 +32,10 @@ import {
     filterForQuery,
     filterKeyForQuery,
     getMathTypeWarning,
-    isEventsNode,
-    isFunnelsQuery,
-    isHogQLQuery,
-    isInsightQueryNode,
     isInsightQueryWithDisplay,
-    isInsightQueryWithSeries,
-    isInsightVizNode,
-    isLifecycleQuery,
-    isPathsQuery,
-    isRetentionQuery,
-    isStickinessQuery,
-    isTrendsQuery,
     isWebAnalyticsInsightQuery,
 } from '~/queries/utils'
 import { BaseMathType, ChartDisplayType } from '~/types'
-
-import {
-    isFunnelWithEnoughSteps,
-    isFunnelWithIncompleteDataWarehouseStep,
-} from 'products/product_analytics/frontend/insights/funnels/funnelUtils'
 
 type CompareQueryOpts = { ignoreVisualizationOnlyChanges: boolean }
 
@@ -212,31 +211,20 @@ export const isDraftQueryWorthSaving = (query: Node, filterTestAccountsDefault: 
     return !compareQuery(overlaidDefault, query, { ignoreVisualizationOnlyChanges: true })
 }
 
-export const hasInvalidRegexFilter = (obj: unknown): boolean => {
-    if (Array.isArray(obj)) {
-        return obj.some(hasInvalidRegexFilter)
-    }
-
-    if (obj !== null && typeof obj === 'object') {
-        const record = obj as Record<string, unknown>
-        if (
-            (record.operator === 'regex' || record.operator === 'not_regex') &&
-            typeof record.value === 'string' &&
-            !isValidRE2(record.value)
-        ) {
-            return true
-        }
-
-        return Object.values(record).some(hasInvalidRegexFilter)
-    }
-
-    return false
+export function isFunnelWithEnoughSteps(series: FunnelsQuery['series'] | null | undefined): boolean {
+    return (series?.length || 0) > 1
 }
 
-export const isBoxPlotMissingProperty = (series: TrendsQuery['series'] | null | undefined): boolean =>
-    !series?.length || series.some((s) => !s?.math_property)
+export function isFunnelWithIncompleteDataWarehouseStep(series: FunnelsQuery['series'] | null | undefined): boolean {
+    return (series || []).some(
+        (step) =>
+            isFunnelsDataWarehouseNode(step) &&
+            (!step.table_name || !step.id_field || !step.timestamp_field || !step.aggregation_target_field)
+    )
+}
 
-export const validateQuery = (q: DataNode): boolean => {
+// The caller passes the regex check so that the RE2 engine stays out of every bundle that imports this module.
+export const validateQuery = (q: DataNode, hasInvalidRegexFilter: (q: DataNode) => boolean): boolean => {
     if (isFunnelsQuery(q)) {
         return isFunnelWithEnoughSteps(q.series) && !isFunnelWithIncompleteDataWarehouseStep(q.series)
     }

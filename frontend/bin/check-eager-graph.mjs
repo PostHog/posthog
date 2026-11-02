@@ -104,8 +104,8 @@ const ROOTS = [
     {
         root: AUTHENTICATED_SHELL,
         label: 'authenticated shell (every logged-in page)',
-        // 2026-10-30: 6.75 MiB eager output, stable CSS included. ~0.3% headroom.
-        budgetBytes: 7_100_000,
+        // 2026-11-01: 4.06 MiB eager output, stable CSS included. ~0.3% headroom.
+        budgetBytes: 4_270_000,
         forbidden: [
             'node_modules/monaco-editor/',
             'products/product_analytics/frontend/insights/activityDescriptions',
@@ -119,6 +119,16 @@ const ROOTS = [
                 verifyPrefix: 'products/dashboards/frontend/widgets/',
             },
             'src/scenes/session-recordings/player/sessionRecordingPlayerLogic.ts',
+            // The replay submenu of the project tree pulls in the playlist and saved filter logics.
+            'src/layout/panel-layout/ProjectTree/menus/SessionReplayMenuItems.tsx',
+            // A hit means a module on the shell path imports taxonomy/registerCoreFilterDefinitions.
+            'src/taxonomy/core-filter-definitions-by-group.json',
+            // The project notice logic pulls in dompurify and the sample data logic.
+            'src/layout/navigation/projectNoticeLogic.tsx',
+            // Only impersonating staff see this notice, and it pulls in react-draggable.
+            'src/layout/navigation/ImpersonationNotice/ImpersonationNotice.tsx',
+            // The cohort saved toast pulls in the workflows audience code and generated API clients.
+            'src/scenes/cohorts/cohortSavedToast.ts',
             // The wizard run card opens this drawer on click, and the drawer pulls in quill primitives.
             'products/wizard/frontend/runs/WizardRunDetailsDrawer.tsx',
             // The Today layout renders only behind the today-rail-nav flag, and it pulls in quill primitives.
@@ -131,6 +141,14 @@ const ROOTS = [
             // The rich text editor stack is for the scenes that edit text. Rendered markdown needs none of it.
             'node_modules/@tiptap/',
             'node_modules/prosemirror-',
+            // The RE2 regex engine checks regex filters before a query runs, and the shell runs no queries.
+            // A hit means a module on the shell path imports lib/utils/regexp or re2js again.
+            'node_modules/re2js/',
+            // react-markdown and its remark plugins load on first render. Shell code uses LazyLemonMarkdown.
+            'node_modules/react-markdown/',
+            // The command palette loads on its first open, and its flagged search pulls in quill.
+            'src/lib/components/Command/Command.tsx',
+            'packages/quill/packages/',
             // The zod-en-locale-only plugin in common/esbuilder/utils.mjs keeps every locale except
             // `en` out of the build. A hit on another locale means zod moved its locales barrel and
             // the plugin no longer matches it.
@@ -174,8 +192,8 @@ const ROOTS = [
             'src/scenes/project-homepage/today/TodayHome.tsx',
         ],
         label: 'today home path',
-        // 2026-10-30: 6.94 MiB, stable CSS included. ~0.3% headroom.
-        budgetBytes: 7_300_000,
+        // 2026-11-01: 4.97 MiB, stable CSS included. ~0.3% headroom.
+        budgetBytes: 5_225_000,
         forbidden: [
             'src/scenes/project-homepage/ai-first/AiFirstHomepage.tsx',
             'src/scenes/project-homepage/today/TodayReportPage.tsx',
@@ -192,8 +210,8 @@ const ROOTS = [
             'src/scenes/project-homepage/ai-first/AiFirstHomepage.tsx',
         ],
         label: 'AI-first home path',
-        // 2026-10-30: 7.46 MiB, stable CSS included. ~1% headroom.
-        budgetBytes: 7_900_000,
+        // 2026-11-01: 6.39 MiB, stable CSS included. ~1% headroom.
+        budgetBytes: 6_763_000,
         forbidden: [
             'products/posthog_ai/frontend/components/tool/widgets/VisualizationWidget.tsx',
             'products/posthog_ai/frontend/components/tool/widgets/RecordingsWidget.tsx',
