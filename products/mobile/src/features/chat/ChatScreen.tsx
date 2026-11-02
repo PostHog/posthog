@@ -463,6 +463,7 @@ export function ChatScreen({
         })
     }
     const stop = (): void => {
+        queueEpoch.current++
         // The stopped turn ends like any other, so without the hold the queue would go out right after the Stop.
         void composerDraft.updateQueue(queueActions.hold('cancelled'))
         session.stop()
