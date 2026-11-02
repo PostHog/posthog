@@ -17,6 +17,7 @@ import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { describeGithubSetupError, getGithubSetupErrorCode } from 'lib/integrations/githubSetupErrors'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils/objects'
@@ -1030,6 +1031,12 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                 }
             },
             resumeQuickSetup: () => {
+                const githubError = getGithubSetupErrorCode(values.searchParams)
+                if (values.searchParams.agent_setup === 'return' && githubError) {
+                    takeGithubConnectMarker(values.currentTeamId)
+                    actions.setError(describeGithubSetupError(githubError), 'other', 'github_redirect_failed')
+                    return
+                }
                 if (values.shouldResumeQuickSetup && takeGithubConnectMarker(values.currentTeamId)) {
                     actions.activateQuickSetup('github_return')
                 }
@@ -1044,7 +1051,13 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                     actions.startSetup()
                     return
                 }
-                router.actions.replace(urls.inbox(), { onboarding_step: 'quick' })
+                router.actions.replace(urls.inbox(), {
+                    onboarding_step: 'quick',
+                    ...(values.searchParams.agent_setup === 'return' ||
+                    values.searchParams.agent_setup === 'without_github'
+                        ? { agent_setup: values.searchParams.agent_setup }
+                        : {}),
+                })
                 actions.setEditedDraft(values.quickSetupDraft!)
                 actions.activate(activationSource)
             },
@@ -1062,11 +1075,15 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                 actions.setError(null)
                 let draft = values.draft
                 const projectId = String(values.currentTeamId)
+                const completionParams =
+                    values.searchParams.agent_setup === 'return' || values.searchParams.agent_setup === 'without_github'
+                        ? { agent_setup: 'complete' }
+                        : undefined
                 try {
                     await saveDraft()
                     actions.setSavedState(await signalsOnboardingList(projectId))
                     if (values.completed) {
-                        router.actions.replace(urls.inbox())
+                        router.actions.replace(urls.inbox(), completionParams)
                         return
                     }
                     let scanners: ReplayScannerApi[] = []
@@ -1201,7 +1218,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                     actions.loadSourceConfigs()
                     actions.loadVisionScanners()
                     actions.loadScoutConfigs()
-                    router.actions.replace(urls.inbox())
+                    router.actions.replace(urls.inbox(), completionParams)
                 } catch (error) {
                     const message =
                         (error instanceof ApiError && error.detail?.trim()) ||

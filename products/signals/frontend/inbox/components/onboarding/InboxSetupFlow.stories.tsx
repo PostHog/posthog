@@ -3,6 +3,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import type { Meta, StoryObj } from '@storybook/react'
 import { waitFor } from '@testing-library/dom'
 import { useValues } from 'kea'
+import { delay } from 'msw'
 
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 
@@ -12,8 +13,10 @@ import { expect } from 'storybook/test'
 
 import type { InboxOnboardingDraftApi } from '../../../generated/api.schemas'
 import { mockScoutSuggestionSet, mockScoutConfigs } from '../../__mocks__/scoutConfigs'
+import { InboxActivateScene } from '../../InboxActivateScene'
 import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
 import { InboxActivationPanel } from './InboxActivationPanel'
+import { InboxAgentSetupComplete } from './InboxAgentSetupComplete'
 import { InboxOnboardingBanner } from './InboxOnboardingBanner'
 import { InboxOnboardingEntry } from './InboxOnboardingEntry'
 import { InboxSetupFlow } from './InboxSetupFlow'
@@ -129,6 +132,59 @@ const meta: Meta<typeof InboxSetupFlow> = {
 
 export default meta
 type Story = StoryObj<typeof meta>
+
+export const AgentConnecting: Story = {
+    render: () => <InboxActivateScene />,
+    parameters: { pageUrl: '/inbox/activate', testOptions: { snapshotBrowsers: [] } },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/onboarding/': async () => {
+                    await delay('infinite')
+                    return [200, { draft: null, completed_at: null }]
+                },
+            },
+        }),
+    ],
+    play: async ({ canvas }) => {
+        await expect(await canvas.findByText('Connecting to GitHub…')).toBeVisible()
+    },
+}
+
+export const AgentConnectionFailed: Story = {
+    render: () => <InboxActivateScene />,
+    parameters: { pageUrl: '/inbox/activate', testOptions: { snapshotBrowsers: [] } },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/onboarding/': () => [503, { detail: "Couldn't load setup. Try again." }],
+            },
+        }),
+    ],
+    play: async ({ canvas }) => {
+        await expect(await canvas.findByText("Couldn't load setup. Try again.")).toBeVisible()
+    },
+}
+
+export const AgentSetupComplete: Story = {
+    render: () => <InboxAgentSetupComplete />,
+    parameters: {
+        pageUrl: '/inbox?agent_setup=complete',
+        testOptions: { snapshotBrowsers: [] },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/onboarding/': { draft: null, completed_at: '2026-10-14T00:00:00Z' },
+            },
+        }),
+    ],
+    play: async ({ canvas }) => {
+        await expect(
+            await canvas.findByText('Self-driving is set up. You can now continue in your agent.')
+        ).toBeVisible()
+    },
+}
 
 export const Signals: Story = {}
 export const NarrowSignals: Story = {

@@ -263,7 +263,12 @@ describe('Self-driving activation guidance', () => {
 
     function activationState(overrides: Partial<ResolvedState> = {}): ResolvedState {
         const state = makeToolExecutorState(
-            ['inbox-reports-list', 'inbox-reports-retrieve', 'inbox-report-artefacts-list'].map((name) => ({ name })),
+            [
+                'self-driving-status-get',
+                'inbox-reports-list',
+                'inbox-reports-retrieve',
+                'inbox-report-artefacts-list',
+            ].map((name) => ({ name })),
             {
                 suppressAnalytics: false,
                 aiConsentGiven: true,
@@ -307,16 +312,14 @@ describe('Self-driving activation guidance', () => {
             outcome: enabled ? 'shown' : 'flag_off',
         })
         expect(notice?.text).toEqual(
-            enabled
-                ? expect.stringContaining(
-                      'https://example.com/project/2/inbox?setup=github-first&onboarding_step=quick'
-                  )
-                : undefined
+            enabled ? expect.stringContaining('https://example.com/project/2/inbox/activate') : undefined
         )
         if (enabled) {
-            expect(notice?.text).toContain("Tell me when it's on; next time I'll check existing reports first.")
+            expect(notice?.text).toContain(
+                'poll `self-driving-status-get` for the same project every 10 seconds for up to two minutes'
+            )
             expect(notice?.text).toContain('Continue helping with the current task')
-            expect(notice?.text?.includes('Prefer to start without it?')).toBe(githubOptional === true)
+            expect(notice?.text?.includes('agent_setup=without_github')).toBe(githubOptional === true)
             expect(notice?.text).not.toContain('api.example.com')
             expect(notice?.text).not.toContain('self-driving-activate')
         }

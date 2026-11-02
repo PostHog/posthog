@@ -7,6 +7,22 @@ feature: signals
 url_prefix: /inbox
 ui_apps: {}
 tools:
+    self-driving-status-get:
+        operation: signals_onboarding_list
+        enabled: true
+        scopes:
+            - task:read
+            - signal_scout:read
+        response:
+            include: [completed_at, github_optional_available, jobs, first_report]
+        title: Get Self-driving setup status
+        description: >
+            Check Self-driving setup in the current project. A non-null completed_at means setup finished; it does
+            not prove monitoring is currently running or a report is ready. After sharing an activation link, poll
+            this tool every 10 seconds for up to two minutes for the same project. Stop when completed_at is set,
+            on an error, or when the time limit expires. If setup is still pending, ask the customer to let you know
+            when it finishes. Continue their current task while waiting. After completion, check existing reports
+            before repeating research, then resume the task or follow their next request.
     activity-summary-get:
         operation: signals_activity_summary_list
         enabled: true

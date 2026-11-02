@@ -13,7 +13,12 @@ import { MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG } from './rules'
 const RULE_ID = 'error-tracking-sd-activation'
 const SESSION_TTL_SECONDS = 24 * 60 * 60
 const INELIGIBLE_TTL_SECONDS = 30
-const REPORT_TOOLS = ['inbox-reports-list', 'inbox-reports-retrieve', 'inbox-report-artefacts-list']
+const REQUIRED_TOOLS = [
+    'self-driving-status-get',
+    'inbox-reports-list',
+    'inbox-reports-retrieve',
+    'inbox-report-artefacts-list',
+]
 const onboardingSchema = z.object({
     completed_at: z.string().nullable(),
     draft: z.record(z.string(), z.unknown()).nullable(),
@@ -38,7 +43,7 @@ function isEligibleCall(state: ResolvedState, call: GuidanceCall): boolean {
             oauthClientId: state.oauthClientId,
         }) === EVENT_SOURCE.MCP &&
         typeof state.toolFeatureFlags?.[MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG] === 'boolean' &&
-        REPORT_TOOLS.every((name) => state.allTools.some((tool) => tool.name === name))
+        REQUIRED_TOOLS.every((name) => state.allTools.some((tool) => tool.name === name))
     )
 }
 
@@ -62,18 +67,20 @@ function ineligibleKey(state: ResolvedState, projectId: string): string {
     return `mcp:guidance:sd-activation:ineligible:{${identity}}`
 }
 
-function activationText(setupUrl: string, githubOptional: boolean): string {
+function activationText(projectUrl: string, githubOptional: boolean): string {
     return [
         'Self-driving setup has not started for this project. Keep all customer-facing messages very brief.',
-        `Offer: "[Activate Self-driving](${setupUrl}) for background error investigations, with a free tier and default usage limit. Tell me when it's on; next time I'll check existing reports first."`,
+        `Offer: "[Connect GitHub and activate Self-driving](${projectUrl}/inbox/activate) for background error investigations. It includes a free tier and default usage limit. I'll check when setup finishes."`,
         ...(githubOptional
             ? [
-                  'Also briefly offer: "GitHub helps agents connect your data to code, find root causes and suggest changes. Prefer to start without it? Self-driving can still surface issues and data correlations."',
-                  'If they prefer setup without GitHub, send the same activation link; that page supports it for this project.',
+                  `Also briefly offer: "GitHub connects your data to code so agents can find root causes and suggest changes. Prefer to [start without GitHub](${projectUrl}/inbox?setup=github-first&onboarding_step=quick&agent_setup=without_github)? Self-driving can still surface issues and data correlations."`,
               ]
             : []),
         'The customer activates in the linked page. Do not activate through tools or ask them to configure sources or scouts in chat.',
-        'Continue helping with the current task while they set up. After they confirm, and before later investigations in this conversation,',
+        'After sending the link, poll `self-driving-status-get` for the same project every 10 seconds for up to two minutes.',
+        'Stop on a non-null `completed_at`, an error, a project switch, or the time limit. If still pending, briefly ask the customer to confirm when setup finishes.',
+        'Continue helping with the current task while they set up. Once setup completes, briefly say you will check existing reports first next time.',
+        'After completion, and before later investigations in this conversation,',
         'use `inbox-reports-list` with `search` set to specific issue or error terms and `limit=3`; read matching reports and work logs before repeating research.',
         'Check freshness and linked PR status. A reference or linked PR does not prove a fix, and an empty search does not prove there is no relevant research.',
         'Then resume the interrupted task or follow their next request. Do not claim activation means a report is already ready.',
@@ -126,10 +133,10 @@ export async function selfDrivingActivationGuidance(
     }
 
     const outcome = state.toolFeatureFlags?.[MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG] === true ? 'shown' : 'flag_off'
-    const setupUrl = `${state.context.api.getProjectBaseUrl(String(projectId))}/inbox?setup=github-first&onboarding_step=quick`
+    const projectUrl = state.context.api.getProjectBaseUrl(String(projectId))
     return {
         ruleId: RULE_ID,
         outcome,
-        ...(outcome === 'shown' ? { text: activationText(setupUrl, onboarding.data.github_optional_available) } : {}),
+        ...(outcome === 'shown' ? { text: activationText(projectUrl, onboarding.data.github_optional_available) } : {}),
     }
 }
