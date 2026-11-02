@@ -8,6 +8,8 @@ import {
     UUIDT,
     bufferToStream,
     bufferToUint32ArrayLE,
+    castTimestampOrNow,
+    castTimestampToClickhouseFormat,
     clickHouseTimestampToDateTime,
     cloneObject,
     createRandomUint32x4,
@@ -19,7 +21,7 @@ import {
     uint32ArrayLEToBuffer,
 } from '~/common/utils/utils'
 
-import { ClickHouseTimestamp } from '../src/types'
+import { ClickHouseTimestamp, TimestampFormat } from '../src/types'
 
 // .zip in Base64: github repo posthog/helloworldplugin
 const zip =
@@ -327,6 +329,132 @@ describe('utils', () => {
             expect(clickHouseTimestampToDateTime('2020-02-23 02:15:00.00' as ClickHouseTimestamp)).toEqual(
                 DateTime.fromISO('2020-02-23T02:15:00.000Z').toUTC()
             )
+        })
+    })
+
+    describe('castTimestampOrNow() in ClickHouse formats', () => {
+        interface Case {
+            name: string
+            input: DateTime | string
+            format: TimestampFormat.ClickHouse | TimestampFormat.ClickHouseSecondPrecision
+            expected: string
+        }
+
+        const ch = TimestampFormat.ClickHouse
+        const chSeconds = TimestampFormat.ClickHouseSecondPrecision
+
+        test.each<Case>([
+            {
+                name: 'canonical ISO string',
+                input: '2023-01-01T10:20:30.456Z',
+                format: ch,
+                expected: '2023-01-01 10:20:30.456',
+            },
+            {
+                name: 'ISO string with offset',
+                input: '2023-01-01T02:30:00.123+02:00',
+                format: ch,
+                expected: '2023-01-01 00:30:00.123',
+            },
+            {
+                name: 'ISO string without millis',
+                input: '2023-01-01T00:00:00Z',
+                format: ch,
+                expected: '2023-01-01 00:00:00.000',
+            },
+            {
+                name: 'impossible calendar date',
+                input: '2023-02-30T00:00:00.000Z',
+                format: ch,
+                expected: 'Invalid DateTime',
+            },
+            {
+                name: 'hour 24 rolls over',
+                input: '2023-01-01T24:00:00.000Z',
+                format: ch,
+                expected: '2023-01-02 00:00:00.000',
+            },
+            {
+                name: 'lowercase separators',
+                input: '2023-01-01t00:00:00.000z',
+                format: ch,
+                expected: 'Invalid DateTime',
+            },
+            { name: 'unparseable string', input: 'not a date', format: ch, expected: 'Invalid DateTime' },
+            {
+                name: 'five-digit year string',
+                input: '+010000-01-01T00:00:00.000Z',
+                format: ch,
+                expected: '10000-01-01 00:00:00.000',
+            },
+            {
+                name: 'negative year string',
+                input: '-000001-01-01T00:00:00.000Z',
+                format: ch,
+                expected: '-0001-01-01 00:00:00.000',
+            },
+            {
+                name: 'canonical ISO string, seconds',
+                input: '2023-01-01T10:20:30.456Z',
+                format: chSeconds,
+                expected: '2023-01-01 10:20:30',
+            },
+            {
+                name: 'DateTime in a non-UTC zone',
+                input: DateTime.fromISO('2023-06-01T12:00:00.987', { zone: 'America/New_York' }),
+                format: ch,
+                expected: '2023-06-01 16:00:00.987',
+            },
+            {
+                name: 'DateTime with negative fractional millis',
+                input: DateTime.fromMillis(-1.9),
+                format: ch,
+                expected: '1969-12-31 23:59:59.999',
+            },
+            {
+                name: 'DateTime at year 0',
+                input: DateTime.utc(0, 1, 1),
+                format: ch,
+                expected: '0000-01-01 00:00:00.000',
+            },
+            {
+                name: 'DateTime at end of year 9999',
+                input: DateTime.utc(9999, 12, 31, 23, 59, 59, 999),
+                format: ch,
+                expected: '9999-12-31 23:59:59.999',
+            },
+            {
+                name: 'DateTime at year 10000',
+                input: DateTime.utc(10000, 1, 1),
+                format: ch,
+                expected: '10000-01-01 00:00:00.000',
+            },
+            { name: 'invalid DateTime', input: DateTime.invalid('test'), format: ch, expected: 'Invalid DateTime' },
+            {
+                name: 'DateTime, seconds',
+                input: DateTime.utc(2023, 1, 1, 10, 20, 30, 456),
+                format: chSeconds,
+                expected: '2023-01-01 10:20:30',
+            },
+        ])('$name', ({ input, format, expected }) => {
+            expect(castTimestampOrNow(input, format)).toEqual(expected)
+        })
+
+        it('uses the current time for a missing timestamp', () => {
+            jest.useFakeTimers({ now: new Date('2024-05-06T07:08:09.010Z') })
+            try {
+                expect(castTimestampOrNow(null, ch)).toEqual('2024-05-06 07:08:09.010')
+                expect(castTimestampOrNow(null, chSeconds)).toEqual('2024-05-06 07:08:09')
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it.each([
+            { input: new Date('2023-01-01T10:20:30.456Z'), expected: '2023-01-01 10:20:30.456' },
+            { input: new Date(NaN), expected: 'Invalid DateTime' },
+        ])('formats a JS Date $input', ({ input, expected }) => {
+            expect(castTimestampToClickhouseFormat(input, ch)).toEqual(expected)
         })
     })
 })

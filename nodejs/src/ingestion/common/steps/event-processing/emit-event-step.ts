@@ -1,4 +1,3 @@
-import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { IngestionWarningsOutput } from '~/common/outputs'
@@ -149,7 +148,7 @@ export function serializeEvent(event: ProcessedEvent): RawKafkaEvent {
         created_at: castTimestampOrNow(event.created_at, TimestampFormat.ClickHouse),
         captured_at:
             event.captured_at !== null
-                ? castTimestampToClickhouseFormat(DateTime.fromJSDate(event.captured_at), TimestampFormat.ClickHouse)
+                ? castTimestampToClickhouseFormat(event.captured_at, TimestampFormat.ClickHouse)
                 : null,
         person_id: event.person_id,
         person_properties: JSON.stringify(event.person_properties ?? {}),
