@@ -143,6 +143,7 @@ class TestAppMetricsRequestSerializer(SimpleTestCase):
             ("kind_duplicates_and_blanks", "kind", " success, failure,,success ," * 40, ["success", "failure"]),
             ("name_over_limit", "name", DISTINCT_51, None),
             ("kind_over_limit", "kind", DISTINCT_51, None),
+            ("name_only_blanks", "name", ", ,,", None),
         ]
     )
     def test_requested_values_are_deduped_and_capped(

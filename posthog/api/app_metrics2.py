@@ -57,6 +57,8 @@ MAX_REQUESTED_BREAKDOWN_VALUES = 50
 
 def _split_requested_values(value: str) -> list[str]:
     values = list(dict.fromkeys(part.strip() for part in value.split(",") if part.strip()))
+    if not values:
+        raise serializers.ValidationError("Enter at least one value. Separate values with commas.")
     if len(values) > MAX_REQUESTED_BREAKDOWN_VALUES:
         raise serializers.ValidationError(
             f"Request at most {MAX_REQUESTED_BREAKDOWN_VALUES} distinct values, got {len(values)}."
