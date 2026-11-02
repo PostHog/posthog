@@ -32,6 +32,8 @@ const DEFAULT_ALERT: PlatformAlertConfigurationApi = {
     owner: 'platform',
     created_at: '2026-09-20T09:00:00Z',
     updated_at: '2026-10-01T09:00:00Z',
+    labels: {},
+    annotations: {},
     alerts: [
         {
             id: '0192a5b0-0000-7000-8000-000000000101',
