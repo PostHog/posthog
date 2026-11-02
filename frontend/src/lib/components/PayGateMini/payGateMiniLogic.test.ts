@@ -3,12 +3,13 @@ import { expectLogic } from 'kea-test-utils'
 
 import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
+import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
 
 import { billingJson } from '~/mocks/fixtures/_billing'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AvailableFeature, BillingProvider, BillingType } from '~/types'
+import { AvailableFeature, BillingProductV2Type, BillingProvider, BillingType } from '~/types'
 
 import { payGateMiniLogic } from './payGateMiniLogic'
 
@@ -67,5 +68,29 @@ describe('payGateMiniLogic', () => {
         logic.mount()
 
         expect(logic.values).toMatchObject({ gateVariant: 'add-card', ...expected })
+    })
+
+    it('starts the payment entry flow for the gated product and the current page', async () => {
+        useMocks({
+            get: {
+                '/_preflight': [200, { ...preflightJson, cloud: true }],
+                '/api/billing': [200, { ...billingJson, customer_id: '', subscription_level: 'free' }],
+            },
+        })
+        initKeaTests()
+        await expectLogic(preflightLogic).toFinishAllListeners()
+        billingLogic.mount()
+        await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
+        paymentEntryLogic.mount()
+        const logic = payGateMiniLogic({ feature: AvailableFeature.SUBSCRIPTIONS })
+        logic.mount()
+        window.history.pushState({}, '', '/project/1/insights?tab=all')
+
+        await expectLogic(paymentEntryLogic, () => logic.actions.startPaymentEntryFlow()).toDispatchActions([
+            paymentEntryLogic.actionCreators.startPaymentEntryFlow(
+                logic.values.productWithFeature as BillingProductV2Type,
+                '/project/1/insights?tab=all'
+            ),
+        ])
     })
 })

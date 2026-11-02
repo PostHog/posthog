@@ -1,7 +1,8 @@
-import { MakeLogicType, actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
+import { retryImport } from 'lib/utils/retryImport'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
@@ -54,6 +55,9 @@ export interface payGateMiniLogicActions {
     }
     setGateVariant: (gateVariant: GateVariantType) => {
         gateVariant: GateVariantType
+    }
+    startPaymentEntryFlow: () => {
+        value: true
     }
 }
 
@@ -154,6 +158,7 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
         setBypassPaywall: (bypassPaywall: boolean) => ({ bypassPaywall }),
         openAddonTrialModal: true,
         closeAddonTrialModal: true,
+        startPaymentEntryFlow: true,
     }),
     selectors(({ values, props }) => ({
         productWithFeature: [
@@ -321,5 +326,16 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
                 bypassPaywall: boolean
             ): boolean => !!gateVariant && !!productWithFeature && !!featureInfo && !bypassPaywall,
         ],
+    })),
+    listeners(({ values, cache }) => ({
+        startPaymentEntryFlow: async () => {
+            // The billing scene's payment logic is large, so it loads only when someone clicks to upgrade.
+            const { paymentEntryLogic } = await retryImport(() => import('scenes/billing/paymentEntryLogic'))
+            cache.disposables.add(() => paymentEntryLogic.mount(), 'paymentEntryLogic')
+            paymentEntryLogic.actions.startPaymentEntryFlow(
+                values.productWithFeature as BillingProductV2Type,
+                window.location.pathname + window.location.search
+            )
+        },
     })),
 ])
