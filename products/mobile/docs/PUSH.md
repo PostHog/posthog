@@ -96,7 +96,17 @@ Kinds: `completed`, `failed`, `cancelled`, `awaiting`, `turn_completed`, `thread
 
 `useNotificationRouting()` handles taps that start the app (`getLastNotificationResponse`) and taps while it runs (`addNotificationResponseReceivedListener`).
 It waits until the navigator is mounted and the session has loaded, and handles each notification id once.
+A signed-out tap waits for sign-in within the running process. Pending responses are not durably stored:
+if the process dies before sign-in finishes, reopen the target from the inbox or chats.
 The pure resolver is `resolveNotificationRoute()` in `notificationRouting.ts`.
+
+On Android, `withAndroidNotificationIntents` queues FCM tap intents before Expo SDK 57's
+startup delegate can drop them while the app loads. It remembers the original launch
+notification's message ID on the device, so restoring the task after process death cannot
+replay that notification ahead of a new tap. It stores no notification content.
+Local snooze reminders keep Expo's normal notification response path.
+This native workaround requires a new Android build; an OTA update cannot install it.
+Recheck the workaround when upgrading Expo ([upstream issue](https://github.com/expo/expo/issues/49254)).
 
 Chat taps reuse the single chat screen. If the target task is already open in the same account
 and project, the tap leaves its session and draft intact. Otherwise it replaces the open chat
