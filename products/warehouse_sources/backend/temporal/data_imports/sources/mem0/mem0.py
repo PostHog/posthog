@@ -463,7 +463,7 @@ def _memory_history_resource(
             {
                 "name": MEMORIES_ENDPOINT,
                 "endpoint": {"path": MEM0_ENDPOINTS[MEMORIES_ENDPOINT].path, "method": "POST"},
-                "data_iterator": lambda: _memories_pages(client, team_id, job_id, filters, None),
+                "data_iterator": lambda: iter(_memories_pages(client, team_id, job_id, filters, None)),
             },
             {
                 "name": MEMORY_HISTORY_ENDPOINT,
