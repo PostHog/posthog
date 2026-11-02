@@ -264,7 +264,7 @@ function pickReservedRetryDelayMs(retryAfterMs: number | null, refillPerSecond: 
 
 const teamEmailCapDelayedTotal = new Counter({
     name: 'cdp_team_email_cap_delayed_total',
-    help: 'Workflow email sends delayed by the team trust-tier sending cap (or that would have been, in shadow mode).',
+    help: 'Workflow email sends delayed by the team trust-tier sending cap, or that would have been. `mode=shadow` and `mode=transactional` both mean the send went out anyway.',
     labelNames: ['tier', 'bucket', 'mode'],
 })
 
@@ -716,6 +716,7 @@ export class EmailService {
 
             // Project-wide pacing from the team's trust tier. Sits next to the per-workflow limit
             // above and behaves the same way: it delays, never drops, and test sends bypass it.
+            // Transactional sends bypass the delay too, and are counted instead.
             // Charged per recipient, not per send: SES counts every to/cc/bcc address against its
             // own quota, so a send with many copies must spend that many tokens.
             const capRecipients =
@@ -921,6 +922,11 @@ export class EmailService {
      * the limiter, which delays the send, because we must not send when we cannot account for it.
      * That second case returns a null `label`: the send waits, but no cap was reached, so the
      * caller must not tell the customer it hit one.
+     *
+     * Transactional sends are charged but never delayed, because a password reset that arrives
+     * two hours late has already failed the person waiting on it. Charging them is what bounds
+     * the exemption: transactional volume comes out of the allowance the team's marketing draws
+     * on, so the team cannot raise its total send rate by relabeling.
      */
     private async claimTeamSendingBudget(
         invocation: CyclotronJobInvocationHogFunction,
@@ -955,7 +961,9 @@ export class EmailService {
         // it still waits for full capacity and pays everything there is.
         const requested = Math.min(Math.max(1, recipients), buckets[0].capacity, buckets[1].capacity)
 
-        if (mode === 'enforce') {
+        const isTransactional = invocation.hogFunction?.metadata?.message_category_type === 'transactional'
+
+        if (mode === 'enforce' && !isTransactional) {
             // Both buckets in one atomic claim, granted whole or not at all. A denial consumes
             // nothing, so a rescheduled multi-recipient send cannot burn the partial refill on
             // every retry and starve the team's other emails while never sending itself.
@@ -987,8 +995,11 @@ export class EmailService {
             }
         }
 
-        // Shadow mode: the send goes out regardless, so drain each bucket by what the send costs
-        // and log the first cap that would have delayed it, measuring both against real traffic.
+        // Shadow mode, and transactional sends in any mode: the send goes out regardless, so
+        // drain each bucket by what the send costs and log the first cap that would have delayed
+        // it. The label separates the two, so the shadow counts stay a true forecast of what
+        // enforce would delay instead of including sends enforce lets through.
+        const observedMode = isTransactional ? 'transactional' : mode
         let firstDenial: TeamEmailCapBucket | null = null
         for (const bucket of buckets) {
             const granted = await this.teamEmailRateLimiter.claimUpTo({
@@ -1001,17 +1012,23 @@ export class EmailService {
             if (granted >= requested) {
                 continue
             }
-            teamEmailCapDelayedTotal.inc({ tier: String(tier), bucket: bucket.name, mode })
+            teamEmailCapDelayedTotal.inc({ tier: String(tier), bucket: bucket.name, mode: observedMode })
             firstDenial = firstDenial ?? bucket
         }
 
         if (firstDenial) {
-            logger.info('📧', 'Team email sending cap would have delayed this send', {
-                teamId: invocation.teamId,
-                tier,
-                bucket: firstDenial.name,
-                cap: firstDenial.label,
-            })
+            logger.info(
+                '📧',
+                isTransactional
+                    ? 'Transactional email sent past the team sending cap'
+                    : 'Team email sending cap would have delayed this send',
+                {
+                    teamId: invocation.teamId,
+                    tier,
+                    bucket: firstDenial.name,
+                    cap: firstDenial.label,
+                }
+            )
         }
         return null
     }
