@@ -16,13 +16,14 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.event_usage import groups
 from posthog.models import User
+from posthog.models.integer_field_bounds import BIG_INTEGER_FIELD_MAX, BIG_INTEGER_FIELD_MIN
 
 from products.batch_exports.backend.facade import (
     api as batch_exports_api,
     contracts,
 )
 from products.batch_exports.backend.facade.enums import BatchExportBackfillStatus
-from products.batch_exports.backend.presentation.views.utils import BIG_INTEGER_MAX, BIG_INTEGER_MIN, parse_path_uuid
+from products.batch_exports.backend.presentation.views.utils import parse_path_uuid
 
 logger = structlog.get_logger(__name__)
 
@@ -58,8 +59,8 @@ class BatchExportBackfillSerializer(serializers.Serializer):
     total_records_count = serializers.IntegerField(
         required=False,
         allow_null=True,
-        min_value=BIG_INTEGER_MIN,
-        max_value=BIG_INTEGER_MAX,
+        min_value=BIG_INTEGER_FIELD_MIN,
+        max_value=BIG_INTEGER_FIELD_MAX,
         help_text="The total number of records to export. Initially estimated, updated with actual count after completion.",
     )
     adjusted_start_at = serializers.DateTimeField(

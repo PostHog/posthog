@@ -497,6 +497,9 @@ class LazyJoin(FieldOrTable):
     join_table: Table | str
     from_field: list[str | int]
     to_field: Optional[list[str | int]] = None
+    # The other fields of the source table that the resolver's ON clause reads. A lazy source table returns only the
+    # fields a query asks for, so lazy table resolution asks for these too.
+    extra_from_fields: list[list[str | int]] = PydanticField(default_factory=list)
 
     def resolve_table(self, context: "HogQLContext") -> Table:
         if isinstance(self.join_table, Table):

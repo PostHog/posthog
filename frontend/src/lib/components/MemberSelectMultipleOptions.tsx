@@ -4,7 +4,7 @@ import { useMemo, useRef, useState } from 'react'
 import { IconX } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
-import { membersLogic } from 'scenes/organization/membersLogic'
+import { membersLogic } from '~/models/membersLogic'
 
 import { MemberSelectRow } from './MemberSelectRow'
 

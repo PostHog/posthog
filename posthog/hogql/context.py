@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from posthog.hogql.database.models import Table
     from posthog.hogql.observability import HogQLTypeObservability
     from posthog.hogql.property_metadata import PropertyMetadata
+    from posthog.hogql.transforms.flag_calls_from_flag_evaluations import FlagCallPropertyMetadata
     from posthog.hogql.transforms.property_types import PropertySwapper
 
     from posthog.clickhouse.client.execute import ClickHouseExternalTable
@@ -175,6 +176,9 @@ class HogQLContext:
     # Backend-only switch for transforms/flag_calls_from_flag_evaluations.py. The data-deletion path sets it False, so a
     # flag-call subquery in a deletion predicate keeps reading `events` whatever the organization's mode.
     rewrite_flag_calls_to_flag_evaluations: bool = True
+    # Per-query event property definitions that transform loads. The transform runs once for the query and once for
+    # each saved view the query inlines, so this loads each property's definition once per query.
+    flag_call_property_metadata: Optional["FlagCallPropertyMetadata"] = field(default=None, compare=False, repr=False)
 
     # Backend-only opt-in for transforms/events_read_in_order.py. The prefix is slower when the range is short or
     # the filter is selective, so set it only for a query shape that was measured to be faster with it.

@@ -1119,9 +1119,10 @@ class ImportContent:
 
 @dataclass(frozen=False)
 class SnippetRoom:
-    """How many more bytes of snippet content one import request may inline, shared by every automation in it.
+    """How many more bytes of snippet and subject content one import request may inline, shared by every automation.
 
-    Snippets are inlined by copy, so a short template that repeats a large one could grow without bound.
+    Snippets and `{{ message.subject }}` are inlined by copy, so a short template that repeats a large one could grow
+    without bound.
     """
 
     remaining: int = 5_000_000
