@@ -193,6 +193,14 @@ class TestCITokenExchange(APIBaseTest):
 
         assert response.json()["error_code"] == "workload_no_matching_policy"
 
+    def test_an_environment_id_reads_like_a_project_without_a_policy(self) -> None:
+        environment = Team.objects.create(organization=self.organization, project=self.project, name="Staging")
+
+        response = self._exchange(resource=f"{_SITE_URL}/api/projects/{environment.id}")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["error_code"] == "workload_no_matching_policy"
+
     def test_exchange_points_to_a_pending_request(self) -> None:
         self.policy.delete()
         pending = WorkloadTrustPolicyRequest.objects.for_team(self.team.id).create(

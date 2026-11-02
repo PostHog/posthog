@@ -350,15 +350,12 @@ def exchange_workload_token(*, subject_token: str, subject_token_type: str, reso
 
     team = Team.objects.select_related("organization").filter(pk=team_id).first()
     if team is not None and team.project_id != team.id:
-        raise WorkloadExchangeError(
-            WorkloadExchangeErrorCode.INVALID_REQUEST,
-            "Set resource to the project's API URL. An environment of a project can't be named on its own.",
-            oauth_error="invalid_target",
-        )
+        # Policies live on a project's own team, so an environment id never has one.
+        team = None
 
     issuer = normalize_issuer(provider.issuer)
-    # A project that doesn't exist reads like one without a matching policy, so the exchange can't be
-    # used to find out which project ids exist.
+    # A project that doesn't exist, or an environment id, reads like a project without a matching policy,
+    # so the exchange can't be used to find out which ids exist.
     policy = find_matching_policy(team.id, issuer, workload_claims) if team is not None else None
     if team is None or policy is None:
         claims_sent = {
