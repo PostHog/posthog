@@ -111052,7 +111052,7 @@ export namespace Schemas {
          * @maxItems 10
          */
       reply_to?: string[];
-      /** Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says. */
+      /** Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says. A send by `template.id` takes it only in the beta for sending email from code. */
       capture_engagement?: boolean;
       /** Sender of the email, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, a send with `template_key` goes out from the project's default sender, and a send by `template.key` from its template's sender. A send by `template.id` doesn't take it. */
       from?: string;

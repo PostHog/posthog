@@ -546,13 +546,7 @@ class TestTransactionalEmail(APIBaseTest):
                 "transactional_email/send",
                 {"tracking": {"captureEngagement": False}},
             ),
-            (
-                "without_engagement_capture_while_the_code_flag_is_off",
-                {"capture_engagement": False},
-                {TRANSACTIONAL_EMAIL_API_FLAG},
-                "transactional_email",
-                None,
-            ),
+            ("by_default_while_the_code_flag_is_off", {}, {TRANSACTIONAL_EMAIL_API_FLAG}, "transactional_email", None),
         ]
     )
     def test_a_send_by_template_id_carries_its_engagement_capture(
@@ -568,6 +562,41 @@ class TestTransactionalEmail(APIBaseTest):
         payload = mock_post.call_args.kwargs["json"]
         assert payload.get("send") == sent
         assert ("send" in payload) == (sent is not None)
+
+    @parameterized.expand([("without_capture", False), ("with_capture", True)])
+    def test_refuses_engagement_capture_on_a_send_by_template_id_while_email_from_code_is_off(
+        self, mock_post, flag, _capture, _name, capture_engagement
+    ):
+        flag.side_effect = lambda key, *_args, **_kwargs: key == TRANSACTIONAL_EMAIL_API_FLAG
+
+        response = self._send(
+            self._psak_client(["hog_flow:write"]),
+            "send_email",
+            {**self.body, "capture_engagement": capture_engagement},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "capture_engagement"
+        assert "beta" in response.json()["detail"]
+        mock_post.assert_not_called()
+
+    @parameterized.expand(
+        [("while_email_from_code_is_off", {TRANSACTIONAL_EMAIL_API_FLAG}), ("with_both_flags", BOTH_EMAIL_FLAGS)]
+    )
+    def test_a_form_encoded_send_by_template_id_without_engagement_capture_keeps_masters_route(
+        self, mock_post, flag, _capture, _name, enabled_flags
+    ):
+        self._cdp_accepts(mock_post)
+        flag.side_effect = lambda key, *_args, **_kwargs: key in enabled_flags
+        client = self._psak_client(["hog_flow:write"])
+
+        response = client.post(
+            self.send_email_url, {"to": "user@example.com", "template.id": str(self.template.id)}, format="multipart"
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert mock_post.call_args.args[0].endswith(f"/hog_flows/{self.hog_flow_id}/transactional_email")
+        assert "send" not in mock_post.call_args.kwargs["json"]
 
     def _keyed(self) -> dict[str, Any]:
         MessageTemplate.objects.filter(id=self.template.id).update(
