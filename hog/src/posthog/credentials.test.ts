@@ -8,7 +8,7 @@ import { DEFAULT_HOST, resolveCredentials } from './credentials'
 const ENV = { HOG_PERSONAL_API_KEY: 'phx_env', HOG_PROJECT_ID: '1', HOG_HOST: 'https://env.example.com' }
 const DOTENV = 'HOG_PERSONAL_API_KEY="phx_dotenv"\n# comment\nHOG_PROJECT_ID=2\n'
 const STORED = JSON.stringify({ token: 'phx_stored', env_id: '3', host: 'https://stored.example.com' })
-const POSTHOG_CLI_FILE = '/home/test/.posthog/credentials.json'
+const LEGACY_CLI_FILE = '/home/test/.posthog/credentials.json'
 const SETTINGS_FILE = '/home/test/.config/hog/settings.json'
 const EU = 'https://eu.posthog.com'
 const US = 'https://us.posthog.com'
@@ -134,7 +134,7 @@ describe('resolveCredentials', () => {
     test.each([
         [
             "a hog login comes before posthog-cli's file",
-            { ...settings(EU, { [EU]: 'keychain' }), [POSTHOG_CLI_FILE]: STORED },
+            { ...settings(EU, { [EU]: 'keychain' }), [LEGACY_CLI_FILE]: STORED },
             { [EU]: login('phx_eu') },
             {},
             { token: 'phx_eu', host: EU, source: 'store', store: 'keychain' },
@@ -176,6 +176,16 @@ describe('resolveCredentials', () => {
             { [US]: login('phx_us') },
             { configHost: EU },
             'host_mismatch',
+        ],
+        [
+            "posthog-cli's file for the posthog.json host beats a hog login to another host",
+            {
+                ...settings(US, { [US]: 'keychain' }),
+                [LEGACY_CLI_FILE]: JSON.stringify({ token: 'phx_cli_eu', env_id: '3', host: EU }),
+            },
+            { [US]: login('phx_us') },
+            { configHost: EU },
+            { token: 'phx_cli_eu', host: EU, source: 'posthog-cli-file' },
         ],
     ] as const)('%s', async (_name, files, keychain, options, expected) => {
         const outcome = await resolveCredentials(fakeRuntime({ files, keychain }), options).catch((error: unknown) =>

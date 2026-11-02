@@ -27,13 +27,14 @@ export function OAuthDeviceAuthorize(): JSX.Element {
         projectId,
         projects,
         projectsLoading,
+        projectsError,
         decision,
         decisionLoading,
         error,
         isStepUp,
         scopeDescriptions,
     } = useValues(oauthDeviceAuthorizeLogic)
-    const { setUserCode, lookUpCode, setOrganizationId, setProjectId, approve, deny } =
+    const { setUserCode, lookUpCode, setOrganizationId, setProjectId, loadProjects, approve, deny } =
         useActions(oauthDeviceAuthorizeLogic)
 
     if (decision) {
@@ -143,6 +144,22 @@ export function OAuthDeviceAuthorize(): JSX.Element {
                             options={projects.map((project) => ({ label: project.name, value: project.id }))}
                         />
                     </LemonField.Pure>
+                    {projectsError && organizationId && (
+                        <AuthBanner variant="danger">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                <span>Couldn't load the projects. {projectsError}</span>
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    onClick={() => loadProjects(organizationId)}
+                                    loading={projectsLoading}
+                                    data-attr="oauth-device-retry-projects"
+                                >
+                                    Try again
+                                </LemonButton>
+                            </div>
+                        </AuthBanner>
+                    )}
                     <div>
                         <p className="mb-2 font-semibold">
                             {isStepUp

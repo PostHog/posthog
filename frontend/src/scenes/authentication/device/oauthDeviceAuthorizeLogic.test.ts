@@ -45,24 +45,27 @@ describe('oauthDeviceAuthorizeLogic', () => {
         initKeaTests()
     })
 
+    const ALL = ['View your User ID', 'Write access to insights', 'Write access to dashboards']
+
     it.each([
+        ['a first login lists every requested scope', [], ALL, false],
         [
-            'a first login lists every requested scope',
-            [],
-            ['View your User ID', 'Write access to insights', 'Write access to dashboards'],
+            'a login that adds nothing in the project lists every scope',
+            [{ project_id: 42, scopes: ['openid', 'insight:read', 'insight:write', 'dashboard:write'] }],
+            ALL,
             false,
         ],
         [
-            'a login that adds nothing, like one for another project, lists every scope',
-            ['openid', 'insight:read', 'insight:write', 'dashboard:write'],
-            ['View your User ID', 'Write access to insights', 'Write access to dashboards'],
-            false,
-        ],
-        [
-            'a step-up lists only the scopes it adds',
-            ['openid', 'insight:read'],
+            'a step-up lists only the scopes it adds in the project',
+            [{ project_id: 42, scopes: ['openid', 'insight:read'] }],
             ['Write access to insights', 'Write access to dashboards'],
             true,
+        ],
+        [
+            'scopes granted in another project count for nothing here',
+            [{ project_id: 7, scopes: ['openid', 'insight:read'] }],
+            ALL,
+            false,
         ],
     ])('%s', async (_name, grantedScopes, expectedDescriptions, isStepUp) => {
         useGrantMocks({ ...GRANT, granted_scopes: grantedScopes })
@@ -71,9 +74,30 @@ describe('oauthDeviceAuthorizeLogic', () => {
 
         router.actions.push(urls.oauthDeviceAuthorize(), { code: 'bcdf-ghjk' })
         await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setProjectId(42)
 
         expect(lookups).toEqual(['BCDF-GHJK'])
         await expectLogic(logic).toMatchValues({ isStepUp, scopeDescriptions: expectedDescriptions })
+    })
+
+    it("drops the previous organization's projects when the next ones fail to load", async () => {
+        useMocks({
+            get: {
+                '/api/organizations/:organizationId/projects/': ({ params }) =>
+                    params.organizationId === 'org-a'
+                        ? [200, { results: [{ id: 1, name: 'A project' }], next: null }]
+                        : [500, { detail: 'boom' }],
+            },
+        })
+        const logic = oauthDeviceAuthorizeLogic()
+        logic.mount()
+        logic.actions.setOrganizationId('org-a')
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setOrganizationId('org-b')
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic).toMatchValues({ projects: [], projectsError: expect.any(String) })
     })
 
     it('approves the code the server returned, for the project the person picked', async () => {

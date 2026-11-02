@@ -1,9 +1,10 @@
 import { defineCommand } from '@/core/command'
 import { escapeControls } from '@/core/output'
 import { checkAuthStatus } from '@/posthog/auth-status'
+import type { StoreChoice } from '@/posthog/credential-store'
 import type { CredentialSource } from '@/posthog/credentials'
 
-function sourceLabel(source: CredentialSource, store: 'keychain' | 'file' | null, path: string | null): string {
+function sourceLabel(source: CredentialSource, store: StoreChoice | null, path: string | null): string {
     switch (source) {
         case 'env':
             return 'the HOG_PERSONAL_API_KEY environment variable'

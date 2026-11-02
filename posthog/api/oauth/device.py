@@ -44,6 +44,7 @@ from rest_framework.throttling import UserRateThrottle
 from posthog.accessible_teams import AccessibleTeams, CredentialScopeDenied
 from posthog.api.oauth.client_assertion import resolve_client_assertion
 from posthog.auth import SessionAuthentication
+from posthog.helpers.two_factor_session import missing_two_factor_step
 from posthog.models import Team, User
 from posthog.models.oauth import OAuthApplication, OAuthDeviceGrant, live_oauth_access_tokens, live_oauth_refresh_tokens
 from posthog.rate_limit import IPThrottle
@@ -239,6 +240,12 @@ class OAuthDeviceAuthorizationView(DeviceAuthorizationView):
                 status=429,
             )
         client_id = _presented_client_id(request) or ""
+        if client_id and "client_id" not in request.POST:
+            # RFC 8628 section 3.1 needs no client_id in the body from a client that authenticates,
+            # but oauthlib reads it only from there.
+            post = request.POST.copy()
+            post["client_id"] = client_id
+            request.POST = post  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         if cimd_creation_throttled(request, self, client_id):
             return JsonResponse(
                 {"error": "invalid_client", "error_description": "Too many new client registrations. Try again later."},
@@ -303,6 +310,14 @@ class DeviceApprovalSerializer(DeviceUserCodeSerializer):
     project_id = serializers.IntegerField(help_text="The project the token is scoped to.")
 
 
+class GrantedScopesSerializer(serializers.Serializer):
+    project_id = serializers.IntegerField(
+        allow_null=True,
+        help_text="The project these scopes work in. Null for a connection that works in every project.",
+    )
+    scopes = serializers.ListField(child=serializers.CharField(), help_text="The scopes granted in the project.")
+
+
 class DeviceGrantDetailsSerializer(serializers.Serializer):
     user_code = serializers.CharField(help_text="The code, in the form the device shows it.")
     client_id = serializers.CharField(help_text="The client that started the device grant.")
@@ -312,10 +327,10 @@ class DeviceGrantDetailsSerializer(serializers.Serializer):
     scopes = serializers.ListField(
         child=serializers.CharField(), help_text="The scopes the token will carry if the person approves."
     )
-    granted_scopes = serializers.ListField(
-        child=serializers.CharField(),
-        help_text="The scopes the person already gave this client. A step-up asks for these plus new ones, and "
-        "the page lists only the new ones.",
+    granted_scopes = GrantedScopesSerializer(
+        many=True,
+        help_text="The scopes the person already gave this client, per project. A step-up in a project asks for "
+        "these plus new ones, and the page lists only the new ones.",
     )
     expires_at = serializers.DateTimeField(help_text="When the code expires.")
 
@@ -341,14 +356,24 @@ def _invalid_code() -> Response:
     )
 
 
-def _granted_scopes(user: User, application: OAuthApplication) -> list[str]:
-    """Every scope the user's standing connections to this client carry, counted the way the
-    Connected applications page counts them."""
-    values = [
-        *live_oauth_access_tokens(user).filter(application=application).values_list("scope", flat=True),
-        *live_oauth_refresh_tokens(user).filter(application=application).values_list("access_token__scope", flat=True),
+def _granted_scopes(user: User, application: OAuthApplication) -> list[dict[str, object]]:
+    """The scopes the user's standing connections to this client carry, per project, counted the way
+    the Connected applications page counts them. A scope granted in one project grants nothing in
+    another, so a step-up only hides scopes the chosen project already has."""
+    rows = [
+        *live_oauth_access_tokens(user).filter(application=application).values_list("scope", "scoped_teams"),
+        *live_oauth_refresh_tokens(user)
+        .filter(application=application)
+        .values_list("access_token__scope", "access_token__scoped_teams"),
     ]
-    return sorted({scope for value in values for scope in (value or "").split()})
+    by_project: dict[int | None, set[str]] = {}
+    for scope, scoped_teams in rows:
+        for project_id in scoped_teams or [None]:
+            by_project.setdefault(project_id, set()).update((scope or "").split())
+    return [
+        {"project_id": project_id, "scopes": sorted(scopes)}
+        for project_id, scopes in sorted(by_project.items(), key=lambda item: (item[0] is not None, item[0] or 0))
+    ]
 
 
 def _capture(request: Request, event: str, grant: OAuthDeviceGrant, **properties: object) -> None:
@@ -431,7 +456,7 @@ class OAuthDeviceViewSet(viewsets.ViewSet):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        team = Team.objects.filter(id=serializer.validated_data["project_id"]).first()
+        team = Team.objects.select_related("organization").filter(id=serializer.validated_data["project_id"]).first()
         if team is None:
             return Response(
                 {"error": "invalid_project", "error_description": "Project not found."},
@@ -442,6 +467,16 @@ class OAuthDeviceViewSet(viewsets.ViewSet):
         except CredentialScopeDenied:
             return Response(
                 {"error": "access_denied", "error_description": "You don't have access to this project."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        # Session auth checks the 2FA policy of the current organization only, and the token never
+        # meets a 2FA check later, so the policy of the project's organization is checked here.
+        if missing_two_factor_step(request._request, cast(User, request.user), organization=team.organization):
+            return Response(
+                {
+                    "error": "two_factor_required",
+                    "error_description": "This project's organization requires two-factor authentication. Set it up, then try again.",
+                },
                 status=status.HTTP_403_FORBIDDEN,
             )
 

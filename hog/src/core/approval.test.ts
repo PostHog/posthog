@@ -51,6 +51,7 @@ describe('resumeApproval', () => {
 
         expect(outcome).toBe(expected)
         expect(polledAt).toEqual([...pollTimes])
-        expect(runtime.files[PENDING_FILE]).toBeUndefined()
+        // An approval stays pending until the caller stores its value. A rejection ends it.
+        expect(runtime.files[PENDING_FILE] !== undefined).toBe(expected === 'ok')
     })
 })

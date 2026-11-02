@@ -705,6 +705,8 @@ class OAuthDeviceGrant(AbstractDeviceGrant):
         verbose_name = "OAuth Device Grant"
         verbose_name_plural = "OAuth Device Grants"
         swappable = "OAUTH2_PROVIDER_DEVICE_GRANT_MODEL"
+        # The cleanup job deletes grants by expiry.
+        indexes = [models.Index(fields=["expires"], name="oauthdevicegrant_expires_idx")]
 
     # No database constraint, so creating this table takes no lock on posthog_user. The ORM
     # still cascades a user delete to their grants.
@@ -904,10 +906,13 @@ def revoke_oauth_refresh_family(refresh_token: OAuthRefreshToken) -> None:
     with transaction.atomic():
         lock_oauth_connection(user_id=refresh_token.user_id, application_id=refresh_token.application_id)
         family = OAuthRefreshToken.objects.filter(token_family=refresh_token.token_family)
-        access_token_ids = list(
-            OAuthAccessToken.objects.filter(
-                Q(refresh_token__in=family) | Q(source_refresh_token__in=family)
-            ).values_list("pk", flat=True)
+        family_rows = list(family.values_list("pk", "access_token_id"))
+        # Two indexed lookups rather than one OR across a join, which can't use either index.
+        access_token_ids = {access_token_id for _, access_token_id in family_rows if access_token_id}
+        access_token_ids.update(
+            OAuthAccessToken.objects.filter(source_refresh_token_id__in=[pk for pk, _ in family_rows]).values_list(
+                "pk", flat=True
+            )
         )
         # Refresh tokens go first, so a failure part way can't leave one able to mint a new access token.
         family.delete()
