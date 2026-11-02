@@ -1,0 +1,40 @@
+[package]
+name = "logs-ingestion"
+version = "0.1.0"
+edition = "2021"
+description = "Rust port of the Node logs ingestion consumer (nodejs/src/logs), kept 1:1 with it by the shared parity corpus"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+ahash = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+base64 = { workspace = true }
+bytes = { workspace = true }
+chrono = { workspace = true }
+common-alloc = { path = "../common/alloc" }
+futures = { workspace = true }
+hashbrown = { version = "0.15", default-features = false }
+hex = "0.4"
+hmac = { workspace = true }
+itoa = { workspace = true }
+ingestion-framework = { path = "../ingestion-framework" }
+metrics = { workspace = true }
+rand = { workspace = true }
+redis = { workspace = true }
+regex = { workspace = true }
+regex-automata = "0.4"
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+zstd = { workspace = true }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["async_tokio"] }
+tokio = { workspace = true, features = ["test-util"] }
