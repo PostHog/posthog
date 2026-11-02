@@ -194,6 +194,23 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                     data-attr="workflow-email-utm-tags-toggle"
                                 />
                             </div>
+                            {action.config.message_category_type !== 'transactional' && (
+                                <div className="flex gap-2 justify-between items-center px-2 py-1">
+                                    <LemonLabel info="Turn this on for emails people need to get on time, such as a welcome or onboarding email. This email ignores your marketing frequency cap and doesn't count toward it. Unsubscribes and opt-outs still apply.">
+                                        Skip the frequency cap
+                                    </LemonLabel>
+                                    <LemonSwitch
+                                        checked={action.config.skip_frequency_cap === true}
+                                        onChange={(checked) => {
+                                            setWorkflowAction(action.id, {
+                                                ...action,
+                                                config: { ...action.config, skip_frequency_cap: checked },
+                                            })
+                                        }}
+                                        data-attr="workflow-email-skip-frequency-cap-toggle"
+                                    />
+                                </div>
+                            )}
                             {action.config.utm_tags_enabled === true && (
                                 <div className="px-2 pb-2 flex flex-col gap-2">
                                     <UtmTagFields
