@@ -18,7 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.revolut_me
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.revolut_merchant.settings import (
     API_VERSION,
-    DISPUTES_PAGE_SIZE,
+    CREATED_DATE_PAGE_SIZE,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.revolut_merchant.source import (
     RevolutMerchantSource,
@@ -72,44 +72,55 @@ def test_payments_keep_parent_keys_and_resume_completed_orders(resume: bool) -> 
     ]
 
 
-def disputes(start: datetime, count: int, step: timedelta) -> list[dict[str, str]]:
-    return [
-        {"id": f"dispute-{(start + step * i).isoformat()}", "created_at": (start + step * i).isoformat()}
-        for i in range(count)
-    ]
+def created_rows(prefix: str, start: datetime, count: int, step: timedelta) -> list[dict[str, str]]:
+    return [{"id": f"{prefix}-{i}", "created_at": (start + step * i).isoformat()} for i in range(count)]
 
 
+@pytest.mark.parametrize("endpoint", ["disputes", "payouts"])
 @pytest.mark.parametrize(
-    "step,param,bound",
-    [
-        (timedelta(minutes=-1), "to_created_date", "2025-12-31T23:59:59.999999Z"),
-        (timedelta(minutes=1), "from_created_date", "2026-01-01T00:00:00.000001Z"),
-    ],
+    "step,param", [(timedelta(minutes=-1), "to_created_date"), (timedelta(minutes=1), "from_created_date")]
 )
 @pytest.mark.parametrize("resume", [False, True])
-def test_disputes_walk_created_date_bounds_in_api_order(step: timedelta, param: str, bound: str, resume: bool) -> None:
-    start = datetime(2026, 1, 1, tzinfo=UTC) - step * (DISPUTES_PAGE_SIZE - 1)
-    first_page = disputes(start, DISPUTES_PAGE_SIZE, step)
-    last_page = disputes(start + step * DISPUTES_PAGE_SIZE, 2, step)
+def test_created_date_pages_keep_rows_that_share_the_boundary(
+    endpoint: str, step: timedelta, param: str, resume: bool
+) -> None:
+    boundary = datetime(2026, 1, 1, tzinfo=UTC)
+    first_page = [
+        *created_rows("a", boundary - step * (CREATED_DATE_PAGE_SIZE - 1), CREATED_DATE_PAGE_SIZE - 1, step),
+        {"id": "boundary-1", "created_at": boundary.isoformat()},
+    ]
+    last_page = [
+        {"id": "boundary-1", "created_at": boundary.isoformat()},
+        {"id": "boundary-2", "created_at": boundary.isoformat()},
+        {"id": "after", "created_at": (boundary + step).isoformat()},
+    ]
+    bound = "2026-01-01T00:00:00.000000Z"
     result = run(
-        "disputes",
+        endpoint,
         route(
             {
-                "/disputes": [
+                f"/{endpoint}": [
                     ScriptedResponse(json=page) for page in ([last_page] if resume else [first_page, last_page])
                 ]
             }
         ),
-        RevolutMerchantResumeConfig(paginator_state={"param": param, "value": bound}) if resume else None,
+        RevolutMerchantResumeConfig(paginator_state={"param": param, "value": bound, "boundary_ids": ["boundary-1"]})
+        if resume
+        else None,
     )
 
     assert result.raised is None
-    assert result.rows == (last_page if resume else first_page + last_page)
-    assert [request.query for request in result.requests] == (
-        [{"limit": ("500",), param: (bound,)}]
-        if resume
-        else [{"limit": ("500",)}, {"limit": ("500",), param: (bound,)}]
-    )
+    assert result.rows == (last_page[1:] if resume else first_page + last_page[1:])
+    assert result.requests[-1].query == {"limit": ("500",), param: (bound,)}
+    assert len(result.requests) == (1 if resume else 2)
+
+
+def test_created_date_pagination_fails_when_the_window_does_not_move() -> None:
+    page = created_rows("a", datetime(2026, 1, 1, tzinfo=UTC), CREATED_DATE_PAGE_SIZE, timedelta(minutes=-1))
+    result = run("disputes", route({"/disputes": [ScriptedResponse(json=page), ScriptedResponse(json=page)]}))
+
+    assert isinstance(result.raised, ValueError)
+    assert len(result.requests) == 2
 
 
 def test_subscription_cycles_page_each_subscription_and_keep_parent_keys() -> None:

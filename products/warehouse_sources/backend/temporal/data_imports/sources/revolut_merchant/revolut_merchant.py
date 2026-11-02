@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any, Optional
 from urllib.parse import quote
 
@@ -29,7 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.revolut_merchant.settings import (
     BASE_URLS,
-    DISPUTES_PAGE_SIZE,
+    CREATED_DATE_PAGE_SIZE,
     ENDPOINTS,
 )
 
@@ -51,8 +51,8 @@ class RevolutMerchantResumeConfig:
 class CreatedDatePaginator(BasePaginator):
     """Pages by `from_created_date` or `to_created_date`, picked from the order of the first full page.
 
-    The API does not document the sort order, and both bounds include the boundary timestamp, so the
-    next bound moves one microsecond past the last row to avoid reading it again.
+    The API does not document the sort order, and both bounds include the boundary timestamp. The next
+    page repeats the rows at the boundary, so the paginator drops the IDs it already returned there.
     """
 
     def __init__(self, limit: int) -> None:
@@ -60,25 +60,36 @@ class CreatedDatePaginator(BasePaginator):
         self.limit = limit
         self._param: str | None = None
         self._value: str | None = None
+        self._boundary_ids: set[str] = set()
 
     def init_request(self, request: Request) -> None:
         self.update_request(request)
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
-        rows = data or []
-        if len(rows) < self.limit:
+        rows = data if data is not None else []
+        full_page = len(rows) >= self.limit
+        bound = _parse_created_at_value(self._value) if self._value is not None else None
+        # The client yields this same list after update_state, so filtering in place drops the repeats.
+        rows[:] = [
+            row for row in rows if not (_parse_created_at(row) == bound and str(row.get("id")) in self._boundary_ids)
+        ]
+        if not full_page:
             self._has_next_page = False
             return
+        if not rows:
+            raise ValueError("Revolut Merchant returned only rows from the previous page.")
         first = _parse_created_at(rows[0])
         last = _parse_created_at(rows[-1])
-        if first == last:
-            raise ValueError("Revolut Merchant created date pagination is not advancing.")
-        param = "to_created_date" if first > last else "from_created_date"
+        if first == last and self._param is None:
+            raise ValueError("Revolut Merchant returned a full page with one created date.")
+        param = self._param if first == last else ("to_created_date" if first > last else "from_created_date")
         if self._param is not None and param != self._param:
             raise ValueError("Revolut Merchant changed the sort order between pages.")
-        step = timedelta(microseconds=-1 if param == "to_created_date" else 1)
+        if bound is not None and (last >= bound if param == "to_created_date" else last <= bound):
+            raise ValueError("Revolut Merchant created date pagination is not advancing.")
         self._param = param
-        self._value = (last + step).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        self._value = last.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        self._boundary_ids = {str(row.get("id")) for row in rows if _parse_created_at(row) == last}
         self._has_next_page = True
 
     def update_request(self, request: Request) -> None:
@@ -89,18 +100,23 @@ class CreatedDatePaginator(BasePaginator):
 
     def get_resume_state(self) -> Optional[dict[str, Any]]:
         if self._has_next_page and self._param is not None and self._value is not None:
-            return {"param": self._param, "value": self._value}
+            return {"param": self._param, "value": self._value, "boundary_ids": sorted(self._boundary_ids)}
         return None
 
     def set_resume_state(self, state: dict[str, Any]) -> None:
         if state.get("param") in ("from_created_date", "to_created_date") and state.get("value"):
             self._param = state["param"]
             self._value = state["value"]
+            self._boundary_ids = set(state.get("boundary_ids") or [])
             self._has_next_page = True
 
 
 def _parse_created_at(row: dict[str, Any]) -> datetime:
-    return datetime.fromisoformat(row["created_at"]).astimezone(UTC)
+    return _parse_created_at_value(row["created_at"])
+
+
+def _parse_created_at_value(value: str) -> datetime:
+    return datetime.fromisoformat(value).astimezone(UTC)
 
 
 def client_config(api_key: str, environment: str, api_version: str) -> ClientConfig:
@@ -126,7 +142,7 @@ def get_resource(name: str) -> EndpointResource:
         "endpoint": endpoint.endpoint,
     }
     if endpoint.created_date_pagination:
-        resource["endpoint"] = {**endpoint.endpoint, "paginator": CreatedDatePaginator(DISPUTES_PAGE_SIZE)}
+        resource["endpoint"] = {**endpoint.endpoint, "paginator": CreatedDatePaginator(CREATED_DATE_PAGE_SIZE)}
     if endpoint.parent and endpoint.parent_id_column:
         resource["include_from_parent"] = ["id"]
         resource["data_map"] = rename_parent_fields(endpoint.parent, {"id": endpoint.parent_id_column})

@@ -7,7 +7,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.types import IncrementalField
 
 API_VERSION = "2026-08-17"
-DISPUTES_PAGE_SIZE = 500
+CREATED_DATE_PAGE_SIZE = 500
 BASE_URLS = {
     "production": "https://merchant.revolut.com/api",
     "sandbox": "https://sandbox-merchant.revolut.com/api",
@@ -105,17 +105,17 @@ ENDPOINTS: dict[str, RevolutMerchantEndpoint] = {
     ),
     "payouts": RevolutMerchantEndpoint(
         endpoint={
-            # Without a limit the endpoint returns every payout, and it offers no continuation mechanism.
             "path": "/payouts",
+            "params": {"limit": CREATED_DATE_PAGE_SIZE},
             "data_selector": None,
             "data_selector_required": True,
-            "paginator": "single_page",
         },
+        created_date_pagination=True,
     ),
     "disputes": RevolutMerchantEndpoint(
         endpoint={
             "path": "/disputes",
-            "params": {"limit": DISPUTES_PAGE_SIZE},
+            "params": {"limit": CREATED_DATE_PAGE_SIZE},
             "data_selector": None,
             "data_selector_required": True,
         },
