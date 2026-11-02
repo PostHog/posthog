@@ -8,11 +8,11 @@ from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
 from posthog.jwt import PosthogJwtAudience, decode_jwt
-from posthog.models import PersonalAPIKey, SessionRecording
+from posthog.models import Organization, PersonalAPIKey, SessionRecording, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
-from posthog.session_recordings.recordings.errors import RecordingDeletedError
+from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock
 
 
@@ -960,6 +960,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_list_blocks.return_value = [self._block("key0", 0), self._block("key1", 100)]
         mock_storage = MagicMock()
         mock_storage.fetch_block = AsyncMock(return_value=b'{"timestamp": 1}')
+        mock_storage.ensure_not_deleted = AsyncMock(return_value=None)
         mock_recording_api_client.return_value.__aenter__.return_value = mock_storage
         url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key=1&end_blob_key=1"
 
@@ -974,9 +975,26 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         assert revalidated.headers["ETag"] == etag
         assert mock_storage.fetch_block.await_count == 1
 
+        # The block listing can lag a deletion, so a shredded key must still end reuse of the cached copy.
+        mock_storage.ensure_not_deleted.side_effect = RecordingDeletedError("deleted", deleted_at=1700000000)
+        assert self.client.get(url, headers={"If-None-Match": etag}).status_code == status.HTTP_410_GONE
+
+        mock_storage.ensure_not_deleted.side_effect = BlockFetchError("state route unavailable")
+        assert self.client.get(url, headers={"If-None-Match": etag}).status_code == status.HTTP_200_OK
+        assert mock_storage.fetch_block.await_count == 2
+        mock_storage.ensure_not_deleted.side_effect = None
+
+        outsider = User.objects.create_and_join(Organization.objects.create(name="Other"), "outsider@example.com", None)
+        self.client.force_login(outsider)
+        assert self.client.get(url, headers={"If-None-Match": etag}).status_code in (
+            status.HTTP_403_FORBIDDEN,
+            status.HTTP_404_NOT_FOUND,
+        )
+        self.client.force_login(self.user)
+
         # A late block sorting into the middle shifts index 1 onto different bytes, so the old tag must not match.
         mock_list_blocks.return_value = [self._block("key0", 0), self._block("late", 0), self._block("key1", 100)]
         shifted = self.client.get(url, headers={"If-None-Match": etag})
         assert shifted.status_code == status.HTTP_200_OK
         assert shifted.headers["ETag"] != etag
-        assert mock_storage.fetch_block.await_count == 2
+        assert mock_storage.fetch_block.await_count == 3

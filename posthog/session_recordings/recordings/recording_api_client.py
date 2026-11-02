@@ -75,6 +75,17 @@ class RecordingApiClient:
             )
             raise BlockFetchError(f"Failed to fetch block from Recording API: {str(e)}")
 
+    async def ensure_not_deleted(self, session_id: str, team_id: int) -> None:
+        """Raise RecordingDeletedError when the session key is shredded, without reading any block."""
+        url = f"{self.base_url}/api/projects/{team_id}/recordings/{session_id}/state"
+        async with self.session.get(url, headers=recording_api_auth_headers(team_id, "read")) as response:
+            if response.status == 410:
+                data = await response.json()
+                raise RecordingDeletedError(
+                    "Recording has been deleted", deleted_at=data.get("deleted_at"), deleted_by=data.get("deleted_by")
+                )
+            response.raise_for_status()
+
     async def list_blocks(self, session_id: str, team_id: int) -> list[dict]:
         url = f"{self.base_url}/api/projects/{team_id}/recordings/{session_id}/blocks"
 

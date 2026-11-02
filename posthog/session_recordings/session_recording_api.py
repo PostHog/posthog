@@ -19,6 +19,7 @@ from django.core.cache import cache
 from django.db.models import Q
 from django.http import HttpResponse, HttpResponseNotModified, JsonResponse
 from django.utils import timezone
+from django.utils.http import parse_etags, quote_etag
 
 import requests
 import structlog
@@ -907,14 +908,11 @@ def _blob_range_etag(blocks: list[RecordingBlock], decompress: bool) -> str:
     # A block index can point at different bytes over time, because a late block of an ongoing recording sorts
     # into the middle of the listing. So the tag names the storage objects behind the range, not the indices.
     identity = ";".join(f"{block.key}:{block.start_byte}-{block.end_byte}" for block in blocks)
-    digest = hashlib.sha256(f"{int(decompress)}|{identity}".encode()).hexdigest()
-    return f'"{digest}"'
+    return quote_etag(hashlib.sha256(f"{int(decompress)}|{identity}".encode()).hexdigest())
 
 
 def _if_none_match_includes(header: str | None, etag: str) -> bool:
-    if not header:
-        return False
-    candidates = [candidate.strip().removeprefix("W/") for candidate in header.split(",")]
+    candidates = [candidate.removeprefix("W/") for candidate in parse_etags(header or "")]
     return "*" in candidates or etag in candidates
 
 
@@ -1846,6 +1844,24 @@ class SessionRecordingViewSet(
                         blocks, min_blob_key, max_blob_key, recording, storage, decompress
                     )
 
+    def _recording_not_deleted(self, recording: SessionRecording) -> bool:
+        # A 304 skips the block fetch, which is where a shredded session key is detected, so check the key
+        # state first. If the check fails (for example a recording-api without this route), a full fetch runs.
+        async def _check() -> None:
+            async with recording_api_client() as client:
+                await client.ensure_not_deleted(str(recording.session_id), self.team.id)
+
+        try:
+            asyncio.run(_check())
+            return True
+        except RecordingDeletedError:
+            raise
+        except Exception:
+            logger.warning(
+                "snapshot_revalidation_state_check_failed", session_id=str(recording.session_id), team_id=self.team.id
+            )
+            return False
+
     @tracer.start_as_current_span("_stream_blob_v2_to_client")
     def _stream_blob_v2_to_client(
         self,
@@ -1863,7 +1879,9 @@ class SessionRecordingViewSet(
             etag = _blob_range_etag(blocks[min_blob_key : max_blob_key + 1], decompress)
 
             response: HttpResponse
-            if _if_none_match_includes(request.headers.get("If-None-Match"), etag):
+            if _if_none_match_includes(request.headers.get("If-None-Match"), etag) and self._recording_not_deleted(
+                recording
+            ):
                 # The browser already holds these bytes, so skip the storage fetch.
                 response = HttpResponseNotModified()
             else:
