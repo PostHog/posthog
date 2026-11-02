@@ -24,7 +24,7 @@ import { RecipientPreferencesService } from '../../messaging/recipient-preferenc
 import { CdpUsageReporterService } from '../../usage/cdp-usage-reporter.service'
 import { trackHogFlowBillableInvocation } from '../billing-utils'
 import { HogFlowFunctionsService } from '../hogflow-functions.service'
-import { actionIdForLogging, findContinueAction } from '../hogflow-utils'
+import { actionIdForLogging, aiTaskLogToken, findContinueAction } from '../hogflow-utils'
 import { observeMissingVariableReferences } from '../hogflow-variable-usage'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 
@@ -216,7 +216,10 @@ export class HogFunctionHandler implements ActionHandler {
 
         if (!functionResult.finished) {
             // Set the state of the function result on the substate of the flow for the next execution
-            result.invocation.state.currentAction!.hogFunctionState = functionResult.invocation.state
+            result.invocation.state.currentAction!.hogFunctionState = {
+                ...functionResult.invocation.state,
+                ...(functionResult.invocation.hogFunction?.metadata?.sensitive === true ? { sensitive: true } : {}),
+            }
             // Preserve queue routing and parameters from the function result
             result.invocation.queue = functionResult.invocation.queue
             result.invocation.queuePriority = functionResult.invocation.queuePriority
@@ -353,10 +356,12 @@ export class HogFunctionHandler implements ActionHandler {
             label: awaitRequest.label,
             parkedAt: DateTime.now().toISO()!,
         }
+        // The stored variable only links the task when it holds the whole result, so link it here too.
+        const taskToken = aiTaskLogToken(action, dispatch)
         result.logs.push({
             level: 'info',
             timestamp: DateTime.now(),
-            message: `${actionIdForLogging(action)} Waiting for the ${awaitRequest.label} to finish (up to ${humanDuration(awaitRequest.maxWait)})`,
+            message: `${actionIdForLogging(action)} Waiting for the ${awaitRequest.label} to finish (up to ${humanDuration(awaitRequest.maxWait)})${taskToken ? ` ${taskToken}` : ''}`,
         })
         // Stored now so a step that later fails still leaves the ids for `on_error: continue`.
         return { scheduledAt: deadline, result: dispatch }
@@ -431,6 +436,11 @@ export class HogFunctionHandler implements ActionHandler {
             { key: 'hogFlow.action.hogFunction.buildHogFunction', sendException: false },
             () => this.hogFlowFunctionsService.buildHogFunction(invocation.hogFlow, action.config, action.name)
         )
+        // A send that started protected stays protected through its retries, even if protection is turned off
+        // before the retry runs: the queued message was rendered under protection.
+        if (invocation.state.currentAction?.hogFunctionState?.sensitive) {
+            hogFunction.metadata = { ...hogFunction.metadata, sensitive: true }
+        }
         const hogFunctionInvocation = await instrumentFn(
             { key: 'hogFlow.action.hogFunction.buildInvocation', sendException: false },
             () =>

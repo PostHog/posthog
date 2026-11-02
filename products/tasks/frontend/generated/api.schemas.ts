@@ -500,14 +500,24 @@ export interface ChannelDTOApi {
     readonly system_role: ChannelSystemRoleEnumApi | null
 }
 
-export interface PaginatedChannelDTOListApi {
+export interface ChannelPageApi {
+    /** Number of channels the requester can access. */
     count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    next: string | null
+    /**
+     * URL of the previous page, or null on the first page.
+     * @nullable
+     */
+    previous: string | null
+    /** Channels on this page. */
     results: ChannelDTOApi[]
 }
+
+export type ChannelListResponseApi = ChannelDTOApi[] | ChannelPageApi
 
 /**
  * * `public` - public
@@ -1474,6 +1484,8 @@ export interface PaginatedTaskListItemListApi {
  * * `space_setup` - Space Setup
  * * `business_knowledge` - Business Knowledge
  * * `metrics_import` - Metrics Import
+ * * `knowledge_writer` - Knowledge Writer
+ * * `context_layer` - Context Layer
  */
 export type TaskOriginProductEnumApi = (typeof TaskOriginProductEnumApi)[keyof typeof TaskOriginProductEnumApi]
 
@@ -1504,6 +1516,8 @@ export const TaskOriginProductEnumApi = {
     SpaceSetup: 'space_setup',
     BusinessKnowledge: 'business_knowledge',
     MetricsImport: 'metrics_import',
+    KnowledgeWriter: 'knowledge_writer',
+    ContextLayer: 'context_layer',
 } as const
 
 /**
@@ -1584,7 +1598,9 @@ export interface TaskCreateApi {
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
-     * * `metrics_import` - Metrics Import */
+     * * `metrics_import` - Metrics Import
+     * * `knowledge_writer` - Knowledge Writer
+     * * `context_layer` - Context Layer */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1820,7 +1836,9 @@ export interface TaskWriteApi {
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
-     * * `metrics_import` - Metrics Import */
+     * * `metrics_import` - Metrics Import
+     * * `knowledge_writer` - Knowledge Writer
+     * * `context_layer` - Context Layer */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1957,7 +1975,9 @@ export interface PatchedTaskWriteApi {
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
-     * * `metrics_import` - Metrics Import */
+     * * `metrics_import` - Metrics Import
+     * * `knowledge_writer` - Knowledge Writer
+     * * `context_layer` - Context Layer */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -4991,11 +5011,13 @@ export interface SlackThreadContextResponseApi {
 
 /**
  * * `autoresearch` - autoresearch
+ * * `context_layer` - context_layer
  * * `error_tracking` - error_tracking
  * * `eval_clusters` - eval_clusters
  * * `experiments` - experiments
  * * `hogdesk` - hogdesk
  * * `image_builder` - image_builder
+ * * `knowledge_writer` - knowledge_writer
  * * `loop` - loop
  * * `mcp_analytics` - mcp_analytics
  * * `onboarding` - onboarding
@@ -5020,11 +5042,13 @@ export type TaskListSourceEnumApi = (typeof TaskListSourceEnumApi)[keyof typeof 
 
 export const TaskListSourceEnumApi = {
     Autoresearch: 'autoresearch',
+    ContextLayer: 'context_layer',
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
     Experiments: 'experiments',
     Hogdesk: 'hogdesk',
     ImageBuilder: 'image_builder',
+    KnowledgeWriter: 'knowledge_writer',
     Loop: 'loop',
     McpAnalytics: 'mcp_analytics',
     Onboarding: 'onboarding',
@@ -5233,6 +5257,8 @@ export type SandboxCustomImagesListParams = {
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
+     * * `knowledge_writer` - Knowledge Writer
+     * * `context_layer` - Context Layer
      * @minLength 1
      */
     origin_product?: SandboxCustomImagesListOriginProduct
@@ -5268,6 +5294,8 @@ export const SandboxCustomImagesListOriginProduct = {
     SpaceSetup: 'space_setup',
     BusinessKnowledge: 'business_knowledge',
     MetricsImport: 'metrics_import',
+    KnowledgeWriter: 'knowledge_writer',
+    ContextLayer: 'context_layer',
 } as const
 
 export type SandboxListParams = {
@@ -5415,6 +5443,8 @@ export type TasksListParams = {
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
+     * * `knowledge_writer` - Knowledge Writer
+     * * `context_layer` - Context Layer
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct
@@ -5565,6 +5595,8 @@ export const TasksListExcludeOriginProduct = {
     SpaceSetup: 'space_setup',
     BusinessKnowledge: 'business_knowledge',
     MetricsImport: 'metrics_import',
+    KnowledgeWriter: 'knowledge_writer',
+    ContextLayer: 'context_layer',
 } as const
 
 export type TasksListInternal = (typeof TasksListInternal)[keyof typeof TasksListInternal]
@@ -5593,11 +5625,13 @@ export const TasksListPrState = {
 
 /**
  * * `autoresearch` - autoresearch
+ * * `context_layer` - context_layer
  * * `error_tracking` - error_tracking
  * * `eval_clusters` - eval_clusters
  * * `experiments` - experiments
  * * `hogdesk` - hogdesk
  * * `image_builder` - image_builder
+ * * `knowledge_writer` - knowledge_writer
  * * `loop` - loop
  * * `mcp_analytics` - mcp_analytics
  * * `onboarding` - onboarding
@@ -5622,11 +5656,13 @@ export type TasksListSourcesItem = (typeof TasksListSourcesItem)[keyof typeof Ta
 
 export const TasksListSourcesItem = {
     Autoresearch: 'autoresearch',
+    ContextLayer: 'context_layer',
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
     Experiments: 'experiments',
     Hogdesk: 'hogdesk',
     ImageBuilder: 'image_builder',
+    KnowledgeWriter: 'knowledge_writer',
     Loop: 'loop',
     McpAnalytics: 'mcp_analytics',
     Onboarding: 'onboarding',

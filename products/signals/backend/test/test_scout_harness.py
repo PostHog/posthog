@@ -2151,7 +2151,7 @@ async def test_run_tags_session_with_scout_attribution(ateam, aerrors_skill):
     # `signals-scout-errors` is not canonical, so only `ai_agent_name` can name it.
     assert captured["ai_stage"] == "scout:custom"
     assert captured["ai_agent_name"] == "signals-scout-errors"
-    assert captured["max_poll_seconds"] == 20 * 60
+    assert captured["max_poll_seconds"] == 30 * 60
     assert captured["context"].sandbox_timeout_seconds is None
 
 
@@ -4106,7 +4106,7 @@ async def test_activity_wakes_the_workflow_step_that_started_the_run(ateam, work
 )
 @pytest.mark.parametrize(
     "workflow_origin_key,trial_launch_id,timeout_minutes",
-    [("job:step:1", None, 36), (None, None, 36), (None, "11111111-1111-1111-1111-111111111111", 51)],
+    [("job:step:1", None, 46), (None, None, 46), (None, "11111111-1111-1111-1111-111111111111", 51)],
 )
 async def test_workflow_delivers_scout_outcomes_even_when_the_run_activity_cannot(
     outcome, workflow_origin_key, trial_launch_id, timeout_minutes

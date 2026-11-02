@@ -185,13 +185,8 @@ class FacadeLimitOffsetPagination(BoundedLimitOffsetPagination):
     and links of `LimitOffsetPagination`.
     """
 
-    def get_paginated_facade_response[T](
-        self,
-        request: Request,
-        view: "GenericAPIView",
-        fetch: Callable[[PageRequest], Page[T]],
-        serializer_class: type[BaseSerializer] | None = None,
-    ) -> Response:
+    def read_facade_page[T](self, request: Request, fetch: Callable[[PageRequest], Page[T]]) -> Page[T]:
+        """Read the page the request asks for, and keep the state `get_paginated_response` builds links from."""
         limit = self.get_limit(request)
         if limit is None:
             raise ImproperlyConfigured(f"{type(self).__name__} needs a default_limit to page a facade list.")
@@ -200,7 +195,16 @@ class FacadeLimitOffsetPagination(BoundedLimitOffsetPagination):
         self.offset = self.get_offset(request)
         page = fetch(PageRequest(limit=limit, offset=self.offset))
         self.count = page.count
+        return page
 
+    def get_paginated_facade_response[T](
+        self,
+        request: Request,
+        view: "GenericAPIView",
+        fetch: Callable[[PageRequest], Page[T]],
+        serializer_class: type[BaseSerializer] | None = None,
+    ) -> Response:
+        page = self.read_facade_page(request, fetch)
         serializer_class = serializer_class or view.get_serializer_class()
         serializer = serializer_class(page.results, many=True, context=view.get_serializer_context())
         return self.get_paginated_response(serializer.data)

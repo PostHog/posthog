@@ -742,7 +742,7 @@ export interface OfflineResultCellApi {
      * * `expired` - Expired */
     payload_state: PayloadStateEnumApi
     /**
-     * Payload retention deadline; cleanup is not yet enabled.
+     * Payload expires 30 days after first acceptance; deletion runs hourly.
      * @nullable
      */
     payload_expires_at: string | null
@@ -799,7 +799,7 @@ export interface OfflineItemReadApi {
      * * `expired` - Expired */
     payload_state: PayloadStateEnumApi
     /**
-     * Payload retention deadline; cleanup is not yet enabled.
+     * Payload expires 30 days after first acceptance; deletion runs hourly.
      * @nullable
      */
     payload_expires_at: string | null
@@ -1082,7 +1082,7 @@ export interface OfflineResultReadApi {
      * * `expired` - Expired */
     payload_state: PayloadStateEnumApi
     /**
-     * Payload retention deadline; cleanup is not yet enabled.
+     * Payload expires 30 days after first acceptance; deletion runs hourly.
      * @nullable
      */
     payload_expires_at: string | null

@@ -17,12 +17,21 @@ from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded
 
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthFinding,
+    ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
     ExperimentHealthMetricCompileErrorKind,
 )
+from products.experiments.backend.facade.enums import ExposuresPath
+from products.experiments.backend.health.checks.events_received import joined
 from products.experiments.backend.health.checks.metric_cannot_compile import MetricCompileError, word_compile_error
-from products.experiments.backend.health.context import HealthContext, MetricCalculationFailure
+from products.experiments.backend.health.context import (
+    ExposureFilterSource,
+    ExposureFilterWithoutColumn,
+    HealthContext,
+    LatestCalculation,
+    MetricCalculationFailure,
+)
 from products.experiments.backend.health.skips import (
     NOT_ON_ARCHIVED,
     RUNS_AFTER_LAUNCH,
@@ -47,6 +56,12 @@ class MetricCalculationFailureKind(StrEnum):
     UNEXPECTED_ERROR = "unexpected_error"
 
 
+class QueryLimitCause(StrEnum):
+    # pinned: the finding's `reason` when its subcode is `query_limit`.
+    EXPOSURE_CRITERIA = "exposure_criteria"
+    METRIC = "metric"
+
+
 # The kinds that a change of the metric or the experiment fixes. The others go away with time or a retry.
 _NEEDS_A_FIX = frozenset(
     {
@@ -60,6 +75,11 @@ _LIMIT_NEEDS = {
     "read_limit": "needed to read more data",
     "memory_limit": "needed more memory",
     "time_limit": "took longer",
+}
+_FILTER_OWNERS = {
+    ExposureFilterSource.EXPOSURE_CRITERIA: "the exposure criteria's",
+    ExposureFilterSource.EXPOSURE_ACTION: "the exposure action's",
+    ExposureFilterSource.TEST_ACCOUNTS: "the test account",
 }
 _QUERY_SIZE_LIMIT = "query_size"
 
@@ -105,6 +125,10 @@ class _Wording:
     # Whether a setting of the experiment causes the failure, which then fails every metric, so the finding says the
     # explanation once and names no metric in it.
     every_metric: bool = False
+    # What caused the failure, when the words name it.
+    reason: str | None = None
+    # The filters that the words name.
+    exposure_filters: tuple[ExposureFilterWithoutColumn, ...] = ()
 
 
 _UNEXPECTED = _Wording(
@@ -166,11 +190,14 @@ def metric_calculation_failed(ctx: HealthContext) -> CheckOutcome:
     ]
     if not worded:
         return not_applicable('Reported under "Invalid metric definitions"')
+    worded = _with_query_limit_cause(worded, calculation, ctx.exposure_filters_without_column)
     worded.sort(key=lambda item: (item[0].role != "primary", item[1].kind not in _NEEDS_A_FIX))
     count = len(worded)
+    exposure_filters = worded[0][1].exposure_filters
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.METRIC_CALCULATION_FAILED,
         subcode=worded[0][1].kind.value,
+        reason=worded[0][1].reason,
         # A retry or more data fixes the other kinds. A kind that needs a fix stays a warning after the end, because
         # the calculation after the fix reads the events up to the end and brings back the results.
         severity=ExperimentHealthFindingSeverity.WARNING
@@ -178,9 +205,13 @@ def metric_calculation_failed(ctx: HealthContext) -> CheckOutcome:
         else ExperimentHealthFindingSeverity.INFO,
         title=f"Latest calculation failed for {count} {'metric' if count == 1 else 'metrics'}",
         detail=" ".join(dict.fromkeys(_sentence(failure, wording) for failure, wording in worded)),
-        evidence={"calculated_at": calculation.finished_at.isoformat(), **_evidence(worded)},
+        evidence={
+            "calculated_at": calculation.finished_at.isoformat(),
+            **_evidence(worded),
+            **({"properties": ", ".join(dict.fromkeys(f.key for f in exposure_filters))} if exposure_filters else {}),
+        },
         # No action opens a given metric.
-        actions=(),
+        actions=(ExperimentHealthFindingActionKind.EDIT_EXPOSURE_CRITERIA,) if exposure_filters else (),
         diagnostic_ref=None,
     )
 
@@ -265,16 +296,116 @@ def _limit_explanation(limit: str, failure: MetricCalculationFailure) -> str:
             "Its query is longer than PostHog allows. A filter with a long list of values can cause this. Shorten "
             "the filters of the metric or of the exposure criteria, or contact support for help."
         )
-    example = (
+    return (
+        f"Its query {_LIMIT_NEEDS[limit]} than PostHog allows for one calculation. A query reads more data the longer "
+        f"an experiment runs and the more traffic it gets. Simplify the metric, for example with {_simpler(failure)}, "
+        "or contact support for help."
+    )
+
+
+def _simpler(failure: MetricCalculationFailure) -> str:
+    return (
         "fewer funnel steps or narrower filters"
         if failure.definition.get("metric_type") == "funnel"
         else "narrower filters"
     )
-    return (
-        f"Its query {_LIMIT_NEEDS[limit]} than PostHog allows for one calculation. A query reads more data the longer "
-        f"an experiment runs and the more traffic it gets. Simplify the metric, for example with {example}, or "
-        "contact support for help."
+
+
+def _with_query_limit_cause(
+    worded: list[tuple[MetricCalculationFailure, _Wording]],
+    calculation: LatestCalculation,
+    filters: tuple[ExposureFilterWithoutColumn, ...] | None,
+) -> list[tuple[MetricCalculationFailure, _Wording]]:
+    """The words of each failure that reached the read, memory or time limit of a query, with the cause that the rest
+    of the calculation shows.
+
+    Every metric's query reads the exposures. So when another metric of the calculation completed the same read, that
+    read fits the limits, and the failing metric's own part of its query reached them. When every metric reached a
+    limit and a query that read the events applies a filter that reads all the properties, that filter is the likely
+    cause, unless a query read precomputed exposures. A metric that ran out of the workflow's time stores no read, so
+    the other failures show the read.
+    """
+    limited = {
+        failure.metric_id: wording.error
+        for failure, wording in worded
+        if wording.kind == MetricCalculationFailureKind.QUERY_LIMIT
+        and wording.error is not None
+        and wording.error in _LIMIT_NEEDS
+    }
+    if calculation.completed_count:
+        return [
+            (failure, _metric_cause(failure, limited[failure.metric_id], calculation.completed_count))
+            if failure.metric_id in limited and failure.exposures_path in calculation.completed_exposures_paths
+            else (failure, wording)
+            for failure, wording in worded
+        ]
+    if (
+        limited
+        and len(limited) == calculation.metric_count
+        and filters
+        and {failure.exposures_path for failure, _ in worded} - {None} == {ExposuresPath.DIRECT_SCAN}
+    ):
+        # With one metric the words name it, as for a failure of the metric.
+        every_metric = calculation.metric_count > 1
+        explanation = _exposure_explanation(set(limited.values()), filters, every_metric=every_metric)
+        return [
+            (
+                failure,
+                _Wording(
+                    kind=MetricCalculationFailureKind.QUERY_LIMIT,
+                    error=limited[failure.metric_id],
+                    explanation=explanation,
+                    every_metric=every_metric,
+                    reason=QueryLimitCause.EXPOSURE_CRITERIA.value,
+                    exposure_filters=filters,
+                ),
+            )
+            for failure, _ in worded
+        ]
+    return worded
+
+
+def _metric_cause(failure: MetricCalculationFailure, limit: str, completed_count: int) -> _Wording:
+    others = "another metric" if completed_count == 1 else "other metrics"
+    return _Wording(
+        kind=MetricCalculationFailureKind.QUERY_LIMIT,
+        error=limit,
+        explanation=f"Its query {_LIMIT_NEEDS[limit]} than PostHog allows for one calculation, while {others} of the "
+        f"experiment returned results. Simplify this metric, for example with {_simpler(failure)}, or contact support "
+        "for help.",
+        reason=QueryLimitCause.METRIC.value,
     )
+
+
+def _exposure_explanation(
+    limits: set[str], filters: tuple[ExposureFilterWithoutColumn, ...], *, every_metric: bool
+) -> str:
+    needs = _LIMIT_NEEDS[next(iter(limits))] if len(limits) == 1 else "needed more resources"
+    named = joined(
+        [
+            _named(owner, owned)
+            for source, owner in _FILTER_OWNERS.items()
+            if (owned := [f for f in filters if f.source == source])
+        ]
+    )
+    read = joined(list(dict.fromkeys(f.type for f in filters)))
+    one = len(filters) == 1
+    the_filters = "the filter" if one else "these filters"
+    query, each_query = ("Every metric's query", "each query") if every_metric else ("Its query", "the query")
+    fix = (
+        f"Change {the_filters}, or turn off the test account filter in the exposure criteria"
+        if any(f.source == ExposureFilterSource.TEST_ACCOUNTS for f in filters)
+        else f"Remove or change {the_filters}"
+    )
+    return (
+        f"{query} {needs} than PostHog allows for one calculation. The likely cause is {named}, which "
+        f"{'makes' if one else 'make'} {each_query} read all {read} properties. {fix}, or contact support for help."
+    )
+
+
+def _named(owner: str, filters: list[ExposureFilterWithoutColumn]) -> str:
+    properties = joined([f'the {f.type} property "{f.key}"' for f in filters])
+    return f"{owner} {'filter' if len(filters) == 1 else 'filters'} on {properties}"
 
 
 def _settings(failure: MetricCalculationFailure) -> _Wording | None:
