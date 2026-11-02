@@ -93,6 +93,12 @@ describe('TimeSeriesLineChart', () => {
                 ['00:00', '01:00', '02:00', '03:00', '04:00'],
             ],
             [
+                'formats the grid at the interval inferred from the data',
+                ['2026-03-01T00:10:00Z', '2026-03-01T01:10:00Z'],
+                undefined,
+                ['01:00'],
+            ],
+            [
                 'falls back to the data labels when no grid tick fits',
                 ['2026-03-01T00:00:10Z', '2026-03-01T00:00:40Z'],
                 undefined,

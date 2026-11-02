@@ -129,7 +129,10 @@ export function TimeSeriesLineChart<Meta = unknown>({
         legend,
     } = config ?? {}
     const time = useTimeScale(xScale === 'time', labels, xAxis, xDomain)
-    const tickXAxis = useMemo(() => (time ? { ...xAxis, allDays: time.tickLabels } : xAxis), [time, xAxis])
+    const tickXAxis = useMemo(
+        () => (time ? { ...xAxis, interval: time.interval, allDays: time.tickLabels } : xAxis),
+        [time, xAxis]
+    )
     const {
         xTickFormatter,
         yTickFormatter,
