@@ -3,8 +3,7 @@
 from typing import Any, cast
 from uuid import UUID
 
-from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import extend_schema
 from rest_framework import status, viewsets
 from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.pagination import LimitOffsetPagination
@@ -12,7 +11,7 @@ from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
 from posthog.models import User
 from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scoped_team_ids
 
@@ -25,18 +24,7 @@ from .serializers import (
 )
 
 CHANGE_DENIED = "This dashboard has tiles from a project you cannot open, so you cannot change or delete it."
-DASHBOARD_ID = OpenApiParameter("id", OpenApiTypes.UUID, OpenApiParameter.PATH, description="Id of the dashboard.")
-PARENT_DASHBOARD_ID = OpenApiParameter(
-    "dashboard_id", OpenApiTypes.UUID, OpenApiParameter.PATH, description="Id of the dashboard."
-)
-TILE_ID = OpenApiParameter("id", OpenApiTypes.UUID, OpenApiParameter.PATH, description="Id of the tile.")
-
-
-def _uuid(value: str) -> UUID:
-    try:
-        return UUID(value)
-    except ValueError:
-        raise NotFound()
+DASHBOARD_ID = PathParameter(type=UUID, description="Id of the dashboard.")
 
 
 class CrossProjectDashboardPagination(LimitOffsetPagination):
@@ -83,6 +71,7 @@ class CrossProjectDashboardViewSet(TeamAndOrgViewSetMixin, _FacadePageMixin, vie
     scope_object = "cross_project_dashboard"
     serializer_class = CrossProjectDashboardSerializer
     lookup_field = "id"
+    path_parameters = {"id": DASHBOARD_ID}
     pagination_class = CrossProjectDashboardPagination
     # Server-side rollout boundary: the flag gates the API, not only the UI.
     posthog_feature_flag = "cross-project-dashboards"
@@ -92,7 +81,7 @@ class CrossProjectDashboardViewSet(TeamAndOrgViewSetMixin, _FacadePageMixin, vie
         return cast(User, self.request.user)
 
     def _object_id(self) -> UUID:
-        return _uuid(self.kwargs["id"])
+        return self.kwargs["id"]
 
     @extend_schema(responses={200: CrossProjectDashboardListItemSerializer(many=True)})
     def list(self, request: Request, **kwargs: Any) -> Response:
@@ -115,7 +104,7 @@ class CrossProjectDashboardViewSet(TeamAndOrgViewSetMixin, _FacadePageMixin, vie
         )
         return Response(CrossProjectDashboardSerializer(dashboard).data, status=status.HTTP_201_CREATED)
 
-    @extend_schema(parameters=[DASHBOARD_ID], responses={200: CrossProjectDashboardSerializer})
+    @extend_schema(responses={200: CrossProjectDashboardSerializer})
     def retrieve(self, request: Request, **kwargs: Any) -> Response:
         try:
             dashboard = api.get_dashboard(
@@ -126,7 +115,6 @@ class CrossProjectDashboardViewSet(TeamAndOrgViewSetMixin, _FacadePageMixin, vie
         return Response(CrossProjectDashboardSerializer(dashboard).data)
 
     @extend_schema(
-        parameters=[DASHBOARD_ID],
         request=CrossProjectDashboardSerializer(partial=True),
         responses={200: CrossProjectDashboardSerializer},
     )
@@ -144,7 +132,7 @@ class CrossProjectDashboardViewSet(TeamAndOrgViewSetMixin, _FacadePageMixin, vie
             raise PermissionDenied(CHANGE_DENIED)
         return Response(CrossProjectDashboardSerializer(dashboard).data)
 
-    @extend_schema(parameters=[DASHBOARD_ID], responses={204: None})
+    @extend_schema(responses={204: None})
     def destroy(self, request: Request, **kwargs: Any) -> Response:
         try:
             api.delete_dashboard(
@@ -167,6 +155,10 @@ class CrossProjectDashboardTileViewSet(TeamAndOrgViewSetMixin, _FacadePageMixin,
     scope_object = "cross_project_dashboard"
     serializer_class = CrossProjectDashboardTileSerializer
     lookup_field = "id"
+    path_parameters = {
+        "id": PathParameter(type=UUID, description="Id of the tile."),
+        "dashboard_id": DASHBOARD_ID,
+    }
     pagination_class = CrossProjectDashboardPagination
     posthog_feature_flag = "cross-project-dashboards"
     permission_classes = [PostHogFeatureFlagPermission, OrganizationWideCredentialPermission]
@@ -175,12 +167,12 @@ class CrossProjectDashboardTileViewSet(TeamAndOrgViewSetMixin, _FacadePageMixin,
         return cast(User, self.request.user)
 
     def _object_id(self) -> UUID:
-        return _uuid(self.kwargs["id"])
+        return self.kwargs["id"]
 
     def _dashboard_id(self) -> UUID:
-        return _uuid(self.parents_query_dict["dashboard_id"])
+        return self.kwargs["parent_lookup_dashboard_id"]
 
-    @extend_schema(parameters=[PARENT_DASHBOARD_ID], responses={200: CrossProjectDashboardTileSerializer(many=True)})
+    @extend_schema(responses={200: CrossProjectDashboardTileSerializer(many=True)})
     def list(self, request: Request, **kwargs: Any) -> Response:
         page = api.list_tiles(
             organization_id=self.organization_id,
@@ -192,7 +184,6 @@ class CrossProjectDashboardTileViewSet(TeamAndOrgViewSetMixin, _FacadePageMixin,
         return self._paginated(request, page, CrossProjectDashboardTileSerializer(page.results, many=True).data)
 
     @extend_schema(
-        parameters=[PARENT_DASHBOARD_ID],
         request=CrossProjectDashboardTileSerializer,
         responses={201: CrossProjectDashboardTileSerializer},
     )
@@ -212,7 +203,7 @@ class CrossProjectDashboardTileViewSet(TeamAndOrgViewSetMixin, _FacadePageMixin,
             raise PermissionDenied(CHANGE_DENIED)
         return Response(CrossProjectDashboardTileSerializer(tile).data, status=status.HTTP_201_CREATED)
 
-    @extend_schema(parameters=[PARENT_DASHBOARD_ID, TILE_ID], responses={200: CrossProjectDashboardTileSerializer})
+    @extend_schema(responses={200: CrossProjectDashboardTileSerializer})
     def retrieve(self, request: Request, **kwargs: Any) -> Response:
         try:
             tile = api.get_tile(
@@ -226,7 +217,6 @@ class CrossProjectDashboardTileViewSet(TeamAndOrgViewSetMixin, _FacadePageMixin,
         return Response(CrossProjectDashboardTileSerializer(tile).data)
 
     @extend_schema(
-        parameters=[PARENT_DASHBOARD_ID, TILE_ID],
         request=CrossProjectDashboardTileUpdateSerializer(partial=True),
         responses={200: CrossProjectDashboardTileSerializer},
     )
@@ -248,7 +238,7 @@ class CrossProjectDashboardTileViewSet(TeamAndOrgViewSetMixin, _FacadePageMixin,
             raise PermissionDenied(CHANGE_DENIED)
         return Response(CrossProjectDashboardTileSerializer(tile).data)
 
-    @extend_schema(parameters=[PARENT_DASHBOARD_ID, TILE_ID], responses={204: None})
+    @extend_schema(responses={204: None})
     def destroy(self, request: Request, **kwargs: Any) -> Response:
         try:
             api.delete_tile(
