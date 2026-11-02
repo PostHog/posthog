@@ -1,3 +1,4 @@
+import { buildRankedResults } from 'lib/components/CommandKSearch/commandKRankedResults'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { terminalDockLogic } from 'scenes/terminal/terminalDockLogic'
@@ -40,6 +41,24 @@ describe('searchListsLogic', () => {
 
         expect(hrefs.filter((href) => href === urls.endpoints())).toHaveLength(1)
         expect(new Set(hrefs).size).toBe(hrefs.length)
+    })
+
+    it.each(['setting', 'settings'])('ranks general settings before product settings for "%s"', (query) => {
+        const sections = buildRankedResults({
+            query,
+            highlightWords: [query],
+            results: [],
+            products: logic.values.productsItems,
+            state: 'ready',
+            scoped: false,
+        })
+
+        expect(sections[0].rows[0]).toMatchObject({
+            item: { displayName: 'Settings', href: urls.settings() },
+        })
+        expect(logic.values.productsItems).toEqual(
+            expect.arrayContaining([expect.objectContaining({ displayName: 'Settings', parentName: 'Workflows' })])
+        )
     })
 
     it.each([false, true])('shows Models Usage when its feature flag is enabled=%s', (enabled) => {

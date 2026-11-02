@@ -316,6 +316,17 @@ export const searchListsLogic = kea<searchListsLogicType>([
                 })
                 items.push(...toSearchTabItems(items, filteredProducts, featureFlags))
 
+                items.push({
+                    id: 'product-settings',
+                    name: 'Settings',
+                    displayName: 'Settings',
+                    category: 'tools',
+                    href: urls.settings(),
+                    itemType: 'settings',
+                    searchKeywords: ['general settings', 'project settings', 'app settings'],
+                    record: { type: 'settings' },
+                })
+
                 return items.sort(byLastViewed)
             },
         ],
