@@ -5,6 +5,7 @@ import type { Schemas } from '@/api/generated'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
 import type { AnalyticsEvent } from '@/lib/posthog/analytics'
 import type { SessionManager } from '@/lib/SessionManager'
+import type { ToolCallInputExchange } from '@/lib/stateless-protocol'
 import type { StateManager } from '@/lib/StateManager'
 import type { PrefixedString } from '@/lib/types'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
@@ -162,6 +163,11 @@ export type Context = {
         /** Integration id of the connection. */
         connectionId: string
     }
+    /**
+     * Set per call only in the 2026-07-28 dialect. A handler that reads it may return
+     * `inputRequired(...)`, and the client retries the same call with the answers.
+     */
+    inputExchange?: ToolCallInputExchange
 }
 
 export type Tool<TSchema extends z.ZodType = z.ZodType, TResult = unknown> = {

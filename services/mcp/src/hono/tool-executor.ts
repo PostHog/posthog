@@ -40,6 +40,7 @@ import {
 } from '@/lib/no-data-guard'
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeErrorToken } from '@/lib/posthog/analytics'
+import { isInputRequiredResult, parseToolCallInputExchange } from '@/lib/stateless-protocol'
 import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
 import {
     createExecTool,
@@ -285,6 +286,10 @@ export class ToolExecutor {
         }
         const callState = stateForToolCall(state, analyticsMeta.intent)
         callState.carriedContextHandle = carriedContextHandle
+        const inputExchange = parseToolCallInputExchange(params)
+        if (inputExchange) {
+            callState.context.inputExchange = inputExchange
+        }
         const callParams = { ...params, arguments: args }
 
         const targetToolName =
@@ -533,6 +538,18 @@ export class ToolExecutor {
             stop({ status: 'success' })
 
             const duration = Date.now() - startMs
+            if (isInputRequiredResult(handlerResult)) {
+                void trackToolCall(
+                    tool.name,
+                    duration,
+                    false,
+                    state,
+                    { ...inputShape, input_tokens: estimateTokens(validation.data) },
+                    analyticsMeta,
+                    this.servedToolDescription(tool.name)
+                )
+                return handlerResult
+            }
             const guidance = await this.guidanceFor(state, {
                 toolName: tool.name,
                 args: validation.data,
@@ -762,6 +779,23 @@ export class ToolExecutor {
         try {
             const handlerResult = await resolved.handler(state.context, validation.data)
             const duration = Date.now() - startMs
+            if (isInputRequiredResult(handlerResult)) {
+                void trackToolCall(
+                    execToolName(),
+                    duration,
+                    false,
+                    state,
+                    {
+                        ...execShape,
+                        ...execInputShape,
+                        input_tokens: estimateTokens(validation.data),
+                        ...execMetrics.commandMeta,
+                    },
+                    analyticsMeta,
+                    this.servedToolDescription(execToolName())
+                )
+                return handlerResult
+            }
 
             const response = isToolCallPayload(handlerResult)
                 ? handlerResult

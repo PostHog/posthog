@@ -1,6 +1,7 @@
 import type { z } from 'zod'
 
 import { isToolCallPayload } from '@/lib/build-tool-result'
+import { isInputRequiredResult } from '@/lib/stateless-protocol'
 import { readParamAliases, reshapesInputBeyondAliases } from '@/tools/cast-helpers'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_INFORMATIONAL_RESPONSE_KEY } from '@/tools/types'
 
@@ -95,7 +96,7 @@ export function withIgnoredInputKeys(result: unknown, ignoredKeys: string[]): un
     if (typeof result === 'string') {
         return `${result}\n\n${notice}`
     }
-    if (typeof result !== 'object' || isToolCallPayload(result)) {
+    if (typeof result !== 'object' || isToolCallPayload(result) || isInputRequiredResult(result)) {
         return result
     }
 
