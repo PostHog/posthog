@@ -266,12 +266,53 @@ class TestRailway:
             [{"project_id": "p1", "id": "si2", "serviceId": "s1"}],
             [{"project_id": "p1", "id": "si3"}],
         ]
-        assert [(state.project_id, state.parent_id, state.cursor) for state in result.saved_states] == [
-            ("p1", "e2", "c4"),
-            ("p2", None, None),
+        # The last batch stages a completed position, so a retry after it is written reads nothing.
+        assert [
+            (state.project_id, state.parent_id, state.cursor, state.completed) for state in result.saved_states
+        ] == [
+            ("p1", "e2", "c4", False),
+            ("p2", None, None, False),
+            (None, None, None, True),
         ]
 
-    def test_volume_instance_backups_resume_at_the_saved_volume_instance(self):
+    @parameterized.expand(
+        [
+            ("completed_run", RailwayResumeConfig(completed=True), [], []),
+            (
+                "deleted_environment",
+                RailwayResumeConfig(
+                    project_id="p1", project_index=0, parent_id="e-deleted", parent_index=1, cursor="c3"
+                ),
+                [_projects_page(["p1"]), _connection(("environments",), [{"id": "e1"}, {"id": "e2"}])],
+                [("e2", None)],
+            ),
+            (
+                "deleted_project",
+                RailwayResumeConfig(project_id="p-deleted", project_index=1, parent_id="e2", parent_index=1),
+                [_projects_page(["p1", "p3"]), _connection(("environments",), [{"id": "e3"}, {"id": "e4"}])],
+                [("e3", None), ("e4", None)],
+            ),
+        ]
+    )
+    def test_environment_walk_retry_reads_no_completed_environment(
+        self, _name, resume_state, responses, expected_reads
+    ):
+        result = _run(
+            "service_instances",
+            [*responses, *[_connection(("environment", "serviceInstances"), [])] * len(expected_reads)],
+            resume_state=resume_state,
+        )
+
+        assert result.raised is None
+        reads = [
+            (variables["environmentId"], variables["after"])
+            for variables in (_request_variables(result, index) for index in range(len(result.requests)))
+            if "environmentId" in variables
+        ]
+        assert reads == expected_reads
+
+    @parameterized.expand([("saved_instance", "vi2", None), ("deleted_instance", "vi-deleted", 1)])
+    def test_volume_instance_backups_resume_at_the_saved_volume_instance(self, _name, child_id, child_index):
         result = _run(
             "volume_instance_backups",
             [
@@ -284,7 +325,9 @@ class TestRailway:
                 {"data": {"volumeInstanceBackupList": [{"id": "b1"}]}},
                 {"data": {"volumeInstanceBackupList": []}},
             ],
-            resume_state=RailwayResumeConfig(project_id="p1", parent_id="e1", child_id="vi2"),
+            resume_state=RailwayResumeConfig(
+                project_id="p1", parent_id="e1", child_id=child_id, child_index=child_index
+            ),
         )
 
         assert result.raised is None
@@ -304,7 +347,10 @@ class TestRailway:
                 }
             ]
         ]
-        assert [(state.parent_id, state.child_id) for state in result.saved_states] == [("e1", "vi3")]
+        assert [(state.child_id, state.child_index, state.completed) for state in result.saved_states] == [
+            ("vi3", 2, False),
+            (None, None, True),
+        ]
 
     @time_machine.travel("2024-07-03T12:00:00Z", tick=False)
     def test_usage_reads_one_day_window_per_workspace_from_the_watermark_day(self):
