@@ -158,30 +158,62 @@ describe('CapturedEventsService', () => {
         })
 
         it.each([
-            ['source_webhook', 200, 'small', ['batch a,b,c,d'], 'x'],
-            ['source_webhook', 400, 'small', ['batch a,b,c,d', 'batch a,b', 'batch c,d'], 'x'],
-            ['source_webhook', 200, '1.2 MB', ['single a', 'single b', 'single c', 'single d'], '漢'.repeat(400_000)],
-            ['destination', 200, 'small', ['single a', 'single b', 'single c', 'single d'], 'x'],
-        ])('sends a %s result answered %s with %s events as %j', async (type, status, _size, expected, blob) => {
-            teamManager.getTeam.mockResolvedValue(buildTeam(1, 'token-team-1'))
-            internalCaptureService.captureBatch.mockResolvedValueOnce({ status } as any)
-            const properties = { blob }
+            ['source_webhook', [], 'small', ['batch a,b,c,d'], 'x'],
+            [
+                'source_webhook',
+                ['c'],
+                'small',
+                ['batch a,b,c,d', 'batch a,b', 'batch c,d', 'single c', 'single d'],
+                'x',
+            ],
+            [
+                'source_webhook',
+                ['a', 'd'],
+                'small',
+                ['batch a,b,c,d', 'batch a,b', 'batch c,d', 'single a', 'single b', 'single c', 'single d'],
+                'x',
+            ],
+            ['source_webhook', [], '1.2 MB', ['single a', 'single b', 'single c', 'single d'], '漢'.repeat(400_000)],
+            ['destination', [], 'small', ['single a', 'single b', 'single c', 'single d'], 'x'],
+        ])(
+            'sends a %s result with invalid events %j and %s events as %j',
+            async (type, invalid, _size, expected, blob) => {
+                teamManager.getTeam.mockResolvedValue(buildTeam(1, 'token-team-1'))
+                const statusOf = (events: InternalCaptureEvent[]): number =>
+                    events.some((event) => invalid.includes(event.event)) ? 400 : 200
+                internalCaptureService.captureBatch.mockImplementation((events) =>
+                    Promise.resolve({ status: statusOf(events) } as any)
+                )
+                internalCaptureService.capture.mockImplementation((event) =>
+                    Promise.resolve({ status: statusOf([event]) } as any)
+                )
+                const properties = { blob }
 
-            await service.queueInvocationResults([
-                {
-                    ...buildResult(['a', 'b', 'c', 'd'].map((event) => buildCapturedEvent(1, { event, properties }))),
-                    invocation: { hogFunction: { type } },
-                } as unknown as CyclotronJobInvocationResult,
-            ])
-            await service.flush()
+                await service.queueInvocationResults([
+                    {
+                        ...buildResult(
+                            ['a', 'b', 'c', 'd'].map((event) => buildCapturedEvent(1, { event, properties }))
+                        ),
+                        invocation: { hogFunction: { type } },
+                    } as unknown as CyclotronJobInvocationResult,
+                ])
+                await service.flush()
 
-            expect([
-                ...internalCaptureService.captureBatch.mock.calls.map(
-                    ([events]) => `batch ${events.map((event) => event.event).join(',')}`
-                ),
-                ...internalCaptureService.capture.mock.calls.map(([event]) => `single ${event.event}`),
-            ]).toEqual(expected)
-        })
+                expect([
+                    ...internalCaptureService.captureBatch.mock.calls.map(
+                        ([events]) => `batch ${events.map((event) => event.event).join(',')}`
+                    ),
+                    ...internalCaptureService.capture.mock.calls.map(([event]) => `single ${event.event}`),
+                ]).toEqual(expected)
+                const accepted = [
+                    ...internalCaptureService.captureBatch.mock.calls.map(([events]) => events),
+                    ...internalCaptureService.capture.mock.calls.map(([event]) => [event]),
+                ]
+                    .filter((events) => statusOf(events) === 200)
+                    .flatMap((events) => events.map((event) => event.event))
+                expect(accepted.sort()).toEqual(['a', 'b', 'c', 'd'].filter((event) => !invalid.includes(event)))
+            }
+        )
 
         it('drops events whose team is not found (teamManager returns null)', async () => {
             teamManager.getTeam.mockResolvedValue(null)
