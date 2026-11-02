@@ -222,7 +222,8 @@ impl TeamAccessPoller {
     }
 
     /// Polls every `POLL_INTERVAL ± POLL_JITTER` until shutdown. After a failed poll it waits for
-    /// the next tick.
+    /// the next tick. Shutdown also cancels a poll in flight, because a poll can last longer than
+    /// the graceful shutdown window of the service. A cancelled poll changes no rows.
     ///
     /// Register `handle` without a liveness deadline: a database outage must not stop a service that
     /// can keep working on the rows it has.
@@ -230,9 +231,13 @@ impl TeamAccessPoller {
         let _guard = handle.process_scope();
 
         loop {
+            let tick = async {
+                tokio::time::sleep(next_interval()).await;
+                self.poll(&pool).await
+            };
             tokio::select! {
                 _ = handle.shutdown_recv() => break,
-                _ = tokio::time::sleep(next_interval()) => match self.poll(&pool).await {
+                polled = tick => match polled {
                     Ok(granted) => debug!(granted_teams = granted, "team access polled"),
                     Err(err) => warn!(error = %err, "team access poll failed"),
                 },
