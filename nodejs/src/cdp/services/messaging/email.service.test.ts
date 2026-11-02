@@ -770,15 +770,15 @@ describe('EmailService', () => {
                 expect(capture).toHaveBeenCalledTimes(15)
             })
 
-            it('drops blocked-event captures while stalled ones fill the cap, and resumes once they settle', async () => {
+            it('keeps at most ten blocked-event store calls open while the store stalls, and resumes once they settle', async () => {
                 const stalled: (() => void)[] = []
                 const useClient = jest.fn(
                     () => new Promise<never>((resolve) => stalled.push(() => resolve('OK' as never)))
                 )
                 service = createSandboxService(true, { blockedEventRedis: { useClient } })
-                const sendBlockedBatch = async (): Promise<void> => {
+                const sendBlockedBatch = async (size: number): Promise<void> => {
                     const results = await Promise.all(
-                        Array.from({ length: 15 }, () =>
+                        Array.from({ length: size }, () =>
                             service.executeSendEmail({
                                 ...invocation,
                                 queueParameters: createSandboxParams({
@@ -790,11 +790,11 @@ describe('EmailService', () => {
                     results.forEach(expectSkipped)
                 }
 
-                await sendBlockedBatch()
-                expect(useClient).toHaveBeenCalledTimes(15)
+                await sendBlockedBatch(30)
+                expect(useClient).toHaveBeenCalledTimes(10)
 
-                await sendBlockedBatch()
-                expect(useClient).toHaveBeenCalledTimes(15)
+                await sendBlockedBatch(15)
+                expect(useClient).toHaveBeenCalledTimes(10)
                 const sent = await service.executeSendEmail(invocation)
                 expect(sent.error).toBeUndefined()
                 expect(capture).toHaveBeenCalledWith(
@@ -805,9 +805,9 @@ describe('EmailService', () => {
                 sendEmailSpy.mockClear()
 
                 stalled.splice(0).forEach((release) => release())
-                await waitForExpect(() => expect(capture).toHaveBeenCalledTimes(16))
-                await sendBlockedBatch()
-                expect(useClient).toHaveBeenCalledTimes(30)
+                await waitForExpect(() => expect(capture).toHaveBeenCalledTimes(11))
+                await sendBlockedBatch(15)
+                expect(useClient).toHaveBeenCalledTimes(20)
             }, 15_000)
 
             it('fails closed when the member check fails', async () => {
