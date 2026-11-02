@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 
-import { HogError } from '@/core/errors'
+import { EXIT_USAGE, HogError } from '@/core/errors'
 import type { Env, Runtime } from '@/core/runtime'
 
 // posthog-cli falls back to this host when neither --host nor the credentials name one.
@@ -22,17 +22,17 @@ interface RawCredentials {
     host: string | undefined
 }
 
-export const API_KEY_ENV_VARS = ['POSTHOG_CLI_API_KEY', 'POSTHOG_CLI_TOKEN'] as const
+export const API_KEY_ENV_VAR = 'HOG_API_KEY'
 
-// Same variables and aliases as posthog-cli. The host only counts when it comes from the
-// same source as the key, so a stray host cannot redirect a key from somewhere else.
+// The host only counts when it comes from the same source as the key, so a stray host cannot
+// redirect a key from somewhere else.
 function fromLookup(lookup: (name: string) => string | undefined): RawCredentials | undefined {
-    const apiKey = lookup(API_KEY_ENV_VARS[0]) ?? lookup(API_KEY_ENV_VARS[1])
-    const projectId = lookup('POSTHOG_CLI_PROJECT_ID') ?? lookup('POSTHOG_CLI_ENV_ID')
+    const apiKey = lookup(API_KEY_ENV_VAR)
+    const projectId = lookup('HOG_PROJECT_ID')
     if (!apiKey || !projectId) {
         return undefined
     }
-    return { apiKey, projectId, host: lookup('POSTHOG_CLI_HOST') || undefined }
+    return { apiKey, projectId, host: lookup('HOG_HOST') || undefined }
 }
 
 function parseDotenv(contents: string, path: string): Map<string, string> {
@@ -80,8 +80,8 @@ async function readDotenv(runtime: Runtime, path: string): Promise<string | unde
 }
 
 function posthogHomeDir(env: Env, homeDir: string | undefined): string | undefined {
-    if (env.POSTHOG_HOME) {
-        return env.POSTHOG_HOME
+    if (env.HOG_HOME) {
+        return env.HOG_HOME
     }
     return homeDir === undefined ? undefined : join(homeDir, '.posthog')
 }
@@ -92,7 +92,7 @@ export function posthogFile(runtime: Runtime, name: string): string {
         throw new HogError(
             'no_home_directory',
             "hog couldn't find your home folder to store credentials in.",
-            'Set POSTHOG_HOME to the folder to use.'
+            'Set HOG_HOME to the folder to use.'
         )
     }
     return join(home, name)
@@ -104,6 +104,10 @@ export function checkApiKey(apiKey: string): string | undefined {
 
 export function checkProjectId(projectId: string): string | undefined {
     return /^\d+$/.test(projectId) ? undefined : `The project ID must be a number, but it is "${projectId}".`
+}
+
+function sameOrigin(a: string, b: string): boolean {
+    return URL.canParse(a) && URL.canParse(b) && new URL(a).origin === new URL(b).origin
 }
 
 export function checkHost(host: string): string | undefined {
@@ -143,22 +147,33 @@ export async function saveCredentials(runtime: Runtime, credentials: Credentials
 }
 
 // Lookup order matches posthog-cli: process env, then --dotenv-file, then the credentials
-// file `hog auth login` and `posthog-cli login` write. --host overrides whichever host the source carried.
+// file `hog auth login` and `posthog-cli login` write. The global host overrides whichever host the
+// source carried. posthog.json comes from the repository, so its host never redirects a key: it
+// only stops the command when the key belongs to another host.
 export async function resolveCredentials(
     runtime: Runtime,
-    options: { host?: string; dotenvFile?: string }
+    options: { host?: string; dotenvFile?: string; configHost?: string }
 ): Promise<ResolvedCredentials> {
-    const withHost = (raw: RawCredentials, source: CredentialSource): ResolvedCredentials => ({
-        ...validate(raw, options.host ?? raw.host ?? DEFAULT_HOST),
-        source,
-    })
+    const withHost = (raw: RawCredentials, source: CredentialSource): ResolvedCredentials => {
+        const host = options.host ?? raw.host ?? DEFAULT_HOST
+        const { configHost } = options
+        if (options.host === undefined && configHost !== undefined && !sameOrigin(configHost, host)) {
+            throw new HogError(
+                'host_mismatch',
+                `posthog.json sets the host to ${configHost}, but your credentials are for ${host}.`,
+                `Pass --host ${configHost} or set HOG_HOST to send your credentials there, or log in to that host with \`hog auth login --host ${configHost}\`.`,
+                EXIT_USAGE
+            )
+        }
+        return { ...validate(raw, host), source }
+    }
 
     const fromEnv = fromLookup((name) => runtime.env[name] || undefined)
     if (fromEnv) {
         return withHost(fromEnv, 'env')
     }
 
-    const dotenvFile = options.dotenvFile ?? (runtime.env.POSTHOG_CLI_DOTENV_FILE || undefined)
+    const dotenvFile = options.dotenvFile
     if (dotenvFile) {
         const contents = await readDotenv(runtime, dotenvFile)
         if (contents !== undefined) {
@@ -167,7 +182,7 @@ export async function resolveCredentials(
             if (!fromFile) {
                 throw new HogError(
                     'not_authenticated',
-                    `hog couldn't find POSTHOG_CLI_API_KEY and POSTHOG_CLI_PROJECT_ID in the environment or in ${dotenvFile}.`,
+                    `hog couldn't find HOG_API_KEY and HOG_PROJECT_ID in the environment or in ${dotenvFile}.`,
                     'Add both variables to the file, or remove --dotenv-file.'
                 )
             }
@@ -196,6 +211,6 @@ export async function resolveCredentials(
     throw new HogError(
         'not_authenticated',
         "hog couldn't find PostHog credentials.",
-        'Run `hog auth login`, or set POSTHOG_CLI_API_KEY and POSTHOG_CLI_PROJECT_ID.'
+        'Run `hog auth login`, or set HOG_API_KEY and HOG_PROJECT_ID.'
     )
 }

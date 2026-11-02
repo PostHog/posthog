@@ -131,7 +131,7 @@ def srm(ctx: HealthContext) -> CheckOutcome:
         return _mismatch(exposures, p_value)
     # The warning stays a warning: the users exposed after the change are fewer than those the test covers, so a
     # retest that passes can't rule out a mismatch with another cause. The retest only adds evidence.
-    unit = "group" if exposures.counts_groups else "user"
+    unit = exposures.unit
     retest, p_value_after_change = _retest_after_change(ctx, exposures, history, unit)
     evidence: dict[str, str | int | float | None] = {
         "p_value": p_value,
@@ -220,7 +220,7 @@ def _split_change_warning(ctx: HealthContext) -> ExperimentHealthFinding | None:
 
 
 def _mismatch(exposures: ExposureTotals, p_value: float) -> ExperimentHealthFinding:
-    unit = "group" if exposures.counts_groups else "user"
+    unit = exposures.unit
     cause = _segment_cause(exposures, unit)
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.SRM,

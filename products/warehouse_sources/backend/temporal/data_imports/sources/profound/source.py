@@ -8,7 +8,11 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -46,6 +50,9 @@ class ProfoundSource(ResumableSource[ProfoundSourceConfig, ProfoundResumeConfig]
     # settings.py). v2 is the default so new sources record the surface they actually sync.
     supported_versions = ("v1", "v2")
     default_version = "v2"
+    # Profound is phasing out its V1 report endpoints with no sunset date yet. The `v1` label never
+    # called them, but it names the version being retired, so it is flagged for existing pins.
+    deprecated_versions = (VersionDeprecation(version="v1", sunset_at=None),)
     api_docs_url = "https://docs.tryprofound.com/rest-api/introduction"
 
     @property

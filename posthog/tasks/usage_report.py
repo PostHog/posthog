@@ -76,6 +76,7 @@ from products.replay_vision.backend.billing import (
     get_replay_vision_observations_by_team,
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+from products.replay_vision.backend.quota import unreported_spend_by_org
 from products.signals.backend.billing import credited_refund_credits_for_org, get_signals_billing_credits_by_team
 from products.surveys.backend.models import Survey
 from products.surveys.backend.util import (
@@ -166,6 +167,15 @@ QUERY_RETRY_BACKOFF = 2
 # `(team_id, count)` rows, the shape `convert_team_usage_rows_to_dict` reads.
 TeamUsageRows = list[tuple[int, int]]
 
+
+@frozen
+class ReplayVisionSpendProjection:
+    """Each org's Replay vision spend after the report cutoff, on one team so the org report sums to it."""
+
+    scanner_credits: TeamUsageRows
+    backfill_credits: TeamUsageRows
+
+
 # Kafka's default `message.max.bytes` is ~1 MiB. For orgs with several hundred
 # teams the per-team breakdown under `teams` makes the report payload exceed
 # that limit, and the event is dropped at the broker — silently.
@@ -223,6 +233,9 @@ class UsageReportCounters:
     replay_vision_observation_count_in_period: int
     replay_vision_scanner_count: int
     replay_vision_scanner_active_count: int
+    # Enabled scanners' 30-day credit rate. A snapshot, not usage: billing forecasts Replay Vision spend from it.
+    replay_vision_scanner_projected_credits: int
+    replay_vision_backfill_committed_credits: int
 
     # Persons and Groups
     group_types_total: int
@@ -1306,6 +1319,38 @@ def get_teams_with_replay_vision_credits_used_in_period(begin: datetime, end: da
 def get_teams_with_replay_vision_observation_count_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
     # Counted from the same ReplayObservationUsage receipt ledger the credits sum over, so it stays consistent.
     return get_replay_vision_observations_by_team(begin, end)
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_replay_vision_spend_projection(begin: datetime, end: datetime) -> ReplayVisionSpendProjection:
+    spend_by_org = unreported_spend_by_org(report_cutoff=end)
+    scanners: TeamUsageRows = []
+    backfills: TeamUsageRows = []
+    if not spend_by_org:
+        return ReplayVisionSpendProjection(scanner_credits=scanners, backfill_credits=backfills)
+    # The projection is org-wide, so each org's value goes on its first billable team only.
+    reported_orgs: set[uuid.UUID] = set()
+    for team in iter_billable_teams(
+        team_fields=("id",), organization_fields=("id",), organization_ids=[str(org_id) for org_id in spend_by_org]
+    ):
+        if team.organization_id in reported_orgs:
+            continue
+        reported_orgs.add(team.organization_id)
+        spend = spend_by_org[team.organization_id]
+        if spend.scanner_credits:
+            scanners.append((team.id, spend.scanner_credits))
+        if spend.backfill_credits:
+            backfills.append((team.id, spend.backfill_credits))
+    return ReplayVisionSpendProjection(scanner_credits=scanners, backfill_credits=backfills)
+
+
+def _replay_vision_spend_projection_rows(begin: datetime, end: datetime) -> dict[str, TeamUsageRows]:
+    projection = get_teams_with_replay_vision_spend_projection(begin, end)
+    return {
+        "teams_with_replay_vision_scanner_projected_credits": projection.scanner_credits,
+        "teams_with_replay_vision_backfill_committed_credits": projection.backfill_credits,
+    }
 
 
 @timed_log()
@@ -3130,15 +3175,13 @@ def get_usage_records_in_period(
     )
 
 
-def _get_all_usage_data(
-    period_start: datetime, period_end: datetime, counter_report: UsageCounterReport | None = None
-) -> dict[str, Any]:
+def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[str, Any]:
     """
     Gets all usage data for the specified period. Clickhouse is good at counting things so
     we count across all teams rather than doing it one by one
     """
 
-    counter_report = counter_report or UsageCounterService().fetch_report(DayRange(start=period_start, end=period_end))
+    counter_report = UsageCounterService().fetch_report(DayRange(start=period_start, end=period_end))
     all_metrics = get_all_event_metrics_in_period(period_start, period_end)
     api_queries_usage = get_teams_with_api_queries_metrics(period_start, period_end)
     logs_records_rows = get_teams_with_logs_records_in_period(period_start, period_end)
@@ -3250,6 +3293,7 @@ def _get_all_usage_data(
         "teams_with_replay_vision_scanner_active_count": list(
             ReplayScanner.objects.filter(enabled=True).values("team_id").annotate(total=Count("id")).order_by("team_id")
         ),
+        **_replay_vision_spend_projection_rows(period_start, period_end),
         "teams_with_issues_created_total": [
             {"team_id": team_id, "total": total} for team_id, total in error_tracking_api.get_issue_counts_by_team()
         ],
@@ -3378,14 +3422,12 @@ def _get_all_usage_data(
     }
 
 
-def _get_all_usage_data_as_team_rows(
-    period_start: datetime, period_end: datetime, counter_report: UsageCounterReport | None = None
-) -> dict[str, Any]:
+def _get_all_usage_data_as_team_rows(period_start: datetime, period_end: datetime) -> dict[str, Any]:
     """
     Gets all usage data for the specified period as a map of team_id -> value. This makes it faster
     to access the data than looping over all_data to find what we want.
     """
-    all_data = _get_all_usage_data(period_start, period_end, counter_report)
+    all_data = _get_all_usage_data(period_start, period_end)
     # convert it to a map of team_id -> value
     for key, rows in all_data.items():
         all_data[key] = convert_team_usage_rows_to_dict(rows)
@@ -3479,6 +3521,12 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         ),
         replay_vision_scanner_count=all_data["teams_with_replay_vision_scanner_count"].get(team.id, 0),
         replay_vision_scanner_active_count=all_data["teams_with_replay_vision_scanner_active_count"].get(team.id, 0),
+        replay_vision_scanner_projected_credits=all_data["teams_with_replay_vision_scanner_projected_credits"].get(
+            team.id, 0
+        ),
+        replay_vision_backfill_committed_credits=all_data["teams_with_replay_vision_backfill_committed_credits"].get(
+            team.id, 0
+        ),
         group_types_total=all_data["teams_with_group_types_total"].get(team.id, 0),
         decide_requests_count_in_period=decide_requests_count_in_period,
         local_evaluation_requests_count_in_period=local_evaluation_requests_count_in_period,
@@ -3769,11 +3817,11 @@ def iter_reports_with_offline_evaluation_usage(
         )
 
 
-def _get_all_org_reports(*, period: DayRange, counter_report: UsageCounterReport | None = None) -> dict[str, OrgReport]:
+def _get_all_org_reports(*, period: DayRange) -> dict[str, OrgReport]:
     logger.info("Querying all org reports", period_start=period.start, period_end=period.end)
 
     offline_usage = get_offline_evaluation_usage(period.start, period.start + timedelta(days=1))
-    all_data = _get_all_usage_data_as_team_rows(period.start, period.end, counter_report)
+    all_data = _get_all_usage_data_as_team_rows(period.start, period.end)
 
     org_reports: dict[str, OrgReport] = {}
     teams_count = 0
@@ -3830,22 +3878,6 @@ def _usage_counter_diagnostic_batches(
         size += entry_size
     if batch:
         yield batch
-
-
-def apply_usage_counter_metadata(
-    org_reports: dict[str, OrgReport],
-    counter_report: UsageCounterReport,
-    *,
-    caller: UsageCounterCaller,
-    date: str,
-    organization_ids: list[str] | None = None,
-) -> None:
-    if not counter_report.usage_sources:
-        return
-    for _ in iter_reports_with_usage_counter_metadata(
-        org_reports.values(), counter_report, caller=caller, date=date, organization_ids=organization_ids
-    ):
-        pass
 
 
 def iter_reports_with_usage_counter_metadata(
@@ -4012,10 +4044,7 @@ def send_all_org_usage_reports(
     logger.info("Querying usage report data")
     query_time_start = datetime.now()
 
-    service = UsageCounterService()
-    plan = service.resolve_plan(period, caller="daily_report", complete=True)
-    counter_report = service.fetch_report(period, plan=plan)
-    org_reports = _get_all_org_reports(period=period, counter_report=counter_report)
+    org_reports = _get_all_org_reports(period=period)
 
     if organization_ids:
         original_count = len(org_reports)
@@ -4033,14 +4062,6 @@ def send_all_org_usage_reports(
     if organization_ids:
         filtering_properties["requested_org_count"] = len(organization_ids)
         filtering_properties["requested_missing_org_count"] = len(missing_orgs) if missing_orgs else None
-
-    apply_usage_counter_metadata(
-        org_reports,
-        counter_report,
-        caller="daily_report",
-        date=period.start.strftime("%Y-%m-%d"),
-        organization_ids=organization_ids,
-    )
 
     query_time_duration = (datetime.now() - query_time_start).total_seconds()
     logger.info(f"Found {len(org_reports)} org reports. It took {query_time_duration} seconds.")

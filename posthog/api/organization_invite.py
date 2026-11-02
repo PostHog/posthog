@@ -174,6 +174,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             "target_email",
             "first_name",
             "emailing_attempt_made",
+            "email_suppressed",
             "level",
             "is_expired",
             "created_by",
@@ -187,6 +188,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "emailing_attempt_made",
+            "email_suppressed",
             "created_at",
             "updated_at",
         ]
@@ -353,7 +355,8 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         if is_email_available(with_absolute_urls=True) and send_email:
             invite.emailing_attempt_made = True
             send_invite(invite_id=invite.id)
-            invite.save()
+            # A full-row save would overwrite `email_suppressed` if the suppression check that `send_invite` queues finished first.
+            invite.save(update_fields=["emailing_attempt_made", "updated_at"])
 
         report_team_member_invited(
             self.context["request"].user,

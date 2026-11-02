@@ -607,7 +607,7 @@ product_analytics:backend/hogql_queries/ posthog.hogql_queries.test.test_dashboa
 product_analytics:backend/hogql_queries/ posthog.hogql_queries.test.test_dashboard_filters_overrides drives(TrendsQueryRunner) 1
 product_analytics:backend/hogql_queries/ posthog.hogql_queries.test.test_insight_actors_query_runner drives(TrendsQuery) 7
 product_analytics:backend/hogql_queries/ posthog.hogql_queries.test.test_query_runner drives(TrendsQuery) 4
-product_analytics:backend/hogql_queries/ posthog.hogql_queries.test.test_query_runner drives(TrendsQueryRunner) 4
+product_analytics:backend/hogql_queries/ posthog.hogql_queries.test.test_query_runner drives(TrendsQueryRunner) 2
 product_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_alert_check_helpers drives(TrendsQuery) 1
 product_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_alert_evaluation drives(TrendsQuery) 5
 product_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_alert_subscriptions drives(TrendsQuery) 3
