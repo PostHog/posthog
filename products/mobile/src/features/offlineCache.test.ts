@@ -65,6 +65,7 @@ import { ApiError } from '@/api/client'
 import { queryClient } from '@/api/queryClient'
 import { useAuthStore } from '@/auth/authStore'
 import { useScopeErrorStore } from '@/features/views/useViewsAccess'
+import { useItemErrors } from '@/features/views/viewsCache'
 import { installOfflineCache } from './offlineCache'
 
 function account(user = 'user-1', host = 'https://example.com'): string {
@@ -90,6 +91,7 @@ describe('authenticated offline-cache lifecycle', () => {
         mockReads.length = 0
         useScopeErrorStore.setState({ reported: { views: null, errors: null, replay: null } })
         queryClient.clear()
+        useItemErrors.setState({ errors: {} })
         useAuthStore.setState({
             signedIn: true,
             host: 'https://example.com',
@@ -206,6 +208,53 @@ describe('authenticated offline-cache lifecycle', () => {
         expect(queryClient.getQueryData(key)).toBeUndefined()
         stop()
     })
+
+    test.each(['view-error', 'query-error'] as const)(
+        'evicts the original project after a late %s across a project switch',
+        async (source) => {
+            const first = seed(1)
+            const second = seed(2)
+            let stop = installOfflineCache()
+            await waitFor(() => expect(queryClient.getQueryData(first)).toBeDefined())
+            let deny = (): void => undefined
+            const request =
+                source === 'query-error'
+                    ? queryClient
+                          .fetchQuery({
+                              queryKey: first,
+                              staleTime: 0,
+                              queryFn: () =>
+                                  new Promise<never>((_resolve, reject) => {
+                                      deny = () => reject(new ApiError(403, {}))
+                                  }),
+                              retry: false,
+                          })
+                          .catch(() => undefined)
+                    : Promise.resolve()
+            await act(async () => {
+                useAuthStore.setState({ projectId: 2 })
+            })
+            await waitFor(() => expect(queryClient.getQueryData(second)).toBeDefined())
+            await act(async () => {
+                if (source === 'view-error') {
+                    queryClient.removeQueries({ queryKey: first })
+                    useItemErrors.setState({ errors: { [JSON.stringify(first)]: 'no_access' } })
+                }
+                deny()
+                await request
+            })
+            await waitFor(() => expect(mockValues.has(`${account()}.1`)).toBe(false))
+            expect(queryClient.getQueryData(second)).toBeDefined()
+            stop()
+            queryClient.clear()
+            useItemErrors.setState({ errors: {} })
+            useAuthStore.setState({ projectId: 1 })
+            stop = installOfflineCache()
+            await act(async () => undefined)
+            expect(queryClient.getQueryData(first)).toBeUndefined()
+            stop()
+        }
+    )
 
     it('does not rehydrate views when the existing access gate reports a missing scope', async () => {
         const key = seed(1)

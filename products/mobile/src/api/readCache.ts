@@ -22,8 +22,17 @@ export function persistReadCache(
     store: ReadCacheStore,
     scope: ReadCacheScope,
     current: () => boolean,
-    deniedView: (key: QueryKey) => boolean = () => false
-): { ready: Promise<void>; stop: () => void; purgeDeniedViews: () => void; flush: () => Promise<void> } {
+    deniedView: (key: QueryKey) => boolean = () => false,
+    sameAccount: () => boolean = current
+): {
+    ready: Promise<void>
+    pause: () => void
+    stop: () => void
+    purgeDeniedViews: (keys?: readonly QueryKey[]) => void
+    flush: () => Promise<void>
+} {
+    // Saved inbox queries cannot refetch, so retain them before hydration creates inactive queries.
+    client.setQueryDefaults(['read-inbox'], { gcTime: Infinity })
     let stopped = false
     let loading = true
     let restoring = false
@@ -31,10 +40,8 @@ export function persistReadCache(
     const deniedResources = new Set<string>()
     const good = new Map<string, ReadCacheEntry>()
     const valid = (): boolean => !stopped && current()
-    const keep = (entry: ReadCacheEntry): void => {
-        const entries = boundedEntries(
-            [...good.values()].filter((saved) => keyId(saved.key) !== keyId(entry.key)).concat(entry)
-        )
+    const keep = (candidates: readonly ReadCacheEntry[]): void => {
+        const entries = boundedEntries(candidates)
         good.clear()
         for (const saved of entries) good.set(keyId(saved.key), saved)
     }
@@ -49,11 +56,12 @@ export function persistReadCache(
         if (typeof value.dataReadAt === 'number') capture = value.dataReadAt
         else if (value.restoredFromDevice === true) capture = good.get(keyId(key))?.updatedAt ?? updatedAt
         if (capture <= 0) return
-        keep({ key, data: projectedData(key, data), updatedAt: capture })
+        good.set(keyId(key), { key, data: projectedData(key, data), updatedAt: capture })
     }
     for (const query of client.getQueryCache().getAll()) {
         remember(query.queryKey, query.state.data, query.state.dataUpdatedAt)
     }
+    keep([...good.values()])
     const collect = (): ReadCacheEntry[] =>
         boundedEntries([...good.values()]).filter(
             ({ key, data }) =>
@@ -118,29 +126,30 @@ export function persistReadCache(
         if (!isReadCacheKey(query.queryKey, scope)) return
         denied.delete(keyId(query.queryKey))
         remember(query.queryKey, query.state.data, query.state.dataUpdatedAt)
+        keep([...good.values()])
         deniedResources.delete(resourceKey(query.queryKey))
         save()
     }
     const unsubscribe = client.getQueryCache().subscribe((event) => {
-        if (!valid() || restoring) return
-        if (event.type === 'updated') {
-            if (event.action.type === 'error') onError(event.query)
-            if (event.action.type === 'success') onSuccess(event.query)
-        }
+        if (restoring || event.type !== 'updated') return
+        if (sameAccount() && event.action.type === 'error') onError(event.query)
+        if (valid() && event.action.type === 'success') onSuccess(event.query)
     })
     for (const query of client.getQueryCache().getAll()) onError(query)
-    const purgeDeniedViews = (): void => {
+    const purgeDeniedViews = (extraKeys: readonly QueryKey[] = []): void => {
+        if (!sameAccount()) return
         let purged = false
         const keys = [...good.values()]
             .map((entry) => entry.key)
             .concat(
+                extraKeys,
                 client
                     .getQueryCache()
                     .getAll()
                     .map((query) => query.queryKey)
             )
         for (const key of keys) {
-            if (deniedView(key)) {
+            if (isReadCacheKey(key, scope) && deniedView(key)) {
                 clearResource(key)
                 purged = true
             }
@@ -154,12 +163,37 @@ export function persistReadCache(
         !deniedView(entry.key)
     const restore = (entry: ReadCacheEntry): void => {
         if (!mayRestore(entry)) return
-        const known = good.get(keyId(entry.key))
-        if (!known || known.updatedAt < entry.updatedAt) keep(entry)
         const state = client.getQueryState(entry.key)
-        if (deniedRead(state?.error) || (state?.dataUpdatedAt ?? 0) >= entry.updatedAt) return
+        const currentData = asRecord(state?.data)
+        const capturedAt =
+            typeof currentData?.dataReadAt === 'number' ? currentData.dataReadAt : (state?.dataUpdatedAt ?? 0)
+        if (deniedRead(state?.error) || capturedAt >= entry.updatedAt) return
         const projected = projectedData(entry.key, entry.data)
-        const data = entry.key[0] === 'views' ? { ...asRecord(projected), restoredFromDevice: true } : projected
+        const data =
+            entry.key[0] === 'views'
+                ? {
+                      ...asRecord(projected),
+                      ...(currentData && capturedAt === 0
+                          ? Object.fromEntries(
+                                [
+                                    'readAt',
+                                    'refreshFailed',
+                                    'name',
+                                    'description',
+                                    'query',
+                                    'savedRange',
+                                    'usesOwnRange',
+                                    'kindLabel',
+                                    'createdBy',
+                                    'createdAt',
+                                ]
+                                    .filter((name) => name in currentData)
+                                    .map((name) => [name, currentData[name]])
+                            )
+                          : {}),
+                      restoredFromDevice: true,
+                  }
+                : projected
         client.setQueryData(entry.key, data, { updatedAt: entry.updatedAt })
     }
     const ready = (async (): Promise<void> => {
@@ -170,7 +204,14 @@ export function persistReadCache(
             for (const entry of entries) {
                 if (deniedView(entry.key)) deniedResources.add(resourceKey(entry.key))
             }
-            for (const entry of entries) restore(entry)
+            const merged = new Map(good)
+            for (const entry of entries) {
+                if (!mayRestore(entry)) continue
+                const known = merged.get(keyId(entry.key))
+                if (!known || known.updatedAt < entry.updatedAt) merged.set(keyId(entry.key), entry)
+            }
+            keep([...merged.values()])
+            for (const entry of good.values()) restore(entry)
         } finally {
             restoring = false
             loading = false
@@ -178,13 +219,18 @@ export function persistReadCache(
             else save()
         }
     })().catch(() => undefined)
+    const pause = (): void => {
+        stopped = true
+        good.clear()
+        if (timer) clearTimeout(timer)
+    }
     return {
         ready,
+        pause,
         purgeDeniedViews,
         flush,
         stop: () => {
-            stopped = true
-            if (timer) clearTimeout(timer)
+            pause()
             unsubscribe()
         },
     }

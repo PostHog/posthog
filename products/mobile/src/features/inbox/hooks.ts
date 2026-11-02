@@ -57,7 +57,8 @@ export interface InboxQueryState extends QueryState<InboxItem[]> {
     unfiltered: readonly InboxItem[] | undefined
 }
 
-type InboxPages = InfiniteData<InboxPageApi, number>
+type CapturedInboxPage = InboxPageApi & { capturedAt?: number }
+type InboxPages = InfiniteData<CapturedInboxPage, number>
 
 const noop = (): void => undefined
 const noMorePages = { hasMore: false, isLoadingMore: false, loadMoreFailed: false, loadMore: noop, retryLoadMore: noop }
@@ -114,8 +115,12 @@ function nextOffset(lastPage: InboxPageApi, _pages: InboxPageApi[], lastOffset: 
 
 // Refetching every loaded page ranks the whole list once per page, so a refresh starts again from the first page.
 function keepFirstPage(queryClient: QueryClient, scope: ProjectScope): void {
-    queryClient.setQueryData<InboxPages>(reportKeys.inbox(scope), (data) =>
-        data ? { pages: data.pages.slice(0, 1), pageParams: data.pageParams.slice(0, 1) } : data
+    const key = reportKeys.inbox(scope)
+    const updatedAt = queryClient.getQueryState(key)?.dataUpdatedAt
+    queryClient.setQueryData<InboxPages>(
+        key,
+        (data) => (data ? { pages: data.pages.slice(0, 1), pageParams: data.pageParams.slice(0, 1) } : data),
+        { updatedAt }
     )
 }
 
@@ -134,7 +139,10 @@ function useLiveInboxItems(
 
     const list = useInfiniteQuery({
         queryKey: reportKeys.inbox(scope),
-        queryFn: ({ pageParam, signal }) => fetchInboxPage(pageParam, signal),
+        queryFn: async ({ pageParam, signal }): Promise<CapturedInboxPage> => {
+            const page = await fetchInboxPage(pageParam, signal)
+            return { ...page, capturedAt: Date.now() }
+        },
         initialPageParam: 0,
         getNextPageParam: nextOffset,
         enabled: active,
@@ -142,7 +150,10 @@ function useLiveInboxItems(
     const saved = useQuery<SavedInbox>({ queryKey: inboxCacheKey(scope), queryFn: skipToken })
     const reports = useMemo(() => (list.data ? reportsFromPages(list.data.pages) : undefined), [list.data])
     const baseItems = useMemo(() => (reports ? inboxFromReports(reports) : saved.data?.items), [reports, saved.data])
-    const signalCounts = useMemo(() => (reports ? signalCountsFromReports(reports) : {}), [reports])
+    const signalCounts = useMemo(
+        () => (reports ? signalCountsFromReports(reports) : (saved.data?.signalCounts ?? {})),
+        [reports, saved.data]
+    )
 
     // One read-state request per page, so loading a page does not ask again for the pages before it.
     const pageIds = useMemo(
@@ -172,27 +183,30 @@ function useLiveInboxItems(
         combine: mergeReadStates,
     })
 
+    const firstPage = list.data?.pages[0]
+    const capturedAt = firstPage?.capturedAt
+    const savedCounts = useMemo(() => (firstPage ? signalCountsFromReports(firstPage.results) : {}), [firstPage])
     const savedItems = useMemo(
         () =>
-            reports?.length !== undefined
-                ? inboxFromReports(reports.slice(0, INBOX_PAGE_SIZE)).map((item) => ({
+            firstPage
+                ? inboxFromReports(firstPage.results).map((item) => ({
                       ...item,
                       read: readStates[item.reportId] !== false,
                   }))
                 : undefined,
-        [reports, readStates]
+        [firstPage, readStates]
     )
     useEffect(() => {
-        if (!active || !scope || !list.isSuccess || !savedItems) return
+        if (!active || !scope || !list.isSuccess || !savedItems || !capturedAt) return
         const key = inboxCacheKey(scope)
         const previous = queryClient.getQueryData<SavedInbox>(key)
-        if (previous?.items === savedItems && previous.sourceUpdatedAt === list.dataUpdatedAt) return
+        if (previous?.items === savedItems && previous.sourceUpdatedAt === capturedAt) return
         queryClient.setQueryData<SavedInbox>(
             key,
-            { items: savedItems, sourceUpdatedAt: list.dataUpdatedAt },
-            { updatedAt: list.dataUpdatedAt }
+            { items: savedItems, signalCounts: savedCounts, sourceUpdatedAt: capturedAt },
+            { updatedAt: capturedAt }
         )
-    }, [active, scope, list.isSuccess, list.dataUpdatedAt, savedItems, queryClient])
+    }, [active, scope, list.isSuccess, capturedAt, savedItems, savedCounts, queryClient])
 
     const polling = active && appActive && refreshWhileVisible
     const wasPolling = useRef(polling)

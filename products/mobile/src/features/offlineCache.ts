@@ -1,3 +1,4 @@
+import type { QueryKey } from '@tanstack/react-query'
 import * as Crypto from 'expo-crypto'
 import { AppState } from 'react-native'
 import { queryClient } from '@/api/queryClient'
@@ -33,6 +34,8 @@ async function accountKey(host: string, userId: string): Promise<string> {
 
 export function installOfflineCache(): () => void {
     let active: ReturnType<typeof persistReadCache> | undefined
+    const sessions = new Map<string, ReturnType<typeof persistReadCache>>()
+    let owner: string | null = null
     let previous: string | null = null
     let generation = 0
     const update = (): void => {
@@ -40,8 +43,14 @@ export function installOfflineCache(): () => void {
         if (target === previous) return
         previous = target
         const mine = ++generation
-        active?.stop()
+        active?.pause()
         active = undefined
+        const nextOwner = target ? JSON.stringify(JSON.parse(target).slice(0, 2)) : null
+        if (owner !== nextOwner) {
+            for (const session of sessions.values()) session.stop()
+            sessions.clear()
+            owner = nextOwner
+        }
         if (!target) return
         const state = useAuthStore.getState()
         if (!state.host || !state.user || state.projectId === null) return
@@ -61,18 +70,35 @@ export function installOfflineCache(): () => void {
                                 missingViewsScope(getSessionTokens()?.grantedScopes ?? null) !== null) ||
                             ['deleted', 'no_access', 'scope'].includes(
                                 useItemErrors.getState().errors[JSON.stringify(key)] ?? ''
-                            ))
+                            )),
+                    () => {
+                        const verified = identity()
+                        return verified !== null && JSON.stringify(JSON.parse(verified).slice(0, 2)) === nextOwner
+                    }
                 )
+                sessions.get(target)?.stop()
+                sessions.set(target, active)
             })
             .catch(() => undefined)
     }
     const unsubscribe = useAuthStore.subscribe(update)
-    const unsubscribeErrors = useItemErrors.subscribe(() => active?.purgeDeniedViews())
-    const unsubscribeScopes = useScopeErrorStore.subscribe(() => active?.purgeDeniedViews())
+    const purge = (): void => {
+        const keys: QueryKey[] = []
+        for (const key of Object.keys(useItemErrors.getState().errors)) {
+            try {
+                const parsed: unknown = JSON.parse(key)
+                if (Array.isArray(parsed)) keys.push(parsed)
+            } catch {}
+        }
+        for (const session of sessions.values()) session.purgeDeniedViews(keys)
+    }
+    const unsubscribeErrors = useItemErrors.subscribe(purge)
+    const unsubscribeScopes = useScopeErrorStore.subscribe(purge)
     const unsubscribeEnd = addSessionEndTask(async () => {
         generation++
         previous = null
-        active?.stop()
+        for (const session of sessions.values()) session.stop()
+        sessions.clear()
         active = undefined
         const state = useAuthStore.getState()
         if (state.host && state.user) await store.clearAccount(await accountKey(state.host, state.user.uuid))
@@ -83,7 +109,8 @@ export function installOfflineCache(): () => void {
     update()
     return () => {
         generation++
-        active?.stop()
+        for (const session of sessions.values()) session.stop()
+        sessions.clear()
         unsubscribe()
         unsubscribeErrors()
         unsubscribeScopes()

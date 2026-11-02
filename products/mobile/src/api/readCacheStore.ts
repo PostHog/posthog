@@ -1,5 +1,5 @@
 import type { QueryKey } from '@tanstack/react-query'
-
+import { asRecord } from '@/lib/records'
 import type { StringStorage } from '@/lib/secureStorage'
 
 export const READ_CACHE_TTL_MS = 24 * 60 * 60_000
@@ -57,26 +57,103 @@ export class ReadCacheStore {
         return result
     }
 
-    private async read(scope: ReadCacheScope): Promise<ReadCacheEntry[]> {
-        const raw = await this.storage.getItem(cacheKey(scope))
-        if (!raw) return []
+    private async bundle(scope: ReadCacheScope): Promise<{ slots: number[]; entries: (ReadCacheEntry | null)[] }> {
+        const key = cacheKey(scope)
+        const raw = await this.storage.getItem(key)
+        let value: unknown
         try {
-            const value: unknown = JSON.parse(raw)
-            if (!Array.isArray(value)) return []
-            return boundedEntries(
-                value.filter(
-                    (entry): entry is ReadCacheEntry =>
-                        !!entry &&
-                        typeof entry === 'object' &&
-                        Array.isArray(entry.key) &&
-                        typeof entry.updatedAt === 'number' &&
-                        entry.key[1] === scope.host &&
-                        entry.key[2] === scope.projectId
-                )
-            )
+            value = raw ? JSON.parse(raw) : []
         } catch {
-            return []
+            value = []
         }
+        const slots =
+            value && typeof value === 'object' && 'slots' in value && Array.isArray(value.slots)
+                ? value.slots.filter(
+                      (slot): slot is number => Number.isInteger(slot) && slot >= 0 && slot < READ_CACHE_ENTRY_LIMIT
+                  )
+                : []
+        const entries: unknown[] = Array.isArray(value)
+            ? value
+            : await Promise.all(
+                  slots.map(async (slot) => {
+                      const entry = await this.storage.getItem(`${key}.entry.${slot}`)
+                      try {
+                          return entry ? JSON.parse(entry) : null
+                      } catch {
+                          return null
+                      }
+                  })
+              )
+        return {
+            slots,
+            entries: entries.map((entry): ReadCacheEntry | null => {
+                const record = asRecord(entry)
+                return record &&
+                    Array.isArray(record.key) &&
+                    typeof record.updatedAt === 'number' &&
+                    record.key[1] === scope.host &&
+                    record.key[2] === scope.projectId
+                    ? { key: record.key, updatedAt: record.updatedAt, data: record.data }
+                    : null
+            }),
+        }
+    }
+
+    private async read(scope: ReadCacheScope): Promise<ReadCacheEntry[]> {
+        return boundedEntries(
+            (await this.bundle(scope)).entries.filter((entry): entry is ReadCacheEntry => entry !== null)
+        )
+    }
+
+    private async remove(key: string): Promise<void> {
+        const raw = await this.storage.getItem(key)
+        let value: unknown
+        try {
+            value = raw ? JSON.parse(raw) : null
+        } catch {
+            value = null
+        }
+        if (value && typeof value === 'object' && 'slots' in value && Array.isArray(value.slots)) {
+            await Promise.all(
+                value.slots
+                    .filter(
+                        (slot): slot is number => Number.isInteger(slot) && slot >= 0 && slot < READ_CACHE_ENTRY_LIMIT
+                    )
+                    .map((slot) => this.storage.removeItem(`${key}.entry.${slot}`))
+            )
+        }
+        await this.storage.removeItem(key)
+    }
+
+    private serialize(entry: ReadCacheEntry | null): string {
+        return JSON.stringify(entry && { key: entry.key, updatedAt: entry.updatedAt, data: entry.data })
+    }
+
+    private async write(scope: ReadCacheScope, entries: ReadCacheEntry[]): Promise<void> {
+        const key = cacheKey(scope)
+        const previous = await this.bundle(scope)
+        const remaining = new Set(previous.slots)
+        const contents = new Map(previous.entries.map((entry, index) => [this.serialize(entry), previous.slots[index]]))
+        const slots = entries.map((entry) => {
+            const slot = contents.get(this.serialize(entry))
+            if (slot !== undefined) remaining.delete(slot)
+            return slot
+        })
+        for (const [index, entry] of entries.entries()) {
+            if (slots[index] !== undefined) continue
+            const slot = Array.from({ length: READ_CACHE_ENTRY_LIMIT }, (_, candidate) => candidate).find(
+                (candidate) => !slots.includes(candidate)
+            )
+            if (slot === undefined) continue
+            slots[index] = slot
+            remaining.delete(slot)
+            await this.storage.setItem(`${key}.entry.${slot}`, this.serialize(entry))
+        }
+        const manifest = JSON.stringify({ slots })
+        if (manifest !== JSON.stringify({ slots: previous.slots }) || !previous.slots.length) {
+            await this.storage.setItem(key, manifest)
+        }
+        await Promise.all([...remaining].map((slot) => this.storage.removeItem(`${key}.entry.${slot}`)))
     }
 
     load(scope: ReadCacheScope): Promise<ReadCacheEntry[]> {
@@ -89,8 +166,8 @@ export class ReadCacheStore {
             if (generation !== this.generation) return
             const remaining = (await this.read(scope)).filter((entry) => !rejected(entry))
             if (generation !== this.generation) return
-            if (remaining.length) await this.storage.setItem(cacheKey(scope), JSON.stringify(remaining))
-            else await this.storage.removeItem(cacheKey(scope))
+            if (remaining.length) await this.write(scope, remaining)
+            else await this.remove(cacheKey(scope))
         })
     }
 
@@ -109,12 +186,12 @@ export class ReadCacheStore {
                 : []
             const key = cacheKey(scope)
             const order = [...scopes.filter((saved) => saved !== key), key]
-            await this.storage.setItem(index, JSON.stringify(order))
-            await Promise.all(order.slice(0, -READ_CACHE_PROJECT_LIMIT).map((stale) => this.storage.removeItem(stale)))
+            if (JSON.stringify(order) !== raw) await this.storage.setItem(index, JSON.stringify(order))
+            await Promise.all(order.slice(0, -READ_CACHE_PROJECT_LIMIT).map((stale) => this.remove(stale)))
             if (order.length > READ_CACHE_PROJECT_LIMIT)
                 await this.storage.setItem(index, JSON.stringify(order.slice(-READ_CACHE_PROJECT_LIMIT)))
             if (generation !== this.generation || !current()) return
-            await this.storage.setItem(key, JSON.stringify(boundedEntries(entries())))
+            await this.write(scope, boundedEntries(entries()))
         })
     }
 
@@ -129,7 +206,7 @@ export class ReadCacheStore {
                       (key): key is string => typeof key === 'string' && key.startsWith(`${account}.`) && key !== index
                   )
                 : []
-            await Promise.all(keys.map((key) => this.storage.removeItem(key)))
+            await Promise.all(keys.map((key) => this.remove(key)))
             await this.storage.removeItem(index)
         })
     }

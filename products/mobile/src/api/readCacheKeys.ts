@@ -3,6 +3,7 @@ import type { ProjectScope } from './reports'
 
 export interface SavedInbox {
     items: InboxItem[]
+    signalCounts?: Record<string, number>
     sourceUpdatedAt: number
 }
 

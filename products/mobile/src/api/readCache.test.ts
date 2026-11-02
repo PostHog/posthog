@@ -349,6 +349,161 @@ describe('bounded offline read cache', () => {
         session.stop()
     })
 
+    test.each(['insight', 'web'] as const)(
+        'restores %s results after a metadata-only read during hydration',
+        async (kind) => {
+            const storage = memoryStorage()
+            const store = new ReadCacheStore(storage)
+            const savedAt = Date.now() - 1000
+            const response = {
+                id: 1,
+                short_id: 'view-1',
+                name: 'Saved name',
+                derived_name: null,
+                query: {
+                    kind: 'InsightVizNode',
+                    source: { kind: 'TrendsQuery', series: [{ kind: 'EventsNode', event: 'example' }] },
+                },
+                result: [{ action: { order: 0 }, days: ['2026-09-30'], data: [42], count: 42 }],
+                last_refresh: new Date(savedAt).toISOString(),
+                cache_target_age: null,
+                next_allowed_client_refresh: null,
+            }
+            const target = kind === 'insight' ? key : ['views', scope.host, 1, 'web', '-']
+            const original =
+                kind === 'insight'
+                    ? insightSnapshot(response, undefined, { readAt: savedAt, serverNow: savedAt })
+                    : webOverviewSnapshot(
+                          { results: [{ key: 'visitors', kind: 'unit', value: 42 }] },
+                          undefined,
+                          savedAt
+                      )
+            await store.save(
+                scope,
+                () => [{ key: target, data: original, updatedAt: savedAt }],
+                () => true
+            )
+            const read = storage.getItem
+            let finish!: () => void
+            const gate = new Promise<void>((resolve) => {
+                finish = resolve
+            })
+            storage.getItem = async (name) => {
+                await gate
+                return read(name)
+            }
+            const active = client()
+            const session = persistReadCache(active, store, scope, () => true)
+            const placeholder =
+                kind === 'insight'
+                    ? insightSnapshot({ ...response, name: 'Current name', result: null }, undefined, {
+                          readAt: Date.now(),
+                          serverNow: Date.now(),
+                      })
+                    : webOverviewSnapshot({}, undefined, Date.now())
+            active.setQueryData(target, placeholder)
+            finish()
+            await session.ready
+            expect(active.getQueryData(target)).toMatchObject({
+                dataReadAt: savedAt,
+                readAt: Date.now(),
+                restoredFromDevice: true,
+            })
+            if (kind === 'insight')
+                expect(active.getQueryData(target)).toMatchObject({ value: 42, name: 'Current name' })
+            else
+                expect(active.getQueryData(target)).toMatchObject({
+                    metrics: expect.arrayContaining([expect.objectContaining({ value: 42 })]),
+                })
+            await session.flush()
+            expect((await store.load(scope))[0]?.updatedAt).toBe(savedAt)
+            session.stop()
+        }
+    )
+
+    it('retains a hydrated inbox until its first visit after the normal query GC interval', async () => {
+        const store = new ReadCacheStore(memoryStorage())
+        const inbox = inboxCacheKey(scope)
+        await store.save(
+            scope,
+            () => [
+                {
+                    key: inbox,
+                    data: { items: [], signalCounts: { report: 12 }, sourceUpdatedAt: Date.now() },
+                    updatedAt: Date.now(),
+                },
+            ],
+            () => true
+        )
+        const active = new QueryClient({ defaultOptions: { queries: { gcTime: 5 * 60_000 } } })
+        const session = persistReadCache(active, store, scope, () => true)
+        await session.ready
+        await jest.advanceTimersByTimeAsync(6 * 60_000)
+        expect(active.getQueryData(inbox)).toMatchObject({ items: [], signalCounts: { report: 12 } })
+        session.stop()
+        active.clear()
+    })
+
+    it('bounds a full hydration batch without repeatedly serializing earlier entries', async () => {
+        const storage = memoryStorage()
+        const entries = Array.from({ length: 24 }, (_, index) => ({
+            key: [...key.slice(0, 4), String(index), '-', '-'],
+            data: { ...aggregate, value: String(index) },
+            updatedAt: Date.now(),
+        }))
+        await storage.setItem(cacheKey(scope), JSON.stringify(entries))
+        const stringify = jest.spyOn(JSON, 'stringify')
+        const active = client()
+        const session = persistReadCache(active, new ReadCacheStore(storage), scope, () => true)
+        await session.ready
+        const serializedEntries = stringify.mock.calls.filter(
+            ([value]) => typeof value === 'object' && value !== null && 'updatedAt' in value
+        ).length
+        stringify.mockRestore()
+        expect(serializedEntries).toBeLessThanOrEqual(entries.length * 2)
+        expect(active.getQueryCache().getAll()).toHaveLength(24)
+        session.stop()
+    })
+
+    it('writes only changed entries in a full project and removes all payloads on logout', async () => {
+        const storage = memoryStorage()
+        const store = new ReadCacheStore(storage)
+        const entries = Array.from({ length: 24 }, (_, index) => ({
+            key: [...key.slice(0, 4), String(index), '-', '-'],
+            data: { ...aggregate, series: 'x'.repeat(5000) },
+            updatedAt: Date.now(),
+        }))
+        const write = jest.spyOn(storage, 'setItem')
+        await store.save(
+            scope,
+            () => entries,
+            () => true
+        )
+        expect(await store.load(scope)).toHaveLength(24)
+        write.mockClear()
+        const changed = entries[0]
+        if (!changed) throw new Error('Missing full-cache fixture')
+        entries[0] = { ...changed, data: { ...changed.data, value: 43 } }
+        await store.save(
+            scope,
+            () => entries,
+            () => true
+        )
+        expect(write).toHaveBeenCalledTimes(1)
+        expect(write.mock.calls[0]?.[1].length).toBeLessThan(6000)
+        write.mockClear()
+        await store.save(
+            scope,
+            () => entries,
+            () => true
+        )
+        expect(write).not.toHaveBeenCalled()
+        await store.clearAccount(scope.account)
+        expect(await store.load(scope)).toEqual([])
+        for (let slot = 0; slot < 24; slot++)
+            expect(await storage.getItem(`${cacheKey(scope)}.entry.${slot}`)).toBeNull()
+    })
+
     it('keeps disk copies after query garbage collection and still purges denied resource variants', async () => {
         const store = new ReadCacheStore(memoryStorage())
         const otherRange = [...key.slice(0, -1), 'other-range']

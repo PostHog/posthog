@@ -49,6 +49,7 @@ export function projectedData(key: QueryKey, data: unknown): unknown {
     if (key[0] === 'read-inbox')
         return {
             sourceUpdatedAt: value.sourceUpdatedAt,
+            signalCounts: value.signalCounts,
             items: Array.isArray(value.items)
                 ? value.items.map((item) =>
                       fields(asRecord(item) ?? {}, [
