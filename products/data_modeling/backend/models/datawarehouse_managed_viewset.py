@@ -255,8 +255,12 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                         view_name=saved_query.name,
                         error=str(e),
                     )
-            # After every node exists, so the whole batch lands together.
-            apply_managed_view_frequency_targets(self.team_id, frequency_targets)
+            try:
+                # After every node exists, so the whole batch lands together.
+                apply_managed_view_frequency_targets(self.team_id, frequency_targets)
+            except Exception as e:
+                capture_exception(e, {"managed_viewset_id": self.id})
+                logger.warning("failed_to_apply_managed_view_cadences", team_id=self.team_id, error=str(e))
 
         for saved_query in saved_queries_to_schedule:
             try:

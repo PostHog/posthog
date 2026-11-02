@@ -61,6 +61,7 @@ from products.data_modeling.backend.logic.freshness import (
 from products.data_modeling.backend.logic.node_frequency import (
     FrequencyGraph,
     build_frequency_graph,
+    get_declared_target,
     persist_seed_targets,
     seed_targets,
     set_declared_anchor,
@@ -214,8 +215,17 @@ def apply_managed_view_frequency_targets(team_id: int, targets: Mapping[str, tim
     moves an upstream and a downstream view together never lands half-applied. Callers reconcile.
     """
     with transaction.atomic():
-        for node in Node.objects.select_for_update(of=("self",)).filter(team_id=team_id, saved_query_id__in=targets):
-            set_declared_target(node, targets[str(node.saved_query_id)])
+        # Ordered so that concurrent syncs of the same viewset take the row locks in the same order.
+        nodes = (
+            Node.objects.select_for_update(of=("self",))
+            .select_related("saved_query")
+            .filter(team_id=team_id, saved_query_id__in=targets)
+            .order_by("id")
+        )
+        for node in nodes:
+            target = targets[str(node.saved_query_id)]
+            if get_declared_target(node) != target:
+                set_declared_target(node, target)
 
 
 def check_saved_query_frequency_target(

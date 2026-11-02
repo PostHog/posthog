@@ -256,9 +256,9 @@ class FrequencyGraph:
     managed_node_ids: set[str]  # nodes whose target the managed viewset provider declares
 
 
-def provider_cadence_source_id(managed_node_id: str) -> str:
-    """The source a managed view's readers see in its place, syncing at the provider's cadence."""
-    return f"{managed_node_id}:provider-cadence"
+def _managed_view_source_id(managed_node_id: str) -> str:
+    """The source a managed view's readers see in its place, syncing as often as it refreshes."""
+    return f"{managed_node_id}:managed-view"
 
 
 def build_frequency_graph(dag: DAG) -> FrequencyGraph:
@@ -299,13 +299,16 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
     names = {str(node.id): node.name for node in nodes}
     identities = {str(node.id): node_identity(node) for node in nodes}
 
-    # A reader never sets a managed view's cadence, but it cannot be fresher than that cadence either.
+    # A reader never sets a managed view's cadence, but it cannot be fresher than the managed view
+    # refreshes: its declared cadence, or its own sources when they deliver slower than that.
+    managed_floors = all_source_floors(edges, source_intervals)
     for managed_id, reader_id in managed_reader_edges:
-        cadence = declared_targets.get(managed_id)
-        if cadence is None or managed_id not in names:
+        if managed_id not in names:
             continue
-        source_id = provider_cadence_source_id(managed_id)
-        source_intervals[source_id] = cadence
+        source_id = _managed_view_source_id(managed_id)
+        source_intervals[source_id] = max(
+            declared_targets.get(managed_id, STREAMING), managed_floors.get(managed_id, STREAMING)
+        )
         names[source_id] = names[managed_id]
         identities[source_id] = identities[managed_id]
         edges.append((source_id, reader_id))
