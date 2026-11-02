@@ -786,6 +786,49 @@ def test_send_weekly_digest_batch_emails_subscribed_members_once(
     }
 
 
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "listed,workflows_only,flag_enabled,expected_route",
+    [
+        (True, False, False, "customer_io"),
+        (True, True, True, "workflows"),
+        # A Workflows-only resend must not send a second Customer.io copy.
+        (True, True, False, None),
+        (False, False, True, None),
+    ],
+)
+def test_send_weekly_digest_batch_resend_reaches_only_listed_organizations(
+    listed, workflows_only, flag_enabled, expected_route, organization, team, redis_servers, common_input, digest
+):
+    subscribed = create_user(organization, "subscribed@example.com")
+    redis_servers.digest.set(org_digest_key(digest.key, organization.id), _org_digest_json(organization, team))
+    redis_servers.digest.sadd(user_data_key(digest.key, UserDataKey.NOTIFY_TEAMS, subscribed.id), team.id)
+    record, _ = MessagingRecord.objects.get_or_create(raw_email=f"org_{organization.id}", campaign_key=digest.key)
+    record.sent_at = timezone.now()
+    record.save()
+    ph_client = MagicMock()
+    session = MagicMock()
+    session.post.return_value.status_code = 201
+    resend_input = _send_input(organization, digest, common_input, dry_run=False).model_copy(
+        update={
+            "allow_already_sent": True,
+            "organization_ids": [str(organization.id) if listed else str(uuid4())],
+            "workflows_only": workflows_only,
+        }
+    )
+
+    with (
+        override_settings(**WEBHOOK_SETTINGS),
+        patch("posthog.temporal.weekly_digest.activities.get_ph_client", return_value=ph_client),
+        patch("posthog.temporal.weekly_digest.activities.posthoganalytics.feature_enabled", return_value=flag_enabled),
+        patch("posthog.temporal.weekly_digest.activities.requests.Session", return_value=session),
+    ):
+        run_sync(send_weekly_digest_batch, resend_input)
+
+    assert ph_client.capture.call_count == (expected_route == "customer_io")
+    assert session.post.call_count == (expected_route == "workflows")
+
+
 @pytest.mark.parametrize(
     "first_answer",
     [

@@ -1195,8 +1195,11 @@ def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
     try:
         with _digest_redis(input.common) as r:
             batch_start, batch_end = input.batch
+            target_organization_ids = set(input.organization_ids) if input.organization_ids is not None else None
             for organization in query_orgs_for_digest()[batch_start:batch_end]:
                 _raise_if_cancelled()
+                if target_organization_ids is not None and str(organization.id) not in target_organization_ids:
+                    continue
                 partial = False
                 try:
                     raw_digest: str | None = r.get(org_digest_key(input.digest.key, organization.id))
@@ -1260,6 +1263,10 @@ def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                                 user_id=user.id,
                             )
                             empty_user_digest_count += 1
+                            continue
+
+                        # A Workflows-only resend never captures for Customer.io, so nobody there gets a second copy.
+                        if input.workflows_only and not _routes_to_workflows(user):
                             continue
 
                         payload = digest_for_user.render_payload(input.digest)
