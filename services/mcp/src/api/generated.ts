@@ -21494,7 +21494,7 @@ export namespace Schemas {
       scopes: string[];
       /** Whether the policy can mint tokens. Disabling it cuts off its tokens. */
       enabled?: boolean;
-      readonly created_by: UserBasic;
+      readonly created_by: UserBasic | null;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -86858,7 +86858,7 @@ export namespace Schemas {
       scopes?: string[];
       /** Whether the policy can mint tokens. Disabling it cuts off its tokens. */
       enabled?: boolean;
-      readonly created_by?: UserBasic;
+      readonly created_by?: UserBasic | null;
       readonly created_at?: string;
       readonly updated_at?: string;
     }

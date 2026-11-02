@@ -142,7 +142,7 @@ class CITrustPolicySerializer(CIConditionsSerializerMixin, serializers.ModelSeri
     enabled = serializers.BooleanField(
         required=False, help_text="Whether the policy can mint tokens. Disabling it cuts off its tokens."
     )
-    created_by = UserBasicSerializer(read_only=True)
+    created_by = UserBasicSerializer(read_only=True, allow_null=True)
 
     class Meta:
         model = CITrustPolicy
@@ -282,8 +282,9 @@ class CITrustPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def _notify_admins_of(self, policy_id: str, name: str, change: CITrustPolicyChange) -> None:
         team_id = self.team_id
         actor_user_id = cast(User, self.request.user).pk
+        # The change already happened, so a broker outage must not turn it into an error response.
         transaction.on_commit(
-            lambda: send_ci_trust_policy_changed.delay(team_id, policy_id, name, change, actor_user_id)
+            lambda: send_ci_trust_policy_changed.delay(team_id, policy_id, name, change, actor_user_id), robust=True
         )
 
     @extend_schema(responses={200: CIProvidersResponseSerializer})
