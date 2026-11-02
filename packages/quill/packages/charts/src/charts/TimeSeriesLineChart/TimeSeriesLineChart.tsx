@@ -61,7 +61,7 @@ export interface TimeSeriesLineChartConfig {
     /** Line interpolation: `linear` (default) or `monotone` (smooth curve through every point). */
     curve?: 'linear' | 'monotone'
     /** `time` places each point at its time, so uneven spacing and gaps in time show. Labels must
-     *  be ascending. Defaults to `index`. */
+     *  be ascending. Trend lines and moving averages still use sample order. Defaults to `index`. */
     xScale?: 'index' | 'time'
     /** With `xScale: 'time'`, the axis span as `[from, to]` epoch ms. Defaults to the label range. */
     xDomain?: readonly [number, number]

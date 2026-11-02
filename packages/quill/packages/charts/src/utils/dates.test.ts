@@ -412,6 +412,11 @@ describe('buildTimeTickLabels', () => {
             ],
         ],
         [
+            'keeps the first hour on a daylight saving day',
+            ['2026-03-08T07:00:00Z', '2026-03-08T09:00:00Z', 'hour', 'America/New_York'],
+            ['2026-03-08T07:00:00.000Z', '2026-03-08T08:00:00.000Z', '2026-03-08T09:00:00.000Z'],
+        ],
+        [
             'aligns quarters to quarter boundaries',
             ['2026-02-15T00:00:00Z', '2026-08-01T00:00:00Z', 'quarter', 'UTC'],
             ['2026-04-01T00:00:00.000Z', '2026-07-01T00:00:00.000Z'],

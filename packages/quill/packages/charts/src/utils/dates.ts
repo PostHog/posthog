@@ -323,6 +323,11 @@ export function buildTimeTickLabels(from: number, to: number, interval: TimeInte
 
 function firstTick(from: number, unit: TimeInterval, timezone: string): Dayjs {
     const local = dayjs(from).tz(timezone)
+    // dayjs `startOf` in a timezone can apply the wrong offset on a daylight saving day.
+    if (unit === 'second' || unit === 'minute' || unit === 'hour') {
+        const offsetMs = local.utcOffset() * 60 * 1000
+        return dayjs(Math.floor((from + offsetMs) / INTERVAL_MS[unit]) * INTERVAL_MS[unit] - offsetMs).tz(timezone)
+    }
     if (unit === 'quarter') {
         const month = local.startOf('month')
         return month.subtract(month.month() % 3, 'month')
