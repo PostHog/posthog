@@ -29,7 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.reply_io.s
 REPLY_IO_BASE_URL = "https://api.reply.io/v3"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class ReplyIoResumeConfig:
     # Reply paginates with `top`/`skip` offsets. A crashed full-refresh sync resumes from the
     # offset after the last yielded page; merge dedupes any re-pulled rows on `id`.
