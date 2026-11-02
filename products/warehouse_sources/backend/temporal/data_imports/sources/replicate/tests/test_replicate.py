@@ -385,6 +385,39 @@ class TestFanOut:
             {"owner": "acme", "name": "upscaler", "collection_slug": "image-to-text"},
         ]
 
+    def test_model_versions_resume_from_the_saved_model_and_page(self, monkeypatch: Any) -> None:
+        base = "https://api.replicate.com/v1"
+        resume_url = f"{base}/models/acme/b-model/versions?cursor=v2"
+        pages: dict[str, Any] = {
+            f"{base}/deployments": {"results": [], "next": None},
+            f"{base}/trainings": {
+                "results": [{"model": "acme/c-model"}, {"model": "acme/b-model"}, {"model": "acme/a-model"}],
+                "next": None,
+            },
+            resume_url: {"results": [{"id": "b1"}], "next": None},
+            f"{base}/models/acme/c-model/versions": {"results": [{"id": "c1"}], "next": None},
+        }
+        manager = _FakeResumableManager(ReplicateResumeConfig(next_url=resume_url, fan_out_parent="acme/b-model"))
+        rows, fetched = _collect(manager, monkeypatch, pages, "model_versions")
+
+        assert [r["id"] for r in rows] == ["b1", "c1"]
+        assert f"{base}/models/acme/a-model/versions" not in fetched
+        assert manager.saved[-1] == ReplicateResumeConfig(next_url=None, fan_out_parent="acme/c-model")
+
+    def test_collection_models_resume_after_the_saved_collection(self, monkeypatch: Any) -> None:
+        base = "https://api.replicate.com/v1"
+        page2 = f"{base}/collections?cursor=c2"
+        pages = {
+            page2: {"results": [{"slug": "done"}, {"slug": "next"}], "next": None},
+            f"{base}/collections/next": {"slug": "next", "models": [{"owner": "acme", "name": "m"}]},
+        }
+        manager = _FakeResumableManager(ReplicateResumeConfig(next_url=page2, fan_out_parent="done"))
+        rows, fetched = _collect(manager, monkeypatch, pages, "collection_models")
+
+        assert rows == [{"owner": "acme", "name": "m", "collection_slug": "next"}]
+        assert fetched == [page2, f"{base}/collections/next"]
+        assert manager.saved == [ReplicateResumeConfig(next_url=page2, fan_out_parent="next")]
+
 
 class TestFetchPageRetries:
     @parameterized.expand([("rate_limited", 429), ("server_error", 503)])

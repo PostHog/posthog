@@ -35,6 +35,8 @@ class ReplicateResumeConfig:
     # The `created_after` watermark this cursor was built against. A run whose watermark has since
     # advanced must not resume from this cursor (see `get_rows`), so we can tell the two apart.
     created_after: str | None = None
+    # Fan-out endpoints only: the parent (`owner/name` model or collection slug) the cursor belongs to.
+    fan_out_parent: str | None = None
 
 
 def _get_headers(api_key: str) -> dict[str, str]:
@@ -177,7 +179,8 @@ def _page_predates_cutoff(items: list[dict[str, Any]], incremental_field: str, c
 
 def _walk_pages(
     session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger
-) -> Iterator[list[dict[str, Any]]]:
+) -> Iterator[tuple[list[dict[str, Any]], str | None]]:
+    """Yield each page's rows with the URL of the page after it."""
     next_url: str | None = url
     while next_url:
         try:
@@ -187,8 +190,8 @@ def _walk_pages(
             if e.response is not None and e.response.status_code == 416:
                 return
             raise
-        yield data.get("results", []) if isinstance(data, dict) else []
         next_url = _next_url(data)
+        yield (data.get("results", []) if isinstance(data, dict) else []), next_url
 
 
 def _is_skippable_child_error(error: requests.HTTPError) -> bool:
@@ -224,21 +227,32 @@ def _get_model_version_rows(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[ReplicateResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
-    models: dict[tuple[str, str], None] = {}
+    models: set[tuple[str, str]] = set()
     for parent_path in ("/deployments", "/trainings"):
-        for page in _walk_pages(session, f"{REPLICATE_BASE_URL}{parent_path}", headers, logger):
+        for page, _ in _walk_pages(session, f"{REPLICATE_BASE_URL}{parent_path}", headers, logger):
             for item in page:
-                models.update(dict.fromkeys(_referenced_models(item)))
+                models.update(_referenced_models(item))
             resumable_source_manager.safe_point()
 
-    for owner, name in models:
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    resume_parent = resume.fan_out_parent if resume is not None else None
+    resume_url = _sanitize_next_url(resume.next_url) if resume is not None else None
+
+    # Sorted, so a resumed run can skip every model that sorts before the saved one.
+    for owner, name in sorted(models):
+        parent = f"{owner}/{name}"
         url = f"{REPLICATE_BASE_URL}/models/{quote(owner, safe='')}/{quote(name, safe='')}/versions"
+        if resume_parent is not None and parent <= resume_parent:
+            if parent < resume_parent or resume_url is None:
+                continue
+            url = resume_url
         try:
-            for page in _walk_pages(session, url, headers, logger):
-                if page:
-                    yield [{**version, "model_owner": owner, "model_name": name} for version in page]
-                else:
+            for page, next_url in _walk_pages(session, url, headers, logger):
+                if not page:
                     resumable_source_manager.safe_point()
+                    continue
+                resumable_source_manager.save_state(ReplicateResumeConfig(next_url=next_url, fan_out_parent=parent))
+                yield [{**version, "model_owner": owner, "model_name": name} for version in page]
         except requests.HTTPError as e:
             if not _is_skippable_child_error(e):
                 raise
@@ -252,11 +266,18 @@ def _get_collection_model_rows(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[ReplicateResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
-    for page in _walk_pages(session, f"{REPLICATE_BASE_URL}/collections", headers, logger):
-        for collection in page:
-            slug = collection.get("slug")
-            if not isinstance(slug, str) or not slug:
-                continue
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    resumed_url = _sanitize_next_url(resume.next_url) if resume is not None else None
+    page_url = resumed_url or f"{REPLICATE_BASE_URL}/collections"
+    # The cursor names the collections page and the last slug on it whose models were yielded.
+    skip_through = resume.fan_out_parent if resume is not None else None
+
+    for page, next_url in _walk_pages(session, page_url, headers, logger):
+        slugs = [c["slug"] for c in page if isinstance(c.get("slug"), str) and c["slug"]]
+        if skip_through in slugs:
+            slugs = slugs[slugs.index(skip_through) + 1 :]
+        skip_through = None
+        for slug in slugs:
             try:
                 detail = _fetch_page(
                     session, f"{REPLICATE_BASE_URL}/collections/{quote(slug, safe='')}", headers, logger
@@ -270,10 +291,14 @@ def _get_collection_model_rows(
             models = detail.get("models") if isinstance(detail, dict) else None
             rows = [{**model, "collection_slug": slug} for model in models or [] if isinstance(model, dict)]
             if rows:
+                resumable_source_manager.save_state(ReplicateResumeConfig(next_url=page_url, fan_out_parent=slug))
                 yield rows
             else:
                 resumable_source_manager.safe_point()
         resumable_source_manager.safe_point()
+        if next_url is None:
+            break
+        page_url = next_url
 
 
 _FAN_OUT_ITERATORS = {
