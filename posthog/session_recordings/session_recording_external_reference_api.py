@@ -30,6 +30,8 @@ logger = structlog.get_logger(__name__)
 class SessionRecordingExternalReferenceIntegrationSerializer(serializers.ModelSerializer):
     """Read-only serializer for Integration info embedded in external references"""
 
+    kind = serializers.CharField(read_only=True, help_text="The provider of the integration, for example 'github'.")
+
     class Meta:
         model = Integration
         fields = ["id", "kind", "display_name"]
