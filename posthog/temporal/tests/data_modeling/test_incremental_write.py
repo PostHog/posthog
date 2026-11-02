@@ -6,6 +6,7 @@ column missing from the output).
 """
 
 import json
+import struct
 import tempfile
 import contextlib
 from collections.abc import Sequence
@@ -31,6 +32,10 @@ from posthog.temporal.data_modeling.activities.incremental_write import (
 _MODULE = "posthog.temporal.data_modeling.activities.incremental_write"
 
 _spill_modes = pytest.mark.parametrize("max_bytes", [1, MAX_UNIQUE_KEY_CHECK_BYTES], ids=["disk", "memory"])
+
+
+def _float_from_bits(hex_bits: str) -> float:
+    return struct.unpack(">d", bytes.fromhex(hex_bits))[0]
 
 
 def _batch(ids: Sequence[int | None], names: Sequence[str | None]) -> pa.RecordBatch:
@@ -63,6 +68,11 @@ def _batch(ids: Sequence[int | None], names: Sequence[str | None]) -> pa.RecordB
             [([9], ["a"]), ([9] + [5] * 5, ["b"] * 6)],
             "appears 5 times",
             id="within_batch_count_outweighs_a_seen_key",
+        ),
+        pytest.param(
+            [([1, 2], ["a", "b"]), ([1, 2, 2, 2], ["c", "d", "e", "f"])],
+            "appears 4 times",
+            id="most_repeated_key_was_also_seen",
         ),
         pytest.param([([1, None], ["a", "b"])], "is null", id="null_key"),
     ],
@@ -102,7 +112,14 @@ def test_composite_key_is_checked_as_a_tuple(max_bytes: int) -> None:
         tracker.check(_batch([1], ["a"]))
 
 
-@pytest.mark.parametrize("value,other,same", [(-0.0, 0.0, False), (float("nan"), float("nan"), True)])
+@pytest.mark.parametrize(
+    "value,other,same",
+    [
+        (-0.0, 0.0, False),
+        (float("nan"), float("nan"), True),
+        (_float_from_bits("7ff8000000000000"), _float_from_bits("7ff8000000000001"), False),
+    ],
+)
 @_spill_modes
 def test_float_keys_compare_alike_in_memory_and_on_disk(value: float, other: float, same: bool, max_bytes: int) -> None:
     tracker = UniqueKeyTracker(("key",), max_bytes=max_bytes)

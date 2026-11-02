@@ -22,6 +22,7 @@ stays on delta-rs.
 
 import json
 import shutil
+import struct
 import sqlite3
 import threading
 from collections.abc import Iterator
@@ -117,29 +118,9 @@ def assert_no_null_keys(batch: pa.RecordBatch, unique_key: tuple[str, ...]) -> N
 
 
 def _spill_key(row: tuple[Any, ...]) -> str:
-    # JSON keeps Arrow's key equality within each fixed column type: NaN matches NaN, and 0.0 and -0.0 stay apart.
-    return json.dumps(row, default=str, ensure_ascii=False, separators=(",", ":"))
-
-
-def _spilled_duplicate_count(keys: pa.Table, rejected_row: int) -> int:
-    """How often a key appears in the run, for a slice the spilled index rejected at `rejected_row`.
-
-    The index keeps no journal, so it cannot roll the slice back to show what earlier slices stored.
-    The rejected key was stored once already if this row is its first in the slice, and a key
-    repeated within the slice may appear more often still.
-    """
-    rejected = _spill_key(tuple(column[rejected_row].as_py() for column in keys.columns))
-    in_slice = 0
-    stored_earlier = True
-    row_number = 0
-    for batch in keys.to_batches(max_chunksize=8192):
-        for row in zip(*batch.to_pydict().values(), strict=True):
-            if _spill_key(row) == rejected:
-                in_slice += 1
-                stored_earlier = stored_earlier and row_number >= rejected_row
-            row_number += 1
-    grouped = keys.group_by(keys.column_names).aggregate([([], "count_all")])
-    return max(pc.max(grouped.column("count_all")).as_py(), in_slice + stored_earlier)
+    # Arrow compares float keys by their bits: NaN payloads stay apart, and so do 0.0 and -0.0.
+    values = [struct.pack(">d", value).hex() if isinstance(value, float) else value for value in row]
+    return json.dumps(values, default=str, ensure_ascii=False, separators=(",", ":"))
 
 
 class UniqueKeyTracker:
@@ -209,24 +190,35 @@ class UniqueKeyTracker:
                 "turn off incremental materialization for this view to fall back to a full refresh."
             )
 
-    def _check_disk(self, keys: pa.Table) -> None:
+    def _spill_keys(self, keys: pa.Table) -> Iterator[tuple[str]]:
+        for batch in keys.to_batches(max_chunksize=8192):
+            self._raise_if_closed()
+            self._raise_if_over_disk_budget()
+            for row in zip(*batch.to_pydict().values(), strict=True):
+                yield (_spill_key(row),)
+
+    def _store(self, distinct_keys: pa.Table) -> None:
         assert self._spill is not None
-        yielded = 0
-
-        def rows() -> Iterator[tuple[str]]:
-            nonlocal yielded
-            for batch in keys.to_batches(max_chunksize=8192):
-                self._raise_if_closed()
-                self._raise_if_over_disk_budget()
-                for row in zip(*batch.to_pydict().values(), strict=True):
-                    yielded += 1
-                    yield (_spill_key(row),)
-
         try:
             with self._spill:
-                self._spill.executemany("INSERT INTO unique_keys (key) VALUES (?)", rows())
+                self._spill.executemany("INSERT INTO unique_keys (key) VALUES (?)", self._spill_keys(distinct_keys))
         except sqlite3.IntegrityError as error:
-            raise self._duplicate_key_error(_spilled_duplicate_count(keys, rejected_row=yielded - 1)) from error
+            # The keys are distinct, so a rejected one appears here once and was stored once before.
+            raise self._duplicate_key_error(2) from error
+
+    def _check_disk(self, keys: pa.Table) -> None:
+        assert self._spill is not None
+        grouped = keys.group_by(self._columns).aggregate([([], "count_all")])
+        if grouped.num_rows == keys.num_rows:
+            self._store(keys)
+            return
+        # The run fails either way. Only a key at the slice's top count can appear once more than
+        # that, if an earlier slice stored it.
+        top = pc.max(grouped.column("count_all")).as_py()
+        candidates = grouped.filter(pc.equal(grouped.column("count_all"), top)).select(self._columns)
+        lookup = "SELECT 1 FROM unique_keys WHERE key = ?"
+        stored = any(self._spill.execute(lookup, key).fetchone() for key in self._spill_keys(candidates))
+        raise self._duplicate_key_error(top + stored)
 
     def _start_spill(self) -> None:
         self._spill_directory = TemporaryDirectory(prefix="posthog-materialization-keys-")
@@ -237,7 +229,7 @@ class UniqueKeyTracker:
         self._spill.execute("PRAGMA synchronous=OFF")
         self._spill.execute("CREATE TABLE unique_keys (key TEXT PRIMARY KEY) WITHOUT ROWID")
         for chunk in self._seen_chunks:
-            self._check_disk(chunk)
+            self._store(chunk)
         self._seen_chunks = []
 
     def check(self, batch: pa.RecordBatch) -> None:
