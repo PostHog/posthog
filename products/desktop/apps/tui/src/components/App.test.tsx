@@ -69,6 +69,39 @@ describe("App", () => {
     ).toContain("PostHog");
   });
 
+  it("keeps a multi-line title to one header row, so the chat's clicks land where it draws", async () => {
+    saveLayout(openTask(initialLayout(), "t1", "first line\n\nsecond line"));
+    const { instance, output } = renderInTerminal(
+      <App
+        session={{
+          work: {
+            listRecent: () => new Promise(() => {}),
+          } as unknown as WorkList,
+          runs: {
+            prefetch: async () => {},
+            watchPrompts: () => () => {},
+          } as unknown as CloudRuns,
+          chats: {} as PiChats,
+          control: () => ({}) as PiControl,
+          startLocal: () => Promise.reject(new Error("no local")),
+        }}
+        login={async () => {}}
+        logout={() => {}}
+      />,
+    );
+    try {
+      await vi.waitFor(() =>
+        expect(stripTerminalSequences(output())).toContain(
+          "first line second line",
+        ),
+      );
+      const rows = stripTerminalSequences(output()).split("\n");
+      expect(rows.some((row) => /^[│ ]*second line/.test(row))).toBe(false);
+    } finally {
+      instance.unmount();
+    }
+  });
+
   it("keeps watching an open run across list refreshes", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
     saveLayout(openTask(initialLayout(), "t1"));

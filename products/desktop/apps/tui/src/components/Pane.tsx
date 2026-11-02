@@ -607,7 +607,7 @@ export function Pane({
     >
       <Box justifyContent="space-between" gap={2}>
         <Text bold={focused} dimColor={!focused} wrap="truncate-end">
-          {title}
+          {title.replace(/\s+/g, " ")}
           {model && <Text dimColor> · {model}</Text>}
         </Text>
         <Box flexShrink={0}>
