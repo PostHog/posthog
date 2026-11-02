@@ -1,11 +1,13 @@
 import re
-from html.parser import HTMLParser
+import html
+import string
 from typing import Any
 
 from django.http import HttpResponse, JsonResponse
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 
+import nh3
 from nanoid import generate
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -24,104 +26,97 @@ from products.experiments.backend.models.web_experiment import WebExperiment
 from products.feature_flags.backend.facade.api import create_flag, update_flag
 from products.feature_flags.backend.facade.filters import replace_variant_distribution
 
-_DISALLOWED_TAG_MESSAGES: dict[str, str] = {
-    "script": "contains disallowed <script> tags",
-    "iframe": "contains disallowed <iframe> tags",
-    "object": "contains disallowed <object> or <embed> tags",
-    "embed": "contains disallowed <object> or <embed> tags",
-}
 _EVENT_HANDLER_MESSAGE = "contains disallowed event handlers (onclick, onerror, etc.)"
 _JAVASCRIPT_URL_MESSAGE = "contains disallowed javascript: protocol"
 _VBSCRIPT_URL_MESSAGE = "contains disallowed vbscript: protocol"
 _DATA_HTML_URL_MESSAGE = "contains disallowed data:text/html"
-_NESTING_MESSAGE = "contains markup nested too deeply to check"
-_MAX_NESTED_CHECKS = 8
+
+_XSS_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"<script[^>]*>", re.IGNORECASE), "contains disallowed <script> tags"),
+    (re.compile(r"</script>", re.IGNORECASE), "contains disallowed </script> tags"),
+    (re.compile(r"[\s/\"']on\w+\s*=", re.IGNORECASE), _EVENT_HANDLER_MESSAGE),
+    (re.compile(r"javascript\s*:", re.IGNORECASE), _JAVASCRIPT_URL_MESSAGE),
+    (re.compile(r"data\s*:\s*text/html", re.IGNORECASE), _DATA_HTML_URL_MESSAGE),
+    (re.compile(r"<iframe[^>]*>", re.IGNORECASE), "contains disallowed <iframe> tags"),
+    (re.compile(r"<(object|embed)[^>]*>", re.IGNORECASE), "contains disallowed <object> or <embed> tags"),
+]
 
 # Browsers ignore whitespace and control characters in a URL scheme; ";" and "," split SVG "values" lists.
-_URL_CONTROL_CHARS = re.compile(r"[\x00-\x20]+")
-_JAVASCRIPT_URL = re.compile(r"(?:^|[;,])javascript:")
-_VBSCRIPT_URL = re.compile(r"(?:^|[;,])vbscript:")
-_DATA_HTML_URL = re.compile(r"(?:^|[;,])data:text/html")
+_URL_CONTROL_CHARS = re.compile(r"[\x00-\x20\s]+")
+_URL_SCHEMES: list[tuple[str, str]] = [
+    ("javascript:", _JAVASCRIPT_URL_MESSAGE),
+    ("vbscript:", _VBSCRIPT_URL_MESSAGE),
+    ("data:text/html", _DATA_HTML_URL_MESSAGE),
+]
+
+_START_TAG_NAME = re.compile(r"<([a-zA-Z][^\t\n\f\r />]*)")
+# The HTML5 tokenizer lowercases only ASCII letters in a tag name and replaces NUL with U+FFFD.
+_ASCII_LOWER = str.maketrans(string.ascii_uppercase + "\x00", string.ascii_lowercase + "\ufffd")
+# nh3 drops elements missing from its allow list with their attributes, and html5ever camel-cases these SVG names.
+_SVG_TAG_NAMES = {
+    name.lower(): name
+    for name in (
+        "altGlyph altGlyphDef altGlyphItem animateColor animateMotion animateTransform clipPath feBlend "
+        "feColorMatrix feComponentTransfer feComposite feConvolveMatrix feDiffuseLighting feDisplacementMap "
+        "feDistantLight feDropShadow feFlood feFuncA feFuncB feFuncG feFuncR feGaussianBlur feImage feMerge "
+        "feMergeNode feMorphology feOffset fePointLight feSpecularLighting feSpotLight feTile feTurbulence "
+        "foreignObject glyphRef linearGradient radialGradient textPath"
+    ).split()
+}
+_URL_SCHEMES_TO_INSPECT = set(nh3.ALLOWED_URL_SCHEMES) | {"javascript", "vbscript", "data"}
 
 
-class _UnsafeHTMLFinder(HTMLParser):
+def _find_unsafe_url(value: str, anywhere: bool = False) -> str | None:
+    url = _URL_CONTROL_CHARS.sub("", value).lower()
+    for scheme, message in _URL_SCHEMES:
+        if scheme in url if anywhere else re.search(rf"(?:^|[;,]){re.escape(scheme)}", url):
+            return message
+    return None
+
+
+def _find_unsafe_attribute(content: str) -> str | None:
     """
-    Finds markup that runs script when posthog-js writes a transform into the page with innerHTML.
+    Parses the content as an HTML5 fragment, as innerHTML does in the browser, and checks every attribute.
 
-    The finder parses the markup instead of matching the raw string, so that entity encoding,
-    letter case and attribute separators do not hide a handler or a URL scheme.
+    A parser that is not HTML5-compliant can end raw-text elements such as <style> in a different
+    place than the browser does, and then it does not see the attributes that the browser creates.
     """
+    tag_names: set[str] = set()
+    for raw_name in _START_TAG_NAME.findall(content):
+        name = raw_name.translate(_ASCII_LOWER)
+        tag_names.add(_SVG_TAG_NAMES.get(name, name))
 
-    def __init__(self, depth: int = 0) -> None:
-        super().__init__(convert_charrefs=True)
-        self.depth = depth
-        self.problem: str | None = None
+    problems: list[str] = []
 
-    def set_cdata_mode(self, *args: Any, **kwargs: Any) -> None:
-        # Read <script> and <style> bodies as markup, because a browser does so inside <svg>.
-        return
+    def inspect_attribute(_tag: str, attribute: str, value: str) -> str:
+        if attribute.lower().startswith("on"):
+            problems.append(_EVENT_HANDLER_MESSAGE)
+        problem = _find_unsafe_url(value)
+        if problem:
+            problems.append(problem)
+        return value
 
-    def _report(self, message: str) -> None:
-        if self.problem is None:
-            self.problem = message
-
-    def _check_nested(self, content: str) -> None:
-        # A browser can end a raw-text element such as <style> inside a comment or an attribute
-        # value and parse the rest as markup, so the raw source of comments and tags is checked too.
-        if "<" not in content:
-            return
-        if self.depth >= _MAX_NESTED_CHECKS:
-            self._report(_NESTING_MESSAGE)
-            return
-        nested = find_unsafe_html(content, self.depth + 1)
-        if nested:
-            self._report(nested)
-
-    def _check_tag(self, tag: str) -> None:
-        message = _DISALLOWED_TAG_MESSAGES.get(tag)
-        if message:
-            self._report(message)
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        self._check_tag(tag)
-        for name, value in attrs:
-            if name.startswith("on"):
-                self._report(_EVENT_HANDLER_MESSAGE)
-            if value is None:
-                continue
-            url = _URL_CONTROL_CHARS.sub("", value).lower()
-            if _JAVASCRIPT_URL.search(url):
-                self._report(_JAVASCRIPT_URL_MESSAGE)
-            elif _VBSCRIPT_URL.search(url):
-                self._report(_VBSCRIPT_URL_MESSAGE)
-            elif _DATA_HTML_URL.search(url):
-                self._report(_DATA_HTML_URL_MESSAGE)
-        raw_tag = self.get_starttag_text()
-        if raw_tag:
-            self._check_nested(raw_tag[1:])
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag == "script":
-            self._report("contains disallowed </script> tags")
-
-    def handle_comment(self, data: str) -> None:
-        self._check_nested(data)
-
-    def handle_decl(self, decl: str) -> None:
-        self._check_nested(decl)
-
-    def unknown_decl(self, data: str) -> None:
-        self._check_nested(data)
-
-    def handle_pi(self, data: str) -> None:
-        self._check_nested(data)
+    nh3.clean(
+        content,
+        tags=tag_names,
+        clean_content_tags=set(),
+        attributes={},
+        generic_attribute_prefixes={""},
+        attribute_filter=inspect_attribute,
+        url_schemes=_URL_SCHEMES_TO_INSPECT,
+        link_rel=None,
+    )
+    return problems[0] if problems else None
 
 
-def find_unsafe_html(content: str, depth: int = 0) -> str | None:
-    finder = _UnsafeHTMLFinder(depth)
-    finder.feed(content)
-    finder.close()
-    return finder.problem
+def find_unsafe_html(content: str) -> str | None:
+    problem = _find_unsafe_attribute(content)
+    if problem:
+        return problem
+    for pattern, message in _XSS_PATTERNS:
+        if pattern.search(content):
+            return message
+    return _find_unsafe_url(html.unescape(content), anywhere=True)
 
 
 def validate_no_xss(content: str, field_name: str) -> None:

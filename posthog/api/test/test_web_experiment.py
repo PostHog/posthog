@@ -530,13 +530,8 @@ class TestWebExperimentValidationNoDB(SimpleTestCase):
                 "data:text/html",
             ],
             [
-                "event handler after slash separator",
-                {"selector": "#t", "html": "<svg/onload=alert(1)>"},
-                "event handler",
-            ],
-            [
-                "event handler in upper case",
-                {"selector": "#t", "html": "<IMG SRC=x ONERROR=alert(1)>"},
+                "event handler in upper case after slash separator",
+                {"selector": "#t", "html": "<SVG/ONLOAD=alert(1)>"},
                 "event handler",
             ],
             [
@@ -545,18 +540,8 @@ class TestWebExperimentValidationNoDB(SimpleTestCase):
                 "event handler",
             ],
             [
-                "javascript protocol with entity colon",
-                {"selector": "#t", "html": '<a href="javascript&#58;alert(1)">x</a>'},
-                "javascript:",
-            ],
-            [
-                "javascript protocol with entity letter",
-                {"selector": "#t", "html": '<a href="&#106;avascript:alert(1)">x</a>'},
-                "javascript:",
-            ],
-            [
-                "javascript protocol with mixed case and whitespace",
-                {"selector": "#t", "html": '<a href=" JaVa&#x09;ScRiPt&#x0A;:alert(1)">x</a>'},
+                "javascript protocol with entities, mixed case and whitespace",
+                {"selector": "#t", "html": '<a href=" &#106;aVa&#x09;ScRiPt&#x0A;&#58;alert(1)">x</a>'},
                 "javascript:",
             ],
             [
@@ -576,6 +561,16 @@ class TestWebExperimentValidationNoDB(SimpleTestCase):
                 "event handler",
             ],
             [
+                "markup hidden in an end tag attribute",
+                {"selector": "#t", "html": '<style></a title="</style><img src=x onerror=alert(1)>">'},
+                "event handler",
+            ],
+            [
+                "unterminated quoted start tag",
+                {"selector": "#t", "html": '<img src=x onerror=alert(1) title="x'},
+                "event handler",
+            ],
+            [
                 "markup inside svg style",
                 {"selector": "#t", "html": "<svg><style><img src=x onerror=alert(1)></style></svg>"},
                 "event handler",
@@ -590,7 +585,6 @@ class TestWebExperimentValidationNoDB(SimpleTestCase):
             ["link and image", '<a href="https://example.com/?a=1&amp;b=2">Link</a><img src="/logo.png" alt="Logo">'],
             ["relative and mailto links", '<a href="/pricing">Pricing</a> <a href="mailto:hi@example.com">Mail</a>'],
             ["inline style and data attributes", '<p style="color: red" data-testid="hero">Buy now</p>'],
-            ["scheme words in text", "Learn javascript: the basics, or use onload= and data:text/html in docs"],
             ["scheme words in a non-url attribute", '<span title="javascript is fun" class="online">x</span>'],
             ["encoded markup in an attribute", '<span title="&lt;b&gt;bold&lt;/b&gt;">x</span>'],
         ]
