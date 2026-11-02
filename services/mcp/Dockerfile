@@ -52,6 +52,8 @@ COPY tools/openapi-codegen/ tools/openapi-codegen/
 # (the generator scans `products/*/mcp/tools.yaml` and synthesizes entry points),
 # so the whole `products/` tree needs to be in the build context.
 COPY products/ products/
+# The workflow app reuses the workflow editor's tile canvas, which imports a few modules from `lib/`.
+COPY frontend/src/lib/ frontend/src/lib/
 WORKDIR /code/services/mcp
 ARG POSTHOG_UI_APPS_TOKEN
 ARG POSTHOG_MCP_APPS_ANALYTICS_BASE_URL

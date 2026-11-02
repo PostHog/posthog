@@ -59,6 +59,14 @@ export default defineConfig({
             // subpaths covered too: Vite 7 resolves the injected react/jsx-runtime
             // import relative to the importing file.
             { find: /^lucide-react$/, replacement: resolve(__dirname, 'node_modules/lucide-react') },
+            // The workflow app reuses the workflow editor's tile canvas, which imports a few small
+            // modules from the web app's `lib/` and the packages below. The image build copies
+            // `frontend/src/lib/` but installs only this package's dependencies.
+            { find: /^lib\//, replacement: `${resolve(__dirname, '../../frontend/src/lib')}/` },
+            {
+                find: /^(@posthog\/icons|clsx|elkjs|tailwind-merge)(\/.*)?$/,
+                replacement: `${resolve(__dirname, 'node_modules')}/$1$2`,
+            },
             { find: 'react', replacement: resolve(__dirname, 'node_modules/react') },
             { find: 'react-dom', replacement: resolve(__dirname, 'node_modules/react-dom') },
             { find: '@common', replacement: resolve(__dirname, '../../common') },

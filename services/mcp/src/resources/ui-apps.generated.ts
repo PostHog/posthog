@@ -344,7 +344,7 @@ export const UI_APPS: Array<{
         name: 'PostHog Workflow',
         uri: WORKFLOW_RESOURCE_URI,
         description: 'Workflow detail view',
-        appDir: 'generated/workflow',
+        appDir: 'workflow',
     },
     {
         name: 'PostHog Workflow Suggestions',

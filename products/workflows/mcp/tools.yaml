@@ -7,8 +7,14 @@ feature: workflows
 url_prefix: /workflows
 ui_apps:
     workflow:
-        type: detail
-        view_prop: workflow
+        type: custom
+        app_name: PostHog Workflow
+        description: Workflow detail view
+        render_ui:
+            component_import: products/workflows/mcp/apps
+            view_component: WorkflowView
+            view_prop: workflow
+            data_type: WorkflowData
     workflow-list:
         type: list
         detail_tool: workflows-get
