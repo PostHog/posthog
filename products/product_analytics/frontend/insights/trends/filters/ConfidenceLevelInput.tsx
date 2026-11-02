@@ -7,7 +7,7 @@ import { LemonInput, Tooltip } from '@posthog/lemon-ui'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import { isTrendsQuery } from '~/queries/utils'
+import { isTrendsQuery } from '~/queries/schema/node-guards'
 
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 

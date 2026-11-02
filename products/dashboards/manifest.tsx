@@ -6,10 +6,14 @@ import { urls } from 'scenes/urls'
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
 import type { DashboardsTab } from '../../frontend/src/scenes/dashboard/dashboards/dashboardsLogic'
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Dashboards',
+    activityDescribers: {
+        [ActivityScope.DASHBOARD]: () =>
+            import('scenes/dashboard/dashboardActivityDescriber').then((module) => module.dashboardActivityDescriber),
+    },
     urls: {
         dashboards: (tab?: `${DashboardsTab}`): string => (tab ? `/dashboard?tab=${tab}` : '/dashboard'),
         dashboardTemplates: (): string => combineUrl('/dashboard', { templates: '1' }).url,

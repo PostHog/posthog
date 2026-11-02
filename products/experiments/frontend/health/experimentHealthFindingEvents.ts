@@ -31,6 +31,7 @@ export type ExperimentHealthFindingCode =
     | 'metric_event_not_ingested'
     | 'metric_cannot_compile'
     | 'metric_calculation_failed'
+    | 'metric_all_zero'
     | 'exposure_criteria_cannot_match'
     | 'exposure_filter_on_dynamic_cohort'
     | 'exposure_filter_excludes_events'
@@ -41,6 +42,7 @@ export type ExperimentHealthFindingCode =
     | 'release_conditions_changed_mid_run'
     | 'new_flag_no_traffic'
     | 'early_significance'
+    | 'metrics_not_matured'
 
 export interface ExperimentHealthFinding {
     code: ExperimentHealthFindingCode
