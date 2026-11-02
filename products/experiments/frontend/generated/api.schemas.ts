@@ -2311,6 +2311,7 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `exposure_filter_excludes_events` - Exposure Filter Excludes Events
  * * `srm` - Sample Ratio Mismatch
  * * `zero_exposures` - Zero Exposures
+ * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
  * * `forced_variant_release_condition` - Forced Variant Release Condition
  * * `flag_variants_mismatch` - Flag Variants Mismatch
  * * `split_changed_mid_run` - Split Changed Mid Run
@@ -2318,6 +2319,7 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
  * * `new_flag_no_traffic` - New Flag No Traffic
  * * `early_significance` - Early Significance
+ * * `metrics_not_matured` - Metrics Not Matured
  */
 export type ExperimentHealthFindingCodeEnumApi =
     (typeof ExperimentHealthFindingCodeEnumApi)[keyof typeof ExperimentHealthFindingCodeEnumApi]
@@ -2338,6 +2340,7 @@ export const ExperimentHealthFindingCodeEnumApi = {
     ExposureFilterExcludesEvents: 'exposure_filter_excludes_events',
     Srm: 'srm',
     ZeroExposures: 'zero_exposures',
+    TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
     ForcedVariantReleaseCondition: 'forced_variant_release_condition',
     FlagVariantsMismatch: 'flag_variants_mismatch',
     SplitChangedMidRun: 'split_changed_mid_run',
@@ -2345,6 +2348,7 @@ export const ExperimentHealthFindingCodeEnumApi = {
     ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
     NewFlagNoTraffic: 'new_flag_no_traffic',
     EarlySignificance: 'early_significance',
+    MetricsNotMatured: 'metrics_not_matured',
 } as const
 
 /**
@@ -2408,13 +2412,15 @@ export interface ExperimentHealthFindingApi {
      * * `exposure_filter_excludes_events` - Exposure Filter Excludes Events
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
+     * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
      * * `forced_variant_release_condition` - Forced Variant Release Condition
      * * `flag_variants_mismatch` - Flag Variants Mismatch
      * * `split_changed_mid_run` - Split Changed Mid Run
      * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
      * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
      * * `new_flag_no_traffic` - New Flag No Traffic
-     * * `early_significance` - Early Significance */
+     * * `early_significance` - Early Significance
+     * * `metrics_not_matured` - Metrics Not Matured */
     code: ExperimentHealthFindingCodeEnumApi
     /**
      * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -2463,7 +2469,9 @@ export interface ExperimentHealthFindingApi {
  * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
  * * `exposure_filters` - Exposure Filters
  * * `early_significance` - Early Significance
+ * * `metrics_not_matured` - Metrics Not Matured
  * * `zero_exposures` - Zero Exposures
+ * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
  * * `srm` - Srm
  * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
  * * `multiple_variants_share` - Multiple Variants Share
@@ -2487,7 +2495,9 @@ export const ExperimentHealthCheckKeyEnumApi = {
     ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
     ExposureFilters: 'exposure_filters',
     EarlySignificance: 'early_significance',
+    MetricsNotMatured: 'metrics_not_matured',
     ZeroExposures: 'zero_exposures',
+    TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
     Srm: 'srm',
     BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
     MultipleVariantsShare: 'multiple_variants_share',
@@ -2527,7 +2537,9 @@ export interface ExperimentHealthCheckResultApi {
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `exposure_filters` - Exposure Filters
      * * `early_significance` - Early Significance
+     * * `metrics_not_matured` - Metrics Not Matured
      * * `zero_exposures` - Zero Exposures
+     * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
      * * `srm` - Srm
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
      * * `multiple_variants_share` - Multiple Variants Share */

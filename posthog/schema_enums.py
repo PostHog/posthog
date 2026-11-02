@@ -1472,6 +1472,7 @@ class ExperimentExposureHealthCheckKey(StrEnum):
     SRM = "srm"
     BIAS_RISK_MULTIPLE_EXCLUDED = "bias_risk_multiple_excluded"
     MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
+    TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
 
 
 class ExperimentExposureHealthCheckStatus(StrEnum):
@@ -1493,6 +1494,7 @@ class ExperimentExposureHealthFindingCode(StrEnum):
     SRM = "srm"
     BIAS_RISK_MULTIPLE_EXCLUDED = "bias_risk_multiple_excluded"
     MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
+    TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
 
 
 class ExperimentExposureHealthFindingSeverity(StrEnum):

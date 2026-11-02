@@ -3533,8 +3533,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             if isinstance(action, dict) and action.get("id") and action.get("type") == "conditional_branch"
         }
 
-        # Action ids already stored with their flag-gated template, so the gate only polices new
-        # adoption, including a different gated template swapped in under a stored id: a flow that was allowed to hold the step keeps validating after a flag
+        # (action id, template id) pairs already stored with a flag-gated template, so the gate only
+        # polices new adoption, including a different gated template swapped in under a stored id.
+        # A flow that was allowed to hold the step keeps validating after a flag
         # dial-down or eval blip (the gate fails closed), instead of becoming un-editable and
         # failing refresh_hog_flows. Only an active flow's steps count - active means the step
         # passed the gate at activation, whereas a draft can hold the step without ever passing

@@ -226,6 +226,9 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.product_analytics.backend.presentation.events_retention.OrganizationEventsRetentionViewSet",
     "products.product_analytics.backend.presentation.insight.InsightViewSet",
     "products.product_tours.backend.api.product_tour.ProductTourViewSet",
+    # Pages with `limit`/`offset` over clusters ranked live, with `has_more`; the API tests cover the page boundary.
+    "products.replay_vision.backend.api.clusters.VisionGroupViewSet",
+    "products.replay_vision.backend.api.clusters.VisionThemeViewSet",
     "products.replay_vision.backend.api.observations.ReplayObservationViewSet",
     "products.replay_vision.backend.api.observations.SessionReplayObservationViewSet",
     "products.replay_vision.backend.api.quota.VisionQuotaViewSet",

@@ -17,7 +17,8 @@ import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLog
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { getLastNewFolder } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { isActorsQuery, isBIVisualizationNode, isEventsQuery, isGroupsQuery, isInsightQueryNode } from '~/queries/utils'
+import { isActorsQuery, isBIVisualizationNode, isInsightQueryNode } from '~/queries/schema/node-guards'
+import { isEventsQuery, isGroupsQuery } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType, InsightLogicProps, ItemMode } from '~/types'
 
 import { areAlertsSupportedForInsight } from 'products/alerts/frontend/logic/insightAlertsLogic'

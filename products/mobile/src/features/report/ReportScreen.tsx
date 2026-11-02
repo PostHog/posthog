@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { useRouter } from 'expo-router'
+import { useIsFocused, useRouter } from 'expo-router'
 import { type ReactElement, useEffect, useState } from 'react'
 import { View } from 'react-native'
 import Animated, { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated'
@@ -16,6 +16,7 @@ import {
     RESOLVE_REASON_OPTIONS,
     type ResolveReason,
 } from '@/model/verdictReasons'
+import { ChartCanvasBudget } from '@/ui/chart/budget/ChartCanvasBudget'
 import { FloatingCard } from '@/ui/FloatingCard'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { OverlayHost } from '@/ui/OverlayPortal'
@@ -71,9 +72,12 @@ function goBackOrInbox(router: ReturnType<typeof useRouter>): void {
 
 export function ReportScreen({ reportId, from }: ReportScreenProps): ReactElement {
     const demo = useDataMode() === 'demo'
+    const focused = useIsFocused()
     return (
         <OverlayHost>
-            {isReportId(reportId, demo) ? <ReportContent reportId={reportId} from={from} /> : <ReportNotFound />}
+            <ChartCanvasBudget active={focused}>
+                {isReportId(reportId, demo) ? <ReportContent reportId={reportId} from={from} /> : <ReportNotFound />}
+            </ChartCanvasBudget>
         </OverlayHost>
     )
 }

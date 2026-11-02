@@ -199,6 +199,8 @@ An MCP read writes no activity row, so its intent never reaches the audit log.
 When `ACTIVITY_SUMMARY_MCP_BUFFER_ENABLED` is on, `ActivityLoggingMiddleware` also hands the intent of a successful MCP request to a best-effort Redis buffer for the activity summary (`products/signals/backend/activity_summary/mcp_buffer.py`).
 It does this only for a personal API key or an OAuth token without a sandbox task binding or impersonation, and only for a team that the `activity-summary` flag payload enrolls with `mcp_buffer_enabled`.
 The request thread only appends to an in-process queue; a background thread writes to Redis, so the buffer can drop records but cannot slow down or fail the request.
+When the payload also sets `mcp_render_enabled`, the activity summary build reads the buffer and renders one line per MCP session in the summary input.
+A failed read gives an empty section and sets `mcp_read_error` in the build's `inputs_used`; it never fails the build.
 
 ### Client IP
 
