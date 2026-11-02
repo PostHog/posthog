@@ -17,7 +17,7 @@ use super::rrweb::{
     ADOPTED_STYLE_SHEET, FULL_SNAPSHOT, INCREMENTAL_SNAPSHOT, MUTATION, STYLE_DECLARATION,
     STYLE_SHEET_RULE,
 };
-use super::srcset;
+use super::srcset::{self, SrcsetSlot};
 use super::stats::BlockStats;
 use crate::scan::cv::{self, Expansion};
 use crate::scan::message::Event;
@@ -100,6 +100,8 @@ struct HiddenSources {
     rr_src: Option<String>,
     fetchable_srcset_candidate: Option<String>,
     srcset_usable: bool,
+    srcset_yields_to_img_src: bool,
+    has_src: bool,
 }
 
 impl HiddenSources {
@@ -114,6 +116,7 @@ impl HiddenSources {
             |span: Span| text(bytes, Some(span)).and_then(|url| fetchable(&url).map(str::to_owned));
         if let Some(span) = attributes.src {
             self.src = url(span);
+            self.has_src = is_non_empty_string(bytes, span);
         }
         if let Some(span) = attributes.rr_src {
             self.rr_src = url(span);
@@ -122,9 +125,15 @@ impl HiddenSources {
             let srcset = text(bytes, Some(span));
             let usable = srcset.as_deref().and_then(srcset::usable_candidate);
             self.srcset_usable = usable.is_some();
+            self.srcset_yields_to_img_src = usable.is_some_and(|kept| kept.yields_to_img_src);
             self.fetchable_srcset_candidate =
-                usable.and_then(|(_, url)| fetchable(url).map(str::to_owned));
+                usable.and_then(|kept| fetchable(kept.url).map(str::to_owned));
         }
+    }
+
+    /// As [`srcset::shown_candidate`] decides, from what the window kept of the srcset and the `src`.
+    fn shows_srcset(&self) -> bool {
+        self.srcset_usable && !(self.has_src && self.srcset_yields_to_img_src)
     }
 
     /// Whether the attributes set a source, which an update then changes.
@@ -143,7 +152,8 @@ impl HiddenSources {
 
     fn push_revealed(mut self, bytes: &[u8], set: &Attributes, walk: &mut Walk) {
         self.update(bytes, set);
-        if !self.srcset_usable {
+        let shows_srcset = self.shows_srcset();
+        if !shows_srcset {
             for (url, replaced) in [(self.src, set.src), (self.rr_src, set.rr_src)] {
                 if let Some(url) = url.filter(|_| replaced.is_none()) {
                     walk.push_url_text(&url);
@@ -152,7 +162,7 @@ impl HiddenSources {
         }
         if let Some(url) = self
             .fetchable_srcset_candidate
-            .filter(|_| set.srcset.is_none())
+            .filter(|_| shows_srcset && set.srcset.is_none())
         {
             walk.push_url_text(&url);
         }
@@ -208,10 +218,9 @@ pub struct RemoteUrls {
     urls: HashSet<String>,
     bytes: usize,
     pub limit: Option<UrlLimit>,
-    /// Each image-slot srcset value, and whether it belongs to a source of a type the fetcher does not store. The
-    /// writer rebuilds each from the candidates it keeps, and it builds one matcher over them as over `urls`, so they
-    /// share the byte budget of `urls`. Past it this keeps no more, which is safe: the writer still replaces each URL
-    /// in `urls` on its own.
+    /// Each image-slot srcset value, and the slot that holds it. The writer rebuilds each from the candidates it keeps,
+    /// and it builds one matcher over them as over `urls`, so they share the byte budget of `urls`. Past it this keeps no
+    /// more, which is safe: the writer still replaces each URL in `urls` on its own.
     /// Boxed, because the session state counts this struct's size and most blocks hold no srcset.
     srcsets: Option<Box<SrcsetValues>>,
     /// Past its count and byte budget this keeps no more, which is safe: each URL a rewrite drops is in `urls` too, and a
@@ -227,7 +236,7 @@ struct CssRewrites {
 
 #[derive(Debug, Default)]
 struct SrcsetValues {
-    values: HashMap<Vec<u8>, (String, bool)>,
+    values: HashMap<Vec<u8>, (String, SrcsetSlot)>,
     bytes: usize,
 }
 
@@ -237,8 +246,7 @@ pub struct Srcset {
     pub text: String,
     /// The value as a JSON string with its quotes and escapes, as the event holds it.
     pub raw: Vec<u8>,
-    /// The value belongs to a `<source>` whose `type` the fetcher does not store, so none of its images is stored.
-    pub unfetched_type: bool,
+    pub slot: SrcsetSlot,
 }
 
 impl RemoteUrls {
@@ -259,19 +267,19 @@ impl RemoteUrls {
         };
     }
 
-    /// A value seen on a source of a stored type and on one of another type keeps its candidates.
+    /// A value seen in two kinds of slot becomes [`SrcsetSlot::Alone`], which keeps what either kind keeps.
     /// Keyed by the value as the event holds it, so the writer finds that value again after it stores the event.
-    fn insert_srcset(&mut self, raw: &[u8], text: &str, unfetched_type: bool) {
+    fn insert_srcset(&mut self, raw: &[u8], text: &str, slot: SrcsetSlot) {
         let srcsets = self.srcsets.get_or_insert_with(Box::default);
         if let Some((_, known)) = srcsets.values.get_mut(raw) {
-            *known &= unfetched_type;
+            if *known != slot {
+                *known = SrcsetSlot::Alone;
+            }
         } else if srcsets.values.len() < MAX_BLOCK_REMOTE_URLS
             && srcsets.bytes + raw.len() + text.len() <= MAX_BLOCK_REMOTE_URL_BYTES
         {
             srcsets.bytes += raw.len() + text.len();
-            srcsets
-                .values
-                .insert(raw.to_vec(), (text.to_owned(), unfetched_type));
+            srcsets.values.insert(raw.to_vec(), (text.to_owned(), slot));
         }
     }
 
@@ -307,8 +315,8 @@ impl RemoteUrls {
             self.insert(url);
         }
         self.limit = self.limit.or(other.limit);
-        for (raw, (text, unfetched_type)) in other.srcsets.iter().flat_map(|s| &s.values) {
-            self.insert_srcset(raw, text, *unfetched_type);
+        for (raw, (text, slot)) in other.srcsets.iter().flat_map(|s| &s.values) {
+            self.insert_srcset(raw, text, *slot);
         }
         for (text, rewrite) in other.css_rewrites.into_iter().flat_map(|r| r.values) {
             self.insert_css_rewrite(text, rewrite);
@@ -331,11 +339,7 @@ impl RemoteUrls {
             .map(|srcsets| srcsets.values)
             .unwrap_or_default()
             .into_iter()
-            .map(|(raw, (text, unfetched_type))| Srcset {
-                text,
-                raw,
-                unfetched_type,
-            })
+            .map(|(raw, (text, slot))| Srcset { text, raw, slot })
             .collect()
     }
 
@@ -483,37 +487,38 @@ impl Walk<'_> {
         }
     }
 
-    /// Only the usable candidate gets a fetch job. The block holds the others until the writer drops them, so the writer
-    /// needs their URLs too. Returns whether the srcset has a usable candidate.
-    fn push_srcset(&mut self, bytes: &[u8], value: Option<Span>) -> bool {
+    /// Only the shown candidate gets a fetch job. The block holds the others until the writer drops them, so the writer
+    /// needs their URLs too. Returns whether the slot shows a srcset candidate.
+    fn push_srcset(&mut self, bytes: &[u8], value: Option<Span>, slot: SrcsetSlot) -> bool {
         let Some(srcset) = text(bytes, value) else {
             return false;
         };
         srcset_urls(&srcset, &mut |url| self.image_urls.push_remote(url));
-        let usable = srcset::usable_candidate(&srcset);
-        if let Some((_, url)) = usable {
-            self.push_url_text(url);
+        let shown = srcset::shown_candidate(&srcset, slot);
+        if let Some(kept) = shown {
+            self.push_url_text(kept.url);
         }
-        usable.is_some()
+        shown.is_some()
     }
 
-    fn push_srcset_value(&mut self, bytes: &[u8], value: Option<Span>, unfetched_type: bool) {
+    fn push_srcset_value(&mut self, bytes: &[u8], value: Option<Span>, slot: SrcsetSlot) {
         if let (Some(span), Some(srcset)) = (value, text(bytes, value)) {
             self.image_urls
                 .remote
-                .insert_srcset(&bytes[span.0..span.1], &srcset, unfetched_type);
+                .insert_srcset(&bytes[span.0..span.1], &srcset, slot);
         }
     }
 
     /// A picture source of a type the fetcher does not store gets no fetch job, and the writer empties its srcset, so
     /// the browser falls back to the next source or the img.
     fn push_source(&mut self, bytes: &[u8], srcset: Option<Span>, unfetched_type: bool) {
-        if unfetched_type {
-            self.push_remote(bytes, srcset, true);
+        let slot = if unfetched_type {
+            SrcsetSlot::UnfetchedTypeSource
         } else {
-            self.push_srcset(bytes, srcset);
-        }
-        self.push_srcset_value(bytes, srcset, unfetched_type);
+            SrcsetSlot::Alone
+        };
+        self.push_srcset(bytes, srcset, slot);
+        self.push_srcset_value(bytes, srcset, slot);
     }
 
     fn push_css(&mut self, bytes: &[u8], value: Option<Span>) {
@@ -665,30 +670,43 @@ impl Attributes {
         walk.push_remote(bytes, self.src, false);
         walk.push_remote(bytes, self.rr_src, false);
         walk.push_remote(bytes, self.srcset, true);
-        walk.push_srcset_value(bytes, self.srcset, false);
+        walk.push_srcset_value(bytes, self.srcset, SrcsetSlot::Alone);
         walk.push_remote(bytes, self.href, false);
         walk.push_remote(bytes, self.xlink_href, false);
         walk.push_remote(bytes, self.poster, false);
+    }
+
+    /// A mutation that does not set `src` leaves it unknown, so the img's srcset counts as alone.
+    fn img_srcset_slot(&self, bytes: &[u8]) -> SrcsetSlot {
+        if self
+            .src
+            .is_some_and(|span| is_non_empty_string(bytes, span))
+        {
+            SrcsetSlot::BesideImgSrc
+        } else {
+            SrcsetSlot::Alone
+        }
     }
 
     /// The image URLs v3 fetches from these attributes on an element of this kind, and the URLs in its CSS.
     fn push_urls(&self, bytes: &[u8], media: Option<Media>, walk: &mut Walk) {
         match media {
             Some(Media::Img { visibility }) if !visibility.hides() => {
-                if walk.push_srcset(bytes, self.srcset) {
+                let slot = self.img_srcset_slot(bytes);
+                if walk.push_srcset(bytes, self.srcset, slot) {
                     walk.push_remote(bytes, self.src, false);
                     walk.push_remote(bytes, self.rr_src, false);
                 } else {
                     walk.push_url(bytes, self.src);
                     walk.push_url(bytes, self.rr_src);
                 }
-                walk.push_srcset_value(bytes, self.srcset, false);
+                walk.push_srcset_value(bytes, self.srcset, slot);
             }
             Some(Media::Img { .. }) => {
                 walk.push_remote(bytes, self.src, false);
                 walk.push_remote(bytes, self.rr_src, false);
                 walk.push_remote(bytes, self.srcset, true);
-                walk.push_srcset_value(bytes, self.srcset, false);
+                walk.push_srcset_value(bytes, self.srcset, self.img_srcset_slot(bytes));
             }
             Some(Media::SvgImage) => {
                 walk.push_url(bytes, self.href);
@@ -703,6 +721,10 @@ impl Attributes {
         walk.push_css(bytes, self.style);
         walk.push_css(bytes, self.css_text);
     }
+}
+
+fn is_non_empty_string(bytes: &[u8], span: Span) -> bool {
+    scan::is_string(bytes, span) && span.1 - span.0 > 2
 }
 
 /// An empty `type` gives the browser no hint, as a missing one does.
@@ -1821,13 +1843,10 @@ mod tests {
                 None,
                 &mut stats,
             );
-            // The img shows its kept srcset candidate, so its src is not fetched.
+            // The srcset has no 1x candidate, so the img shows its `src`, which HTML adds as one.
             assert_eq!(
                 dom.take_image_urls(),
-                [
-                    "https://cdn.example.com/a@2x.png",
-                    "//cdn.example.com/p.jpg"
-                ]
+                ["https://cdn.example.com/a.png", "//cdn.example.com/p.jpg"]
             );
 
             assert_eq!(
@@ -2028,9 +2047,11 @@ mod tests {
             element(17, "img", json!({"data-src": url("lazy")}), json!([])),
             element(18, "iframe", json!({"src": "https://example.com/frame"}), json!([])),
             element(19, "img", json!({"srcset": format!("{} 640w,{} 2x", url("w_640,q_auto/srcset-comma"), url("srcset-second"))}), json!([])),
-            element(20, "img", json!({"src": url("shown-later"), "srcset": format!("{} 2x", url("shown-later-2x")), "hidden": ""}), json!([])),
+            element(20, "img", json!({"src": url("shown-later"), "srcset": format!("{} 1x, {} 2x", url("shown-later-1x"), url("shown-later-2x")), "hidden": ""}), json!([])),
             element(21, "img", json!({"src": format!("https://cdn.example.com/{}.png", "a".repeat(MAX_URL_LEN))}), json!([])),
-            element(22, "img", json!({"src": url("srcset-removed"), "srcset": format!("{} 2x", url("removed-2x")), "hidden": ""}), json!([])),
+            element(22, "img", json!({"src": url("srcset-removed"), "srcset": format!("{} 1x", url("removed-1x")), "hidden": ""}), json!([])),
+            element(23, "img", json!({"src": url("src-over-2x"), "srcset": format!("{} 2x", url("yields-2x")), "hidden": ""}), json!([])),
+            element(24, "img", json!({"src": url("src-under-1x"), "srcset": format!("{} 1x, {} 2x", url("srcset-1x"), url("srcset-2x"))}), json!([])),
         ]))], "id": 1}});
         let message = events(json!([
             // URLs do not wait for the first full snapshot.
@@ -2045,6 +2066,8 @@ mod tests {
             mutation(json!([]), json!([]), json!([]), json!([{"id": 20, "attributes": {"hidden": null}}])),
             // The srcset leaves as the img shows, so the img shows its `src`.
             mutation(json!([]), json!([]), json!([]), json!([{"id": 22, "attributes": {"hidden": null, "srcset": null}}])),
+            // A srcset with no 1x candidate loses to the img's `src`, which HTML adds as one.
+            mutation(json!([]), json!([]), json!([]), json!([{"id": 23, "attributes": {"hidden": null}}])),
             mutation(json!([]), json!([]), json!([]), json!([{"id": 6, "attributes": {"style": {"background-image": [format!("url({})", url("style-object")), "important"], "background": format!("url({})", url("style-object-plain")), "color": "red", "mask-image": false}}}])),
             mutation(json!([]), json!([]), json!([]), json!([{"id": 6, "attributes": {"style": {"background-image": "url(\"/img/relative-style.png\")"}}}])),
             // A `source` added on its own under a `picture`, one the page has or one the same mutation adds.
@@ -2124,8 +2147,10 @@ mod tests {
             "declaration",
             "custom-declaration",
             "adopted",
-            "shown-later-2x",
+            "shown-later-1x",
             "srcset-removed",
+            "src-over-2x",
+            "srcset-1x",
             "style-object",
             "style-object-plain",
             "lone-source",
@@ -2201,7 +2226,7 @@ mod tests {
         // A value counts its raw and its unescaped form.
         (0..=most_long).for_each(|i| {
             let value = url(i, longest);
-            remote.insert_srcset(value.as_bytes(), &value, false)
+            remote.insert_srcset(value.as_bytes(), &value, SrcsetSlot::Alone)
         });
         assert_eq!(remote.take_srcsets().len(), most_long / 2);
 

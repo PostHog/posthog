@@ -1,12 +1,12 @@
-//! The one `srcset` candidate the recorder keeps, by the v3 rule in `rust/replay-anonymizer/src/srcset.rs`. A renderer
-//! picks a candidate for its viewport and shows nothing offline for one the fetcher did not take, and each fetched image
-//! costs a scrub, so a srcset keeps one candidate.
+//! The one `srcset` candidate the recorder keeps. A renderer picks a candidate for its viewport and shows nothing offline
+//! for one the fetcher did not take, and each fetched image costs a scrub, so a srcset keeps one candidate: the one the
+//! screenshotter's Chromium shows, at the device pixel ratio of 1 that it renders at.
 
 use crate::scan::images::keeps_inline_image;
 use crate::url_policy::{is_remote, try_canonicalize};
 
 const MAX_SRCSET_WIDTH: f64 = 1024.0;
-const MAX_SRCSET_DENSITY: f64 = 2.0;
+const SCREENSHOT_DEVICE_PIXEL_RATIO: f64 = 1.0;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum DescriptorKind {
@@ -21,44 +21,97 @@ struct Candidate<'a> {
     value: f64,
 }
 
-/// The kept candidate, as its index in the srcset and its URL: the largest at or below 1024w or 2x, or the smallest
-/// when all are larger. The first candidate wins a tie. `None` for a malformed srcset, or one that mixes width and
-/// density descriptors.
-pub fn kept_candidate(srcset: &str) -> Option<(usize, &str)> {
+impl Candidate<'_> {
+    /// Of density descriptors, Chromium's choice at the screenshot's device pixel ratio: the smallest density at or
+    /// above it, or the largest when all are below it (`SelectionLogic` in Blink's `html_srcset_parser.cc`). A width
+    /// gives a density only against the layout width, which the recorder does not know, so of width descriptors this
+    /// keeps the v3 choice (`rust/replay-anonymizer/src/srcset.rs`): the largest at or below 1024w, or the smallest
+    /// when all are wider. A tie keeps `self`, so the first candidate wins it.
+    fn loses_to(&self, other: &Candidate<'_>) -> bool {
+        let (best, candidate) = (self.value, other.value);
+        match self.kind {
+            DescriptorKind::Density => {
+                let target = SCREENSHOT_DEVICE_PIXEL_RATIO;
+                match (best >= target, candidate >= target) {
+                    (false, true) => true,
+                    (true, true) => candidate < best,
+                    (false, false) => candidate > best,
+                    (true, false) => false,
+                }
+            }
+            DescriptorKind::Width => {
+                match (best <= MAX_SRCSET_WIDTH, candidate <= MAX_SRCSET_WIDTH) {
+                    (false, true) => true,
+                    (true, true) => candidate > best,
+                    (false, false) => candidate < best,
+                    (true, false) => false,
+                }
+            }
+        }
+    }
+}
+
+/// The candidate of a srcset that the recorder keeps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KeptCandidate<'s> {
+    pub index: usize,
+    pub url: &'s str,
+    /// The srcset has no 1x candidate and no width descriptor, so HTML adds an img's non-empty `src` as a 1x candidate,
+    /// which wins at the screenshot's device pixel ratio.
+    pub yields_to_img_src: bool,
+}
+
+/// The element that holds a srcset, which decides whether it shows the kept candidate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SrcsetSlot {
+    /// Nothing else competes with the candidate: an img with no `src`, an img whose `src` the event does not hold, or
+    /// a picture source of a type the fetcher stores.
+    Alone,
+    BesideImgSrc,
+    /// A picture source of a type the fetcher does not store. A remote candidate there gets no fetch job, so only an
+    /// inline one can show.
+    UnfetchedTypeSource,
+}
+
+/// The kept candidate. `None` for a malformed srcset, or one that mixes width and density descriptors.
+pub fn kept_candidate(srcset: &str) -> Option<KeptCandidate<'_>> {
     let mut first_kind = None;
     let mut mixed = false;
     let mut kept: Option<Candidate<'_>> = None;
     for_each_candidate(srcset, |candidate| {
         let kind = *first_kind.get_or_insert(candidate.kind);
         mixed |= candidate.kind != kind;
-        let limit = match kind {
-            DescriptorKind::Width => MAX_SRCSET_WIDTH,
-            DescriptorKind::Density => MAX_SRCSET_DENSITY,
-        };
         kept = Some(match kept.take() {
-            None => candidate,
-            Some(best) => match (best.value <= limit, candidate.value <= limit) {
-                (false, true) => candidate,
-                (true, true) if candidate.value > best.value => candidate,
-                (false, false) if candidate.value < best.value => candidate,
-                _ => best,
-            },
+            Some(best) if !best.loses_to(&candidate) => best,
+            _ => candidate,
         });
     })?;
-    kept.filter(|_| !mixed)
-        .map(|candidate| (candidate.index, candidate.url))
+    kept.filter(|_| !mixed).map(|candidate| KeptCandidate {
+        index: candidate.index,
+        url: candidate.url,
+        yields_to_img_src: candidate.kind == DescriptorKind::Density
+            && candidate.value != SCREENSHOT_DEVICE_PIXEL_RATIO,
+    })
 }
 
 /// The kept candidate when it can show offline, as a URL the fetcher can take or an inline image the image scan keeps.
-/// An img with such a srcset shows that candidate, so v3 fetches neither its `src` nor its `rr_src`. The writer keeps
-/// this candidate alone, and none when there is no such candidate, so that the img shows its `src`.
-pub fn usable_candidate(srcset: &str) -> Option<(usize, &str)> {
-    kept_candidate(srcset).filter(|&(_, url)| {
-        if is_remote(url) {
-            try_canonicalize(url).is_ok()
+pub fn usable_candidate(srcset: &str) -> Option<KeptCandidate<'_>> {
+    kept_candidate(srcset).filter(|kept| {
+        if is_remote(kept.url) {
+            try_canonicalize(kept.url).is_ok()
         } else {
-            keeps_inline_image(url)
+            keeps_inline_image(kept.url)
         }
+    })
+}
+
+/// The usable candidate when the slot shows it. The inspector fetches it and the writer keeps it alone. Otherwise the
+/// writer empties the srcset, so that an img shows its `src` and a picture moves on to its next source.
+pub fn shown_candidate(srcset: &str, slot: SrcsetSlot) -> Option<KeptCandidate<'_>> {
+    usable_candidate(srcset).filter(|kept| match slot {
+        SrcsetSlot::Alone => true,
+        SrcsetSlot::BesideImgSrc => !kept.yields_to_img_src,
+        SrcsetSlot::UnfetchedTypeSource => !is_remote(kept.url),
     })
 }
 
@@ -159,15 +212,15 @@ mod tests {
     use super::*;
 
     fn kept_url(srcset: &str) -> Option<&str> {
-        kept_candidate(srcset).map(|(_, url)| url)
+        kept_candidate(srcset).map(|kept| kept.url)
     }
 
     #[test]
-    fn keeps_the_largest_candidate_within_the_limit_or_the_smallest_above_it() {
+    fn keeps_the_density_chromium_shows_at_1x_and_the_v3_width() {
         for (srcset, expected) in [
             (
                 "https://example.com/a.png 1x, https://example.com/b.png 2x",
-                "https://example.com/b.png",
+                "https://example.com/a.png",
             ),
             (
                 "https://example.com/a.png 320w, https://example.com/b.png 1280w",
@@ -185,22 +238,45 @@ mod tests {
                 "large.png 3840w, small.png 1280w, medium.png 1920w",
                 "small.png",
             ),
-            ("large.png 4x, medium.png 2x, small.png 1x", "medium.png"),
-            ("small.png 1x, medium.png 1.5x, large.png 3x", "medium.png"),
+            ("large.png 4x, medium.png 2x, small.png 1x", "small.png"),
+            ("medium.png 1.5x, large.png 3x", "medium.png"),
             ("large.png 4x, small.png 3x", "small.png"),
+            ("tiny.png 0.5x, large.png 2x", "large.png"),
+            ("tiny.png 0.5x, small.png 0.75x", "small.png"),
             ("default.png, large.png 3x", "default.png"),
             ("only.png 4096w", "only.png"),
             (
                 "data:image/png;base64,AAAA 1x, data:image/png;base64,BBBB 2x",
-                "data:image/png;base64,BBBB",
+                "data:image/png;base64,AAAA",
             ),
         ] {
             assert_eq!(kept_url(srcset), Some(expected), "{srcset}");
         }
         assert_eq!(
-            kept_candidate("a.png 1x, b.png 2x, c.png 3x"),
-            Some((1, "b.png"))
+            kept_candidate("c.png 3x, b.png 2x, a.png 1x").map(|kept| kept.index),
+            Some(2)
         );
+    }
+
+    #[test]
+    fn an_img_src_wins_over_a_srcset_with_no_1x_or_width_candidate() {
+        let (a, b) = (
+            "https://cdn.example.com/a.png",
+            "https://cdn.example.com/b.png",
+        );
+        for (srcset, shown_beside_src) in [
+            (format!("{a} 1x, {b} 2x"), Some(a)),
+            (format!("{b} 2x, {a} 1.0x"), Some(a)),
+            (format!("{a} 320w, {b} 1280w"), Some(a)),
+            (format!("{b} 2x"), None),
+            (format!("{a} 0.5x"), None),
+        ] {
+            let alone = shown_candidate(&srcset, SrcsetSlot::Alone).map(|kept| kept.url);
+            let beside_src =
+                shown_candidate(&srcset, SrcsetSlot::BesideImgSrc).map(|kept| kept.url);
+            assert!(alone.is_some(), "{srcset}");
+            assert_eq!(beside_src, shown_beside_src, "{srcset}");
+        }
     }
 
     #[test]
@@ -220,7 +296,7 @@ mod tests {
 
     #[test]
     fn the_first_candidate_wins_a_tie() {
-        for descriptor in ["2x", "3x", "1024w", "2048w"] {
+        for descriptor in ["0.5x", "1x", "2x", "3x", "1024w", "2048w"] {
             assert_eq!(
                 kept_url(&format!("first.png {descriptor}, second.png {descriptor}")),
                 Some("first.png")

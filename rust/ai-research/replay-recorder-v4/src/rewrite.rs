@@ -2,13 +2,12 @@
 //! policy declines becomes a marker that names the reason, so that no credential, signature or private host stays in
 //! the block. The inspector names the URLs: those in image slots, CSS included.
 //!
-//! A srcset is rebuilt instead: it keeps only the candidate that the inspector fetched, by [`usable_candidate`] in the
-//! value the inspector read. It keeps none when that value has no usable candidate, which makes the inspector fetch the
-//! img's `src`, or when the candidate is remote in a picture source of a type the fetcher does not store. A browser
-//! skips a source with no candidates, so it falls back to a source or an img that can load, where a marker in the list
-//! would show a broken image. The writer rebuilds each srcset in the bytes it stores, after escapes were written again
-//! and inline images left. Moving an inline image out can change how a srcset parses, so the writer finds the
-//! inspector's candidate by its [`CandidatePosition`].
+//! A srcset is rebuilt instead: it keeps only the candidate that the inspector fetched, by [`shown_candidate`] in the
+//! value the inspector read and its slot. It keeps none when the slot shows no candidate of that value: the inspector
+//! then fetches the img's `src`, and a browser skips a source with no candidates, so it falls back to a source or an img
+//! that can load, where a marker in the list would show a broken image. The writer rebuilds each srcset in the bytes it
+//! stores, after escapes were written again and inline images left. Moving an inline image out can change how a srcset
+//! parses, so the writer finds the inspector's candidate by its [`CandidatePosition`].
 
 use std::borrow::Cow;
 use std::cell::Cell;
@@ -22,7 +21,7 @@ use posthog_replay_anonymizer::v4_image_refs::{
 use replay_core_v4::bytescan::{unescape, write_json_string, Span};
 use replay_core_v4::inspect::css::{escape_in_identifier, rewrite_functions, CssRewrite};
 use replay_core_v4::inspect::dom::{for_each_srcset_candidate, Srcset};
-use replay_core_v4::inspect::srcset::usable_candidate;
+use replay_core_v4::inspect::srcset::shown_candidate;
 use replay_core_v4::scan::tokens::{Token, Tokens};
 use replay_core_v4::seal::image_url_key;
 use replay_core_v4::url_policy::is_remote;
@@ -232,7 +231,7 @@ pub struct UrlRewrite {
     css_matcher: Option<AhoCorasick>,
     css_targets: Vec<CssTarget>,
     css_texts: HashMap<String, usize>,
-    /// The usable candidate of each inspected srcset value, by the [`remote_urls`] of the value. Only a stored srcset with
+    /// The shown candidate of each inspected srcset value, by the [`remote_urls`] of the value. Only a stored srcset with
     /// the same remote URLs is rebuilt, so a srcset key outside an image slot, such as in a custom event's payload, stays
     /// as it is. Values with the same remote URLs share an entry, so each keeps the candidate of every one of them.
     kept_srcset_candidates: HashMap<Vec<String>, Vec<CandidatePosition>>,
@@ -363,7 +362,7 @@ impl UrlRewrite {
             let kept = kept_srcset_candidates
                 .entry(remote_urls(&srcset.text))
                 .or_default();
-            if let Some(position) = usable_position(srcset).filter(|p| !kept.contains(p)) {
+            if let Some(position) = shown_position(srcset).filter(|p| !kept.contains(p)) {
                 kept.push(position);
             }
         }
@@ -837,20 +836,17 @@ fn for_each_positioned_candidate<'s>(
     });
 }
 
-fn usable_position(srcset: &Srcset) -> Option<CandidatePosition> {
-    // `usable_candidate` reads only a well-formed srcset, whose candidates `for_each_srcset_candidate` reads in the same order.
-    let (usable_index, url) = usable_candidate(&srcset.text)?;
-    if srcset.unfetched_type && is_remote(url) {
-        return None;
-    }
-    let (mut index, mut usable) = (0, None);
+fn shown_position(srcset: &Srcset) -> Option<CandidatePosition> {
+    // `shown_candidate` reads only a well-formed srcset, whose candidates `for_each_srcset_candidate` reads in the same order.
+    let shown_index = shown_candidate(&srcset.text, srcset.slot)?.index;
+    let (mut index, mut shown) = (0, None);
     for_each_positioned_candidate(&srcset.text, |position, _, _| {
-        if index == usable_index {
-            usable = Some(position);
+        if index == shown_index {
+            shown = Some(position);
         }
         index += 1;
     });
-    usable
+    shown
 }
 
 /// The srcset with only the candidate the block keeps, a remote URL as its reference, how it was rebuilt, and the URL
@@ -910,6 +906,7 @@ mod tests {
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
     use replay_core_v4::bytescan::canonical_strings;
+    use replay_core_v4::inspect::srcset::SrcsetSlot;
 
     use super::*;
 
@@ -979,25 +976,42 @@ mod tests {
             "https://10.0.0.7/b.png",
         );
         let over_limit = ImageDecline::OverLimit.marker();
-        for (inspected, stored, expected) in [
+        for (slot, inspected, stored, expected) in [
             // A message past its image cap stores the PNG as `over_limit`, where the inspector read a data URI.
             (
-                format!("{png} 1x, {svg} 2x"),
-                format!("{over_limit} 1x, {svg} 2x"),
-                format!("{svg} 2x"),
+                SrcsetSlot::Alone,
+                format!("{png} 2x, {svg} 1x"),
+                format!("{over_limit} 2x, {svg} 1x"),
+                format!("{svg} 1x"),
             ),
             (
+                SrcsetSlot::Alone,
                 format!("{a} 1x, {b} 2x"),
                 format!("{a} 1x, {b} 2x"),
-                format!("{} 2x", reference(b)),
+                format!("{} 1x", reference(a)),
             ),
-            // The 1x candidate has no fetch job, so it cannot stand in for the declined 2x one.
             (
-                format!("{a} 1x, {private} 2x"),
-                format!("{a} 1x, {private} 2x"),
+                SrcsetSlot::BesideImgSrc,
+                format!("{a} 1x, {b} 2x"),
+                format!("{a} 1x, {b} 2x"),
+                format!("{} 1x", reference(a)),
+            ),
+            // The img shows its `src`, which HTML adds as a 1x candidate.
+            (
+                SrcsetSlot::BesideImgSrc,
+                format!("{b} 2x"),
+                format!("{b} 2x"),
+                String::new(),
+            ),
+            // The 2x candidate has no fetch job, so it cannot stand in for the declined 1x one.
+            (
+                SrcsetSlot::Alone,
+                format!("{private} 1x, {b} 2x"),
+                format!("{private} 1x, {b} 2x"),
                 String::new(),
             ),
             (
+                SrcsetSlot::Alone,
                 format!("{a} 1x, {b} 640w"),
                 format!("{a} 1x, {b} 640w"),
                 String::new(),
@@ -1005,6 +1019,7 @@ mod tests {
             // The image scan moves out a data URI in any case, where the inspector read a malformed srcset and fetched
             // the img's `src` instead.
             (
+                SrcsetSlot::Alone,
                 format!(
                     "DATA:image/png;base64,{} 1x, {b} 2x",
                     STANDARD.encode(b"\x89PNG\r\n\x1a\nbytes")
@@ -1016,7 +1031,7 @@ mod tests {
             let srcset = Srcset {
                 raw: serde_json::to_vec(&inspected).unwrap(),
                 text: inspected.clone(),
-                unfetched_type: false,
+                slot,
             };
             let mut rewrite = UrlRewrite::new(&[], &[srcset], &[], 7, "2026-10", &TEAM_KEY);
             let stored = format!(r#"{{"srcset":"{stored}"}}"#);

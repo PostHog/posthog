@@ -1052,9 +1052,9 @@ mod tests {
         let remote_svg = "https://cdn.example.com/a.svg";
         let avif_typed_svg = "data:image/svg+xml,%3Csvg%2F%3E";
         let shared = "https://cdn.example.com/shared.webp";
-        let (also_in_webp, webp_2x) = (
+        let (also_in_webp, webp_1x) = (
             "https://cdn.example.com/also-in-webp.png",
-            "https://cdn.example.com/webp-2x.webp",
+            "https://cdn.example.com/webp-1x.webp",
         );
         let other_avif = format!(
             "data:image/avif;base64,{}",
@@ -1071,20 +1071,20 @@ mod tests {
             source(7, json!({"type": "image/svg+xml", "srcset": format!("{remote_svg} 1x")})),
             source(3, json!({"type": "image/avif", "srcset": format!("{avif} 1x, {inline_avif} 2x")})),
             // An inline candidate needs no fetch job, so it stays whatever the type.
-            source(15, json!({"type": "image/avif", "srcset": format!("{avif} 1x, {avif_typed_svg} 2x")})),
+            source(15, json!({"type": "image/avif", "srcset": format!("{avif} 2x, {avif_typed_svg} 1x")})),
             // A bare srcset equal to the img's src below: only the srcset empties.
             source(8, json!({"type": "image/avif", "srcset": bare})),
             // Values that read the same once their inline AVIFs leave merge their policies, so the WebP source keeps
             // the shared candidate.
-            source(11, json!({"type": "image/avif", "srcset": format!("{shared} 2x, {inline_avif} 1x")})),
-            source(12, json!({"type": "image/webp", "srcset": format!("{shared} 2x, {other_avif} 1x")})),
+            source(11, json!({"type": "image/avif", "srcset": format!("{shared} 1x, {inline_avif} 2x")})),
+            source(12, json!({"type": "image/webp", "srcset": format!("{shared} 1x, {other_avif} 2x")})),
             // The WebP source keeps its other candidate, so no source fetches the URL the two share.
             source(13, json!({"type": "image/avif", "srcset": format!("{also_in_webp} 1x")})),
-            source(14, json!({"type": "image/webp", "srcset": format!("{also_in_webp} 1x, {webp_2x} 2x")})),
+            source(14, json!({"type": "image/webp", "srcset": format!("{also_in_webp} 2x, {webp_1x} 1x")})),
             // An empty type gives no hint, so the source keeps its candidate.
             source(9, json!({"type": "", "srcset": format!("{typeless} 1x")})),
             // Only the kept candidate stays, so a declined URL and an inline image the image scrub cannot read leave too.
-            source(4, json!({"type": "image/webp", "srcset": format!("{signed} 1x, {webp} 2x, {bitmap} 3x")})),
+            source(4, json!({"type": "image/webp", "srcset": format!("{webp} 1x, {signed} 2x, {bitmap} 3x")})),
             {"type": 2, "tagName": "img", "attributes": {"src": fallback}, "childNodes": [], "id": 5},
         ]});
         let img = json!({"type": 2, "tagName": "img", "attributes": {"src": bare}, "childNodes": [], "id": 10});
@@ -1099,7 +1099,7 @@ mod tests {
         // The fetcher stores no AVIF, so the AVIF source gets no fetch job.
         let fetched = inspection.finish().image_urls;
         assert!(!fetched.iter().any(|u| u == avif || u == also_in_webp));
-        assert!(fetched.iter().any(|u| u == webp_2x));
+        assert!(fetched.iter().any(|u| u == webp_1x));
 
         let lines = stored_lines(&events, &[]);
         let reference = |url: &str| {
@@ -1116,7 +1116,7 @@ mod tests {
         assert!(lines.contains(r#""srcset":"""#), "{lines}");
         assert!(
             lines.contains(&format!(r#""srcset":"{svg} 1x""#))
-                && lines.contains(&format!(r#""srcset":"{avif_typed_svg} 2x""#)),
+                && lines.contains(&format!(r#""srcset":"{avif_typed_svg} 1x""#)),
             "{lines}"
         );
         assert!(
@@ -1124,16 +1124,16 @@ mod tests {
             "{lines}"
         );
         assert!(
-            lines.contains(&format!(r#""srcset":"{} 2x""#, reference(webp))),
+            lines.contains(&format!(r#""srcset":"{} 1x""#, reference(webp))),
             "{lines}"
         );
         assert!(lines.contains(&reference(fallback)), "{lines}");
         assert!(
-            lines.contains(&format!(r#""srcset":"{} 2x""#, reference(shared))),
+            lines.contains(&format!(r#""srcset":"{} 1x""#, reference(shared))),
             "{lines}"
         );
         assert!(
-            lines.contains(&format!(r#""srcset":"{} 2x""#, reference(webp_2x)))
+            lines.contains(&format!(r#""srcset":"{} 1x""#, reference(webp_1x)))
                 && !lines.contains(&reference(also_in_webp)),
             "{lines}"
         );
@@ -1162,12 +1162,12 @@ mod tests {
         assert!(svg.contains('/'));
         let inline = format!("data:image/svg+xml;base64,{svg}");
         let events = format!(
-            r#"[{{"type":3,"timestamp":1,"data":{{"source":0,"adds":[],"removes":[],"texts":[],"attributes":[{{"id":99,"attributes":{{"srcset":"{} 2x, https://10.0.0.7/a.png 1x"}}}}]}}}}]"#,
+            r#"[{{"type":3,"timestamp":1,"data":{{"source":0,"adds":[],"removes":[],"texts":[],"attributes":[{{"id":99,"attributes":{{"srcset":"{} 1x, https://10.0.0.7/a.png 2x"}}}}]}}}}]"#,
             inline.replace('/', "\\/")
         );
         let lines = stored_lines(&events, &[]);
         assert!(
-            lines.contains(&format!(r#""srcset":"{inline} 2x""#)),
+            lines.contains(&format!(r#""srcset":"{inline} 1x""#)),
             "{lines}"
         );
         assert!(
@@ -1178,7 +1178,7 @@ mod tests {
         // A srcset key outside an image slot, here in a custom event, is no srcset of the DOM and stays as it is. With
         // the same value as an inspected image slot, only the slot is rebuilt, and the custom event gets the rewrite of
         // each URL that every copy of a named URL gets.
-        let value = "https://cdn.example.com/a.png 2x, https://10.0.0.7/a.png 1x";
+        let value = "https://cdn.example.com/a.png 1x, https://10.0.0.7/a.png 2x";
         let both = format!(
             r#"[{{"type":3,"timestamp":1,"data":{{"source":0,"adds":[],"removes":[],"texts":[],"attributes":[{{"id":99,"attributes":{{"srcset":"{value}"}}}}]}}}},{{"type":5,"timestamp":2,"data":{{"tag":"app","payload":{{"srcset":"{value}"}}}}}}]"#
         );
@@ -1193,20 +1193,20 @@ mod tests {
         .1;
         let (dom, custom) = lines.split_once('\n').unwrap();
         assert!(
-            dom.contains(&format!(r#""srcset":"{reference} 2x""#)),
+            dom.contains(&format!(r#""srcset":"{reference} 1x""#)),
             "{dom}"
         );
         assert!(
             custom.contains(&format!(
-                r#""srcset":"{reference} 2x, imageurl:v4:declined:non_public_host 1x""#
+                r#""srcset":"{reference} 1x, imageurl:v4:declined:non_public_host 2x""#
             )),
             "{custom}"
         );
-        let custom = r#"[{"type":5,"timestamp":1,"data":{"tag":"app","payload":{"srcset":"https://cdn.example.com/a.png 2x, https://10.0.0.7/a.png 1x"}}}]"#;
+        let custom = r#"[{"type":5,"timestamp":1,"data":{"tag":"app","payload":{"srcset":"https://cdn.example.com/a.png 1x, https://10.0.0.7/a.png 2x"}}}]"#;
         let lines = stored_lines(custom, &[]);
         assert!(
             lines.contains(
-                r#""srcset":"https://cdn.example.com/a.png 2x, https://10.0.0.7/a.png 1x""#
+                r#""srcset":"https://cdn.example.com/a.png 1x, https://10.0.0.7/a.png 2x""#
             ),
             "{lines}"
         );
