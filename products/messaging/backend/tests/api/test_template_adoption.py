@@ -14,7 +14,7 @@ from posthog.models.utils import generate_random_token_personal, generate_random
 from products.access_control.backend.models.access_control import AccessControl
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
-from products.workflows.backend.models import HogFlow
+from products.workflows.backend.facade.models import HogFlow
 
 DOCS_URL = "https://posthog.com/docs/workflows/transactional-email-api"
 
