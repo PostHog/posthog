@@ -473,10 +473,7 @@ class ExtensionCollector implements RobotsParseHandler {
     }
 }
 
-/**
- * Collects only the rules that apply to this bot. ParsedRobots copies the rules of a group once for each of its user
- * agents, and again for each repeated agent, so a small robots.txt can expand to hundreds of millions of entries.
- */
+/** Collects only the rules that apply to this bot, because ParsedRobots keeps a copy of a group's rules for each of its user agents. */
 class ApplicableRulesCollector implements RobotsParseHandler {
     public readonly botRules: string[] = []
     public readonly wildcardRules: string[] = []
