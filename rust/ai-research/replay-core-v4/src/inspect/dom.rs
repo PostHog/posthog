@@ -3,12 +3,16 @@
 
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
+use std::sync::atomic::AtomicUsize;
+use std::sync::Arc;
+
+use url::Url;
 
 use crate::bytescan::{self as scan, Span};
 use crate::fonts::{bundled_font, is_fetched_font_url};
 use crate::url_policy::{is_fetched_image_type, is_remote, MAX_URL_LEN};
 
-use super::css::{self, CssUrl};
+use super::css::{self, CssRewrite, CssUrl, Resolver};
 use super::events::{field, fields, number, text};
 use super::rrweb::{
     ADOPTED_STYLE_SHEET, FULL_SNAPSHOT, INCREMENTAL_SNAPSHOT, MUTATION, STYLE_DECLARATION,
@@ -180,6 +184,8 @@ struct WindowDom {
     /// or the window was evicted and came back.
     unverifiable: bool,
     last_used: u64,
+    /// From the window's own page URL, because another window of the session can be on another page.
+    page_base: Option<Arc<Url>>,
 }
 
 /// Why the inspector stopped naming a block's remote image URLs. The writer replaces only the URLs it is given, so it
@@ -231,6 +237,15 @@ pub struct RemoteUrls {
     /// in `urls` on its own.
     /// Boxed, because the session state counts this struct's size and most blocks hold no srcset.
     srcsets: Option<Box<SrcsetValues>>,
+    /// Past its count and byte budget this keeps no more, which is safe: each URL a rewrite drops is in `urls` too, and a
+    /// relative URL stays as the page wrote it.
+    css_rewrites: Option<Box<CssRewrites>>,
+}
+
+#[derive(Debug, Default)]
+struct CssRewrites {
+    values: HashMap<String, Option<CssRewrite>>,
+    bytes: usize,
 }
 
 #[derive(Debug, Default)]
@@ -298,6 +313,32 @@ impl RemoteUrls {
         }
     }
 
+    /// A text that resolves two ways, as a root-relative URL in windows on two origins, keeps no rewrite, so that no
+    /// window shows another's image. Its URL then stays relative, as the page wrote it.
+    fn insert_css_rewrite(&mut self, text: String, rewrite: Option<CssRewrite>) {
+        let rewrites = self.css_rewrites.get_or_insert_with(Box::default);
+        if let Some(known) = rewrites.values.get_mut(&text) {
+            if known.as_ref().map(|known| &known.replacement)
+                != rewrite.as_ref().map(|rewrite| &rewrite.replacement)
+            {
+                *known = None;
+            }
+            return;
+        }
+        let bytes = text.len()
+            + rewrite.as_ref().map_or(0, |rewrite| {
+                rewrite.replacement.len()
+                    + rewrite.dropped.iter().map(String::len).sum::<usize>()
+                    + rewrite.resolved.as_ref().map_or(0, String::len)
+            });
+        if rewrites.values.len() < MAX_BLOCK_REMOTE_URLS
+            && rewrites.bytes + bytes <= MAX_BLOCK_REMOTE_URL_BYTES
+        {
+            rewrites.bytes += bytes;
+            rewrites.values.insert(text, rewrite);
+        }
+    }
+
     pub fn extend(&mut self, other: RemoteUrls) {
         // The URLs go in before the other's limit, so that a part that hit a limit still names what it holds.
         for (url, &kind) in &other.urls {
@@ -307,6 +348,19 @@ impl RemoteUrls {
         for (raw, (text, unfetched_type)) in other.srcsets.iter().flat_map(|s| &s.values) {
             self.insert_srcset(raw, text, *unfetched_type);
         }
+        for (text, rewrite) in other.css_rewrites.into_iter().flat_map(|r| r.values) {
+            self.insert_css_rewrite(text, rewrite);
+        }
+    }
+
+    pub fn take_css_rewrites(&mut self) -> Vec<CssRewrite> {
+        self.css_rewrites
+            .take()
+            .map(|rewrites| rewrites.values)
+            .unwrap_or_default()
+            .into_values()
+            .flatten()
+            .collect()
     }
 
     pub fn take_srcsets(&mut self) -> Vec<Srcset> {
@@ -359,6 +413,10 @@ fn fetchable(url: &str) -> Option<&str> {
 impl Urls {
     fn push(&mut self, url: &str) {
         self.push_remote(url);
+        self.push_fetch(url);
+    }
+
+    fn push_fetch(&mut self, url: &str) {
         let Some(url) = fetchable(url) else { return };
         if self.in_message.len() < MAX_IMAGE_URLS && !self.in_message.contains(url) {
             self.in_message.insert(url.to_owned());
@@ -399,9 +457,15 @@ impl Urls {
         }
     }
 
-    fn push_css(&mut self, url: CssUrl<'_>) {
-        match url {
+    fn push_css(&mut self, found: CssUrl<'_>) {
+        match found {
             CssUrl::Image(url) => self.push(url),
+            CssUrl::Unshown(url) => self.push_remote(url),
+            CssUrl::Resolved(url) => self.push_fetch(url),
+            CssUrl::Unresolved(text) => self.remote.insert_css_rewrite(text.to_owned(), None),
+            CssUrl::Rewrite(rewrite) => self
+                .remote
+                .insert_css_rewrite(rewrite.text.clone(), Some(rewrite)),
             CssUrl::Font { url, family } => self.push_font(url, family),
         }
     }
@@ -409,7 +473,7 @@ impl Urls {
     /// Takes the URLs one walk found.
     fn merge(&mut self, walk: Urls) {
         for url in &walk.urls {
-            self.push(url);
+            self.push_fetch(url);
         }
         for url in walk.fonts.iter().flat_map(|fonts| &fonts.urls) {
             self.queue_font(url);
@@ -441,7 +505,8 @@ pub struct Observed {
 
 /// What one walk over serialized nodes found.
 #[derive(Default)]
-struct Walk {
+struct Walk<'p> {
+    resolver: Resolver<'p>,
     /// Each node and its parent. A root's parent is `None`.
     ids: Vec<(i64, Option<i64>)>,
     /// The walk met more nodes than the node cap, so `ids` stops short.
@@ -463,7 +528,7 @@ struct Walk {
     root_sources: Vec<(Option<i64>, Option<Span>, Option<Span>)>,
 }
 
-impl Walk {
+impl Walk<'_> {
     fn push_id(&mut self, id: i64, parent: Option<i64>) {
         if self.ids.len() < MAX_TRACKED_NODES {
             self.ids.push((id, parent));
@@ -524,7 +589,9 @@ impl Walk {
     fn push_css(&mut self, bytes: &[u8], value: Option<Span>) {
         let Some(value) = value else { return };
         if let Some(text) = text(bytes, Some(value)) {
-            css::urls(&text, &mut |url| self.image_urls.push_css(url));
+            css::urls(&text, &mut self.resolver, &mut |found| {
+                self.image_urls.push_css(found)
+            });
         } else if scan::is_object(bytes, value) {
             let Ok(entries) = scan::object_entries(bytes, value) else {
                 return;
@@ -533,9 +600,12 @@ impl Walk {
                 let property = std::str::from_utf8(&bytes[entry.key.0..entry.key.1]);
                 let declared = text(bytes, style_property_value(bytes, entry.value));
                 if let (Ok(property), Some(declared)) = (property, declared) {
-                    css::declaration_image_urls(property, &declared, &mut |url| {
-                        self.image_urls.push(url)
-                    });
+                    css::declaration_image_urls(
+                        property,
+                        &declared,
+                        &mut self.resolver,
+                        &mut |found| self.image_urls.push_css(found),
+                    );
                 }
             }
         }
@@ -1011,16 +1081,21 @@ fn finish_node(bytes: &[u8], node: NodeFrame, parent: Option<&mut NodeFrame>, wa
 }
 
 /// What a full snapshot does to its window.
-enum Snapshot {
+enum Snapshot<'p> {
     /// The player drops it, because its data or its node is not an object.
     Dropped,
     /// It does not decode or is too deep to walk, and the player may still build a DOM from a payload this deep.
     Unreadable,
-    Walked(Box<Walk>),
+    Walked(Box<Walk<'p>>),
 }
 
 /// Walks the DOM in a full snapshot's data, decoded when the event is compressed.
-fn walk_snapshot(inner: &[u8], data: Span, expansion: &Expansion) -> Snapshot {
+fn walk_snapshot<'p>(
+    inner: &[u8],
+    data: Span,
+    expansion: &Expansion,
+    resolver: Resolver<'p>,
+) -> Snapshot<'p> {
     let (bytes, root) = if scan::is_string(inner, data) {
         match expansion.json(data) {
             Some(Some(json)) => match scan::locate_value(json, 0) {
@@ -1037,7 +1112,10 @@ fn walk_snapshot(inner: &[u8], data: Span, expansion: &Expansion) -> Snapshot {
     else {
         return Snapshot::Dropped;
     };
-    let mut walk = Walk::default();
+    let mut walk = Walk {
+        resolver,
+        ..Walk::default()
+    };
     if walk_nodes(bytes, node, &mut walk) {
         Snapshot::Walked(Box::new(walk))
     } else {
@@ -1210,6 +1288,10 @@ impl WindowDom {
             + table_bytes::<(i64, HiddenSources)>(self.hidden_sources.capacity())
             + self.hidden_source_bytes
             + table_bytes::<i64>(self.style_texts.capacity())
+            + self
+                .page_base
+                .as_ref()
+                .map_or(0, |base| std::mem::size_of::<Url>() + base.as_str().len())
     }
 }
 
@@ -1264,6 +1346,8 @@ impl DomInspector {
         inner: &[u8],
         event: &Event,
         window: &str,
+        event_page_url: Option<&str>,
+        resolve_budget: Option<&AtomicUsize>,
         stats: &mut BlockStats,
     ) -> Observed {
         self.clock += 1;
@@ -1274,13 +1358,18 @@ impl DomInspector {
             self.clock,
             window,
         );
+        if let Some(page_url) = event_page_url {
+            dom.page_base = css::page_base(page_url).map(Arc::new);
+        }
+        let page_base = dom.page_base.clone();
+        let resolver = Resolver::new(page_base.as_deref(), resolve_budget);
         let mut observed = Observed::default();
         match (event.kind, event.source) {
             (Some(FULL_SNAPSHOT), _) => {
                 let expansion = cv::expansion(inner, event);
                 let last_used = dom.last_used;
                 match event.data.map_or(Snapshot::Dropped, |data| {
-                    walk_snapshot(inner, data, &expansion)
+                    walk_snapshot(inner, data, &expansion, resolver)
                 }) {
                     Snapshot::Walked(mut walk) => {
                         // A full snapshot replaces the window's DOM.
@@ -1288,6 +1377,7 @@ impl DomInspector {
                             has_snapshot: true,
                             unverifiable: walk.truncated,
                             last_used,
+                            page_base: page_base.clone(),
                             ..WindowDom::default()
                         };
                         for &(id, parent) in &walk.ids {
@@ -1314,6 +1404,7 @@ impl DomInspector {
                         *dom = WindowDom {
                             unverifiable: true,
                             last_used,
+                            page_base: page_base.clone(),
                             ..WindowDom::default()
                         }
                     }
@@ -1325,7 +1416,7 @@ impl DomInspector {
                 if let Some(data) = event.data {
                     let expansion = cv::expansion(inner, event);
                     let (orphans, changed, undecoded) =
-                        observe_mutation(inner, data, &expansion, dom, &mut self.urls);
+                        observe_mutation(inner, data, &expansion, dom, resolver, &mut self.urls);
                     stats.orphan_mutations += orphans;
                     stats.decode_failures += u32::from(undecoded);
                     observed.changed = changed;
@@ -1340,7 +1431,14 @@ impl DomInspector {
                     if matches!(*expansion, Expansion::Failed | Expansion::Skipped) {
                         stats.decode_failures += 1;
                     }
-                    style_sheet_urls(inner, data, event.source, &expansion, &mut self.urls);
+                    style_sheet_urls(
+                        inner,
+                        data,
+                        event.source,
+                        &expansion,
+                        resolver,
+                        &mut self.urls,
+                    );
                 }
             }
             _ => {}
@@ -1476,6 +1574,7 @@ fn observe_mutation(
     data: Span,
     expansion: &Expansion,
     dom: &mut WindowDom,
+    resolver: Resolver<'_>,
     urls: &mut Urls,
 ) -> (u32, u32, bool) {
     // The recorder did not decode this mutation, so the window's DOM is not known after it.
@@ -1488,7 +1587,10 @@ fn observe_mutation(
         return (0, 0, true);
     }
     let mut undecoded = false;
-    let mut walk = Walk::default();
+    let mut walk = Walk {
+        resolver,
+        ..Walk::default()
+    };
     let mut adds = Vec::new();
     if let Some(list) = lists.adds {
         let mut sources = Vec::new();
@@ -1663,9 +1765,11 @@ fn style_sheet_urls(
     data: Span,
     source: Option<u8>,
     expansion: &Expansion,
+    mut resolver: Resolver<'_>,
     urls: &mut Urls,
 ) {
-    let mut push = |url: CssUrl<'_>| urls.push_css(url);
+    let mut push = |found: CssUrl<'_>| urls.push_css(found);
+    let resolver = &mut resolver;
     match source {
         Some(STYLE_SHEET_RULE) => {
             let [adds, replace, replace_sync] =
@@ -1673,13 +1777,13 @@ fn style_sheet_urls(
             if let Some(adds) = adds.and_then(|adds| decoded_list(inner, adds, expansion)) {
                 for item in items(adds) {
                     if let Some(rule) = text(adds.bytes, field(adds.bytes, item, b"rule")) {
-                        css::urls(&rule, &mut push);
+                        css::urls(&rule, resolver, &mut push);
                     }
                 }
             }
             for sheet in [replace, replace_sync] {
                 if let Some(sheet) = text(inner, sheet) {
-                    css::urls(&sheet, &mut push);
+                    css::urls(&sheet, resolver, &mut push);
                 }
             }
         }
@@ -1688,7 +1792,7 @@ fn style_sheet_urls(
             let [property, value] =
                 set.map_or([None; 2], |set| fields(inner, set, [b"property", b"value"]));
             if let (Some(property), Some(value)) = (text(inner, property), text(inner, value)) {
-                css::declaration_image_urls(&property, &value, &mut |url| push(CssUrl::Image(url)));
+                css::declaration_image_urls(&property, &value, resolver, &mut push);
             }
         }
         Some(ADOPTED_STYLE_SHEET) => {
@@ -1707,7 +1811,7 @@ fn style_sheet_urls(
                     span: rules,
                 }) {
                     if let Some(rule) = text(inner, field(inner, rule, b"rule")) {
-                        css::urls(&rule, &mut push);
+                        css::urls(&rule, resolver, &mut push);
                     }
                 }
             }
@@ -1794,7 +1898,14 @@ mod tests {
             let message = events(json!([event]));
             let mut stats = BlockStats::default();
             let mut dom = DomInspector::default();
-            dom.observe(&message.inner, &message.events[0], "w", &mut stats);
+            dom.observe(
+                &message.inner,
+                &message.events[0],
+                "w",
+                None,
+                None,
+                &mut stats,
+            );
             // Remote image URLs go to the fetcher. The inline image in the srcset is the image scan's to move.
             assert_eq!(
                 dom.take_image_urls(),
@@ -1843,11 +1954,13 @@ mod tests {
         let mut dom = DomInspector::default();
         let mut stats = BlockStats::default();
         for event in &message.events {
-            dom.observe(&message.inner, event, "w", &mut stats);
+            dom.observe(&message.inner, event, "w", None, None, &mut stats);
         }
         assert_eq!(stats.events_before_first_full_snapshot, 1);
         assert_eq!(stats.orphan_mutations, 2);
     }
+
+    const PAGE_URL: &str = "http://app.example.com/shop/item";
 
     fn mutation(adds: Value, removes: Value, texts: Value, attributes: Value) -> Value {
         json!({"type": 3, "timestamp": 2, "data": {"source": 0, "adds": adds, "removes": removes, "texts": texts, "attributes": attributes}})
@@ -1861,7 +1974,14 @@ mod tests {
         let mut stats = BlockStats::default();
         dom.start_message();
         for event in &message.events {
-            dom.observe(&message.inner, event, window, &mut stats);
+            dom.observe(
+                &message.inner,
+                event,
+                window,
+                Some(PAGE_URL),
+                None,
+                &mut stats,
+            );
         }
         (dom, stats)
     }
@@ -2009,6 +2129,7 @@ mod tests {
             mutation(json!([]), json!([]), json!([]), json!([{"id": 20, "attributes": {"alt": "x"}}])),
             mutation(json!([]), json!([]), json!([]), json!([{"id": 20, "attributes": {"hidden": null}}])),
             mutation(json!([]), json!([]), json!([]), json!([{"id": 6, "attributes": {"style": {"background-image": [format!("url({})", url("style-object")), "important"], "background": format!("url({})", url("style-object-plain")), "color": "red", "mask-image": false}}}])),
+            mutation(json!([]), json!([]), json!([]), json!([{"id": 6, "attributes": {"style": {"background-image": "url(\"/img/relative-style.png\")"}}}])),
             // A `source` added on its own under a `picture`, one the page has or one the same mutation adds.
             mutation(json!([{"parentId": 13, "node": element(40, "source", json!({"srcset": format!("{} 2x", url("lone-source"))}), json!([]))},
                 {"parentId": 41, "node": element(42, "source", json!({"srcset": url("same-mutation-source")}), json!([]))},
@@ -2020,7 +2141,7 @@ mod tests {
             // New text in a `style` is CSS. Text elsewhere is not.
             mutation(json!([]), json!([]), json!([{"id": 4, "value": format!(".a{{background:url({})}}", url("style-text-change"))}, {"id": 6, "value": format!("background:url({})", url("not-css"))}]), json!([])),
             // Rules and declarations that a page sets through CSSOM, compressed or not.
-            {"type": 3, "timestamp": 3, "cv": "2024-10", "data": {"source": 8, "id": 3, "adds": sdk_cv(&json!([{"rule": format!(".c{{background:url({})}}", url("sheet-rule")), "index": 0}]))}},
+            {"type": 3, "timestamp": 3, "cv": "2024-10", "data": {"source": 8, "id": 3, "adds": sdk_cv(&json!([{"rule": format!(".c{{background:url({})}} .e{{background:url(/img/relative-rule.png)}}", url("sheet-rule")), "index": 0}]))}},
             {"type": 3, "timestamp": 3, "data": {"source": 8, "id": 3, "replaceSync": format!(".r{{cursor:url({}),auto}}", url("sheet-replace"))}},
             {"type": 3, "timestamp": 3, "data": {"source": 13, "id": 3, "index": [0], "set": {"property": "background-image", "value": format!("url({})", url("declaration"))}}},
             {"type": 3, "timestamp": 3, "data": {"source": 13, "id": 3, "index": [0], "set": {"property": "--x", "value": format!("url({})", url("custom-declaration"))}}},
@@ -2028,20 +2149,49 @@ mod tests {
         ]));
         let (mut dom, _) = observe_all(&message, "w");
         // A hidden or one-pixel img is not fetched, but the block holds its URL, so the writer replaces it too.
-        let remote: Vec<String> = dom
-            .take_remote_urls()
+        let mut remote = dom.take_remote_urls();
+        let mut rewrites: Vec<String> = remote
+            .take_css_rewrites()
+            .into_iter()
+            .map(|rewrite| rewrite.text)
+            .collect();
+        let remote: Vec<String> = remote
             .into_urls()
             .into_iter()
             .map(|remote| remote.url)
             .collect();
-        for name in ["hidden", "display-none", "pixel", "shown-later", "lazy"] {
+        for name in [
+            "hidden",
+            "display-none",
+            "pixel",
+            "shown-later",
+            "lazy",
+            "set-1x",
+        ] {
             assert!(remote.contains(&url(name)), "{name}");
         }
+        assert!(!remote
+            .iter()
+            .any(|url| url.ends_with("/img/relative-style.png")));
+        rewrites.sort();
+        assert_eq!(
+            rewrites,
+            [
+                format!(
+                    "image-set(url({}) 1x, url({}) 2x)",
+                    url("set-1x"),
+                    url("set-2x")
+                ),
+                "url(\"/img/relative-style.png\")".to_owned(),
+                "url(/img/relative-rule.png)".to_owned(),
+            ]
+        );
         let mut found = dom.take_image_urls();
         found.sort();
         let mut expected: Vec<String> = [
             "before-snapshot",
             "style-text",
+            "custom-property",
             "set-2x",
             "style-attribute",
             "svg-href",
@@ -2057,6 +2207,7 @@ mod tests {
             "sheet-rule",
             "sheet-replace",
             "declaration",
+            "custom-declaration",
             "adopted",
             "w_640,q_auto/srcset-comma",
             "srcset-second",
@@ -2070,6 +2221,10 @@ mod tests {
         ]
         .into_iter()
         .map(url)
+        .chain([
+            "https://app.example.com/img/relative-style.png".to_owned(),
+            "https://app.example.com/img/relative-rule.png".to_owned(),
+        ])
         .collect();
         expected.sort();
         assert_eq!(found, expected);
@@ -2279,19 +2434,42 @@ mod tests {
                 &message.inner,
                 &message.events[0],
                 &window.to_string(),
+                None,
+                None,
                 &mut stats,
             );
         }
         assert!(!stats.node_cap_reached);
-        dom.observe(&message.inner, &message.events[1], "0", &mut stats);
+        dom.observe(
+            &message.inner,
+            &message.events[1],
+            "0",
+            None,
+            None,
+            &mut stats,
+        );
         assert!(stats.node_cap_reached);
 
         for window in 0..MAX_WINDOWS {
             let other = format!("other-{window}");
-            dom.observe(&message.inner, &message.events[1], &other, &mut stats);
+            dom.observe(
+                &message.inner,
+                &message.events[1],
+                &other,
+                None,
+                None,
+                &mut stats,
+            );
         }
         let mut stats = BlockStats::default();
-        dom.observe(&message.inner, &message.events[1], "0", &mut stats);
+        dom.observe(
+            &message.inner,
+            &message.events[1],
+            "0",
+            None,
+            None,
+            &mut stats,
+        );
         assert!(stats.node_cap_reached);
     }
 

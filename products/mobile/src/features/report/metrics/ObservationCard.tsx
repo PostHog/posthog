@@ -51,6 +51,7 @@ export function ObservationCard({ metric, reportId, accent }: ObservationCardPro
                         label={metric.title}
                         formatValue={formatValue}
                         onSelect={onSelect}
+                        canvasSlot={{ key: `observation:${metric.metricId}`, index: 0 }}
                         testID="report-observation-chart"
                     />
                 </View>
