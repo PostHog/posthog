@@ -34,7 +34,15 @@ type LoginResult =
           instructions: string
           next: string
       }
-    | { status: 'logged_in'; host: string; projectId: string; credentialsPath: string; next: string }
+    | {
+          status: 'logged_in'
+          host: string
+          projectId: string
+          store: 'keychain' | 'file'
+          credentialsPath: string | null
+          keychainProblem: string | null
+          next: string
+      }
 
 function isTruthy(value: string | undefined): boolean {
     return value !== undefined && value !== '' && value !== '0' && value.toLowerCase() !== 'false'
@@ -58,8 +66,8 @@ function pendingResult(pending: PendingLogin): LoginResult {
 }
 
 function loggedInResult(loggedIn: LoggedIn): LoginResult {
-    const { host, projectId, credentialsPath, scopes } = loggedIn
-    return { status: 'logged_in', host, projectId, credentialsPath, next: nextCommand(scopes) }
+    const { host, projectId, store, credentialsPath, keychainProblem, scopes } = loggedIn
+    return { status: 'logged_in', host, projectId, store, credentialsPath, keychainProblem, next: nextCommand(scopes) }
 }
 
 async function finish(ctx: Context, pending: PendingLogin, spinner?: Spinner): Promise<LoginResult> {
@@ -82,7 +90,7 @@ async function keyLogin(ctx: Context, prompts: Prompts): Promise<LoginResult> {
 }
 
 export default defineCommand({
-    description: 'Log in to PostHog and store a personal API key on this machine',
+    description: 'Log in to PostHog and store a personal API key in the system keychain',
     writes: true,
     options: {
         region: {
@@ -100,6 +108,7 @@ export default defineCommand({
     notes: [
         'At a terminal, hog asks where your PostHog account is hosted and opens the browser to approve the login.',
         'Agents and scripts get a link and a code to hand to a person, then finish with `hog auth login --wait`.',
+        'hog stores the key in the system keychain. Where it cannot use one, such as over SSH, it stores the key in a file only you can read.',
         'In CI, skip login and set HOG_PERSONAL_API_KEY, HOG_PROJECT_ID and HOG_HOST.',
     ].join('\n'),
     examples: ['hog auth login', 'hog auth login --region eu', 'hog auth login --wait'],
@@ -190,7 +199,14 @@ export default defineCommand({
             return
         }
         out.line(`${out.style('Logged in', 'green', 'bold')} to ${result.host}, project ${result.projectId}.`)
-        out.line(out.style(`Credentials saved to ${result.credentialsPath}`, 'dim'))
+        if (result.credentialsPath === null) {
+            out.line(out.style('Credentials saved to the system keychain', 'dim'))
+        } else {
+            if (result.keychainProblem) {
+                out.line(out.style(`${escapeControls(result.keychainProblem).replace(/\.$/, '')}.`, 'yellow'))
+            }
+            out.line(out.style(`Credentials saved to ${result.credentialsPath}, which only you can read`, 'dim'))
+        }
         out.line(`Try it: ${result.next}`)
     },
 })

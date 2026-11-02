@@ -1,0 +1,96 @@
+import { describe, expect, test } from 'bun:test'
+
+import { HogError } from '@/core/errors'
+import type { Secrets } from '@/core/runtime'
+import { fakeRuntime, type FakeRuntime } from '@/testing'
+
+import { FileStore, KeychainStore, MemoryStore, type CredentialStore, type StoredSecret } from './credential-store'
+
+const EU = 'https://eu.posthog.com'
+const US = 'https://us.posthog.com'
+
+function secret(apiKey: string): StoredSecret {
+    return { apiKey }
+}
+
+// A keychain that answers after `delayMs` of fake time, or never, or fails the way Bun reports a
+// denied dialog.
+function dialogSecrets(behavior: number | 'never' | 'denied'): (runtime: FakeRuntime) => Secrets {
+    return (runtime) => {
+        const answer = async <T>(value: T): Promise<T> => {
+            if (behavior === 'never') {
+                return new Promise<T>(() => {})
+            }
+            if (behavior === 'denied') {
+                throw Object.assign(new Error('User canceled the operation.'), { code: 'ERR_SECRETS_USER_CANCELED' })
+            }
+            await runtime.sleep(behavior)
+            return value
+        }
+        return {
+            get: () => answer(JSON.stringify(secret('phx_slow'))),
+            set: () => answer(undefined),
+            delete: () => answer(true),
+        }
+    }
+}
+
+describe('credential stores', () => {
+    describe.each([
+        ['memory', (): CredentialStore => new MemoryStore()],
+        ['file', (): CredentialStore => new FileStore(fakeRuntime())],
+        ['keychain', (): CredentialStore => new KeychainStore(fakeRuntime())],
+    ])('%s', (_kind, makeStore) => {
+        test('keeps one secret per host, overwrites it and removes it', async () => {
+            const store = makeStore()
+
+            expect(await store.read(EU)).toBeUndefined()
+            expect(await store.remove(EU)).toBe(false)
+
+            await store.write(EU, secret('phx_first'))
+            await store.write(US, secret('phx_us'))
+            await store.write(`${EU}/`, secret('phx_second'))
+
+            expect(await store.read(EU)).toEqual(secret('phx_second'))
+            expect(await store.read(US)).toEqual(secret('phx_us'))
+
+            expect(await store.remove(EU)).toBe(true)
+
+            expect(await store.read(EU)).toBeUndefined()
+            expect(await store.read(US)).toEqual(secret('phx_us'))
+        })
+    })
+
+    test("the file store writes a file only its owner can read, in hog's folder", async () => {
+        const runtime = fakeRuntime()
+        const privateFiles: string[] = []
+        const write = runtime.writePrivateFile
+        runtime.writePrivateFile = async (path, contents) => {
+            privateFiles.push(path)
+            await write(path, contents)
+        }
+
+        await new FileStore(runtime).write(EU, secret('phx_file'))
+
+        expect(privateFiles).toEqual(['/home/test/.config/hog/credentials.json'])
+    })
+
+    test.each([
+        ['answers at once', 0, 'phx_slow', false, 0],
+        ['answers while a dialog is open', 5000, 'phx_slow', true, 5000],
+        ['never answers', 'never' as const, 'keychain_access_timeout', true, 60_000],
+        ['is denied', 'denied' as const, 'keychain_access_denied', false, 0],
+    ])('a keychain that %s', async (_name, behavior, expected, warns, elapsedMs) => {
+        const runtime = fakeRuntime({ secrets: dialogSecrets(behavior) })
+        const start = runtime.now()
+
+        const outcome = await new KeychainStore(runtime).read(EU).then(
+            (stored) => stored?.apiKey,
+            (error: unknown) => (error instanceof HogError ? error.code : error)
+        )
+
+        expect(outcome).toBe(expected)
+        expect(runtime.stderr().includes('Waiting for access to the keychain')).toBe(warns)
+        expect(runtime.now() - start).toBe(elapsedMs)
+    })
+})

@@ -1,8 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 
+import type { Secrets } from '@/core/runtime'
 import { runHog } from '@/testing'
 
-const CREDENTIALS_FILE = '/home/test/.posthog/credentials.json'
+const POSTHOG_CLI_FILE = '/home/test/.posthog/credentials.json'
+const SETTINGS_FILE = '/home/test/.config/hog/settings.json'
+const HOG_CREDENTIALS_FILE = '/home/test/.config/hog/credentials.json'
 const PENDING_FILE = '/home/test/.posthog/login-pending.json'
 const DEVICE_CODE = 'device-secret-123'
 
@@ -111,7 +114,7 @@ describe('hog auth login', () => {
         expect(result.error()).toMatchObject({ code, hint: expect.any(String) })
     })
 
-    test('--wait saves the key in the file posthog-cli reads once the person approves', async () => {
+    test('--wait saves the key in the keychain once the person approves', async () => {
         const result = await runHog(['auth', 'login', '--wait'], {
             env: { CLAUDECODE: '1' },
             files: { [PENDING_FILE]: PENDING },
@@ -121,13 +124,45 @@ describe('hog auth login', () => {
         expect(result.exitCode).toBe(0)
         expect(result.json()).toMatchObject({ status: 'logged_in', host: 'https://eu.posthog.com', projectId: '42' })
         expect(result.stdout).not.toContain('phx_secret')
-        expect(JSON.parse(result.files[CREDENTIALS_FILE] ?? '{}')).toEqual({
+        // The keychain keeps only the secret. What isn't secret is in settings.json.
+        expect(JSON.parse(result.keychain['https://eu.posthog.com'] ?? '{}')).toEqual({ apiKey: 'phx_secret' })
+        expect(JSON.parse(result.files[SETTINGS_FILE] ?? '{}')).toEqual({
+            logins: { 'https://eu.posthog.com': { store: 'keychain', type: 'personal_api_key', projectId: '42' } },
             host: 'https://eu.posthog.com',
-            token: 'phx_secret',
-            env_id: '42',
         })
+        expect(result.files[POSTHOG_CLI_FILE]).toBeUndefined()
         expect(result.files[PENDING_FILE]).toBeUndefined()
         expect(result.requests.filter((request) => request.url.endsWith('/poll/'))).toHaveLength(3)
+    })
+
+    test.each([
+        ['is unavailable', Object.assign(new Error('no Secret Service'), { code: 'ERR_SECRETS_PLATFORM_ERROR' })],
+        ['is denied', Object.assign(new Error('User canceled'), { code: 'ERR_SECRETS_USER_CANCELED' })],
+    ])('a login saves the key in a private file, and says so, when the keychain %s', async (_name, failure) => {
+        const broken: Secrets = {
+            get: () => Promise.reject(failure),
+            set: () => Promise.reject(failure),
+            delete: () => Promise.reject(failure),
+        }
+        const result = await runHog(['auth', 'login', '--wait'], {
+            env: { CLAUDECODE: '1' },
+            files: { [PENDING_FILE]: PENDING },
+            respond: deviceFlow(0),
+            secrets: () => broken,
+        })
+
+        expect(result.exitCode).toBe(0)
+        expect(result.json()).toMatchObject({
+            store: 'file',
+            credentialsPath: HOG_CREDENTIALS_FILE,
+            keychainProblem: expect.stringContaining('keychain'),
+        })
+        expect(JSON.parse(result.files[HOG_CREDENTIALS_FILE] ?? '{}')).toEqual({
+            'https://eu.posthog.com': { apiKey: 'phx_secret' },
+        })
+        expect(JSON.parse(result.files[SETTINGS_FILE] ?? '{}')).toMatchObject({
+            logins: { 'https://eu.posthog.com': { store: 'file', projectId: '42' } },
+        })
     })
 
     test.each([
@@ -152,7 +187,7 @@ describe('hog auth login', () => {
         expect(result.exitCode).toBe(1)
         expect(result.error()).toMatchObject({ code })
         expect(result.files[PENDING_FILE] !== undefined).toBe(keepsPending)
-        expect(result.files[CREDENTIALS_FILE]).toBeUndefined()
+        expect(result.keychain).toEqual({})
     })
 
     test.each([
@@ -176,14 +211,19 @@ describe('hog auth login', () => {
         expect(result.stdout).toContain(`Logged in to ${host}, project 42.`)
         expect(result.opened).toHaveLength(opensBrowser ? 1 : 0)
         expect(result.files[PENDING_FILE]).toBeUndefined()
-        expect(JSON.parse(result.files[CREDENTIALS_FILE] ?? '{}')).toMatchObject({
-            host,
-            token: 'phx_secret',
-            env_id: '42',
-        })
+        expect(JSON.parse(result.keychain[host] ?? '{}')).toEqual({ apiKey: 'phx_secret' })
     })
 
     const STORED = JSON.stringify({ host: 'https://eu.posthog.com', token: 'phx_secret', env_id: '42' })
+    const KEYCHAIN_LOGIN = {
+        files: {
+            [SETTINGS_FILE]: JSON.stringify({
+                logins: { 'https://eu.posthog.com': { store: 'keychain', type: 'personal_api_key', projectId: '42' } },
+                host: 'https://eu.posthog.com',
+            }),
+        },
+        keychain: { 'https://eu.posthog.com': JSON.stringify({ apiKey: 'phx_secret' }) },
+    }
 
     test.each([
         [
@@ -198,7 +238,7 @@ describe('hog auth login', () => {
     ])('status reports %s', async (_name, userStatus, projectStatus, exitCode, expected) => {
         const result = await runHog(['auth', 'status'], {
             env: { CLAUDECODE: '1' },
-            files: { [CREDENTIALS_FILE]: STORED },
+            files: { [POSTHOG_CLI_FILE]: STORED },
             respond: (url) =>
                 url.endsWith('/api/users/@me/')
                     ? { status: userStatus, body: { email: 'ana@example.com' } }
@@ -209,11 +249,28 @@ describe('hog auth login', () => {
         expect(result.stdout).not.toContain('phx_secret')
     })
 
+    test.each([
+        ['a hog login', KEYCHAIN_LOGIN, { source: 'store', store: 'keychain', credentialsPath: null }],
+        [
+            "posthog-cli's login",
+            { files: { [POSTHOG_CLI_FILE]: STORED }, keychain: {} },
+            { source: 'posthog-cli-file', store: null, credentialsPath: POSTHOG_CLI_FILE },
+        ],
+    ])('status names where the key of %s comes from', async (_name, { files, keychain }, expected) => {
+        const result = await runHog(['auth', 'status'], {
+            env: { CLAUDECODE: '1' },
+            files,
+            keychain,
+            respond: () => ({ status: 200, body: { email: 'ana@example.com', name: 'Shop' } }),
+        })
+        expect(result.json()).toMatchObject({ authenticated: true, ...expected })
+    })
+
     test('status escapes terminal control characters in the project name', async () => {
         const result = await runHog(['auth', 'status'], {
             stdoutIsTTY: true,
             env: { NO_COLOR: '1' },
-            files: { [CREDENTIALS_FILE]: STORED },
+            files: { [POSTHOG_CLI_FILE]: STORED },
             respond: (url) =>
                 url.endsWith('/api/users/@me/')
                     ? { status: 200, body: { email: 'ana@example.com' } }
@@ -226,7 +283,7 @@ describe('hog auth login', () => {
     test('status fails when one request lacks a scope and the other fails', async () => {
         const result = await runHog(['auth', 'status'], {
             env: { CLAUDECODE: '1' },
-            files: { [CREDENTIALS_FILE]: STORED },
+            files: { [POSTHOG_CLI_FILE]: STORED },
             respond: (url) => (url.endsWith('/api/users/@me/') ? { status: 403, body: {} } : { status: 500, body: {} }),
         })
         expect(result.exitCode).toBe(1)
@@ -242,26 +299,54 @@ describe('hog auth login', () => {
     test.each([
         [
             'a stored key',
-            { [CREDENTIALS_FILE]: STORED, [PENDING_FILE]: PENDING },
+            { ...KEYCHAIN_LOGIN.files, [PENDING_FILE]: PENDING },
             {},
             'logged_out',
             'https://eu.posthog.com/settings/user-api-keys',
             [],
+            null,
         ],
-        ['no stored key', {}, {}, 'not_logged_in', null, []],
+        ['no stored key', {}, {}, 'not_logged_in', null, [], null],
         [
-            'a key in the environment',
-            { [CREDENTIALS_FILE]: STORED },
+            'a posthog.json host that is not the last login',
+            {
+                [SETTINGS_FILE]: JSON.stringify({
+                    logins: {
+                        'https://eu.posthog.com': { store: 'keychain', type: 'personal_api_key', projectId: '42' },
+                        'https://us.posthog.com': { store: 'keychain', type: 'personal_api_key', projectId: '42' },
+                    },
+                    host: 'https://us.posthog.com',
+                }),
+                '/work/posthog.json': JSON.stringify({ host: 'https://eu.posthog.com' }),
+            },
+            {},
+            'logged_out',
+            'https://eu.posthog.com/settings/user-api-keys',
+            [],
+            null,
+        ],
+        [
+            "a key in the environment and posthog-cli's file",
+            { ...KEYCHAIN_LOGIN.files, [POSTHOG_CLI_FILE]: STORED },
             { HOG_PERSONAL_API_KEY: 'phx_env' },
             'logged_out',
             'https://eu.posthog.com/settings/user-api-keys',
             ['HOG_PERSONAL_API_KEY'],
+            POSTHOG_CLI_FILE,
         ],
-    ])('logout with %s removes what hog stored', async (_name, files, env, status, revokeUrl, stillSet) => {
-        const result = await runHog(['auth', 'logout'], { env: { CLAUDECODE: '1', ...env }, files })
-        expect(result.exitCode).toBe(0)
-        expect(result.json()).toMatchObject({ status, revokeUrl, stillSet })
-        expect(result.files[CREDENTIALS_FILE]).toBeUndefined()
-        expect(result.files[PENDING_FILE]).toBeUndefined()
-    })
+    ])(
+        'logout with %s removes what hog stored',
+        async (_name, files: Record<string, string>, env, status, revokeUrl, stillSet, posthogCliFile) => {
+            const result = await runHog(['auth', 'logout'], {
+                env: { CLAUDECODE: '1', ...env },
+                files,
+                keychain: KEYCHAIN_LOGIN.keychain,
+            })
+            expect(result.exitCode).toBe(0)
+            expect(result.json()).toMatchObject({ status, revokeUrl, stillSet, posthogCliFile })
+            expect(result.keychain).toEqual(files[SETTINGS_FILE] ? {} : KEYCHAIN_LOGIN.keychain)
+            expect(result.files[PENDING_FILE]).toBeUndefined()
+            expect(result.files[POSTHOG_CLI_FILE]).toBe(files[POSTHOG_CLI_FILE])
+        }
+    )
 })

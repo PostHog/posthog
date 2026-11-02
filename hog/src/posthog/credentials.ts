@@ -3,6 +3,10 @@ import { join } from 'node:path'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import type { Env, Runtime } from '@/core/runtime'
 
+import { FileStore } from './credential-store'
+import { readLogin } from './logins'
+import { readSettings } from './settings'
+
 // posthog-cli falls back to this host when neither --host nor the credentials name one.
 export const DEFAULT_HOST = 'https://us.i.posthog.com'
 
@@ -12,9 +16,17 @@ export interface Credentials {
     host: string
 }
 
-export type CredentialSource = 'env' | 'dotenv-file' | 'credentials-file'
+// `store` is what `hog auth login` saved. `posthog-cli-file` is posthog-cli's credentials file, which
+// hog reads but never writes.
+export type CredentialSource = 'env' | 'dotenv-file' | 'store' | 'posthog-cli-file'
 
-export type ResolvedCredentials = Credentials & { source: CredentialSource }
+export type ResolvedCredentials = Credentials & {
+    source: CredentialSource
+    // Set when the source is the store.
+    store?: 'keychain' | 'file'
+    // The file the credentials came from, when they came from one.
+    path?: string
+}
 
 interface RawCredentials {
     apiKey: string
@@ -138,23 +150,26 @@ function validate(raw: RawCredentials, host: string): Credentials {
     return { apiKey: raw.apiKey, projectId: raw.projectId, host }
 }
 
-// Same file and fields as posthog-cli, so either CLI can use a login made by the other.
-export async function saveCredentials(runtime: Runtime, credentials: Credentials): Promise<string> {
-    const path = posthogFile(runtime, 'credentials.json')
-    const stored = { host: credentials.host, token: credentials.apiKey, env_id: credentials.projectId }
-    await runtime.writePrivateFile(path, JSON.stringify(stored))
-    return path
+export function posthogCliCredentialsPath(runtime: Runtime): string {
+    return posthogFile(runtime, 'credentials.json')
 }
 
-// Lookup order matches posthog-cli: process env, then --dotenv-file, then the credentials
-// file `hog auth login` and `posthog-cli login` write. The global host overrides whichever host the
-// source carried. posthog.json comes from the repository, so its host never redirects a key: it
-// only stops the command when the key belongs to another host.
+// Every credential source, in order: HOG_PERSONAL_API_KEY in the environment, then in --dotenv-file,
+// then what `hog auth login` stored, then posthog-cli's credentials file. The global host overrides
+// whichever host the source carried, and picks which stored login to use. posthog.json comes from
+// the repository, so its host never redirects a key: it can pick a stored login for that host, and
+// otherwise only stops the command when the key belongs to another host.
 export async function resolveCredentials(
     runtime: Runtime,
-    options: { host?: string; dotenvFile?: string; configHost?: string }
+    // `includeStore: false` leaves out what `hog auth login` stored, for callers that must never
+    // open the keychain or renew a token, like telemetry for a command that needed no credentials.
+    options: { host?: string; dotenvFile?: string; configHost?: string; includeStore?: boolean }
 ): Promise<ResolvedCredentials> {
-    const withHost = (raw: RawCredentials, source: CredentialSource): ResolvedCredentials => {
+    const withHost = (
+        raw: RawCredentials,
+        source: CredentialSource,
+        extra: Pick<ResolvedCredentials, 'store' | 'path'> = {}
+    ): ResolvedCredentials => {
         const host = options.host ?? raw.host ?? DEFAULT_HOST
         const { configHost } = options
         if (options.host === undefined && configHost !== undefined && !sameOrigin(configHost, host)) {
@@ -165,7 +180,7 @@ export async function resolveCredentials(
                 EXIT_USAGE
             )
         }
-        return { ...validate(raw, host), source }
+        return { ...validate(raw, host), source, ...extra }
     }
 
     const fromEnv = fromLookup((name) => runtime.env[name] || undefined)
@@ -186,15 +201,31 @@ export async function resolveCredentials(
                     'Add both variables to the file, or remove --dotenv-file.'
                 )
             }
-            return withHost(fromFile, 'dotenv-file')
+            return withHost(fromFile, 'dotenv-file', { path: dotenvFile })
+        }
+    }
+
+    if (options.includeStore !== false) {
+        const settings = await readSettings(runtime)
+        const hosts = options.host !== undefined ? [options.host] : [options.configHost, settings.host]
+        for (const host of new Set(hosts)) {
+            const login = host === undefined ? undefined : await readLogin(runtime, settings, host)
+            if (login) {
+                const { credential: stored, store } = login
+                return withHost({ apiKey: stored.apiKey, projectId: stored.projectId, host: stored.host }, 'store', {
+                    store: store.kind,
+                    path: store instanceof FileStore ? store.path : undefined,
+                })
+            }
         }
     }
 
     const home = posthogHomeDir(runtime.env, runtime.homeDir())
     if (home !== undefined) {
+        const path = join(home, 'credentials.json')
         let stored: { token?: unknown; env_id?: unknown; host?: unknown } | undefined
         try {
-            stored = JSON.parse(await runtime.readFile(join(home, 'credentials.json')))
+            stored = JSON.parse(await runtime.readFile(path))
         } catch {
             stored = undefined
         }
@@ -204,7 +235,7 @@ export async function resolveCredentials(
                 projectId: String(stored.env_id),
                 host: typeof stored.host === 'string' ? stored.host : undefined,
             }
-            return withHost(raw, 'credentials-file')
+            return withHost(raw, 'posthog-cli-file', { path })
         }
     }
 

@@ -8,6 +8,23 @@ import { DEFAULT_HOST, resolveCredentials } from './credentials'
 const ENV = { HOG_PERSONAL_API_KEY: 'phx_env', HOG_PROJECT_ID: '1', HOG_HOST: 'https://env.example.com' }
 const DOTENV = 'HOG_PERSONAL_API_KEY="phx_dotenv"\n# comment\nHOG_PROJECT_ID=2\n'
 const STORED = JSON.stringify({ token: 'phx_stored', env_id: '3', host: 'https://stored.example.com' })
+const POSTHOG_CLI_FILE = '/home/test/.posthog/credentials.json'
+const SETTINGS_FILE = '/home/test/.config/hog/settings.json'
+const EU = 'https://eu.posthog.com'
+const US = 'https://us.posthog.com'
+
+// What the store keeps for a login: only its secret.
+function login(apiKey: string): string {
+    return JSON.stringify({ apiKey })
+}
+
+// `host` is the last login. `stores` says where the login for each host is.
+function settings(host: string, stores: Record<string, 'keychain' | 'file'>): Record<string, string> {
+    const logins = Object.fromEntries(
+        Object.entries(stores).map(([login, store]) => [login, { store, type: 'personal_api_key', projectId: '9' }])
+    )
+    return { [SETTINGS_FILE]: JSON.stringify({ logins, host }) }
+}
 
 describe('resolveCredentials', () => {
     test.each([
@@ -32,7 +49,7 @@ describe('resolveCredentials', () => {
             DEFAULT_HOST,
         ],
         [
-            'a missing dotenv file falls back to the credentials file',
+            "a missing dotenv file falls back to posthog-cli's credentials file",
             {},
             { '/home/test/.posthog/credentials.json': STORED },
             '/x/missing.env',
@@ -42,7 +59,7 @@ describe('resolveCredentials', () => {
             'https://stored.example.com',
         ],
         [
-            'the credentials file is last',
+            "posthog-cli's credentials file is last",
             {},
             { '/home/test/.posthog/credentials.json': STORED },
             undefined,
@@ -112,6 +129,63 @@ describe('resolveCredentials', () => {
         )
         expect(error).toBeInstanceOf(HogError)
         expect((error as HogError).code).toBe(code)
+    })
+
+    test.each([
+        [
+            "a hog login comes before posthog-cli's file",
+            { ...settings(EU, { [EU]: 'keychain' }), [POSTHOG_CLI_FILE]: STORED },
+            { [EU]: login('phx_eu') },
+            {},
+            { apiKey: 'phx_eu', host: EU, source: 'store', store: 'keychain' },
+        ],
+        [
+            'posthog.json picks the stored login for its host',
+            settings(US, { [EU]: 'keychain', [US]: 'keychain' }),
+            { [EU]: login('phx_eu'), [US]: login('phx_us') },
+            { configHost: `${EU}/` },
+            { apiKey: 'phx_eu', host: EU },
+        ],
+        [
+            '--host picks the stored login for that host',
+            settings(US, { [EU]: 'keychain', [US]: 'keychain' }),
+            { [EU]: login('phx_eu'), [US]: login('phx_us') },
+            { host: EU },
+            { apiKey: 'phx_eu', host: EU },
+        ],
+        [
+            'a later file login to another host keeps the keychain login',
+            settings(US, { [EU]: 'keychain', [US]: 'file' }),
+            { [EU]: login('phx_eu') },
+            { configHost: EU },
+            { apiKey: 'phx_eu', host: EU, store: 'keychain' },
+        ],
+        [
+            'a login in the file store',
+            {
+                ...settings(EU, { [EU]: 'file' }),
+                '/home/test/.config/hog/credentials.json': JSON.stringify({ [EU]: JSON.parse(login('phx_file')) }),
+            },
+            {},
+            {},
+            { apiKey: 'phx_file', source: 'store', store: 'file', path: '/home/test/.config/hog/credentials.json' },
+        ],
+        [
+            'a posthog.json host without a login of its own',
+            settings(US, { [US]: 'keychain' }),
+            { [US]: login('phx_us') },
+            { configHost: EU },
+            'host_mismatch',
+        ],
+    ] as const)('%s', async (_name, files, keychain, options, expected) => {
+        const outcome = await resolveCredentials(fakeRuntime({ files, keychain }), options).catch((error: unknown) =>
+            error instanceof HogError ? error.code : error
+        )
+        if (typeof expected === 'string') {
+            expect(outcome).toBe(expected)
+        } else {
+            expect(outcome).toMatchObject(expected)
+        }
     })
 
     test('fails on a dotenv file it cannot read, instead of falling back', async () => {

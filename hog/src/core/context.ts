@@ -15,7 +15,7 @@ import { Telemetry } from './telemetry'
 // purpose: `run` returns data, and the command's `human` and `agent` views print it.
 export class Context {
     private api?: PostHogApi
-    private resolved?: ResolvedCredentials
+    private resolved?: Promise<ResolvedCredentials>
     private loaded?: Promise<LoadedConfig | undefined>
     private tools?: Promise<ApiToolLibrary>
 
@@ -57,11 +57,15 @@ export class Context {
     }
 
     // Throws `not_authenticated` when there are none.
-    async credentials(): Promise<ResolvedCredentials> {
-        this.resolved ??= await resolveCredentials(this.runtime, {
-            ...this.globals,
-            configHost: (await this.config())?.config.host,
-        })
+    credentials(): Promise<ResolvedCredentials> {
+        this.resolved ??= this.config().then((loaded) =>
+            resolveCredentials(this.runtime, { ...this.globals, configHost: loaded?.config.host })
+        )
+        return this.resolved
+    }
+
+    // The credentials the command already asked for, so telemetry doesn't read the keychain a second time.
+    get resolvedCredentials(): Promise<ResolvedCredentials> | undefined {
         return this.resolved
     }
 }

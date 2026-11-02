@@ -1,8 +1,11 @@
 import { HogError } from '@/core/errors'
 import type { Runtime } from '@/core/runtime'
 
-import { posthogFile, saveCredentials, type Credentials } from './credentials'
+import { FileStore, openStore, probeKeychain } from './credential-store'
+import { posthogFile, type Credentials } from './credentials'
 import { startDeviceLogin, waitForApproval, type PendingLogin } from './device-auth'
+import { writeLogin } from './logins'
+import { loginFor, readSettings } from './settings'
 
 const PENDING_LOGIN_FILE = 'login-pending.json'
 
@@ -12,7 +15,11 @@ const REUSE_MARGIN_MS = 60_000
 export interface LoggedIn {
     host: string
     projectId: string
-    credentialsPath: string
+    store: 'keychain' | 'file'
+    // Set when the credentials are in a file.
+    credentialsPath: string | null
+    // Why hog couldn't use the keychain, when it stored the credentials in a file.
+    keychainProblem: string | null
     scopes: string[]
 }
 
@@ -55,9 +62,26 @@ export async function completeLogin(runtime: Runtime, pending: PendingLogin): Pr
     return { ...loggedIn, scopes: approval.scopes }
 }
 
-// Clears any pending login too, so a later `--wait` can't replace these credentials with an older approval.
+// Each login probes the keychain again, so a login at the desk moves credentials out of the file a
+// login over SSH had to use. Clears any pending login too, so a later `--wait` can't replace these
+// credentials with an older approval.
 export async function saveLogin(runtime: Runtime, credentials: Credentials): Promise<LoggedIn> {
-    const credentialsPath = await saveCredentials(runtime, credentials)
+    const probe = await probeKeychain(runtime)
+    const store = openStore(runtime, probe.usable ? 'keychain' : 'file')
+    const previous = await readSettings(runtime)
+    const { host, projectId, apiKey } = credentials
+    await writeLogin(runtime, store, { type: 'personal_api_key', host, projectId, apiKey }, { lastLogin: true })
+    // Only an old file login is removed. Removing a keychain login after a failed probe would wait for the keychain again.
+    if (loginFor(previous, host)?.store === 'file' && store.kind === 'keychain') {
+        await new FileStore(runtime).remove(host)
+    }
     await clearPendingLogin(runtime)
-    return { host: credentials.host, projectId: credentials.projectId, credentialsPath, scopes: [] }
+    return {
+        host: credentials.host,
+        projectId: credentials.projectId,
+        store: store.kind,
+        credentialsPath: store instanceof FileStore ? store.path : null,
+        keychainProblem: probe.usable ? null : probe.reason,
+        scopes: [],
+    }
 }

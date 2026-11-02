@@ -1,4 +1,7 @@
-import { isAbsolute, relative, resolve } from 'node:path'
+import { isAbsolute, posix, relative, resolve, win32 } from 'node:path'
+
+import { HogError } from './errors'
+import type { Runtime } from './runtime'
 
 export function absolutePath(root: string, path: string): string {
     return isAbsolute(path) ? path : resolve(root, path)
@@ -9,4 +12,34 @@ export function absolutePath(root: string, path: string): string {
 export function storedPath(root: string, path: string): string {
     const rel = relative(root, path)
     return isAbsolute(rel) ? path : rel
+}
+
+// hog's own folder, where it keeps its settings, the approvals it waits for and, without a keychain,
+// its credentials. posthog-cli's ~/.posthog folder is not hog's: hog only reads its credentials file.
+export function hogDir(runtime: Pick<Runtime, 'env' | 'platform' | 'homeDir'>): string {
+    const { env, platform } = runtime
+    const home = runtime.homeDir()
+    let folder: string | undefined
+    if (platform === 'win32') {
+        folder = env.APPDATA ? win32.join(env.APPDATA, 'hog') : home && win32.join(home, 'AppData', 'Roaming', 'hog')
+    } else if (platform === 'darwin') {
+        folder = home && posix.join(home, 'Library', 'Application Support', 'hog')
+    } else {
+        // The XDG spec says to ignore a relative XDG_CONFIG_HOME.
+        const xdg = env.XDG_CONFIG_HOME && posix.isAbsolute(env.XDG_CONFIG_HOME) ? env.XDG_CONFIG_HOME : undefined
+        folder = xdg ? posix.join(xdg, 'hog') : home && posix.join(home, '.config', 'hog')
+    }
+    if (!folder) {
+        throw new HogError(
+            'no_home_directory',
+            "hog couldn't find your home folder to keep its settings in.",
+            platform === 'win32' ? 'Set APPDATA to your app settings folder.' : 'Set HOME to your home folder.'
+        )
+    }
+    return folder
+}
+
+export function hogFile(runtime: Pick<Runtime, 'env' | 'platform' | 'homeDir'>, name: string): string {
+    const folder = hogDir(runtime)
+    return runtime.platform === 'win32' ? win32.join(folder, name) : posix.join(folder, name)
 }
