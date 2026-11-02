@@ -13,7 +13,7 @@ mod string;
 pub use date::date_parse;
 pub use json::{
     json_parse, json_parse_shape, json_stringify, json_stringify_into, quote_js_string, JsonError,
-    JsonShape,
+    JsonShape, MAX_BUILT_DEPTH,
 };
 pub use number::{number_to_string, write_number};
 pub use object::{is_array_index, JsKey, JsObject};

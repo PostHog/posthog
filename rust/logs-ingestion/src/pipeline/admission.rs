@@ -1,5 +1,6 @@
 //! Port of `pipeline/admission-steps.ts`.
 
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 use ingestion_framework::{drop, ok, ChunkProcessingStep, PipelineResult};
@@ -184,7 +185,7 @@ pub fn create_rate_limit_step(context: Arc<LogsPipelineContext>) -> AdmissionSte
     ChunkProcessingStep::new("rateLimitStep", move |values: Vec<LogsAdmissionInput>| {
         let context = context.clone();
         async move {
-            let dropped_indexes: Vec<usize> = {
+            let dropped_indexes: HashSet<usize> = {
                 let billed: Vec<Indexed<'_>> = values
                     .iter()
                     .enumerate()

@@ -29,6 +29,8 @@ pub const MAX_LOG_RECORD_BYTES: usize = 1024 * 1024;
 pub const MAX_JSON_ATTRIBUTES: usize = 50;
 pub const MAX_JSON_NODES: usize = 10_000;
 pub const MAX_JSON_DEPTH: usize = 128;
+// The flatten must stop before it can reach a value that `json_parse` did not build.
+const _: () = assert!(MAX_JSON_DEPTH < crate::js::MAX_BUILT_DEPTH);
 
 /// `LogsSettings` from `nodejs/src/types.ts`. A missing key reads as `undefined`.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
@@ -370,14 +372,14 @@ impl Flattener {
         children: impl Iterator<Item = (JsKey<'v>, &'v JsValue)>,
     ) -> Option<()> {
         let base = path.utf8_byte_len();
-        let base_has_surrogates = path.has_lone_surrogates();
+        let base_surrogates = path.lone_surrogate_count();
         for (key, child) in children {
             if base > 0 {
                 path.push_str(".");
             }
             key.push_onto(path);
             self.visit(child, path, depth + 1)?;
-            path.truncate_to(base, base_has_surrogates);
+            path.truncate_to(base, base_surrogates);
         }
         Some(())
     }

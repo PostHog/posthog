@@ -1,5 +1,7 @@
 //! Decoded Avro values, shaped like the JavaScript values avsc returns.
 
+use std::collections::btree_map::Entry;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use hashbrown::HashTable;
@@ -64,7 +66,8 @@ impl AvroValue {
 /// its first position and takes the last value, and a `__proto__` key is not an own property.
 #[derive(Debug, Clone, Default)]
 pub struct AvroMap {
-    indexed: Vec<(u32, String, AvroValue)>,
+    /// Array-index keys. A tree keeps a descending insert order from being quadratic.
+    indexed: BTreeMap<u32, (String, AvroValue)>,
     named: Vec<(String, AvroValue)>,
     /// Positions in `named`, built only for large maps, where a linear key search would be
     /// quadratic.
@@ -96,9 +99,11 @@ impl AvroMap {
     /// this keeps a `__proto__` key.
     pub fn define(&mut self, key: String, value: AvroValue) {
         if let Some(n) = is_array_index(&key) {
-            match self.indexed.binary_search_by_key(&n, |(k, _, _)| *k) {
-                Ok(i) => self.indexed[i].2 = value,
-                Err(i) => self.indexed.insert(i, (n, key, value)),
+            match self.indexed.entry(n) {
+                Entry::Occupied(mut slot) => slot.get_mut().1 = value,
+                Entry::Vacant(slot) => {
+                    slot.insert((key, value));
+                }
             }
             return;
         }
@@ -135,11 +140,7 @@ impl AvroMap {
 
     pub fn get(&self, key: &str) -> Option<&AvroValue> {
         if let Some(n) = is_array_index(key) {
-            return self
-                .indexed
-                .binary_search_by_key(&n, |(k, _, _)| *k)
-                .ok()
-                .map(|i| &self.indexed[i].2);
+            return self.indexed.get(&n).map(|(_, v)| v);
         }
         self.named_position(key).map(|i| &self.named[i].1)
     }
@@ -150,8 +151,7 @@ impl AvroMap {
 
     pub fn remove(&mut self, key: &str) -> Option<AvroValue> {
         if let Some(n) = is_array_index(key) {
-            let i = self.indexed.binary_search_by_key(&n, |(k, _, _)| *k).ok()?;
-            return Some(self.indexed.remove(i).2);
+            return self.indexed.remove(&n).map(|(_, v)| v);
         }
         let i = self.named_position(key)?;
         let (_, value) = self.named.remove(i);
@@ -171,22 +171,19 @@ impl AvroMap {
 
     pub fn iter(&self) -> impl Iterator<Item = (&str, &AvroValue)> + '_ {
         self.indexed
-            .iter()
-            .map(|(_, k, v)| (k.as_str(), v))
+            .values()
+            .map(|(k, v)| (k.as_str(), v))
             .chain(self.named.iter().map(|(k, v)| (k.as_str(), v)))
     }
 
     pub fn into_entries(self) -> impl Iterator<Item = (String, AvroValue)> {
-        self.indexed
-            .into_iter()
-            .map(|(_, k, v)| (k, v))
-            .chain(self.named)
+        self.indexed.into_values().chain(self.named)
     }
 
     pub fn values_mut(&mut self) -> impl Iterator<Item = &mut AvroValue> + '_ {
         self.indexed
-            .iter_mut()
-            .map(|(_, _, v)| v)
+            .values_mut()
+            .map(|(_, v)| v)
             .chain(self.named.iter_mut().map(|(_, v)| v))
     }
 

@@ -4,6 +4,7 @@
 //! numeric order, and then every other key in insertion order. The flatten step picks which
 //! attributes survive from that order, so the port must keep it.
 
+use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
 use hashbrown::HashTable;
@@ -68,8 +69,8 @@ pub fn is_array_index(key: &str) -> Option<u32> {
 
 #[derive(Debug, Clone, Default)]
 pub struct JsObject {
-    /// Array-index keys, kept sorted.
-    indexed: Vec<(u32, JsValue)>,
+    /// Array-index keys. A tree keeps a descending insert order from being quadratic.
+    indexed: BTreeMap<u32, JsValue>,
     named: Vec<(JsString, JsValue)>,
     /// Positions in `named`, built only for large objects, where a linear key search would
     /// be quadratic.
@@ -115,10 +116,7 @@ impl JsObject {
     /// `obj[key] = value` on an own data property: an existing key keeps its position.
     pub fn insert(&mut self, key: JsString, value: JsValue) {
         if let Some(n) = Self::index_key(&key) {
-            match self.indexed.binary_search_by_key(&n, |(k, _)| *k) {
-                Ok(i) => self.indexed[i].1 = value,
-                Err(i) => self.indexed.insert(i, (n, value)),
-            }
+            self.indexed.insert(n, value);
             return;
         }
         if let Some(i) = self.named_position(&key) {
@@ -141,11 +139,7 @@ impl JsObject {
 
     pub fn get(&self, key: &str) -> Option<&JsValue> {
         if let Some(n) = is_array_index(key) {
-            return self
-                .indexed
-                .binary_search_by_key(&n, |(k, _)| *k)
-                .ok()
-                .map(|i| &self.indexed[i].1);
+            return self.indexed.get(&n);
         }
         let key = JsString::from(key);
         self.named_position(&key).map(|i| &self.named[i].1)
@@ -157,11 +151,7 @@ impl JsObject {
 
     pub fn remove(&mut self, key: &str) -> Option<JsValue> {
         if let Some(n) = is_array_index(key) {
-            return self
-                .indexed
-                .binary_search_by_key(&n, |(k, _)| *k)
-                .ok()
-                .map(|i| self.indexed.remove(i).1);
+            return self.indexed.remove(&n);
         }
         let key = JsString::from(key);
         let i = self.named_position(&key)?;

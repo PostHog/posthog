@@ -162,7 +162,7 @@ fn decode_never_panics_on_corrupt_containers() {
         state
     };
     let valid = encode_container(&schema, "zstandard", &[]).unwrap();
-    // Varints that overflow 2^53, 2^64 and f64, and one that decodes to NaN.
+    // Varints that overflow 2^53 and 2^64, and two past the 10 bytes that avsc reads.
     let huge: [&[u8]; 4] = [
         &[0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x20],
         &[0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f],

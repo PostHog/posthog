@@ -1,6 +1,8 @@
 //! Port of `common/services/app-metrics-aggregator.ts`, and the usage-row helpers of
 //! `logs-pipeline-context.ts` (`LogsUsageMetricsQueue`).
 
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Duration, Timelike, Utc};
@@ -53,8 +55,15 @@ pub struct AppMetricInput {
     pub timestamp: Option<DateTime<Utc>>,
 }
 
+/// Rows in first-queued order, as a Node `Map` keeps them, with a key index for the merge.
+#[derive(Default)]
+struct AppMetricBuffer {
+    rows: Vec<BufferedAppMetric>,
+    index: HashMap<String, usize>,
+}
+
 pub struct AppMetricsAggregator {
-    buffer: Mutex<Vec<(String, BufferedAppMetric)>>,
+    buffer: Mutex<AppMetricBuffer>,
     outputs: Arc<dyn IngestionOutputs>,
     clock: Clock,
 }
@@ -62,7 +71,7 @@ pub struct AppMetricsAggregator {
 impl AppMetricsAggregator {
     pub fn new(outputs: Arc<dyn IngestionOutputs>, clock: Clock) -> Self {
         Self {
-            buffer: Mutex::new(Vec::new()),
+            buffer: Mutex::new(AppMetricBuffer::default()),
             outputs,
             clock,
         }
@@ -100,21 +109,25 @@ impl AppMetricsAggregator {
             row.timestamp.as_deref().unwrap_or("")
         );
         let mut buffer = self.buffer.lock().unwrap();
-        match buffer.iter_mut().find(|(k, _)| *k == key) {
-            Some((_, existing)) => existing.count += row.count,
-            None => buffer.push((key, row)),
+        let AppMetricBuffer { rows, index } = &mut *buffer;
+        match index.entry(key) {
+            Entry::Occupied(slot) => rows[*slot.get()].count += row.count,
+            Entry::Vacant(slot) => {
+                slot.insert(rows.len());
+                rows.push(row);
+            }
         }
     }
 
     pub async fn flush(&self) -> anyhow::Result<()> {
-        let drained = std::mem::take(&mut *self.buffer.lock().unwrap());
+        let drained = std::mem::take(&mut *self.buffer.lock().unwrap()).rows;
         if drained.is_empty() {
             return Ok(());
         }
         let flush_timestamp = clickhouse_timestamp(datetime_from_ms((self.clock)()));
         let messages = drained
             .iter()
-            .map(|(_, m)| {
+            .map(|m| {
                 let mut row = JsObject::new();
                 row.insert_str("team_id", JsValue::Number(m.team_id as f64));
                 row.insert_str(
@@ -137,7 +150,7 @@ impl AppMetricsAggregator {
         self.outputs
             .queue_messages(APP_METRICS_OUTPUT, messages)
             .await?;
-        for (_, m) in &drained {
+        for m in &drained {
             counter!("app_metrics_aggregator_flushed_total", "app_source" => m.app_source.clone())
                 .increment(1);
         }

@@ -7,6 +7,9 @@
 use std::sync::Arc;
 
 use crate::filter_group::{FilterGroupNode, FilterNode, GroupType, MAX_FILTER_GROUP_DEPTH};
+
+// A filter group past this depth is rejected before any value that `json_parse` did not build.
+const _: () = assert!(MAX_FILTER_GROUP_DEPTH < crate::js::MAX_BUILT_DEPTH);
 use crate::js::{JsString, JsValue};
 use crate::property_filter::coerce::{js_trim, JsTypeError};
 use crate::property_filter::re2::Re2;
@@ -68,21 +71,23 @@ fn children(value: &JsValue) -> &[JsValue] {
     }
 }
 
-/// `filterGroupDepth`. Reading `.values` of a null child throws.
+/// `filterGroupDepth`. Reading `.values` of a null child at any depth throws. The walk uses a
+/// heap stack, so a deep rule cannot overflow the thread stack.
 fn group_depth(node: &JsValue, depth: usize) -> Result<usize, JsTypeError> {
-    if matches!(node, JsValue::Null) {
-        return Err(JsTypeError(
-            "Cannot read properties of null (reading 'values')",
-        ));
+    let mut max_depth = depth;
+    let mut stack = vec![(node, depth)];
+    while let Some((node, depth)) = stack.pop() {
+        if matches!(node, JsValue::Null) {
+            return Err(JsTypeError(
+                "Cannot read properties of null (reading 'values')",
+            ));
+        }
+        max_depth = max_depth.max(depth);
+        if is_group(node) {
+            stack.extend(children(node).iter().map(|child| (child, depth + 1)));
+        }
     }
-    if !is_group(node) {
-        return Ok(depth);
-    }
-    let mut max_child = depth;
-    for child in children(node) {
-        max_child = max_child.max(group_depth(child, depth + 1)?);
-    }
-    Ok(max_child)
+    Ok(max_depth)
 }
 
 fn node_count(node: &JsValue) -> usize {
@@ -335,5 +340,31 @@ fn trimmed_js(original: &JsString, trimmed: &str) -> JsString {
         JsString::from(trimmed)
     } else {
         original.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::js::json_parse;
+
+    // Node walks the whole tree: a deep group is rejected, and a null child at any depth throws.
+    #[test]
+    fn a_deep_filter_group_is_rejected_without_overflow() {
+        let n = 50_000;
+        let deep = |leaf: &str| {
+            let open = r#"{"type":"AND","values":["#.repeat(n);
+            let close = "]}".repeat(n);
+            json_parse(&format!(
+                r#"{{"type":"AND","values":[{open}{leaf}{close}]}}"#
+            ))
+            .unwrap()
+        };
+        assert!(matches!(
+            parse_filter_group(&deep(r#"{"key":"a"}"#)),
+            Ok(None)
+        ));
+        let shallow_null = json_parse(r#"{"type":"AND","values":[{"type":"OR","values":[null]}]}"#);
+        assert!(parse_filter_group(&shallow_null.unwrap()).is_err());
     }
 }

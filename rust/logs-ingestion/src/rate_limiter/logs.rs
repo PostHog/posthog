@@ -1,6 +1,8 @@
 //! Port of `nodejs/src/logs/services/logs-rate-limiter.service.ts`: per-team KB/s buckets on the
 //! v2 script, with a partial batch let through up to the bucket's pre-call balance.
 
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use metrics::histogram;
@@ -210,83 +212,92 @@ impl LogsRateLimiter {
         &self,
         messages: Vec<M>,
     ) -> Result<FilteredMessages<M>, RateLimiterError> {
+        // Node `Map`s: a vector keeps the insertion order, and a hash index finds a team.
         let mut team_costs: Vec<(i64, f64)> = Vec::new();
-        let mut team_oldest: Vec<(i64, f64)> = Vec::new();
-        let mut team_newest: Vec<(i64, f64)> = Vec::new();
+        let mut cost_index: HashMap<i64, usize> = HashMap::new();
+        let mut team_span: Vec<(i64, f64, f64)> = Vec::new();
+        let mut span_index: HashMap<i64, usize> = HashMap::new();
         for message in &messages {
             let ts = self.timestamp_from_message(message);
             let team = message.team_id();
-            match team_oldest.iter_mut().find(|(t, _)| *t == team) {
-                Some(slot) if ts < slot.1 => slot.1 = ts,
-                Some(_) => {}
-                None => team_oldest.push((team, ts)),
-            }
-            match team_newest.iter_mut().find(|(t, _)| *t == team) {
-                Some(slot) if ts > slot.1 => slot.1 = ts,
-                Some(_) => {}
-                None => team_newest.push((team, ts)),
+            match span_index.entry(team) {
+                Entry::Occupied(slot) => {
+                    let (_, oldest, newest) = &mut team_span[*slot.get()];
+                    if ts < *oldest {
+                        *oldest = ts;
+                    }
+                    if ts > *newest {
+                        *newest = ts;
+                    }
+                }
+                Entry::Vacant(slot) => {
+                    slot.insert(team_span.len());
+                    team_span.push((team, ts, ts));
+                }
             }
             if !self.is_enabled_for_team(team) {
                 continue;
             }
             let cost = bytes_to_kb(message.bytes_uncompressed());
-            match team_costs.iter_mut().find(|(t, _)| *t == team) {
-                Some(slot) => slot.1 += cost,
-                None => team_costs.push((team, cost)),
+            match cost_index.entry(team) {
+                Entry::Occupied(slot) => team_costs[*slot.get()].1 += cost,
+                Entry::Vacant(slot) => {
+                    slot.insert(team_costs.len());
+                    team_costs.push((team, cost));
+                }
             }
         }
 
         let now = self.now_seconds();
-        for (_, ts) in &team_oldest {
-            histogram!("logs_rate_limiter_message_lag_seconds").record(now - ts);
+        for (_, oldest, _) in &team_span {
+            histogram!("logs_rate_limiter_message_lag_seconds").record(now - oldest);
         }
 
         let id_costs: Vec<(String, f64, f64)> = team_costs
             .iter()
             .map(|(team, cost)| {
-                let newest = team_newest
-                    .iter()
-                    .find(|(t, _)| t == team)
-                    .map(|(_, ts)| *ts)
+                let newest = span_index
+                    .get(team)
+                    .map(|&i| team_span[i].2)
                     .unwrap_or_else(|| self.now_seconds());
                 (team.to_string(), *cost, newest)
             })
             .collect();
         let results = self.rate_limit_many(&id_costs).await?;
-        let limits: Vec<(f64, LogsRateLimit)> = results
+        // Keyed by the number `parseInt` gives, as Node's `Map<number, ...>`; a later entry wins.
+        let limits: HashMap<u64, LogsRateLimit> = results
             .into_iter()
-            .map(|(id, r)| (js_parse_int(&id, Some(10)), r))
+            .map(|(id, r)| (number_key(js_parse_int(&id, Some(10))), r))
             .collect();
 
         let mut allowed = Vec::new();
         let mut dropped = Vec::new();
-        let mut used: Vec<(i64, f64)> = Vec::new();
+        let mut used: HashMap<i64, f64> = HashMap::new();
         for message in messages {
             let team = message.team_id();
-            let Some(limit) = limits
-                .iter()
-                .find(|(t, _)| *t == team as f64)
-                .map(|(_, l)| *l)
-            else {
+            let Some(limit) = limits.get(&number_key(team as f64)).copied() else {
                 allowed.push(message);
                 continue;
             };
-            let kb_used = used
-                .iter()
-                .find(|(t, _)| *t == team)
-                .map_or(0.0, |(_, u)| *u);
+            let kb_used = used.get(&team).copied().unwrap_or(0.0);
             let message_kb = bytes_to_kb(message.bytes_uncompressed());
             if kb_used + message_kb <= limit.tokens_before {
-                match used.iter_mut().find(|(t, _)| *t == team) {
-                    Some(slot) => slot.1 = kb_used + message_kb,
-                    None => used.push((team, kb_used + message_kb)),
-                }
+                used.insert(team, kb_used + message_kb);
                 allowed.push(message);
             } else {
                 dropped.push(message);
             }
         }
         Ok(FilteredMessages { allowed, dropped })
+    }
+}
+
+/// A `Map` key for a number: `-0` and `0` are one key, as SameValueZero treats them.
+fn number_key(n: f64) -> u64 {
+    if n == 0.0 {
+        0
+    } else {
+        n.to_bits()
     }
 }
 

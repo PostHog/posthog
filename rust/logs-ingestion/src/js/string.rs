@@ -10,9 +10,10 @@ use std::fmt;
 
 #[derive(Clone, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
 pub struct JsString {
-    /// WTF-8. Valid UTF-8 exactly when `has_surrogates` is false.
+    /// WTF-8. Valid UTF-8 exactly when `lone_surrogates` is 0.
     bytes: Vec<u8>,
-    has_surrogates: bool,
+    /// The number of lone surrogates in `bytes`, so a joined pair needs no rescan.
+    lone_surrogates: usize,
 }
 
 impl JsString {
@@ -23,15 +24,17 @@ impl JsString {
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             bytes: Vec::with_capacity(capacity),
-            has_surrogates: false,
+            lone_surrogates: 0,
         }
     }
 
     pub fn as_str(&self) -> Option<&str> {
-        if self.has_surrogates {
+        if self.lone_surrogates > 0 {
             None
         } else {
             // SAFETY: without a lone surrogate the bytes are valid UTF-8 by construction.
+            // A checked conversion would scan the whole string on every comparison and lookup.
+            // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
             Some(unsafe { std::str::from_utf8_unchecked(&self.bytes) })
         }
     }
@@ -54,10 +57,11 @@ impl JsString {
     }
 
     pub fn into_string_lossy(self) -> String {
-        if self.has_surrogates {
+        if self.lone_surrogates > 0 {
             self.to_utf8_lossy().into_owned()
         } else {
             // SAFETY: as in `as_str`.
+            // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
             unsafe { String::from_utf8_unchecked(self.bytes) }
         }
     }
@@ -74,12 +78,12 @@ impl JsString {
 
     pub fn push_js(&mut self, other: &JsString) {
         // A join can happen only at the seam, so the bytes copy unless the seam joins.
-        if !other.has_surrogates
+        if other.lone_surrogates == 0
             || !other.starts_with_low_surrogate()
             || self.trailing_high_surrogate().is_none()
         {
             self.bytes.extend_from_slice(&other.bytes);
-            self.has_surrogates |= other.has_surrogates;
+            self.lone_surrogates += other.lone_surrogates;
             return;
         }
         for unit in other.chars_or_surrogates() {
@@ -102,19 +106,19 @@ impl JsString {
                 self.bytes.truncate(self.bytes.len() - 3);
                 let cp = 0x10000 + (((high as u32) - 0xD800) << 10) + ((unit as u32) - 0xDC00);
                 self.push(char::from_u32(cp).expect("surrogate pair is a char"));
-                self.has_surrogates = self.scan_surrogates();
+                self.lone_surrogates -= 1;
                 return;
             }
         }
         self.bytes.push(0xE0 | ((unit >> 12) as u8));
         self.bytes.push(0x80 | (((unit >> 6) & 0x3F) as u8));
         self.bytes.push(0x80 | ((unit & 0x3F) as u8));
-        self.has_surrogates = true;
+        self.lone_surrogates += 1;
     }
 
     fn trailing_high_surrogate(&self) -> Option<u16> {
         let n = self.bytes.len();
-        if !self.has_surrogates || n < 3 {
+        if self.lone_surrogates == 0 || n < 3 {
             return None;
         }
         let b = &self.bytes[n - 3..];
@@ -129,17 +133,14 @@ impl JsString {
         matches!(self.bytes.as_slice(), [0xED, 0xB0..=0xBF, ..])
     }
 
-    pub(crate) fn truncate_to(&mut self, len: usize, has_surrogates: bool) {
+    /// Cuts back to `len` bytes, where `lone_surrogates` is the count that the prefix had.
+    pub(crate) fn truncate_to(&mut self, len: usize, lone_surrogates: usize) {
         self.bytes.truncate(len);
-        self.has_surrogates = has_surrogates;
+        self.lone_surrogates = lone_surrogates;
     }
 
-    pub(crate) fn has_lone_surrogates(&self) -> bool {
-        self.has_surrogates
-    }
-
-    fn scan_surrogates(&self) -> bool {
-        self.bytes.windows(2).any(|w| w[0] == 0xED && w[1] >= 0xA0)
+    pub(crate) fn lone_surrogate_count(&self) -> usize {
+        self.lone_surrogates
     }
 
     pub fn utf16_len(&self) -> usize {
@@ -269,7 +270,7 @@ impl From<&str> for JsString {
     fn from(s: &str) -> Self {
         Self {
             bytes: s.as_bytes().to_vec(),
-            has_surrogates: false,
+            lone_surrogates: 0,
         }
     }
 }
@@ -278,7 +279,7 @@ impl From<String> for JsString {
     fn from(s: String) -> Self {
         Self {
             bytes: s.into_bytes(),
-            has_surrogates: false,
+            lone_surrogates: 0,
         }
     }
 }
@@ -351,5 +352,12 @@ mod tests {
         joined.push_js(&s.utf16_slice(1, 2));
         assert_eq!(joined, JsString::from("🚀"));
         assert!(joined.as_str().is_some());
+
+        let mut mixed = JsString::new();
+        mixed.push_code_unit(0xD800);
+        mixed.push_code_unit(0xD83D);
+        mixed.push_code_unit(0xDE80);
+        assert!(mixed.as_str().is_none(), "the first lone surrogate remains");
+        assert_eq!(mixed.to_utf8_lossy(), "\u{FFFD}🚀");
     }
 }

@@ -10,13 +10,18 @@ use super::{JsKey, JsObject, JsString, JsValue};
 #[error("invalid JSON at byte {0}")]
 pub struct JsonError(pub usize);
 
-/// `JSON.parse(text)`. Recursion depth is bounded by the input, as in V8, which handles the
-/// nesting this consumer accepts (bodies up to the record size cap).
+/// Past this depth `json_parse` checks an array or object but keeps an empty array in its place.
+/// A value that deep would overflow the stack when it is dropped or walked, and every reader
+/// stops before this depth. See PORTING.md.
+pub const MAX_BUILT_DEPTH: usize = 512;
+
+/// `JSON.parse(text)`. It accepts and rejects exactly what V8 does at any nesting depth.
 pub fn json_parse(text: &str) -> Result<JsValue, JsonError> {
     let mut parser = Parser {
         bytes: text.as_bytes(),
         text,
         pos: 0,
+        depth: 0,
     };
     parser.skip_ws();
     let value = parser.value()?;
@@ -46,6 +51,7 @@ pub fn json_parse_shape(
         bytes: text.as_bytes(),
         text,
         pos: 0,
+        depth: 0,
     };
     parser.skip_ws();
     let shape = match parser.bytes.get(parser.pos) {
@@ -71,6 +77,8 @@ struct Parser<'a> {
     bytes: &'a [u8],
     text: &'a str,
     pos: usize,
+    /// Open arrays and objects around the value that `value` builds now.
+    depth: usize,
 }
 
 impl Parser<'_> {
@@ -100,8 +108,12 @@ impl Parser<'_> {
 
     fn value(&mut self) -> Result<JsValue, JsonError> {
         match self.bytes.get(self.pos) {
-            Some(b'{') => self.object(),
-            Some(b'[') => self.array(),
+            Some(b'{' | b'[') if self.depth >= MAX_BUILT_DEPTH => {
+                self.skip_value()?;
+                Ok(JsValue::Array(Vec::new()))
+            }
+            Some(b'{') => self.nested(Self::object),
+            Some(b'[') => self.nested(Self::array),
             Some(b'"') => Ok(JsValue::String(self.string()?)),
             Some(b't') => self.eat("true").map(|_| JsValue::Bool(true)),
             Some(b'f') => self.eat("false").map(|_| JsValue::Bool(false)),
@@ -109,6 +121,16 @@ impl Parser<'_> {
             Some(b'-' | b'0'..=b'9') => self.number(),
             _ => self.err(),
         }
+    }
+
+    fn nested(
+        &mut self,
+        parse: fn(&mut Self) -> Result<JsValue, JsonError>,
+    ) -> Result<JsValue, JsonError> {
+        self.depth += 1;
+        let value = parse(self);
+        self.depth -= 1;
+        value
     }
 
     fn object(&mut self) -> Result<JsValue, JsonError> {
@@ -211,68 +233,79 @@ impl Parser<'_> {
         }
     }
 
+    /// Checks one value without building it. The open containers are on a heap stack, so any
+    /// nesting depth is safe.
     fn skip_value(&mut self) -> Result<(), JsonError> {
-        match self.bytes.get(self.pos) {
-            Some(b'{') => {
-                self.pos += 1;
-                self.skip_ws();
-                if self.bytes.get(self.pos) == Some(&b'}') {
+        let mut open: Vec<u8> = Vec::new();
+        loop {
+            match self.bytes.get(self.pos) {
+                Some(b'{') => {
                     self.pos += 1;
-                    return Ok(());
+                    self.skip_ws();
+                    if self.bytes.get(self.pos) == Some(&b'}') {
+                        self.pos += 1;
+                    } else {
+                        self.skip_key()?;
+                        open.push(b'}');
+                        continue;
+                    }
                 }
-                loop {
-                    self.skip_ws();
-                    if self.bytes.get(self.pos) != Some(&b'"') {
-                        return self.err();
-                    }
-                    self.skip_string()?;
-                    self.skip_ws();
-                    if self.bytes.get(self.pos) != Some(&b':') {
-                        return self.err();
-                    }
+                Some(b'[') => {
                     self.pos += 1;
                     self.skip_ws();
-                    self.skip_value()?;
-                    self.skip_ws();
-                    match self.bytes.get(self.pos) {
-                        Some(b',') => self.pos += 1,
-                        Some(b'}') => {
-                            self.pos += 1;
-                            return Ok(());
-                        }
-                        _ => return self.err(),
+                    if self.bytes.get(self.pos) == Some(&b']') {
+                        self.pos += 1;
+                    } else {
+                        open.push(b']');
+                        continue;
                     }
+                }
+                Some(b'"') => self.skip_string()?,
+                Some(b't') => self.eat("true")?,
+                Some(b'f') => self.eat("false")?,
+                Some(b'n') => self.eat("null")?,
+                // Every number the grammar accepts parses to a double, so only the grammar is checked.
+                Some(b'-' | b'0'..=b'9') => {
+                    self.scan_number()?;
+                }
+                _ => return self.err(),
+            }
+            loop {
+                let Some(&close) = open.last() else {
+                    return Ok(());
+                };
+                self.skip_ws();
+                match self.bytes.get(self.pos) {
+                    Some(b',') => {
+                        self.pos += 1;
+                        self.skip_ws();
+                        if close == b'}' {
+                            self.skip_key()?;
+                        }
+                        break;
+                    }
+                    Some(&b) if b == close => {
+                        self.pos += 1;
+                        open.pop();
+                    }
+                    _ => return self.err(),
                 }
             }
-            Some(b'[') => {
-                self.pos += 1;
-                self.skip_ws();
-                if self.bytes.get(self.pos) == Some(&b']') {
-                    self.pos += 1;
-                    return Ok(());
-                }
-                loop {
-                    self.skip_ws();
-                    self.skip_value()?;
-                    self.skip_ws();
-                    match self.bytes.get(self.pos) {
-                        Some(b',') => self.pos += 1,
-                        Some(b']') => {
-                            self.pos += 1;
-                            return Ok(());
-                        }
-                        _ => return self.err(),
-                    }
-                }
-            }
-            Some(b'"') => self.skip_string(),
-            Some(b't') => self.eat("true"),
-            Some(b'f') => self.eat("false"),
-            Some(b'n') => self.eat("null"),
-            // Every number the grammar accepts parses to a double, so only the grammar is checked.
-            Some(b'-' | b'0'..=b'9') => self.scan_number().map(|_| ()),
-            _ => self.err(),
         }
+    }
+
+    fn skip_key(&mut self) -> Result<(), JsonError> {
+        if self.bytes.get(self.pos) != Some(&b'"') {
+            return self.err();
+        }
+        self.skip_string()?;
+        self.skip_ws();
+        if self.bytes.get(self.pos) != Some(&b':') {
+            return self.err();
+        }
+        self.pos += 1;
+        self.skip_ws();
+        Ok(())
     }
 
     fn skip_string(&mut self) -> Result<(), JsonError> {
@@ -553,6 +586,24 @@ mod tests {
         ] {
             assert!(json_parse(bad).is_err(), "{bad:?}");
         }
+    }
+
+    // V8 parses any depth. A deep body must not overflow the stack, and the flatten skips it.
+    #[test]
+    fn deep_nesting_parses_like_v8_without_overflow() {
+        let n = 100_000;
+        let deep_array = format!("{}{}", "[".repeat(n), "]".repeat(n));
+        let deep_object = format!("{}1{}", r#"{"a":"#.repeat(n), "}".repeat(n));
+        for text in [&deep_array, &deep_object] {
+            assert!(json_parse(text).is_ok());
+            assert!(json_parse_shape(text, |_| false).is_ok());
+            assert!(crate::normalize::extract_json_attributes_from_body(Some(text)).is_empty());
+        }
+        let unclosed = "[".repeat(n);
+        assert!(json_parse(&unclosed).is_err());
+        assert!(json_parse_shape(&unclosed, |_| false).is_err());
+        let bad_tail = format!("{}1,]{}", "[".repeat(n), "]".repeat(n - 1));
+        assert!(json_parse(&bad_tail).is_err());
     }
 
     #[test]

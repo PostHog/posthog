@@ -47,6 +47,8 @@ fn percentile(sorted: &[f64], p: f64) -> f64 {
 }
 
 fn main() -> anyhow::Result<()> {
+    // The arguments of this local benchmark only select a workload file and pass counts.
+    // nosemgrep: rust.lang.security.args.args
     let args: Vec<String> = std::env::args().collect();
     let path = args
         .get(1)

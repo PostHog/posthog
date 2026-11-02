@@ -112,6 +112,7 @@ Each rule has evidence in Node, and a test that pins it.
    - `__proto__` is an ordinary own key.
    - The only whitespace is space, tab, LF and CR. A BOM, a trailing comma, single quotes, NaN and a leading `+` are errors.
    - A `🚀` pair joins. A lone `\uD83D` stays a lone surrogate.
+   - V8 accepts any nesting depth, and so does the port. An array or object deeper than `MAX_BUILT_DEPTH` (512) is checked without a stack and kept as an empty array, so a deep body cannot overflow the stack. No reader goes that deep: the flatten stops past depth 128 and a filter group past depth 16. A filter group nested past 512 levels with a `null` below that level throws in Node and is rejected without the throw here.
    - Tests: `js::json::tests`, `module_vectors::body_parse_matches_node`.
 4. **`JSON.stringify` numbers** follow ECMAScript `Number::toString`.
    - Examples: `1e+21`, `1e-7`, `0.30000000000000004`, `-0` becomes `0`, `5e-324`, `1.23e+22`, and `9007199254740993` becomes `9007199254740992`.
@@ -138,7 +139,10 @@ Each rule has evidence in Node, and a test that pins it.
      - A bare number gives NaN, because its year falls outside V8's small-integer range.
      - `garbage 2025` is 2025-01-01, but `garbage2025` is NaN.
    - Local time is read as UTC, as the pods run with `TZ=UTC`.
-8. **avsc decode.** `decodeLogRecords` registers only `zstandard`, which replaces avsc's built-in codecs. The errors and silent cases:
+8. **avsc decode.** `decodeLogRecords` registers only `zstandard`, which replaces avsc's built-in codecs.
+   The Node consumer carries a pnpm patch to avsc 5.7.9: `Tap.prototype.readLong` reads at most 10 varint bytes, and an 11th byte invalidates the tap and returns 0.
+   Without it, a long varint gives a NaN or infinite `bytes` length, and avsc's shared buffer pool then empties every later `bytes` value in the process.
+   `Tap::read_long` follows the patched code. The errors and silent cases:
 
    | Input | Result |
    | --- | --- |
@@ -147,7 +151,7 @@ Each rule has evidence in Node, and a test that pins it.
    | Any other codec | "unknown codec: X", so `null` and `deflate` containers go to the DLQ |
    | A bad sync marker in any complete block | "invalid sync marker" (avsc checks all blocks before it decompresses any) |
    | Bad zstd | "zstandard codec decompression error" |
-   | A record past its block, or a string or bytes length that is NaN, infinite or past the end | "truncated block" |
+   | A record past its block, a string or bytes length that is negative or past the end, or a varint longer than 10 bytes | "truncated block" |
    | A block count outside ±(2^53 - 2), also in trailing bytes | "potential precision loss" (Node rejects since `decodeLogRecords` writes to the decoder directly; through a pipe the throw was uncaught and the promise never settled) |
    | A first array count over 2^32 - 1 | "Invalid array length" |
    | Bad union index | "invalid union index: N" |
@@ -210,8 +214,9 @@ Each rule has evidence in Node, and a test that pins it.
 21. **Prototype members as filter keys.** `decodedAttr` and `getAttribute` read `map[key]`, so `constructor` or `toString` read a function (`is_set` matches, and `String()` gives `function toString() { [native code] }`), `__proto__` reads `[object Object]`, and `__defineGetter__` makes the decode throw. A non-string `key` converts with `String()`: a missing key reads `attributes['undefined']`. Evidence: a Node probe of `matchFilterGroup`. Test: `filter_group::tests`.
 22. **Filter group compile throws on a null child.** `filterGroupDepth` reads `.values` of each child, so a null child anywhere in a group throws, and `compileRuleSet` and `compileRetentionRuleSet` throw with it. A null `config` on any sampling row also throws (`parseAlwaysKeep`). Port: both compilers return `Result`.
 23. **Rule quirks kept.** An unknown `rule_type` compiles as `path_drop` with no patterns, but its `always_keep` still keeps records. `applyRateLimits` looks a rule up in `new Map(rules.map(r => [r.id, r]))`, so the last rule with an id wins. Comparisons with `<` on strings use UTF-16 order.
-24. **ioredis integer replies.** redis-parser 3 reads an integer reply one decimal digit at a time in floating point, so `-9223372036854775808` (Lua's overflow for `1e21`) reads as `-9223372036854778000`. Port: `rate_limiter::redis::ioredis_integer`. Evidence: `rate-limiter-reference.json`.
-25. **Content weights key on object identity.** A stage that puts a new record object in the batch gets weight 0 for it. Port: `content_weights::StagedRecord::fresh`. Test: `content_weights::tests`.
+24. **Lost Lua scripts.** ioredis 4 sends `SCRIPT EXISTS` and `SCRIPT LOAD` only for a script it has not seen in the last 60 seconds (`maxScriptsCachingTime`). After a `SCRIPT FLUSH`, each call of a pipeline replies `NOSCRIPT` and counts as a missing reply until that cache clears. The port gives the same missing replies, but it forgets the script on the first `NOSCRIPT` and loads it again in the next pipeline. Test: `rate_limiter::redis::tests`.
+25. **ioredis integer replies.** redis-parser 3 reads an integer reply one decimal digit at a time in floating point, so `-9223372036854775808` (Lua's overflow for `1e21`) reads as `-9223372036854778000`. Port: `rate_limiter::redis::ioredis_integer`. Evidence: `rate-limiter-reference.json`.
+26. **Content weights key on object identity.** A stage that puts a new record object in the batch gets weight 0 for it. Port: `content_weights::StagedRecord::fresh`. Test: `content_weights::tests`.
 
 ### `metric_rules` wiring
 
@@ -233,8 +238,7 @@ A parsed `FilterGroupNode` implements `metric_rules::FilterGroupMatcher` with `f
 - **Writer schemas that fail to parse.** avsc's error text comes from `JSON.parse` or `Type.forSchema`. Capture always writes a valid schema.
 - **Writer-schema validation.** avsc's `Type.forSchema` checks are not ported, so accept and reject decisions differ, not only error text. A corrupted record `name` key makes an anonymous record, which avsc decodes and this port rejects. A name with invalid characters (`LogRec\u007frd`) is rejected by avsc and decoded here. Ambiguous unions, field defaults and enum symbols are not validated either.
 - **Counts that run far past the data.** For an array or map count in the millions whose items run past the end, avsc keeps reading empty items and Node can throw "Invalid array length" or run out of memory; this port stops at the end with "truncated block". Records that read no bytes are capped at 2^20 per container ("too many empty records"); Node holds them all or runs out of memory.
-- **A NaN `bytes` length** (a varint of about 150 bytes). avsc allocates from its shared buffer pool with a NaN length, which leaves every later `bytes` value in the Node process empty, so later messages fail with "unknown codec: ". This port fails only the one message.
-- **An `int` that decodes to NaN or past i64.** avsc keeps the float; this port stores an `i64`.
+- **An `int` that decodes past i64.** avsc keeps the float; this port stores an `i64`.
 - **Decode error precedence across blocks.** When an early block has a bad record and a later block fails to decompress, avsc's async order decides which error comes first. This port reports the first block in order.
 - **Encode error text.** It follows avsc's `invalid <schema>: <value>` shape, but the value is printed with Rust `Debug`. Only a hog transformation that writes a wrongly typed value can reach it. Port it with the transformations.
 - **The HTTP POST of `LogsMetricsEmitter`.** The crate has no HTTP client. `LogsMetricsEmitter` takes an `OtlpTransport` and keeps the body, the two attempts, the 2xx check and the `logs_metrics_rules_export_failed_total{team_id}` counter.
@@ -244,7 +248,7 @@ A parsed `FilterGroupNode` implements `metric_rules::FilterGroupMatcher` with `f
 - **`logs_ingestion_pattern_stage_error_total`.** The Rust stamping cannot fail, so it has no catch path.
 
 - **`hash01FromTraceId` with no trace id.** Node uses `Math.random()`; the port uses `rand`. No vector can pin it.
-- **RE2 program size limits.** RE2 rejects a program over `max_mem` (8 MiB) and the `regex` crate has its own size and nesting limits (nesting set to 1000; RE2 has none), so a very large pattern can compile in one engine only. The Unicode table versions of the vendored RE2 and the `regex` crate can also differ.
+- **RE2 program size limits.** RE2 rejects a program over `max_mem` (8 MiB) and the `regex` crate has its own size and nesting limits (nesting set to 1000; RE2 has none), so a very large pattern can compile in one engine only. The parser stops at the same nesting of 1000 groups or nested counted repetitions, so a deep pattern fails before it can overflow the stack. The Unicode table versions of the vendored RE2 and the `regex` crate can also differ.
 - **Hog log transformations.** `LogsTransformer` is the stage slot; no implementation runs hog yet, and no scenario covers transformations.
 - **A Kafka header with a null value.** `parseKafkaHeaders` would throw on it in Node; this port reads it as an empty string.
 - **The OpenTelemetry usage counters** (`recordLogsReceived` and the others in `ingestion-otel-metrics.ts`). The Prometheus counters are ported.

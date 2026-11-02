@@ -64,7 +64,7 @@ impl Re2 {
         }
         rust.push_str(&body);
         let regex = RegexBuilder::new(&rust)
-            .nest_limit(1000)
+            .nest_limit(MAX_NESTING as u32)
             .build()
             .map_err(|e| Re2Error(e.to_string()))?;
         Ok(Re2 { regex })
@@ -625,8 +625,14 @@ enum PieceKind {
 #[derive(Clone)]
 struct RepNode {
     divisor: u32,
+    depth: usize,
     children: Vec<RepNode>,
 }
+
+/// The `nest_limit` that `Re2::new` gives the Rust regex builder. Each group and each nested
+/// repetition is one level there, so a pattern past this depth fails to compile either way.
+/// The parser stops at it first, so deep input cannot overflow the stack. See PORTING.md.
+const MAX_NESTING: usize = 1000;
 
 fn walk(node: &RepNode, arg: u32) -> u32 {
     let arg = arg.checked_div(node.divisor).unwrap_or(arg);
@@ -709,6 +715,15 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// The root frame is not a group, so the stack holds one frame more than the group depth.
+    fn open_group(&mut self, open: String) -> Result<(), Re2Error> {
+        if self.stack.len() > MAX_NESTING {
+            return err("bad nesting depth");
+        }
+        self.stack.push(Frame::new(open));
+        Ok(())
+    }
+
     fn frame(&mut self) -> &mut Frame {
         self.stack.last_mut().expect("root frame")
     }
@@ -732,7 +747,7 @@ impl<'a> Parser<'a> {
                         self.parse_perl_flags()?;
                     } else {
                         self.pos += 1;
-                        self.stack.push(Frame::new("(?:".to_string()));
+                        self.open_group("(?:".to_string())?;
                     }
                 }
                 b'|' => {
@@ -849,9 +864,15 @@ impl<'a> Parser<'a> {
         piece.repeated = true;
         if let Some((lo, hi)) = counted {
             let divisor = hi.unwrap_or(lo);
+            let children = std::mem::take(&mut piece.reps);
+            let depth = 1 + children.iter().map(|c| c.depth).max().unwrap_or(0);
+            if depth > MAX_NESTING {
+                return err("bad nesting depth");
+            }
             let node = RepNode {
                 divisor,
-                children: std::mem::take(&mut piece.reps),
+                depth,
+                children,
             };
             if (lo >= 2 || hi.unwrap_or(0) >= 2) && walk(&node, MAX_REPEAT) == 0 {
                 return err("invalid repetition size");
@@ -934,8 +955,7 @@ impl<'a> Parser<'a> {
                 return err("duplicate capture group name");
             }
             self.pos += end + 1;
-            self.stack.push(Frame::new("(?:".to_string()));
-            return Ok(());
+            return self.open_group("(?:".to_string());
         }
         self.pos += 2;
         let mut negated = false;
@@ -988,7 +1008,7 @@ impl<'a> Parser<'a> {
                         flags.push_str(&off);
                     }
                     if c == 0x3A {
-                        self.stack.push(Frame::new(format!("(?{flags}:")));
+                        self.open_group(format!("(?{flags}:"))?;
                     } else if !flags.is_empty() {
                         self.push(format!("(?{flags})"), PieceKind::Flags);
                     } else {
@@ -1255,6 +1275,18 @@ mod tests {
         Re2::new(pattern.as_bytes(), "is")
             .ok()
             .map(|r| r.test(input))
+    }
+
+    // RE2 accepts these, and the Rust nest limit rejects them; see the module doc.
+    #[test]
+    fn deep_nesting_fails_to_compile_without_overflow() {
+        let n = 100_000;
+        let repetitions = format!("(?:{}a{}){{2}}", "(?:".repeat(n), "){1}".repeat(n));
+        let groups = format!("{}a{}", "(".repeat(n), ")".repeat(n));
+        let stacked_flags = format!("a{}", "(?i){1}".repeat(n));
+        for p in [repetitions, groups, stacked_flags] {
+            assert!(Re2::new(p.as_bytes(), "").is_err());
+        }
     }
 
     #[test]

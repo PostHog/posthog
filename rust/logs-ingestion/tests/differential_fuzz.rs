@@ -192,7 +192,7 @@ fn json_numbers_and_dates() {
     for (input, output) in cases("numbers") {
         let x = f64::from_bits(u64::from_str_radix(&string(&input), 16).unwrap());
         let actual = number_to_string(x);
-        if !same_str(&actual, &string(&output)) && !(x.is_nan() && actual == "NaN") {
+        if !(same_str(&actual, &string(&output)) || (x.is_nan() && actual == "NaN")) {
             bad.push(format!(
                 "String({x:e}): node {} rust {actual}",
                 string(&output)

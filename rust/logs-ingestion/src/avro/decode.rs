@@ -46,7 +46,9 @@ impl<'a> Tap<'a> {
         b
     }
 
-    /// avsc's `readLong`: 32-bit integer steps for 28 bits, then float arithmetic.
+    /// avsc's `readLong`: 32-bit integer steps for 28 bits, then float arithmetic. The Node
+    /// consumer patches avsc 5.7.9 to stop at 10 bytes: an 11th byte invalidates the tap and
+    /// gives 0. So every long is a finite integer. See PORTING.md.
     pub fn read_long(&mut self) -> f64 {
         let mut n: i32 = 0;
         let mut k = 0;
@@ -64,7 +66,13 @@ impl<'a> Tap<'a> {
         if h != 0 {
             let mut f = n as f64;
             let mut fk = 268_435_456.0;
+            let mut read = 4;
             loop {
+                if read == 10 {
+                    self.invalidate();
+                    return 0.0;
+                }
+                read += 1;
                 b = self.byte();
                 f += (b & 0x7f) as f64 * fk;
                 fk *= 128.0;
@@ -97,8 +105,7 @@ impl<'a> Tap<'a> {
         }
     }
 
-    /// A NaN, infinite or oversized length leaves avsc's `pos` past the end (or NaN), which
-    /// is invalid too.
+    /// A negative or oversized length leaves avsc's `pos` past the end, which is invalid too.
     pub fn read_bytes(&mut self) -> Option<&'a [u8]> {
         let len = self.read_long();
         let remaining = self.buf.len().saturating_sub(self.pos) as f64;
@@ -432,4 +439,22 @@ pub fn decode_container(buf: &[u8]) -> Result<Container, AvroError> {
         codec,
         records,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Tap;
+
+    #[test]
+    fn read_long_stops_at_ten_bytes_like_the_patched_avsc() {
+        let ten = [0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01];
+        let mut tap = Tap::new(&ten);
+        assert_eq!(tap.read_long(), 9_223_372_036_854_775_807.0);
+        assert!(tap.is_valid());
+
+        let eleven = [0xff; 11];
+        let mut tap = Tap::new(&eleven);
+        assert_eq!(tap.read_long(), 0.0);
+        assert!(!tap.is_valid());
+    }
 }

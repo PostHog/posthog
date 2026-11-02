@@ -71,9 +71,10 @@ pub trait TokenBucketRedis: Send + Sync {
     ) -> Result<Vec<ScriptReply>, String>;
 }
 
-/// Like ioredis, it runs `SCRIPT EXISTS` and `SCRIPT LOAD` once per script, then sends bare
-/// `EVALSHA`. If Redis later loses the script, each call replies `NOSCRIPT`, which the limiter
-/// treats as a missing reply, as Node does.
+/// Like ioredis, it runs `SCRIPT EXISTS` and `SCRIPT LOAD` before it sends bare `EVALSHA`. If Redis
+/// loses the script, each call of that pipeline replies `NOSCRIPT`, which the limiter treats as a
+/// missing reply, as Node does. The next pipeline loads the script again. ioredis clears its
+/// script cache every 60 seconds, so Node recovers within that time; see PORTING.md.
 pub struct RedisTokenBucket<C> {
     conn: C,
     loaded: Mutex<HashSet<String>>,
@@ -150,6 +151,92 @@ where
             .req_packed_commands(&pipe, 0, calls.len())
             .await
             .map_err(|e| e.to_string())?;
+        let lost_script = values
+            .iter()
+            .any(|value| matches!(value, Value::ServerError(e) if e.code() == "NOSCRIPT"));
+        if lost_script {
+            self.loaded
+                .lock()
+                .map_err(|e| e.to_string())?
+                .remove(&script.sha);
+        }
         Ok(values.into_iter().map(reply_from_value).collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use redis::{Cmd, Pipeline, RedisFuture};
+
+    use super::*;
+
+    /// A Redis that answers the script commands and can lose its script cache.
+    #[derive(Clone, Default)]
+    struct FakeRedis {
+        state: Arc<Mutex<(bool, usize)>>,
+    }
+
+    impl ConnectionLike for FakeRedis {
+        fn req_packed_command<'a>(&'a mut self, cmd: &'a Cmd) -> RedisFuture<'a, Value> {
+            let mut state = self.state.lock().unwrap();
+            let load = cmd
+                .args_iter()
+                .any(|arg| matches!(arg, redis::Arg::Simple(b"LOAD")));
+            let reply = if load {
+                *state = (true, state.1 + 1);
+                Value::BulkString(token_bucket_v2().sha.clone().into_bytes())
+            } else {
+                Value::Array(vec![Value::Int(state.0.into())])
+            };
+            Box::pin(async move { Ok(reply) })
+        }
+
+        fn req_packed_commands<'a>(
+            &'a mut self,
+            _pipe: &'a Pipeline,
+            _offset: usize,
+            count: usize,
+        ) -> RedisFuture<'a, Vec<Value>> {
+            let loaded = self.state.lock().unwrap().0;
+            let reply = if loaded {
+                Value::Array(vec![Value::Int(1), Value::Int(2)])
+            } else {
+                redis::parse_redis_value(b"-NOSCRIPT No matching script.\r\n").unwrap()
+            };
+            Box::pin(async move { Ok(vec![reply; count]) })
+        }
+
+        fn get_db(&self) -> i64 {
+            0
+        }
+    }
+
+    #[tokio::test]
+    async fn a_lost_script_is_loaded_again_by_the_next_pipeline() {
+        let redis = FakeRedis::default();
+        let bucket = RedisTokenBucket::new(redis.clone());
+        let calls = [ScriptCall {
+            key: "k".into(),
+            args: vec![],
+        }];
+        let ok = |replies: Vec<ScriptReply>| replies == vec![Ok(vec![1, 2])];
+        assert!(ok(bucket
+            .eval_pipeline(token_bucket_v2(), &calls)
+            .await
+            .unwrap()));
+        // SCRIPT FLUSH: the pipeline that meets it gets NOSCRIPT, as the Node pipeline does.
+        redis.state.lock().unwrap().0 = false;
+        let lost = bucket
+            .eval_pipeline(token_bucket_v2(), &calls)
+            .await
+            .unwrap();
+        assert!(lost[0].is_err());
+        assert!(ok(bucket
+            .eval_pipeline(token_bucket_v2(), &calls)
+            .await
+            .unwrap()));
+        assert_eq!(redis.state.lock().unwrap().1, 2);
     }
 }
