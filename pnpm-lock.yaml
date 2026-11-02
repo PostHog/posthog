@@ -1838,8 +1838,8 @@ importers:
         specifier: 6.0.3
         version: 6.0.3
       uWebSockets.js:
-        specifier: https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/cfc9a40d8132a34881813cec3d5f8e3a185b3ce3
-        version: https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/cfc9a40d8132a34881813cec3d5f8e3a185b3ce3
+        specifier: https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/e0f56ebb4b349017f006e14d1cd29052f2a7121d
+        version: https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/e0f56ebb4b349017f006e14d1cd29052f2a7121d
       ultimate-express:
         specifier: 2.0.9
         version: 2.0.9
@@ -23306,9 +23306,9 @@ packages:
   typewise@1.0.3:
     resolution: {integrity: sha512-aXofE06xGhaQSPzt8hlTY+/YWQhm9P0jYUp1f2XtmW/3Bk0qzXcyFWAtPoo2uTGQj1ZwbDuSyuxicq+aDo8lCQ==}
 
-  uWebSockets.js@https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/cfc9a40d8132a34881813cec3d5f8e3a185b3ce3:
-    resolution: {gitHosted: true, integrity: sha512-1eSUhK/WLig+fbq6dB18hsmkoaC+6YGVkAp2r0tQ6PGBxsOPpLUmMsKN/7ANoYtWiou+lU46+Bnf8JBYES9EsA==, tarball: https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/cfc9a40d8132a34881813cec3d5f8e3a185b3ce3}
-    version: 20.52.0
+  uWebSockets.js@https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/e0f56ebb4b349017f006e14d1cd29052f2a7121d:
+    resolution: {gitHosted: true, integrity: sha512-QlTHqq+Dgdfhw55oQ1laP8QCKOK/np1I8QbQFi3+oDzyip0/avIY7dxo+HfmPiUduKJ4D0puaX0ApFAek41qPA==, tarball: https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/e0f56ebb4b349017f006e14d1cd29052f2a7121d}
+    version: 20.67.0
 
   uc.micro@2.1.0:
     resolution: {integrity: sha512-ARDJmphmdvUk6Glw7y9DQ2bFkKBHwQHLi2lsaH6PPmz/Ka9sFOBsBluozhDltWmnv9u/cF6Rt87znRTPV+yp/A==}
@@ -45794,7 +45794,7 @@ snapshots:
     dependencies:
       typewise-core: 1.2.0
 
-  uWebSockets.js@https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/cfc9a40d8132a34881813cec3d5f8e3a185b3ce3: {}
+  uWebSockets.js@https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/e0f56ebb4b349017f006e14d1cd29052f2a7121d: {}
 
   uc.micro@2.1.0: {}
 

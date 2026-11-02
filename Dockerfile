@@ -333,6 +333,8 @@ RUN apt-get update && \
     # point releases out of the security archive, which breaks exact pins on uncached builds.
     "libssl3=3.0.*" \
     "libjemalloc2" \
+    # The node binary copied from node-base links libatomic from Node 26 on.
+    "libatomic1" \
     # Numba's OpenMP backend needs the system libgomp runtime.
     "libgomp1" \
     # Python's mimetypes uses /etc/mime.types for artifact content types.
