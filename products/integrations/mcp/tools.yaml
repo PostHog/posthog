@@ -74,19 +74,18 @@ tools:
             with the sender's integration_id after integrations-domain-connect-check-retrieve says the domain is
             supported. If the domain already has a DMARC record, the URL leaves it out and keeps the existing policy.
             You cannot open this URL yourself: give it to the person you work with. They sign in at their DNS host and
-            approve the records there; nothing changes until they approve. Then poll
-            integrations-email-status-retrieve until its status is verified, and call integrations-email-verify-create
-            once. If this tool returns an error, fall back to adding the records from
-            integrations-email-status-retrieve by hand.
+            approve the records there; nothing changes until they approve. Then poll integrations-email-status-retrieve
+            until its status is verified, and call integrations-email-verify-create once. If this tool returns an error,
+            fall back to adding the records from integrations-email-status-retrieve by hand.
         exclude_params:
             - context
             - proxy_record_id
             - redirect_uri
+        inject_body:
+            context: email
         param_overrides:
             integration_id:
                 required: true
-        inject_body:
-            context: email
         feature_flag: workflows-email-from-code
     integrations-domain-connect-check-retrieve:
         operation: integrations_domain_connect_check_retrieve
@@ -117,25 +116,25 @@ tools:
         title: Create an email sender
         description: >
             Create an email sender for Workflows on a custom domain, for example hello@mail.example.com. Pass config
-            with email (the from address), name (the from name shown in the inbox), and optionally
-            mail_from_subdomain and reply_to. This registers the sending domain with the email provider and returns the
-            new integration; its `id` is the integration_id the other email tools take. The sender cannot send until
-            its domain is verified. Next, call integrations-email-status-retrieve to get the DNS records the domain
-            needs, then publish them: either with integrations-domain-connect-check-retrieve and
-            integrations-domain-connect-apply-url-create, or with your own DNS tools. Do not call it for an address
-            that already has a sender: re-creating it marks the sender unverified until the next successful verify.
-            Use integrations-email-partial-update to change an existing sender. mail_from_subdomain applies to the
-            whole domain: when the domain already has a sender, pass that sender's MAIL FROM label (the subdomain of
-            its MX record from integrations-email-status-retrieve), or the existing senders stop verifying. Free
-            mailbox domains such as gmail.com are rejected, and a domain already used by another organization fails.
+            with email (the from address), name (the from name shown in the inbox), and optionally mail_from_subdomain
+            and reply_to. This registers the sending domain with the email provider and returns the new integration; its
+            `id` is the integration_id the other email tools take. The sender cannot send until its domain is verified.
+            Next, call integrations-email-status-retrieve to get the DNS records the domain needs, then publish them:
+            either with integrations-domain-connect-check-retrieve and integrations-domain-connect-apply-url-create, or
+            with your own DNS tools. Do not call it for an address that already has a sender: re-creating it marks the
+            sender unverified until the next successful verify. Use integrations-email-partial-update to change an
+            existing sender. mail_from_subdomain applies to the whole domain: when the domain already has a sender, pass
+            that sender's MAIL FROM label (the subdomain of its MX record from integrations-email-status-retrieve), or
+            the existing senders stop verifying. Free mailbox domains such as gmail.com are rejected, and a domain
+            already used by another organization fails.
         exclude_params:
             - kind
+        inject_body:
+            kind: email
         param_overrides:
             config:
                 input_schema: EmailSenderCreateConfigSchema
                 required: true
-        inject_body:
-            kind: email
         feature_flag: workflows-email-from-code
     integrations-email-partial-update:
         operation: integrations_email_partial_update
@@ -149,11 +148,11 @@ tools:
         title: Update an email sender
         description: >
             Change an email sender's display name, reply-to address or MAIL FROM subdomain. Send the full config with
-            the sender's current `email`, which cannot change, and its current `name` unless you rename it. No read
-            tool returns the name: take it from the integrations-email-create response, or ask the person.
+            the sender's current `email`, which cannot change, and its current `name` unless you rename it. No read tool
+            returns the name: take it from the integrations-email-create response, or ask the person.
             mail_from_subdomain applies to every sender on the domain and changes the MX and SPF records the domain
-            needs, so confirm it with the person first, then call integrations-email-status-retrieve and publish the
-            new records.
+            needs, so confirm it with the person first, then call integrations-email-status-retrieve and publish the new
+            records.
         param_overrides:
             config:
                 input_schema: EmailSenderConfigSchema
