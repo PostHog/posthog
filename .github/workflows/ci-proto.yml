@@ -89,6 +89,33 @@ jobs:
                         - 'patches/**'
                         - '.github/actions/**'
                         - '.github/workflows/ci-proto.yml'
+            - name: Capture proto selection to DevEx PostHog
+              if: >-
+                  !cancelled() && github.run_attempt == '1'
+                  && github.repository == 'PostHog/posthog'
+                  && github.actor != 'dependabot[bot]'
+                  && (github.event_name != 'pull_request'
+                      || github.event.pull_request.head.repo.full_name == github.repository)
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  event: 'posthog-ci-proto-selection'
+                  properties: |
+                      {
+                        "mode": ${{ toJSON(steps.filter.outcome == 'success' && steps.filter.outputs.proto == 'false' && 'skip' || 'full') }},
+                        "selection_eligible": ${{ github.event_name == 'pull_request' || steps.fetch-baseline.outcome == 'success' }},
+                        "matched_file_count": ${{ steps.filter.outcome == 'success' && steps.filter.outputs.proto_count || 'null' }},
+                        "selected_check_count": ${{ steps.filter.outcome == 'success' && steps.filter.outputs.proto == 'false' && '0' || '4' }},
+                        "selection_reason_category": ${{ toJSON(steps.filter.outcome == 'failure' && 'filter-failed' || steps.filter.outcome == 'success' && (steps.filter.outputs.proto == 'false' && 'no-matching-paths' || 'matching-paths') || github.event_name != 'push' && 'full-event' || steps.baseline.outcome == 'failure' && 'baseline-api-failed' || steps.baseline.outputs.result != 'true' && 'unsafe-baseline' || 'baseline-fetch-failed') }},
+                        "selection_reason_detail": ${{ toJSON(format('event={0}; baseline={1}/{2}; fetch={3}; filter={4}', github.event_name, steps.baseline.outcome, steps.baseline.outputs.result, steps.fetch-baseline.outcome, steps.filter.outcome)) }},
+                        "pr_draft": ${{ toJSON(github.event.pull_request.draft) }},
+                        "merge_queue": ${{ startsWith(github.head_ref, 'trunk-merge/') }},
+                        "branch": ${{ toJSON(github.head_ref || github.ref_name) }},
+                        "sha": ${{ toJSON(github.sha) }},
+                        "pr_number": ${{ github.event.pull_request.number || 'null' }},
+                        "run_id": ${{ toJSON(github.run_id) }}
+                      }
 
     lint:
         name: Lint proto definitions (depot-ubuntu-22.04-4)
