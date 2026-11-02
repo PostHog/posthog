@@ -173,7 +173,9 @@ describe('FeatureFlagFiltersSection', () => {
         )
 
         await userEvent.click(container.querySelector('[data-attr="feature-flag-select-status"]')!)
-        await userEvent.click(document.querySelector(`[data-attr="feature-flag-select-status-${option}"]`)!)
+        // Dropdowns opened by earlier cases can linger in the body, so click the option in the newest one.
+        const options = document.querySelectorAll(`[data-attr="feature-flag-select-status-${option}"]`)
+        await userEvent.click(options[options.length - 1])
 
         expect(mockSetFilters).toHaveBeenCalledWith({ search: '', page: 1, ...expected }, true)
     })
