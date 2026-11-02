@@ -117,8 +117,6 @@ NON_RETRYABLE_ERROR_TYPES = (
     "SnowflakeIntegrationRequiredError",
     # The linked Integration is the wrong kind or has invalid/missing credentials.
     "SnowflakeIntegrationError",
-    # A column of the exported data has no Snowflake type, so no run of this query can load.
-    "UnsupportedColumnTypeError",
 )
 
 

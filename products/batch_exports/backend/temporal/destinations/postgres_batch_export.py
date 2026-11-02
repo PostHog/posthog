@@ -140,8 +140,6 @@ NON_RETRYABLE_ERROR_TYPES = (
     "PostgreSQLMissingRequiredInputsError",
     # The final merge waited on locks or hit the destination's statement timeout after several attempts.
     "PostgreSQLMergeTimeoutError",
-    # A column of the exported data has no PostgreSQL type, so no run of this query can load.
-    "UnsupportedColumnTypeError",
 )
 
 MERGE_LOCK_TIMEOUT_SECONDS = 5 * 60

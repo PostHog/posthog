@@ -14,6 +14,7 @@ from posthog.temporal.common.logger import get_write_only_logger
 
 from products.batch_exports.backend.models.batch_export import BatchExportRun
 from products.batch_exports.backend.service import aupdate_batch_export_run
+from products.batch_exports.backend.temporal.errors import UnsupportedColumnTypeError
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 
 T = typing.TypeVar("T")
@@ -352,6 +353,13 @@ def handle_non_retryable_errors(non_retryable_error_types: typing.Sequence[str])
             try:
                 return await func(*args, **kwargs)
             except Exception as e:
+                if isinstance(e, UnsupportedColumnTypeError):
+                    LOGGER.warning(
+                        "Unsupported column type in batch export",
+                        destination=e.destination,
+                        column=e.column,
+                        column_type=e.column_type,
+                    )
                 # If we catch an error at any point during this activity, we check if it's a non-retryable error.
                 # If it is, we return a BatchExportResult with the error.
                 # If it's not, we re-raise the error.

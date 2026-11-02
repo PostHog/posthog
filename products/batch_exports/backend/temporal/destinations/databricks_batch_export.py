@@ -86,8 +86,6 @@ NON_RETRYABLE_ERROR_TYPES: list[str] = [
     # Raised when the destination table's column names or types are incompatible with the exported
     # data (e.g. the table column is VARIANT but the export is configured to write STRING).
     "DatabricksIncompatibleSchemaError",
-    # A column of the exported data has no Databricks type, so no run of this query can load.
-    "UnsupportedColumnTypeError",
 ]
 
 DatabricksField = tuple[str, str]

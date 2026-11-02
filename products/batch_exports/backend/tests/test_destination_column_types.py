@@ -1,8 +1,12 @@
 import collections.abc
 
 import pytest
+from unittest.mock import patch
 
 import pyarrow as pa
+from structlog.testing import capture_logs
+
+from posthog.temporal.common.logger import get_write_only_logger
 
 from products.batch_exports.backend.temporal.destinations import (
     databricks_batch_export,
@@ -11,6 +15,8 @@ from products.batch_exports.backend.temporal.destinations import (
     snowflake_batch_export,
 )
 from products.batch_exports.backend.temporal.errors import UnsupportedColumnTypeError
+from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
+from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
 
 
 def _map_snowflake(schema: pa.Schema) -> object:
@@ -42,12 +48,13 @@ SCHEMA_MAPPERS: list[tuple[str, collections.abc.Callable[[pa.Schema], object], c
 @pytest.mark.parametrize(
     "destination, mapper, non_retryable_error_types", SCHEMA_MAPPERS, ids=[m[0] for m in SCHEMA_MAPPERS]
 )
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "column_type",
     [pa.decimal128(38, 9), pa.map_(pa.string(), pa.string()), pa.struct([("a", pa.int64())]), pa.null()],
     ids=str,
 )
-def test_schema_mapping_raises_a_non_retryable_error_for_an_unsupported_column_type(
+async def test_schema_mapping_logs_and_retries_an_unsupported_column_type(
     destination: str,
     mapper: collections.abc.Callable[[pa.Schema], object],
     non_retryable_error_types: collections.abc.Sequence[str],
@@ -55,11 +62,28 @@ def test_schema_mapping_raises_a_non_retryable_error_for_an_unsupported_column_t
 ) -> None:
     schema = pa.schema([pa.field("amount", column_type, nullable=True)])
 
-    with pytest.raises(UnsupportedColumnTypeError) as exc_info:
+    @handle_non_retryable_errors(non_retryable_error_types)
+    async def map_schema() -> BatchExportResult:
         mapper(schema)
+        return BatchExportResult()
+
+    with (
+        patch("products.batch_exports.backend.temporal.utils.LOGGER", get_write_only_logger(__name__)),
+        capture_logs() as logs,
+        pytest.raises(UnsupportedColumnTypeError) as exc_info,
+    ):
+        await map_schema()
 
     assert "amount" in str(exc_info.value)
     assert destination in str(exc_info.value)
-    # Each destination matches its non-retryable errors by class name, so a rename that misses
-    # these lists restores the unlimited retrying this error exists to stop, and does it silently.
-    assert UnsupportedColumnTypeError.__name__ in non_retryable_error_types
+    assert str(column_type) in str(exc_info.value)
+    warnings = [log for log in logs if log["log_level"] == "warning"]
+    assert warnings == [
+        {
+            "event": "Unsupported column type in batch export",
+            "log_level": "warning",
+            "destination": destination,
+            "column": "amount",
+            "column_type": str(column_type),
+        }
+    ]

@@ -137,8 +137,6 @@ NON_RETRYABLE_ERROR_TYPES = (
     # Redshift failed to COPY the staged files from S3 (IAM role auth, cause not locally confirmable).
     # These (read access, region, manifest) don't self-heal, so retrying is pointless.
     "RedshiftS3CopyError",
-    # A column of the exported data has no Redshift type, so no run of this query can load.
-    "UnsupportedColumnTypeError",
 )
 
 
