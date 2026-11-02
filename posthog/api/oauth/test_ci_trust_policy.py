@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest
@@ -386,7 +386,7 @@ class TestCITrustPolicyRequestAPI(APIBaseTest):
     def test_a_request_that_is_not_pending_cannot_be_approved(self, case: str) -> None:
         self._set_level(OrganizationMembership.Level.ADMIN)
         if case == "expired":
-            policy_request = self._create_request(expires_at=timezone.now() - timedelta(minutes=1))
+            policy_request = self._create_request(expires_at=datetime(2020, 1, 1, tzinfo=UTC))
         else:
             policy_request = self._create_request()
             self.client.post(f"{self.url}{policy_request.id}/reject/")
