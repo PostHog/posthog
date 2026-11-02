@@ -37,15 +37,12 @@ export function chunkTileIds(tileIds: number[], chunkSize = 4): number[][] {
     return chunks
 }
 
-/** The dashboard filters `run_widgets` passes on: the date range and metric label filters. Other keys would
- * only make a widget refetch for a change it ignores. Empty values stay in, because the server merges the
- * override onto the saved filters, and a cleared filter must replace the saved one. */
-export function widgetDashboardFilters(filters: DashboardFilter): DashboardFilter {
-    return {
-        date_from: filters.date_from ?? null,
-        date_to: filters.date_to ?? null,
-        metricFilters: filters.metricFilters ?? [],
-    }
+/** The dashboard filters a widget follows (`WidgetSpec.dashboard_filter_keys`). Other keys would only make the
+ * widget refetch for a change it ignores. Empty values stay in as null, because the server merges the override
+ * onto the saved filters, and a cleared filter must replace the saved one. */
+export function widgetDashboardFilters(filters: DashboardFilter, keys: readonly string[]): DashboardFilter {
+    const record = filters as Record<string, unknown>
+    return Object.fromEntries([...keys].sort().map((key) => [key, record[key] ?? null])) as DashboardFilter
 }
 
 export type FetchRunWidgetsOptions = {

@@ -46,24 +46,34 @@ describe('widgetFetchUtils', () => {
     })
 
     describe('widgetDashboardFilters', () => {
+        const METRICS_KEYS = ['date_from', 'date_to', 'metricFilters']
+
         it.each([
             [
                 'keeps a cleared filter explicit, so it replaces the saved one',
                 {},
-                { date_from: null, date_to: null, metricFilters: [] },
+                METRICS_KEYS,
+                { date_from: null, date_to: null, metricFilters: null },
             ],
             [
-                'keeps the date range and label filters and drops the rest',
+                'keeps the widget keys and drops the rest',
                 {
                     date_from: '-1h',
                     properties: [],
                     breakdown_filter: {},
                     metricFilters: [{ key: 'route', op: 'eq', value: '/cart' }],
                 },
+                METRICS_KEYS,
                 { date_from: '-1h', date_to: null, metricFilters: [{ key: 'route', op: 'eq', value: '/cart' }] },
             ],
-        ])('%s', (_name, filters, expected) => {
-            expect(widgetDashboardFilters(filters as DashboardFilter)).toEqual(expected)
+            [
+                'leaves out metric label filters for a widget that follows only the date range',
+                { date_from: '-1h', metricFilters: [{ key: 'route', op: 'eq', value: '/cart' }] },
+                ['date_from', 'date_to'],
+                { date_from: '-1h', date_to: null },
+            ],
+        ])('%s', (_name, filters, keys, expected) => {
+            expect(widgetDashboardFilters(filters as DashboardFilter, keys)).toEqual(expected)
         })
     })
 
