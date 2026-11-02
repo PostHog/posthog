@@ -72,6 +72,7 @@ export interface supportMacrosLogicValues {
     macroSaving: boolean
     macros: TicketMacroApi[]
     macrosEnabled: boolean
+    macrosLoadFailed: boolean
     macrosLoading: boolean
     macrosSorted: TicketMacroApi[]
 }
@@ -84,6 +85,9 @@ export interface supportMacrosLogicActions {
     createMacro: (payload: MacroSavePayload) => MacroSavePayload
     deleteMacro: (id: string) => {
         id: string
+    }
+    ensureMacrosLoaded: () => {
+        value: true
     }
     loadMacros: () => any
     loadMacrosFailure: (
@@ -162,6 +166,7 @@ export const supportMacrosLogic = kea<supportMacrosLogicType>([
         setMacroDraftName: (name: string) => ({ name }),
         setMacroDraftShortcut: (shortcut: string) => ({ shortcut }),
         setMacroSaving: (saving: boolean) => ({ saving }),
+        ensureMacrosLoaded: true,
     }),
     loaders(({ values }) => ({
         macros: [
@@ -223,6 +228,14 @@ export const supportMacrosLogic = kea<supportMacrosLogicType>([
                 setMacroSaving: (_, { saving }) => saving,
             },
         ],
+        macrosLoadFailed: [
+            false,
+            {
+                loadMacros: () => false,
+                loadMacrosSuccess: () => false,
+                loadMacrosFailure: () => true,
+            },
+        ],
     }),
     selectors({
         macrosEnabled: [
@@ -239,10 +252,14 @@ export const supportMacrosLogic = kea<supportMacrosLogicType>([
         loadMacrosSuccess: () => {
             cache.loaded = true
         },
-        [featureFlagLogic.actionTypes.setFeatureFlags]: () => {
+        // Also runs when the picker or the slash menu opens, so a failed first load recovers.
+        ensureMacrosLoaded: () => {
             if (values.macrosEnabled && !cache.loaded && !values.macrosLoading) {
                 actions.loadMacros()
             }
+        },
+        [featureFlagLogic.actionTypes.setFeatureFlags]: () => {
+            actions.ensureMacrosLoaded()
         },
         createMacro: async ({ name, shortcut, body }) => {
             if (!values.currentTeamId) {
@@ -307,9 +324,7 @@ export const supportMacrosLogic = kea<supportMacrosLogicType>([
             }
         },
     })),
-    afterMount(({ actions, values }) => {
-        if (values.macrosEnabled) {
-            actions.loadMacros()
-        }
+    afterMount(({ actions }) => {
+        actions.ensureMacrosLoaded()
     }),
 ])

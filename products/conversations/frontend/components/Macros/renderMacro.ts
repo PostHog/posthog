@@ -1,5 +1,8 @@
+import { markdownToHtml } from 'lib/utils/markdown'
+
 import type { UserType } from '~/types'
 
+import type { TicketMacroApi } from '../../generated/api.schemas'
 import type { Ticket } from '../../types'
 
 export interface MacroContext {
@@ -22,6 +25,13 @@ const VARIABLE_PATTERN = /\{\{\s*([a-z0-9_.]+)\s*\}\}/gi
 // \{\{customer\.first\_name\}\} and never match.
 const ESCAPED_MACRO_TOKEN = /\\\{\\\{\s*((?:[a-z0-9]|\\[._])+)\s*\\\}\\\}/gi
 const MARKDOWN_ESCAPED_CHAR = /\\([\\`*_{}[\]()#+\-.!|])/g
+// Private-use characters: markdown leaves them alone and nobody types them.
+const VALUE_SLOT = /\uE000(\d+)\uE001/g
+const HTML_ENTITIES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
+
+function escapeHtml(value: string): string {
+    return value.replace(/[&<>"']/g, (char) => HTML_ENTITIES[char])
+}
 
 export function unescapeMacroTokens(body: string): string {
     ESCAPED_MACRO_TOKEN.lastIndex = 0
@@ -47,12 +57,21 @@ function lookup(key: string, ctx: MacroContext): string | null {
     }
 }
 
-/** Leaves a variable in place when it has no value, so the agent sees the gap before sending. */
+/**
+ * Returns HTML for the composer. Leaves a variable in place when it has no value, so the agent sees the gap
+ * before sending. Values are customer data, so they go in after the markdown is parsed and stay literal text.
+ */
 export function renderMacro(body: string, ctx: MacroContext): string {
-    return unescapeMacroTokens(body).replace(VARIABLE_PATTERN, (token, key: string) => {
+    const values: string[] = []
+    const markdown = unescapeMacroTokens(body).replace(VARIABLE_PATTERN, (token, key: string) => {
         const value = lookup(key.toLowerCase(), ctx)?.trim()
-        return value ? value : token
+        if (!value) {
+            return token
+        }
+        values.push(value)
+        return `\uE000${values.length - 1}\uE001`
     })
+    return markdownToHtml(markdown).replace(VALUE_SLOT, (_slot, index: string) => escapeHtml(values[Number(index)]))
 }
 
 export function macroPreview(body: string): string {
@@ -65,6 +84,37 @@ export function macroPreview(body: string): string {
         return ''
     }
     return line.length > 80 ? `${line.slice(0, 79)}…` : line
+}
+
+function matchRank(macro: TicketMacroApi, needle: string): number | null {
+    const shortcut = macro.shortcut ?? ''
+    if (shortcut === needle) {
+        return 0
+    }
+    if (shortcut.startsWith(needle)) {
+        return 1
+    }
+    if (macro.name.toLowerCase().includes(needle)) {
+        return 2
+    }
+    if (shortcut.includes(needle)) {
+        return 3
+    }
+    return null
+}
+
+/** Exact shortcut first, so `/refund` never loses to a more used `/refund-partial`. Keeps input order within a tier. */
+export function matchMacros(macros: TicketMacroApi[], query: string, limit = 8): TicketMacroApi[] {
+    const needle = query.trim().toLowerCase()
+    if (!needle) {
+        return macros.slice(0, limit)
+    }
+    return macros
+        .map((macro) => ({ macro, rank: matchRank(macro, needle) }))
+        .filter((entry): entry is { macro: TicketMacroApi; rank: number } => entry.rank !== null)
+        .sort((a, b) => a.rank - b.rank)
+        .slice(0, limit)
+        .map((entry) => entry.macro)
 }
 
 export function isStartOfMacroSlash(charBefore: string): boolean {

@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconDocument } from '@posthog/icons'
@@ -8,7 +8,7 @@ import { urls } from 'scenes/urls'
 
 import type { TicketMacroApi } from 'products/conversations/frontend/generated/api.schemas'
 
-import { macroPreview } from './renderMacro'
+import { macroPreview, matchMacros } from './renderMacro'
 import { supportMacrosLogic } from './supportMacrosLogic'
 
 export function MacroPicker({
@@ -18,15 +18,10 @@ export function MacroPicker({
     disabledReason?: string | JSX.Element
     onInsert: (macro: TicketMacroApi) => void
 }): JSX.Element {
-    const { macrosSorted, macrosLoading } = useValues(supportMacrosLogic)
+    const { macrosSorted, macrosLoading, macrosLoadFailed } = useValues(supportMacrosLogic)
+    const { ensureMacrosLoaded } = useActions(supportMacrosLogic)
     const [query, setQuery] = useState('')
-    const needle = query.trim().toLowerCase()
-    const matches = macrosSorted.filter((macro) => {
-        if (!needle) {
-            return true
-        }
-        return macro.name.toLowerCase().includes(needle) || (macro.shortcut ?? '').includes(needle)
-    })
+    const matches = matchMacros(macrosSorted, query)
 
     return (
         <LemonMenu
@@ -34,7 +29,9 @@ export function MacroPicker({
             closeOnClickInside
             focusBasedKeyboardNavigation={false}
             onVisibilityChange={(visible) => {
-                if (!visible) {
+                if (visible) {
+                    ensureMacrosLoaded()
+                } else {
                     setQuery('')
                 }
             }}
@@ -52,7 +49,7 @@ export function MacroPicker({
                         />
                     ),
                 },
-                ...matches.slice(0, 8).map((macro) => ({
+                ...matches.map((macro) => ({
                     key: macro.id,
                     label: (
                         <span className="flex min-w-0 flex-col items-start">
@@ -74,6 +71,18 @@ export function MacroPicker({
                               <span className="block px-2 py-1 text-sm text-muted">
                                   {macrosLoading ? (
                                       'Loading macros'
+                                  ) : macrosLoadFailed ? (
+                                      <>
+                                          Couldn't load macros.{' '}
+                                          <Link
+                                              onClick={(event) => {
+                                                  event.stopPropagation()
+                                                  ensureMacrosLoaded()
+                                              }}
+                                          >
+                                              Try again
+                                          </Link>
+                                      </>
                                   ) : macrosSorted.length === 0 ? (
                                       <>
                                           No macros yet. Create one in{' '}

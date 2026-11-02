@@ -306,6 +306,7 @@ tools:
     conversations-macros-list:
         operation: conversations_macros_list
         enabled: true
+        feature_flag: support-macros
         scopes:
             - ticket:read
         annotations:
@@ -329,6 +330,7 @@ tools:
     conversations-macros-retrieve:
         operation: conversations_macros_retrieve
         enabled: true
+        feature_flag: support-macros
         scopes:
             - ticket:read
         annotations:
