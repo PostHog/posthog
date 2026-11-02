@@ -107,14 +107,13 @@ export class HogFunctionMonitoringService {
         hogFunctionMonitoringPendingMessages.set(0)
 
         await Promise.all([
-            Promise.all([
-                this.appMetricsAggregator.flush(force),
-                this.billingMetricsAggregator.flush(force),
-            ]).catch((error) => {
-                // Best-effort — don't disrupt processing just for metrics.
-                logger.error('⚠️', `failed to flush app metrics: ${error}`, { error: String(error) })
-                captureException(error)
-            }),
+            Promise.all([this.appMetricsAggregator.flush(force), this.billingMetricsAggregator.flush(force)]).catch(
+                (error) => {
+                    // Best-effort — don't disrupt processing just for metrics.
+                    logger.error('⚠️', `failed to flush app metrics: ${error}`, { error: String(error) })
+                    captureException(error)
+                }
+            ),
             ...messages.map((x) => {
                 const value = x ? Buffer.from(safeClickhouseString(JSON.stringify(x))) : null
                 return this.outputs
