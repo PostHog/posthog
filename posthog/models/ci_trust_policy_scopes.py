@@ -167,8 +167,6 @@ CI_TRUST_POLICY_ALLOWED_SCOPES: frozenset[str] = frozenset(
         "signal_usage:write",
         "stamphog:read",
         "stamphog:write",
-        "streamlit_app:read",
-        "streamlit_app:write",
         "subscription:read",
         "subscription:write",
         "support_ticket:read",
