@@ -970,10 +970,8 @@ export class TaskCreationSaga extends Saga<
           // If creation activates a pre-warmed run, this is the only request
           // that can carry the choice — the saga skips run creation entirely.
           auto_publish:
-            input.workspaceMode === "cloud" &&
-            canActivateWarmRun &&
-            input.cloudAutoPublish
-              ? true
+            input.workspaceMode === "cloud" && canActivateWarmRun
+              ? input.cloudAutoPublish
               : undefined,
         });
         return result as unknown as Task;

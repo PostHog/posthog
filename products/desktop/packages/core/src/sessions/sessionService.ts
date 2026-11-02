@@ -528,6 +528,7 @@ export interface SessionServiceDeps {
     customInstructions?: string | null;
     rtkEnabledLocal?: boolean;
     rtkEnabledCloud?: boolean;
+    autoPublishCloudRuns?: boolean;
     spokenNotifications?: boolean;
     spokenNarrationEnabled?: boolean;
     bedrockGatewayVariant?: BedrockGatewayVariant;
@@ -5544,7 +5545,10 @@ export class SessionService {
             pendingUserArtifactIds:
               artifactIds.length > 0 ? artifactIds : undefined,
             prAuthorshipMode,
-            autoPublish: previousState.auto_publish === true || undefined,
+            autoPublish:
+              typeof previousState.auto_publish === "boolean"
+                ? previousState.auto_publish
+                : this.d.settings.autoPublishCloudRuns,
             rtkEnabled: this.d.settings.rtkEnabledCloud,
             runSource: getCloudRunSource(previousState),
             signalReportId:

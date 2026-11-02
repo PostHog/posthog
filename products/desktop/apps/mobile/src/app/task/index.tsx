@@ -406,7 +406,6 @@ export default function NewTaskScreen() {
           contextWindow,
           fastMode,
         }),
-        autoPublish: usePreferencesStore.getState().autoPublishCloudRuns,
         rtkEnabled: usePreferencesStore.getState().rtkEnabledCloud,
         ...(signalReport
           ? {

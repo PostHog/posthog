@@ -367,6 +367,8 @@ export const useAuthStore = create<AuthState>()(
         // Clear React Query cache to prevent data leakage between sessions
         queryClient.clear();
 
+        usePreferencesStore.getState().setAutoPublishCloudRuns(true);
+
         set(CLEARED_AUTH_STATE);
       },
     }),
