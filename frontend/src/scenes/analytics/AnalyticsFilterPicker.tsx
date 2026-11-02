@@ -74,7 +74,6 @@ export function AnalyticsFilterPicker({
                 ref={triggerRef}
                 variant="outline"
                 size="sm"
-                className="h-8"
                 aria-haspopup="listbox"
                 aria-expanded={open}
                 onClick={() => toggle(!open)}

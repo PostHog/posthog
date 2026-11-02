@@ -13,6 +13,7 @@ import {
 } from '@posthog/icons'
 import {
     Button,
+    Card,
     DataTable,
     DropdownMenu,
     DropdownMenuContent,
@@ -137,6 +138,7 @@ function AnalyticsListContent(): JSX.Element {
                     <EmptyContent>
                         <Button
                             variant="outline"
+                            size="sm"
                             loading={loading}
                             onClick={() => loadList()}
                             data-attr="analytics-list-retry"
@@ -148,7 +150,11 @@ function AnalyticsListContent(): JSX.Element {
             )
         }
         if (listState === 'loading') {
-            return <AnalyticsListSkeleton columns={columns} />
+            return (
+                <Card size="sm" flush className="pt-0">
+                    <AnalyticsListSkeleton columns={columns} />
+                </Card>
+            )
         }
         if (listState === 'no-matches') {
             return (
@@ -163,6 +169,7 @@ function AnalyticsListContent(): JSX.Element {
                     <EmptyContent>
                         <Button
                             variant="outline"
+                            size="sm"
                             onClick={() => clearFilters()}
                             data-attr="analytics-list-clear-filters"
                         >
@@ -200,6 +207,7 @@ function AnalyticsListContent(): JSX.Element {
                         ) : (
                             <Button
                                 variant="outline"
+                                size="sm"
                                 nativeButton={false}
                                 render={<LinkPrimitive to={urls.analyticsSpaces()} />}
                                 data-attr="analytics-list-browse-all"
@@ -217,15 +225,16 @@ function AnalyticsListContent(): JSX.Element {
                 aria-busy={feedStale || hasMore}
             >
                 {rows.length > 0 && (
-                    <DataTable
-                        columns={columns}
-                        data={rows}
-                        fullWidth
-                        size="sm"
-                        stickyHeader
-                        className="w-full min-w-0 **:data-expand:min-w-64 **:data-expand:max-w-0 **:data-[slot=table]:min-w-208"
-                        empty={<Text size="sm">Nothing in this collection.</Text>}
-                    />
+                    <Card size="sm" flush className="pt-0">
+                        <DataTable
+                            columns={columns}
+                            data={rows}
+                            fullWidth
+                            size="sm"
+                            className="w-full min-w-0 **:data-expand:min-w-64 **:data-expand:max-w-0 **:data-[slot=table]:min-w-208"
+                            empty={<Text size="sm">Nothing in this collection.</Text>}
+                        />
+                    </Card>
                 )}
                 {hasMore && (
                     <div className="flex items-center justify-center gap-2 py-3" aria-busy>
@@ -242,7 +251,7 @@ function AnalyticsListContent(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name={spaceName ?? (scope === 'mine' ? 'My work' : 'Analytics')}
+                name={spaceName ?? (scope === 'mine' ? 'My work' : 'View all')}
                 description={
                     mode === 'folder'
                         ? null
@@ -304,7 +313,7 @@ function AnalyticsListContent(): JSX.Element {
                     </div>
                 }
             />
-            <div data-quill className="@container/analytics flex flex-col gap-3">
+            <div data-quill className="flex flex-col gap-3">
                 {mode === 'folder' && <AnalyticsFolderBreadcrumbs crumbs={folderBreadcrumbs} />}
                 <AnalyticsListFilters />
                 {listState === 'ready' && failedTypes.length > 0 && (

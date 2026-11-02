@@ -31,9 +31,7 @@ export function AnalyticsDisplayMenu(): JSX.Element {
 
     return (
         <DropdownMenu>
-            <DropdownMenuTrigger
-                render={<Button variant="outline" size="sm" className="h-8" data-attr="analytics-list-display" />}
-            >
+            <DropdownMenuTrigger render={<Button variant="outline" size="sm" data-attr="analytics-list-display" />}>
                 Display
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-48">

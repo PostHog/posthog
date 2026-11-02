@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconTrends } from '@posthog/icons'
-import { Button, ToggleGroup, ToggleGroupItem } from '@posthog/quill'
+import { Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@posthog/quill'
 
 import { fullName } from 'lib/utils/strings'
 import { userLogic } from 'scenes/userLogic'
@@ -15,9 +15,30 @@ import { analyticsListLogic } from './analyticsListLogic'
 import { AnalyticsOwnerAvatar } from './AnalyticsOwner'
 import { AnalyticsSearchInput } from './AnalyticsSearchInput'
 import { AnalyticsTypeIcon } from './AnalyticsTypeIcon'
-import { ANALYTICS_TYPES, AnalyticsTypeFilter } from './analyticsUtils'
+import { ANALYTICS_TYPE_INFO, ANALYTICS_TYPES, AnalyticsTypeFilter } from './analyticsUtils'
 
-/** Search, type, creator and the personal toggle, all one height so the row reads as one bar. */
+function AnalyticsTypeOption({ type }: { type: AnalyticsTypeFilter }): JSX.Element {
+    if (type === 'all') {
+        return (
+            <>
+                <IconTrends />
+                All types
+            </>
+        )
+    }
+    const info = ANALYTICS_TYPE_INFO[type]
+    return (
+        <>
+            {/* eslint-disable-next-line react/forbid-dom-props */}
+            <span className="flex items-center" style={{ color: info.color }}>
+                <AnalyticsTypeIcon type={type} />
+            </span>
+            {info.pluralLabel}
+        </>
+    )
+}
+
+/** Search, then the type, creator and tag pickers. */
 export function AnalyticsListFilters(): JSX.Element {
     const { filters, filtersActive, searchInput, scope, insightsHidden } = useValues(analyticsListLogic)
     const { setSearchInput, setFilters, clearFilters } = useActions(analyticsListLogic)
@@ -42,41 +63,29 @@ export function AnalyticsListFilters(): JSX.Element {
                 placeholder="Search"
                 dataAttr="analytics-list-search"
             />
-            <ToggleGroup
-                size="lg"
-                variant="default"
-                aria-label="Filter by type"
-                className="h-8"
-                value={[filters.type]}
-                onValueChange={(value: string[]) => value[0] && setFilters({ type: value[0] as AnalyticsTypeFilter })}
+            <Select
+                value={filters.type}
+                onValueChange={(value: AnalyticsTypeFilter | null) => value && setFilters({ type: value })}
             >
-                <ToggleGroupItem value="all" size="lg" data-attr="analytics-list-type-filter">
-                    <IconTrends />
-                    All
-                </ToggleGroupItem>
-                {ANALYTICS_TYPES.filter(
-                    // A link can still open the insight type, so its tab stays while it is the one shown.
-                    (info) => !insightsHidden || info.type !== 'insight' || filters.type === 'insight'
-                ).map((info) => (
-                    <ToggleGroupItem
-                        key={info.type}
-                        value={info.type}
-                        size="lg"
-                        aria-label={info.pluralLabel}
-                        title={info.pluralLabel}
-                        data-attr="analytics-list-type-filter"
-                    >
-                        <span
-                            className="flex items-center [&_svg]:size-4"
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{ color: info.color }}
-                        >
-                            <AnalyticsTypeIcon type={info.type} />
-                        </span>
-                        <span className="hidden @6xl/analytics:inline">{info.pluralLabel}</span>
-                    </ToggleGroupItem>
-                ))}
-            </ToggleGroup>
+                <SelectTrigger size="sm" aria-label="Filter by type" data-attr="analytics-list-type-picker">
+                    <SelectValue className="flex items-center gap-1">
+                        {(value: AnalyticsTypeFilter) => <AnalyticsTypeOption type={value} />}
+                    </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                    <SelectItem value="all" data-attr="analytics-list-type-filter">
+                        <AnalyticsTypeOption type="all" />
+                    </SelectItem>
+                    {ANALYTICS_TYPES.filter(
+                        // A link can still open the insight type, so its option stays while it is the one shown.
+                        (info) => !insightsHidden || info.type !== 'insight' || filters.type === 'insight'
+                    ).map((info) => (
+                        <SelectItem key={info.type} value={info.type} data-attr="analytics-list-type-filter">
+                            <AnalyticsTypeOption type={info.type} />
+                        </SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
             {scope === 'all' && (
                 <AnalyticsFilterPicker
                     label="Created by"
