@@ -405,7 +405,7 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
                 alert: LogsAlertConfigurationApi | null,
                 alerts: LogsAlertConfigurationApi[],
                 featureFlags: FeatureFlagsSet
-            ): boolean => !!featureFlags[FEATURE_FLAGS.LOGS_ALERTS_GROUPING] && canGroupAlert(alert, alerts),
+            ): boolean => canGroupAlert(alert, alerts, !!featureFlags[FEATURE_FLAGS.LOGS_ALERTS_GROUPING]),
         ],
         regroupConfirmation: [
             () => [(_, props) => props.alert],
