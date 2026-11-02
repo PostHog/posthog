@@ -66,6 +66,10 @@ FALLBACK_TRUNCATED = "truncated_output"
 FALLBACK_NO_CANDIDATES = "no_candidates"
 FALLBACK_AI_NOT_APPROVED = "ai_not_approved"
 FALLBACK_NO_ACTIVITY_SUMMARY = "no_activity_summary"
+# A later build with the same input hash can rank the list. AI approval is not part of the hash.
+RETRYABLE_FALLBACK_REASONS = frozenset(
+    {FALLBACK_LLM_ERROR, FALLBACK_TIMEOUT, FALLBACK_MALFORMED, FALLBACK_TRUNCATED, FALLBACK_AI_NOT_APPROVED}
+)
 
 BuildStatus = Literal["ok", "fallback", "empty", "disabled"]
 # What started a build, on the build event and the trace, so cost can be split by it.

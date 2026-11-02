@@ -185,6 +185,7 @@ class TestTickPair(_TickTest):
         TEST_clear_clients()
         TEST_reset_scripts()
         cache.delete(build_lock_key(self.team.id, self.user.id))
+        self.malformed_answers = 0
         self.llm = MagicMock()
         self.create = self.llm.with_options.return_value.chat.completions.create
         self.create.side_effect = lambda **_: SimpleNamespace(
@@ -223,6 +224,9 @@ class TestTickPair(_TickTest):
         )
 
     def _answer(self) -> str:
+        if self.malformed_answers:
+            self.malformed_answers -= 1
+            return "not json"
         return json.dumps(
             {
                 "ranked": [{"ref": "c1", "rank": 1, "tier": "top", "reason": "r", "matched": None, "next_step": None}],
@@ -236,15 +240,27 @@ class TestTickPair(_TickTest):
     def _rows(self):
         return PersonalInboxRanking.objects.for_team(self.team.id).filter(user_id=self.user.id)
 
-    def test_an_unchanged_pair_calls_no_model_and_leaves_the_due_set(self) -> None:
-        assert self._run() == PersonalRankingPairResult(status="built", model_called=True)
+    @parameterized.expand(
+        [
+            ("a_ranked_list_is_kept", 0, "built", "unchanged", 1),
+            ("a_failed_model_call_is_retried", 1, "failed", "built", 2),
+        ]
+    )
+    def test_an_unchanged_pair_calls_no_model_unless_its_last_build_failed(
+        self, _name: str, malformed_answers: int, first: str, second: str, model_calls: int
+    ) -> None:
+        self.malformed_answers = malformed_answers
+        assert self._run() == PersonalRankingPairResult(status=first, model_called=True)  # type: ignore[arg-type]
         assert self.capture.call_args.kwargs["properties"]["trigger"] == "tick"
         self._rows().update(created_at=timezone.now() - datetime.timedelta(hours=2))
         assert len(select_pairs(self._config(), timezone.now(), 10, [self.team.id]).pairs) == 1
 
-        assert self._run() == PersonalRankingPairResult(status="unchanged")
+        assert self._run() == PersonalRankingPairResult(
+            status=second,  # type: ignore[arg-type]
+            model_called=second == "built",
+        )
 
-        assert (self.create.call_count, self._rows().count()) == (1, 1)
+        assert self.create.call_count == model_calls
         assert select_pairs(self._config(), timezone.now(), 10, [self.team.id]).pairs == []
 
     @parameterized.expand([("running",), ("tick_limited",), ("shared_limited",), ("not_enrolled",)])
