@@ -26,7 +26,7 @@ OPTED_OUT = PreferenceStatus.OPTED_OUT.value
     "products.messaging.backend.presentation.views.message_templates.posthoganalytics.feature_enabled",
     return_value=True,
 )
-class TestMessagingPreferences(APIBaseTest):
+class TestTopicPreferences(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.newsletter = MessageCategory.objects.create(team=self.team, key="newsletter", name="Newsletter")
@@ -122,6 +122,7 @@ class TestMessagingPreferences(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+        assert response.json()["code"] == "unknown_topic"
         assert topic_key(self) in response.json()["detail"]
         assert self._stored() == {str(self.product_updates.id): OPTED_OUT}
 
@@ -162,16 +163,16 @@ class TestMessagingPreferences(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("read_only_key", ["hog_flow:read"], status.HTTP_403_FORBIDDEN),
-            ("unrelated_scope", ["feature_flag:read"], status.HTTP_403_FORBIDDEN),
+            ("read_only_key", ["hog_flow:read"]),
+            ("unrelated_scope", ["feature_flag:read"]),
         ]
     )
     def test_refuses_a_project_secret_key_without_hog_flow_write(
-        self, _flag: MagicMock, _name: str, scopes: list[str], expected: int
+        self, _flag: MagicMock, _name: str, scopes: list[str]
     ) -> None:
         response = self._set({"identifier": "jane@example.com", "all_marketing": False}, self._psak_client(scopes))
 
-        assert response.status_code == expected, response.json()
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         assert not MessageRecipientPreference.objects.filter(team=self.team).exists()
 
     def test_refuses_another_projects_key(self, _flag: MagicMock) -> None:
@@ -198,7 +199,7 @@ class TestMessagingPreferences(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert not MessageRecipientPreference.objects.filter(team=self.team).exists()
 
-    @patch("products.messaging.backend.presentation.views.messaging_preferences.posthoganalytics.capture")
+    @patch("posthog.event_usage.posthoganalytics.capture")
     def test_reports_each_call_with_its_outcome(self, capture: MagicMock, _flag: MagicMock) -> None:
         self._set({"identifier": "jane@example.com", "topics": {"newsletter": False, "product-updates": True}})
         self._set({"identifier": "jane@example.com", "topics": {"nope": False}})

@@ -1,7 +1,6 @@
-from typing import Any, cast
+from typing import Any
 
 import structlog
-import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
@@ -10,8 +9,8 @@ from rest_framework.throttling import BaseThrottle
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
-from posthog.event_usage import groups
+from posthog.auth import ProjectSecretAPIKeyAuthentication
+from posthog.event_usage import report_user_action
 from posthog.permissions import is_authenticated_via_project_secret_api_key
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
@@ -23,7 +22,9 @@ logger = structlog.get_logger(__name__)
 
 class SetPreferencesSerializer(serializers.Serializer):
     identifier = serializers.CharField(
-        max_length=512, help_text="The recipient whose preferences change, as their email address."
+        max_length=512,
+        help_text="The recipient's email address, exactly as Workflows sends to it. Matching is exact, so "
+        "`Jane@example.com` and `jane@example.com` are two recipients.",
     )
     all_marketing = serializers.BooleanField(
         required=False,
@@ -58,27 +59,27 @@ class TopicPreferencesSerializer(serializers.Serializer):
     )
 
 
-class MessagingPreferencesBurstThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+class TopicPreferencesBurstThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
     scope = "messaging_preferences_burst"
     rate = "600/minute"
 
 
-class MessagingPreferencesSustainedThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+class TopicPreferencesSustainedThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
     scope = "messaging_preferences_sustained"
     rate = "20000/hour"
 
 
-class MessagingPreferencesTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
+class TopicPreferencesTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
     scope = "messaging_preferences_psak_team_burst"
     rate = "600/minute"
 
 
-class MessagingPreferencesTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle):
+class TopicPreferencesTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle):
     scope = "messaging_preferences_psak_team_sustained"
     rate = "20000/hour"
 
 
-class MessagingPreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+class TopicPreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "hog_flow"
     permission_classes = [IsAuthenticated]
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
@@ -88,10 +89,10 @@ class MessagingPreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if not is_authenticated_via_project_secret_api_key(self.request):
             return super().get_throttles()
         return [
-            MessagingPreferencesBurstThrottle(),
-            MessagingPreferencesSustainedThrottle(),
-            MessagingPreferencesTeamBurstThrottle(),
-            MessagingPreferencesTeamSustainedThrottle(),
+            TopicPreferencesBurstThrottle(),
+            TopicPreferencesSustainedThrottle(),
+            TopicPreferencesTeamBurstThrottle(),
+            TopicPreferencesTeamSustainedThrottle(),
         ]
 
     @validated_request(
@@ -99,14 +100,18 @@ class MessagingPreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         responses={
             200: OpenApiResponse(response=TopicPreferencesSerializer),
             401: OpenApiResponse(description="The request has no project secret API key."),
-            404: OpenApiResponse(description="A topic key names no topic of this project. Nothing changed."),
+            404: OpenApiResponse(
+                description="A topic key names no topic of this project, with the code `unknown_topic`. Nothing "
+                "changed."
+            ),
         },
         summary="Set a recipient's topic preferences",
         description=(
             "Opt one recipient out of topics, or back in, in one call. `all_marketing` applies first, then each "
-            "topic in order, and the whole change is saved at once, so a retry is safe. Workflows sends skip a "
-            "marketing topic the recipient opted out of. Needs a project secret API key with the `hog_flow:write` "
-            "scope."
+            "topic in order, and the whole change is saved at once. The same change twice ends the same, but a retry "
+            "that lands after a newer change undoes that change. Workflows sends skip a marketing topic the "
+            "recipient opted out of. Needs a project secret API key with the `hog_flow:write` scope, which can also "
+            "send transactional email."
         ),
     )
     def create(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
@@ -121,25 +126,25 @@ class MessagingPreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             result = set_preferences(self.team_id, data["identifier"], data.get("all_marketing"), topics)
         except TopicsNotFound as e:
             self._report(request, data, outcome="unknown_topic")
-            raise exceptions.NotFound(f"This project has no topic with the key {', '.join(e.keys)}.") from None
+            raise exceptions.NotFound(
+                f"This project has no topic with the key {', '.join(e.keys)}.", code="unknown_topic"
+            ) from None
         self._report(request, data, outcome="applied")
         return Response(TopicPreferencesSerializer(result).data)
 
     def _report(self, request: ValidatedRequest, data: dict[str, Any], *, outcome: str) -> None:
-        # report_user_action drops the synthetic user behind a project secret API key, so capture directly.
-        # create() refuses every other authentication, so the user is the key's synthetic user.
-        user = cast(ProjectSecretAPIKeyUser, request.user)
         try:
-            posthoganalytics.capture(
-                distinct_id=user.distinct_id,
-                event="messaging preferences api set",
-                properties={
+            report_user_action(
+                request.user,
+                "messaging preferences api set",
+                {
                     "team_id": self.team_id,
                     "outcome": outcome,
                     "topic_count": len(data.get("topics") or {}),
                     "sets_all_marketing": "all_marketing" in data,
                 },
-                groups=groups(self.organization, self.team),
+                team=self.team,
+                organization=self.organization,
             )
         except Exception as e:
             logger.warning("Failed to capture messaging preferences api event", error=str(e))

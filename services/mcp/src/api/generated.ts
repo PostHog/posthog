@@ -111369,7 +111369,7 @@ export namespace Schemas {
 
     export interface SetPreferences {
       /**
-         * The recipient whose preferences change, as their email address.
+         * The recipient's email address, exactly as Workflows sends to it. Matching is exact, so `Jane@example.com` and `jane@example.com` are two recipients.
          * @maxLength 512
          */
       identifier: string;

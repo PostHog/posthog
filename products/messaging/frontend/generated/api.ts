@@ -88,7 +88,7 @@ export const getMessagingPreferencesCreateUrl = (projectId: string) => {
 }
 
 /**
- * Opt one recipient out of topics, or back in, in one call. `all_marketing` applies first, then each topic in order, and the whole change is saved at once, so a retry is safe. Workflows sends skip a marketing topic the recipient opted out of. Needs a project secret API key with the `hog_flow:write` scope.
+ * Opt one recipient out of topics, or back in, in one call. `all_marketing` applies first, then each topic in order, and the whole change is saved at once. The same change twice ends the same, but a retry that lands after a newer change undoes that change. Workflows sends skip a marketing topic the recipient opted out of. Needs a project secret API key with the `hog_flow:write` scope, which can also send transactional email.
  * @summary Set a recipient's topic preferences
  */
 export const messagingPreferencesCreate = async (

@@ -10,7 +10,7 @@
 import * as zod from 'zod'
 
 /**
- * Opt one recipient out of topics, or back in, in one call. `all_marketing` applies first, then each topic in order, and the whole change is saved at once, so a retry is safe. Workflows sends skip a marketing topic the recipient opted out of. Needs a project secret API key with the `hog_flow:write` scope.
+ * Opt one recipient out of topics, or back in, in one call. `all_marketing` applies first, then each topic in order, and the whole change is saved at once. The same change twice ends the same, but a retry that lands after a newer change undoes that change. Workflows sends skip a marketing topic the recipient opted out of. Needs a project secret API key with the `hog_flow:write` scope, which can also send transactional email.
  * @summary Set a recipient's topic preferences
  */
 export const messagingPreferencesCreateBodyIdentifierMax = 512
@@ -19,7 +19,9 @@ export const MessagingPreferencesCreateBody = /* @__PURE__ */ zod.object({
     identifier: zod
         .string()
         .max(messagingPreferencesCreateBodyIdentifierMax)
-        .describe('The recipient whose preferences change, as their email address.'),
+        .describe(
+            "The recipient's email address, exactly as Workflows sends to it. Matching is exact, so `Jane@example.com` and `jane@example.com` are two recipients."
+        ),
     all_marketing: zod
         .boolean()
         .optional()
