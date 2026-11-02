@@ -1,12 +1,11 @@
 import { useValues } from 'kea'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { Button, Skeleton } from '@posthog/quill'
 
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 import { RichContentPreview } from 'lib/components/RichContentEditor/LemonRichContentEditor'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 
@@ -37,9 +36,9 @@ export function RecordingCommentsList({ sessionId }: { sessionId: string }): JSX
     }
 
     return (
-        <div className="flex flex-col gap-2" data-attr="watch-panel-comments">
+        <div data-quill className="flex flex-col gap-2 text-foreground" data-attr="watch-panel-comments">
             {sessionCommentsLoading && comments.length === 0 ? (
-                <LemonSkeleton className="w-2/3 h-4" />
+                <Skeleton className="w-2/3 h-4" />
             ) : (
                 comments.map((comment) => {
                     const atMs = timeInRecordingMs(comment)
@@ -47,21 +46,22 @@ export function RecordingCommentsList({ sessionId }: { sessionId: string }): JSX
                         <div key={comment.id} className="flex items-start gap-2 text-sm">
                             <ProfilePicture user={comment.created_by} size="sm" className="mt-0.5" />
                             <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-                                <div className="flex items-center gap-2 text-xs text-secondary">
-                                    <span className="font-medium text-primary">
+                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                    <span className="font-medium text-foreground">
                                         {comment.created_by?.first_name || comment.created_by?.email || 'Someone'}
                                     </span>
                                     <TZLabel time={comment.created_at} showPopover={false} />
                                     {atMs !== null && (
-                                        <LemonButton
-                                            size="xsmall"
+                                        <Button
+                                            variant="link"
+                                            size="inline"
                                             onClick={() => seek(atMs)}
                                             data-attr="watch-panel-comment-seek"
                                         >
                                             <span className="tabular-nums">
                                                 {colonDelimitedDuration(atMs / 1000, 2)}
                                             </span>
-                                        </LemonButton>
+                                        </Button>
                                     )}
                                 </div>
                                 {comment.rich_content ? (
