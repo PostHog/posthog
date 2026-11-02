@@ -331,6 +331,8 @@ An explicit request declaration takes precedence over stored session support.
 The server builds the `render-ui` schema from the full catalog of read-only tools with UI apps.
 The schema stays the same across accounts; execution checks the tools available to the current account.
 The server rejects direct `render-ui` calls without UI support, even if the client has a cached tool list that includes it.
+A `render-ui` call runs the same tool call the app would make for its data, through the normal dispatch path, and returns that data on the app-only `_meta["com.posthog.mcp/app_data"]` key.
+The app draws the first view from that data, so it still renders on hosts that reject an app's own `tools/call`. The app calls the server itself only when the preload failed or took longer than 15 seconds (the app treats a result that takes 20 seconds as lost), and for later actions such as drill-downs.
 This check does not change mode selection. Cursor still defaults to tools mode, and an explicit mode override still takes precedence.
 
 ## Claude web and desktop exec schema budget
