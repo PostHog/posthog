@@ -201,6 +201,14 @@ describe('todayShellLogic', () => {
 
         logic.actions.pickPane('analytics')
         expect(logic.values.sidebarVisible).toBe(true)
+
+        logic.actions.pickPane('notifications')
+        logic.actions.keepSidebarOnNextPage()
+        router.actions.push('/project/1/insights/abc123')
+        expect(logic.values.sidebarVisible).toBe(true)
+        expect(logic.values.activePane).toBe('notifications')
+        router.actions.push('/project/1/dashboard/7')
+        expect(logic.values.sidebarVisible).toBe(false)
     })
     it('keeps the rail on narrow windows and opens the sidebar as a drawer that closes on navigation', () => {
         const originalWidth = window.innerWidth

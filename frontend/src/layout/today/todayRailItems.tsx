@@ -1,7 +1,10 @@
-import { IconApps, IconChat, IconGear, IconHome, IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
+import { Suspense } from 'react'
+
+import { IconApps, IconBell, IconChat, IconGear, IconHome, IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
 
 import { IconAnalyticsBars } from 'lib/lemon-ui/icons'
 import { isMac } from 'lib/utils/dom'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { TodayNewAnalyticsButton } from './TodayNewAnalyticsButton'
 import { TodayNewChatButton } from './TodayNewChatButton'
@@ -15,6 +18,20 @@ export interface TodayPane {
     action?: () => JSX.Element
 }
 
+const NotificationsPaneHeaderActions = lazyWithRetry(() =>
+    import('products/notifications/frontend/pane/NotificationsPaneHeaderActions').then((m) => ({
+        default: m.NotificationsPaneHeaderActions,
+    }))
+)
+
+function TodayNotificationsHeaderActions(): JSX.Element {
+    return (
+        <Suspense fallback={null}>
+            <NotificationsPaneHeaderActions />
+        </Suspense>
+    )
+}
+
 export const TODAY_PANES: Record<TodayRailPane, TodayPane> = {
     home: { label: 'Home', title: 'Today', icon: <IconHome /> },
     spaces: {
@@ -26,6 +43,12 @@ export const TODAY_PANES: Record<TodayRailPane, TodayPane> = {
     analytics: { label: 'Analytics', title: 'Analytics', icon: <IconAnalyticsBars />, action: TodayNewAnalyticsButton },
     products: { label: 'Products', title: 'Products', icon: <IconApps /> },
     settings: { label: 'Settings', title: 'Settings', icon: <IconGear /> },
+    notifications: {
+        label: 'Updates',
+        title: 'Notifications',
+        icon: <IconBell />,
+        action: TodayNotificationsHeaderActions,
+    },
 }
 
 export const TODAY_RAIL_PANES: TodayRailPane[] = ['home', 'spaces', 'analytics', 'products']
