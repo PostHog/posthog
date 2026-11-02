@@ -497,8 +497,7 @@ def _flag_call_scans(
                     flag_key_compares_as_string=flag_key_compares_as_string,
                 )
             )
-            literals = _flag_call_literals(node, scan) if scan is not None else []
-            if scan is not None and literals:
+            if scan is not None and (literals := _flag_call_literals(node, scan)):
                 scans.append(_FlagCallScan(position=position, scan=scan, literals=literals))
         join = join.next_join
         position += 1
@@ -750,6 +749,6 @@ class _UnionRenamer(ScanVisitor):
             return False
         # The swap cannot read a sampled scan. On mode 2 the union reads it.
         sampled = scan.join.sample is not None and not scan.join.sample.samples_all_rows()
-        if scan.pins_flag_calls(filter_conjuncts(node), needs_flag_key=False):
-            return not (self.only_in_flag_evaluations and sampled)
-        return False
+        return scan.pins_flag_calls(filter_conjuncts(node), needs_flag_key=False) and not (
+            self.only_in_flag_evaluations and sampled
+        )
