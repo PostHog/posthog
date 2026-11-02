@@ -44,11 +44,8 @@ from products.signals.backend.scout_harness.team_limits import (
     resolve_sync_seed_inputs,
     team_is_enrolled_after_onboarding,
 )
-from products.signals.backend.source_backfill import trigger_error_tracking_backfill
 
 if TYPE_CHECKING:
-    from rest_framework.request import Request
-
     from products.signals.backend.facade.onboarding import InboxOnboarding
 
 GENERAL_SCOUT = "signals-scout-general"
@@ -446,7 +443,7 @@ def preview_quick_activation(team: Team, user: User, scopes: Sequence[str] | Non
             run_cron_schedule=scout.run_cron_schedule if scout else None,
         ),
         setup_description=(
-            "Enable available signal sources, findings from existing replay scanners, and the general scout."
+            "Enable signal sources and findings from enabled replay scanners available at activation time, and the general scout."
             + (
                 f" The scout fleet belongs to parent project {canonical_team.id}, where automatic pull requests will be turned off."
                 f" The automatic implementation setting shown here applies to selected project {team.id}."
@@ -492,7 +489,8 @@ def _validate_stored_activation(
         raise ValueError("The general scout changed. Review activation again.")
 
 
-def _enable_sources(plan: QuickActivationPlan, user: User) -> None:
+def _enable_sources(plan: QuickActivationPlan, user: User) -> bool:
+    needs_error_tracking_backfill = False
     for source in plan.sources:
         source_config, created = SignalSourceConfig.objects.get_or_create(
             team_id=plan.requested_project_id,
@@ -503,7 +501,7 @@ def _enable_sources(plan: QuickActivationPlan, user: User) -> None:
         if not source_config.enabled:
             raise ValueError("A source was paused. Review activation again.")
         if created and source.source_product == "error_tracking" and source.source_type == "issue_created":
-            transaction.on_commit(lambda: trigger_error_tracking_backfill(plan.requested_project_id))
+            needs_error_tracking_backfill = True
     scout_source, _ = SignalSourceConfig.objects.get_or_create(
         team_id=plan.canonical_project_id,
         source_product="signals_scout",
@@ -512,12 +510,15 @@ def _enable_sources(plan: QuickActivationPlan, user: User) -> None:
     )
     if not scout_source.enabled:
         raise ValueError("Scout findings were paused. Review activation again.")
+    return needs_error_tracking_backfill
 
 
-def _enable_general_scout(team: Team, request: Request, plan: QuickActivationPlan, max_enabled_scouts: int) -> None:
-    from products.signals.backend.scout_harness.views import (  # noqa: PLC0415 - reuse the guarded write path without importing scout views for previews
-        _upsert_scout_config,
-        guard_scout_lifecycle_fields,
+def _enable_general_scout(team: Team, user: User, plan: QuickActivationPlan, max_enabled_scouts: int) -> None:
+    from products.signals.backend.scout_harness.serializers import (  # noqa: PLC0415 - keeps the scout serializer graph off the preview import path
+        SignalScoutConfigUpdateSerializer,
+    )
+    from products.signals.backend.scout_harness.views import (  # noqa: PLC0415 - keeps the scout view graph off the preview import path
+        _reject_if_enabled_cap_reached,
     )
 
     canonical_team = team.parent_team or team
@@ -527,33 +528,23 @@ def _enable_general_scout(team: Team, request: Request, plan: QuickActivationPla
         "run_interval_minutes": plan.general_scout.run_interval_minutes,
         "run_cron_schedule": plan.general_scout.run_cron_schedule,
     }
-    scout = (
-        SignalScoutConfig.objects.for_team(canonical_team.id)
-        .select_for_update()
-        .filter(skill_name=GENERAL_SCOUT)
-        .first()
+    scout = SignalScoutConfig.objects.for_team(canonical_team.id).select_for_update().get(skill_name=GENERAL_SCOUT)
+    if _stored_blockers(team, canonical_team, scout, plan.sources):
+        raise ValueError("Self-Driving settings changed. Review activation again.")
+    if not scout.enabled:
+        _reject_if_enabled_cap_reached(canonical_team.id, GENERAL_SCOUT, cap=max_enabled_scouts)
+    update = SignalScoutConfigUpdateSerializer(
+        scout,
+        data=tunables,
+        partial=True,
+        context={"acting_user": user, "get_team": lambda: canonical_team, "project_id": team.project_id},
     )
-    guard_scout_lifecycle_fields(
-        request=request,
-        team=canonical_team,
-        skill_name=GENERAL_SCOUT,
-        config=scout,
-        requested=tunables,
-        action="create",
-    )
-    _upsert_scout_config(
-        team_id=canonical_team.id,
-        skill_name=GENERAL_SCOUT,
-        tunables=tunables,
-        request=request,
-        serializer_context={"request": request, "get_team": lambda: canonical_team, "project_id": team.project_id},
-        max_enabled_scouts=max_enabled_scouts,
-    )
+    update.is_valid(raise_exception=True)
+    update.save(**({"enabled_by": user} if not scout.enabled else {}))
 
 
 def activate_quick_setup(
     onboarding: InboxOnboarding,
-    request: Request,
     scopes: Sequence[str] | None,
     *,
     expected_activation_mode: ActivationMode,
@@ -596,16 +587,18 @@ def activate_quick_setup(
         materialize_scout_fleet(canonical_team, surface="onboarding", seed_inputs=seed_inputs)
         if registered_scout_skill_origin(canonical_team.id, GENERAL_SCOUT) != "canonical":
             raise ValueError("The general scout could not be prepared. Try setup in the inbox.")
-        _enable_sources(plan, user)
+        needs_error_tracking_backfill = _enable_sources(plan, user)
         enable_onboarding_scanner_signals(
             team,
             user,
             plan.scanner_ids,
             credential_can_write=_has_scopes(scopes, {"replay_scanner:write", "session_recording:read"}),
         )
-        _enable_general_scout(team, request, plan, max_enabled_scouts)
+        _enable_general_scout(team, user, plan, max_enabled_scouts)
         config = configs[team.id]
         config.onboarding = {**(config.onboarding or {}), "entrypoint": ACTIVATION_ENTRYPOINT}
+        if needs_error_tracking_backfill:
+            config.onboarding["jobs"] = {"error_tracking_backfill": "pending"}
         config.save(update_fields=["onboarding", "updated_at"])
         onboarding.complete_prepared(draft, preparation)
         config.refresh_from_db()

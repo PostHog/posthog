@@ -879,6 +879,13 @@ export interface InboxOnboardingJobsApi {
      * * `skipped` - Unavailable
      * * `failed` - Failed */
     recommendations: InboxOnboardingJobStatusEnumApi
+    /** Dispatch status of existing errors when activation adds the Error Tracking source.
+     *
+     * * `pending` - Pending
+     * * `started` - Started
+     * * `skipped` - Unavailable
+     * * `failed` - Failed */
+    error_tracking_backfill?: InboxOnboardingJobStatusEnumApi
 }
 
 /**

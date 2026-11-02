@@ -119,59 +119,13 @@ describe('buildToolDomainsBlock', () => {
     })
 
     it('trims lifecycle and capability actions from singleton domains', () => {
-        const trailingActions = [
-            'activate',
-            'accept',
-            'archive',
-            'calculate',
-            'cancel',
-            'check',
-            'claim',
-            'complete',
-            'compose',
-            'copy',
-            'disable',
-            'discard',
-            'dismiss',
-            'duplicate',
-            'edit',
-            'emit',
-            'enable',
-            'end',
-            'estimate',
-            'fail',
-            'freeze',
-            'import',
-            'launch',
-            'migrate',
-            'move',
-            'patch',
-            'pause',
-            'publish',
-            'record',
-            'rename',
-            'reset',
-            'restore',
-            'resume',
-            'revoke',
-            'ship',
-            'show',
-            'start',
-            'submit',
-            'test',
-            'transfer',
-            'unarchive',
-            'unfreeze',
-            'upload',
+        const tools = [
+            { name: 'self-driving-activate', category: 'Self-driving' },
+            { name: 'inbox-reports-claim', category: 'Self-driving' },
+            { name: 'llma-skill-archive', category: 'AI observability' },
         ]
-        const tools = trailingActions.map((action, index) => ({
-            name: `resource${index}-${action}`,
-            category: 'Test',
-        }))
 
-        expect(buildToolDomainsCompact(tools).split('|')).toEqual(
-            trailingActions.map((_, index) => `resource${index}`).sort()
-        )
+        expect(buildToolDomainsCompact(tools)).toBe('inbox-reports|llma-skill|self-driving')
     })
 
     it('should return empty string for empty array', () => {

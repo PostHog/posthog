@@ -4165,6 +4165,7 @@ class SignalScoutConfigUpdateSerializer(_ScoutConfigCapabilityFieldsMixin, seria
         return _validate_output_destinations(value, self.context)
 
     def update(self, instance: SignalScoutConfig, validated_data: dict) -> SignalScoutConfig:
+        acting_user = self.context.get("acting_user") or getattr(self.context.get("request"), "user", None)
         if "auto_pause_exempt" in validated_data:
             validated_data["auto_pause_exempt_by_role"] = False
         output_destinations = validated_data.get("output_destinations")
@@ -4210,10 +4211,10 @@ class SignalScoutConfigUpdateSerializer(_ScoutConfigCapabilityFieldsMixin, seria
         # must not change or remove it after this. An empty write is not an edit.
         if validated_data and instance.managed_by == SignalScoutConfig.ManagedBy.BACKGROUND:
             if validated_data.get("enabled") is False and instance.enabled:
-                request = self.context.get("request")
-                user = getattr(request, "user", None)
                 capture_background_scout_opted_out(
-                    config=instance, user=user if isinstance(user, User) else None, action=OPT_OUT_DISABLED
+                    config=instance,
+                    user=acting_user if isinstance(acting_user, User) else None,
+                    action=OPT_OUT_DISABLED,
                 )
             validated_data["managed_by"] = SignalScoutConfig.ManagedBy.TEAM
         if "enabled" in validated_data and validated_data["enabled"] != instance.enabled:
@@ -4238,11 +4239,10 @@ class SignalScoutConfigUpdateSerializer(_ScoutConfigCapabilityFieldsMixin, seria
             and instance.pause_reason in SignalScoutConfig.INACTIVITY_PAUSE_REASONS
         )
         if target is not None and target != instance.status:
-            request = self.context.get("request")
             validated_data["status"] = target
             validated_data["pause_reason"] = None
             validated_data["status_changed_at"] = timezone.now()
-            validated_data["status_changed_by"] = getattr(request, "user", None)
+            validated_data["status_changed_by"] = acting_user
             if target == SignalScoutConfig.Status.ACTIVE:
                 # Same rule as `transition_status_by_system`: a resume starts with a clean
                 # failure streak, or the next failed run re-trips the breaker off stale evidence.

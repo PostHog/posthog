@@ -13328,7 +13328,7 @@
         "feature_flag": "scout-trials"
     },
     "self-driving-activate": {
-        "description": "Activate Self-driving for the current project using its standard quick setup. First call self-driving-activation-get, explain the sources, scouts, automatic pull request setting and billing terms, and obtain the user's explicit agreement. Pass expected_activation_mode and expected_automatic_implementation from that preview. If the setup has changed, fetch the new preview and obtain agreement to the changed settings before retrying. Activation starts background work; it does not mean a report or pull request is ready. Existing or unfinished setups are preserved. Enabling signal emission for a replay scanner that does not already emit also requires replay_scanner:write and session_recording:read access.",
+        "description": "Activate Self-driving for the current project using its standard quick setup. First call self-driving-activation-get, explain that setup enables all available native sources and signal emission for enabled replay scanners at activation time, along with scouts, the automatic pull request setting and billing terms, and obtain the user's explicit agreement. Pass expected_activation_mode and expected_automatic_implementation from that preview. If the activation mode or automatic PR setting has changed, fetch the new preview and obtain agreement to the changed settings before retrying. Activation starts background work; it does not mean a report or pull request is ready. Existing or unfinished setups are preserved. Enabling signal emission for a replay scanner that does not already emit also requires replay_scanner:write and session_recording:read access.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Activate Self-driving",
@@ -13344,7 +13344,7 @@
         "feature_flag": "self-driving-mcp-activation-tools"
     },
     "self-driving-activation-get": {
-        "description": "Check whether the current project can activate Self-driving and preview its standard quick setup without changing settings. Returns the sources and scouts it would enable, whether automatic pull requests would be enabled, billing information, and any blockers. Explain these settings, any parent-project effects, and billing terms to the user before asking to activate. An unfinished guided setup must be resumed in the app. Use self-driving-activate only after the user agrees to this preview.",
+        "description": "Check whether the current project can activate Self-driving and preview its standard quick setup without changing settings. Returns the sources and scouts it would enable, whether automatic pull requests would be enabled, billing information, and any blockers. Standard quick setup enables all available native sources and signal emission for enabled replay scanners at activation time. Explain that scope, these settings, any parent-project effects, and billing terms before asking to activate. An unfinished guided setup must be resumed in the app. Use self-driving-activate only after the user agrees.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Preview Self-driving activation",

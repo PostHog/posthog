@@ -32,7 +32,6 @@ from products.signals.backend.facade.onboarding import (
     onboarding_source_products,
     onboarding_source_types,
 )
-from products.signals.backend.onboarding_quick import activate_quick_setup
 from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
 from products.signals.backend.presentation.scout_suggestion_serializers import ScoutSuggestionItemSerializer
 
@@ -109,6 +108,11 @@ class InboxOnboardingJobsSerializer(serializers.Serializer):
     )
     recommendations = serializers.ChoiceField(
         choices=InboxOnboardingJobStatus.choices, help_text="Dispatch status of personalized scout recommendations."
+    )
+    error_tracking_backfill = serializers.ChoiceField(
+        choices=InboxOnboardingJobStatus.choices,
+        required=False,
+        help_text="Dispatch status of existing errors when activation adds the Error Tracking source.",
     )
 
 
@@ -319,9 +323,7 @@ class InboxOnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer = SelfDrivingActivateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            outcome = activate_quick_setup(
-                self._service(),
-                request,
+            outcome = self._service().activate(
                 get_authenticator_scopes(request.successful_authenticator),
                 **serializer.validated_data,
             )

@@ -7,6 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.utils import timezone
 
 from parameterized import parameterized
+from temporalio.common import WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.constants import AvailableFeature
 from posthog.models import EventDefinition, User
@@ -17,6 +19,7 @@ from products.access_control.backend.facade.testing import create_access_control
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.signals.backend.facade.onboarding import InboxOnboarding
 from products.signals.backend.models import SignalScoutConfig, SignalSourceConfig, SignalTeamConfig
+from products.signals.backend.onboarding_activation import InboxOnboardingActivation
 from products.signals.backend.scout_harness.lazy_seed import seed_canonical_skills
 from products.signals.backend.tasks import launch_inbox_onboarding_job
 
@@ -157,6 +160,8 @@ class TestQuickInboxActivation(APIBaseTest):
                 assert SignalTeamConfig.objects.get(team=canonical_team).autostart_enabled is False
             assert general.enabled and general.emit
             assert general.enabled_by_id == (None if existing_schedule else self.user.id)
+            assert general.status == SignalScoutConfig.Status.ACTIVE
+            assert general.status_changed_by_id == (None if existing_schedule else self.user.id)
             if existing_schedule:
                 assert general.run_interval_minutes == 1800
                 assert general.run_cron_schedule == "0 10 * * *"
@@ -277,7 +282,6 @@ class TestQuickInboxActivation(APIBaseTest):
         with (
             self._quick_activation_dependencies(),
             patch.object(InboxOnboarding, "complete_prepared", side_effect=fail_completion),
-            patch("products.signals.backend.onboarding_quick.trigger_error_tracking_backfill") as backfill,
             patch.object(launch_inbox_onboarding_job, "delay") as launch,
             self.captureOnCommitCallbacks(execute=True),
         ):
@@ -294,7 +298,73 @@ class TestQuickInboxActivation(APIBaseTest):
         scanner.refresh_from_db()
         assert not scanner.emits_signals
         launch.assert_not_called()
-        backfill.assert_not_called()
+
+    def test_quick_activation_retries_error_backfill_without_reapplying_settings_or_duplicate_work(self) -> None:
+        self.source.delete()
+        EventDefinition.objects.create(
+            team=self.team, project_id=self.team.project_id, name="$exception", last_seen_at=timezone.now()
+        )
+        expected = {"expected_activation_mode": "standard", "expected_automatic_implementation": False}
+        temporal = MagicMock(
+            start_workflow=AsyncMock(
+                side_effect=[
+                    RuntimeError("Temporal unavailable"),
+                    None,
+                    WorkflowAlreadyStartedError("backfill", "backfill-error-tracking"),
+                ]
+            )
+        )
+        with (
+            self._quick_activation_dependencies(),
+            patch("products.signals.backend.source_backfill.sync_connect", return_value=temporal),
+            patch("products.signals.backend.onboarding_activation.ph_scoped_capture"),
+            patch.object(launch_inbox_onboarding_job, "delay") as launch,
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                activated = self.client.post(f"{self.url}activate/", expected, format="json")
+            assert activated.status_code == 200, activated.content
+            assert activated.json()["jobs"]["error_tracking_backfill"] == "pending"
+            assert launch.call_count == 3
+            config = SignalTeamConfig.objects.get(team=self.team)
+            assert config.onboarding is not None
+            config.onboarding["jobs"].update(scout="started", recommendations="skipped")
+            config.autostart_enabled = True
+            config.save()
+            general = SignalScoutConfig.objects.for_team(self.team.id).get(skill_name="signals-scout-general")
+            general.enabled = False
+            general.save()
+            source_ids = set(SignalSourceConfig.objects.filter(team=self.team).values_list("pk", flat=True))
+            activation = InboxOnboardingActivation(self.team.id)
+            with self.assertRaisesRegex(RuntimeError, "Temporal unavailable"):
+                activation.run("error_tracking_backfill")
+            config.refresh_from_db()
+            assert config.onboarding is not None
+            assert config.onboarding["jobs"]["error_tracking_backfill"] == "failed"
+            with self.captureOnCommitCallbacks(execute=True):
+                retried = self.client.post(f"{self.url}activate/", expected, format="json")
+            assert retried.status_code == 200, retried.content
+            assert launch.call_count == 4
+            assert launch.call_args.args == (self.team.id, "error_tracking_backfill")
+            activation.run("error_tracking_backfill")
+            activation.run("error_tracking_backfill")
+            assert temporal.start_workflow.await_count == 2
+            config.refresh_from_db()
+            assert config.onboarding is not None
+            assert config.onboarding["jobs"]["error_tracking_backfill"] == "started"
+            config.onboarding["jobs"]["error_tracking_backfill"] = "failed"
+            config.save()
+            activation.run("error_tracking_backfill")
+            assert temporal.start_workflow.await_count == 3
+            calls = temporal.start_workflow.call_args_list
+            assert len({call.kwargs["id"] for call in calls}) == 1
+            assert all(call.kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.REJECT_DUPLICATE for call in calls)
+            config.refresh_from_db()
+            assert config.onboarding is not None
+            assert config.onboarding["jobs"]["error_tracking_backfill"] == "started"
+            assert config.autostart_enabled is True
+            general.refresh_from_db()
+            assert not general.enabled
+            assert set(SignalSourceConfig.objects.filter(team=self.team).values_list("pk", flat=True)) == source_ids
 
     @parameterized.expand([("github", "github_required"), ("quota", "quota_limited")])
     def test_quick_activation_preview_reports_repository_and_quota_blockers(self, failure: str, blocker: str) -> None:
@@ -354,7 +424,13 @@ class TestQuickInboxActivation(APIBaseTest):
         assert not SignalScoutConfig.objects.for_team(self.team.id).exists()
 
     @parameterized.expand(
-        [("consent", "ai_consent_required"), ("draft", "setup_in_progress"), ("source", "sources_paused")]
+        [
+            ("consent", "ai_consent_required"),
+            ("draft", "setup_in_progress"),
+            ("source", "sources_paused"),
+            ("scout", "scout_paused"),
+            ("edited_scout", "scout_customized"),
+        ]
     )
     def test_quick_activation_preserves_unfinished_or_paused_setup(self, change: str, blocker: str) -> None:
         with self._quick_activation_dependencies():
@@ -365,6 +441,19 @@ class TestQuickInboxActivation(APIBaseTest):
                 config = SignalTeamConfig.objects.get(team=self.team)
                 config.onboarding = {"draft": self.draft}
                 config.save()
+            elif change == "scout":
+                seed_canonical_skills(self.team)
+                SignalScoutConfig.objects.create(
+                    team=self.team, skill_name="signals-scout-general", enabled=True, emit=True, lifecycle_locked=True
+                )
+            elif change == "edited_scout":
+                seed_canonical_skills(self.team)
+                edited = self.client.patch(
+                    f"/api/projects/{self.team.id}/llm_skills/name/signals-scout-general",
+                    {"body": "# Custom checkout investigation", "base_version": 1},
+                    format="json",
+                )
+                assert edited.status_code == 200, edited.content
             else:
                 self.source.enabled = False
                 self.source.save()
@@ -372,6 +461,7 @@ class TestQuickInboxActivation(APIBaseTest):
                     team=self.team, project_id=self.team.project_id, name="$exception", last_seen_at=timezone.now()
                 )
             before = SignalTeamConfig.objects.get(team=self.team).onboarding
+            scouts_before = list(SignalScoutConfig.objects.for_team(self.team.id).values())
             response = self.client.post(
                 f"{self.url}activate/",
                 {"expected_activation_mode": "standard", "expected_automatic_implementation": False},
@@ -380,7 +470,7 @@ class TestQuickInboxActivation(APIBaseTest):
         assert response.status_code == 409, response.content
         assert blocker in {item["code"] for item in response.json()["blockers"]}
         assert SignalTeamConfig.objects.get(team=self.team).onboarding == before
-        assert not SignalScoutConfig.objects.for_team(self.team.id).exists()
+        assert list(SignalScoutConfig.objects.for_team(self.team.id).values()) == scouts_before
 
     def test_quick_activation_does_not_upgrade_a_read_only_credential(self) -> None:
         raw = self.create_personal_api_key_with_scopes(["task:read", "signal_scout:read"])

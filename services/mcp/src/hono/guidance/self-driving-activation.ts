@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import { EVENT_SOURCE, resolveEventSource } from '@/lib/event-source'
@@ -11,7 +12,12 @@ import { MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG } from './rules'
 
 const RULE_ID = 'error-tracking-sd-activation'
 const SESSION_TTL_SECONDS = 24 * 60 * 60
+const INELIGIBLE_TTL_SECONDS = 30
 const ACTIVATION_TOOLS = ['self-driving-activation-get', 'self-driving-activate']
+const readinessSchema = z.object({
+    state: z.enum(['not_started', 'in_progress', 'completed']),
+    can_activate: z.boolean(),
+})
 
 function isEligibleCall(state: ResolvedState, call: GuidanceCall): boolean {
     return (
@@ -38,6 +44,21 @@ function isEligibleCall(state: ResolvedState, call: GuidanceCall): boolean {
 function sessionKey(state: ResolvedState, handle: string): string {
     const identity = createHash('sha256').update(`${state.distinctId}|${handle}`).digest('base64url').slice(0, 22)
     return `mcp:guidance:sd-activation:{${identity}}`
+}
+
+function ineligibleKey(state: ResolvedState, projectId: string): string {
+    const identity = createHash('sha256')
+        .update(
+            JSON.stringify([
+                state.context.api.config.baseUrl,
+                projectId,
+                state.distinctId,
+                state.context.api.config.apiToken,
+                [...state.apiKeyScopes].sort(),
+            ])
+        )
+        .digest('base64url')
+    return `mcp:guidance:sd-activation:ineligible:{${identity}}`
 }
 
 const ACTIVATION_TEXT = [
@@ -68,12 +89,22 @@ export async function selfDrivingActivationGuidance(
     }
 
     const projectId = await state.context.stateManager.getProjectId()
-    const preview = await state.context.api.request<Schemas.SelfDrivingActivationPreview>({
-        method: 'GET',
-        path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/onboarding/activation/`,
-        signal: AbortSignal.timeout(1000),
-    })
-    if (preview.state !== 'not_started' || !preview.can_activate) {
+    const negativeKey = ineligibleKey(state, String(projectId))
+    if (await redis.get(negativeKey)) {
+        return undefined
+    }
+    const preview = readinessSchema.safeParse(
+        await state.context.api.request<Schemas.SelfDrivingActivationPreview>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/onboarding/activation/`,
+            signal: AbortSignal.timeout(1000),
+        })
+    )
+    if (!preview.success) {
+        return undefined
+    }
+    if (preview.data.state !== 'not_started' || !preview.data.can_activate) {
+        await redis.set(negativeKey, '1', 'EX', INELIGIBLE_TTL_SECONDS)
         return undefined
     }
 

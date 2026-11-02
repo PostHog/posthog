@@ -65448,6 +65448,13 @@ export namespace Schemas {
        * * `skipped` - Unavailable
        * * `failed` - Failed */
       recommendations: InboxOnboardingJobStatusEnum;
+      /** Dispatch status of existing errors when activation adds the Error Tracking source.
+       *
+       * * `pending` - Pending
+       * * `started` - Started
+       * * `skipped` - Unavailable
+       * * `failed` - Failed */
+      error_tracking_backfill?: InboxOnboardingJobStatusEnum;
     }
 
     export interface InboxOnboardingState {

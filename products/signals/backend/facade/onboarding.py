@@ -39,7 +39,13 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.onboarding_analytics import InboxOnboardingAnalytics
 from products.signals.backend.onboarding_completion import InboxOnboardingReconciler
-from products.signals.backend.onboarding_quick import QuickActivationPlan, preview_quick_activation
+from products.signals.backend.onboarding_quick import (
+    ActivationMode,
+    QuickActivationOutcome,
+    QuickActivationPlan,
+    activate_quick_setup,
+    preview_quick_activation,
+)
 from products.signals.backend.onboarding_scouts import InboxOnboardingScouts
 from products.signals.backend.onboarding_state import is_quick_setup
 from products.signals.backend.report_content_gates import team_first_report_email_enabled
@@ -98,6 +104,20 @@ class InboxOnboarding:
 
     def activation(self, scopes: Sequence[str] | None) -> QuickActivationPlan:
         return preview_quick_activation(self.team, self.user, scopes)
+
+    def activate(
+        self,
+        scopes: Sequence[str] | None,
+        *,
+        expected_activation_mode: ActivationMode,
+        expected_automatic_implementation: bool,
+    ) -> QuickActivationOutcome:
+        return activate_quick_setup(
+            self,
+            scopes,
+            expected_activation_mode=expected_activation_mode,
+            expected_automatic_implementation=expected_automatic_implementation,
+        )
 
     def retry_activation_jobs(self) -> None:
         self.authorize_scouts(True)
@@ -315,6 +335,7 @@ class InboxOnboarding:
                 }
                 quick = preparation.pilot or is_quick_setup(config.onboarding)
                 config.onboarding["jobs"] = {
+                    **state.get("jobs", {}),
                     "scout": "pending" if experiment or quick else "skipped",
                     "recommendations": "pending" if quick else "skipped",
                 }

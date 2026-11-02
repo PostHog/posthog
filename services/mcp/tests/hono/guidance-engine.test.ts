@@ -272,12 +272,17 @@ describe('Self-driving activation guidance', () => {
                 ...overrides,
             }
         )
+        state.context.api.config.apiToken = 'synthetic-credential'
+        state.context.api.config.baseUrl = 'https://example.com'
         state.context.api.request = vi.fn().mockResolvedValue({ state: 'not_started', can_activate: true })
         state.context.stateManager.getProjectId = vi.fn().mockResolvedValue('2')
         return state
     }
 
-    afterEach(() => vi.restoreAllMocks())
+    afterEach(() => {
+        vi.restoreAllMocks()
+        vi.useRealTimers()
+    })
 
     it.each([true, false])('records eligible exposure with experiment flag %s', async (enabled) => {
         const state = activationState({ toolFeatureFlags: { [MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG]: enabled } })
@@ -328,13 +333,54 @@ describe('Self-driving activation guidance', () => {
         { state: 'completed', can_activate: true },
         { state: 'in_progress', can_activate: true },
         { state: 'not_started', can_activate: false },
-    ])('does not consume the session allowance for an ineligible preview: %j', async (preview) => {
+    ])('briefly caches an ineligible preview without consuming the session allowance: %j', async (preview) => {
+        vi.useFakeTimers({ toFake: ['Date'] })
         const state = activationState()
         vi.mocked(state.context.api.request).mockResolvedValueOnce(preview)
         const engine = new GuidanceEngine(makeGuidanceRedis())
         expect(await engine.evaluate(state, issueCall)).toBeUndefined()
+        expect(await engine.evaluate(state, issueCall)).toBeUndefined()
+        vi.advanceTimersByTime(29_999)
+        expect(await engine.evaluate(state, issueCall)).toBeUndefined()
+        expect(state.context.api.request).toHaveBeenCalledTimes(1)
+        vi.advanceTimersByTime(1)
         expect(await engine.evaluate(state, issueCall)).toMatchObject({ outcome: 'shown' })
+        expect(state.context.api.request).toHaveBeenCalledTimes(2)
     })
+
+    it.each([
+        [
+            'project',
+            (state: ResolvedState) => vi.mocked(state.context.stateManager.getProjectId).mockResolvedValue('3'),
+        ],
+        ['caller', (state: ResolvedState) => (state.distinctId = 'another-user')],
+        ['credential', (state: ResolvedState) => (state.context.api.config.apiToken = 'another-synthetic-credential')],
+        ['permissions', (state: ResolvedState) => (state.apiKeyScopes = ['task:read'])],
+        ['region', (state: ResolvedState) => (state.context.api.config.baseUrl = 'https://other.example.com')],
+    ] satisfies [string, (state: ResolvedState) => unknown][])(
+        'does not share negative readiness across a different %s',
+        async (_label, change) => {
+            const engine = new GuidanceEngine(makeGuidanceRedis())
+            const blocked = activationState()
+            vi.mocked(blocked.context.api.request).mockResolvedValue({ state: 'not_started', can_activate: false })
+            expect(await engine.evaluate(blocked, issueCall)).toBeUndefined()
+
+            const eligible = activationState()
+            change(eligible)
+            expect(await engine.evaluate(eligible, issueCall)).toMatchObject({ outcome: 'shown' })
+        }
+    )
+
+    it.each([undefined, {}, { state: 'not_started', can_activate: 'false' }])(
+        'does not cache malformed readiness: %j',
+        async (preview) => {
+            const state = activationState()
+            vi.mocked(state.context.api.request).mockResolvedValueOnce(preview)
+            const engine = new GuidanceEngine(makeGuidanceRedis())
+            expect(await engine.evaluate(state, issueCall)).toBeUndefined()
+            expect(await engine.evaluate(state, issueCall)).toMatchObject({ outcome: 'shown' })
+        }
+    )
 
     it('offers once across projects in a session and reserves concurrent eligible calls atomically', async () => {
         const state = activationState()
@@ -379,10 +425,13 @@ describe('Self-driving activation guidance', () => {
         vi.spyOn(console, 'warn').mockImplementation(() => {})
         const state = activationState()
         if (failure === 'readiness') {
-            vi.mocked(state.context.api.request).mockRejectedValue(new Error('readiness unavailable'))
+            vi.mocked(state.context.api.request).mockRejectedValueOnce(new Error('readiness unavailable'))
         }
         const engine = new GuidanceEngine(makeGuidanceRedis(failure === 'redis'))
         expect(await engine.evaluate(state, issueCall)).toBeUndefined()
+        if (failure === 'readiness') {
+            expect(await engine.evaluate(state, issueCall)).toMatchObject({ outcome: 'shown' })
+        }
     })
 
     it('cancels readiness with a one-second overall deadline without consuming the session allowance', async () => {
