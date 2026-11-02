@@ -2,10 +2,10 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 import posthog from 'posthog-js'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 import type { IntegrationType, TeamPublicType, TeamType, UserType } from '~/types'
 

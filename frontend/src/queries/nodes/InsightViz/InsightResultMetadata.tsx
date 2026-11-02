@@ -7,7 +7,7 @@ import {
     daysOfWeekLabel,
     getExcludedDaysOfWeek,
     querySupportsDaysOfWeek,
-} from 'products/product_analytics/frontend/insights/editor/filters/daysOfWeekFilterUtils'
+} from '~/queries/nodes/InsightViz/daysOfWeekFilterUtils'
 
 import { ComputationTimeWithRefresh } from './ComputationTimeWithRefresh'
 

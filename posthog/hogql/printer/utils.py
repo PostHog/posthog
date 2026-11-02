@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
+from posthog.hogql.compilation import bounded_compilation
 from posthog.hogql.constants import SQL_TARGET_DIALECTS, HogQLDialect, HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
@@ -30,7 +31,7 @@ from posthog.hogql.printer.mysql import MySQLPrinter
 from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.printer.redshift import RedshiftPrinter
 from posthog.hogql.printer.snowflake import SnowflakePrinter
-from posthog.hogql.resolver import ResolverFactory, resolve_types
+from posthog.hogql.resolver import ResolverFactory, resolve_types, swapping_flag_calls_in_views
 from posthog.hogql.transforms.events_predicate_pushdown import apply_events_predicate_pushdown, events_pushdown_enabled
 from posthog.hogql.transforms.events_read_in_order import order_events_reads_by_sort_key
 from posthog.hogql.transforms.flag_calls_from_flag_evaluations import resolve_flag_calls_from_flag_evaluations
@@ -94,6 +95,7 @@ def to_printed_hogql(
     )[0]
 
 
+@bounded_compilation
 def prepare_and_print_ast(
     node: _T_AST,
     context: HogQLContext,
@@ -182,6 +184,7 @@ def prepare_and_print_ast(
         context.type_observability = previous_type_observability
 
 
+@bounded_compilation
 def prepare_ast_for_printing(
     node: _T_AST,  # node is mutated
     context: HogQLContext,
@@ -209,6 +212,10 @@ def prepare_ast_for_printing(
         context.direct_postgres_connection_metadata = getattr(context.database, "_direct_connection_metadata", None)
 
     context.modifiers = set_default_in_cohort_via(context.modifiers)
+    if dialect == "clickhouse":
+        # The resolver inlines a saved view's body during type resolution and lazy-table resolution, after the swap of
+        # the top-level query runs.
+        resolver_factory = swapping_flag_calls_in_views(resolver_factory)
 
     if dialect == "trino":
         from posthog.hogql.transforms.trino.normalize import (  # noqa: PLC0415 -- load the optional backend only for Trino compilation
@@ -495,6 +502,7 @@ def prepare_ast_for_printing(
     return node
 
 
+@bounded_compilation
 def print_prepared_ast(
     node: _T_AST,
     context: HogQLContext,

@@ -122,15 +122,17 @@ def export_asset_direct(
 
     try:
         assert_export_authorization(exported_asset)
-        if exported_asset.export_format in (ExportedAsset.ExportFormat.CSV, ExportedAsset.ExportFormat.XLSX):
+        export_handler = get_export_format_handler(
+            export_format=exported_asset.export_format, kind=exported_asset.export_kind
+        )
+        if export_handler is not None:
+            export_handler(exported_asset)
+        elif exported_asset.export_format in (ExportedAsset.ExportFormat.CSV, ExportedAsset.ExportFormat.XLSX):
             csv_exporter.export_tabular(exported_asset, limit=limit, source=export_source)
         elif exported_asset.export_format == ExportedAsset.ExportFormat.JSONL:
-            if not exported_asset.is_dataset_export:
-                raise InvalidExportContext("JSONL exports require a dataset export context.", reportable=True)
-            export_handler = get_export_format_handler(exported_asset.export_format)
-            if export_handler is None:
-                raise InvalidExportContext("No handler is registered for this export format.", reportable=True)
-            export_handler(exported_asset)
+            raise InvalidExportContext(
+                "This export can't be generated. Contact support if this keeps happening.", reportable=True
+            )
         else:
             image_exporter.export_image(exported_asset, max_height_pixels=max_height_pixels, source=export_source)
 

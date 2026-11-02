@@ -6,8 +6,8 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { isDataVisualizationNode, isHogQLQuery } from '~/queries/schema/node-guards'
 import { DataNode } from '~/queries/schema/schema-general'
-import { isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 
 import { DEFAULT_PAGE_SIZE } from '../DataVisualization/Components/Table'
 

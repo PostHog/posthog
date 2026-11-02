@@ -32,7 +32,11 @@ class TestAppLovinSource:
         "probe_result, expected_valid, expected_message",
         [
             (True, True, None),
-            (False, False, "Invalid AppLovin Report Key"),
+            (
+                False,
+                False,
+                "AppLovin rejected your Report Key. Copy it again from your account menu > Keys in the AppLovin dashboard, then reconnect.",
+            ),
         ],
     )
     def test_validate_credentials(
@@ -78,7 +82,10 @@ class TestAppLovinSource:
                 "42",
                 None,
                 ScriptedResponse(status=401),
-                (False, "Invalid AppLovin Campaign Management API key or account ID"),
+                (
+                    False,
+                    "AppLovin rejected your Campaign Management API key or account ID. Check both under your account menu in the AppLovin dashboard, then reconnect.",
+                ),
             ),
             ("campaign-key", "42", "campaigns", ScriptedResponse(json=[]), (True, None)),
         ],

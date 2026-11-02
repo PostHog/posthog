@@ -1,17 +1,20 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 
 from products.signals.backend.agent_instructions import AGENT_STEERING_MAX_LENGTH, STEERING_FIELDS
 from products.signals.backend.facade.api import set_default_slack_notification_channel
@@ -32,8 +35,9 @@ class TestSignalTeamConfigAPI(APIBaseTest):
     def _activity(self) -> list[ActivityLog]:
         return list(ActivityLog.objects.filter(team_id=self.team.pk, scope="SignalTeamConfig").order_by("created_at"))
 
-    def test_admin_can_save_and_clear_roles_independently(self) -> None:
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+    @parameterized.expand([OrganizationMembership.Level.MEMBER, OrganizationMembership.Level.ADMIN])
+    def test_project_member_can_save_and_clear_roles_independently(self, level: int) -> None:
+        self.organization_membership.level = level
         self.organization_membership.save()
         initial = {field: f"Instructions for {role}." for role, field in STEERING_FIELDS.items()}
         response = self.client.post(self._url(), initial, format="json")
@@ -56,19 +60,46 @@ class TestSignalTeamConfigAPI(APIBaseTest):
             "implementation instructions",
         }
 
-    def test_member_can_read_but_not_change_steering(self) -> None:
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-        assert self.client.get(self._url()).status_code == 200
-        for field in STEERING_FIELDS.values():
-            response = self.client.post(self._url(), {field: "New rules."}, format="json")
-            assert response.status_code == 403, response.content
-        response = self.client.post(self._url(), {"implementation_repositories": ["acme/assets"]}, format="json")
+    @parameterized.expand([*STEERING_FIELDS.values(), "implementation_repositories"])
+    def test_non_member_cannot_change_protected_settings(self, field: str) -> None:
+        self.organization_membership.delete()
+        value = ["example/assets"] if field == "implementation_repositories" else "Check product intent."
+        response = self.client.post(self._url(), {field: value}, format="json")
         assert response.status_code == 403, response.content
-        assert self.client.post(self._url(), {"autostart_enabled": False}, format="json").status_code == 200
+
+    @parameterized.expand([*STEERING_FIELDS.values(), "implementation_repositories"])
+    def test_sandbox_cannot_change_protected_settings(self, field: str) -> None:
+        application = OAuthApplication.objects.create(
+            client_id=sorted(SANDBOX_OAUTH_APP_CLIENT_IDS)[0],
+            name="Settings test",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm=OAuthApplication.RS256_ALGORITHM,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token="pha_settings_test_token",
+            scope="task:read task:write internal_run:read",
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_teams=[self.team.id],
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
+        value = ["example/assets"] if field == "implementation_repositories" else "Check product intent."
+        response = self.client.post(self._url(), {field: value}, format="json")
+        assert response.status_code == 403, response.content
+        assert (
+            response.json()["detail"]
+            == "Task agents cannot modify steering instructions or implementation repositories."
+        )
+        assert self.client.get(self._url()).status_code == 200
+        self.config.refresh_from_db()
+        assert getattr(self.config, field) in (None, [])
 
     def test_steering_save_preserves_a_concurrent_autonomy_change(self) -> None:
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         stale_config = SignalTeamConfig.objects.get(pk=self.config.pk)
         self.config.autostart_enabled = False
@@ -410,12 +441,13 @@ class TestSignalTeamConfigAPI(APIBaseTest):
             ("unreachable_entry_is_rejected", [], ["acme/assets", "other/secret"], status.HTTP_400_BAD_REQUEST, []),
             # A stored entry that lost access can still be removed, and kept, without a fresh check.
             ("stored_entry_skips_the_check", ["acme/gone"], ["acme/gone"], status.HTTP_200_OK, ["acme/gone"]),
+            ("stored_entry_can_be_removed", ["acme/gone"], [], status.HTTP_200_OK, []),
         ]
     )
     def test_update_implementation_repositories_checks_new_entries_against_the_installation(
         self, _name: str, stored: list[str], sent: list[str], expected_status: int, expected: list[str]
     ) -> None:
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         self.config.implementation_repositories = stored
         self.config.save(update_fields=["implementation_repositories"])
@@ -430,7 +462,9 @@ class TestSignalTeamConfigAPI(APIBaseTest):
 
         assert response.status_code == expected_status, response.content
         self.config.refresh_from_db()
-        assert self.config.implementation_repositories == (expected or stored)
+        assert self.config.implementation_repositories == (
+            expected if expected_status == status.HTTP_200_OK else stored
+        )
 
 
 class TestSignalTeamConfigSerializerValidation(SimpleTestCase):

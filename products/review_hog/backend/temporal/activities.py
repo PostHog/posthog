@@ -30,7 +30,8 @@ from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.integrations import IntegrationManager
+from posthog.models.integration import GitHubIntegration
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
@@ -238,11 +239,14 @@ from products.review_hog.backend.temporal.types import (
     TRIGGER_MANUAL,
     TRIGGER_STAMPHOG,
 )
-from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import CodeReview, CodeReviewCounts
-from products.signals.backend.enums import ReportPriority
-from products.signals.backend.models import SignalReport, SignalReportArtefact
-from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
+from products.signals.backend.facade.report_artefacts import (
+    CodeReview,
+    CodeReviewCounts,
+    append_code_review,
+    report_exists,
+)
+from products.signals.backend.facade.report_reviewers import org_user_ids_by_github_login
+from products.signals.backend.facade.taxonomy import ArtefactAttribution, ReportPriority
 from products.stamphog.backend.facade.tasks import request_rereview_after_external_review
 from products.tasks.backend.facade.agents import AgentTurnFailed
 from products.tasks.backend.facade.contracts import SessionFile
@@ -774,7 +778,7 @@ async def _refresh_status_comment(
 
 
 def _github_integration_exists(team_id: int) -> bool:
-    return Integration.objects.filter(team_id=team_id, kind="github").exists()
+    return IntegrationManager.github.oauth.exists(team_id)
 
 
 def _installation_auth(team_id: int, repository: str) -> tuple[str, str | None]:
@@ -799,7 +803,7 @@ def _installation_for(team_id: int, repository: str) -> GitHubIntegration:
     """The team's GitHub App installation that can access `repository` — a live API probe.
 
     Callers that make many writes in one run should select once and re-mint tokens from the
-    returned integration row (`GitHubIntegration(Integration.objects.get(...)).get_access_token()`)
+    returned integration row (`GitHubIntegration(IntegrationManager.github.oauth.get(...)).get_access_token()`)
     instead of re-probing per write: the probe answers *which* installation, not *may we write* —
     GitHub enforces access server-side on every call anyway.
     """
@@ -1002,9 +1006,7 @@ async def fetch_pr_data_activity(input: FetchPRDataInput) -> ReviewMeta:
 def _login_to_user_id(team_id: int, login: str | None) -> int | None:
     if not login:
         return None
-    matches = resolve_org_github_login_to_users(team_id, [login])
-    user = matches.get(login.strip().lower())
-    return user.id if user is not None else None
+    return org_user_ids_by_github_login(team_id=team_id, github_logins=[login]).get(login.strip().lower())
 
 
 def _automatic_review_allowed(input: ResolveActingUserInput, acting_user_id: int | None) -> bool:
@@ -2949,7 +2951,7 @@ def _append_code_review_artefact(input: AppendCodeReviewArtefactInput) -> None:
         return
     # The signals report may be gone by now (deleted/reingested) — the review must not fail over its
     # own receipt, and the plain-UUID provenance on the ReviewReport row keeps the durable link.
-    if not SignalReport.objects.filter(team_id=input.team_id, id=input.signal_report_id).exists():
+    if not report_exists(team_id=input.team_id, report_id=input.signal_report_id):
         logger.warning("Signal report %s missing; skipping the code_review artefact", input.signal_report_id)
         return
     counts = CodeReviewCounts()
@@ -2971,7 +2973,7 @@ def _append_code_review_artefact(input: AppendCodeReviewArtefactInput) -> None:
         outcome=input.outcome,
         counts=counts,
     )
-    SignalReportArtefact.add_log(
+    append_code_review(
         team_id=input.team_id,
         report_id=input.signal_report_id,
         content=content,

@@ -66,6 +66,7 @@ import {
 import {
   classifyAgentError,
   isRetryableUpstreamErrorClassification,
+  rejectedRequestMessage,
   sanitizeAgentErrorCause,
 } from "../error-classification";
 import { isLocalSkillCommandChunk } from "../local-skill";
@@ -236,13 +237,31 @@ const GOAL_COMMAND = {
   input: { hint: "[<objective>|clear|pause|resume]" },
 };
 
-function parseGoalCommand(prompt: PromptRequest["prompt"]): GoalCommand | null {
+const COMPACT_COMMAND = {
+  name: "compact",
+  description: "Compact the conversation context",
+};
+
+const COMPACT_BUSY_MESSAGE =
+  "\n\nCouldn't compact while the agent is working. Run /compact again when this turn ends.";
+
+function visiblePromptText(prompt: PromptRequest["prompt"]): string | null {
   const visible = visiblePromptBlocks(prompt);
   if (visible.some((block) => block.type !== "text")) return null;
-  const text = visible
+  return visible
     .map((block) => (block.type === "text" ? block.text : ""))
     .join("\n")
     .trim();
+}
+
+function isCompactCommand(prompt: PromptRequest["prompt"]): boolean {
+  const text = visiblePromptText(prompt);
+  return text !== null && /^\/compact(?:\s|$)/.test(text);
+}
+
+function parseGoalCommand(prompt: PromptRequest["prompt"]): GoalCommand | null {
+  const text = visiblePromptText(prompt);
+  if (text === null) return null;
   const match = text.match(/^\/goal(?:\s+([\s\S]*))?$/);
   if (!match) return null;
   const argument = match[1]?.trim();
@@ -869,7 +888,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       name: string;
       description: string;
       input?: { hint: string };
-    }> = [GOAL_COMMAND];
+    }> = [GOAL_COMMAND, COMPACT_COMMAND];
     try {
       const res = await this.rpc.request<{
         data?: Array<{ skills?: CodexSkill[] }>;
@@ -881,13 +900,14 @@ export class CodexAppServerAgent extends BaseAcpAgent {
           (skill): skill is CodexSkill & { name: string } =>
             !!skill.name &&
             skill.name !== GOAL_COMMAND.name &&
+            skill.name !== COMPACT_COMMAND.name &&
             skill.enabled !== false,
         )
         .map((skill) => ({
           name: skill.name,
           description: skill.description ?? "",
         }));
-      commands = [GOAL_COMMAND, ...skills];
+      commands = [GOAL_COMMAND, COMPACT_COMMAND, ...skills];
     } catch (err) {
       this.logger.warn("skills/list failed", { error: String(err) });
     }
@@ -919,10 +939,42 @@ export class CodexAppServerAgent extends BaseAcpAgent {
         ? { stopReason: "end_turn", _meta: { steer: true } }
         : { stopReason: "end_turn" };
     }
+    const compactCommand = isCompactCommand(params.prompt);
+    if (
+      compactCommand &&
+      (isSteer || this.turns.isPending || this.nativeGoalTurnId)
+    ) {
+      this.broadcastAgentText(COMPACT_BUSY_MESSAGE);
+      return isSteer
+        ? steerDeclined("turn_not_steerable")
+        : { stopReason: "end_turn" };
+    }
     this.cancelNextGoalTurn = false;
     // Reopen the notification gate (a prior interrupt may have left session.cancelled set).
     if (!isSteer) {
       this.session.cancelled = false;
+    }
+    if (compactCommand) {
+      this.planHandoffCancel?.();
+      this.broadcastUserInput(visiblePromptBlocks(params.prompt));
+      try {
+        return await this.runOwnedTurn(
+          APP_SERVER_METHODS.THREAD_COMPACT_START,
+          { threadId: this.threadId },
+        );
+      } catch (error) {
+        if (
+          classifyGatewayLimitError(
+            error instanceof Error ? error.message : String(error),
+          ) !== null
+        ) {
+          throw error;
+        }
+        this.logger.warn("Codex manual compaction failed", {
+          error: String(error),
+        });
+        return { stopReason: "end_turn", _meta: { compactionFailed: true } };
+      }
     }
     // A new prompt while the plan handoff awaits approval implicitly declines it:
     // settle the race so the previous prompt() returns and this one owns the turn.
@@ -1225,7 +1277,17 @@ export class CodexAppServerAgent extends BaseAcpAgent {
   }
 
   /** Start one codex turn and await its completion. */
-  private async runTurn(input: CodexUserInput[]): Promise<PromptResponse> {
+  private runTurn(input: CodexUserInput[]): Promise<PromptResponse> {
+    return this.runOwnedTurn(
+      APP_SERVER_METHODS.TURN_START,
+      this.turnStartParams(input),
+    );
+  }
+
+  private async runOwnedTurn(
+    method: string,
+    params: Record<string, unknown>,
+  ): Promise<PromptResponse> {
     this.lastAgentMessage = "";
     this.lastTurnError = undefined;
     this.resetUsage();
@@ -1236,10 +1298,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     this.deferredTurnComplete = undefined;
     const { completion, turn } = this.turns.begin();
     try {
-      await this.rpc.request(
-        APP_SERVER_METHODS.TURN_START,
-        this.turnStartParams(input),
-      );
+      await this.rpc.request(method, params);
       return await completion;
     } finally {
       this.turns.finishPrompt(turn);
@@ -1755,6 +1814,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       const completedNativeGoalTurn = turn?.id === this.nativeGoalTurnId;
       if (completedNativeGoalTurn) {
         this.nativeGoalTurnId = undefined;
+        this.endCompaction(mapTurnStopReason(turn?.status));
         void this.client
           .extNotification(POSTHOG_NOTIFICATIONS.BACKGROUND_TURN_COMPLETE, {
             sessionId: this.sessionId,
@@ -2125,6 +2185,32 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       .catch(() => undefined);
   }
 
+  private endCompaction(reason: StopReason, error?: string): void {
+    if (!this.compactionActive) return;
+    this.compactionActive = false;
+    if (reason === "end_turn") {
+      this.emitCompactionBoundary();
+      return;
+    }
+    if (!this.sessionId) return;
+    void this.client
+      .extNotification(
+        POSTHOG_NOTIFICATIONS.STATUS,
+        reason === "cancelled"
+          ? {
+              sessionId: this.sessionId,
+              status: "compacting",
+              isComplete: true,
+            }
+          : {
+              sessionId: this.sessionId,
+              status: "compacting_failed",
+              ...(error ? { error } : {}),
+            },
+      )
+      .catch(() => undefined);
+  }
+
   /** Emit `_posthog/usage_update` so the host's token/cost UI fills. */
   private emitUsageExtNotification(params: unknown): void {
     if (!this.sessionId) return;
@@ -2146,10 +2232,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     if (!pending) return;
     // If the turn dies mid-compaction the boundary never fires, leaving isCompacting stuck
     // true (silently queuing later messages). Recover here.
-    if (this.compactionActive) {
-      this.compactionActive = false;
-      this.emitCompactionBoundary();
-    }
+    this.endCompaction(reason);
     const message = this.lastAgentMessage;
     // Per-turn usage is codex's own `tokenUsage.last` (not a reconstructed delta).
     const usage = this.usage.perTurnUsage();
@@ -2200,10 +2283,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     this.turns.markInterrupted();
     const pending = this.turns.claim();
     if (!pending) return;
-    if (this.compactionActive) {
-      this.compactionActive = false;
-      this.emitCompactionBoundary();
-    }
+    this.endCompaction("refusal", compactionFailureDetail(this.lastTurnError));
     const usage = this.usage.perTurnUsage();
     pending.reject(error);
     if (emitTurnComplete) {
@@ -2268,10 +2348,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     const pending = this.turns.claim();
     if (!pending) return;
     this.broadcastAgentText(message);
-    if (this.compactionActive) {
-      this.compactionActive = false;
-      this.emitCompactionBoundary();
-    }
+    this.endCompaction("refusal");
     const usage = this.usage.perTurnUsage();
     void this.emitTurnCompleteSignal("refusal", usage);
     void this.emitUsageBreakdown(this.usage.contextTokens());
@@ -2607,6 +2684,14 @@ const CODEX_BASELINE_TOKENS = 12000;
 const IMPLEMENT_PLAN_MESSAGE = "Implement the plan.";
 
 /** codex `TurnStatus` → ACP `StopReason`: interrupted → cancel, failed → refusal, else end. */
+function compactionFailureDetail(
+  cause: { message: string } | undefined,
+): string | undefined {
+  const raw = cause?.message.trim();
+  if (!raw) return undefined;
+  return (rejectedRequestMessage(raw) ?? raw).slice(0, MAX_FATAL_CAUSE_LENGTH);
+}
+
 function mapTurnStopReason(status: string | undefined): StopReason {
   if (status === "interrupted") return "cancelled";
   if (status === "failed") return "refusal";

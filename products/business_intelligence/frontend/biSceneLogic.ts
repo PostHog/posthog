@@ -27,9 +27,9 @@ import { urls } from 'scenes/urls'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { isBIVisualizationNode } from '~/queries/schema/node-guards'
 import { BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
 import { ChartSettings, HogQLFilters, NodeKind, VisualizationNode } from '~/queries/schema/schema-general'
-import { isBIVisualizationNode } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType, ChartDisplayType } from '~/types'
 
 import { validateMetricName } from 'products/data_catalog/frontend/common'

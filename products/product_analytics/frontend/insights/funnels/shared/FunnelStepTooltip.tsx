@@ -3,9 +3,10 @@ import { useValues } from 'kea'
 import { TooltipSurface, TooltipSwatch } from '@posthog/quill-charts'
 
 import { toDisplayEntityFilter } from 'lib/components/EntityFilterInfo'
+import { getDisplayNameFromEntityFilter } from 'lib/insights/entityFilterNames'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
-import { formatBreakdownLabel, getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'

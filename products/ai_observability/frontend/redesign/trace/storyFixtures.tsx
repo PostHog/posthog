@@ -383,6 +383,7 @@ export const FIXTURE_TRACE: SampleTraceFixture = {
         olderHref: '/older',
         newerHref: '/newer',
         backLink: { label: 'Back to traces', href: '/traces' },
+        exportAction: { loading: false, onExport: () => {} },
     },
     summary: {
         traceId: '3f9c2a71-5b8e-4d0f-a1c2-7e6d5b4a3c21',
