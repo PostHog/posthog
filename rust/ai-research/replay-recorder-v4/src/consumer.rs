@@ -25,8 +25,11 @@ use crate::process::{admit, sampled, Admitted, Headers, Skip};
 use crate::teams::TeamCache;
 
 const KAFKA_TIMEOUT: Duration = Duration::from_secs(10);
-const COMMIT_ATTEMPTS: u32 = 3;
 const HEARTBEAT: Duration = Duration::from_secs(5);
+
+/// How long offset commits can keep failing before the process exits. A rebalance can wait for one member for the whole
+/// poll interval, so this limit outlasts a rebalance. It also limits what a restart reads again.
+const COMMIT_GIVE_UP: Duration = Duration::from_secs(2 * MAX_POLL_INTERVAL.as_secs());
 
 /// The consumer's `session.timeout.ms`, the replay lanes' value. Past it the group can give the partitions to another
 /// process, so a flush stops storing then.
@@ -46,6 +49,9 @@ struct Assignments {
     uncommitted: HashMap<Tp, Option<i64>>,
     /// After a failed start commit, the next one waits until then.
     start_retry_at: Option<Instant>,
+    /// The next offset and epoch of each partition with stored blocks that are not committed.
+    unsettled: HashMap<Tp, (u64, i64)>,
+    commits_failing_since: Option<Instant>,
 }
 
 /// The pause after a failed start commit, so a broker that does not answer does not stall every message.
@@ -74,6 +80,32 @@ impl Assignments {
         } else {
             self.start_retry_at = Some(now + START_RETRY);
         }
+    }
+
+    /// A partition that was revoked is the next owner's, even when it came back under a later epoch.
+    fn offsets_due(&mut self, flushed: &HashMap<Tp, (u64, i64)>) -> Vec<(Tp, i64)> {
+        self.unsettled.extend(flushed);
+        let epochs = &self.epochs;
+        self.unsettled.retain(
+            |tp, (epoch, _)| matches!(epochs.get(tp), Some(&(current, true)) if current == *epoch),
+        );
+        self.unsettled
+            .iter()
+            .map(|(&tp, &(_, offset))| (tp, offset))
+            .collect()
+    }
+
+    fn offsets_committed(&mut self) {
+        // A later offset committed, so a pending start offset is of no use any more.
+        for tp in self.unsettled.keys() {
+            self.uncommitted.remove(tp);
+        }
+        self.unsettled.clear();
+        self.commits_failing_since = None;
+    }
+
+    fn commit_failed(&mut self, now: Instant) -> Duration {
+        now.saturating_duration_since(*self.commits_failing_since.get_or_insert(now))
     }
 }
 
@@ -328,44 +360,40 @@ impl RecorderConsumer {
             .starts_committed(&starts, committed.is_ok(), Instant::now());
     }
 
-    /// Commits the next offset of every partition this process still owns under the same assignment.
-    async fn commit(&self, offsets: &HashMap<Tp, (u64, i64)>) -> Result<(), String> {
-        let mut list = TopicPartitionList::new();
-        for (&tp, &(epoch, offset)) in offsets {
-            if self.current_epoch(tp) == Some(epoch) {
-                list.add_partition_offset(tp.topic, tp.partition, Offset::Offset(offset))
-                    .map_err(|e| e.to_string())?;
+    /// Commits the next offset of every partition this process still owns under the same assignment, with the offsets
+    /// of earlier flushes that did not commit. A failed commit is not retried here, because the rebalance callbacks run
+    /// only when the consume loop polls, so a rebalance cannot end while this waits. The next flush tries again. The
+    /// blocks are stored, so until then a failed commit means only that a new owner or a restart reads them again.
+    async fn commit(&self, flushed: &HashMap<Tp, (u64, i64)>) -> Result<(), String> {
+        let due = {
+            let mut state = self.state.lock().unwrap();
+            let due = state.offsets_due(flushed);
+            if due.is_empty() {
+                state.commits_failing_since = None;
+                return Ok(());
             }
+            due
+        };
+        let mut list = TopicPartitionList::new();
+        for (tp, offset) in due {
+            list.add_partition_offset(tp.topic, tp.partition, Offset::Offset(offset))
+                .map_err(|e| e.to_string())?;
         }
-        if list.count() == 0 {
-            return Ok(());
-        }
-        let mut attempt = 0;
-        loop {
-            match self.commit_list(list.clone()).await {
-                Ok(()) => {
-                    // A later offset committed, so a pending start offset is of no use any more.
-                    let mut state = self.state.lock().unwrap();
-                    for element in list.elements() {
-                        if let Some(tp) = self
-                            .consumer
-                            .context()
-                            .tp(element.topic(), element.partition())
-                        {
-                            state.uncommitted.remove(&tp);
-                        }
-                    }
-                    return Ok(());
+        match self.commit_list(list).await {
+            Ok(()) => {
+                self.state.lock().unwrap().offsets_committed();
+                Ok(())
+            }
+            Err(error) => {
+                counter!("ai_research_v4_recorder_commit_failures_total").increment(1);
+                let failing = self.state.lock().unwrap().commit_failed(Instant::now());
+                if failing >= COMMIT_GIVE_UP {
+                    return Err(format!(
+                        "committing offsets failed for {failing:?}: {error}"
+                    ));
                 }
-                Err(error) => {
-                    counter!("ai_research_v4_recorder_commit_failures_total").increment(1);
-                    attempt += 1;
-                    if attempt >= COMMIT_ATTEMPTS {
-                        return Err(format!("committing offsets failed: {error}"));
-                    }
-                    tracing::warn!(%error, attempt, "committing offsets failed");
-                    tokio::time::sleep(Duration::from_millis(500 * u64::from(attempt))).await;
-                }
+                tracing::warn!(%error, ?failing, "committing offsets failed, the next flush tries again");
+                Ok(())
             }
         }
     }
@@ -529,6 +557,12 @@ async fn consume(
         }
     }
     if batch.is_empty() {
+        // The last flush can still have offsets that did not commit.
+        if let Ok(Err(error)) =
+            tokio::time::timeout(settings.shutdown_flush, consumer.commit(&HashMap::new())).await
+        {
+            tracing::warn!(%error, "the commit on shutdown failed");
+        }
         return;
     }
     flush_on_shutdown(
@@ -868,6 +902,51 @@ mod tests {
         assert_eq!(starts, [(tp(0), 10)]);
         state.starts_committed(&starts, true, now);
         assert!(state.uncommitted.is_empty());
+    }
+
+    #[test]
+    fn a_failed_commit_waits_for_the_next_flush_while_the_partition_stays_owned() {
+        let mut state = Assignments::default();
+        for partition in 0..3 {
+            state.epochs.insert(tp(partition), (1, true));
+        }
+        let due = |state: &mut Assignments, flushed: &[(Tp, (u64, i64))]| {
+            let mut due = state.offsets_due(&flushed.iter().copied().collect());
+            due.sort_by_key(|(tp, _)| tp.partition);
+            due
+        };
+
+        let first = [(tp(0), (1, 10)), (tp(1), (1, 10)), (tp(2), (1, 10))];
+        assert_eq!(
+            due(&mut state, &first),
+            [(tp(0), 10), (tp(1), 10), (tp(2), 10)]
+        );
+
+        // Partition 0 reads more, partition 1 has no new messages, and partition 2 moves to another process and comes
+        // back. The old offset of partition 2 belongs to the earlier assignment, so it does not commit.
+        state.epochs.insert(tp(2), (2, true));
+        assert_eq!(
+            due(&mut state, &[(tp(0), (1, 20))]),
+            [(tp(0), 20), (tp(1), 10)]
+        );
+
+        state.epochs.insert(tp(1), (2, false));
+        assert_eq!(due(&mut state, &[]), [(tp(0), 20)]);
+
+        state.uncommitted.insert(tp(0), Some(5));
+        state.offsets_committed();
+        assert!(due(&mut state, &[]).is_empty());
+        assert!(state.uncommitted.is_empty());
+    }
+
+    #[test]
+    fn only_a_success_resets_how_long_the_commits_have_failed() {
+        let mut state = Assignments::default();
+        let start = Instant::now();
+        assert_eq!(state.commit_failed(start), Duration::ZERO);
+        assert_eq!(state.commit_failed(start + COMMIT_GIVE_UP), COMMIT_GIVE_UP);
+        state.offsets_committed();
+        assert_eq!(state.commit_failed(start + COMMIT_GIVE_UP), Duration::ZERO);
     }
 
     #[test]
