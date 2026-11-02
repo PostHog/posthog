@@ -97,6 +97,26 @@ export function SocialLoginButton({
     )
 }
 
+/** Holds the passkey button's place while its chunk loads, or when the chunk fails to load. */
+function PasskeyButtonPlaceholder({
+    loading,
+    disabledReason,
+}: {
+    loading?: boolean
+    disabledReason?: string
+}): JSX.Element {
+    return (
+        <LemonButton
+            size="large"
+            icon={<img src={passkeyLogo} alt="Passkey" className="object-contain w-7 h-7" />}
+            tooltip={disabledReason ? undefined : 'Passkey'}
+            htmlType="button"
+            loading={loading}
+            disabledReason={disabledReason}
+        />
+    )
+}
+
 interface SocialLoginButtonsProps {
     title?: string
     caption?: string
@@ -167,20 +187,12 @@ export function SocialLoginButtons({
                         />
                     ))}
                     {showPasskey && (
-                        <ChunkLoadErrorBoundary fallback={() => null}>
-                            <Suspense
-                                fallback={
-                                    <LemonButton
-                                        size="large"
-                                        icon={
-                                            <img src={passkeyLogo} alt="Passkey" className="object-contain w-7 h-7" />
-                                        }
-                                        tooltip="Passkey"
-                                        htmlType="button"
-                                        loading
-                                    />
-                                }
-                            >
+                        <ChunkLoadErrorBoundary
+                            fallback={() => (
+                                <PasskeyButtonPlaceholder disabledReason="Passkey sign-in couldn't load. Refresh the page to try again, or use another sign-in method." />
+                            )}
+                        >
+                            <Suspense fallback={<PasskeyButtonPlaceholder loading />}>
                                 <PasskeyLoginButton isLastUsed={lastUsedProvider === 'passkey'} {...props} />
                             </Suspense>
                         </ChunkLoadErrorBoundary>
