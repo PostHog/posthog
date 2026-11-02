@@ -26,7 +26,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.pagination import stable_queryset_ordering
-from posthog.api.routing import DefaultRouterPlusPlus, RouterRegistry, TeamAndOrgViewSetMixin
+from posthog.api.routing import DefaultRouterPlusPlus, PathParameter, RouterRegistry, TeamAndOrgViewSetMixin
 from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -67,10 +67,14 @@ class OrderedFooViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
 class TypedPathFooViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "INTERNAL"
-    path_parameters = {"pk": UUID, "number": int}
+    path_parameters = {
+        "pk": PathParameter(type=UUID, description="A UUID string identifying this foo."),
+        "number": int,
+        "foo_id": UUID,
+    }
 
     def list(self, request: Request, **kwargs: Any) -> Response:
-        return Response({"kwargs": sorted(kwargs)})
+        return Response({"kwargs": {name: type(value).__name__ for name, value in kwargs.items()}})
 
     def retrieve(self, request: Request, pk: UUID, **kwargs: Any) -> Response:
         return Response({"pk_type": type(pk).__name__})
@@ -82,9 +86,16 @@ class TypedPathFooViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
 @pytest.mark.parametrize(
     "path_parameters",
-    [{"parent_lookup_team_id": int}, {"project_id": int}, {"organization_id": UUID}, {"pk": float}],
+    [
+        {"parent_lookup_team_id": int},
+        {"parent_lookup_foo_id": UUID},
+        {"project_id": int},
+        {"organization_id": UUID},
+        {"pk": float},
+        {"pk": PathParameter(type=float)},  # type: ignore[arg-type]
+    ],
 )
-def test_path_parameters_reject_parent_lookups_and_unsupported_types(path_parameters: dict[str, type]) -> None:
+def test_path_parameters_reject_parent_lookups_and_unsupported_types(path_parameters: dict[str, Any]) -> None:
     with pytest.raises(ImproperlyConfigured):
         type("BadPathViewSet", (TeamAndOrgViewSetMixin, viewsets.GenericViewSet), {"path_parameters": path_parameters})
 
@@ -122,7 +133,10 @@ test_ordered_router.register(r"foos", OrderedFooViewSet, "team_ordered_foos", ["
 
 test_projects_router = test_router.register(r"projects", FooViewSet, "projects")
 test_projects_router.register(r"foos", FooViewSet, "project_foos", ["project_id"])
-test_projects_router.register(r"typed_foos", TypedPathFooViewSet, "project_typed_foos", ["project_id"])
+test_typed_foos_router = test_projects_router.register(
+    r"typed_foos", TypedPathFooViewSet, "project_typed_foos", ["project_id"]
+)
+test_typed_foos_router.register(r"bars", TypedPathFooViewSet, "project_typed_foo_bars", ["project_id", "foo_id"])
 
 test_organizations_router = test_router.register(r"organizations", FooViewSet, "organizations")
 test_organizations_router.register(r"foos", FooViewSet, "organization_foos", ["organization_id"])
@@ -255,7 +269,14 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
         [
             ("uuid", "{id}/", 200, {"pk_type": "UUID"}),
             ("second_capture", "{id}/numbers/7/", 200, {"pk_type": "UUID", "number": 7}),
-            ("list_route_has_no_pk", "", 200, {"kwargs": ["parent_lookup_project_id"]}),
+            ("list_route_has_no_pk", "", 200, {"kwargs": {"parent_lookup_project_id": "str"}}),
+            (
+                "parent_lookup",
+                "{id}/bars/",
+                200,
+                {"kwargs": {"parent_lookup_project_id": "str", "parent_lookup_foo_id": "UUID"}},
+            ),
+            ("malformed_parent_lookup", "not-a-uuid/bars/", 404, None),
             ("malformed_uuid", "not-a-uuid/", 404, None),
             ("malformed_second_capture", "{id}/numbers/seven/", 404, None),
             ("max_bigint", "{id}/numbers/9223372036854775807/", 200, {"pk_type": "UUID", "number": 2**63 - 1}),

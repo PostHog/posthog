@@ -16,7 +16,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.documentation import extend_schema
-from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
 
 
 class _XInternalMarkerSerializer(serializers.Serializer):
@@ -69,9 +69,16 @@ class _RequestDependentScopesViewSet(viewsets.ViewSet):
         return Response({"ok": True})
 
 
+_UUID_SCHEMA = {"type": "string", "format": "uuid"}
+
+
 class _TypedPathViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "project"
-    path_parameters = {"pk": UUID, "number": int}
+    path_parameters = {
+        "pk": PathParameter(type=UUID, description="A UUID string identifying this thing."),
+        "number": int,
+        "parent_id": UUID,
+    }
 
     @extend_schema(responses={200: _XInternalMarkerSerializer})
     def list(self, request: Request, **kwargs: Any) -> Response:
@@ -158,7 +165,21 @@ class TestAPIDocsSchema(APIBaseTest):
         assert "x-request-dependent-scopes" not in schema["paths"]["/api/request_dependent/"]["get"]
         assert schema["paths"]["/api/request_dependent/{id}/"]["get"]["x-request-dependent-scopes"] is True
 
-    def test_path_parameters_type_the_path_parameters(self) -> None:
+    @parameterized.expand(
+        [
+            ("collection_has_none", "/api/typed/", {}),
+            ("described_id", "/api/typed/{id}/", {"id": (_UUID_SCHEMA, "A UUID string identifying this thing.")}),
+            (
+                "second_capture",
+                "/api/typed/{id}/numbers/{number}/",
+                {"id": (_UUID_SCHEMA, "A UUID string identifying this thing."), "number": ({"type": "integer"}, None)},
+            ),
+            ("parent_lookup", "/api/parents/{parent_id}/typed/", {"parent_id": (_UUID_SCHEMA, None)}),
+        ]
+    )
+    def test_path_parameters_type_the_path_parameters(
+        self, _name: str, path: str, expected: dict[str, tuple[dict, str | None]]
+    ) -> None:
         patterns = [
             re_path(r"^api/typed/$", _TypedPathViewSet.as_view({"get": "list"})),
             re_path(r"^api/typed/(?P<pk>[^/.]+)/$", _TypedPathViewSet.as_view({"get": "retrieve"})),
@@ -166,20 +187,17 @@ class TestAPIDocsSchema(APIBaseTest):
                 r"^api/typed/(?P<pk>[^/.]+)/numbers/(?P<number>[^/]+)/$",
                 _TypedPathViewSet.as_view({"get": "numbers"}),
             ),
+            re_path(
+                r"^api/parents/(?P<parent_lookup_parent_id>[^/.]+)/typed/$", _TypedPathViewSet.as_view({"get": "list"})
+            ),
         ]
 
         schema = SchemaGenerator(patterns=patterns).get_schema(request=None, public=True)
 
-        def path_schemas(path: str) -> dict[str, dict]:
-            parameters = schema["paths"][path]["get"].get("parameters", [])
-            return {param["name"]: param["schema"] for param in parameters if param["in"] == "path"}
-
-        assert path_schemas("/api/typed/") == {}
-        assert path_schemas("/api/typed/{id}/") == {"id": {"type": "string", "format": "uuid"}}
-        assert path_schemas("/api/typed/{id}/numbers/{number}/") == {
-            "id": {"type": "string", "format": "uuid"},
-            "number": {"type": "integer"},
-        }
+        parameters = schema["paths"][path]["get"].get("parameters", [])
+        assert {
+            param["name"]: (param["schema"], param.get("description")) for param in parameters if param["in"] == "path"
+        } == expected
 
     def test_can_generate_api_docs_schema(self) -> None:
         self.client.logout()

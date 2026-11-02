@@ -469,7 +469,10 @@ A view that reads through the facade has no `queryset`, so nothing can read the 
 Declare the types on the view: `path_parameters = {"pk": UUID}`.
 `TeamAndOrgViewSetMixin` parses each declared kwarg before the handler runs, and answers 404 for a malformed value, the same as a queryset view.
 The handler gets `pk: UUID`, and the OpenAPI schema shows `format: uuid`.
-A named capture in an action's `url_path` goes in the same mapping. Parent lookups do not, because `parents_query_dict` resolves them.
+A named capture in an action's `url_path` goes in the same mapping.
+A nested parent lookup goes in by its bare name: `"pipeline_id": UUID` types the `parent_lookup_pipeline_id` kwarg.
+`team_id`, `project_id` and `organization_id` do not, because `parents_query_dict` resolves them.
+To describe an id in the API docs, declare `PathParameter(type=UUID, description="...")` instead of the bare type.
 Do not parse path ids by hand. See `products/visual_review/backend/presentation/views.py`.
 
 ### Why not mix with the facade?

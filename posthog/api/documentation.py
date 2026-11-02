@@ -1,7 +1,7 @@
 import os
 import re
 import copy
-from typing import Any, get_args
+from typing import TYPE_CHECKING, Any, get_args
 from uuid import UUID
 
 from django.core.exceptions import ImproperlyConfigured
@@ -32,6 +32,9 @@ from posthog.permissions import APIScopePermission
 from posthog.products import is_product_module
 
 from products.feature_flags.backend.types import PropertyFilterType
+
+if TYPE_CHECKING:
+    from posthog.api.routing import PathParameter
 
 # Path parameters that are resolved at runtime by TeamAndOrgViewSetMixin and
 # therefore cannot be derived from any model field.  We pre-supply their
@@ -120,13 +123,16 @@ class PostHogAutoSchema(AutoSchema):
             operation["x-request-dependent-scopes"] = True
         return operation
 
-    def _declared_path_parameter_type(self, variable: str) -> type | None:
-        declared: dict[str, type] = getattr(self.view, "path_parameters", {})
+    def _declared_path_parameter(self, variable: str) -> "PathParameter | None":
+        # routing imports this module through posthog.api.utils, so a module-level import is circular.
+        from posthog.api.routing import as_path_parameter  # noqa: PLC0415
+
+        declared = getattr(self.view, "path_parameters", {})
         if variable in declared:
-            return declared[variable]
+            return as_path_parameter(declared[variable])
         # The router names the detail kwarg `pk`, and drf-spectacular renames `{pk}` to `{id}` in the path.
-        if variable == "id":
-            return declared.get("pk")
+        if variable == "id" and "pk" in declared:
+            return as_path_parameter(declared["pk"])
         return None
 
     def _resolve_path_parameters(self, variables):
@@ -136,7 +142,7 @@ class PostHogAutoSchema(AutoSchema):
         parameters = []
 
         for variable in variables:
-            declared_type = self._declared_path_parameter_type(variable)
+            declared = self._declared_path_parameter(variable)
             if variable in _KNOWN_PATH_PARAMS:
                 # Params handled by TeamAndOrgViewSetMixin — not derivable from any model.
                 parameters.append(
@@ -147,14 +153,14 @@ class PostHogAutoSchema(AutoSchema):
                         schema=_KNOWN_PATH_PARAMS[variable]["schema"],
                     )
                 )
-            elif declared_type is not None:
+            elif declared is not None:
                 # TeamAndOrgViewSetMixin parses the kwarg to this type, so the schema states the same type.
                 parameters.append(
                     build_parameter_type(
                         name=variable,
                         location=OpenApiParameter.PATH,
-                        description="",
-                        schema=_DECLARED_PATH_PARAM_SCHEMAS[declared_type],
+                        description=declared.description,
+                        schema=_DECLARED_PATH_PARAM_SCHEMAS[declared.type],
                     )
                 )
             elif model is None:
