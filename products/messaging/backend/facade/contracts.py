@@ -263,6 +263,10 @@ class TemplateKeyRefused(TemplateWriteRefused):
     pass
 
 
+class TemplateEditedInPostHog(Exception):
+    code = "template_edited_in_posthog"
+
+
 @frozen
 class TemplateSource:
     repository: str | None
@@ -281,3 +285,4 @@ class TemplateUpload:
     design: dict[str, Any]
     source: TemplateSource | None
     if_not_superseded: bool
+    if_code_managed: bool
