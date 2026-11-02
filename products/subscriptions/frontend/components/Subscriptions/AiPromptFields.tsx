@@ -294,6 +294,31 @@ export function AiPromptFields({
                                                     />
                                                 )
                                             })}
+                                            {targetType === 'slack' && (
+                                                <LemonSwitch
+                                                    checked={deliveryConfig?.charts_in_thread ?? false}
+                                                    onChange={(enabled) =>
+                                                        onChange({ ...deliveryConfig, charts_in_thread: enabled })
+                                                    }
+                                                    disabledReason={
+                                                        deliveryConfig?.include_images === false
+                                                            ? 'Turn on chart images to post charts in a thread.'
+                                                            : undefined
+                                                    }
+                                                    bordered
+                                                    fullWidth
+                                                    data-attr="ai-subscription-charts-in-thread"
+                                                    label={
+                                                        <div className="flex flex-col gap-1 py-1">
+                                                            <div className="leading-tight">Post charts in thread</div>
+                                                            <div className="text-xs text-secondary font-normal leading-tight">
+                                                                Keep the report in the main Slack message and post chart
+                                                                images in the first thread reply.
+                                                            </div>
+                                                        </div>
+                                                    }
+                                                />
+                                            )}
                                         </div>
                                     ),
                                 },

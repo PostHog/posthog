@@ -312,12 +312,13 @@ function dropAiDisplayConfigForNonAi(subscription: SubscriptionType): Subscripti
     if (subscription.resource_type === SubscriptionResourceTypes.AiPrompt || !deliveryConfig) {
         return deliveryConfig
     }
-    if (!AI_DISPLAY_CONFIG_FIELDS.some((field) => field in deliveryConfig)) {
+    const aiOnlyFields = [...AI_DISPLAY_CONFIG_FIELDS, 'charts_in_thread'] as const
+    if (!aiOnlyFields.some((field) => field in deliveryConfig)) {
         return deliveryConfig
     }
 
     const remaining = { ...deliveryConfig }
-    for (const field of AI_DISPLAY_CONFIG_FIELDS) {
+    for (const field of aiOnlyFields) {
         delete remaining[field]
     }
     return remaining
@@ -331,8 +332,6 @@ export function coerceDeliveryConfigForScope(
     if (!deliveryConfig?.post_all_insights_in_main_message) {
         return deliveryConfig
     }
-    // A prompt report always posts its charts in the main message, so the API rejects this option
-    // and the form hides its toggle. Without this the stored flag has no control that can clear it.
     if (subscription.resource_type === SubscriptionResourceTypes.AiPrompt) {
         return { ...deliveryConfig, post_all_insights_in_main_message: false }
     }

@@ -241,14 +241,17 @@ describe('AI subscription display options', () => {
         ['insight', undefined],
         ['dashboard', undefined],
         ['ai_prompt', false],
-    ] as const)('a %s subscription sends include_images as %s', (resourceType, expected) => {
+    ] as const)('a %s subscription keeps AI display options only for AI reports', (resourceType, expected) => {
         const subscription = {
             resource_type: resourceType,
             target_type: 'email',
-            delivery_config: { include_images: false },
+            delivery_config: { include_images: false, charts_in_thread: true },
         } as SubscriptionType
 
         expect(coerceDeliveryConfigForScope(subscription, [])?.include_images).toBe(expected)
+        expect(coerceDeliveryConfigForScope(subscription, [])?.charts_in_thread).toBe(
+            resourceType === 'ai_prompt' ? true : undefined
+        )
     })
 
     it('keeps the other delivery options when it drops the AI ones', () => {
