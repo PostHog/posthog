@@ -186,7 +186,7 @@ function isEnterOnField(e: React.KeyboardEvent<HTMLFormElement>): boolean {
 }
 
 function isEnterHandledByField(e: React.KeyboardEvent<HTMLFormElement>): boolean {
-    return e.defaultPrevented
+    return e.defaultPrevented || e.nativeEvent.isComposing
 }
 
 export const LemonFormDialog = ({

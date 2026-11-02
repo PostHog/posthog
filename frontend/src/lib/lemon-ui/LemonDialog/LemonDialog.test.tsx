@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, render, screen, waitFor, waitForElementToBeRemoved } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, waitForElementToBeRemoved } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
@@ -118,6 +118,18 @@ describe('LemonFormDialog', () => {
         expect(onSubmit).not.toHaveBeenCalled()
         await submitViaButton()
         await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({ tags: ['growth', 'billing'] }))
+    })
+
+    it.each([
+        ['an IME composition confirms', true, 0],
+        ['a plain key press', false, 1],
+    ])('Enter from %s in a text field (composing: %s) submits %i times', async (_case, isComposing, submits) => {
+        const onSubmit = jest.fn().mockResolvedValue(undefined)
+
+        renderDialog(onSubmit)
+        fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter', isComposing })
+
+        await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(submits))
     })
 
     it('closes the dialog and does not capture when the submit resolves', async () => {
