@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
 from django.db import close_old_connections
@@ -51,9 +51,11 @@ from products.experiments.backend.hogql_queries.error_handling import (
 )
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import sanitize_non_finite
-from products.experiments.backend.metric_calculation.config import MetricCalculationConfig
 from products.experiments.backend.models.experiment import Experiment, ExperimentToSavedMetric
 from products.experiments.stats.shared.statistics import StatisticError
+
+if TYPE_CHECKING:
+    from products.experiments.backend.metric_calculation.config import MetricCalculationConfig
 
 logger = structlog.get_logger(__name__)
 
@@ -73,7 +75,7 @@ def _build_metric_validated(
 
 def _queued_calculation_config(
     query_runner: ExperimentQueryRunner, *, metric_uuid: str, definition: dict[str, Any], calculation_key: str
-) -> MetricCalculationConfig | None:
+) -> "MetricCalculationConfig | None":
     """The config that the runner computes, in the key version of the queued key, or None when the runner's settings
     no longer give that key.
 

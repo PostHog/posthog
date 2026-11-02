@@ -1,8 +1,8 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
-from zoneinfo import ZoneInfo
 
 import time_machine
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events
@@ -29,12 +29,13 @@ from posthog.temporal.experiments.models import TIMESERIES_METRIC_MAX_ATTEMPTS
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
-from products.experiments.backend.facade.enums import ExperimentResultConfigurationStatus
-from products.experiments.backend.facade.timeseries import metric_calculation_keys
+from products.experiments.backend.facade.timeseries import (
+    apply_saved_metric_overrides,
+    build_metric,
+    metric_calculation_keys,
+)
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
-from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
-from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -48,6 +49,19 @@ from products.experiments.backend.models.team_experiments_config import TeamExpe
 _WINDOW_HOLDERS = [("free_window", None), ("window_held_by_another_fingerprint", "recalculation-fingerprint")]
 
 
+if TYPE_CHECKING:
+    from products.experiments.backend.metric_calculation.config import MetricCalculationConfig
+
+
+def _calculation_config(experiment: Experiment, definition: dict[str, Any]) -> "MetricCalculationConfig":
+    runner = ExperimentQueryRunner(
+        query=ExperimentQuery(experiment_id=experiment.id, metric=build_metric(definition)), team=experiment.team
+    )
+    return runner.calculation_config.settings.build_metric_config(
+        metric_id=definition["uuid"], role="primary", definition=definition
+    )
+
+
 _ACTIVITY_FOR_KIND = {
     "regular": _calculate_experiment_regular_metric_sync,
     "saved": _calculate_experiment_saved_metric_sync,
@@ -57,15 +71,26 @@ _ACTIVITY_FOR_KIND = {
 @override_settings(IN_UNIT_TESTING=True)
 class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
     def _queued_key(self, experiment: Experiment, metric_uuid: str) -> str:
-        calculation_config = get_metric_calculation_config(experiment, metric_uuid)
-        assert calculation_config is not None
-        return calculation_config.calculation_key()
+        keys = metric_calculation_keys(experiment.id, team_id=self.team.id)
+        if metric_uuid in keys.inline:
+            return keys.inline[metric_uuid]
+        [saved_key] = keys.saved.values()
+        return saved_key
 
     @contextmanager
     def _mocked_runner(self, experiment: Experiment, metric_uuid: str) -> Iterator[MagicMock]:
         # The activity compares the key of the runner's settings with the queued key before it runs the query.
+        runner_config = _calculation_config(
+            experiment,
+            {
+                "uuid": metric_uuid,
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "purchase"},
+            },
+        )
         with patch("posthog.temporal.experiments.activities.ExperimentQueryRunner") as mock_runner_class:
-            mock_runner_class.return_value.calculation_config = get_metric_calculation_config(experiment, metric_uuid)
+            mock_runner_class.return_value.calculation_config = runner_config
             yield mock_runner_class
 
     def _hold_window(self, experiment_id: int, metric_uuid: str, query_to: datetime, fingerprint: str | None) -> None:
@@ -195,8 +220,7 @@ class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
                 ),
                 metadata={"type": "primary"},
             )
-        settings_a = get_metric_calculation_config(experiment, metric_dict["uuid"])
-        assert settings_a is not None
+        settings_a = _calculation_config(experiment, apply_saved_metric_overrides(metric_dict, {"type": "primary"}))
         queued_key = settings_a.key_for_version(key_version)
         team_config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
 
@@ -231,14 +255,11 @@ class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
         assert not rows.exists()
         mock_produce.assert_not_called()
 
+        # Once the settings return to A, a row under the queued key would read as A's current result.
         apply_settings(changed=False)
         experiment.refresh_from_db()
-        calculation_config = get_metric_calculation_config(experiment, metric_dict["uuid"])
-        assert calculation_config is not None and calculation_config.key_for_version(key_version) == queued_key
-        timeseries = MetricResultStore(experiment_id=experiment.id).timeseries(
-            calculation_config, timezone=ZoneInfo("UTC")
-        )
-        assert ExperimentResultConfigurationStatus.CURRENT not in timeseries.configuration_by_day.values()
+        assert _calculation_config(experiment, metric_dict).key_for_version(key_version) == queued_key
+        assert not ExperimentMetricResult.objects.filter(experiment=experiment).exists()
 
     @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
     def test_saved_metric_activity_computes_the_link_of_the_queued_key(self) -> None:
