@@ -683,8 +683,6 @@ def _build_template_context(
         "persisted_feature_flags": get_persisted_feature_flags_for_app_context(),
         "anonymous": not request.user or not request.user.is_authenticated,
         "run_mode": run_mode().value,
-        "batch_export_google_cloud_organization_id": settings.BATCH_EXPORT_GOOGLE_CLOUD_ORGANIZATION_ID,
-        "batch_export_bigquery_service_account": settings.BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT,
     }
 
     posthog_bootstrap: dict[str, Any] = {}

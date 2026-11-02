@@ -184,25 +184,15 @@ class TestShouldDeferAppContext(SimpleTestCase):
 
 
 class TestGetContextForTemplate(APIBaseTest):
-    def test_get_context_for_template(self) -> None:
+    def test_get_context_for_template(self):
         with (
-            self.settings(
-                STRIPE_PUBLIC_KEY=None,
-                PERSISTED_FEATURE_FLAGS=["the_persisted_flags"],
-                BATCH_EXPORT_GOOGLE_CLOUD_ORGANIZATION_ID="123456789012",
-                BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT="batch-exports@example.com",
-            ),
+            self.settings(STRIPE_PUBLIC_KEY=None, PERSISTED_FEATURE_FLAGS=["the_persisted_flags"]),
             mock.patch("posthog.settings.CLOUD_DEPLOYMENT", "LOCAL"),
-            mock.patch(
-                "posthog.credentials_service.client.CredentialsServiceClient.get",
-                side_effect=AssertionError("Template context must not resolve credentials"),
-            ) as credentials_get,
         ):
             actual = get_context_for_template(
                 "layout",
                 MagicMock(),
             )
-            credentials_get.assert_not_called()
 
         # Under self-capture, posthog-js evaluates PostHog's own flags with the dogfood-flags team's
         # token (first team by PK), which in this test is self.team — not the PH Cloud key.
@@ -218,8 +208,6 @@ class TestGetContextForTemplate(APIBaseTest):
                 "persisted_feature_flags": ["the_persisted_flags", "warehouse-person-properties"],
                 "anonymous": False,
                 "run_mode": "LOCAL",
-                "batch_export_google_cloud_organization_id": "123456789012",
-                "batch_export_bigquery_service_account": "batch-exports@example.com",
             },
             "posthog_bootstrap": {},
             "posthog_js_uuid_version": "v7",
