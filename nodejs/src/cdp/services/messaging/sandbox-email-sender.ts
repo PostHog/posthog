@@ -28,14 +28,15 @@ const BLOCKED_EVENT_WINDOW_SECONDS = 3600
 // The send is already skipped when this runs, and the worker's batch waits for it, so a stalled
 // store must not hold the invocation open.
 const BLOCKED_EVENT_TIMEOUT_MS = 1000
-// A capture that outlives its deadline keeps its Redis connection or pending acquisition. Once this many
-// are stuck, new captures are dropped until some settle; captures still inside their deadline never count,
-// so a burst against a healthy store keeps every event.
-const MAX_STALLED_BLOCKED_EVENTS = 10
+// The deadline cannot cancel a store call, so a stalled call keeps its connection or pending acquisition
+// until the store answers. At most this many run at once; a capture waiting for a slot holds nothing and
+// gives up at its deadline, so a burst against a healthy store keeps every event.
+const MAX_OPEN_STORE_CALLS = 10
 
 export class SandboxEmailSender {
     public readonly canSend: boolean
-    private stalledBlockedEvents = 0
+    private openStoreCalls = 0
+    private storeSlotWaiters: (() => void)[] = []
 
     constructor(
         public readonly config: SandboxEmailSenderConfig,
@@ -63,29 +64,51 @@ export class SandboxEmailSender {
         reason: SandboxEmailBlockReason,
         blockedRecipientCount: number
     ): Promise<void> {
-        if (this.stalledBlockedEvents >= MAX_STALLED_BLOCKED_EVENTS) {
-            logger.warn('Dropped a sandbox email event: too many captures are stuck on the event store', { teamId })
-            return
-        }
-        let stalled = false
-        const capture = this.captureBlockedEvent(teamId, isTest, reason, blockedRecipientCount).finally(() => {
-            if (stalled) {
-                this.stalledBlockedEvents--
-            }
-        })
         let timer: NodeJS.Timeout | undefined
         const deadline = new Promise<void>((resolve) => {
-            timer = setTimeout(() => {
-                stalled = true
-                this.stalledBlockedEvents++
-                logger.warn('Gave up capturing a sandbox email event: the event store did not answer', { teamId })
-                resolve()
-            }, BLOCKED_EVENT_TIMEOUT_MS)
+            timer = setTimeout(resolve, BLOCKED_EVENT_TIMEOUT_MS)
         })
+        const capture = this.withStoreSlot(deadline, () =>
+            this.captureBlockedEvent(teamId, isTest, reason, blockedRecipientCount)
+        )
         try {
-            await Promise.race([capture, deadline])
+            if ((await Promise.race([capture.then(() => true), deadline.then(() => false)])) === false) {
+                logger.warn('Gave up capturing a sandbox email event: the event store did not answer', { teamId })
+            }
         } finally {
             clearTimeout(timer)
+        }
+    }
+
+    private async withStoreSlot(deadline: Promise<void>, work: () => Promise<void>): Promise<void> {
+        if (this.openStoreCalls < MAX_OPEN_STORE_CALLS) {
+            this.openStoreCalls++
+        } else {
+            const granted = await new Promise<boolean>((resolve) => {
+                const waiter = (): void => resolve(true)
+                this.storeSlotWaiters.push(waiter)
+                void deadline.then(() => {
+                    const index = this.storeSlotWaiters.indexOf(waiter)
+                    if (index !== -1) {
+                        this.storeSlotWaiters.splice(index, 1)
+                        resolve(false)
+                    }
+                })
+            })
+            if (!granted) {
+                return
+            }
+        }
+        try {
+            await work()
+        } finally {
+            // Hand the slot straight to the next waiter, so the open count never drops below what runs.
+            const next = this.storeSlotWaiters.shift()
+            if (next) {
+                next()
+            } else {
+                this.openStoreCalls--
+            }
         }
     }
 
