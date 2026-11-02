@@ -4,7 +4,16 @@ import { useEffect, useState } from 'react'
 import { TextMorph } from 'torph/react'
 
 import { IconInfo, IconSparkles, IconWarning } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSkeleton, LemonSnack, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCollapse,
+    LemonSkeleton,
+    LemonSnack,
+    LemonTag,
+    Spinner,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
@@ -360,11 +369,32 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
         </OverviewSection>
     )
 
+    const rationale = goalDraft?.rationale?.trim()
+
     return (
         <div className="flex flex-col gap-3">
-            <OverviewSection label="What it understood" scannerId={scannerId}>
-                <div className="text-sm">{goalDraft?.rationale?.trim() || scanner.description}</div>
-            </OverviewSection>
+            <LemonBanner type="info" alignItems="start">
+                <div className="font-semibold">Review this draft before you create it</div>
+                <div className="font-normal">
+                    The agent drafted this scanner from your goal. Check each section and edit anything that is not
+                    right. Nothing runs until you click Create scanner.
+                </div>
+            </LemonBanner>
+
+            {/* Closed by default: the reasoning mostly restates the goal, and the sections to review come first. */}
+            {rationale ? (
+                <LemonCollapse
+                    className="bg-bg-light"
+                    panels={[
+                        {
+                            key: 'rationale',
+                            header: 'Why the agent chose this setup',
+                            content: <div className="text-sm">{rationale}</div>,
+                            dataAttr: 'vision-goal-overview-rationale',
+                        },
+                    ]}
+                />
+            ) : null}
 
             <OverviewSection label="Name" editStep="details" scannerId={scannerId}>
                 <div className="text-sm font-medium">{scanner.name}</div>
@@ -572,8 +602,8 @@ function DraftLoadingBar(): JSX.Element {
 /** The overview's section titles in render order, which the recordings-first experiment arm changes. */
 export function goalOverviewSectionLabels(recordingsFirst: boolean): string[] {
     return recordingsFirst
-        ? ['What it understood', 'Name', 'Eligible recordings', 'What it will ask', 'Sampling and limits']
-        : ['What it understood', 'Name', 'What it will ask', 'Eligible recordings', 'Sampling and budget']
+        ? ['Name', 'Eligible recordings', 'What it will ask', 'Sampling and limits']
+        : ['Name', 'What it will ask', 'Eligible recordings', 'Sampling and budget']
 }
 
 /** The overview's shape while the draft is still generating, so navigating there reads as progress. */

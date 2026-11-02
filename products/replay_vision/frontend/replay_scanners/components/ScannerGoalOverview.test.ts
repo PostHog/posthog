@@ -197,14 +197,12 @@ describe('eligibleFilterGroups', () => {
 describe('goalOverviewSectionLabels', () => {
     it('reviews the eligible recordings before the prompt in the recordings-first arm', () => {
         expect(goalOverviewSectionLabels(false)).toEqual([
-            'What it understood',
             'Name',
             'What it will ask',
             'Eligible recordings',
             'Sampling and budget',
         ])
         expect(goalOverviewSectionLabels(true)).toEqual([
-            'What it understood',
             'Name',
             'Eligible recordings',
             'What it will ask',
