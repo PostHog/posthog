@@ -1,12 +1,9 @@
+import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
+
 import { findTestSendSkipReason } from '../../steps/testSendSkipReason'
 import { HogflowTestResult } from '../../steps/types'
 
-export interface TestResultBannerProps {
-    type: 'success' | 'warning' | 'error'
-    children: string
-}
-
-export function testResultBanner(testResult: HogflowTestResult): TestResultBannerProps {
+export function testResultBanner(testResult: HogflowTestResult): LemonBannerProps {
     const skipReason = findTestSendSkipReason(testResult)
     if (skipReason) {
         return { type: 'warning', children: skipReason }
