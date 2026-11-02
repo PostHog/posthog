@@ -21,6 +21,8 @@ from products.data_modeling.backend.logic.freshness import (
     TargetBounds,
     all_source_floors,
     ancestors_of,
+    clamp_to_source_floor,
+    compute_effective_cadences,
     compute_target_bounds,
     intersect_target_bounds,
     max_data_age,
@@ -300,7 +302,7 @@ class SavedQueryFrequencyBounds:
     identities: dict[str, NodeIdentity]  # node id -> the resource its name belongs to
     best_effort_source_ids: set[str]  # upstream sources with no schedule, so the floor is a guess
     max_data_age: timedelta
-    upstream_targets: dict[str, timedelta]  # ancestor node id -> its declared target, to warn what a cadence speeds up
+    speeds_up: dict[timedelta, set[str]]  # cadence -> upstream nodes that would run more often if this were set to it
 
 
 def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> SavedQueryFrequencyBounds | None:
@@ -320,7 +322,7 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
     names: dict[str, str] = {}
     identities: dict[str, NodeIdentity] = {}
     best_effort: set[str] = set()
-    upstream_targets: dict[str, timedelta] = {}
+    speeds_up: dict[timedelta, set[str]] = {}
     data_ages: list[timedelta] = []
     graphs: dict[str, FrequencyGraph] = {}
     for node in nodes:
@@ -342,9 +344,9 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
         # a best-effort source elsewhere in the DAG says nothing about this node's freshness
         ancestors = ancestors_of(str(node.id), graph.edges)
         best_effort |= graph.best_effort_source_ids & ancestors
-        upstream_targets.update(
-            {node_id: target for node_id, target in graph.declared_targets.items() if node_id in ancestors}
-        )
+        candidates = [option.value for option in per_dag[-1].options if option.allowed]
+        for cadence, sped_up in _speeds_up_by_cadence(str(node.id), graph, ancestors, candidates).items():
+            speeds_up.setdefault(cadence, set()).update(sped_up)
         data_ages.append(max_data_age(str(node.id), graph.edges, graph.source_intervals, graph.declared_targets))
 
     return SavedQueryFrequencyBounds(
@@ -353,8 +355,44 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
         identities=identities,
         best_effort_source_ids=best_effort,
         max_data_age=max(data_ages),
-        upstream_targets=upstream_targets,
+        speeds_up=speeds_up,
     )
+
+
+def _speeds_up_by_cadence(
+    node_id: str, graph: FrequencyGraph, ancestors: set[str], candidates: list[timedelta]
+) -> dict[timedelta, set[str]]:
+    """The materializing ancestors that would run more often if `node_id` were set to each candidate.
+
+    Runs the scheduler's own propagation and source-floor clamp, so an ancestor its sources hold
+    back, or one another consumer already drives faster, is not listed. Ephemeral views never run,
+    so they are left out.
+    """
+
+    def run(declared_targets: dict[str, timedelta]) -> dict[str, timedelta | None]:
+        effective = compute_effective_cadences(nodes=graph.nodes, edges=graph.edges, declared_targets=declared_targets)
+        return clamp_to_source_floor(effective, edges=graph.edges, source_intervals=graph.source_intervals)[0]
+
+    upstream = ancestors & graph.nodes
+    ephemeral = {
+        str(view_id)
+        for view_id in Node.objects.filter(id__in=upstream, type=NodeType.VIEW).values_list("id", flat=True)
+    }
+    materializing = upstream - ephemeral
+    if not materializing:
+        return {}
+
+    current = run(graph.declared_targets)
+    result: dict[timedelta, set[str]] = {}
+    for cadence in candidates:
+        proposed = run({**graph.declared_targets, node_id: cadence})
+        result[cadence] = {
+            ancestor
+            for ancestor in materializing
+            if (after := proposed.get(ancestor)) is not None
+            and ((before := current.get(ancestor)) is None or after < before)
+        }
+    return result
 
 
 def schedulable_nodes(dag: DAG) -> QuerySet[Node]:

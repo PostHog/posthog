@@ -89,8 +89,8 @@ class SyncFrequencyOptionSerializer(serializers.Serializer):
     )
     speeds_up = SyncFrequencyBlockerSerializer(
         many=True,
-        help_text="Upstream views set to refresh less often than this cadence. Choosing it makes them "
-        "refresh this often too, because a view cannot be fresher than its inputs. Only views the "
+        help_text="Upstream materialized views that would refresh more often than they do now if this "
+        "cadence were chosen, because a view cannot be fresher than its inputs. Only views the "
         "caller may read are listed. Empty when the cadence is blocked.",
     )
     speeds_up_withheld = serializers.BooleanField(
@@ -158,7 +158,7 @@ def _unbounded_frequency_payload(mode: str) -> dict[str, Any]:
 
 def _blocker_node_ids(resolved: Any) -> set[str]:
     """Every node the bounds would name, across the two bounds, the options and the best-effort list."""
-    node_ids: set[str] = set(resolved.best_effort_source_ids) | set(resolved.upstream_targets)
+    node_ids: set[str] = set(resolved.best_effort_source_ids).union(*resolved.speeds_up.values())
     for bound in (resolved.bounds.floor, resolved.bounds.ceiling):
         if bound is not None and bound.blocker is not None:
             node_ids.add(bound.blocker)
@@ -239,7 +239,7 @@ def _frequency_bounds_payload(resolved: Any, visible_names: dict[str, str]) -> d
     def sped_up(option: Any) -> list[str]:
         if not option.allowed:
             return []
-        return sorted(node_id for node_id, target in resolved.upstream_targets.items() if target > option.value)
+        return sorted(resolved.speeds_up.get(option.value, ()))
 
     best_effort = sorted(resolved.best_effort_source_ids)
     options = []
