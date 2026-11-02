@@ -2,14 +2,9 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 import type { HogFunctionTemplateType } from '~/types'
 
+import { builtInStepKindName } from './builtInSteps'
 import type { HogFlowAction } from './types'
-import {
-    customStepName,
-    destinationSteps,
-    StepCatalogContext,
-    stepKindName,
-    workflowStepSections,
-} from './workflowStepCatalog'
+import { destinationSteps, StepCatalogContext, stepKindName, workflowStepSections } from './workflowStepCatalog'
 
 const mainEnvironment = { id: 1, project_id: 1 }
 
@@ -96,23 +91,22 @@ describe('workflowStepCatalog', () => {
             'Replay Vision',
         ],
         [
+            'a static cohort step',
+            { type: 'function', config: { template_id: 'template-posthog-add-to-static-cohort' } },
+            'Add to static cohort',
+        ],
+        [
+            'an opt-out step',
+            { type: 'function', config: { template_id: 'template-posthog-opt-out-of-messages' } },
+            'Opt out of messages',
+        ],
+        [
             'a destination it does not list',
             { type: 'function', config: { template_id: 'template-hubspot' } },
             undefined,
         ],
-    ])('names %s the way the step picker does', (_, action, name) => {
+    ])('names %s the way the step picker does, in the editor and in the preview', (_, action, name) => {
         expect(stepKindName(action as HogFlowAction)).toBe(name)
-    })
-
-    it.each([
-        ['keeps a name someone gave the step', 'Nudge trial users', [], 'Nudge trial users'],
-        ['skips the name the step picker gave it', 'Delay', [], undefined],
-        ['skips the name of the destination it runs', 'HubSpot', ['HubSpot'], undefined],
-        ['skips a name the caption already shows', 'Wait 1 day', ['Wait 1 day'], undefined],
-        ['skips an empty name', '  ', [], undefined],
-    ])('%s', (_, name, shownElsewhere, expected) => {
-        const action = { type: 'delay', name, config: { delay_duration: '1h' } } as HogFlowAction
-
-        expect(customStepName(action, shownElsewhere)).toBe(expected)
+        expect(builtInStepKindName(action as HogFlowAction)).toBe(name)
     })
 })

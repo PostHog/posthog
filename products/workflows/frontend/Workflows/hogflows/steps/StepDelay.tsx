@@ -21,8 +21,8 @@ import {
     getDurationText,
     parseDelayExpression,
     parseDelayOffset,
-    stepDelayLogic,
-} from './stepDelayLogic'
+} from './delayConfig'
+import { stepDelayLogic } from './stepDelayLogic'
 
 const PROPERTY_GROUP_TYPES = [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.EventProperties]
 
