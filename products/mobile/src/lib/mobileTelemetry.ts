@@ -125,8 +125,8 @@ function startTelemetry({ apiKey, host }: { apiKey: string; host: string }): voi
     // The OS can end a backgrounded app before the export timers fire.
     AppState.addEventListener('change', (state) => {
         if (state === 'background') {
-            void provider.forceFlush()
-            void meterProvider.forceFlush()
+            void provider.forceFlush().catch(() => {})
+            void meterProvider.forceFlush().catch(() => {})
         }
     })
 }
@@ -161,11 +161,12 @@ export async function instrumentApiRequest(
         recordSafely(() => {
             const status = result.status
             const durationMs = Date.now() - startedAt
+            const failed = status >= 400
             span.setAttribute('http.response.status_code', status)
-            if (status >= 500) span.setStatus({ code: SpanStatusCode.ERROR })
+            if (failed) span.setStatus({ code: SpanStatusCode.ERROR })
             requestDuration?.record(durationMs / 1000, { ...attributes, 'http.response.status_code': status })
-            if (status >= 500 || durationMs >= SLOW_REQUEST_MS) {
-                log?.(status >= 500 ? 'error' : 'warn', 'Mobile API request completed', {
+            if (failed || durationMs >= SLOW_REQUEST_MS) {
+                log?.(failed ? 'error' : 'warn', failed ? 'Mobile API request failed' : 'Mobile API request completed', {
                     ...attributes,
                     'http.response.status_code': status,
                     duration_ms: durationMs,
