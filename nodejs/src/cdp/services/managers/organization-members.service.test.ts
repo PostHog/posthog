@@ -41,6 +41,27 @@ describe('OrganizationMembersService', () => {
         expect(query).toHaveBeenCalledTimes(1)
     })
 
+    it('fails closed after three seconds when the lookup cannot get a connection', async () => {
+        jest.useFakeTimers()
+        try {
+            const query = jest.fn()
+            const stalledPool = {
+                transaction: () => new Promise<never>(() => {}),
+                query,
+            } as unknown as PostgresRouter
+            const service = new OrganizationMembersService(stalledPool)
+
+            const check = service.getBlockedRecipients(1, ['member@example.com'], { fresh: true })
+            const outcome = expect(check).rejects.toThrow('timed out')
+            await jest.advanceTimersByTimeAsync(3_000)
+
+            await outcome
+            expect(query).not.toHaveBeenCalled()
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     it('shares one member lookup across sends and reloads it after a minute', async () => {
         let now = 0
         let member = 'member@example.com'
