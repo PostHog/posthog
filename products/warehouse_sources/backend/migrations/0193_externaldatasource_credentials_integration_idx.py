@@ -7,7 +7,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("warehouse_sources", "0191_externaldatasource_credentials_integration_id"),
+        ("warehouse_sources", "0192_externaldatasource_credentials_integration_id"),
     ]
 
     operations = [
