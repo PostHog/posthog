@@ -117,7 +117,7 @@ Do not add or change a rail item without consensus and data.
 - Take care with experiments here. The rail is a critical path for every user, so a bad variant hurts every product at once.
 
 `owners.yaml` requests a review from the platform UX team on every change to these files, however small.
-A PR that changes the rail needs their approval before it merges.
+That request does not block the merge, so wait for their approval before you merge a PR that changes the rail.
 
 ## Review before handoff
 
