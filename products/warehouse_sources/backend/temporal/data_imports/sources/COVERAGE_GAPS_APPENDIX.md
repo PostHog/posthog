@@ -2332,7 +2332,7 @@ Diffed against: <https://raw.githubusercontent.com/chargebee/openapi/main/spec/c
 - [x] `GET /payment_schedules` — installment schedules that split an invoice's amount due (medium)
 - [x] `GET /einvoices` — e-invoice records and provider status for each invoice or credit note (low)
 
-Note: `metered_features` has only write endpoints (create, archive, reactivate, delete) and no list endpoint; the same configuration is readable through `GET /meters`, whose `id` equals the feature id. `ledger_entries` is a documented resource with no list endpoint. `GET /ledger_operations` lists the credit ledger, but every request needs a `subscription_id[is]` filter, so it is not a site-wide list endpoint and would need one request series per subscription.
+Note: `metered_features` has only write endpoints (create, archive, reactivate, delete) and no list endpoint; the same configuration is readable through `GET /meters`, whose `id` equals the feature id. `ledger_entries` is a documented resource with no list endpoint. `GET /ledger_operations` lists the credit ledger, but every request needs a `subscription_id[is]` filter, so it is not a site-wide list endpoint and would need one request series per subscription. `email_logs` has no site-wide list endpoint either: `GET /customers/{customer-id}/email_logs` needs one request series per customer, and its `sent_on` filter accepts only the last 7 days in windows of 24 hours at most, so it cannot backfill history into a table.
 
 ## Chargedesk — gaps
 
