@@ -498,6 +498,9 @@ function HighlightCardAnswer({
     observation: ReplayObservationApi
     scannerType: ScannerType | undefined
 }): JSX.Element | null {
+    if (isSummaryScannerType(scannerType)) {
+        return null
+    }
     const question = observation.prompt_question
     const result = highlightCardResult(observation, scannerType)
     if (!question && !result) {
@@ -614,9 +617,7 @@ export function HighlightFeedRow({
             chapter_slide: slide,
         })
     }
-    const answerBox = isSummaryScannerType(scannerType) ? null : (
-        <HighlightCardAnswer observation={observation} scannerType={scannerType} />
-    )
+    const answerBox = <HighlightCardAnswer observation={observation} scannerType={scannerType} />
     return (
         <HighlightFeedCardLayout
             ref={setRowRef}
@@ -673,9 +674,7 @@ export function HighlightFeedRow({
                                 className="rounded-none border-0"
                                 retryKey={feedLoad?.feedLoadId}
                             />
-                            {answerBox && (
-                                <div className="absolute inset-x-0 bottom-0 z-[5] px-2.5 pb-2">{answerBox}</div>
-                            )}
+                            <div className="absolute inset-x-0 bottom-0 z-[5] px-2.5 pb-2">{answerBox}</div>
                         </>
                     )}
                     {!observation.viewed && <UnviewedObservationTag className="absolute top-2 left-2 z-10" />}
