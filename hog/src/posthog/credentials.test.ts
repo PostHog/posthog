@@ -48,46 +48,6 @@ describe('resolveCredentials', () => {
             '2',
             DEFAULT_HOST,
         ],
-        [
-            "a missing dotenv file falls back to posthog-cli's credentials file",
-            {},
-            { '/home/test/.posthog/credentials.json': STORED },
-            '/x/missing.env',
-            undefined,
-            'phx_stored',
-            '3',
-            'https://stored.example.com',
-        ],
-        [
-            "posthog-cli's credentials file is last",
-            {},
-            { '/home/test/.posthog/credentials.json': STORED },
-            undefined,
-            undefined,
-            'phx_stored',
-            '3',
-            'https://stored.example.com',
-        ],
-        [
-            'HOG_HOME moves the credentials file',
-            { HOG_HOME: '/custom' },
-            { '/custom/credentials.json': STORED },
-            undefined,
-            undefined,
-            'phx_stored',
-            '3',
-            'https://stored.example.com',
-        ],
-        [
-            '--host overrides the stored host',
-            {},
-            { '/home/test/.posthog/credentials.json': STORED },
-            undefined,
-            'https://flag.example.com',
-            'phx_stored',
-            '3',
-            'https://flag.example.com',
-        ],
     ] as const)('%s', async (_name, env, files, dotenvFile, host, apiKey, projectId, expectedHost) => {
         const credentials = await resolveCredentials(fakeRuntime({ env, files }), { dotenvFile, host })
         expect(credentials).toMatchObject({ apiKey, projectId, host: expectedHost })
@@ -95,6 +55,15 @@ describe('resolveCredentials', () => {
 
     test.each([
         ['nothing configured', {}, 'not_authenticated', {}, undefined],
+        // `hog auth migrate` is the only command that reads posthog-cli's file.
+        ["only posthog-cli's credentials file", {}, 'not_authenticated', { [LEGACY_CLI_FILE]: STORED }, undefined],
+        [
+            "a missing dotenv file with only posthog-cli's credentials file",
+            {},
+            'not_authenticated',
+            { [LEGACY_CLI_FILE]: STORED },
+            '/x/missing.env',
+        ],
         [
             "posthog-cli's variable names",
             { POSTHOG_CLI_API_KEY: 'phx_a', POSTHOG_CLI_PROJECT_ID: '1' },
@@ -133,8 +102,8 @@ describe('resolveCredentials', () => {
 
     test.each([
         [
-            "a hog login comes before posthog-cli's file",
-            { ...settings(EU, { [EU]: 'keychain' }), [LEGACY_CLI_FILE]: STORED },
+            'a hog login',
+            settings(EU, { [EU]: 'keychain' }),
             { [EU]: login('phx_eu') },
             {},
             { apiKey: 'phx_eu', host: EU, source: 'store', store: 'keychain' },
@@ -176,16 +145,6 @@ describe('resolveCredentials', () => {
             { [US]: login('phx_us') },
             { configHost: EU },
             'host_mismatch',
-        ],
-        [
-            "posthog-cli's file for the posthog.json host beats a hog login to another host",
-            {
-                ...settings(US, { [US]: 'keychain' }),
-                [LEGACY_CLI_FILE]: JSON.stringify({ token: 'phx_cli_eu', env_id: '3', host: EU }),
-            },
-            { [US]: login('phx_us') },
-            { configHost: EU },
-            { apiKey: 'phx_cli_eu', host: EU, source: 'posthog-cli-file' },
         ],
     ] as const)('%s', async (_name, files, keychain, options, expected) => {
         const outcome = await resolveCredentials(fakeRuntime({ files, keychain }), options).catch((error: unknown) =>
