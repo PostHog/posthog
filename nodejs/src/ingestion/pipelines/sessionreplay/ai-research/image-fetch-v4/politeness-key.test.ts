@@ -60,7 +60,7 @@ describe('the v4 url policy addon', () => {
                 return stale
             })
             const { assertUrlPolicyLoaded } = require('./politeness-key')
-            expect(() => assertUrlPolicyLoaded()).toThrow()
+            expect(() => assertUrlPolicyLoaded()).toThrow('rebuild index.node')
         })
         jest.dontMock(nativePath)
     })

@@ -38,9 +38,17 @@ export function assertUrlPolicyLoaded(): void {
     if (!verdict.ok) {
         throw new Error(`the ai-research-v4-native addon refused a plain URL (${verdict.decline}): rebuild index.node`)
     }
-    const entry = JSON.stringify({ kind: 'url', key: 'probe', nextFetchAtMs: 1, storageExpiresAtMs: 1, outcome: 'ok' })
-    if (addon().urlJob(1, undefined, 0) !== 'drop' || !addon().isUrlHistoryValue('probe', entry)) {
+    if (!readsCrawlHistory()) {
         throw new Error('the ai-research-v4-native addon misread a crawl history entry: rebuild index.node')
+    }
+}
+
+function readsCrawlHistory(): boolean {
+    const entry = JSON.stringify({ kind: 'url', key: 'probe', nextFetchAtMs: 1, storageExpiresAtMs: 1, outcome: 'ok' })
+    try {
+        return addon().urlJob(1, undefined, 0) === 'drop' && addon().isUrlHistoryValue('probe', entry)
+    } catch {
+        return false
     }
 }
 
