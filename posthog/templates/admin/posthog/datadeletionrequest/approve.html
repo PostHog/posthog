@@ -93,6 +93,11 @@
                     <option selected>Immediate</option>
                 </select>
                 <input type="hidden" name="execution_mode" value="immediate" />
+            {% elif is_logs_removal %}
+                <p style="color: #555; margin: 4px 0;">
+                    Logs removal requests always execute immediately. The job runs a delete mutation on each logs table and finishes once no matching rows are left.
+                </p>
+                <input type="hidden" name="execution_mode" value="immediate" />
             {% else %}
                 <p style="color: #555; margin: 4px 0;">
                     Property removal requests always execute immediately &mdash; deferred mode is only supported for event removal.
