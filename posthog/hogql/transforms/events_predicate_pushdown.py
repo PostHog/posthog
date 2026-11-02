@@ -701,14 +701,24 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
     def _push_into_union_scan(self, node: ast.SelectQuery, scan: ast.SelectQuery) -> str | None:
         """Moves the WHERE and the LIMIT of `node` into the union scan, so its rows are capped before the joins.
 
-        Safe when the LIMIT is safe on events, and the whole WHERE reads only the scan's columns, so no residual
-        predicate is left on the joined rows.
+        Applies when `_safe_inner_limit` allows an inner LIMIT and the whole WHERE reads only the scan's columns, so
+        no residual predicate is left on the joined rows.
         """
         assert node.select_from is not None and isinstance(node.select_from.type, ast.SelectQueryAliasType)
         if node.where is None or node.prewhere is not None:
             return "no_pushable_predicates"
         if contains_in_cohort(node.where) or contains_row_multiplying_function(node.where):
-            return "where_not_on_union_scan_columns"
+            return "where_has_cohort_or_row_multiplying_call"
+        # An arrayJoin outside the scan drops each scanned row whose array is empty, so the outer query could
+        # return fewer rows than the LIMIT.
+        join_constraints: list[ast.Expr] = []
+        join = node.select_from.next_join
+        while join is not None:
+            if join.constraint is not None:
+                join_constraints.append(join.constraint.expr)
+            join = join.next_join
+        if any(contains_row_multiplying_function(expr) for expr in (*node.select, *join_constraints)):
+            return "row_multiplying_outer_expression"
         inner_limit = self._safe_inner_limit(node, None, None)
         if inner_limit is None:
             return "no_short_circuitable_limit"

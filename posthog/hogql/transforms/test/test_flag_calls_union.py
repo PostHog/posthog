@@ -1,7 +1,7 @@
 import re
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import cast
+from typing import Any, cast
 
 import pytest
 from posthog.test.base import (
@@ -292,7 +292,7 @@ class TestReadFlagCallsWithUnion(BaseTest):
         persons_on_events: PersonsOnEventsMode | None = None,
         new_events_schema: bool | None = None,
         person_id_pushdown: bool | None = None,
-        **modifiers,
+        **modifiers: Any,
     ) -> str:
         _set_mode(self.organization, mode)
         with _enabled_flags(union=union):
@@ -602,6 +602,7 @@ class TestReadFlagCallsWithUnion(BaseTest):
                 {"sessionIdPushdown": True},
                 "globalIn(raw_sessions.session_id_v7, (SELECT DISTINCT",
                 None,
+                None,
             ),
             (
                 "negated_person_filter_becomes_an_exclusion",
@@ -610,6 +611,7 @@ class TestReadFlagCallsWithUnion(BaseTest):
                 {"negatedPersonFiltersNotIn": True},
                 "notIn(events__pdi.person_id, (SELECT persons.id",
                 "ifNull(notEquals(events__pdi__person.",
+                None,
             ),
             (
                 "limit_caps_the_scan_before_the_left_join",
@@ -619,6 +621,7 @@ class TestReadFlagCallsWithUnion(BaseTest):
                 {},
                 "LIMIT 10) AS e LEFT JOIN",
                 "WHERE in(e.event",
+                "WHERE in(event, tuple('$pageview', '$feature_flag_called')) LIMIT 10) AS e LEFT JOIN",
             ),
             (
                 "json_extract_of_a_materialized_key_reads_its_column",
@@ -627,6 +630,7 @@ class TestReadFlagCallsWithUnion(BaseTest):
                 {},
                 "events.mat_mykey",
                 "events.properties, 'mykey'",
+                None,
             ),
         ]
     )
@@ -635,9 +639,10 @@ class TestReadFlagCallsWithUnion(BaseTest):
         _name: str,
         query: str,
         persons_on_events: PersonsOnEventsMode,
-        modifiers: dict,
+        modifiers: dict[str, bool | str],
         pushed: str,
         not_pushed: str | None,
+        union_pushed: str | None,
     ):
         self.addCleanup(cleanup_materialized_columns)
         materialize("events", "mykey")
@@ -649,6 +654,7 @@ class TestReadFlagCallsWithUnion(BaseTest):
             assert (UNION_EXPANSION in sql) == union
             assert pushed in sql
             assert not_pushed is None or not_pushed not in sql
+            assert not union or union_pushed is None or union_pushed in sql
             if union and "globalIn(raw_sessions.session_id_v7" in pushed:
                 sessions_subquery = sql[
                     sql.index("globalIn(raw_sessions.session_id_v7") : sql.index("AS events__session")
@@ -672,6 +678,22 @@ class TestReadFlagCallsWithUnion(BaseTest):
             (
                 "filter_on_a_property",
                 f"SELECT e.event, p.id FROM events AS e LEFT JOIN persons AS p ON e.person_id = p.id WHERE {E_MIXED} AND e.properties.mykey = 'a' LIMIT 10",
+            ),
+            (
+                "row_multiplying_filter",
+                f"SELECT e.event, p.id FROM events AS e LEFT JOIN persons AS p ON e.person_id = p.id WHERE {E_MIXED} AND arrayJoin(['a', 'b']) = 'a' LIMIT 10",
+            ),
+            (
+                "nondeterministic_filter",
+                f"SELECT e.event, p.id FROM events AS e LEFT JOIN persons AS p ON e.person_id = p.id WHERE {E_MIXED} AND rand() % 2 = 0 LIMIT 10",
+            ),
+            (
+                "subquery_filter",
+                f"SELECT e.event, p.id FROM events AS e LEFT JOIN persons AS p ON e.person_id = p.id WHERE {E_MIXED} AND e.person_id IN (SELECT id FROM persons) LIMIT 10",
+            ),
+            (
+                "row_multiplying_select",
+                f"SELECT e.event, arrayJoin(JSONExtractArrayRaw(e.properties, 'items')) AS item, p.id FROM events AS e LEFT JOIN persons AS p ON e.person_id = p.id WHERE {E_MIXED} LIMIT 10",
             ),
         ]
     )
@@ -704,7 +726,7 @@ class TestReadFlagCallsWithUnion(BaseTest):
             persons_on_events=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
         )
 
-        assert "WHERE greater(count()" not in sql
+        assert "WHERE greater(s.n, 0) LIMIT 10" in sql
 
     def test_persons_join_runs_one_override_join(self):
         sql = self._sql(
@@ -779,7 +801,7 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
         query: str | ast.SelectQuery,
         mode: FlagEvaluationsMode,
         persons_on_events: PersonsOnEventsMode | None = None,
-        **modifiers,
+        **modifiers: Any,
     ):
         _set_mode(self.organization, mode)
         with _enabled_flags(union=True):
