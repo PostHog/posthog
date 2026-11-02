@@ -166,6 +166,45 @@ describe('WorkflowView', () => {
         silenced.mockRestore()
     })
 
+    it('reads the whole workflow when the tool result leaves out step inputs', async () => {
+        const withoutInputs = actions.map((action) =>
+            action.id === 'email' ? { ...action, config: { template_id: 'template-email' } } : action
+        ) as HogFlowActionApi[]
+        const full = actions.map((action) =>
+            action.id === 'email'
+                ? {
+                      ...action,
+                      config: {
+                          template_id: 'template-email',
+                          inputs: { email: { value: { subject: 'Welcome aboard' } } },
+                      },
+                  }
+                : action
+        ) as HogFlowActionApi[]
+        const loadFullWorkflow = jest.fn().mockResolvedValue({ ...workflow, actions: full })
+
+        render(<WorkflowView workflow={{ ...workflow, actions: withoutInputs }} loadFullWorkflow={loadFullWorkflow} />)
+
+        expect(await screen.findByText('Welcome aboard')).toBeTruthy()
+        expect(screen.queryByText('No subject yet')).toBeNull()
+        expect(loadFullWorkflow).toHaveBeenCalledTimes(1)
+    })
+
+    it.each([
+        ['the whole workflow cannot be read', { template_id: 'template-email' }, 1],
+        ['the steps carry their inputs', { template_id: 'template-email', inputs: {} }, 0],
+    ])('draws the given steps when %s', async (_, emailConfig, reads) => {
+        const given = actions.map((action) =>
+            action.id === 'email' ? { ...action, config: emailConfig } : action
+        ) as HogFlowActionApi[]
+        const loadFullWorkflow = jest.fn().mockResolvedValue(null)
+
+        render(<WorkflowView workflow={{ ...workflow, actions: given }} loadFullWorkflow={loadFullWorkflow} />)
+
+        expect(await screen.findByLabelText('Send the ad welcome email')).toBeTruthy()
+        expect(loadFullWorkflow).toHaveBeenCalledTimes(reads)
+    })
+
     it('shows only the title when the workflow has no steps', () => {
         render(<WorkflowView workflow={{ ...workflow, actions: [], edges: [] }} />)
 

@@ -1,4 +1,4 @@
-import type { ReactElement } from 'react'
+import { type ReactElement, useEffect, useState } from 'react'
 
 import { Badge } from '@posthog/quill'
 
@@ -30,12 +30,49 @@ export interface WorkflowData extends WorkflowSteps {
 
 export interface WorkflowViewProps {
     workflow: WorkflowData
+    loadFullWorkflow?: () => Promise<WorkflowData | null>
 }
 
-export function WorkflowView({ workflow }: WorkflowViewProps): ReactElement {
+function lacksStepInputs(steps: WorkflowSteps): boolean {
+    return !!steps.actions?.some(
+        (action) => action.type.startsWith('function') && !(action.config as { inputs?: unknown }).inputs
+    )
+}
+
+function useDrawnSteps(
+    workflow: WorkflowData,
+    loadFullWorkflow: WorkflowViewProps['loadFullWorkflow']
+): WorkflowSteps | null {
+    const given = workflow.draft ?? workflow
+    const load = loadFullWorkflow && lacksStepInputs(given) ? loadFullWorkflow : undefined
+    const [loaded, setLoaded] = useState<{ source: WorkflowData; full: WorkflowData | null } | null>(null)
+
+    useEffect(() => {
+        if (!load) {
+            return
+        }
+        let current = true
+        void load()
+            .catch(() => null)
+            .then((full) => current && setLoaded({ source: workflow, full }))
+        return () => {
+            current = false
+        }
+    }, [workflow, load])
+
+    if (!load) {
+        return given
+    }
+    if (loaded?.source !== workflow) {
+        return null
+    }
+    return loaded.full ? (loaded.full.draft ?? loaded.full) : given
+}
+
+export function WorkflowView({ workflow, loadFullWorkflow }: WorkflowViewProps): ReactElement {
     const status = workflow.status ?? 'draft'
     const isDarkTheme = useIsDarkTheme()
-    const steps = workflow.draft ?? workflow
+    const steps = useDrawnSteps(workflow, loadFullWorkflow)
 
     return (
         <div className="p-4">
@@ -54,7 +91,7 @@ export function WorkflowView({ workflow }: WorkflowViewProps): ReactElement {
                     )}
                 </div>
 
-                {!!steps.actions?.length && (
+                {!!steps?.actions?.length && (
                     <WorkflowCanvasPreview
                         actions={steps.actions}
                         edges={steps.edges ?? []}
