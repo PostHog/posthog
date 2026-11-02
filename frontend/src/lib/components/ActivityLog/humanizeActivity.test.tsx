@@ -210,18 +210,42 @@ describe('humanizeActivity', () => {
         expect(text(result.summary?.action)).toBe(action)
     })
 
-    it('describes stopping the ingestion of an event', () => {
+    it.each<{ activity: string; isSystem?: boolean; jobType?: string; action: string; description: string }>([
+        {
+            activity: 'stopped_ingesting',
+            action: 'Stopped ingesting the event and scheduled its deletion',
+            description: 'A user stopped ingesting event spam_event and scheduled its deletion',
+        },
+        {
+            activity: 'deleted',
+            isSystem: true,
+            jobType: 'scheduled_event_definition_deletion',
+            action: 'Deleted the event definition after its ingestion was stopped',
+            description: 'PostHog deleted event definition spam_event after its ingestion was stopped',
+        },
+        {
+            activity: 'deleted',
+            action: 'Deleted the event definition',
+            description: 'A user deleted event definition spam_event',
+        },
+    ])('describes an event definition $action', ({ activity, isSystem, jobType, action, description }) => {
         const logItem = makeLogItem({
             scope: ActivityScope.EVENT_DEFINITION,
-            activity: 'stopped_ingesting',
-            detail: { merge: null, trigger: null, changes: null, name: 'spam_event' },
+            activity,
+            is_system: isSystem,
+            detail: {
+                merge: null,
+                trigger: jobType ? { job_type: jobType, job_id: 'abc', payload: {} } : null,
+                changes: null,
+                name: 'spam_event',
+            },
         })
         const result = dataManagementActivityDescriber(logItem)
         const text = (value: Description | undefined): string =>
             (render(<>{value}</>).container.textContent || '').replace(/\s+/g, ' ').trim()
 
-        expect(text(result.description)).toBe('A user stopped ingesting event spam_event')
-        expect(text(result.summary?.action)).toBe('Stopped ingesting the event')
+        expect(text(result.description)).toBe(description)
+        expect(text(result.summary?.action)).toBe(action)
         expect(text(result.summary?.target)).toBe('spam_event')
     })
 
