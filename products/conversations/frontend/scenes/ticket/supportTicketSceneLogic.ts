@@ -400,10 +400,10 @@ export interface supportTicketSceneLogicActions {
         value: true
     }
     insertMacro: (
-        macro: Pick<TicketMacroApi, 'body' | 'id'>,
+        macro: Pick<TicketMacroApi, 'body' | 'id' | 'visibility'>,
         source: 'button' | 'slash'
     ) => {
-        macro: Pick<TicketMacroApi, 'body' | 'id'>
+        macro: Pick<TicketMacroApi, 'body' | 'id' | 'visibility'>
         source: 'button' | 'slash'
     }
     loadFullEmail: (messageId: string) => string
@@ -702,7 +702,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         applyAiDraft: (message: ChatMessage) => ({ message }),
         setAiDraftApplying: (applying: boolean) => ({ applying }),
         bumpComposerPrefill: true,
-        insertMacro: (macro: Pick<TicketMacroApi, 'id' | 'body'>, source: 'button' | 'slash') => ({ macro, source }),
+        insertMacro: (macro: Pick<TicketMacroApi, 'id' | 'body' | 'visibility'>, source: 'button' | 'slash') => ({
+            macro,
+            source,
+        }),
         setPendingComposerInsert: (content: string | null) => ({ content }),
         bumpComposerInsert: true,
 
@@ -1741,7 +1744,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 renderMacro(macro.body, macroContextFromTicket(values.ticket, values.user))
             )
             actions.bumpComposerInsert()
-            posthog.capture('support macro inserted', { macro_id: macro.id, source })
+            posthog.capture('support macro inserted', { macro_id: macro.id, source, visibility: macro.visibility })
             const teamId = getCurrentTeamId()
             if (!teamId) {
                 return
