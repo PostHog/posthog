@@ -91,7 +91,7 @@ export function InvitesTable(): JSX.Element {
                             {invite.first_name ? ` (${invite.first_name})` : ''}
                         </span>
                         {invite.email_suppressed && (
-                            <Tooltip title="We can't deliver email to this address because an earlier email to it bounced. Share the invite link with them directly, or contact support to unblock the address.">
+                            <Tooltip title="Our email provider is blocking email to this address, usually because an earlier email bounced. Share the invite link with them directly, or contact support to unblock the address.">
                                 <LemonTag type="danger" data-attr="invite-email-suppressed">
                                     Email not delivered
                                 </LemonTag>
