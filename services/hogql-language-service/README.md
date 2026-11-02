@@ -6,6 +6,12 @@ The service embeds the global HogQL function list, while Django supplies permiss
 It uses `github.com/orian/clickhouse-sql-parser` to recover table and alias context from the query. Django remains the
 authority for deciding which schema and properties belong in each catalog.
 
+The service embeds the HogQL parser from `rust/hogql/parser`, compiled to WASM.
+The module is a build output, not a tracked file.
+`hogli start:hogql-lang-service` builds it.
+Before `go build` or `go test`, build it with `scripts/build-parser-wasm.sh` or `go generate ./internal/hogqlparser`.
+Both need a Rust toolchain, and the script adds the `wasm32-wasip1` target through rustup.
+
 For local development, start the service on its loopback listener with Hogli:
 
 ```bash

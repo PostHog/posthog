@@ -6,11 +6,23 @@ on:
             - master
         paths:
             - '.github/workflows/ci-hogql-language-service.yml'
+            - '.github/actions/build-hogql-parser-wasm/**'
+            - '.github/actions/setup-rust/**'
             - 'services/hogql-language-service/**'
+            # The service embeds the HogQL parser, so a grammar or dependency change reaches it.
+            - 'rust/hogql/parser/**'
+            - 'rust/hogql/parser-wasm/**'
+            - 'rust/Cargo.lock'
     pull_request:
         paths:
             - '.github/workflows/ci-hogql-language-service.yml'
+            - '.github/actions/build-hogql-parser-wasm/**'
+            - '.github/actions/setup-rust/**'
             - 'services/hogql-language-service/**'
+            # The service embeds the HogQL parser, so a grammar or dependency change reaches it.
+            - 'rust/hogql/parser/**'
+            - 'rust/hogql/parser-wasm/**'
+            - 'rust/Cargo.lock'
     workflow_dispatch:
 
 concurrency:
@@ -24,13 +36,17 @@ jobs:
     test:
         name: HogQL language service tests
         runs-on: depot-ubuntu-24.04
-        timeout-minutes: 10
+        timeout-minutes: 20
 
         steps:
             - name: Check out
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  sparse-checkout: services/hogql-language-service/
+                  sparse-checkout: |
+                      services/hogql-language-service/
+                      rust/
+                      .github/actions/build-hogql-parser-wasm/
+                      .github/actions/setup-rust/
                   sparse-checkout-cone-mode: false
 
             - name: Set up Go
@@ -38,6 +54,9 @@ jobs:
               with:
                   go-version-file: services/hogql-language-service/go.mod
                   cache-dependency-path: services/hogql-language-service/go.sum
+
+            - name: Build HogQL parser WASM
+              uses: ./.github/actions/build-hogql-parser-wasm
 
             - name: Run tests
               working-directory: services/hogql-language-service

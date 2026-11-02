@@ -6,9 +6,10 @@ It does not execute queries.
 
 ## Run
 
-From the repository root:
+From the repository root, build the parser module once, then start the demo:
 
 ```bash
+services/hogql-language-service/scripts/build-parser-wasm.sh
 .codex/with-flox env GOTOOLCHAIN=auto go -C services/hogql-language-service run ./cmd/demo
 ```
 

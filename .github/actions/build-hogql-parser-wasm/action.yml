@@ -1,0 +1,17 @@
+name: Build HogQL parser WASM
+description: |
+    Builds rust/hogql/parser-wasm into services/hogql-language-service/internal/hogqlparser, where the language
+    service embeds it. The checkout must include rust/, because cargo reads every workspace manifest, and
+    services/hogql-language-service/scripts/.
+
+runs:
+    using: composite
+    steps:
+        - name: Install rust
+          uses: ./.github/actions/setup-rust
+          with:
+              toolchain: 1.91.1
+
+        - name: Build the parser module
+          shell: bash
+          run: services/hogql-language-service/scripts/build-parser-wasm.sh

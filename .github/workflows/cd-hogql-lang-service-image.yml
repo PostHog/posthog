@@ -7,6 +7,11 @@ on:
         paths:
             - 'services/hogql-language-service/**'
             - '.github/workflows/cd-hogql-lang-service-image.yml'
+            - '.github/actions/build-hogql-parser-wasm/**'
+            # The image embeds the HogQL parser, so a grammar change ships a new image.
+            - 'rust/hogql/parser/**'
+            - 'rust/hogql/parser-wasm/**'
+            - 'rust/Cargo.lock'
     workflow_dispatch:
 
 concurrency:
@@ -38,8 +43,15 @@ jobs:
               with:
                   sparse-checkout: |
                       services/hogql-language-service/
+                      rust/
                       .github/actions/docker-meta/
+                      .github/actions/build-hogql-parser-wasm/
+                      .github/actions/setup-rust/
                   sparse-checkout-cone-mode: false
+
+            # The Dockerfile copies the module from the build context, because the context does not include rust/.
+            - name: Build HogQL parser WASM
+              uses: ./.github/actions/build-hogql-parser-wasm
 
             - name: Docker meta and registry login
               id: docker-meta
