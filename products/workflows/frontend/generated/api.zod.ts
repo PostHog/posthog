@@ -3589,6 +3589,8 @@ export const workflowSendingRulesPartialUpdateBodyMarketingFrequencyCapMaxMessag
 
 export const workflowSendingRulesPartialUpdateBodyMarketingFrequencyCapWindowDaysMax = 30
 
+export const workflowSendingRulesPartialUpdateBodyMarketingFrequencyCapHoldHoursMax = 168
+
 export const WorkflowSendingRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
     expected_project_id: zod
         .number()
@@ -3611,6 +3613,14 @@ export const WorkflowSendingRulesPartialUpdateBody = /* @__PURE__ */ zod.object(
         .nullish()
         .describe(
             'The length of the rolling frequency cap window, in days. Set it together with marketing_frequency_cap_max_messages, or set both to null to turn the cap off.'
+        ),
+    marketing_frequency_cap_hold_hours: zod
+        .number()
+        .min(1)
+        .max(workflowSendingRulesPartialUpdateBodyMarketingFrequencyCapHoldHoursMax)
+        .nullish()
+        .describe(
+            "How many hours a marketing message over the frequency cap waits for a free slot before it is skipped. Null skips it right away. A held message sends as soon as one of the person's earlier messages leaves the window."
         ),
     email_tracking_consent_mode: zod
         .enum(['off', 'opt_out', 'opt_in'])
