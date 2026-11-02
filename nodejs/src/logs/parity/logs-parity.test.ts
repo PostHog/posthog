@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
 import Redis from 'ioredis'
 import { join } from 'path'
 
@@ -29,7 +29,7 @@ function fixtureFiles(): string[] {
 }
 
 describe('logs ingestion parity corpus', () => {
-    let redis: Redis
+    let redis: InstanceType<typeof Redis>
 
     beforeAll(() => {
         redis = new Redis('redis://127.0.0.1:6379')
@@ -42,7 +42,7 @@ describe('logs ingestion parity corpus', () => {
     async function run(fixture: ParityFixture['scenario']): Promise<ParityFixture['expected']> {
         await redis.flushdb()
         jest.useFakeTimers({
-            now: fixture.now_ms,
+            now: fixture.batch_now_ms[0] ?? 0,
             doNotFake: [
                 'setTimeout',
                 'clearTimeout',
@@ -57,7 +57,7 @@ describe('logs ingestion parity corpus', () => {
             ],
         })
         try {
-            return await runParityScenario(fixture)
+            return await runParityScenario(fixture, (nowMs) => jest.setSystemTime(nowMs))
         } finally {
             jest.useRealTimers()
         }
@@ -65,6 +65,8 @@ describe('logs ingestion parity corpus', () => {
 
     if (RECORD) {
         it('records the corpus', async () => {
+            // Remove fixtures the generator no longer builds, so no stale scenario stays in the corpus.
+            rmSync(FIXTURE_DIR, { recursive: true, force: true })
             mkdirSync(FIXTURE_DIR, { recursive: true })
             for (const scenario of await buildParityScenarios()) {
                 const expected = await run(scenario)
@@ -82,6 +84,6 @@ describe('logs ingestion parity corpus', () => {
     it.each(fixtureFiles())('%s', async (file) => {
         const fixture: ParityFixture = parseJSON(readFileSync(join(FIXTURE_DIR, file), 'utf8'))
         const actual = await run(fixture.scenario)
-        expect(actual).toEqual(fixture.expected)
+        expect(actual).toStrictEqual(fixture.expected)
     })
 })

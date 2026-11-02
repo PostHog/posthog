@@ -11,6 +11,8 @@ export type ParityMessage = {
     partition: number
     offset: number
     timestamp: number
+    /** Kafka message key, or null. */
+    key: string | null
     headers: ParityHeader[]
     /** Base64 of the Kafka value, or null for a tombstone. */
     value_b64: string | null
@@ -42,9 +44,12 @@ export type ParityScenario = {
     name: string
     description: string
     consumer: 'logs' | 'traces'
-    /** Wall clock for the whole scenario, in epoch milliseconds. */
-    now_ms: number
-    /** Overrides applied on top of the default consumer config. */
+    /** Wall clock for each batch, in epoch milliseconds. The clock does not move inside a batch. */
+    batch_now_ms: number[]
+    /**
+     * The complete consumer config, defaults included. Defaults depend on the environment, so a
+     * fixture that stored only overrides would not say what the consumer ran with.
+     */
     config: Record<string, string | number | boolean>
     teams: ParityTeam[]
     quota_limited_tokens: string[]
@@ -54,13 +59,25 @@ export type ParityScenario = {
     retention_rules: Record<string, Record<string, unknown[]>>
     /** Team id to raw metric rule rows. */
     metric_rules: Record<string, unknown[]>
-    /** Team id to configured pattern message keys. */
+    /** Team id to configured pattern message keys. A team without an entry gets the default keys. */
     pattern_message_keys: Record<string, string[]>
     /** Team id to the traces default retention, for the traces consumer. */
     traces_retention_days: Record<string, number>
     internal_source_policies?: Record<string, { billed: boolean; teamRules: boolean }>
     /** Tokens whose team lookup throws. */
     team_lookup_faults: Record<string, ParityError>
+    /** Team ids whose lookup by id (during processing) throws. Fires `times` times, then succeeds. */
+    team_by_id_faults: Record<string, ParityError & { times: number }>
+    /** Team ids whose lookup by id returns null, as if the team was deleted mid-batch. */
+    team_by_id_missing: number[]
+    /** Team ids whose metric rule fetch throws. */
+    metric_rules_faults: Record<string, ParityError>
+    /** Team ids whose metric emit throws. */
+    metric_emit_faults: number[]
+    /** Team ids whose pattern key fetch throws. Fires `times` times, then succeeds. */
+    pattern_keys_faults: Record<string, ParityError & { times: number }>
+    /** Optional dependencies left out of the consumer, as production does when a feature is off. */
+    omit_deps: ('patternMessageKeysCache' | 'tracingConfigCache' | 'metricsEmitter' | 'samplingRulesCache')[]
     produce_faults: ParityProduceFault[]
     batches: ParityMessage[][]
 }
@@ -81,10 +98,13 @@ export type ParityValue =
     /** The output value is the exact input buffer. Required where the consumer must not re-encode. */
     | { kind: 'passthrough'; batch: number; index: number }
     | ParityAvroValue
-    | { kind: 'json'; json: unknown }
+    /** `raw` is compared exactly, so key order and number formatting are part of the contract. */
+    | { kind: 'json'; raw: string; json: unknown }
     | { kind: 'bytes'; sha256: string; length: number }
 
 export type ParityOutputMessage = {
+    /** The batch whose processing produced the message. */
+    batch: number
     output: string
     key: string | null
     headers: Record<string, string>
@@ -100,8 +120,21 @@ export type ParityExpected = {
     batches: ParityBatchResult[]
     outputs: ParityOutputMessage[]
     metric_emits: { token: string; team_id: number; payload: unknown }[]
-    usage_records: { team_id: number; metric: string; quantity: number; unit: string }[]
+    /**
+     * `record_group` labels the record id: rows with the same label share an id, and labels are
+     * assigned in the order of the sorted rows, so no random UUID reaches the fixture.
+     */
+    usage_records: {
+        batch: number
+        team_id: number
+        metric: string
+        quantity: number
+        unit: string
+        record_group: number
+    }[]
     teams_ingested: number[][]
+    /** Distinct `(token, resource)` pairs the quota check was asked about. */
+    quota_checks: [string, string][]
 }
 
 export type ParityFixture = {

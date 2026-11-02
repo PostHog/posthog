@@ -7,7 +7,7 @@ import { IngestionOutputMessage } from '~/common/outputs/types'
 import { DependencyUnavailableError } from '~/common/utils/db/error'
 import { parseJSON } from '~/common/utils/json-parse'
 
-import { getDefaultLogsIngestionConsumerConfig, getDefaultTracesIngestionConsumerConfig } from '../config'
+import { MESSAGE_KEYS } from '../log-pattern-mask'
 import { decodeLogRecords } from '../log-record-avro'
 import { LogsIngestionConsumer, LogsIngestionConsumerDeps } from '../logs-ingestion-consumer'
 import { type MetricRuleRow, compileMetricRules } from '../metrics-rules/compile-metric-rules'
@@ -32,11 +32,12 @@ function toError(spec: ParityError): Error {
     return cause
 }
 
-type CapturedMessage = { output: string; message: IngestionOutputMessage }
+type CapturedMessage = { batch: number; output: string; message: IngestionOutputMessage }
 
 /** Records every message the consumer hands to an output, and fails the ones the scenario names. */
 class CapturingIngestionOutputs extends IngestionOutputs<string> {
     public readonly captured: CapturedMessage[] = []
+    public currentBatch = 0
     private readonly remainingFaults: number[]
 
     constructor(private readonly scenario: ParityScenario) {
@@ -71,7 +72,7 @@ class CapturingIngestionOutputs extends IngestionOutputs<string> {
             }
         }
         for (const message of messages) {
-            this.captured.push({ output, message })
+            this.captured.push({ batch: this.currentBatch, output, message })
         }
         return Promise.resolve()
     }
@@ -84,7 +85,7 @@ export function toKafkaMessage(message: ParityMessage): Message {
         partition: message.partition,
         offset: message.offset,
         timestamp: message.timestamp,
-        key: null,
+        key: message.key === null ? null : Buffer.from(message.key),
         size: value?.length ?? 0,
         value,
         headers: message.headers.map(([key, headerValue]) => ({ [key]: Buffer.from(headerValue) })),
@@ -94,7 +95,7 @@ export function toKafkaMessage(message: ParityMessage): Message {
 /**
  * Canonical JSON for a decoded Avro value: bytes become `{ $bytes: hex }`, and object keys are
  * sorted. Avro maps carry no order that ClickHouse reads, and two encoders may write them in
- * different orders.
+ * different orders. Arrays keep their order, because Avro arrays are ordered.
  */
 export function canonicalizeAvroValue(value: unknown): unknown {
     if (Buffer.isBuffer(value)) {
@@ -156,12 +157,13 @@ function readContainerSchemaAndCodec(buffer: Buffer): { schema: unknown; codec: 
 async function canonicalizeValue(
     output: string,
     value: Buffer | null,
-    inputs: Map<Buffer, { batch: number; index: number }>
+    inputs: Map<string, { batch: number; index: number }>
 ): Promise<ParityValue> {
     if (value === null) {
         return { kind: 'null' }
     }
-    const input = inputs.get(value)
+    // By bytes, not identity: a copy of the input is still a passthrough.
+    const input = inputs.get(value.toString('base64'))
     if (input) {
         return { kind: 'passthrough', ...input }
     }
@@ -178,7 +180,8 @@ async function canonicalizeValue(
         }
     }
     if (output === 'app_metrics') {
-        return { kind: 'json', json: canonicalizeAvroValue(parseJSON(value.toString('utf8'))) }
+        const raw = value.toString('utf8')
+        return { kind: 'json', raw, json: canonicalizeAvroValue(parseJSON(raw)) }
     }
     return { kind: 'bytes', sha256: createHash('sha256').update(value).digest('hex'), length: value.length }
 }
@@ -197,22 +200,76 @@ function compareCanonical(a: unknown, b: unknown): number {
     return left < right ? -1 : left > right ? 1 : 0
 }
 
-export type ParityConsumer = Pick<LogsIngestionConsumer, 'processKafkaBatch'>
+/**
+ * Sorts the OTLP data point arrays, which follow the order messages finished processing. That
+ * order is not a contract: messages of one batch process concurrently.
+ */
+function canonicalizeMetricPayload(payload: unknown): unknown {
+    const sortArrays = (value: unknown): unknown => {
+        if (Array.isArray(value)) {
+            return value.map(sortArrays).sort(compareCanonical)
+        }
+        if (value !== null && typeof value === 'object') {
+            return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, sortArrays(v)]))
+        }
+        return value
+    }
+    return sortArrays(canonicalizeAvroValue(payload))
+}
+
+/** Distinct inputs, so a passthrough output names exactly one input. */
+function indexInputs(scenario: ParityScenario): Map<string, { batch: number; index: number }> {
+    const inputs = new Map<string, { batch: number; index: number }>()
+    scenario.batches.forEach((batch, batchIndex) =>
+        batch.forEach((message, index) => {
+            if (message.value_b64 === null) {
+                return
+            }
+            if (inputs.has(message.value_b64)) {
+                throw new Error(
+                    `scenario ${scenario.name} repeats an input value at batch ${batchIndex} index ${index}`
+                )
+            }
+            inputs.set(message.value_b64, { batch: batchIndex, index })
+        })
+    )
+    return inputs
+}
 
 /**
- * Runs one scenario through the consumer and returns its canonical outputs. The caller pins the
- * clock to `scenario.now_ms` and empties Redis before the call.
+ * Runs one scenario through the consumer and returns its canonical outputs. The caller empties
+ * Redis before the call, and `setClock` pins `Date` for each batch.
  */
-export async function runParityScenario(scenario: ParityScenario): Promise<ParityExpected> {
+export async function runParityScenario(
+    scenario: ParityScenario,
+    setClock: (nowMs: number) => void
+): Promise<ParityExpected> {
     const outputs = new CapturingIngestionOutputs(scenario)
     const teamsById = new Map(scenario.teams.map((team) => [team.id, team]))
     const teamsByToken = new Map(scenario.teams.map((team) => [team.api_token, team]))
     const teamsIngested: number[][] = []
     const metricEmits: ParityExpected['metric_emits'] = []
-    const usageRecords: ParityExpected['usage_records'] = []
+    const usageRecords: (Omit<ParityExpected['usage_records'][number], 'record_group'> & { record_id: string })[] = []
+    const quotaChecks = new Set<string>()
+    const teamByIdFaultsLeft = new Map(
+        Object.entries(scenario.team_by_id_faults).map(([teamId, fault]) => [Number(teamId), fault.times])
+    )
+    const patternFaultsLeft = new Map(
+        Object.entries(scenario.pattern_keys_faults).map(([teamId, fault]) => [Number(teamId), fault.times])
+    )
 
     const teamManager = {
-        getTeam: (id: number) => Promise.resolve(teamsById.get(id) ?? null),
+        getTeam: (id: number) => {
+            const left = teamByIdFaultsLeft.get(id) ?? 0
+            if (left > 0) {
+                teamByIdFaultsLeft.set(id, left - 1)
+                return Promise.reject(toError(scenario.team_by_id_faults[id]))
+            }
+            if (scenario.team_by_id_missing.includes(id)) {
+                return Promise.resolve(null)
+            }
+            return Promise.resolve(teamsById.get(id) ?? null)
+        },
         getTeamByToken: (token: string) => {
             const fault = scenario.team_lookup_faults[token]
             if (fault) {
@@ -229,12 +286,22 @@ export async function runParityScenario(scenario: ParityScenario): Promise<Parit
     const deps: TracesIngestionConsumerDeps = {
         teamManager: teamManager as unknown as LogsIngestionConsumerDeps['teamManager'],
         quotaLimiting: {
-            isTeamTokenQuotaLimited: (token: string) => Promise.resolve(scenario.quota_limited_tokens.includes(token)),
+            isTeamTokenQuotaLimited: (token: string, resource: string) => {
+                quotaChecks.add(JSON.stringify([token, resource]))
+                return Promise.resolve(scenario.quota_limited_tokens.includes(token))
+            },
         } as unknown as LogsIngestionConsumerDeps['quotaLimiting'],
         outputs: outputs as unknown as LogsIngestionConsumerDeps['outputs'],
         usageBatch: {
-            add: (teamId: number, metric: string, _recordId: string, quantity = 1, unit?: string) => {
-                usageRecords.push({ team_id: teamId, metric, quantity, unit: unit ?? '' })
+            add: (teamId: number, metric: string, recordId: string, quantity = 1, unit?: string) => {
+                usageRecords.push({
+                    batch: outputs.currentBatch,
+                    team_id: teamId,
+                    metric,
+                    quantity,
+                    unit: unit ?? '',
+                    record_id: recordId,
+                })
             },
             flush: () => Promise.resolve(),
         } as unknown as LogsIngestionConsumerDeps['usageBatch'],
@@ -250,56 +317,55 @@ export async function runParityScenario(scenario: ParityScenario): Promise<Parit
                 ),
         } as unknown as LogsIngestionConsumerDeps['retentionRulesCache'],
         metricRulesCache: {
-            getCompiledRules: (teamId: number) =>
-                Promise.resolve(compileMetricRules((scenario.metric_rules[teamId] ?? []) as MetricRuleRow[])),
+            getCompiledRules: (teamId: number) => {
+                const fault = scenario.metric_rules_faults[teamId]
+                if (fault) {
+                    return Promise.reject(toError(fault))
+                }
+                return Promise.resolve(compileMetricRules((scenario.metric_rules[teamId] ?? []) as MetricRuleRow[]))
+            },
         } as unknown as LogsIngestionConsumerDeps['metricRulesCache'],
         metricsEmitter: {
             emit: (token: string, teamId: number, payload: Record<string, unknown>) => {
+                if (scenario.metric_emit_faults.includes(teamId)) {
+                    return Promise.reject(new Error('metric emit failed'))
+                }
                 metricEmits.push({ token, team_id: teamId, payload })
                 return Promise.resolve(true)
             },
         } as unknown as LogsIngestionConsumerDeps['metricsEmitter'],
         patternMessageKeysCache: {
-            getMessageKeys: (teamId: number) => Promise.resolve(scenario.pattern_message_keys[teamId] ?? []),
+            getMessageKeys: (teamId: number) => {
+                const left = patternFaultsLeft.get(teamId) ?? 0
+                if (left > 0) {
+                    patternFaultsLeft.set(teamId, left - 1)
+                    return Promise.reject(toError(scenario.pattern_keys_faults[teamId]))
+                }
+                // Production returns the default keys for a team without a row.
+                return Promise.resolve(scenario.pattern_message_keys[teamId] ?? MESSAGE_KEYS)
+            },
         } as unknown as LogsIngestionConsumerDeps['patternMessageKeysCache'],
         internalSourcePolicies: scenario.internal_source_policies,
         tracingConfigCache: {
             getRetentionDays: (teamId: number) => Promise.resolve(scenario.traces_retention_days[teamId] ?? 30),
         } as unknown as TracesIngestionConsumerDeps['tracingConfigCache'],
     }
-    // Absent keys must stay absent, so the consumer sees the same optional deps as production.
-    if (Object.keys(scenario.pattern_message_keys).length === 0) {
-        delete deps.patternMessageKeysCache
+    for (const dep of scenario.omit_deps) {
+        delete deps[dep]
     }
 
-    const config = {
-        ...getDefaultLogsIngestionConsumerConfig(),
-        ...getDefaultTracesIngestionConsumerConfig(),
-        REDIS_URL: 'redis://127.0.0.1:6379',
-        REDIS_POOL_MIN_SIZE: 1,
-        REDIS_POOL_MAX_SIZE: 3,
-        LOGS_REDIS_TLS: false,
-        TRACES_REDIS_TLS: false,
-        LOGS_LIMITER_ENABLED_TEAMS: '*',
-        TRACES_LIMITER_ENABLED_TEAMS: '*',
-        ...scenario.config,
-    }
-
-    const consumer: ParityConsumer =
+    const config = scenario.config as any
+    const consumer =
         scenario.consumer === 'traces'
-            ? new TracesIngestionConsumer(config as any, deps)
-            : new LogsIngestionConsumer(config as any, deps)
+            ? new TracesIngestionConsumer(config, deps)
+            : new LogsIngestionConsumer(config, deps)
 
-    const inputs = new Map<Buffer, { batch: number; index: number }>()
+    const inputs = indexInputs(scenario)
     const batchResults: ParityExpected['batches'] = []
     for (let batchIndex = 0; batchIndex < scenario.batches.length; batchIndex++) {
-        const messages = scenario.batches[batchIndex].map((message, index) => {
-            const kafkaMessage = toKafkaMessage(message)
-            if (kafkaMessage.value) {
-                inputs.set(kafkaMessage.value, { batch: batchIndex, index })
-            }
-            return kafkaMessage
-        })
+        outputs.currentBatch = batchIndex
+        setClock(scenario.batch_now_ms[batchIndex])
+        const messages = scenario.batches[batchIndex].map(toKafkaMessage)
         try {
             const { backgroundTask } = await consumer.processKafkaBatch(messages)
             await backgroundTask
@@ -310,25 +376,35 @@ export async function runParityScenario(scenario: ParityScenario): Promise<Parit
     }
 
     const canonicalOutputs: ParityOutputMessage[] = []
-    for (const { output, message } of outputs.captured) {
-        const headers = sortedHeaders(message.headers)
+    for (const { batch, output, message } of outputs.captured) {
         canonicalOutputs.push({
+            batch,
             output,
             key: message.key === null || message.key === undefined ? null : String(message.key),
-            headers,
+            headers: sortedHeaders(message.headers),
             value: await canonicalizeValue(output, message.value, inputs),
         })
     }
     canonicalOutputs.sort(compareCanonical)
-    usageRecords.sort(compareCanonical)
-    const canonicalEmits = metricEmits.map((emit) => ({ ...emit, payload: canonicalizeAvroValue(emit.payload) }))
+
+    usageRecords.sort((a, b) => compareCanonical({ ...a, record_id: '' }, { ...b, record_id: '' }))
+    const groups = new Map<string, number>()
+    const canonicalUsage = usageRecords.map(({ record_id, ...rest }) => {
+        if (!groups.has(record_id)) {
+            groups.set(record_id, groups.size)
+        }
+        return { ...rest, record_group: groups.get(record_id)! }
+    })
+
+    const canonicalEmits = metricEmits.map((emit) => ({ ...emit, payload: canonicalizeMetricPayload(emit.payload) }))
     canonicalEmits.sort(compareCanonical)
 
     return {
         batches: batchResults,
         outputs: canonicalOutputs,
         metric_emits: canonicalEmits,
-        usage_records: usageRecords,
-        teams_ingested: teamsIngested.map((ids) => [...ids].sort((a, b) => a - b)),
+        usage_records: canonicalUsage,
+        teams_ingested: teamsIngested,
+        quota_checks: [...quotaChecks].sort().map((pair) => parseJSON(pair) as [string, string]),
     }
 }
