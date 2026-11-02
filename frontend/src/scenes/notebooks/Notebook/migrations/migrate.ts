@@ -5,8 +5,8 @@ import { NotebookNodePlaylistAttributes } from 'scenes/notebooks/Nodes/NotebookN
 import { NotebookNodeType, NotebookType } from 'scenes/notebooks/types'
 import { convertLegacyFiltersToUniversalFilters } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
+import { checkLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { checkLatestVersionsOnQuery } from '~/queries/utils'
 import { LegacyRecordingFilters } from '~/types'
 
 import { convertMarkdownTablesInContent } from './convertMarkdownTablesInContent'

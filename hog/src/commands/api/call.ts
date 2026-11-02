@@ -90,4 +90,6 @@ export default defineCommand({
         }
         throw toHogError(result.error, tool.name)
     },
+
+    telemetry: ({ args, options }) => ({ tool: args.tool, confirm: options.confirm === true }),
 })

@@ -823,6 +823,11 @@ class NoteArtefact(BaseModel):
         return v
 
 
+class CheckAuthoringStatus(BaseModel):
+    status: Literal["succeeded", "failed"]
+    reason: str = Field(min_length=1)
+
+
 class TitleChange(BaseModel):
     """Content schema for a `title_change` artefact: a record of an edit to the report's title.
 
@@ -1280,7 +1285,8 @@ class ImpactMeasurementPlan(BaseModel):
 
 
 StatusArtefactContent = (
-    SafetyJudgment
+    CheckAuthoringStatus
+    | SafetyJudgment
     | ActionabilityAssessment
     | PriorityAssessment
     | RepoSelectionResult
@@ -1337,6 +1343,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "commit": Commit,
     "task_run": TaskRunArtefact,
     "note": NoteArtefact,
+    "check_authoring": CheckAuthoringStatus,
     "title_change": TitleChange,
     "summary_change": SummaryChange,
     "code_review": CodeReview,
@@ -1397,6 +1404,7 @@ NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
         "check_result",
         "check_observation",
         "check_scheduled",
+        "check_authoring",
         "check_expired",
         "check_cancelled",
         "report_link",

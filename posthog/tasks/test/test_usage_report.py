@@ -318,6 +318,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                 scanner_type=ScannerType.MONITOR,
                 model=ScannerModel.GEMINI_3_8_FLASH,
                 enabled=True,
+                estimated_monthly_observations=100,
             )
             ReplayScanner.objects.create(
                 team=self.org_1_team_1,
@@ -325,6 +326,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                 scanner_type=ScannerType.MONITOR,
                 model=ScannerModel.GEMINI_3_8_FLASH,
                 enabled=False,
+                estimated_monthly_observations=100,
             )
 
             ErrorTrackingIssue.objects.create(team=self.org_1_team_1)
@@ -762,6 +764,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "replay_vision_observation_count_in_period": 0,
                     "replay_vision_scanner_count": 2,
                     "replay_vision_scanner_active_count": 1,
+                    "replay_vision_scanner_projected_credits": 1100,
+                    "replay_vision_backfill_committed_credits": 0,
                     "group_types_total": 2,
                     "dashboard_count": 2,
                     "dashboard_template_count": 0,
@@ -863,6 +867,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "replay_vision_observation_count_in_period": 0,
                             "replay_vision_scanner_count": 2,
                             "replay_vision_scanner_active_count": 1,
+                            "replay_vision_scanner_projected_credits": 1100,
+                            "replay_vision_backfill_committed_credits": 0,
                             "group_types_total": 2,
                             "dashboard_count": 2,
                             "dashboard_template_count": 0,
@@ -958,6 +964,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "replay_vision_observation_count_in_period": 0,
                             "replay_vision_scanner_count": 0,
                             "replay_vision_scanner_active_count": 0,
+                            "replay_vision_scanner_projected_credits": 0,
+                            "replay_vision_backfill_committed_credits": 0,
                             "group_types_total": 0,
                             "dashboard_count": 0,
                             "dashboard_template_count": 0,
@@ -1076,6 +1084,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "replay_vision_observation_count_in_period": 0,
                     "replay_vision_scanner_count": 0,
                     "replay_vision_scanner_active_count": 0,
+                    "replay_vision_scanner_projected_credits": 0,
+                    "replay_vision_backfill_committed_credits": 0,
                     "group_types_total": 0,
                     "dashboard_count": 0,
                     "dashboard_template_count": 0,
@@ -1177,6 +1187,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "replay_vision_observation_count_in_period": 0,
                             "replay_vision_scanner_count": 0,
                             "replay_vision_scanner_active_count": 0,
+                            "replay_vision_scanner_projected_credits": 0,
+                            "replay_vision_backfill_committed_credits": 0,
                             "group_types_total": 0,
                             "dashboard_count": 0,
                             "dashboard_template_count": 0,

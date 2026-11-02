@@ -209,11 +209,11 @@ pub async fn main() -> Result<(), Error> {
 
             info!("Claimed job: {:?}", model.id);
 
-            match model.pause_if_interrupted_commit(context.clone()).await {
+            match model.recover_interrupted_commit(context.clone()).await {
                 Ok(true) => continue,
                 Ok(false) => {}
                 Err(e) => {
-                    error!("Failed to pause interrupted job {}: {:?}", model.id, e);
+                    error!("Failed to recover interrupted job {}: {:?}", model.id, e);
                     continue;
                 }
             }
