@@ -1,5 +1,5 @@
+import { isNodeWithSource } from '~/queries/schema/node-guards'
 import { Node, NodeKind } from '~/queries/schema/schema-general'
-import { isNodeWithSource } from '~/queries/utils'
 import { DashboardTile } from '~/types'
 
 /** A filter control in the dashboard filter bar. */

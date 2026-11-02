@@ -17,7 +17,7 @@ import {
     getExcludedDaysOfWeek,
     parseIsoDaysOfWeek,
     querySupportsDaysOfWeek,
-} from './daysOfWeekFilterUtils'
+} from '~/queries/nodes/InsightViz/daysOfWeekFilterUtils'
 
 type InsightDateFilterProps = {
     disabled: boolean

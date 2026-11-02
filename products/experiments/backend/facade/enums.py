@@ -13,6 +13,14 @@ MIN_DEFAULT_CONFIDENCE_LEVEL = Decimal("0.01")
 MAX_DEFAULT_CONFIDENCE_LEVEL = Decimal("0.99")
 
 
+class ExposuresPath(StrEnum):
+    """Where a metric query read the exposures. Tagged on the query as `experiment_exposures_path`, and stored with a
+    failed metric in `metric_errors`."""
+
+    PRECOMPUTED = "precomputed"
+    DIRECT_SCAN = "direct_scan"
+
+
 class PrecomputeSkipReason(StrEnum):
     """Why a metric read never attempted precompute. Tagged on the query as
     `experiment_precompute_skip_reason` and counted per reason by the

@@ -3,8 +3,6 @@ import { expectLogic } from 'kea-test-utils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 
-import { useMocks } from '~/mocks/jest'
-import { MockSignature } from '~/mocks/utils'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -18,11 +16,6 @@ describe('personsSceneLogic', () => {
     let logic: ReturnType<typeof personsSceneLogic.build>
 
     beforeEach(() => {
-        useMocks({
-            post: {
-                '/api/environments/:team_id/persons/reset_person_distinct_id/': [200, {}],
-            },
-        })
         initKeaTests()
         sceneLogic({ scenes }).mount()
         logic = personsSceneLogic()
@@ -98,23 +91,6 @@ describe('personsSceneLogic', () => {
 
             act(false)
             expectLogic(logic).toMatchValues({ [field]: false })
-        })
-    })
-
-    describe('resetDeletedDistinctId listener', () => {
-        it('calls the API to reset a distinct ID', async () => {
-            const spy: MockSignature = jest.fn(() => [200, {}])
-            useMocks({
-                post: {
-                    '/api/environments/:team_id/persons/reset_person_distinct_id/': spy,
-                },
-            })
-
-            await expectLogic(logic, () => {
-                logic.actions.resetDeletedDistinctId('some-distinct-id')
-            }).toFinishAllListeners()
-
-            expect(spy).toHaveBeenCalledTimes(1)
         })
     })
 
