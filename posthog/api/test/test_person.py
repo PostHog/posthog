@@ -45,7 +45,7 @@ from posthog.models.person.util import (
 )
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
-from posthog.personhog_client.fake_client import fake_personhog_client
+from posthog.personhog_client.fake_client import fake_personhog_client, get_active_fake
 from posthog.test.persons import add_distinct_id, create_person, delete_person
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
@@ -758,6 +758,21 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             data = response.json()
             self.assertEqual(data["code"], "person_deletion_failed")
             self.assertIn("tombstone_postgres", data["detail"])
+
+    @parameterized.expand([("deleted", False, status.HTTP_202_ACCEPTED), ("held_by_another_op", True, 503)])
+    def test_delete_person_through_the_lifecycle_saga_with_the_request_deadline(self, _name, held, expected):
+        person = _create_person(team=self.team, distinct_ids=["person_1"], immediate=True)
+        fake = get_active_fake()
+        if held:
+            fake.hold_lifecycle_mark(team_id=self.team.pk, person_id=person.pk)
+
+        with self.settings(PERSONHOG_WRITE_PATH="leader", PERSON_DELETE_LIFECYCLE_REQUEST_TIMEOUT_MS=4_000):
+            response = self.client.delete(f"/api/person/{person.uuid}/")
+
+        self.assertEqual(response.status_code, expected)
+        [call] = [call for call in fake.calls if call.method == "lifecycle.delete_persons"]
+        self.assertEqual((list(call.request.person_ids), call.timeout), ([person.pk], 4.0))
+        self.assertEqual(get_person_by_uuid(self.team.pk, str(person.uuid)) is None, not held)
 
     @parameterized.expand(
         [

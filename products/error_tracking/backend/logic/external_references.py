@@ -223,6 +223,14 @@ def _get_issue_and_integration(
     return issue, _get_integration(team_id, integration_id)
 
 
+def _with_issue_permalink(body: str, permalink: str) -> str:
+    # The body is free text the user can clear, so the back-link is enforced here to keep every created issue traceable.
+    if permalink in body:
+        return body
+    link = f"**PostHog issue:** {permalink}"
+    return f"{body.rstrip()}\n\n{link}" if body.strip() else link
+
+
 def create_external_reference(
     *,
     team_id: int,
@@ -284,6 +292,10 @@ def create_external_reference(
     assignee = (provider_config.pop("assignee", None) or "").strip()
     if assignee:
         provider_config["assignee"] = assignee
+
+    if integration.kind in {IntegrationKind.GITHUB, IntegrationKind.GITLAB}:
+        permalink = get_issue_permalink_by_fingerprint(team_id=team_id, issue_id=issue.id)
+        provider_config["body"] = _with_issue_permalink(provider_config["body"], permalink)
 
     if integration.kind == IntegrationKind.GITHUB:
         created_context = GitHubIntegration(

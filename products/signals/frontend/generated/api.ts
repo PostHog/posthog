@@ -61,6 +61,7 @@ import type {
     ReportReadStateRequestApi,
     ReportReadStateResponseApi,
     ReportSignalsResponseApi,
+    ReportSpendApi,
     ReviewerExclusionApi,
     ReviewerExclusionCreateApi,
     ReviewerExclusionCreateResultApi,
@@ -183,6 +184,8 @@ import type {
     SignalsScoutRunsRecentPerScoutParams,
     SignalsScoutScratchpadSearchParams,
     SignalsSourceConfigsListParams,
+    SourceSpendApi,
+    SpendOverviewApi,
     SubmitMonitoringResultRequestApi,
     SubmitMonitoringResultResponseApi,
 } from './api.schemas'
@@ -1126,6 +1129,21 @@ export const signalsReportsSignalsRetrieve = async (
     })
 }
 
+export const getSignalsReportSpendUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/spend/`
+}
+
+export const signalsReportSpend = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ReportSpendApi> => {
+    return apiMutator<ReportSpendApi>(getSignalsReportSpendUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getSignalsReportsStateCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/signals/reports/${id}/state/`
 }
@@ -1561,7 +1579,7 @@ export const getSignalsReportsForMeRetrieveUrl = (projectId: string, params?: Si
 }
 
 /**
- * Your open inbox reports, ranked for you by one language model call over your activity summary, the reports that need you and the ranking model's predictions. Each entry has a reason and a compact report. A current stored list returns at once. Otherwise the request builds a new list, which can take 30 seconds or more. Only the user the list is about can read it.
+ * Your open inbox reports, ranked for you by one language model call over your activity summary, the reports that need you and the ranking model's predictions. Each entry has a reason and a compact report. The request never waits on the model. A current stored list returns at once. Otherwise the request starts a background build and returns the last stored list with `stale: true`, or your reports in inbox order with `fallback_reason: building`, and `building: true`. Pass `wait_seconds` to wait a short time for the new list. Only the user the list is about can read it.
  * @summary Get your personal ranked inbox
  */
 export const signalsReportsForMeRetrieve = async (
@@ -3369,6 +3387,28 @@ export const signalsSourceConfigsDestroy = async (
     return apiMutator<void>(getSignalsSourceConfigsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getSignalsSourceSpendUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/source_spend/`
+}
+
+export const signalsSourceSpend = async (projectId: string, options?: RequestInit): Promise<SourceSpendApi[]> => {
+    return apiMutator<SourceSpendApi[]>(getSignalsSourceSpendUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsSpendOverviewUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/spend/`
+}
+
+export const signalsSpendOverview = async (projectId: string, options?: RequestInit): Promise<SpendOverviewApi> => {
+    return apiMutator<SpendOverviewApi>(getSignalsSpendOverviewUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

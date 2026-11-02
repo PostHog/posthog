@@ -23,6 +23,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { QueryFeature, getQueryFeatures } from '~/queries/nodes/DataTable/queryFeatures'
 import { insightVizDataCollectionId } from '~/queries/nodes/InsightViz/insightVizKeys'
+import { isDataTableNode } from '~/queries/schema/node-guards'
 import {
     AnyDataNode,
     AnyResponseType,
@@ -32,7 +33,7 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { isDataTableNode, isEventsQuery } from '~/queries/utils'
+import { isEventsQuery } from '~/queries/utils'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { TeamPublicType, TeamType } from '../../../types'

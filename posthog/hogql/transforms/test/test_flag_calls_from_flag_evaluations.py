@@ -26,6 +26,7 @@ IN_COVERAGE = COVERAGE_START + timedelta(days=30)
 FLAG_CALLED = "event = '$feature_flag_called'"
 FLAG_KEY = "properties.$feature_flag = 'my-flag'"
 BOUND = "timestamp >= now() - INTERVAL 7 DAY"
+UNQUALIFIED = f"{FLAG_CALLED} AND {FLAG_KEY} AND {BOUND}"
 OR_OF_AND_BRANCHES = (
     "((properties.$feature_flag = 'a' AND distinct_id = 'x') OR (properties.$feature_flag = 'b' AND distinct_id = 'y'))"
 )
@@ -79,6 +80,10 @@ def _joined(where: str) -> str:
 
 def _self_joined(where: str) -> str:
     return f"SELECT count() FROM events AS e JOIN events AS f ON e.uuid = f.uuid WHERE {where}"
+
+
+def _beside(join: str) -> str:
+    return f"SELECT count() FROM events AS e {join} WHERE {UNQUALIFIED}"
 
 
 @time_machine.travel(NOW, tick=False)
@@ -164,6 +169,52 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
                     "e.event = '$feature_flag_called' AND e.properties.$feature_flag = 'my-flag' "
                     "AND e.timestamp >= now() - INTERVAL 7 DAY"
                 ),
+            ),
+            (
+                "unqualified_event_with_a_join",
+                _joined(
+                    f"{FLAG_CALLED} AND e.properties.$feature_flag = 'my-flag' AND e.timestamp >= now() - INTERVAL 7 DAY"
+                ),
+            ),
+            (
+                "unqualified_bound_with_a_join",
+                _joined(f"e.event = '$feature_flag_called' AND e.properties.$feature_flag = 'my-flag' AND {BOUND}"),
+            ),
+            (
+                "unqualified_event_beside_a_table_aliased_event",
+                "SELECT count() FROM events AS e JOIN persons AS event ON e.person_id = event.id "
+                "WHERE event = '$feature_flag_called' AND e.properties.$feature_flag = 'my-flag' "
+                "AND e.timestamp >= now() - INTERVAL 7 DAY",
+            ),
+            (
+                "unqualified_reads_beside_a_joined_subquery",
+                _beside(
+                    "INNER JOIN (SELECT person_id AS cohort_person_id, 1 AS value FROM raw_cohort_people) AS cohort_join "
+                    "ON e.person_id = cohort_join.cohort_person_id"
+                ),
+            ),
+            (
+                "unqualified_reads_beside_a_joined_union",
+                _beside(
+                    "LEFT JOIN (SELECT person_id AS cohort_person_id, 1 AS matched FROM static_cohort_people "
+                    "UNION ALL SELECT person_id AS cohort_person_id, 1 AS matched FROM raw_cohort_people) AS __in_cohort "
+                    "ON __in_cohort.cohort_person_id = e.person_id"
+                ),
+            ),
+            (
+                "unqualified_reads_beside_a_joined_cte",
+                "WITH actors AS (SELECT person_id AS actor_id, min(timestamp) AS t_0 FROM events GROUP BY actor_id) "
+                + _beside("INNER JOIN actors ON e.person_id = actors.actor_id"),
+            ),
+            (
+                "unqualified_reads_beside_an_array_join",
+                f"SELECT n FROM events ARRAY JOIN [1, 2] AS n WHERE {UNQUALIFIED}",
+            ),
+            (
+                "alias_that_reads_the_scan_beside_a_subquery_with_an_event_column",
+                "SELECT e.event AS event, count() FROM events AS e "
+                "JOIN (SELECT distinct_id, event FROM events) AS calls ON e.distinct_id = calls.distinct_id "
+                f"WHERE {UNQUALIFIED} GROUP BY event",
             ),
             ("flag_key_array_access", _where(FLAG_CALLED, "properties['$feature_flag'] = 'my-flag'", BOUND)),
             (
@@ -283,10 +334,22 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
                 _where(FLAG_KEY, BOUND, f"uuid IN (SELECT uuid FROM events WHERE {FLAG_CALLED})"),
             ),
             (
-                "unqualified_event_with_a_join",
-                _joined(
-                    f"{FLAG_CALLED} AND e.properties.$feature_flag = 'my-flag' AND e.timestamp >= now() - INTERVAL 7 DAY"
+                "flag_key_under_a_cte_named_properties",
+                "WITH properties AS (SELECT 'my-flag' AS `$feature_flag`) " + _where(FLAG_CALLED, FLAG_KEY, BOUND),
+            ),
+            (
+                "flag_key_beside_a_table_named_properties",
+                _beside("JOIN properties ON e.distinct_id = properties.distinct_id"),
+            ),
+            (
+                "flag_key_beside_a_subquery_named_properties",
+                _beside(
+                    "JOIN (SELECT person_id AS id FROM raw_cohort_people) AS properties ON e.person_id = properties.id"
                 ),
+            ),
+            (
+                "array_join_alias_that_shadows_event",
+                f"SELECT count() FROM events ARRAY JOIN ['$feature_flag_called'] AS event WHERE {UNQUALIFIED}",
             ),
             (
                 "pin_on_a_joined_alias",
@@ -305,10 +368,6 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
             ("not_between", _where(FLAG_CALLED, FLAG_KEY, "timestamp NOT BETWEEN now() - INTERVAL 7 DAY AND now()")),
             ("bound_inside_an_or", _where(FLAG_CALLED, FLAG_KEY, f"({BOUND} OR distinct_id = 'd')")),
             ("bound_on_another_column", _where(FLAG_CALLED, FLAG_KEY, "created_at >= now() - INTERVAL 7 DAY")),
-            (
-                "unqualified_bound_with_a_join",
-                _joined(f"e.event = '$feature_flag_called' AND e.properties.$feature_flag = 'my-flag' AND {BOUND}"),
-            ),
             (
                 "bound_on_a_joined_alias",
                 _self_joined(
@@ -374,10 +433,6 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
                 _where(FLAG_CALLED, "person.properties.$feature_flag = 'my-flag'", BOUND),
             ),
             ("pin_on_another_property", _where(FLAG_CALLED, "properties.$feature_flag_response = 'my-flag'", BOUND)),
-            (
-                "unqualified_flag_key_with_a_join",
-                _joined(f"e.event = '$feature_flag_called' AND {FLAG_KEY} AND e.timestamp >= now() - INTERVAL 7 DAY"),
-            ),
             (
                 "flag_key_on_a_joined_alias",
                 _self_joined(

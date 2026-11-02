@@ -55,7 +55,7 @@ export interface ActivitySummaryThemeApi {
      * @nullable
      */
     strength: string | null
-    /** Refs into `computed.owned`, `computed.watched` and `computed.pages` of the same version, such as `o1` or `p2`, that show this thread. A ref is valid only inside one version. */
+    /** Refs into `computed.owned`, `computed.watched`, `computed.pages`, `computed.tasks` and `computed.mcp_sessions` of the same version, such as `o1`, `p2`, `t3` or `m1`, that show this thread. A ref is valid only inside one version. */
     refs: string[]
     /**
      * The last day of activity on the refs of this thread, as YYYY-MM-DD.
@@ -209,6 +209,13 @@ export interface ActivitySummaryProductSplitApi {
     visits: ActivitySummaryProductEnumApi[]
 }
 
+export interface ActivitySummaryLineRefApi {
+    /** The ref that themes cite, such as `t1` for a task or `m1` for an MCP session. */
+    ref: string
+    /** The day of the task or MCP session, as YYYY-MM-DD. */
+    last_at: string
+}
+
 export interface ActivitySummaryComputedApi {
     /** The version of the shape of these fields. */
     schema_version: number
@@ -222,6 +229,10 @@ export interface ActivitySummaryComputedApi {
     products: ActivitySummaryProductSplitApi
     /** The number of tasks the user gave to PostHog AI or the Slack agent. */
     task_count: number
+    /** Tasks the user gave to PostHog AI or the Slack agent that the summary input showed, oldest first. Empty on summaries from before task refs existed. */
+    tasks: ActivitySummaryLineRefApi[]
+    /** Sessions of the user's AI agent over MCP that the summary input showed, oldest first. Empty on summaries from before MCP refs existed. */
+    mcp_sessions: ActivitySummaryLineRefApi[]
 }
 
 export interface ActivitySummaryApi {
@@ -5164,6 +5175,25 @@ export interface ReportSignalsResponseApi {
     signals: SignalNodeApi[]
 }
 
+export interface SpendAmountApi {
+    /**
+     * Recorded usage in USD cents, before billing exemptions; null when untracked.
+     * @nullable
+     */
+    total_spend: number | null
+    /** Whether usage is still settling or accounting is incomplete. */
+    incomplete: boolean
+}
+
+export interface ReportSpendApi {
+    /** Usage for the report's backing signals, research and repository selection. */
+    generation: SpendAmountApi
+    /** Usage for implementation tasks owned by the report. */
+    implementation: SpendAmountApi
+    /** Full usage of scout runs that authored this report. Shared with all other output of those runs. */
+    shared_scout_runs: SpendAmountApi
+}
+
 /**
  * * `suppressed` - suppressed
  * * `potential` - potential
@@ -6104,12 +6134,14 @@ export interface PersonalRankingApi {
     status: PersonalRankingStatusEnumApi
     /** True when the language model ranked the list with your activity summary. False when you have no summary yet or the build fell back to the inbox order. */
     personalized: boolean
-    /** True when the list comes from storage, false when this request built it. */
+    /** True when the list is a stored one. False when it is the inbox order fallback or the new list that `wait_seconds` waited for. */
     cached: boolean
-    /** True when the list does not match your current inbox, because you reached the build limit. Try `refresh` again later. */
+    /** True when the list does not match your current inbox or focus. When `building` is true, a newer list is on the way. Otherwise a build limit was reached, so try again later. */
     stale: boolean
+    /** True when a new list is being built in the background. Call again in a few seconds, or pass `wait_seconds`, to get it. */
+    building: boolean
     /**
-     * Why the list is in inbox order and not ranked by the language model: llm_error, timeout, malformed_output, truncated_output, no_candidates or ai_not_approved. Null when the model ranked it.
+     * Why the list is in inbox order and not ranked by the language model. building: no list is stored yet and one is being built. rate_limited: no list is stored yet and a build limit was reached, either yours or the shared daily one. build_failed: no list is stored yet and the build could not start. no_activity_summary: you have no activity summary yet, so the model did not rank the list. llm_error, timeout, malformed_output, truncated_output, no_candidates or ai_not_approved: the stored build fell back. Null when the model ranked it.
      * @nullable
      */
     fallback_reason: string | null
@@ -10660,6 +10692,40 @@ export interface PatchedSignalSourceConfigApi {
     readonly status?: SignalSourceSyncStatusEnumApi | null
 }
 
+export interface SourceSpendApi {
+    /** Product that emitted the signals. */
+    source_product: string
+    /** Type of signals emitted by the source. */
+    source_type: string
+    /** Number of signals received in the last 30 days. */
+    signal_count: number
+    /** Accumulated processing usage on these signals, including later processing. */
+    spend: SpendAmountApi
+}
+
+export interface ScoutSpendApi {
+    /** Name of the scout skill. */
+    skill_name: string
+    /** Accumulated usage for this scout's runs in the period. */
+    spend: SpendAmountApi
+    /**
+     * Average recorded usage per tracked scout run in USD cents; null when no runs were tracked.
+     * @nullable
+     */
+    average_spend: number | null
+}
+
+export interface SpendOverviewApi {
+    /** Inclusive start of the rolling 30-day run window. */
+    period_start: string
+    /** Exclusive end of the rolling 30-day run window. */
+    period_end: string
+    /** Usage for each scout with runs in the period. */
+    scouts: ScoutSpendApi[]
+    /** Total scout run usage in the period. */
+    scout_spend: SpendAmountApi
+}
+
 export interface SignalUserAutonomyConfigApi {
     readonly id: string
     readonly user: _UserApi
@@ -11075,7 +11141,7 @@ export type SignalsReportsAvailableReviewersRetrieve200 = {
 
 export type SignalsReportsForMeRetrieveParams = {
     /**
-     * Free text about what to put first, such as `error tracking` or `billing reports`. A request with focus always builds a new list, and an unfocused request never reuses it.
+     * Free text about what to put first, such as `error tracking` or `billing reports`. A request with focus always starts a new build, and an unfocused request never reuses it. Pass `wait_seconds` to wait for it.
      * @maxLength 2000
      */
     focus?: string
@@ -11086,9 +11152,15 @@ export type SignalsReportsForMeRetrieveParams = {
      */
     limit?: number
     /**
-     * Build a new list even when the stored one is current. A build calls a model and can take 30 seconds or more.
+     * Start a new build even when the stored one is current. The build runs in the background, so the response has `building: true`. Pass `wait_seconds` to wait for it.
      */
     refresh?: boolean
+    /**
+     * When the request starts a build or one is running, wait up to this many seconds for its list. Defaults to 0, which returns at once. A build usually takes 10 to 60 seconds.
+     * @minimum 0
+     * @maximum 30
+     */
+    wait_seconds?: number
 }
 
 export type SignalsReportsPrCiStatusesParams = {

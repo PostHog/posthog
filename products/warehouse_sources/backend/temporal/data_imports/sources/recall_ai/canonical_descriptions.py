@@ -128,4 +128,12 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "created_at": "When the Meeting Direct Connect was created.",
         },
     },
+    "usage": {
+        "description": "Bot usage for the workspace, one row per UTC day. Recent days can change as bots finish and their usage is billed.",
+        "docs_url": "https://docs.recall.ai/reference/billing_usage_retrieve",
+        "columns": {
+            "date": "The UTC day the usage covers.",
+            "bot_total": "Total bot usage in seconds for the workspace on that day.",
+        },
+    },
 }
