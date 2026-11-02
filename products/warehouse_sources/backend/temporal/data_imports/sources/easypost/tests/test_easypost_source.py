@@ -85,6 +85,6 @@ class TestSourceForPipeline:
         )
         response = result.response
         assert result.raised is None
-        assert result.params("start_datetime") == [None]
+        assert result.params("start_datetime") == ["2010-01-01T00:00:00Z"]
         assert response is not None
         assert response.name == "addresses"

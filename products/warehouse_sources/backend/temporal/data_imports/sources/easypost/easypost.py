@@ -20,6 +20,8 @@ EASYPOST_BASE_URL = "https://api.easypost.com/v2"
 # EasyPost caps page_size at 100 across cursor-paginated list endpoints.
 PAGE_SIZE = 100
 REQUEST_TIMEOUT_SECONDS = 60
+# Lower bound for runs with no watermark. It is earlier than any EasyPost account.
+EARLIEST_START_DATETIME = datetime(2010, 1, 1, tzinfo=UTC)
 
 
 class EasypostRetryableError(Exception):
@@ -140,11 +142,17 @@ def get_rows(
     # as an optimization; the client-side stop guarantees correct, bounded behaviour even if the
     # endpoint ignores the filter when combined with cursor pagination.
     last_value_dt: datetime | None = None
-    start_datetime: str | None = None
     if should_use_incremental_field and db_incremental_field_last_value is not None:
         last_value_dt = _parse_datetime(db_incremental_field_last_value)
-        if last_value_dt is not None and config.supports_start_datetime:
-            start_datetime = _format_datetime(last_value_dt)
+
+    # EasyPost sets an omitted bound to one month from the other bound, so without both bounds a
+    # run only sees one month of records. Send an explicit window that reaches back to the watermark
+    # (or to before any account existed) and forward to now.
+    start_datetime: str | None = None
+    end_datetime: str | None = None
+    if config.supports_start_datetime:
+        start_datetime = _format_datetime(last_value_dt or EARLIEST_START_DATETIME)
+        end_datetime = _format_datetime(datetime.now(UTC))
 
     path_values: tuple[str | None, ...] = config.path_values or (None,)
     cursor_param = "after_id" if config.ascending else "before_id"
@@ -166,6 +174,8 @@ def get_rows(
                 params[cursor_param] = cursor_id
             if start_datetime:
                 params["start_datetime"] = start_datetime
+            if end_datetime:
+                params["end_datetime"] = end_datetime
 
             data = _fetch_page(session, url, params, logger)
             items = data.get(collection_key, [])

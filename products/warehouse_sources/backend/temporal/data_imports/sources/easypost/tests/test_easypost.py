@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from parameterized import parameterized
@@ -89,14 +89,27 @@ class TestGetRows:
         assert result.raised is None
         assert [row["id"] for row in result.rows] == ["shp_3"]
         assert result.params("start_datetime") == ["2024-01-02T00:00:00Z"]
+        assert result.params("end_datetime")[0] is not None
         assert result.params("before_id") == [None]
 
-    def test_full_refresh_sends_no_time_filter(self) -> None:
-        result = _driver().run("shipments", [ScriptedResponse(json={"shipments": [], "has_more": False})])
+    def test_full_refresh_requests_the_whole_history(self) -> None:
+        # EasyPost returns only the last month when a time bound is omitted, so a full refresh
+        # must send both bounds, and keep them fixed while it pages.
+        result = _driver().run(
+            "shipments",
+            [
+                ScriptedResponse(json={"shipments": [{"id": "shp_2"}], "has_more": True}),
+                ScriptedResponse(json={"shipments": [{"id": "shp_1"}], "has_more": False}),
+            ],
+        )
         assert result.raised is None
-        assert result.rows == []
-        assert result.params("start_datetime") == [None]
-        assert result.params("before_id") == [None]
+        assert [row["id"] for row in result.rows] == ["shp_2", "shp_1"]
+        assert result.params("start_datetime") == ["2010-01-01T00:00:00Z"] * 2
+        end_datetimes = result.params("end_datetime")
+        assert len(set(end_datetimes)) == 1
+        end = _parse_datetime(end_datetimes[0])
+        assert end is not None and end > datetime.now(UTC) - timedelta(minutes=5)
+        assert result.params("before_id") == [None, "shp_2"]
 
 
 class TestChildUsers:
@@ -164,6 +177,7 @@ class TestUspsClaims:
         assert result.paths == ["/v2/carrier_claims/usps_claims"] * 2
         assert result.params("before_id") == [None, "usc_2"]
         assert result.params("start_datetime") == [None, None]
+        assert result.params("end_datetime") == [None, None]
 
 
 REPORT_TYPES = EASYPOST_ENDPOINTS["reports"].path_values
