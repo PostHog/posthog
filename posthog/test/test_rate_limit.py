@@ -11,6 +11,7 @@ from django.test import SimpleTestCase
 from django.utils.timezone import now
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework import status
 
 from posthog import models, rate_limit
@@ -1056,10 +1057,38 @@ class TestWidgetTeamPollWriteThrottleSplit(SimpleTestCase):
         cache.clear()
 
     def test_exhausted_poll_bucket_does_not_block_write(self) -> None:
-        request = Mock(headers={"X-Conversations-Token": "widget-token"})
+        request = Mock(headers={"X-Conversations-Token": "widget-token"}, path="/api/conversations/v1/widget/tickets")
         view = Mock()
         with patch.object(rate_limit.WidgetTeamPollThrottle, "rate", "1/minute"):
             poll = rate_limit.WidgetTeamPollThrottle()
             self.assertTrue(poll.allow_request(request, view))
             self.assertFalse(poll.allow_request(request, view))
         self.assertTrue(rate_limit.WidgetTeamWriteThrottle().allow_request(request, view))
+
+    @parameterized.expand(
+        [
+            ("user_burst", rate_limit.WidgetUserBurstThrottle),
+            ("team_poll", rate_limit.WidgetTeamPollThrottle),
+        ]
+    )
+    def test_exhausted_bucket_is_counted_by_scope_and_team(
+        self, _name: str, throttle_class: type[rate_limit.WidgetUserBurstThrottle | rate_limit.WidgetTeamPollThrottle]
+    ) -> None:
+        path = "/api/conversations/v1/widget/tickets"
+        request = Mock(
+            headers={"X-Conversations-Token": "widget-token"},
+            auth=Mock(id=7),
+            path=path,
+            data={},
+            query_params={"widget_session_id": "session"},
+        )
+        route = rate_limit.get_route_from_path(path)
+        labels = {"team_id": "7", "scope": throttle_class.scope, "path": route, "route": route}
+        before = REGISTRY.get_sample_value("rate_limit_exceeded_total", labels) or 0
+
+        with patch.object(throttle_class, "rate", "1/minute"):
+            throttle = throttle_class()
+            self.assertTrue(throttle.allow_request(request, Mock()))
+            self.assertFalse(throttle.allow_request(request, Mock()))
+
+        self.assertEqual(REGISTRY.get_sample_value("rate_limit_exceeded_total", labels), before + 1)
