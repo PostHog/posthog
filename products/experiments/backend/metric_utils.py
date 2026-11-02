@@ -55,7 +55,6 @@ def get_default_metric_title(metric_dict: dict) -> str:
 
 
 def get_default_quantile_metric_title(metric_dict: dict) -> str:
-    """For example "p90 of app_ready_ms"."""
     source = metric_dict.get("source") or {}
     measured = source.get("math_property") or _get_source_name(source)
     quantile = metric_dict.get("quantile")
