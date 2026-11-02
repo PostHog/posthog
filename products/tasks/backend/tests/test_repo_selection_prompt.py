@@ -211,6 +211,51 @@ def test_select_repository_salvages_an_unreadable_end_turn() -> None:
     assert selected.repository == "acme/b"
 
 
+@parameterized.expand(
+    [
+        ("retry_answers", '{"repository": "acme/b", "reason": "Owns the checkout path."}', "acme/b", None),
+        ("retry_still_progress", "Still waiting on the query.", None, ValueError),
+        ("retry_answers_off_list", '{"repository": "acme/zzz", "reason": "Guess."}', None, RepoSelectionRejectedError),
+    ]
+)
+def test_select_repository_asks_again_after_a_progress_note(
+    _name: str, retry_reply: str, expected: str | None, error: type[Exception] | None
+) -> None:
+    session = MagicMock()
+    session.end = AsyncMock()
+    session.send_followup_raw = AsyncMock(return_value=retry_reply)
+    github = MagicMock()
+    github.list_all_cached_repositories.return_value = [{"full_name": "acme/a"}, {"full_name": "acme/b"}]
+    progress_note = "I've started a query on the repository cache and will report back."
+
+    with (
+        patch(f"{_AGENT}.GitHubRepositoryFullCache") as cache,
+        patch(f"{_AGENT}._list_eligible_full_names", return_value={"acme/a", "acme/b"}),
+        patch(f"{_AGENT}._routing_rules_block", return_value=None),
+        patch(f"{_AGENT}.MultiTurnSession.start_raw", AsyncMock(return_value=(session, progress_note))),
+    ):
+        cache.return_value.sync_full_cache = AsyncMock()
+
+        def run() -> RepoSelectionResult:
+            return async_to_sync(select_repository)(
+                1,
+                1,
+                "which repo?",
+                origin_product=Task.OriginProduct.SLACK,
+                priority=Priority.NORMAL,
+                github=github,
+                candidate_repos=["acme/a", "acme/b"],
+            )
+
+        if error is None:
+            assert run().repository == expected
+        else:
+            with pytest.raises(error):
+                run()
+
+    session.send_followup_raw.assert_awaited_once()
+
+
 def test_select_repository_reports_a_usage_limit_refusal() -> None:
     github = MagicMock()
     github.list_all_cached_repositories.return_value = [{"full_name": "acme/a"}, {"full_name": "acme/b"}]
