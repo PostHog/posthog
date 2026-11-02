@@ -111,6 +111,45 @@ describe('t3CodeTaskSetupLogic', () => {
         })
     })
 
+    it.each([
+        [
+            'answers',
+            (reply: Deferred<T3CodeProjectsApi>) =>
+                reply.resolve({
+                    status: 'ok',
+                    approval_token: null,
+                    projects: [{ id: 'old-page', title: 'old page', has_default_model: true }],
+                    next_cursor: null,
+                }),
+        ],
+        ['fails', (reply: Deferred<T3CodeProjectsApi>) => reply.reject(new Error('The laptop is offline'))],
+    ])(
+        'ignores a later page asked for before the member left the machine and came back, when it %s late',
+        async (_case, settleOldPage) => {
+            const oldPage = deferred<T3CodeProjectsApi>()
+            projectsCreate.mockImplementation(
+                (_teamId: string, { machine, cursor }: { machine: string; cursor?: number }) =>
+                    cursor === undefined
+                        ? Promise.resolve({ ...projectsOn(machine), next_cursor: 100 })
+                        : oldPage.promise
+            )
+            await expectLogic(logic, () => logic.actions.setMachine('laptop')).toFinishAllListeners()
+
+            logic.actions.loadMoreProjects(undefined)
+            logic.actions.setMachine('devbox')
+            logic.actions.setMachine('laptop')
+            await expectLogic(logic).toDispatchActions(['loadProjectsSuccess'])
+            settleOldPage(oldPage)
+
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values).toMatchObject({
+                projects: projectsOn('laptop').projects,
+                nextCursor: 100,
+                error: null,
+            })
+        }
+    )
+
     it('drops the webhook URL of a task created for a selection the member left', async () => {
         projectsCreate.mockImplementation((_teamId: string, { machine }: { machine: string }) =>
             Promise.resolve(projectsOn(machine))

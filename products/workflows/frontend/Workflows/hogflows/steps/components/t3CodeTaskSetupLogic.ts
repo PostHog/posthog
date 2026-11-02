@@ -48,6 +48,7 @@ export interface t3CodeTaskSetupLogicValues {
     nextCursor: number | null
     pendingApproval: T3CodePendingApproval | null
     project: string | null
+    projectListId: number
     projects: T3CodeProjectApi[] | null
     projectsResult: T3CodeProjectsApi | null
     projectsResultLoading: boolean
@@ -215,7 +216,7 @@ export const t3CodeTaskSetupLogic = kea<t3CodeTaskSetupLogicType>([
             null as T3CodeProjectsApi | null,
             {
                 loadMoreProjects: async (approvalToken: string | undefined, breakpoint) => {
-                    const { machine, nextCursor } = values
+                    const { machine, nextCursor, projectListId } = values
                     if (!machine || nextCursor === null) {
                         return null
                     }
@@ -226,7 +227,7 @@ export const t3CodeTaskSetupLogic = kea<t3CodeTaskSetupLogicType>([
                             approval_token: approvalToken,
                         }),
                         breakpoint,
-                        () => values.machine === machine && values.nextCursor === nextCursor
+                        () => values.projectListId === projectListId && values.nextCursor === nextCursor
                     )
                 },
             },
@@ -275,6 +276,8 @@ export const t3CodeTaskSetupLogic = kea<t3CodeTaskSetupLogicType>([
                     moreProjectsResult?.status === 'ok' ? [...state, ...(moreProjectsResult.projects ?? [])] : state,
             },
         ],
+        // A new id for each first-page load, so a later page asked for an earlier list never lands on this one.
+        projectListId: [0, { setMachine: (id) => id + 1, loadProjects: (id) => id + 1 }],
         nextCursor: [
             null as number | null,
             {
