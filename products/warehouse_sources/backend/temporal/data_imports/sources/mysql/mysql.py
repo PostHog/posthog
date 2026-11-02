@@ -213,7 +213,18 @@ class MySQLUnavoidableFilesortError(Exception):
 # config error.
 _CANT_CONNECT_CODE = 2003
 
-_SYSTEM_SCHEMAS = ("information_schema", "mysql", "performance_schema", "sys")
+_SYSTEM_SCHEMAS = (
+    "information_schema",
+    "mysql",
+    "performance_schema",
+    "sys",
+    # Vitess's (and PlanetScale's) own internal keyspace for schema tracking and VReplication
+    # bookkeeping. It isn't registered in vtgate's vschema for direct routing, so an unscoped
+    # `information_schema` query that doesn't exclude it fails with "unknown database '_vt' in
+    # vschema" (Vitess error VT05003) instead of silently skipping it the way a real MySQL server
+    # would skip any schema the caller has no privilege on.
+    "_vt",
+)
 
 
 def _configured_schema(config: MySQLSourceConfig) -> str | None:
