@@ -1,5 +1,6 @@
-import dataclasses
 from typing import Literal, Optional
+
+from posthog.dataclasses import frozen
 
 # The RKI COVID-19 API (api.corona-zahlen.org) is a public, unauthenticated JSON wrapper over
 # published Robert Koch-Institut figures, maintained by Marlon Lückert. Every endpoint returns its
@@ -23,7 +24,7 @@ ParseKind = Literal[
 ]
 
 
-@dataclasses.dataclass
+@frozen
 class RKICovidEndpointConfig:
     name: str
     path: str
