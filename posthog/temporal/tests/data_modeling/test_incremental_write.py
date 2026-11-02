@@ -7,6 +7,7 @@ column missing from the output).
 
 import json
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -31,7 +32,7 @@ _MODULE = "posthog.temporal.data_modeling.activities.incremental_write"
 _spill_modes = pytest.mark.parametrize("max_bytes", [1, MAX_UNIQUE_KEY_CHECK_BYTES], ids=["disk", "memory"])
 
 
-def _batch(ids: list[int | None], names: list[str | None]) -> pa.RecordBatch:
+def _batch(ids: Sequence[int | None], names: Sequence[str | None]) -> pa.RecordBatch:
     return pa.RecordBatch.from_arrays(
         [pa.array(ids, type=pa.int64()), pa.array(names, type=pa.string())],
         names=["id", "name"],
