@@ -112,7 +112,7 @@ _UNMOVABLE_SHAPE = "it reads events in a shape that can't be moved to posthog.fl
 # An alias with one of these names can shadow the column in an unqualified read.
 _SCAN_COLUMNS = frozenset({"event", "timestamp", "properties"})
 
-_EVENTS_NAMES = frozenset({"events", "posthog.events"})
+EVENTS_NAMES = frozenset({"events", "posthog.events"})
 
 
 def can_read_flag_evaluations(
@@ -408,7 +408,7 @@ class EventsScan:
             return None
         parts = [str(part) for part in join.table.chain]
         table_name = ".".join(parts)
-        if table_name not in _EVENTS_NAMES or table_name in ctes:
+        if table_name not in EVENTS_NAMES or table_name in ctes:
             return None
         scan = cls(
             join=join,

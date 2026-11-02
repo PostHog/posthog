@@ -41,6 +41,7 @@ from posthog.hogql.property_metadata import load_property_metadata
 from posthog.hogql.restricted_properties import key_read_overlaps_restriction, restricted_property_keys_for_table_type
 from posthog.hogql.transforms.events_predicate_pushdown import PREDICATE_SAFE_JOIN_TYPES, SelectAliasInliner
 from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
+    EVENTS_NAMES,
     EventsScan,
     ScanVisitor,
     SyntaxVisitor,
@@ -131,6 +132,9 @@ def union_unreadable_reason(node: ast.AST, context: HogQLContext) -> str | None:
     columns = FlagEvaluationsColumns(
         database.get_table(EVENTS_WITH_FLAG_CALLS_CHAIN), database.get_table(["posthog", "flag_evaluations"])
     )
+    if collector.export_collision is not None:
+        first, second = (".".join(str(part) for part in chain) for chain in collector.export_collision)
+        return f"it reads {first} and {second}, which the union would return as one column"
     for chain in collector.chains:
         if columns.chain(chain) is None:
             return f"it reads {'.'.join(str(part) for part in chain)}, which that table doesn't have"
@@ -399,16 +403,18 @@ def _flag_call_scans(
     position = 0
     while join is not None:
         # The rename runs before type resolution, so the chain is all it can read. EventsScan.of matches the same
-        # name, and the binding check rejects a rename that changes what a name binds to.
+        # names, and the binding check rejects a rename that changes what a name binds to. A CTE of that name shadows
+        # the table at every position.
         # nosemgrep: hogql-no-string-table-chain
-        if isinstance(join.table, ast.Field) and join.table.chain == ["events"]:
+        name = ".".join(str(part) for part in join.table.chain) if isinstance(join.table, ast.Field) else None
+        if name is not None and name in EVENTS_NAMES and name not in ctes:
             # Only the first scan can read unqualified names, and EventsScan.of decides when it can.
             scan = (
                 EventsScan.of(node, flag_key_compares_as_string, ctes)
                 if position == 0
                 else EventsScan(
                     join,
-                    join.alias or "events",
+                    join.alias or name.replace(".", "__"),
                     other_tables=frozenset(),
                     qualified_only=True,
                     flag_key_compares_as_string=flag_key_compares_as_string,
@@ -517,6 +523,9 @@ class _UnionChainCollector(SyntaxVisitor):
         super().__init__()
         self.chains: list[list[str | int]] = []
         self.unreadable_joins: list[str] = []
+        # The chain behind each column that lazy table resolution exports under a field's own name.
+        self.exports: dict[str, list[str | int]] = {}
+        self.export_collision: tuple[list[str | int], list[str | int]] | None = None
         # The event and person properties that a string-parsing call such as toFloatOrZero reads from the scan.
         self.string_parsed: list[tuple[str, str]] = []
         self._in_string_input = False
@@ -533,6 +542,11 @@ class _UnionChainCollector(SyntaxVisitor):
         if read is not None:
             chain = read[1]
             self.chains.append(chain)
+            if isinstance(node.type, ast.FieldType):
+                # Lazy table resolution names a whole-field read after the field, whichever table the field is on.
+                first = self.exports.setdefault(node.type.name, chain)
+                if first != chain and self.export_collision is None:
+                    self.export_collision = (first, chain)
             if self._in_string_input and chain[:-1] in (["properties"], ["poe", "properties"]):
                 self.string_parsed.append(("event" if chain[0] == "properties" else "person", str(chain[-1])))
             return

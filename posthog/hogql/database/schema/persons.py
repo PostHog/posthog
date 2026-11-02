@@ -272,15 +272,15 @@ def select_from_persons_table(
 
 
 class _CopyableConjunctVisitor(TraversingVisitor):
-    def __init__(self, table_type: ast.Type):
+    def __init__(self, table_types: tuple[ast.Type, ...]):
         super().__init__()
-        self.table_type = table_type
+        self.table_types = table_types
         self.reads_table = False
         self.copyable = True
 
     def visit_field(self, node: ast.Field):
         field_type = node.type.field_type if isinstance(node.type, ast.PropertyType) else node.type
-        if isinstance(field_type, ast.FieldType) and field_type.table_type is self.table_type:
+        if isinstance(field_type, ast.FieldType) and any(field_type.table_type is t for t in self.table_types):
             self.reads_table = True
         else:
             self.copyable = False
@@ -327,12 +327,17 @@ def build_person_id_pushdown_predicate(join_to_add: LazyJoinToAdd, node: SelectQ
     its person columns.
     Returns None unless the left table is the query's own FROM table and at least one term qualifies.
     """
-    left = node.select_from
+    # A lazy left table, such as the union of events and flag_evaluations, is already a subquery in `node`. Its recorded
+    # scan holds the FROM entry as the query wrote it.
+    scan = join_to_add.from_scan
+    left = scan.join if scan is not None else node.select_from
+    left_types = scan.types if scan is not None else (left.type,) if left is not None else ()
     if (
         left is None
         or not isinstance(left.table, ast.Field)
         or left.table_args
-        or left.type is not join_to_add.lazy_join_type.table_type
+        or left_types[0] is not join_to_add.lazy_join_type.table_type
+        or (scan is not None and (node.select_from is None or node.select_from.alias != join_to_add.from_table))
     ):
         return None
 
@@ -342,7 +347,7 @@ def build_person_id_pushdown_predicate(join_to_add: LazyJoinToAdd, node: SelectQ
         if where is None:
             continue
         for conjunct in top_level_conjuncts(where):
-            visitor = _CopyableConjunctVisitor(left.type)
+            visitor = _CopyableConjunctVisitor(left_types)
             visitor.visit(conjunct)
             if visitor.copyable and visitor.reads_table:
                 conjuncts.append(cloner.visit(conjunct))

@@ -213,8 +213,8 @@ def test_hogql_predicate_subquery_is_team_scoped(db):
     [
         "SELECT distinct_id FROM events WHERE event = '$feature_flag_called' "
         "AND properties.$feature_flag = 'probe-flag' AND timestamp >= now() - INTERVAL 7 DAY",
-        "distinct_id IN (SELECT distinct_id FROM events WHERE event IN ('$pageview', '$feature_flag_called') "
-        "AND timestamp >= now() - INTERVAL 7 DAY)",
+        "SELECT distinct_id FROM events WHERE event IN ('$pageview', '$feature_flag_called') "
+        "AND timestamp >= now() - INTERVAL 7 DAY",
         "SELECT e.distinct_id FROM events AS e JOIN (SELECT 'probe' AS id) AS d "
         "ON e.distinct_id = d.id WHERE event = '$feature_flag_called'",
     ],
