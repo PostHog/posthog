@@ -65,7 +65,12 @@ POSTHOG_AI_BOT_PROFILE = replace(
     github_resolution=GithubResolution.ALWAYS,
 )
 PI_PROFILE = replace(BUSINESS_KNOWLEDGE, key="test.pi", runtimes=("pi",))
-NO_GITHUB_PROFILE = replace(BUSINESS_KNOWLEDGE, key="test.no_github", github_resolution=GithubResolution.NEVER)
+NO_GITHUB_PROFILE = replace(
+    BUSINESS_KNOWLEDGE,
+    key="test.no_github",
+    github_resolution=GithubResolution.NEVER,
+    github_access=GithubAccess.NONE,
+)
 SUPPORT_AGENT_PROFILE = replace(BUSINESS_KNOWLEDGE, key="test.support_agent", mcp_agent="support")
 
 # Far enough back that any bump is unambiguously forward, and stable so a test can assert the

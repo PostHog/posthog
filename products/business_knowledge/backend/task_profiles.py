@@ -1,6 +1,7 @@
 from products.tasks.backend.facade.profiles import (
     AccessGate,
     DrivePolicy,
+    GithubAccess,
     GithubResolution,
     NetworkAccess,
     NetworkPolicy,
@@ -37,6 +38,7 @@ BUSINESS_KNOWLEDGE = TaskProfile(
     mcp_exclude_tools=BK_HIDDEN_TOOLS,
     oauth_app=OAuthApp.ARRAY,
     github_resolution=GithubResolution.WITH_REPOSITORY,
+    github_access=GithubAccess.WRITE,
     user_authorable_prs=False,
     default_pr_authorship=PrAuthorship.BOT,
     create_pr=False,
