@@ -13,8 +13,12 @@ describe('loadTicketsAcrossTabs', () => {
     let posthog: PostHog
     let loadTicketsAcrossTabs: typeof import('./ticketsAcrossTabs').loadTicketsAcrossTabs
     let clearSharedTickets: typeof import('./ticketsAcrossTabs').clearSharedTickets
+    let ticketsBackoffRemainingMs: typeof import('./ticketsAcrossTabs').ticketsBackoffRemainingMs
+    let TicketsBackoffError: typeof import('./ticketsAcrossTabs').TicketsBackoffError
 
     const fetchingTickets = (...ids: string[]): jest.Mock => jest.fn().mockResolvedValue(ids.map(ticket))
+    const rateLimited = (): jest.Mock =>
+        jest.fn().mockRejectedValue(Object.assign(new Error('Too many requests'), { kind: 'rate_limit' }))
 
     beforeEach(async () => {
         now = START
@@ -23,7 +27,8 @@ describe('loadTicketsAcrossTabs', () => {
         // A logout stops the module for the life of the page, so each test needs a fresh copy
         jest.resetModules()
         posthog = (await import('posthog-js')).default
-        ;({ loadTicketsAcrossTabs, clearSharedTickets } = await import('./ticketsAcrossTabs'))
+        ;({ loadTicketsAcrossTabs, clearSharedTickets, ticketsBackoffRemainingMs, TicketsBackoffError } =
+            await import('./ticketsAcrossTabs'))
     })
 
     afterEach(() => {
@@ -103,6 +108,42 @@ describe('loadTicketsAcrossTabs', () => {
 
         expect(localStorage.length).toBe(0)
         expect(fetchTickets).toHaveBeenCalledTimes(2)
+    })
+
+    test.each([
+        { name: 'returns the stored tickets', storedIds: ['stored'], expected: (): unknown => [ticket('stored')] },
+        {
+            name: 'throws without stored tickets',
+            storedIds: [],
+            expected: (): unknown => expect.any(TicketsBackoffError),
+        },
+    ])('after a 429, a load during the backoff $name and sends no request', async ({ storedIds, expected }) => {
+        if (storedIds.length) {
+            await loadTicketsAcrossTabs(fetchingTickets(...storedIds), OPTIONS)
+        }
+        now += MAX_AGE_MS
+        await expect(loadTicketsAcrossTabs(rateLimited(), OPTIONS)).rejects.toMatchObject({ kind: 'rate_limit' })
+
+        const fetchTickets = fetchingTickets('fetched')
+        const outcome = await loadTicketsAcrossTabs(fetchTickets, { ...OPTIONS, force: true }).catch(
+            (error: unknown) => error
+        )
+        expect(outcome).toEqual(expected())
+        expect(fetchTickets).not.toHaveBeenCalled()
+
+        now += ticketsBackoffRemainingMs()
+        expect(await loadTicketsAcrossTabs(fetchTickets, OPTIONS)).toEqual([ticket('fetched')])
+    })
+
+    it('doubles the backoff for each 429 in a row up to the maximum', async () => {
+        const delays: number[] = []
+        for (let attempt = 0; attempt < 6; attempt++) {
+            await expect(loadTicketsAcrossTabs(rateLimited(), OPTIONS)).rejects.toMatchObject({ kind: 'rate_limit' })
+            delays.push(ticketsBackoffRemainingMs())
+            now += ticketsBackoffRemainingMs()
+        }
+
+        expect(delays).toEqual([30_000, 60_000, 120_000, 240_000, 300_000, 300_000])
     })
 
     it('still fetches from the network when storage throws', async () => {

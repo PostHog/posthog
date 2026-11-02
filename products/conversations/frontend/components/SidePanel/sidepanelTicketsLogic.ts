@@ -45,7 +45,12 @@ import type {
     SidePanelTicketFilter,
     SidePanelViewState,
 } from '../../types'
-import { clearSharedTickets, loadTicketsAcrossTabs } from './ticketsAcrossTabs'
+import {
+    TicketsBackoffError,
+    clearSharedTickets,
+    loadTicketsAcrossTabs,
+    ticketsBackoffRemainingMs,
+} from './ticketsAcrossTabs'
 
 function ticketMatchesFilter(ticket: ConversationTicket, filter: SidePanelTicketFilter): boolean {
     switch (filter) {
@@ -665,19 +670,31 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     }
                 }
             } catch (e) {
-                console.error('Failed to load tickets:', e)
-                // Reported because a customer who can't see their tickets can't reply to support on
-                // them either, and the toast alone left us blind to how often that happens
-                captureSupportWidgetLoadFailed({
-                    surface: 'side_panel_tickets',
-                    reason: 'tickets_load_failed',
-                    error: e,
-                    can_create_ticket: values.canCreateTicket,
-                })
+                // During a backoff no request leaves the browser, so there is no new failure to report
+                if (!(e instanceof TicketsBackoffError)) {
+                    console.error('Failed to load tickets:', e)
+                    // Reported because a customer who can't see their tickets can't reply to support on
+                    // them either, and the toast alone left us blind to how often that happens
+                    captureSupportWidgetLoadFailed({
+                        surface: 'side_panel_tickets',
+                        reason: 'tickets_load_failed',
+                        error: e,
+                        can_create_ticket: values.canCreateTicket,
+                    })
+                }
                 // The background poll for the unread badge runs on every page, so a transient
                 // failure there would toast on surfaces that have nothing to do with support
                 if (isOnSupportSurface(values.sidePanelOpen, values.selectedTab)) {
                     lemonToast.error('Failed to load tickets.')
+                    // Only a successful load restarts polling, so without this retry the list stays
+                    // empty after the backoff ends until the person does something
+                    const retryInMs = ticketsBackoffRemainingMs()
+                    if (retryInMs > 0) {
+                        if (cache.pollTimer) {
+                            clearTimeout(cache.pollTimer)
+                        }
+                        cache.pollTimer = window.setTimeout(() => actions.loadTickets(), retryInMs)
+                    }
                 }
             } finally {
                 actions.setTicketsLoading(false)

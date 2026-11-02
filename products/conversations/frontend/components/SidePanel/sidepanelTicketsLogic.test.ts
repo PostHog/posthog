@@ -18,6 +18,7 @@ import { sidepanelTicketsLogic } from './sidepanelTicketsLogic'
 import { loadTicketsAcrossTabs } from './ticketsAcrossTabs'
 
 jest.mock('./ticketsAcrossTabs', () => ({
+    ...jest.requireActual('./ticketsAcrossTabs'),
     loadTicketsAcrossTabs: jest.fn((fetchTickets) => fetchTickets()),
     clearSharedTickets: jest.fn(),
 }))
