@@ -190,7 +190,9 @@ function RowActor({ logItem }: { logItem: HumanizedActivityLogItem }): JSX.Eleme
                 <ProfilePicture
                     showName={false}
                     user={{
-                        first_name: logItem.isSystem || logItem.wasImpersonated ? logItem.name : undefined,
+                        // A row without an email, such as one a CI job wrote, takes its letter from the actor's name.
+                        first_name:
+                            logItem.isSystem || logItem.wasImpersonated || !logItem.email ? logItem.name : undefined,
                         email: logItem.email ?? undefined,
                     }}
                     type={logItem.isSystem || logItem.wasImpersonated ? 'system' : 'person'}

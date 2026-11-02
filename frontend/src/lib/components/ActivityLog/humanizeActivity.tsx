@@ -5,6 +5,9 @@ import { fullName } from 'lib/utils/strings'
 
 import { ActivityScope, InsightShortId, PersonType, UserBasicType } from '~/types'
 
+import { CIActorName } from './CIActorName'
+import { ciActorLabel, parseCIAttribution } from './parseCIAttribution'
+
 export interface ActivityChange {
     type: ActivityScope
     action: 'changed' | 'created' | 'deleted' | 'exported' | 'split' | 'merged' | 'copied'
@@ -137,14 +140,17 @@ export function humanize(
         const { description, summary, extendedDescription, expandedView } = describer(logItem, asNotification)
 
         if (description !== null) {
+            const ci = parseCIAttribution(logItem)
             const impersonatedUserName = logItem.user ? fullName(logItem.user) : undefined
             logLines.push({
                 id: logItem.id,
                 email: actorEmailForLogItem(logItem),
                 emailToReveal: actorEmailToRevealForLogItem(logItem),
-                name: logItem.was_impersonated
-                    ? `PostHog Support${impersonatedUserName ? ` (as ${impersonatedUserName})` : ''}`
-                    : impersonatedUserName,
+                name: ci
+                    ? ciActorLabel(ci)
+                    : logItem.was_impersonated
+                      ? `PostHog Support${impersonatedUserName ? ` (as ${impersonatedUserName})` : ''}`
+                      : impersonatedUserName,
                 isSystem: logItem.is_system,
                 wasImpersonated: logItem.was_impersonated,
                 client: logItem.client,
@@ -164,6 +170,10 @@ export function humanize(
 export function userNameForLogItem(logItem: ActivityLogItem): string {
     if (logItem.is_system) {
         return 'PostHog'
+    }
+    const ci = parseCIAttribution(logItem)
+    if (ci) {
+        return ciActorLabel(ci)
     }
     if (logItem.was_impersonated) {
         return `PostHog Support (as ${nameOrEmailForUser(logItem.user, 'a user')})`
@@ -188,7 +198,8 @@ function nameOrEmailForUser(
 // surface that shows the email must use this, or a row can disclose it in one place and hide it
 // in another.
 export function actorEmailForLogItem(logItem: ActivityLogItem): string | null {
-    if (logItem.is_system || logItem.was_impersonated) {
+    // A CI row names the CI job as the actor, so the owner its token acts as is not shown either.
+    if (logItem.is_system || logItem.was_impersonated || parseCIAttribution(logItem)) {
         return null
     }
     return logItem.user?.email ?? null
@@ -203,6 +214,10 @@ export function actorEmailToRevealForLogItem(logItem: ActivityLogItem): string |
 
 /** The person who did the thing, with their email on hover. */
 export function ActivityLogUserName({ logItem }: { logItem: ActivityLogItem }): JSX.Element {
+    const ci = parseCIAttribution(logItem)
+    if (ci) {
+        return <CIActorName attribution={ci} />
+    }
     return <UserNameWithEmail name={userNameForLogItem(logItem)} email={actorEmailForLogItem(logItem)} />
 }
 
@@ -223,6 +238,11 @@ const SCOPE_DISPLAY_NAMES: Partial<Record<ActivityScope, { singular: string; plu
     [ActivityScope.ALERT_CONFIGURATION]: { singular: 'Alert', plural: 'Alerts' },
     [ActivityScope.BATCH_EXPORT]: { singular: 'Destination', plural: 'Destinations' },
     [ActivityScope.CANVAS]: { singular: 'Canvas', plural: 'Canvases' },
+    [ActivityScope.CI_TRUST_POLICY]: { singular: 'CI trust policy', plural: 'CI trust policies' },
+    [ActivityScope.CI_TRUST_POLICY_REQUEST]: {
+        singular: 'CI trust policy request',
+        plural: 'CI trust policy requests',
+    },
     [ActivityScope.DEV_GATEWAY_TOKEN]: { singular: 'Developer mode token', plural: 'Developer mode tokens' },
     [ActivityScope.EXTERNAL_DATA_SOURCE]: { singular: 'Source', plural: 'Sources' },
     [ActivityScope.HOG_FUNCTION]: { singular: 'Data pipeline', plural: 'Data pipelines' },

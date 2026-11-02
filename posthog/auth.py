@@ -40,7 +40,10 @@ from posthog.helpers.verified_domain_enforcement import enforce_verified_domain
 from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_match
 from posthog.internal_api_secret import usable_internal_api_secrets
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt, get_oidc_verification_keys
+from posthog.models.activity_logging.activity_log import CI_TRIGGER_JOB_TYPE, Trigger
 from posthog.models.activity_logging.utils import (
+    ACTIVITY_LOG_CLIENT_MAX_LENGTH,
+    CI_CLIENT_PREFIX,
     ActivityCredentialMixin,
     DeclaredCredentialType,
     activity_storage,
@@ -958,7 +961,51 @@ class CIAccessTokenAuthentication(ActivityCredentialMixin, authentication.BaseAu
 
             tag_authentication(user_id=verified.user.pk, team_id=verified.team_id, access_method=AccessMethod.OIDC_CI)
             self.record_activity_actor(verified.user, verified.policy_id)
+            self._record_ci_job(verified)
             return verified.user, None
+
+    @staticmethod
+    def _record_ci_job(verified: VerifiedCIAccessToken) -> None:
+        """Put the CI job on every activity row this request writes, so the row renders a CI actor
+        after the token is gone, and can be filtered by the client tag."""
+        if not activity_storage.is_request_scoped():
+            return
+        claims = verified.ci_claims
+        repository = claims.get("repository", "")
+        if repository:
+            activity_storage.set_client(f"{CI_CLIENT_PREFIX}{repository}"[:ACTIVITY_LOG_CLIENT_MAX_LENGTH])
+
+        def ci_trigger() -> Trigger:
+            # Deferred because `posthog.api.oauth` imports its views, which import this module.
+            from posthog.api.oauth.ci_providers import get_ci_provider_by_key  # noqa: PLC0415
+
+            provider_key = claims.get("provider", "")
+            provider = get_ci_provider_by_key(provider_key)
+            run_id = claims.get("run_id", "")
+            run_url = (
+                provider.run_url_template.format(repository=repository, run_id=run_id)
+                if provider and provider.run_url_template and repository and run_id
+                else None
+            )
+            return Trigger(
+                job_type=CI_TRIGGER_JOB_TYPE,
+                job_id=run_id,
+                payload={
+                    "provider": provider_key,
+                    "provider_name": provider.name if provider else provider_key,
+                    "repository": repository,
+                    "workflow": claims.get("workflow", ""),
+                    "run_id": run_id,
+                    "run_url": run_url,
+                    "sha": claims.get("sha", ""),
+                    "ref": claims.get("ref", ""),
+                    "environment": claims.get("environment", ""),
+                    "policy_id": verified.policy_id,
+                    "policy_name": verified.policy_name,
+                },
+            )
+
+        activity_storage.set_verified_trigger_resolver(ci_trigger)
 
     def authenticate_header(self, request) -> str:
         return self.keyword

@@ -296,3 +296,33 @@ export const NarrowAcrossProducts: Story = {
         ),
     ],
 }
+
+export const CIJobChange: Story = {
+    args: {
+        logItem: humanize(
+            [
+                {
+                    ...dashboardEvents[0],
+                    client: 'ci:acme/web',
+                    detail: {
+                        ...dashboardEvents[0].detail,
+                        trigger: {
+                            job_type: 'ci',
+                            job_id: '1234',
+                            payload: {
+                                provider_name: 'Example CI',
+                                repository: 'acme/web',
+                                workflow: 'deploy.yml',
+                                run_id: '1234',
+                                run_url: 'https://ci.example.com/acme/web/runs/1234',
+                                policy_id: '019f4c2a-0000-7000-8000-0000000000bb',
+                                policy_name: 'Production deploys',
+                            },
+                        },
+                    },
+                },
+            ],
+            () => dashboardActivityDescriber
+        )[0],
+    },
+}
