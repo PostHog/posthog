@@ -3372,6 +3372,10 @@ snapshots:
         hash: v1.k794b7964.030c95e50318c77d8010cb0a0fa7829cfba90270045068a0db974e232504f9ad.iP86lD1msdXZjVXPQ1hzjV9tizv3xhQfntQDguO8GLg
     experiments-howtoreadtooltip--tooltip-frequentist--light:
         hash: v1.k794b7964.06d76f5dd20d9afc251e95a391666454d01199bf6a587ed1443c19540bd92f57.qvlIJTJCzqS5DL7nVn55PYJujlSmxLxgPDYwA8a5wWo
+    experiments-negatedeventfilternote--before-launch--dark:
+        hash: v1.k794b7964.fa75fd3c2573b9685a1d716407b7fed1588a33798205a476a6f96e7ef830547b.yxhyFEFkBUl33wRcIxunZ2mPw4f5G3iF0OC85Draphg
+    experiments-negatedeventfilternote--before-launch--light:
+        hash: v1.k794b7964.3babd668b713488e463b7901a0e93ea0154bbfb2bab677463f3422ce5d4534ee.tchxUAkUhFs7VcmTctLKkqfvz8HF33_GRDS61AkZ3fI
     experiments-replayvisionscannercard--off--dark:
         hash: v1.k794b7964.c9fb173cda38d075177709adc2b01144d835ca606362b9c701a596199a755158.nWxgtqo2ZyNfFq0RRmHmy78q7Hu_ZRbjSM5Q70inZKs
     experiments-replayvisionscannercard--off--light:
