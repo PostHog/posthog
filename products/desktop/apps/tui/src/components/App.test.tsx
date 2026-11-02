@@ -740,6 +740,63 @@ describe("App", () => {
     }
   });
 
+  it("pins and unpins the pane's chat with /pin and /unpin, and archives it with /archive and /unarchive", async () => {
+    saveLayout(openTask(initialLayout(), "t1", "Old name"));
+    const setArchived = vi.fn((taskId: string, _archived: boolean) =>
+      Promise.resolve({ id: taskId, title: "Old name", runtime: "pi" } as Task),
+    );
+    const mouse: MouseEvents = new EventEmitter();
+    const { instance, output } = renderInTerminal(
+      <App
+        session={{
+          work: {
+            listRecent: () => new Promise(() => {}),
+          } as unknown as WorkList,
+          runs: {
+            prefetch: async () => {},
+            watchPrompts: () => () => {},
+          } as unknown as CloudRuns,
+          chats: { setArchived } as unknown as PiChats,
+          control: () => ({}) as PiControl,
+          startLocal: () => Promise.reject(new Error("no local")),
+        }}
+        login={async () => {}}
+        logout={() => {}}
+        mouse={mouse}
+      />,
+    );
+    const type = (text: string): void => {
+      mouse.emit("keys", text);
+      mouse.emit("keys", "\r");
+    };
+    try {
+      await vi.waitFor(() => expect(output()).toContain("Old name"));
+      type("/pin");
+      await vi.waitFor(() =>
+        expect(loadPrefs().pinnedChats).toEqual([
+          { id: "t1", title: "Old name" },
+        ]),
+      );
+      await vi.waitFor(() => expect(output()).toContain("Pinned"));
+      type("/pin");
+      await vi.waitFor(() => expect(output()).toContain("Already pinned"));
+      type("/unpin");
+      await vi.waitFor(() => expect(loadPrefs().pinnedChats).toEqual([]));
+      type("/archive");
+      await vi.waitFor(() =>
+        expect(setArchived).toHaveBeenCalledWith("t1", true),
+      );
+      await vi.waitFor(() => expect(output()).toContain("Archived"));
+      type("/unarchive");
+      await vi.waitFor(() =>
+        expect(setArchived).toHaveBeenCalledWith("t1", false),
+      );
+      await vi.waitFor(() => expect(output()).toContain("Back in the list"));
+    } finally {
+      instance.unmount();
+    }
+  });
+
   it("narrows the sidebar with Ctrl+B and keeps it narrow, without losing other preferences", async () => {
     saveLayout(initialLayout());
     savePrefs({ welcomed: true });

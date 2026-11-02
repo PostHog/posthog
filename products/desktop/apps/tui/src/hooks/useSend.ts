@@ -19,7 +19,7 @@ import {
 } from "../layout";
 import type { LocalAgent } from "../local";
 import { parseSlash } from "../models";
-import { type ChatPlace, loadPrefs } from "../prefs";
+import { type ChatPlace, loadPrefs, type PinnedChat } from "../prefs";
 import { parseShell } from "../shell";
 import type { Account } from "./useAccount";
 import type { McpSheet } from "./useMcpSheet";
@@ -53,6 +53,7 @@ export function useSend({
   setLayout,
   setFresh,
   setTitles,
+  pin,
   chats,
   taskOf,
   local,
@@ -78,6 +79,8 @@ export function useSend({
   setLayout: Dispatch<SetStateAction<LayoutState>>;
   setFresh: Dispatch<SetStateAction<Map<string, Task>>>;
   setTitles: Dispatch<SetStateAction<Map<string, string>>>;
+  // Pins or unpins a chat; false when it already was.
+  pin: (chat: PinnedChat, pinned: boolean) => boolean;
   chats: PiChats | undefined;
   taskOf: (taskId: string | null) => Task | undefined;
   local: {
@@ -257,6 +260,44 @@ export function useSend({
         if (even) setLayout(even);
         else flashNotice("The panes are already as even as they can be", here);
       }
+      return;
+    }
+    if (slash?.command === "pin" || slash?.command === "unpin") {
+      const taskId = pane?.taskId ?? null;
+      const wanted = slash.command === "pin";
+      if (!taskId) flashNotice("There's no chat to pin yet", here);
+      else if (
+        !pin({ id: taskId, title: current?.title || pane?.title || "" }, wanted)
+      )
+        flashNotice(wanted ? "Already pinned" : "Not pinned", here);
+      else
+        flashNotice(wanted ? "Pinned above the workspaces" : "Unpinned", here);
+      return;
+    }
+    if (slash?.command === "archive" || slash?.command === "unarchive") {
+      const taskId = pane?.taskId ?? null;
+      const archived = slash.command === "archive";
+      if (!taskId) flashNotice("There's no chat to archive yet", here);
+      else if (!chats)
+        flashNotice("Sign in to archive a chat: type /login", here);
+      else
+        chats.setArchived(taskId, archived).then(
+          (task) => {
+            track("chat archived", { archived });
+            setFresh((tasks) => new Map(tasks).set(task.id, task));
+            flashNotice(
+              archived
+                ? "Archived. It leaves the list on its next refresh; /unarchive brings it back"
+                : "Back in the list",
+              { taskId },
+            );
+          },
+          (error: unknown) =>
+            flashNotice(
+              `Couldn't ${slash.command} this chat: ${messageOf(error)}`,
+              { taskId },
+            ),
+        );
       return;
     }
     if (slash?.command === "rename-workspace") {

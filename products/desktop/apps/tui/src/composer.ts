@@ -86,6 +86,10 @@ export const SLASH_COMMANDS = [
   { name: "new", description: "Start a new chat" },
   { name: "rename", description: "Rename this chat" },
   { name: "rename-workspace", description: "Rename this workspace" },
+  { name: "pin", description: "Pin this chat above the workspaces" },
+  { name: "unpin", description: "Unpin this chat" },
+  { name: "archive", description: "Archive this chat, out of the list" },
+  { name: "unarchive", description: "Bring this chat back into the list" },
   {
     name: "optimize",
     description: "Lay out this workspace's panes in an even grid",

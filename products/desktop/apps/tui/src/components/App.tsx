@@ -49,7 +49,12 @@ import type { McpClient } from "../mcp";
 import { type PiControl, runModel } from "../models";
 import type { MouseEvents } from "../mouse";
 import { openUrl } from "../openUrl";
-import { type ChatScope, loadPrefs, savePrefs } from "../prefs";
+import {
+  type ChatScope,
+  loadPrefs,
+  type PinnedChat,
+  savePrefs,
+} from "../prefs";
 import type { AgentPrompt } from "../prompts";
 import type { CloudRuns } from "../runs";
 import { startingOptions } from "../starting";
@@ -142,6 +147,16 @@ export function App({
     () => loadPrefs().narrowSidebar,
   );
   const [pinned, setPinned] = useState(() => loadPrefs().pinnedChats);
+  const setPinnedTo = (chat: PinnedChat, wanted: boolean): boolean => {
+    if (pinned.some((p) => p.id === chat.id) === wanted) return false;
+    const next = wanted
+      ? [...pinned, chat]
+      : pinned.filter((p) => p.id !== chat.id);
+    track("chat pinned", { pinned: wanted });
+    setPinned(next);
+    savePrefs({ pinnedChats: next });
+    return true;
+  };
   const [scope, setScope] = useState(() => loadPrefs().chatScope);
   const switchScope = (next: ChatScope): void => {
     if (next === scope) return;
@@ -366,6 +381,7 @@ export function App({
     repos: repoPicker,
     onChatStarted,
     setTitles,
+    pin: setPinnedTo,
     runShell,
     notice,
     account,
@@ -546,14 +562,7 @@ export function App({
         : pane?.taskId
           ? { id: pane.taskId, title: titleOf(pane) }
           : null;
-      if (!chat) return;
-      const wasPinned = pinned.some((p) => p.id === chat.id);
-      const next = wasPinned
-        ? pinned.filter((p) => p.id !== chat.id)
-        : [...pinned, chat];
-      track("chat pinned", { pinned: !wasPinned });
-      setPinned(next);
-      savePrefs({ pinnedChats: next });
+      if (chat) setPinnedTo(chat, !pinned.some((p) => p.id === chat.id));
     },
     toggleScope: () => switchScope(scope === "mine" ? "all" : "mine"),
     repoPickerKey: repoPicker.onKey,

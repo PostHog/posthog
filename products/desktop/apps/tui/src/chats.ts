@@ -277,6 +277,11 @@ export class PiChats {
     return this.api.updateTask(taskId, { title });
   }
 
+  // Archives or unarchives the chat's task; the server's list leaves archived tasks out.
+  setArchived(taskId: string, archived: boolean): Promise<Task> {
+    return this.api.updateTask(taskId, { archived });
+  }
+
   // A reply goes into the chat's run. A run that has ended or lost its sandbox comes back first, as the desktop
   // app brings it back: the same run, restored from its snapshot. `onReopen` says that wait has begun, and again
   // with the run once the server has queued it to come back.
