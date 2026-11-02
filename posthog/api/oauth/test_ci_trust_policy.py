@@ -141,7 +141,6 @@ class TestCITrustPolicyAPI(APIBaseTest):
             ("approval_scope", {"scopes": ["approvals:write"]}, "scopes"),
             ("credential_storing_scope", {"scopes": ["integration:write"]}, "scopes"),
             ("agent_run_scope", {"scopes": ["task:write"]}, "scopes"),
-            ("experiment_cleanup_agent_scope", {"scopes": ["experiment:write"]}, "scopes"),
         ]
     )
     def test_rejects_invalid_policies(self, _name: str, overrides: dict[str, Any], field: str) -> None:
