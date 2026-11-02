@@ -3,12 +3,18 @@ import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 import type { MessagingNavTabKey } from './frontend/messagingTabs'
 import type { WorkflowsSceneTab } from './frontend/WorkflowsScene'
 
 export const manifest: ProductManifest = {
     name: 'Workflows',
+    activityDescribers: {
+        [ActivityScope.HOG_FLOW]: () =>
+            import('./frontend/Workflows/misc/workflowActivityDescriber').then(
+                (module) => module.workflowActivityDescriber
+            ),
+    },
     scenes: {
         Workflows: {
             import: () => import('./frontend/WorkflowsScene'),
