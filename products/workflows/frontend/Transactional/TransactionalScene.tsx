@@ -26,10 +26,11 @@ import {
     isMessagingSetupTab,
 } from '../messagingTabs'
 import { TransactionalEmailLog } from './log/TransactionalEmailLog'
+import { TransactionalEmailPerformance } from './performance/TransactionalEmailPerformance'
 import { TransactionalEmailsTable } from './TransactionalEmailsTable'
 import { TransactionalEmailWizard } from './wizard/TransactionalEmailWizard'
 
-type TransactionalTab = 'transactional' | 'log'
+type TransactionalTab = 'transactional' | 'log' | 'performance'
 
 export const scene: SceneExport = {
     component: TransactionalScene,
@@ -46,10 +47,10 @@ export function TransactionalScene(): JSX.Element {
         lastSegment as MessagingNavTabKey
     )
         ? (lastSegment as MessagingNavTabKey)
-        : lastSegment === 'log'
+        : lastSegment === 'log' || lastSegment === 'performance'
           ? lastSegment
           : 'transactional'
-    const isTransactionalTab = currentTab === 'transactional' || currentTab === 'log'
+    const isTransactionalTab = currentTab === 'transactional' || currentTab === 'log' || currentTab === 'performance'
 
     if (!showTransactional) {
         return <NotFound object="page" />
@@ -110,6 +111,12 @@ export function TransactionalScene(): JSX.Element {
                         key: 'log',
                         link: urls.transactionalLog(),
                         content: <TransactionalEmailLog />,
+                    },
+                    {
+                        label: 'Performance',
+                        key: 'performance',
+                        link: urls.transactionalPerformance(),
+                        content: <TransactionalEmailPerformance />,
                     },
                     {
                         label: 'Templates',
