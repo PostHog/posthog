@@ -108,8 +108,12 @@ export const EXIT_NODE_ID = 'exit_node'
 export type TriggerAction = Extract<HogFlowAction, { type: 'trigger' }>
 
 function withTriggerConfig(workflow: HogFlow, config: TriggerAction['config']): HogFlow {
+    const triggerType = workflow.actions.find((action) => action.type === 'trigger')?.config.type
     return {
         ...workflow,
+        // A frequency hash such as {person.id} fits only some trigger types. After a type change it can resolve
+        // empty, and an empty hash skips masking, so the workflow would run without its entry limit.
+        trigger_masking: triggerType === config.type ? workflow.trigger_masking : null,
         trigger: config,
         actions: workflow.actions.map((action) => (action.type === 'trigger' ? { ...action, config } : action)),
     }

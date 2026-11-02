@@ -11,6 +11,7 @@ const template: HogFlow = {
     ...NEW_WORKFLOW,
     id: 'template-1',
     name: 'Welcome email',
+    trigger_masking: { ttl: 1800, hash: '{person.id}', bytecode: ['_H', 1], threshold: null },
     trigger: { type: 'event', filters: { events: [{ id: '$pageview', type: 'events' }] } },
     actions: [
         ...NEW_WORKFLOW.actions.map((action): HogFlow['actions'][number] =>
@@ -34,9 +35,14 @@ const template: HogFlow = {
     ],
 }
 
-const linkedTrigger: WorkflowTriggerConfig = {
+const linkedEventTrigger: WorkflowTriggerConfig = {
     type: 'event',
     filters: { events: [{ id: 'user_signed_up', type: 'events' }] },
+}
+
+const linkedInternalEventTrigger: WorkflowTriggerConfig = {
+    type: 'internal-event',
+    filters: { source: 'internal-events', events: [{ id: '$insight_alert_firing', type: 'internal_events' }] },
 }
 
 describe('workflowLogic template links', () => {
@@ -49,7 +55,10 @@ describe('workflowLogic template links', () => {
         })
     })
 
-    it('opens a template on the trigger passed in the link', async () => {
+    it.each([
+        ['an event trigger keeps the template frequency limit', linkedEventTrigger, template.trigger_masking],
+        ['a trigger of another type clears the template frequency limit', linkedInternalEventTrigger, null],
+    ])('opens a template on the trigger passed in the link: %s', async (_, linkedTrigger, expectedMasking) => {
         const logic = workflowLogic({
             id: 'new',
             templateId: template.id,
@@ -66,5 +75,6 @@ describe('workflowLogic template links', () => {
             template.actions.filter((action) => action.type !== 'trigger')
         )
         expect(logic.values.workflow.edges).toEqual(template.edges)
+        expect(logic.values.workflow.trigger_masking).toEqual(expectedMasking)
     })
 })
