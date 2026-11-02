@@ -344,12 +344,28 @@ class TestReadFlagCallsWithUnion(BaseTest):
                 False,
                 mode=ONLY,
             ),
+            # Each scan exports one created_at, so the two fields never share a column.
+            param(
+                "fields_of_one_name_in_separate_scans",
+                f"SELECT created_at FROM events WHERE {MIXED} UNION ALL "
+                f"SELECT person.created_at FROM events WHERE {MIXED}",
+                True,
+                True,
+                mode=ONLY,
+                persons_on_events=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+            ),
         ]
     )
     def test_union_reads_the_scans_phase_1_leaves_on_events(
-        self, _name: str, query: str, union: bool, expected_union: bool, mode: FlagEvaluationsMode = READ
+        self,
+        _name: str,
+        query: str,
+        union: bool,
+        expected_union: bool,
+        mode: FlagEvaluationsMode = READ,
+        persons_on_events: PersonsOnEventsMode | None = None,
     ):
-        sql = self._sql(query, union=union, mode=mode)
+        sql = self._sql(query, union=union, mode=mode, persons_on_events=persons_on_events)
 
         assert ("UNION ALL" in sql) is expected_union
         if expected_union:
