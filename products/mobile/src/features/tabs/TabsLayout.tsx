@@ -1,7 +1,7 @@
 import { useRouter } from 'expo-router'
 import { type BottomTabBarProps, Tabs } from 'expo-router/js-tabs'
 import { type ReactElement, useEffect, useLayoutEffect, useMemo, useState } from 'react'
-import { Linking } from 'react-native'
+import { Linking, View } from 'react-native'
 import { useAuthStore } from '@/auth/authStore'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useViewer } from '@/auth/useViewer'
@@ -12,8 +12,11 @@ import { navListWebUrl } from '@/features/views/webLinks'
 import { track } from '@/lib/analytics'
 import { useMobileProductFlags } from '@/lib/featureFlags'
 import { safeHttpsUrl } from '@/lib/urls'
-import { OverlayHost } from '@/ui/OverlayPortal'
+import { NAV_RAIL_WIDTH } from '@/ui/adaptiveLayout'
+import { OverlayHost, OverlayPortal } from '@/ui/OverlayPortal'
+import { SceneFrame } from '@/ui/SceneFrame'
 import { useColors } from '@/ui/theme'
+import { useAppLayout } from '@/ui/useAppLayout'
 
 import { useExitDemo, useSignOutAction } from '../settings/useSignOut'
 import { BottomBar, type BottomBarSlot } from './BottomBar'
@@ -71,15 +74,19 @@ function TabBar({ state, navigation }: BottomTabBarProps): ReactElement {
     useViewsOpenedEvent(focused === 'views')
 
     return (
-        <BottomBar
-            selected={selectedSlot(tab)}
-            pins={shownPins}
-            onHome={() => goTo('inbox')}
-            onChats={() => goTo('chats')}
-            onViews={() => goTo('views')}
-            onPin={goTo}
-            onNewChat={() => router.push({ pathname: '/chat', params: { entry: 'compose' satisfies ChatSheetEntry } })}
-        />
+        <OverlayPortal>
+            <BottomBar
+                selected={selectedSlot(tab)}
+                pins={shownPins}
+                onHome={() => goTo('inbox')}
+                onChats={() => goTo('chats')}
+                onViews={() => goTo('views')}
+                onPin={goTo}
+                onNewChat={() =>
+                    router.push({ pathname: '/chat', params: { entry: 'compose' satisfies ChatSheetEntry } })
+                }
+            />
+        </OverlayPortal>
     )
 }
 
@@ -177,24 +184,35 @@ function TabsChrome(): ReactElement {
 // above them. The header has no zIndex for the same reason: drawing order alone puts it between the two.
 export function TabsLayout(): ReactElement {
     const colors = useColors()
+    const { rail, railSide } = useAppLayout()
     return (
         <OverlayHost>
-            <Tabs
-                tabBar={renderTabBar}
-                backBehavior="firstRoute"
-                screenOptions={{
-                    headerShown: false,
-                    sceneStyle: { backgroundColor: colors.background },
+            <View
+                style={{
+                    flex: 1,
+                    paddingLeft: rail && railSide === 'left' ? NAV_RAIL_WIDTH : 0,
+                    paddingRight: rail && railSide === 'right' ? NAV_RAIL_WIDTH : 0,
                 }}
             >
-                <Tabs.Screen name="inbox" />
-                <Tabs.Screen name="chats" />
-                <Tabs.Screen name="views" />
-                {/* Always registered; the bar shows a slot only for a pinned list. */}
-                <Tabs.Screen name="errors" />
-                <Tabs.Screen name="replay" />
-            </Tabs>
-            <TabsChrome />
+                <SceneFrame>
+                    <Tabs
+                        tabBar={renderTabBar}
+                        backBehavior="firstRoute"
+                        screenOptions={{
+                            headerShown: false,
+                            sceneStyle: { backgroundColor: colors.background },
+                        }}
+                    >
+                        <Tabs.Screen name="inbox" />
+                        <Tabs.Screen name="chats" />
+                        <Tabs.Screen name="views" />
+                        {/* Always registered; the bar shows a slot only for a pinned list. */}
+                        <Tabs.Screen name="errors" />
+                        <Tabs.Screen name="replay" />
+                    </Tabs>
+                    <TabsChrome />
+                </SceneFrame>
+            </View>
         </OverlayHost>
     )
 }

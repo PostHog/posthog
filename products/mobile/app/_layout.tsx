@@ -6,14 +6,14 @@ import { type ReactElement, useEffect, useState } from 'react'
 import { StyleSheet, View } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { KeyboardProvider } from 'react-native-keyboard-controller'
-import { SafeAreaProvider } from 'react-native-safe-area-context'
-
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
 import { queryClient } from '@/api/queryClient'
 import { installAuthProvider, useAuthStore } from '@/auth/authStore'
 import { BootSplash } from '@/auth/BootSplash'
 import { SPLASH_TIMEOUT_MS, shouldHideSplash, useBootGate } from '@/auth/bootGate'
 import { useAuthRedirect } from '@/auth/useAuthRedirect'
 import { useDemoHydrated } from '@/demo/demoMode'
+import { SceneFrame } from '@/ui/SceneFrame'
 import '@/features/chat/draftPersistence'
 import { AiApprovalDialog } from '@/features/ai/AiApprovalDialog'
 import { useHedgehogWidgetSync } from '@/features/hedgehog/useHedgehogWidgetSync'
@@ -90,34 +90,38 @@ export default function RootLayout(): ReactElement {
     return (
         <GestureHandlerRootView style={styles.root}>
             <SafeAreaProvider>
-                <KeyboardProvider>
-                    <QueryClientProvider client={queryClient}>
-                        <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
-                        {/* Screens mount only after the session loads, so no query runs without a token. */}
-                        {ready ? (
-                            <Stack
-                                screenOptions={{
-                                    headerShown: false,
-                                    contentStyle: { backgroundColor: colors.background },
-                                }}
-                            >
-                                <Stack.Screen
-                                    name="chat"
-                                    dangerouslySingular={(): string => 'chat'}
-                                    options={{
-                                        presentation: 'card',
-                                    }}
-                                />
-                            </Stack>
-                        ) : null}
-                        {!splashHidden && (
-                            <View style={StyleSheet.absoluteFill} onLayout={hideNativeSplash}>
-                                <BootSplash />
-                            </View>
-                        )}
-                        <AiApprovalDialog />
-                    </QueryClientProvider>
-                </KeyboardProvider>
+                <SafeAreaView style={styles.root} edges={['left', 'right']}>
+                    <SceneFrame>
+                        <KeyboardProvider>
+                            <QueryClientProvider client={queryClient}>
+                                <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
+                                {/* Screens mount only after the session loads, so no query runs without a token. */}
+                                {ready ? (
+                                    <Stack
+                                        screenOptions={{
+                                            headerShown: false,
+                                            contentStyle: { backgroundColor: colors.background },
+                                        }}
+                                    >
+                                        <Stack.Screen
+                                            name="chat"
+                                            dangerouslySingular={(): string => 'chat'}
+                                            options={{
+                                                presentation: 'card',
+                                            }}
+                                        />
+                                    </Stack>
+                                ) : null}
+                                {!splashHidden && (
+                                    <View style={StyleSheet.absoluteFill} onLayout={hideNativeSplash}>
+                                        <BootSplash />
+                                    </View>
+                                )}
+                                <AiApprovalDialog />
+                            </QueryClientProvider>
+                        </KeyboardProvider>
+                    </SceneFrame>
+                </SafeAreaView>
             </SafeAreaProvider>
         </GestureHandlerRootView>
     )

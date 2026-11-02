@@ -4,7 +4,6 @@ import { type ReactElement, useCallback, useEffect, useMemo, useReducer, useRef,
 import { Keyboard, type TextInput, View } from 'react-native'
 import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
 import Animated, { useAnimatedStyle } from 'react-native-reanimated'
-
 import { useAuthStore } from '@/auth/authStore'
 import { sessionGeneration } from '@/auth/tokens'
 import { useProjectScope } from '@/auth/useProjectScope'
@@ -17,6 +16,7 @@ import { useNow } from '@/lib/useNow'
 import { taskWebUrl } from '@/model/adapters/chats'
 import { reportWebUrl } from '@/model/adapters/report'
 import type { InboxItem, ReportView } from '@/model/types'
+import { READING_WIDTH } from '@/ui/adaptiveLayout'
 import { OverlayHost } from '@/ui/OverlayPortal'
 import { createStyles } from '@/ui/theme'
 import { useScreenInsets } from '@/ui/useScreenInsets'
@@ -699,7 +699,7 @@ const useStyles = createStyles(({ colors }) => ({
         flex: 1,
         backgroundColor: colors.surface,
     },
-    body: { flex: 1 },
+    body: { flex: 1, width: '100%', maxWidth: READING_WIDTH, alignSelf: 'center' },
     keyboard: { flex: 1 },
     empty: { flex: 1 },
     composerArea: { position: 'relative' },

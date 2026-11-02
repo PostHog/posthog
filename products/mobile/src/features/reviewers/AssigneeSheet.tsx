@@ -1,6 +1,5 @@
 import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native'
-
+import { ActivityIndicator, ScrollView, Text, TextInput, View } from 'react-native'
 import { actionErrorMessage } from '@/lib/errors'
 import type { Person, Reviewer } from '@/model/types'
 import { Avatar } from '@/ui/Avatar'
@@ -12,6 +11,7 @@ import { SearchIcon } from '@/ui/icons/SearchIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useColors, useTheme } from '@/ui/theme'
 import { iconSizes, inputReset, radii, type } from '@/ui/tokens'
+import { useSceneDimensions } from '@/ui/useSceneDimensions'
 import { topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { MAX_REVIEWERS, useAvailableReviewers } from './hooks'
@@ -78,7 +78,7 @@ export function AssigneeSheet({
     const styles = useStyles()
     const { colors, scheme } = useTheme()
     const insets = useScreenInsets()
-    const { height: windowHeight } = useWindowDimensions()
+    const { height: windowHeight } = useSceneDimensions()
     const top = topOffset(insets, 120)
     const cardHeight = Math.max(320, Math.round((windowHeight - top) * 0.52))
     const [query, setQuery] = useState('')

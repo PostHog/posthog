@@ -1,6 +1,5 @@
 import { type ReactElement, useRef } from 'react'
-import { Text, useWindowDimensions, View } from 'react-native'
-
+import { Text, View } from 'react-native'
 import { BottomSheet } from '@/ui/BottomSheet'
 import { ChevronLeftIcon } from '@/ui/icons/ChevronLeftIcon'
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
@@ -10,6 +9,7 @@ import { Pressable44 } from '@/ui/Pressable44'
 import { SegmentedPill } from '@/ui/SegmentedPill'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, radii, type } from '@/ui/tokens'
+import { useSceneDimensions } from '@/ui/useSceneDimensions'
 
 import { FrameImage } from './FrameImage'
 import type { SummaryChapter } from './replayModel'
@@ -37,7 +37,7 @@ export function FrameSheet({
 }: FrameSheetProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
-    const { width } = useWindowDimensions()
+    const { width } = useSceneDimensions()
     // The last chapter stays drawn while the sheet slides out.
     const shown = useRef<number>(0)
     if (position !== null) {

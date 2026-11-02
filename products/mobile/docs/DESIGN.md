@@ -98,6 +98,24 @@ Its 16pt input has an explicit 20pt line height, centered vertically without And
   `lineBreakStrategyIOS="standard"`, and web from the CSS property (`prettyWrap`).
   Android wraps greedily.
 
+## Adaptive layouts
+
+Layout follows the space in the current window, including independent left and right safe areas.
+It does not identify devices by name or assume that an iPhone always has compact width.
+The native build supports rotation; iOS builds use Xcode 27.1 for the full Duo display.
+
+- A wide window keeps the inbox beside the selected report when the list has 300pt and the report has at least 440pt.
+  Before selection, the detail area asks the person to choose a report. Opening the device does not mark a report read.
+- Folding or entering a narrow Split View hides the inbox pane without remounting the selected report or its sheets.
+  The expanded inbox shows the same filters and actions as the main inbox and initially reveals the selected report.
+- Navigation uses a side rail in sufficiently tall, wide landscape windows, or when a side safe area signals side chrome.
+  The rail follows the side with the larger inset. Short windows keep horizontal navigation so targets remain reachable.
+  Custom controls stay inside safe content; they do not occupy native reserved regions or infer a hinge angle.
+- Chat keeps a centered reading column up to 720pt wide. Resizing keeps the session, composer, queued messages and draft mounted.
+- Consecutive chart or number pins can share a row when each has enough width. Recent and Browse remain lists.
+  The first visible pin anchors the list when its columns change; chart tooltips can close as their canvases resize.
+- Sheets have a bounded width on expanded windows. Their height follows their current scene, including rotation and Split View.
+
 ## Component inventory
 
 | Component                             | File                                                       | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |

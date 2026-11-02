@@ -1,7 +1,6 @@
 import { useIsFocused, useRouter } from 'expo-router'
-import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type ReactElement, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Linking, Platform, RefreshControl, SectionList, Text, View, type ViewToken } from 'react-native'
-
 import type { RowAnchor } from '@/features/inbox/contextMenuPlacement'
 import { useMobileProductFlags } from '@/lib/featureFlags'
 import { useNow } from '@/lib/useNow'
@@ -16,6 +15,7 @@ import { SearchField } from '@/ui/SearchField'
 import { StateView } from '@/ui/StateView'
 import { createStyles, useColors } from '@/ui/theme'
 import { layout, type } from '@/ui/tokens'
+import { useSceneDimensions } from '@/ui/useSceneDimensions'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 import { NavPinMenu } from '../../tabs/NavPinMenu'
 import { changeNavPin } from '../../tabs/navPinActions'
@@ -62,6 +62,7 @@ type ListView = RecentView | BrowseRow
 
 type ListItem =
     | { type: 'pin'; key: string; shortcutId: string; pin: PinView; index: number; last: boolean }
+    | { type: 'pin-pair'; key: string; items: Extract<ListItem, { type: 'pin' }>[] }
     | { type: 'pin-hint'; key: string; last: boolean }
     | { type: 'empty-pins'; key: string }
     | { type: 'note'; key: string; text: string }
@@ -152,8 +153,20 @@ function ViewsBody(): ReactElement {
     const insets = useScreenInsets()
     const now = useNow()
     const context = useViewsContext()
+    const contentTop = topOffset(insets, TABS_HEADER_BOTTOM)
     const demo = context.mode === 'demo'
     const list = useViewsList()
+    const { width } = useSceneDimensions()
+    const grid = width >= 740
+    const pinAnchor = useRef<{ grid: boolean; visible: string | null; restore: string | null }>({
+        grid,
+        visible: null,
+        restore: null,
+    })
+    if (pinAnchor.current.grid !== grid) {
+        pinAnchor.current.restore = pinAnchor.current.visible
+        pinAnchor.current.grid = grid
+    }
     const actions = usePinActions()
     const motion = useChartListMotion()
     const viewport = useCanvasBudgetViewport()
@@ -192,8 +205,22 @@ function ViewsBody(): ReactElement {
     const viewable = useRef({ list: list.onViewableItemsChanged, budget: viewport.onViewableItemsChanged })
     viewable.current = { list: list.onViewableItemsChanged, budget: viewport.onViewableItemsChanged }
     const onViewableItemsChanged = useRef((info: { viewableItems: ViewToken[]; changed: ViewToken[] }) => {
-        viewable.current.list(info)
-        viewable.current.budget(info)
+        const expand = (tokens: ViewToken[]): ViewToken[] =>
+            tokens.flatMap((token) => {
+                const item = token.item as ListItem
+                return item.type === 'pin-pair'
+                    ? item.items.map((pin) => ({ ...token, key: pin.key, item: pin }))
+                    : [token]
+            })
+        const expanded = { viewableItems: expand(info.viewableItems), changed: expand(info.changed) }
+        if (!pinAnchor.current.restore) {
+            const firstPin = expanded.viewableItems.find((token) => (token.item as ListItem).type === 'pin')
+            pinAnchor.current.visible = firstPin
+                ? (firstPin.item as Extract<ListItem, { type: 'pin' }>).shortcutId
+                : null
+        }
+        viewable.current.list(expanded)
+        viewable.current.budget(expanded)
     }).current
 
     // Row callbacks read the latest values through a ref, so they stay stable and memoized cards skip re-rendering.
@@ -457,9 +484,74 @@ function ViewsBody(): ReactElement {
         return result
     }, [search, pins, recent, list.pinsTruncated, now, hintTargetId, browseEntries])
 
+    const displaySections = useMemo(
+        () =>
+            sections.map((section) => {
+                if (!grid) return section
+                const data: ListItem[] = []
+                for (let index = 0; index < section.data.length; index++) {
+                    const first = section.data[index]
+                    const second = section.data[index + 1]
+                    if (
+                        first?.type === 'pin' &&
+                        first.pin.native &&
+                        first.pin.display.mode !== 'row' &&
+                        second?.type === 'pin' &&
+                        second.pin.native &&
+                        second.pin.display.mode !== 'row'
+                    ) {
+                        data.push({ type: 'pin-pair', key: `pair:${first.key}:${second.key}`, items: [first, second] })
+                        index++
+                    } else if (first) {
+                        data.push(first)
+                    }
+                }
+                return { ...section, data }
+            }),
+        [sections, grid]
+    )
+
+    useLayoutEffect(() => {
+        const anchor = pinAnchor.current.restore
+        if (!anchor) return
+        pinAnchor.current.restore = null
+        for (let sectionIndex = 0; sectionIndex < displaySections.length; sectionIndex++) {
+            const itemIndex =
+                displaySections[sectionIndex]?.data.findIndex((item) =>
+                    item.type === 'pin'
+                        ? item.shortcutId === anchor
+                        : item.type === 'pin-pair' && item.items.some((pin) => pin.shortcutId === anchor)
+                ) ?? -1
+            if (itemIndex >= 0) {
+                listRef.current?.scrollToLocation({ sectionIndex, itemIndex, animated: false, viewOffset: contentTop })
+                break
+            }
+        }
+    }, [displaySections, contentTop])
+
     const renderItem = useCallback(
         ({ item }: { item: ListItem }): ReactElement | null => {
             switch (item.type) {
+                case 'pin-pair':
+                    return (
+                        <View style={{ flexDirection: 'row', gap: 16 }}>
+                            {item.items.map((pin) => (
+                                <View key={pin.key} style={[{ flex: 1, minWidth: 0 }, !pin.last && styles.pinGap]}>
+                                    <PinCard
+                                        pin={pin.pin}
+                                        index={pin.index}
+                                        demo={demo}
+                                        onOpen={openPin}
+                                        onMenu={openPinMenu}
+                                        onChooseTile={chooseTileFromCard}
+                                        onUnpin={unpinFromCard}
+                                        onPressTooltip={openPinPoint}
+                                    />
+                                </View>
+                            ))}
+                        </View>
+                    )
+
                 case 'pin':
                     return (
                         <View style={!item.last && styles.pinGap}>
@@ -550,7 +642,6 @@ function ViewsBody(): ReactElement {
         [startEditing, styles, colors]
     )
 
-    const contentTop = topOffset(insets, TABS_HEADER_BOTTOM)
     const contentBottom = bottomOffset(insets, 120)
     const { refresh } = list
     const loading = list.pins.data === undefined && !list.pins.isError
@@ -629,9 +720,12 @@ function ViewsBody(): ReactElement {
         body = (
             <SectionList
                 ref={listRef}
-                sections={sections}
+                sections={displaySections}
                 keyExtractor={keyOf}
                 renderItem={renderItem}
+                onScrollToIndexFailed={({ averageItemLength, index }) =>
+                    listRef.current?.getScrollResponder()?.scrollTo({ y: averageItemLength * index, animated: false })
+                }
                 renderSectionHeader={renderSectionHeader}
                 stickySectionHeadersEnabled={false}
                 ListHeaderComponent={

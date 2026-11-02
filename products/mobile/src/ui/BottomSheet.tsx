@@ -8,6 +8,7 @@ import { Scrim } from './Scrim'
 import { createStyles, useTheme } from './theme'
 import { motion, radii } from './tokens'
 import { usePresence } from './usePresence'
+import { useSceneDimensions } from './useSceneDimensions'
 import { bottomOffset, useScreenInsets } from './useScreenInsets'
 import { useSheetDrag } from './useSheetDrag'
 
@@ -36,6 +37,7 @@ export function BottomSheet({
     const { colors, shadows } = useTheme()
     const styles = useStyles()
     const insets = useScreenInsets()
+    const { width, height: sceneHeight } = useSceneDimensions()
     const { mounted, progress } = usePresence(visible, motion.sheet)
     const [height, setHeight] = useState(480)
     const { drag, pan } = useSheetDrag(visible, onClose, scrollGesture)
@@ -64,6 +66,17 @@ export function BottomSheet({
                             shadows.bottomSheet,
                             {
                                 paddingHorizontal,
+                                width: '100%',
+                                maxWidth: 600,
+                                alignSelf: 'center',
+                                maxHeight: Math.max(120, sceneHeight - insets.top - 12),
+                                ...(width >= 600
+                                    ? {
+                                          borderBottomLeftRadius: radii.sheet,
+                                          borderBottomRightRadius: radii.sheet,
+                                          marginBottom: insets.bottom + 16,
+                                      }
+                                    : {}),
                                 paddingBottom: bottomOffset(insets, 40),
                                 backgroundColor: backgroundColor ?? colors.surface,
                             },

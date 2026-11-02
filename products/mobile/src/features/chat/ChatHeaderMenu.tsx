@@ -1,11 +1,11 @@
 import type { ReactElement } from 'react'
-import { ActivityIndicator, useWindowDimensions } from 'react-native'
-
+import { ActivityIndicator } from 'react-native'
 import { MenuDivider, MenuItem } from '@/features/views/list/ViewsMenu'
 import { FloatingCard } from '@/ui/FloatingCard'
 import { ArchiveIcon } from '@/ui/icons/ArchiveIcon'
 import { CopyIcon } from '@/ui/icons/CopyIcon'
 import { createStyles, useColors } from '@/ui/theme'
+import { useSceneDimensions } from '@/ui/useSceneDimensions'
 
 interface ChatHeaderMenuProps {
     visible: boolean
@@ -32,7 +32,7 @@ export function ChatHeaderMenu({
 }: ChatHeaderMenuProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
-    const { width } = useWindowDimensions()
+    const { width } = useSceneDimensions()
     const busy = copying || archiving
     return (
         <FloatingCard

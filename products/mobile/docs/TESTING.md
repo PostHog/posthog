@@ -79,6 +79,24 @@ Keep ingestion, ClickHouse, and replay storage running, wait for the returned se
 If a session is missing, inspect local capture, ingestion, and replay storage logs before recording a playback pass.
 The dummy's normal development shortcut can choose the latest project; the explicit command above keeps the SDK on the account's selected project.
 
+## Duo and resizable windows
+
+Use Xcode 27.1 or newer with an iPhone Duo runtime. Simulator checks supplement the required
+physical iOS and Android before-and-after screenshots.
+
+1. Open a report unfolded, scroll it, open Resolve and enter a note. Fold, unfold, rotate and
+   enter Split View on either side. Verify the report, scroll position and note remain.
+2. Change filters in the expanded inbox pane and select another report. Verify its highlight,
+   data and actions. A confirmation sheet must block the inbox and navigation behind its scrim.
+3. Tap Home from a report and switch Chats and Views through horizontal navigation and the rail.
+   Check pinned Errors and Sessions slots, larger text and shorter windows too.
+4. Enter a chat draft, queue a message and open Model. Resize with a streaming reply and the
+   keyboard visible. Keep the conversation, draft and queue without a duplicate send or stream.
+5. Scroll Views to a later chart pin, expand and collapse the window, and verify the same pin
+   stays near the top. Check menus, chart and number pins, and full-screen insights.
+6. Check empty and error states, long titles, and asymmetric safe areas on both sides. No
+   control should overlap system UI, clip, or require a particular fold pose.
+
 ## Chat navigation and header
 
 On iOS and Android, open an existing chat and start a new chat. Both must fill the screen without a

@@ -1,7 +1,6 @@
 import { type ComponentType, type ReactElement, type ReactNode, useState } from 'react'
-import { ActivityIndicator, type LayoutChangeEvent, Text, useWindowDimensions, View } from 'react-native'
+import { ActivityIndicator, type LayoutChangeEvent, Text, View } from 'react-native'
 import { useSafeAreaFrame } from 'react-native-safe-area-context'
-
 import type { InboxItem } from '@/model/types'
 import { FloatingCard } from '@/ui/FloatingCard'
 import { ChatBubbleIcon } from '@/ui/icons/ChatBubbleIcon'
@@ -17,6 +16,7 @@ import type { IconProps } from '@/ui/icons/types'
 import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, layout, radii, type } from '@/ui/tokens'
+import { useSceneDimensions } from '@/ui/useSceneDimensions'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { TABS_HEADER_BOTTOM } from '../tabs/TabsHeader'
@@ -120,7 +120,7 @@ export function ReportContextMenu({
     const styles = useStyles()
     const colors = useColors()
     const insets = useScreenInsets()
-    const { width: windowWidth } = useWindowDimensions()
+    const { width: windowWidth } = useSceneDimensions()
     // The overlay covers the full screen, which on Android edge-to-edge includes the navigation bar that the window height leaves out.
     const { height: screenHeight } = useSafeAreaFrame()
     const [height, setHeight] = useState<number | null>(null)

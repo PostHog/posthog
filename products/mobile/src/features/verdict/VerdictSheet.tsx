@@ -1,9 +1,8 @@
 import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, type ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native'
+import { ActivityIndicator, type ScrollView, Text, TextInput, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
 import Animated, { useAnimatedStyle } from 'react-native-reanimated'
-
 import { actionErrorMessage } from '@/lib/errors'
 import { VERDICT_NOTE_MAX_LENGTH } from '@/model/verdictReasons'
 import { BottomSheet } from '@/ui/BottomSheet'
@@ -11,6 +10,7 @@ import { CheckIcon } from '@/ui/icons/CheckIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useTheme } from '@/ui/theme'
 import { iconSizes, inputReset, radii, type } from '@/ui/tokens'
+import { useSceneDimensions } from '@/ui/useSceneDimensions'
 
 import type { VerdictCopy } from './verdictCopy'
 
@@ -37,7 +37,7 @@ export function VerdictSheet<Reason extends string>({
 }: VerdictSheetProps<Reason>): ReactElement {
     const styles = useStyles()
     const { colors, scheme } = useTheme()
-    const { height } = useWindowDimensions()
+    const { height } = useSceneDimensions()
     const keyboard = useReanimatedKeyboardAnimation()
     const scroll = useRef<ScrollView>(null)
     const listGesture = useMemo(() => Gesture.Native(), [])

@@ -1,6 +1,5 @@
 import { type ReactElement, type ReactNode, useEffect, useMemo, useState } from 'react'
-import { ActivityIndicator, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native'
-
+import { ActivityIndicator, ScrollView, Text, TextInput, View } from 'react-native'
 import { type AuthProject, useAuthStore } from '@/auth/authStore'
 import { DEMO_PROJECT_NAME } from '@/demo/briefings'
 import { useDemoMode } from '@/demo/demoMode'
@@ -11,6 +10,7 @@ import { SearchIcon } from '@/ui/icons/SearchIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useColors, useTheme } from '@/ui/theme'
 import { iconSizes, inputReset, radii, type } from '@/ui/tokens'
+import { useSceneDimensions } from '@/ui/useSceneDimensions'
 import { topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { filterProjects, groupByOrganization } from './projectList'
@@ -56,7 +56,7 @@ export function ProjectSheet({ visible, onClose, onSelect }: ProjectSheetProps):
     const styles = useStyles()
     const { colors, scheme } = useTheme()
     const insets = useScreenInsets()
-    const { height: windowHeight } = useWindowDimensions()
+    const { height: windowHeight } = useSceneDimensions()
     const top = topOffset(insets, 120)
     const cardHeight = Math.max(320, Math.round((windowHeight - top) * 0.52))
     const demo = useDemoMode((state) => state.enabled)

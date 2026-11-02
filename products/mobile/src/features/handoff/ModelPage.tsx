@@ -1,13 +1,13 @@
 import type { ReactElement } from 'react'
-import { ActivityIndicator, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { GestureDetector, type NativeGesture } from 'react-native-gesture-handler'
-
 import type { ModelChoiceApi, ReasoningEffortApi, ResolvedAiRunDefaultsApi } from '@/api/tasks'
 import { Eyebrow } from '@/ui/Eyebrow'
 import { CheckIcon } from '@/ui/icons/CheckIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, radii, type } from '@/ui/tokens'
+import { useSceneDimensions } from '@/ui/useSceneDimensions'
 
 import {
     COST_BASELINE_LABEL,
@@ -76,7 +76,7 @@ export function ModelPage({
 }: ModelPageProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
-    const { height: windowHeight } = useWindowDimensions()
+    const { height: windowHeight } = useSceneDimensions()
     const models = catalogue.catalogue
     const pinned = model === 'default' ? undefined : model
     const fallback = defaultModelSelection(defaults)
