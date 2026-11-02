@@ -92,6 +92,16 @@ class TestDirectSQLQuoting(SimpleTestCase):
             ("bigquery", ensure_read_only_raw_bigquery_statement),
             ("mysql_quoted_into", ensure_read_only_raw_mysql_statement, "SELECT `INTO` FROM example_rows"),
             ("mysql_quoted_alias", ensure_read_only_raw_mysql_statement, "SELECT `FOR` AS `UPDATE` FROM example_rows"),
+            (
+                "qualified_keyword",
+                ensure_read_only_raw_motherduck_statement,
+                'SELECT example.update FROM (SELECT 17 AS "update") AS example',
+            ),
+            (
+                "keyword_qualifier",
+                ensure_read_only_raw_motherduck_statement,
+                'SELECT update.value FROM (SELECT 17 AS value) AS "update"',
+            ),
         ]
     )
     def test_preserves_read_only_queries(

@@ -53,7 +53,7 @@ def _lex_direct_sql(sql: str, dialect: str) -> list["DialectToken"]:
     return lexed
 
 
-def _guard_tokens(token: "DialectToken", *, is_call: bool, sql: str, dialect: str) -> list[Token]:
+def _guard_tokens(token: "DialectToken", *, is_call: bool, is_qualified: bool, sql: str, dialect: str) -> list[Token]:
     from sqlglot.tokens import TokenType  # noqa: PLC0415 -- load dialect grammars only for direct queries
 
     literal_types = {
@@ -75,6 +75,8 @@ def _guard_tokens(token: "DialectToken", *, is_call: bool, sql: str, dialect: st
         if dialect == "mysql" and sql[token.start] == '"' and is_call:
             return [Token(sqlparse_tokens.Name, token.text)]
         return [Token(sqlparse_tokens.String.Single, "'literal'")]
+    if is_qualified and token.text.replace("$", "_").isidentifier():
+        return [Token(sqlparse_tokens.Name, token.text)]
     classified = list(tokenize(token.text + ("(" if is_call else "")))
     return [Token(kind, value) for kind, value in (classified[:-1] if is_call else classified)]
 
@@ -106,7 +108,10 @@ def parse_direct_statements(sql: str, *, dialect: str) -> list[Statement]:
     tokens: list[Token] = []
     for index, token in enumerate(lexed):
         is_call = index + 1 < len(lexed) and lexed[index + 1].token_type == TokenType.L_PAREN
-        tokens.extend(_guard_tokens(token, is_call=is_call, sql=sql, dialect=dialect))
+        is_qualified = (index > 0 and lexed[index - 1].token_type == TokenType.DOT) or (
+            index + 1 < len(lexed) and lexed[index + 1].token_type == TokenType.DOT
+        )
+        tokens.extend(_guard_tokens(token, is_call=is_call, is_qualified=is_qualified, sql=sql, dialect=dialect))
         tokens.append(Token(sqlparse_tokens.Whitespace, " "))
     try:
         return [group(Statement(tokens))] if tokens else []
