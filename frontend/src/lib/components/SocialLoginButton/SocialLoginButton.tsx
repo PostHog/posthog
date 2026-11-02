@@ -1,15 +1,15 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
-import { Suspense } from 'react'
+import { Component, type ReactNode, Suspense } from 'react'
 
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { LemonButton, LemonButtonWithoutSideActionProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { preflightLogic } from 'lib/logic/preflightLogic'
+import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 import { lazyWithRetry } from 'lib/utils/retryImport'
-import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 
 import { LoginMethod, SSOProvider } from '~/types'
 
@@ -117,6 +117,28 @@ function PasskeyButtonPlaceholder({
     )
 }
 
+/** The re-authentication modal also shows the passkey button, and a page reload there would discard
+ * the user's work. So a failed chunk load disables the button in place instead of reloading. */
+class PasskeyChunkLoadBoundary extends Component<{ children: ReactNode }, { error: unknown }> {
+    override state: { error: unknown } = { error: null }
+
+    static getDerivedStateFromError(error: unknown): { error: unknown } {
+        return { error }
+    }
+
+    override render(): ReactNode {
+        if (!this.state.error) {
+            return this.props.children
+        }
+        if (!isChunkLoadError(this.state.error)) {
+            throw this.state.error
+        }
+        return (
+            <PasskeyButtonPlaceholder disabledReason="Passkey sign-in couldn't load. Refresh the page to try again, or use another sign-in method." />
+        )
+    }
+}
+
 interface SocialLoginButtonsProps {
     title?: string
     caption?: string
@@ -187,15 +209,11 @@ export function SocialLoginButtons({
                         />
                     ))}
                     {showPasskey && (
-                        <ChunkLoadErrorBoundary
-                            fallback={() => (
-                                <PasskeyButtonPlaceholder disabledReason="Passkey sign-in couldn't load. Refresh the page to try again, or use another sign-in method." />
-                            )}
-                        >
+                        <PasskeyChunkLoadBoundary>
                             <Suspense fallback={<PasskeyButtonPlaceholder loading />}>
                                 <PasskeyLoginButton isLastUsed={lastUsedProvider === 'passkey'} {...props} />
                             </Suspense>
-                        </ChunkLoadErrorBoundary>
+                        </PasskeyChunkLoadBoundary>
                     )}
                 </div>
                 {caption && captionLocation === 'bottom' && <p className="text-secondary">{caption}</p>}
