@@ -40,7 +40,7 @@ class WizardSessionListQuerySerializer(serializers.Serializer):
     limit = serializers.IntegerField(
         required=False,
         default=DEFAULT_LIST_LIMIT,
-        min_value=0,
+        min_value=1,
         max_value=MAX_LIST_LIMIT,
         help_text="Maximum number of sessions to return.",
     )
