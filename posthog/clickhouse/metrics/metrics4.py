@@ -32,6 +32,7 @@ from django.conf import settings
 
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplacingMergeTree, ReplicationScheme
 
+from .kafka_metrics import KAFKA_METRICS_COLUMNS, KAFKA_METRICS_TABLE_NAME
 from .metrics2 import kafka_metrics_avro_mv_select, kafka_metrics_avro_table_sql, metrics_input_table_sql
 
 KAFKA_METRICS4_TABLE_NAME = "kafka_metrics_avro4"
@@ -47,6 +48,7 @@ WRITABLE_METRICS4_SAMPLES_TABLE_NAME = "writable_metrics4_samples"
 WRITABLE_METRICS4_SERIES_TABLE_NAME = "writable_metrics4_series"
 WRITABLE_METRICS4_NAMES_TABLE_NAME = "writable_metrics4_names"
 WRITABLE_METRICS4_ATTRIBUTES_TABLE_NAME = "writable_metrics4_attributes"
+WRITABLE_METRICS_KAFKA_METRICS_TABLE_NAME = f"writable_{KAFKA_METRICS_TABLE_NAME}"
 METRICS4_MAX_SAMPLES_PER_SERIES_HOUR = 10_000
 METRICS4_VIEW_NAME = "metrics4_view"
 # metrics2 serves the hours before the cut-over. metrics4_samples serves the cut-over hour and later.
@@ -189,6 +191,12 @@ def WRITABLE_METRICS4_ATTRIBUTES_TABLE_SQL() -> str:
     `attribute_value` String,
     `attribute_type` LowCardinality(String),
     `attribute_count` SimpleAggregateFunction(sum, UInt64)""",
+    )
+
+
+def WRITABLE_METRICS_KAFKA_METRICS_TABLE_SQL() -> str:
+    return _writable_table_sql(
+        WRITABLE_METRICS_KAFKA_METRICS_TABLE_NAME, KAFKA_METRICS_TABLE_NAME, KAFKA_METRICS_COLUMNS
     )
 
 
@@ -382,6 +390,27 @@ GROUP BY
     time_bucket,
     series_fingerprint,
     original_expiry_date
+"""
+
+
+def METRICS4_INPUT_TO_METRICS_KAFKA_METRICS_MV() -> str:
+    """The newest capture time and offset each Kafka partition has delivered, one row per insert block.
+
+    The floor across partitions is how far every partition has reached, which metrics alerts read.
+    `max_timestamp` and `max_lag` stay unset because no reader uses them, and a sender that dates
+    points ahead would pin `max_timestamp`.
+    """
+    db = _db()
+    return f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS4_INPUT_TABLE_NAME}_to_{KAFKA_METRICS_TABLE_NAME} TO {db}.{WRITABLE_METRICS_KAFKA_METRICS_TABLE_NAME}
+AS SELECT
+    _partition,
+    _topic,
+    maxSimpleState(_offset) AS max_offset,
+    maxSimpleState(observed_timestamp) AS max_observed_timestamp,
+    maxSimpleState(now()) AS max_created_at
+FROM {db}.{METRICS4_INPUT_TABLE_NAME}
+GROUP BY _partition, _topic
 """
 
 
