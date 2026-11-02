@@ -1,4 +1,4 @@
-import { type Dayjs, parseDateInTimezone } from './dayjs'
+import { dayjs, type Dayjs, parseDateInTimezone } from './dayjs'
 
 /** Bucket size for a date-based X axis. Mirrors `IntervalType` from product code without
  * coupling hog-charts to it. */
@@ -284,4 +284,59 @@ function buildVisibleBoundaries(parsedDates: Dayjs[]): Set<number> {
     }
 
     return visible
+}
+
+const MAX_TIME_TICKS = 400
+const TICK_INTERVALS: TimeInterval[] = ['second', 'minute', 'hour', 'day', 'week', 'month', 'quarter', 'year']
+const INTERVAL_MS: Record<TimeInterval, number> = {
+    second: 1000,
+    minute: 60 * 1000,
+    hour: HOUR_MS,
+    day: DAY_MS,
+    week: 7 * DAY_MS,
+    month: 30 * DAY_MS,
+    quarter: 91 * DAY_MS,
+    year: 365 * DAY_MS,
+}
+
+/** A span with too many `interval` ticks steps up to a coarser interval. */
+export function buildTimeTickLabels(from: number, to: number, interval: TimeInterval, timezone: string): string[] {
+    if (!(from <= to)) {
+        return []
+    }
+    const unit =
+        TICK_INTERVALS.slice(TICK_INTERVALS.indexOf(interval)).find(
+            (u) => (to - from) / INTERVAL_MS[u] < MAX_TIME_TICKS
+        ) ?? 'year'
+    try {
+        const labels: string[] = []
+        for (let tick = firstTick(from, unit, timezone); tick.valueOf() <= to; tick = nextTick(tick, unit, timezone)) {
+            if (tick.valueOf() >= from) {
+                labels.push(tick.toISOString())
+            }
+        }
+        return labels
+    } catch {
+        return []
+    }
+}
+
+function firstTick(from: number, unit: TimeInterval, timezone: string): Dayjs {
+    const local = dayjs(from).tz(timezone)
+    if (unit === 'quarter') {
+        const month = local.startOf('month')
+        return month.subtract(month.month() % 3, 'month')
+    }
+    return local.startOf(unit)
+}
+
+// dayjs keeps the old UTC offset when adding calendar units, so step the wall-clock date and
+// resolve it in the timezone again to stay on midnight across a daylight saving change.
+function nextTick(tick: Dayjs, unit: TimeInterval, timezone: string): Dayjs {
+    if (unit === 'second' || unit === 'minute' || unit === 'hour') {
+        return dayjs(tick.valueOf() + INTERVAL_MS[unit]).tz(timezone)
+    }
+    const date = dayjs.utc(tick.format('YYYY-MM-DD'))
+    const wallClock = unit === 'quarter' ? date.add(3, 'month') : date.add(1, unit)
+    return parseDateInTimezone(wallClock.format('YYYY-MM-DD'), timezone)
 }
