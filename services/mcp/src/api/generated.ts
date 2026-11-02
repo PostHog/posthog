@@ -134890,7 +134890,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -134905,7 +134905,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -134920,7 +134920,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -134947,7 +134947,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -134970,20 +134970,28 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
 
     export type EngineeringAnalyticsBrokenTestsParams = {
     /**
+     * Optional exact branch name. Keeps only tests that failed on it, but the counts still cover every branch, so a row shows whether the test also fails elsewhere. Applied before the limit.
+     */
+    branch?: string;
+    /**
      * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
+    /**
+     * Optional case-insensitive substring of the test id to keep, e.g. 'test_cohort' or 'posthog/api/test/test_user.py'. Applied before the limit, so a test past the cap is still found.
+     */
+    test?: string;
     };
 
     export type EngineeringAnalyticsCiCardsParams = {
@@ -134992,7 +135000,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135019,7 +135027,7 @@ export namespace Schemas {
      */
     repo: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135096,7 +135104,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135123,7 +135131,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135150,7 +135158,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135181,7 +135189,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135196,6 +135204,10 @@ export namespace Schemas {
     } as const;
 
     export type EngineeringAnalyticsFlakyTestsParams = {
+    /**
+     * Optional exact branch name. Keeps only tests that failed on it, but the counts still cover every branch, so a row shows whether the test also fails elsewhere. Applied before the limit.
+     */
+    branch?: string;
     /**
      * Window start: relative ('-7d', '-30d') or ISO8601. Defaults to -7d; the window may span at most 30 days.
      */
@@ -135213,6 +135225,10 @@ export namespace Schemas {
      */
     min_failed_prs?: number;
     /**
+     * Optional pull request number. Keeps only tests that failed in that PR's CI runs, but the counts still cover every PR. Pass min_failed_prs=1 too, so a test that failed on this PR alone qualifies. Applied before the limit.
+     */
+    pr_number?: number;
+    /**
      * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
      */
     repo?: string;
@@ -135221,9 +135237,13 @@ export namespace Schemas {
      */
     runner?: EngineeringAnalyticsFlakyTestsRunner;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
+    /**
+     * Optional case-insensitive substring of the test id to keep, e.g. 'test_cohort' or 'posthog/api/test/test_user.py'. Applied before the limit, so a test past the cap is still found.
+     */
+    test?: string;
     };
 
     export type EngineeringAnalyticsFlakyTestsRunner = typeof EngineeringAnalyticsFlakyTestsRunner[keyof typeof EngineeringAnalyticsFlakyTestsRunner];
@@ -135256,7 +135276,7 @@ export namespace Schemas {
      */
     run_scope?: EngineeringAnalyticsJobAggregatesRunScope;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     /**
@@ -135325,7 +135345,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135348,7 +135368,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135363,7 +135383,7 @@ export namespace Schemas {
      */
     repo: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135378,7 +135398,7 @@ export namespace Schemas {
      */
     repo: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135393,7 +135413,7 @@ export namespace Schemas {
      */
     repo: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135408,7 +135428,7 @@ export namespace Schemas {
      */
     repo: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135439,7 +135459,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135470,7 +135490,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     /**
@@ -135494,7 +135514,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135517,7 +135537,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135540,7 +135560,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135555,7 +135575,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     /**
@@ -135578,7 +135598,7 @@ export namespace Schemas {
      */
     run_id: number;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135609,7 +135629,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     /**
@@ -135644,7 +135664,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135667,7 +135687,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135678,7 +135698,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135705,7 +135725,7 @@ export namespace Schemas {
      */
     run_scope?: EngineeringAnalyticsWorkflowHealthRunScope;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     /**
@@ -135742,7 +135762,7 @@ export namespace Schemas {
      */
     run_id: number;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135769,7 +135789,7 @@ export namespace Schemas {
      */
     run_id: number;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135804,7 +135824,7 @@ export namespace Schemas {
      */
     run_scope?: EngineeringAnalyticsWorkflowRunActivityRunScope;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     /**
@@ -135845,7 +135865,7 @@ export namespace Schemas {
      */
     run_scope?: EngineeringAnalyticsWorkflowRunnerCostsRunScope;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     /**
@@ -135886,7 +135906,7 @@ export namespace Schemas {
      */
     run_scope?: EngineeringAnalyticsWorkflowRunsRunScope;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     /**
