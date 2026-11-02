@@ -1381,7 +1381,8 @@ class TestDashboardWidgets(APIBaseTest):
         assert shared_widget["config"]["limit"] == 10
         assert "search" not in shared_widget["config"]
 
-        DashboardWidget.objects.filter(id=tile.widget_id).update(
+        assert tile.widget_id is not None
+        DashboardWidget.objects.for_team(self.team.id).filter(id=tile.widget_id).update(
             widget_type="metrics", config={"query": {"kind": "MetricsQuery", "sql": "select secret"}}
         )
         tile.refresh_from_db()
