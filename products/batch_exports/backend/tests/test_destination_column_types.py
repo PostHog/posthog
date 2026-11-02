@@ -10,6 +10,7 @@ from posthog.temporal.common.logger import get_write_only_logger
 
 from products.batch_exports.backend.service import AnyBatchExportModel, BatchExportHogQLModel, BatchExportPersonsModel
 from products.batch_exports.backend.temporal.destinations import (
+    bigquery_batch_export,
     databricks_batch_export,
     postgres_batch_export,
     redshift_batch_export,
@@ -18,6 +19,13 @@ from products.batch_exports.backend.temporal.destinations import (
 from products.batch_exports.backend.temporal.errors import ColumnTypeMappingError, UnsupportedColumnTypeError
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.utils import handle_column_type_mapping_errors, handle_non_retryable_errors
+
+
+def _map_bigquery(model: AnyBatchExportModel, schema: pa.Schema) -> object:
+    with handle_column_type_mapping_errors(model):
+        return bigquery_batch_export.BigQueryTable.from_arrow_schema(
+            schema, table_id="t", dataset_id="s", project_id="p", primary_key=(), version_key=()
+        )
 
 
 def _map_snowflake(model: AnyBatchExportModel, schema: pa.Schema) -> object:
@@ -42,6 +50,7 @@ def _map_databricks(model: AnyBatchExportModel, schema: pa.Schema) -> object:
 SCHEMA_MAPPERS: list[
     tuple[str, collections.abc.Callable[[AnyBatchExportModel, pa.Schema], object], collections.abc.Sequence[str]]
 ] = [
+    ("BigQuery", _map_bigquery, bigquery_batch_export.NON_RETRYABLE_ERROR_TYPES),
     ("Snowflake", _map_snowflake, snowflake_batch_export.NON_RETRYABLE_ERROR_TYPES),
     ("Redshift", _map_redshift, redshift_batch_export.NON_RETRYABLE_ERROR_TYPES),
     ("PostgreSQL", _map_postgres, postgres_batch_export.NON_RETRYABLE_ERROR_TYPES),
