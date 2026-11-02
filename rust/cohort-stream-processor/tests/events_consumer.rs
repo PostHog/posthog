@@ -28,6 +28,8 @@
 // Tests seed and assert through `CohortStore` directly — the sanctioned direct-store test surface.
 #![allow(clippy::disallowed_methods)]
 
+mod support;
+
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::num::NonZeroU16;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -393,7 +395,12 @@ async fn drain_shadow_changes(topic: &str, expected: usize) -> Vec<CohortMembers
     let mut changes = Vec::new();
     let start = Instant::now();
     while changes.len() < expected && start.elapsed() < Duration::from_secs(30) {
-        match tokio::time::timeout(Duration::from_secs(2), consumer.recv()).await {
+        match tokio::time::timeout(
+            Duration::from_secs(2),
+            support::recv(&mut consumer.stream()),
+        )
+        .await
+        {
             Ok(Ok(message)) => {
                 if let Some(payload) = message.payload() {
                     changes.push(

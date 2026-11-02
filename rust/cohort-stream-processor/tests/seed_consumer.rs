@@ -12,6 +12,8 @@
 //! cargo test -p cohort-stream-processor --test seed_consumer -- --ignored --test-threads=1
 //! ```
 
+mod support;
+
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::num::{NonZeroU16, NonZeroU32};
@@ -268,7 +270,12 @@ async fn consume_all(topic: &str, expected: usize, deadline: Duration) -> Vec<(i
     let mut messages = Vec::new();
     let start = Instant::now();
     while messages.len() < expected && start.elapsed() < deadline {
-        match tokio::time::timeout(Duration::from_secs(2), consumer.recv()).await {
+        match tokio::time::timeout(
+            Duration::from_secs(2),
+            support::recv(&mut consumer.stream()),
+        )
+        .await
+        {
             Ok(Ok(message)) => {
                 if let Some(payload) = message.payload() {
                     messages.push((message.partition(), payload.to_vec()));
