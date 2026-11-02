@@ -600,7 +600,7 @@ export class HogInvocationResultsService {
                 : result.canceled
                   ? 'canceled'
                   : 'succeeded'
-            this.queueLifecycleRow(result.invocation, status, { error: result.error })
+            this.queueLifecycleRow(result.invocation, status, { error: result.error, errorKind: result.errorKind })
         }
     }
 

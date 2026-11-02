@@ -95,11 +95,12 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
     private buildFailedResult(
         item: CyclotronJobInvocation,
         hogFlow: HogFlow,
-        message: string
+        failure: { errorKind: string; error: string }
     ): CyclotronJobInvocationResult {
         const invocation = { ...item, hogFlow }
-        const result = createInvocationResult(invocation, {}, { finished: true, error: message })
-        result.logs.push({ level: 'error', timestamp: DateTime.now(), message })
+        const result = createInvocationResult(invocation, {}, { finished: true, error: failure.error })
+        result.errorKind = failure.errorKind
+        result.logs.push({ level: 'error', timestamp: DateTime.now(), message: failure.error })
         return result
     }
 
@@ -147,12 +148,15 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     })
                     counterHogFlowJobsFailed.labels({ reason: 'workflow_version_behind' }).inc()
 
-                    const failure = `Workflow version ${hogFlow.version} is older than version ${send?.hogFlowVersion}, which this send was checked against`
+                    const failure = {
+                        errorKind: 'workflow_version_behind',
+                        error: `Workflow version ${hogFlow.version} is older than version ${send?.hogFlowVersion}, which this send was checked against`,
+                    }
                     const behind = { ...item, hogFlow }
                     const recorded =
                         await this.invocationResultsService.invocationResultsRowsService.recordTerminalFailureDurably(
                             behind,
-                            { errorKind: 'workflow_version_behind', error: failure }
+                            failure
                         )
                     if (recorded || !this.config.HOG_INVOCATION_RESULTS_ENABLED) {
                         terminalResults.push(this.buildFailedResult(item, hogFlow, failure))

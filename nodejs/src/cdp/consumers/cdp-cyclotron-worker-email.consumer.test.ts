@@ -170,8 +170,15 @@ describe('CdpCyclotronWorkerEmail', () => {
                     : []
             )
             expect(jobQueue.dequeueInvocations).toHaveBeenLastCalledWith([])
-            expect(produced('hog_invocation_results')[0]).toEqual(
-                expect.objectContaining({
+            expect(
+                produced('hog_invocation_results').map((row) => ({
+                    invocation_id: row.invocation_id,
+                    function_kind: row.function_kind,
+                    status: row.status,
+                    error_kind: row.error_kind,
+                }))
+            ).toEqual(
+                Array(recorded ? 2 : 1).fill({
                     invocation_id: job.id,
                     function_kind: 'hog_flow',
                     status: 'failed',
@@ -179,7 +186,15 @@ describe('CdpCyclotronWorkerEmail', () => {
                 })
             )
             expect(produced('email_status')).toEqual(
-                recorded ? [expect.objectContaining({ message_id: job.id, status: 'failed' })] : []
+                recorded
+                    ? [
+                          expect.objectContaining({
+                              message_id: job.id,
+                              status: 'failed',
+                              reason: 'workflow_version_behind',
+                          }),
+                      ]
+                    : []
             )
         } finally {
             hub.HOG_INVOCATION_RESULTS_ENABLED = resultsEnabled
