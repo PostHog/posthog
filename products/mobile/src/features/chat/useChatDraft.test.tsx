@@ -2,6 +2,8 @@ import { act, renderHook, waitFor } from '@testing-library/react-native'
 
 const mockAuth = { signedIn: true, host: 'https://example.com', user: { uuid: 'user-1' }, projectId: 1 }
 let mockStorageUnavailable = false
+let mockWriteGate: Promise<void> | undefined
+let mockWriteFailure = false
 const mockValues = new Map<string, string>()
 
 jest.mock('@/auth/authStore', () => ({
@@ -20,6 +22,8 @@ jest.mock('./draftPersistence', () => {
         chatDrafts: new DraftStore({
             getItem: async (key: string) => mockValues.get(key) ?? null,
             setItem: async (key: string, value: string) => {
+                await mockWriteGate
+                if (mockWriteFailure) throw new Error('Device full')
                 mockValues.set(key, value)
             },
             removeItem: async (key: string) => {
@@ -30,11 +34,14 @@ jest.mock('./draftPersistence', () => {
 })
 
 import { chatDrafts } from './draftPersistence'
+import { queueActions } from './messageQueue'
 import { useChatDraft } from './useChatDraft'
 
 beforeEach(async () => {
     mockAuth.projectId = 1
     mockStorageUnavailable = false
+    mockWriteGate = undefined
+    mockWriteFailure = false
     await chatDrafts.clear(['scope-1', 'scope-2'])
     mockValues.clear()
 })
@@ -154,6 +161,127 @@ describe('chat draft persistence', () => {
             await settle(false)
         })
         expect(hook.result.current.draft.text).toBe('')
+        hook.unmount()
+    })
+    it('commits queued text before clearing the composer and restores it held after reopening', async () => {
+        const hook = renderHook(() => useChatDraft('task-1', undefined))
+        await waitFor(() => expect(hook.result.current.ready).toBe(true))
+        act(() => hook.result.current.change({ text: 'Keep this', reportIds: [] }))
+        let finish!: () => void
+        mockWriteGate = new Promise<void>((resolve) => {
+            finish = resolve
+        })
+        let queued!: Promise<boolean>
+        act(() => {
+            queued = hook.result.current.updateQueue(queueActions.enqueue('Keep this'), true)
+        })
+        expect(hook.result.current.draft.text).toBe('Keep this')
+        act(() => hook.result.current.change({ text: 'New typing', reportIds: [] }))
+        await act(async () => {
+            finish()
+            await queued
+        })
+        expect(hook.result.current.draft.text).toBe('New typing')
+        hook.unmount()
+        const reopened = renderHook(() => useChatDraft('task-1', undefined))
+        await waitFor(() => expect(reopened.result.current.ready).toBe(true))
+        expect(reopened.result.current.queue).toMatchObject({ rows: [{ text: 'Keep this' }], hold: 'unconfirmed' })
+        expect(reopened.result.current.draft.text).toBe('New typing')
+        reopened.unmount()
+    })
+
+    it('keeps the composer when the queue write fails and allows an explicit retry', async () => {
+        const hook = renderHook(() => useChatDraft('task-1', undefined))
+        await waitFor(() => expect(hook.result.current.ready).toBe(true))
+        act(() => hook.result.current.change({ text: 'Not saved', reportIds: [] }))
+        mockWriteFailure = true
+        await act(async () => {
+            expect(await hook.result.current.updateQueue(queueActions.enqueue('Not saved'), true)).toBe(false)
+        })
+        expect(hook.result.current.draft.text).toBe('Not saved')
+        expect(hook.result.current.queue.rows).toEqual([])
+        expect(hook.result.current.queueError).toBeDefined()
+        mockWriteFailure = false
+        await act(async () => {
+            expect(await hook.result.current.updateQueue(queueActions.enqueue('Not saved'), true)).toBe(true)
+        })
+        expect(hook.result.current.draft.text).toBe('')
+        expect(hook.result.current.queue.rows).toHaveLength(1)
+        hook.unmount()
+    })
+
+    it('does not hydrate a previous chat after switching destinations during a queue write', async () => {
+        const hook = renderHook(({ taskId }: { taskId: string }) => useChatDraft(taskId, undefined), {
+            initialProps: { taskId: 'task-1' },
+        })
+        await waitFor(() => expect(hook.result.current.ready).toBe(true))
+        let finish!: () => void
+        mockWriteGate = new Promise<void>((resolve) => {
+            finish = resolve
+        })
+        let queued!: Promise<boolean>
+        act(() => {
+            queued = hook.result.current.updateQueue(queueActions.enqueue('First chat'), true)
+        })
+        hook.rerender({ taskId: 'task-2' })
+        await act(async () => {
+            finish()
+            await queued
+        })
+        await waitFor(() => expect(hook.result.current.ready).toBe(true))
+        expect(hook.result.current.queue.rows).toEqual([])
+        hook.rerender({ taskId: 'task-1' })
+        await waitFor(() => expect(hook.result.current.queue.rows).toHaveLength(1))
+        expect(hook.result.current.queue.hold).toBe('unconfirmed')
+        hook.unmount()
+    })
+    it('keeps queued files live while a new chat adopts its task', async () => {
+        const hook = renderHook(({ taskId }: { taskId: string | null }) => useChatDraft(taskId, undefined), {
+            initialProps: { taskId: null },
+        })
+        await waitFor(() => expect(hook.result.current.ready).toBe(true))
+        const file = {
+            id: 'file-1',
+            uri: 'file:///example',
+            name: 'example.txt',
+            size: 1,
+            contentType: 'text/plain',
+            isImage: false,
+        }
+        await act(async () => {
+            await hook.result.current.updateQueue(queueActions.enqueue('With a file', [file]), true)
+        })
+        hook.rerender({ taskId: 'created-task' })
+        await waitFor(() => expect(hook.result.current.ready).toBe(true))
+        expect(hook.result.current.queue.rows[0]?.attachments).toEqual([file])
+        expect(hook.result.current.queue.rows[0]?.missingAttachments).toBeUndefined()
+        expect((await chatDrafts.loadQueue('scope-1', 'new-chat')).rows).toEqual([])
+        hook.unmount()
+        const reopened = renderHook(() => useChatDraft('created-task', undefined))
+        await waitFor(() => expect(reopened.result.current.ready).toBe(true))
+        expect(reopened.result.current.queue.rows[0]).toMatchObject({ attachments: [], missingAttachments: 1 })
+        reopened.unmount()
+    })
+
+    it('holds a queue even when Stop races its device write', async () => {
+        const hook = renderHook(() => useChatDraft('task-1', undefined))
+        await waitFor(() => expect(hook.result.current.ready).toBe(true))
+        let finish!: () => void
+        mockWriteGate = new Promise<void>((resolve) => {
+            finish = resolve
+        })
+        let queued!: Promise<boolean>
+        let stopped!: Promise<boolean>
+        act(() => {
+            queued = hook.result.current.updateQueue(queueActions.enqueue('Wait'), true)
+            stopped = hook.result.current.updateQueue(queueActions.hold('cancelled'))
+        })
+        await act(async () => {
+            finish()
+            await queued
+            await stopped
+        })
+        expect(hook.result.current.queue.hold).toBe('cancelled')
         hook.unmount()
     })
 })

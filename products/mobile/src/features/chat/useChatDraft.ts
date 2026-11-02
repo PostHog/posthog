@@ -6,6 +6,7 @@ import { track } from '@/lib/analytics'
 
 import { chatDrafts, draftIdentity, draftScope } from './draftPersistence'
 import { type ChatDraft, restoreUnsent } from './draftStore'
+import { EMPTY_QUEUE, type QueueAction, type QueueState, queueReducer } from './messageQueue'
 
 interface DraftTarget {
     identity: string
@@ -19,6 +20,11 @@ export function useChatDraft(
     demo = false
 ): {
     draft: ChatDraft
+    queue: QueueState
+    queuePending: boolean
+    queueError: string | undefined
+    dismissQueueError: () => void
+    updateQueue: (action: QueueAction, clearComposer?: boolean) => Promise<boolean>
     ready: boolean
     change: (draft: ChatDraft) => void
     beginSend: (message: ChatDraft) => Promise<(sent: boolean) => Promise<void>>
@@ -31,11 +37,18 @@ export function useChatDraft(
     const key = taskId ? `task:${taskId}` : reportId ? `report:${reportId}` : 'new-chat'
     const initial = { text: '', reportIds: reportId ? [reportId] : [] }
     const [draft, setDraft] = useState<ChatDraft>(initial)
+    const [queue, setQueue] = useState<QueueState>(EMPTY_QUEUE)
+    const queueRef = useRef(queue)
+    const queueBusy = useRef(false)
+    const queueWrite = useRef<Promise<void>>(Promise.resolve())
+    const [queuePending, setQueuePending] = useState(false)
+    const [queueError, setQueueError] = useState<string>()
     const latest = useRef(draft)
     const target = useRef<DraftTarget | null>(null)
     const [ready, setReady] = useState(false)
     const mounted = useRef(false)
     const destination = useRef(0)
+    const previousDestination = useRef({ identity, key })
     const edited = useRef(false)
     const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -77,17 +90,26 @@ export function useChatDraft(
         mounted.current = true
         destination.current++
         setReady(false)
+        queueBusy.current = false
+        setQueuePending(false)
+        setQueueError(undefined)
         const previous = target.current
-        const adopting = previous?.identity === identity && !previous.key.startsWith('task:') && key.startsWith('task:')
+        const prior = previousDestination.current
+        const adopting = prior.identity === identity && !prior.key.startsWith('task:') && key.startsWith('task:')
+        previousDestination.current = { identity, key }
         if (!adopting) {
             edited.current = false
             latest.current = { text: '', reportIds: reportId ? [reportId] : [] }
             setDraft(latest.current)
+            queueRef.current = EMPTY_QUEUE
+            setQueue(EMPTY_QUEUE)
         }
         target.current = null
         if (!identity) {
             setReady(true)
-            return undefined
+            return () => {
+                mounted.current = false
+            }
         }
         void (async () => {
             const scope = await draftScope(identity)
@@ -98,6 +120,7 @@ export function useChatDraft(
                 await chatDrafts.move(scope, previous.key, key)
             }
             const saved = await chatDrafts.load(scope, key)
+            const savedQueue = await chatDrafts.loadQueue(scope, key)
             if (cancelled || draftIdentity() !== identity) {
                 return
             }
@@ -107,6 +130,17 @@ export function useChatDraft(
             } else {
                 target.current = { identity, scope, key }
             }
+            const restored = adopting
+                ? {
+                      ...savedQueue,
+                      hold: queueRef.current.hold,
+                      rows: savedQueue.rows.map(
+                          (row) => queueRef.current.rows.find((live) => live.id === row.id) ?? row
+                      ),
+                  }
+                : savedQueue
+            queueRef.current = restored
+            setQueue(restored)
             if (!edited.current && saved) {
                 latest.current = saved
                 setDraft(saved)
@@ -122,6 +156,7 @@ export function useChatDraft(
             setReady(true)
         })().catch(() => {
             if (!cancelled) {
+                setQueueError("Couldn't load saved messages. Close and reopen this chat to try again.")
                 setReady(true)
             }
         })
@@ -131,6 +166,57 @@ export function useChatDraft(
             cancelled = true
         }
     }, [identity, key, reportId, flush])
+
+    const updateQueue = useCallback(
+        async (action: QueueAction, clearComposer = false): Promise<boolean> => {
+            const current = target.current
+            const mine = destination.current
+            if (queueBusy.current && (action.type === 'enqueue' || action.type === 'remove')) return false
+            while (queueBusy.current) await queueWrite.current
+            if (mine !== destination.current) return false
+            if (!ready || (identity && (!current || draftIdentity() !== current.identity))) {
+                if (mine === destination.current && mounted.current)
+                    setQueueError("Couldn't load saved messages. Close and reopen this chat to try again.")
+                return false
+            }
+            queueBusy.current = true
+            let finish!: () => void
+            queueWrite.current = new Promise<void>((resolve) => {
+                finish = resolve
+            })
+            setQueuePending(true)
+            setQueueError(undefined)
+            const next = queueReducer(queueRef.current, action)
+            const typed = latest.current
+            const cleared = { text: '', reportIds: typed.reportIds }
+            try {
+                if (current)
+                    await chatDrafts.saveQueue(current.scope, current.key, next, clearComposer ? cleared : undefined)
+                if (
+                    mine !== destination.current ||
+                    (current && draftIdentity() !== current.identity) ||
+                    !mounted.current
+                )
+                    return false
+                queueRef.current = next
+                setQueue(next)
+                if (clearComposer && latest.current === typed) change(cleared)
+                return true
+            } catch {
+                if (mine === destination.current && mounted.current) {
+                    setQueueError("Couldn't save queued messages on this device. Try again before closing the chat.")
+                }
+                return false
+            } finally {
+                finish()
+                if (mine === destination.current) {
+                    queueBusy.current = false
+                    setQueuePending(false)
+                }
+            }
+        },
+        [change, identity, ready]
+    )
 
     const beginSend = useCallback(
         async (message: ChatDraft): Promise<(sent: boolean) => Promise<void>> => {
@@ -161,5 +247,6 @@ export function useChatDraft(
         [change]
     )
 
-    return { draft, ready, change, beginSend }
+    const dismissQueueError = useCallback((): void => setQueueError(undefined), [])
+    return { draft, ready, change, beginSend, queue, queuePending, queueError, dismissQueueError, updateQueue }
 }

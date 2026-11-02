@@ -45,16 +45,12 @@ import {
 } from './chatRunOptions'
 import { type ChatSheetSource, useChatSheetEvents } from './chatSheetEvents'
 import { inboxContextItem, reportContextFromItem, reportContextFromView } from './contextPrompt'
-import type { ChatDraft } from './draftStore'
 import { MentionPopover } from './MentionPopover'
 import {
     canDrain,
-    EMPTY_QUEUE,
     joinQueue,
     joinQueueAttachments,
-    type QueueState,
     queueActions,
-    queueReducer,
     type SendGate,
     sendNowState,
     shouldQueue,
@@ -175,17 +171,9 @@ export function ChatScreen({
             reportIds: typeof value === 'function' ? value(attached) : value,
         })
     }
-    const [queue, dispatchQueue] = useReducer(queueReducer, EMPTY_QUEUE)
+    const queue = composerDraft.queue
     const delivering = useRef(false)
     const [isDelivering, setDelivering] = useState(false)
-    const latest = useRef<{ queue: QueueState; draft: ChatDraft; change: (draft: ChatDraft) => void }>({
-        queue,
-        draft: composerDraft.draft,
-        change: composerDraft.change,
-    })
-    useEffect(() => {
-        latest.current = { queue, draft: composerDraft.draft, change: composerDraft.change }
-    })
     const [reports, setReports] = useState<Record<string, ReportView>>({})
     const [mentionOpen, setMentionOpen] = useState(false)
     const mentionTrigger = useRef<'button' | 'typed'>('button')
@@ -268,7 +256,7 @@ export function ChatScreen({
     const bottomInset = insets.bottom
     const keyboardStyle = useAnimatedStyle(() => ({ paddingBottom: Math.max(-keyboard.height.value, bottomInset) }))
     // A message sent before the stored history loads would land in a thread the person cannot see yet.
-    const composerReady = composerDraft.ready && historyStatus === 'idle'
+    const composerReady = composerDraft.ready && !composerDraft.queuePending && historyStatus === 'idle'
     const ready = composerReady && !preparing && !session.isSending
     const gate: SendGate = {
         phase: session.phase,
@@ -276,7 +264,7 @@ export function ChatScreen({
         decisionPending: session.decision !== undefined,
     }
     const queueing = shouldQueue(gate, queue)
-    // Queueing needs no network, so only a direct send waits for the previous one.
+    // Queueing needs no network, but the device write must finish before the composer can submit again.
     const canSend = text.trim().length > 0 && (queueing ? composerReady : ready)
     const sendNow = sendNowState({
         ...gate,
@@ -370,9 +358,11 @@ export function ChatScreen({
         setAttachOpen(false)
         void attachments.pick(source).finally(() => input.current?.focus())
     }
-    const notice = attachments.notice ?? session.notice
+    const notice = composerDraft.queueError ?? attachments.notice ?? session.notice
     const dismissNotice = (): void => {
-        if (attachments.notice) {
+        if (composerDraft.queueError) {
+            composerDraft.dismissQueueError()
+        } else if (attachments.notice) {
             attachments.dismissNotice()
         } else {
             session.dismissNotice()
@@ -404,49 +394,43 @@ export function ChatScreen({
         })
         setAttached((previous) => previous.filter((id) => id !== reportId))
     }
-    // Queued messages go back into the composer draft, so closing the sheet or starting a new chat loses none.
-    // Returns the queued files; the draft cannot hold them.
-    const foldQueue = (): PendingAttachment[] => {
-        queueEpoch.current++
-        const { queue: current, draft, change } = latest.current
-        if (current.rows.length === 0) {
-            return []
+    const screenMounted = useRef(true)
+    const queuedFiles = useRef<PendingAttachment[]>([])
+    queuedFiles.current = joinQueueAttachments(queue.rows)
+    useEffect(() => {
+        screenMounted.current = true
+        return () => {
+            screenMounted.current = false
+            queueEpoch.current++
+            releaseAttachments(queuedFiles.current)
         }
-        const next = { ...draft, text: [joinQueue(current.rows), draft.text.trim()].filter(Boolean).join('\n\n') }
-        latest.current = { queue: EMPTY_QUEUE, draft: next, change }
-        dispatchQueue(queueActions.clear())
-        change(next)
-        return joinQueueAttachments(current.rows)
-    }
-    // Native Back also unmounts the route without the header callback.
-    // biome-ignore lint/correctness/useExhaustiveDependencies: `foldQueue` reads only refs.
-    useEffect(() => () => releaseAttachments(foldQueue()), [])
+    }, [])
     // The mode the chip shows, already mapped onto the harness the message runs on.
     const sendOptions = (): ChatRunOptions => ({ ...runOptions, permissionMode })
     const deliverQueue = (steer: boolean): void => {
         const rows = queue.rows
-        if (rows.length === 0 || delivering.current) {
+        if (rows.length === 0 || rows.some((row) => row.missingAttachments) || delivering.current) {
             return
         }
         const epoch = queueEpoch.current
         delivering.current = true
         setDelivering(true)
-        // Cleared before the send, so a message queued while it is in flight waits for the next delivery.
-        dispatchQueue(queueActions.clear())
-        void session
-            .send(joinQueue(rows), buildContext(), sendOptions(), {
-                ...(steer ? { steer: true } : {}),
-                queuedCount: rows.length,
-                attachments: joinQueueAttachments(rows),
-            })
-            .catch(() => false)
-            .then((sent) => {
+        void composerDraft
+            .updateQueue(queueActions.hold('unconfirmed'))
+            .then(async (saved) => {
+                if (!saved || queueEpoch.current !== epoch) return
+                const sent = await session
+                    .send(joinQueue(rows), buildContext(), sendOptions(), {
+                        ...(steer ? { steer: true } : {}),
+                        queuedCount: rows.length,
+                        attachments: joinQueueAttachments(rows),
+                    })
+                    .catch(() => false)
                 if (sent) {
                     sheetEvents.countSent()
-                } else if (queueEpoch.current === epoch) {
-                    // Held, because the failed send may have reached the agent, and a second automatic try could
-                    // deliver it twice.
-                    dispatchQueue(queueActions.restore(rows))
+                    if (queueEpoch.current === epoch) {
+                        await composerDraft.updateQueue({ type: 'delivered', ids: rows.map((row) => row.id) })
+                    }
                 }
             })
             .finally(() => {
@@ -454,7 +438,7 @@ export function ChatScreen({
                 setDelivering(false)
             })
     }
-    const drainable = composerReady && canDrain(gate, queue)
+    const drainable = composerReady && !composerDraft.queueError && canDrain(gate, queue)
     // biome-ignore lint/correctness/useExhaustiveDependencies: drains on the transition into a drainable state only.
     useEffect(() => {
         if (drainable) {
@@ -469,15 +453,18 @@ export function ChatScreen({
         deliverQueue(true)
     }
     const removeQueued = (id: string): void => {
-        releaseAttachments(queue.rows.find((row) => row.id === id)?.attachments ?? [])
-        dispatchQueue(queueActions.remove(id))
+        if (isDelivering) return
+        const files = queue.rows.find((row) => row.id === id)?.attachments ?? []
+        void composerDraft.updateQueue(queueActions.remove(id)).then((saved) => {
+            if (saved) releaseAttachments(files)
+        })
         track('mobile_session_queue_removed', {
             queue_length: queue.rows.filter((row) => row.id !== id).length,
         })
     }
     const stop = (): void => {
         // The stopped turn ends like any other, so without the hold the queue would go out right after the Stop.
-        dispatchQueue(queueActions.hold('cancelled'))
+        void composerDraft.updateQueue(queueActions.hold('cancelled'))
         session.stop()
     }
     const send = (): void => {
@@ -488,10 +475,11 @@ export function ChatScreen({
         if (queueing || preparingSend.current) {
             setMentionOpen(false)
             const queuedFiles = attachments.files.filter((file) => !sendingFileIds.includes(file.id))
-            dispatchQueue(queueActions.enqueue(message, queuedFiles))
-            attachments.clear({ only: queuedFiles.map((file) => file.id), release: false })
+            void composerDraft.updateQueue(queueActions.enqueue(message, queuedFiles), true).then((saved) => {
+                if (saved) attachments.clear({ only: queuedFiles.map((file) => file.id), release: false })
+                else if (!screenMounted.current) releaseAttachments(queuedFiles)
+            })
             track('mobile_session_queued', { queue_length: queue.rows.length + 1 })
-            composerDraft.change({ text: '', reportIds: attached })
             return
         }
         if (!ready) {
@@ -534,8 +522,8 @@ export function ChatScreen({
     }
     const startNewChat = (): void => {
         sheetEvents.countNewChat()
-        // The queued text folds into this chat's draft, so its files must not follow into the new chat.
-        releaseAttachments(foldQueue())
+        queueEpoch.current++
+        releaseAttachments(joinQueueAttachments(queue.rows))
         preparingSend.current = false
         setPreparing(false)
         setSendingFileIds([])
@@ -625,8 +613,17 @@ export function ChatScreen({
                                         held={queue.hold !== null}
                                         onRemove={removeQueued}
                                         onSendNow={sendQueueNow}
-                                        sendNowDisabledReason={sendNow.disabledReason}
-                                        sendNowPending={sendNow.pending}
+                                        sendNowDisabledReason={
+                                            queue.rows.some((row) => row.missingAttachments)
+                                                ? 'Files were not saved. Copy the queued text, remove it, and attach the files again.'
+                                                : sendNow.disabledReason
+                                        }
+                                        notice={
+                                            queue.hold === 'unconfirmed'
+                                                ? 'Check the conversation before sending again. These messages may already have reached the agent.'
+                                                : undefined
+                                        }
+                                        sendNowPending={sendNow.pending || composerDraft.queuePending}
                                     />
                                     <SessionDecisionPanel
                                         decision={session.decision}

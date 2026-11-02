@@ -1,3 +1,5 @@
+import { EMPTY_QUEUE, type QueueState } from './messageQueue'
+
 export interface ChatDraft {
     text: string
     reportIds: string[]
@@ -10,6 +12,7 @@ export interface DraftStorage {
 }
 
 interface SavedDraft {
+    queue?: QueueState
     draft: ChatDraft
     unsent?: ChatDraft
 }
@@ -26,6 +29,22 @@ function parseDraft(value: unknown): ChatDraft {
             ? record.reportIds.filter((id): id is string => typeof id === 'string').slice(0, 5)
             : [],
     }
+}
+
+function parseQueue(value: unknown): QueueState {
+    if (!value || typeof value !== 'object' || !('rows' in value) || !Array.isArray(value.rows)) return EMPTY_QUEUE
+    const rows: QueueState['rows'] = []
+    for (const row of value.rows) {
+        if (!row || typeof row !== 'object' || typeof row.id !== 'string' || typeof row.text !== 'string') continue
+        rows.push({
+            id: row.id,
+            text: row.text,
+            attachments: [],
+            missingAttachments:
+                Number.isSafeInteger(row.missingAttachments) && row.missingAttachments > 0 ? row.missingAttachments : 0,
+        })
+    }
+    return { rows, hold: rows.length ? 'unconfirmed' : null }
 }
 
 function hasContent(draft: ChatDraft): boolean {
@@ -54,8 +73,9 @@ export class DraftStore {
     }
 
     private async read(scope: string): Promise<Drafts> {
+        const stored = await this.storage.getItem(scope)
         try {
-            const value: unknown = JSON.parse((await this.storage.getItem(scope)) ?? '{}')
+            const value: unknown = JSON.parse(stored ?? '{}')
             if (!value || typeof value !== 'object' || Array.isArray(value)) {
                 return {}
             }
@@ -68,6 +88,7 @@ export class DraftStore {
                 result[key] = {
                     draft: parseDraft(saved.draft),
                     ...(saved.unsent ? { unsent: parseDraft(saved.unsent) } : {}),
+                    queue: parseQueue(saved.queue),
                 }
             }
             return result
@@ -78,12 +99,12 @@ export class DraftStore {
 
     private async write(scope: string, key: string, saved: SavedDraft, drafts: Drafts): Promise<void> {
         delete drafts[key]
-        if (hasContent(saved.draft) || saved.unsent) {
+        if (hasContent(saved.draft) || saved.unsent || saved.queue?.rows.length) {
             drafts[key] = saved
         }
         const keys = Object.keys(drafts)
         for (const stale of keys.slice(0, Math.max(0, keys.length - LIMIT))) {
-            delete drafts[stale]
+            if (!drafts[stale]?.queue?.rows.length) delete drafts[stale]
         }
         if (Object.keys(drafts).length) {
             await this.storage.setItem(scope, JSON.stringify(drafts))
@@ -102,7 +123,7 @@ export class DraftStore {
             let draft = saved.draft
             if (saved.unsent && !this.pending.has(`${scope}:${key}`)) {
                 draft = restoreUnsent(draft, saved.unsent)
-                await this.write(scope, key, { draft }, drafts)
+                await this.write(scope, key, { ...saved, draft, unsent: undefined }, drafts)
             }
             return hasContent(draft) ? draft : null
         })
@@ -115,7 +136,8 @@ export class DraftStore {
                 return
             }
             const unsent = this.pending.get(`${scope}:${key}`)?.message
-            await this.write(scope, key, { draft, ...(unsent ? { unsent } : {}) }, await this.read(scope))
+            const drafts = await this.read(scope)
+            await this.write(scope, key, { ...drafts[key], draft, ...(unsent ? { unsent } : {}) }, drafts)
         })
     }
 
@@ -127,7 +149,8 @@ export class DraftStore {
                 return
             }
             this.pending.set(`${scope}:${key}`, handle)
-            await this.write(scope, key, { draft: EMPTY, unsent: message }, await this.read(scope))
+            const drafts = await this.read(scope)
+            await this.write(scope, key, { ...drafts[key], draft: EMPTY, unsent: message }, drafts)
         })
         return (sent) =>
             this.enqueue(async () => {
@@ -142,8 +165,45 @@ export class DraftStore {
                 this.pending.delete(id)
                 const drafts = await this.read(scope)
                 const typed = drafts[target]?.draft ?? EMPTY
-                await this.write(scope, target, { draft: sent ? typed : restoreUnsent(typed, message) }, drafts)
+                await this.write(
+                    scope,
+                    target,
+                    { ...drafts[target], unsent: undefined, draft: sent ? typed : restoreUnsent(typed, message) },
+                    drafts
+                )
             })
+    }
+
+    loadQueue(scope: string, key: string): Promise<QueueState> {
+        return this.enqueue(async () => (await this.read(scope))[key]?.queue ?? EMPTY_QUEUE)
+    }
+
+    saveQueue(scope: string, key: string, queue: QueueState, draft?: ChatDraft): Promise<void> {
+        const generation = this.generation
+        // File handles cannot survive a restart. Store only a count, so recovery never sends a message without its files.
+        const savedQueue: QueueState = {
+            hold: queue.hold,
+            rows: queue.rows.map(({ id, text, attachments, missingAttachments }) => ({
+                id,
+                text,
+                attachments: [],
+                missingAttachments: (missingAttachments ?? 0) + attachments.length,
+            })),
+        }
+        return this.enqueue(async () => {
+            if (generation !== this.generation) throw new Error('Session ended')
+            const drafts = await this.read(scope)
+            await this.write(
+                scope,
+                key,
+                {
+                    ...drafts[key],
+                    draft: draft ?? drafts[key]?.draft ?? EMPTY,
+                    queue: savedQueue,
+                },
+                drafts
+            )
+        })
     }
 
     move(scope: string, from: string, to: string): Promise<void> {

@@ -56,6 +56,11 @@ describe('chat send preparation', () => {
         jest.mocked(useChatDraft).mockReturnValue({
             draft: { text: 'Continue the old chat', reportIds: [] },
             ready: true,
+            queue: { rows: [], hold: null },
+            queuePending: false,
+            queueError: undefined,
+            dismissQueueError: jest.fn(),
+            updateQueue: jest.fn(async () => true),
             change: jest.fn(),
             beginSend,
         })

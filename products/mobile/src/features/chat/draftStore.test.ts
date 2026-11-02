@@ -1,4 +1,7 @@
+import * as Crypto from 'expo-crypto'
+
 import { type DraftStorage, DraftStore } from './draftStore'
+import { EMPTY_QUEUE, queueActions, queueReducer } from './messageQueue'
 
 function memoryStorage(): DraftStorage {
     const values = new Map<string, string>()
@@ -14,6 +17,11 @@ function memoryStorage(): DraftStorage {
 }
 
 const draft = (text: string, reportIds: string[] = []): { text: string; reportIds: string[] } => ({ text, reportIds })
+
+let nextQueueId = 0
+jest.spyOn(Crypto, 'randomUUID').mockImplementation(
+    () => `00000000-0000-4000-8000-${String(++nextQueueId).padStart(12, '0')}`
+)
 
 describe('chat draft persistence', () => {
     it('restores across app restarts and isolates account, host and project scopes', async () => {
@@ -90,4 +98,80 @@ describe('chat draft persistence', () => {
             expect(await store.load('project', 'task:2')).toEqual(draft('Still usable'))
         }
     )
+    it.each(['queued', 'sending'])(
+        'recovers %s rows held across restart without persisting file paths',
+        async (stage) => {
+            const storage = memoryStorage()
+            const store = new DraftStore(storage)
+            let queue = queueReducer(
+                EMPTY_QUEUE,
+                queueActions.enqueue('Question', [
+                    {
+                        id: 'file-1',
+                        uri: 'file:///private/example',
+                        name: 'example.txt',
+                        size: 1,
+                        contentType: 'text/plain',
+                        isImage: false,
+                    },
+                ])
+            )
+            if (stage === 'sending') queue = queueReducer(queue, queueActions.hold('unconfirmed'))
+            await store.saveQueue('project', 'task:1', queue, draft(''))
+            await store.save('project', 'task:1', draft('Next question'))
+            const restarted = new DraftStore(storage)
+            expect(await restarted.load('project', 'task:1')).toEqual(draft('Next question'))
+            expect(await restarted.loadQueue('project', 'task:1')).toEqual({
+                rows: [{ id: queue.rows[0]?.id, text: 'Question', attachments: [], missingAttachments: 1 }],
+                hold: 'unconfirmed',
+            })
+            expect(await storage.getItem('project')).not.toContain('file:///')
+            for (const scope of ['other-account', 'other-host', 'other-project']) {
+                expect((await restarted.loadQueue(scope, 'task:1')).rows).toEqual([])
+            }
+            expect((await restarted.loadQueue('project', 'task:2')).rows).toEqual([])
+            await restarted.clear(['project'])
+            expect((await new DraftStore(storage).loadQueue('project', 'task:1')).rows).toEqual([])
+        }
+    )
+
+    it('retains an in-flight batch until acknowledgment and removes only that batch', async () => {
+        const storage = memoryStorage()
+        const store = new DraftStore(storage)
+        const first = queueReducer(EMPTY_QUEUE, queueActions.enqueue('First'))
+        await store.saveQueue('project', 'new-chat', first, draft(''))
+        await store.move('project', 'new-chat', 'task:1')
+        expect((await store.loadQueue('project', 'new-chat')).rows).toEqual([])
+        const held = queueReducer(first, queueActions.hold('unconfirmed'))
+        await store.saveQueue('project', 'task:1', held)
+        const later = queueReducer(held, queueActions.enqueue('Second'))
+        await store.saveQueue('project', 'task:1', later)
+        const confirmed = queueReducer(later, { type: 'delivered', ids: first.rows.map((row) => row.id) })
+        await store.saveQueue('project', 'task:1', confirmed)
+        expect((await new DraftStore(storage).loadQueue('project', 'task:1')).rows.map((row) => row.text)).toEqual([
+            'Second',
+        ])
+    })
+    it('clears an in-flight queue write on sign-out and refuses saves queued before it', async () => {
+        const storage = memoryStorage()
+        let finish!: () => void
+        const gate = new Promise<void>((resolve) => {
+            finish = resolve
+        })
+        const write = storage.setItem
+        storage.setItem = async (key, value) => {
+            await gate
+            await write(key, value)
+        }
+        const store = new DraftStore(storage)
+        const queue = queueReducer(EMPTY_QUEUE, queueActions.enqueue('Private text'))
+        const saving = store.saveQueue('project', 'task:1', queue)
+        const waiting = store.saveQueue('project', 'task:2', queue).catch(() => undefined)
+        const cleared = store.clear(['project'])
+        finish()
+        await Promise.all([saving.catch(() => undefined), waiting, cleared])
+        const restarted = new DraftStore(storage)
+        expect((await restarted.loadQueue('project', 'task:1')).rows).toEqual([])
+        expect((await restarted.loadQueue('project', 'task:2')).rows).toEqual([])
+    })
 })
