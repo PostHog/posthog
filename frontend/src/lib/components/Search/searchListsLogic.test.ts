@@ -42,6 +42,12 @@ describe('searchListsLogic', () => {
         expect(new Set(hrefs).size).toBe(hrefs.length)
     })
 
+    it.each([false, true])('shows Models Usage when its feature flag is enabled=%s', (enabled) => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DATA_MODELING_USAGE]: enabled })
+
+        expect(logic.values.productsItems.some((item) => item.href === urls.models('usage'))).toBe(enabled)
+    })
+
     it.each(['support', 'tickets', 'contact support', 'help'])('finds Your tickets when searching "%s"', (query) => {
         const matches = filterSearchItems(logic.values.miscItems, query)
 

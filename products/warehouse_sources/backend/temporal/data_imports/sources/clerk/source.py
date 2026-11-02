@@ -204,6 +204,7 @@ The secret key starts with `sk_live_`.
                     ),
                 ],
             ),
+            webhookManualOnly=True,
             webhookSetupCaption="""Webhook sync keeps the users, organizations, and organization memberships tables up to date. Set it up in Clerk:
 
 1. In the [Clerk Dashboard](https://dashboard.clerk.com/), go to **Configure** > **Webhooks** and select **Add Endpoint**.

@@ -1100,6 +1100,7 @@ export interface CommentApi {
 }
 
 export interface PaginatedCommentListApi {
+    count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
@@ -1420,6 +1421,7 @@ export type ActivityLogListParams = {
      * * `EarlyAccessFeature` - EarlyAccessFeature
      * * `SessionRecordingPlaylist` - SessionRecordingPlaylist
      * * `ReplayScanner` - ReplayScanner
+     * * `ReplayObservation` - ReplayObservation
      * * `VisionAlertConfiguration` - VisionAlertConfiguration
      * * `Comment` - Comment
      * * `Team` - Team
@@ -1457,6 +1459,7 @@ export type ActivityLogListParams = {
      * * `EvaluationDirectory` - EvaluationDirectory
      * * `LLMPrompt` - LLMPrompt
      * * `LLMPromptLabel` - LLMPromptLabel
+     * * `LLMSkill` - LLMSkill
      * * `LLMTrace` - LLMTrace
      * * `AIGatewayCredit` - AIGatewayCredit
      * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
@@ -1470,6 +1473,7 @@ export type ActivityLogListParams = {
      * * `DashboardWidget` - DashboardWidget
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
+     * * `TicketMacro` - TicketMacro
      * * `KnowledgeSource` - KnowledgeSource
      * * `KnowledgeLibrary` - KnowledgeLibrary
      * * `InstanceSetting` - InstanceSetting
@@ -1482,6 +1486,9 @@ export type ActivityLogListParams = {
      * * `DataQualityCheck` - DataQualityCheck
      * * `DataQualityCheckSchedule` - DataQualityCheckSchedule
      * * `WarehouseSuggestion` - WarehouseSuggestion
+     * * `AccessControl` - AccessControl
+     * * `DataWarehouseTable` - DataWarehouseTable
+     * * `DataWarehouseJoin` - DataWarehouseJoin
      * * `Billing` - Billing
      * * `Loop` - Loop
      * * `StamphogRepoConfig` - StamphogRepoConfig
@@ -1532,6 +1539,7 @@ export const ActivityLogListScope = {
     EarlyAccessFeature: 'EarlyAccessFeature',
     SessionRecordingPlaylist: 'SessionRecordingPlaylist',
     ReplayScanner: 'ReplayScanner',
+    ReplayObservation: 'ReplayObservation',
     VisionAlertConfiguration: 'VisionAlertConfiguration',
     Comment: 'Comment',
     Team: 'Team',
@@ -1569,6 +1577,7 @@ export const ActivityLogListScope = {
     EvaluationDirectory: 'EvaluationDirectory',
     LLMPrompt: 'LLMPrompt',
     LLMPromptLabel: 'LLMPromptLabel',
+    LLMSkill: 'LLMSkill',
     LLMTrace: 'LLMTrace',
     AIGatewayCredit: 'AIGatewayCredit',
     WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
@@ -1582,6 +1591,7 @@ export const ActivityLogListScope = {
     DashboardWidget: 'DashboardWidget',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
+    TicketMacro: 'TicketMacro',
     KnowledgeSource: 'KnowledgeSource',
     KnowledgeLibrary: 'KnowledgeLibrary',
     InstanceSetting: 'InstanceSetting',
@@ -1594,6 +1604,9 @@ export const ActivityLogListScope = {
     DataQualityCheck: 'DataQualityCheck',
     DataQualityCheckSchedule: 'DataQualityCheckSchedule',
     WarehouseSuggestion: 'WarehouseSuggestion',
+    AccessControl: 'AccessControl',
+    DataWarehouseTable: 'DataWarehouseTable',
+    DataWarehouseJoin: 'DataWarehouseJoin',
     Billing: 'Billing',
     Loop: 'Loop',
     StamphogRepoConfig: 'StamphogRepoConfig',
@@ -1631,6 +1644,7 @@ export const ActivityLogListScope = {
  * * `EarlyAccessFeature` - EarlyAccessFeature
  * * `SessionRecordingPlaylist` - SessionRecordingPlaylist
  * * `ReplayScanner` - ReplayScanner
+ * * `ReplayObservation` - ReplayObservation
  * * `VisionAlertConfiguration` - VisionAlertConfiguration
  * * `Comment` - Comment
  * * `Team` - Team
@@ -1668,6 +1682,7 @@ export const ActivityLogListScope = {
  * * `EvaluationDirectory` - EvaluationDirectory
  * * `LLMPrompt` - LLMPrompt
  * * `LLMPromptLabel` - LLMPromptLabel
+ * * `LLMSkill` - LLMSkill
  * * `LLMTrace` - LLMTrace
  * * `AIGatewayCredit` - AIGatewayCredit
  * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
@@ -1681,6 +1696,7 @@ export const ActivityLogListScope = {
  * * `DashboardWidget` - DashboardWidget
  * * `ProductTour` - ProductTour
  * * `Ticket` - Ticket
+ * * `TicketMacro` - TicketMacro
  * * `KnowledgeSource` - KnowledgeSource
  * * `KnowledgeLibrary` - KnowledgeLibrary
  * * `InstanceSetting` - InstanceSetting
@@ -1693,6 +1709,9 @@ export const ActivityLogListScope = {
  * * `DataQualityCheck` - DataQualityCheck
  * * `DataQualityCheckSchedule` - DataQualityCheckSchedule
  * * `WarehouseSuggestion` - WarehouseSuggestion
+ * * `AccessControl` - AccessControl
+ * * `DataWarehouseTable` - DataWarehouseTable
+ * * `DataWarehouseJoin` - DataWarehouseJoin
  * * `Billing` - Billing
  * * `Loop` - Loop
  * * `StamphogRepoConfig` - StamphogRepoConfig
@@ -1731,6 +1750,7 @@ export const ActivityLogListScopesItem = {
     EarlyAccessFeature: 'EarlyAccessFeature',
     SessionRecordingPlaylist: 'SessionRecordingPlaylist',
     ReplayScanner: 'ReplayScanner',
+    ReplayObservation: 'ReplayObservation',
     VisionAlertConfiguration: 'VisionAlertConfiguration',
     Comment: 'Comment',
     Team: 'Team',
@@ -1768,6 +1788,7 @@ export const ActivityLogListScopesItem = {
     EvaluationDirectory: 'EvaluationDirectory',
     LLMPrompt: 'LLMPrompt',
     LLMPromptLabel: 'LLMPromptLabel',
+    LLMSkill: 'LLMSkill',
     LLMTrace: 'LLMTrace',
     AIGatewayCredit: 'AIGatewayCredit',
     WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
@@ -1781,6 +1802,7 @@ export const ActivityLogListScopesItem = {
     DashboardWidget: 'DashboardWidget',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
+    TicketMacro: 'TicketMacro',
     KnowledgeSource: 'KnowledgeSource',
     KnowledgeLibrary: 'KnowledgeLibrary',
     InstanceSetting: 'InstanceSetting',
@@ -1793,6 +1815,9 @@ export const ActivityLogListScopesItem = {
     DataQualityCheck: 'DataQualityCheck',
     DataQualityCheckSchedule: 'DataQualityCheckSchedule',
     WarehouseSuggestion: 'WarehouseSuggestion',
+    AccessControl: 'AccessControl',
+    DataWarehouseTable: 'DataWarehouseTable',
+    DataWarehouseJoin: 'DataWarehouseJoin',
     Billing: 'Billing',
     Loop: 'Loop',
     StamphogRepoConfig: 'StamphogRepoConfig',

@@ -18,6 +18,7 @@ import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { maxMocks } from '../testUtils'
 import { QuestionInput } from './QuestionInput'
+import { QuillQuestionInput } from './QuillQuestionInput'
 
 jest.mock(
     '@posthog/hogvm',
@@ -28,7 +29,11 @@ jest.mock(
     { virtual: true }
 )
 
-describe('QuestionInput', () => {
+// Both skins share `useQuestionInput`, so the same behavior holds whichever one the flags pick.
+describe.each([
+    ['lemon', QuestionInput],
+    ['quill', QuillQuestionInput],
+])('QuestionInput (%s)', (_skin, Composer) => {
     let maxLogicInstance: ReturnType<typeof maxLogic.build>
     let threadLogicInstance: ReturnType<typeof maxThreadLogic.build>
 
@@ -51,7 +56,7 @@ describe('QuestionInput', () => {
             <Provider>
                 <BindLogic logic={maxLogic} props={{ panelId: 'test' }}>
                     <BindLogic logic={maxThreadLogic} props={threadProps}>
-                        <QuestionInput />
+                        <Composer />
                     </BindLogic>
                 </BindLogic>
             </Provider>
@@ -71,9 +76,12 @@ describe('QuestionInput', () => {
     const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
 
     it('offers file selection before the first message and preserves the current draft', async () => {
-        expect(screen.queryByText('Attach', { exact: true })).not.toBeInTheDocument()
+        // The flag outlives the previous skin's run of this test, so start from flags off.
+        act(() => featureFlagLogic.actions.setFeatureFlags([], {}))
+        const attachButton = (): Element | null => document.querySelector('[data-attr="max-new-chat-attach-file"]')
+        expect(attachButton()).not.toBeInTheDocument()
         act(() => featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true }))
-        expect(screen.getByText('Attach', { exact: true })).toBeInTheDocument()
+        expect(attachButton()).toBeInTheDocument()
         const file = new File(['demo'], 'notes.txt', { type: 'text/plain' })
         fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Read these notes' } })
         const fileInput = document.querySelector('[data-attr="max-new-chat-attach-input"]') as HTMLInputElement

@@ -15,6 +15,7 @@ import { initKeaTests } from '~/test/init'
 import {
     CyclotronJobFilterEvents,
     CyclotronJobFiltersType,
+    FilterLogicalOperator,
     HogFunctionTemplateType,
     HogFunctionType,
     PropertyFilterType,
@@ -319,6 +320,170 @@ describe('hogFunctionConfigurationLogic', () => {
         })
     })
 
+    describe('mapping preview filters', () => {
+        beforeEach(() => {
+            initKeaTests()
+        })
+
+        it('combines mapping matchers with global properties and ignores unsupported global matchers', async () => {
+            const globalFilters: CyclotronJobFiltersType = {
+                events: [{ id: '$pageview', name: '$pageview', type: 'events' }],
+                actions: [{ id: '99', name: 'Globally configured action', type: 'actions' }],
+                properties: [{ type: PropertyFilterType.HogQL, key: "properties.plan = 'paid'" }],
+            }
+            mockApi.getTemplate.mockResolvedValue({
+                ...HOG_TEMPLATE,
+                filters: globalFilters,
+                mapping_templates: [
+                    {
+                        name: 'Purchase',
+                        include_by_default: true,
+                        filters: { actions: [{ id: '42', name: 'Purchased', type: 'actions' }] },
+                    },
+                    {
+                        name: 'Signup',
+                        include_by_default: true,
+                        filters: { events: [{ id: 'signed up', name: 'signed up', type: 'events' }] },
+                    },
+                ],
+            })
+            logic = hogFunctionConfigurationLogic({ templateId: 'test' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+
+            expect(logic.values.matchingFilters).toEqual({
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.Or,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [{ type: PropertyFilterType.HogQL, key: "event = 'signed up'" }],
+                            },
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [{ type: PropertyFilterType.HogQL, key: 'matchesAction(42)' }],
+                            },
+                        ],
+                    },
+                    {
+                        type: FilterLogicalOperator.And,
+                        values: [{ type: PropertyFilterType.HogQL, key: "properties.plan = 'paid'" }],
+                    },
+                ],
+            })
+            expect(logic.values.configuration.filters).toEqual(globalFilters)
+        })
+
+        it('matches every event for an all-events mapping', async () => {
+            mockApi.getTemplate.mockResolvedValue({
+                ...HOG_TEMPLATE,
+                mapping_templates: [
+                    {
+                        name: 'All events',
+                        include_by_default: true,
+                        use_all_events_by_default: true,
+                    },
+                ],
+            })
+            logic = hogFunctionConfigurationLogic({ templateId: 'all-events' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+
+            expect(logic.values.matchingFilters).toEqual({
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.Or,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [{ type: PropertyFilterType.HogQL, key: 'true' }],
+                            },
+                        ],
+                    },
+                ],
+            })
+        })
+
+        it('matches every event when a mapping has no event or action matchers', async () => {
+            mockApi.getTemplate.mockResolvedValue({
+                ...HOG_TEMPLATE,
+                mapping_templates: [
+                    {
+                        name: 'Mapping with removed matchers',
+                        include_by_default: true,
+                        filters: {},
+                    },
+                ],
+            })
+            logic = hogFunctionConfigurationLogic({ templateId: 'removed-matchers' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+
+            expect(logic.values.matchingFilters).toEqual({
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.Or,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [{ type: PropertyFilterType.HogQL, key: 'true' }],
+                            },
+                        ],
+                    },
+                ],
+            })
+        })
+
+        it('matches every event across mixed mappings while preserving global properties', async () => {
+            const globalProperties: NonNullable<CyclotronJobFiltersType['properties']> = [
+                { type: PropertyFilterType.HogQL, key: "properties.plan = 'paid'" },
+            ]
+            mockApi.getTemplate.mockResolvedValue({
+                ...HOG_TEMPLATE,
+                filters: { properties: globalProperties },
+                mapping_templates: [
+                    {
+                        name: 'Signup',
+                        include_by_default: true,
+                        filters: { events: [{ id: 'signed up', name: 'signed up', type: 'events' }] },
+                    },
+                    {
+                        name: 'All events',
+                        include_by_default: true,
+                        use_all_events_by_default: true,
+                    },
+                ],
+            })
+            logic = hogFunctionConfigurationLogic({ templateId: 'mixed-mappings' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+
+            expect(logic.values.matchingFilters).toEqual({
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.Or,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [{ type: PropertyFilterType.HogQL, key: 'true' }],
+                            },
+                        ],
+                    },
+                    {
+                        type: FilterLogicalOperator.And,
+                        values: globalProperties,
+                    },
+                ],
+            })
+            expect(logic.values.baseEventsQuery?.fixedProperties).toEqual([logic.values.matchingFilters])
+        })
+    })
+
     describe('loading a missing function', () => {
         beforeEach(() => {
             initKeaTests()
@@ -432,16 +597,31 @@ describe('hogFunctionConfigurationLogic', () => {
 
         // Mode 1 still writes flag calls to events, so only mode 2 adds the flag_evaluations count.
         it.each([
-            ['events', FlagEvaluationsModeEnumApi.Number0, 500, [0, 0, 0]],
-            ['read flag evaluations', FlagEvaluationsModeEnumApi.Number1, 500, [0, 0, 0]],
-            ['flag evaluations only', FlagEvaluationsModeEnumApi.Number2, 1203, [0, 200, 0]],
-        ])('estimates the calls it would receive on the %s mode', async (_name, mode, count, highVolume) => {
-            mountOnMode(mode)
-            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess', 'sparklineQueryChangedSuccess'])
+            ['events', FlagEvaluationsModeEnumApi.Number0, 500, [0, 0, 0], undefined],
+            ['read flag evaluations', FlagEvaluationsModeEnumApi.Number1, 500, [0, 0, 0], undefined],
+            [
+                'flag evaluations only',
+                FlagEvaluationsModeEnumApi.Number2,
+                1203,
+                [0, 200, 0],
+                'person_id_no_override_properties_on_events',
+            ],
+        ])(
+            'estimates the calls it would receive on the %s mode',
+            async (_name, mode, count, highVolume, flagCallsPersonsMode) => {
+                mountOnMode(mode)
+                await expectLogic(logic).toDispatchActions(['loadTemplateSuccess', 'sparklineQueryChangedSuccess'])
 
-            expect(logic.values.sparkline?.count).toEqual(count)
-            expect(logic.values.sparkline?.data.find(({ name }) => name === 'High volume')?.values).toEqual(highVolume)
-        })
+                expect(logic.values.sparkline?.count).toEqual(count)
+                expect(logic.values.sparkline?.data.find(({ name }) => name === 'High volume')?.values).toEqual(
+                    highVolume
+                )
+                const flagCallsQuery = (performQuery as jest.Mock).mock.calls
+                    .map(([query]) => query)
+                    .find((query) => query.kind === NodeKind.EventsQuery)
+                expect(flagCallsQuery?.modifiers?.personsOnEventsMode).toBe(flagCallsPersonsMode)
+            }
+        )
 
         it.each([
             [

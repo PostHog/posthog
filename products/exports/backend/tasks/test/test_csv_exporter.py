@@ -1,5 +1,5 @@
 import os
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from datetime import datetime, timedelta
 from io import BytesIO
 from typing import Any, Optional
@@ -18,6 +18,7 @@ from boto3 import resource
 from botocore.client import Config
 from dateutil.relativedelta import relativedelta
 from openpyxl import load_workbook
+from parameterized import parameterized
 from requests.exceptions import HTTPError
 
 from posthog.hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
@@ -1350,8 +1351,40 @@ class TestCSVExporter(APIBaseTest):
                 ],
             )
 
+    @parameterized.expand(
+        [
+            (
+                "a series node",
+                "test_event",
+                lambda query: query,
+                ["series,$browser,Total Sum", "test_event,Chrome,1", "test_event,Firefox,1"],
+            ),
+            (
+                "a saved series without a kind",
+                "legacy_event",
+                lambda query: {**query, "series": [{"event": "legacy_event", "name": "legacy_event", "math": "total"}]},
+                ["series,$browser,Total Sum", "legacy_event,Chrome,1", "legacy_event,Firefox,1"],
+            ),
+            (
+                "a renamed series wrapped in its visualization node",
+                "wrapped_event",
+                lambda query: {
+                    "kind": "InsightVizNode",
+                    "source": {**query, "series": [{**query["series"][0], "custom_name": "Tests"}]},
+                },
+                ["series,custom name,Total Sum", "Chrome,Tests,1", "Firefox,Tests,1"],
+            ),
+        ]
+    )
     @patch("products.exports.backend.models.exported_asset.UUIDT")
-    def test_csv_exporter_trends_with_breakdown(self, mocked_uuidt: Any) -> None:
+    def test_csv_exporter_trends_with_breakdown(
+        self,
+        _name: str,
+        event: str,
+        shape_source: Callable[[dict[str, Any]], dict[str, Any]],
+        expected_lines: list[str],
+        mocked_uuidt: Any,
+    ) -> None:
         with time_machine.travel("2025-05-22T12:00:00.000Z", tick=False):
             _create_person(distinct_ids=["user_1"], team=self.team)
             _create_person(distinct_ids=["user_2"], team=self.team)
@@ -1359,14 +1392,14 @@ class TestCSVExporter(APIBaseTest):
         events_by_person = {
             "user_1": [
                 {
-                    "event": "test_event",
+                    "event": event,
                     "timestamp": datetime(2025, 5, 22, 13, 0),
                     "properties": {"$browser": "Chrome"},
                 },
             ],
             "user_2": [
                 {
-                    "event": "test_event",
+                    "event": event,
                     "timestamp": datetime(2025, 5, 22, 13, 1),
                     "properties": {"$browser": "Firefox"},
                 },
@@ -1379,21 +1412,23 @@ class TestCSVExporter(APIBaseTest):
             team=self.team,
             export_format=ExportedAsset.ExportFormat.CSV,
             export_context={
-                "source": {
-                    "kind": "TrendsQuery",
-                    "dateRange": {"date_to": "2025-05-22", "date_from": "2025-05-22"},
-                    "series": [
-                        {"kind": "EventsNode", "event": "test_event", "name": "test_event", "math": "total"},
-                    ],
-                    "interval": "day",
-                    "trendsFilter": {
-                        "display": "ActionsTable",
-                    },
-                    "breakdownFilter": {
-                        "breakdown": "$browser",
-                        "breakdown_type": "event",
-                    },
-                }
+                "source": shape_source(
+                    {
+                        "kind": "TrendsQuery",
+                        "dateRange": {"date_to": "2025-05-22", "date_from": "2025-05-22"},
+                        "series": [
+                            {"kind": "EventsNode", "event": event, "name": event, "math": "total"},
+                        ],
+                        "interval": "day",
+                        "trendsFilter": {
+                            "display": "ActionsTable",
+                        },
+                        "breakdownFilter": {
+                            "breakdown": "$browser",
+                            "breakdown_type": "event",
+                        },
+                    }
+                )
             },
         )
         exported_asset.save()
@@ -1411,14 +1446,7 @@ class TestCSVExporter(APIBaseTest):
             lines = (content or "").strip().split("\r\n")
             data_lines = sorted(lines[1:])
 
-            self.assertEqual(
-                lines[0:1] + data_lines,
-                [
-                    "series,$browser,Total Sum",
-                    "test_event,Chrome,1",
-                    "test_event,Firefox,1",
-                ],
-            )
+            self.assertEqual(lines[0:1] + data_lines, expected_lines)
 
     @patch("products.exports.backend.models.exported_asset.UUIDT")
     def test_csv_exporter_trends_with_breakdown_and_action(self, mocked_uuidt: Any) -> None:
@@ -1761,6 +1789,98 @@ class TestCSVExporter(APIBaseTest):
         assert _format_breakdown_value([]) == ""
         assert _format_breakdown_value(["a", "b", "c"]) == "a::b::c"
         assert _format_breakdown_value(["single"]) == "single"
+
+
+def _funnel_step(order: int, name: str | None, count: int) -> dict[str, Any]:
+    return {
+        "name": name,
+        "custom_name": None,
+        "order": order,
+        "count": count,
+        "average_conversion_time": None,
+        "median_conversion_time": None,
+    }
+
+
+class TestFunnelStepRows:
+    @pytest.mark.parametrize(
+        "series,funnels_filter,steps,expected",
+        [
+            pytest.param(
+                [
+                    {"kind": "EventsNode", "event": None},
+                    {"kind": "EventsNode", "event": "checkout started", "name": "checkout started"},
+                ],
+                {"funnelVizType": "steps"},
+                [_funnel_step(0, None, 10), _funnel_step(1, "checkout started", 4)],
+                [("All events", "", 10), ("checkout started", "checkout started", 4)],
+                id="all events first",
+            ),
+            pytest.param(
+                [
+                    {
+                        "kind": "FunnelsDataWarehouseNode",
+                        "id": "invoices",
+                        "table_name": "invoices",
+                        "id_field": "id",
+                        "timestamp_field": "created_at",
+                        "aggregation_target_field": "customer_id",
+                    },
+                    {"kind": "ActionsNode", "id": 7, "name": "Paid"},
+                    {
+                        "kind": "GroupNode",
+                        "operator": "OR",
+                        "nodes": [
+                            {"kind": "EventsNode", "event": "refund requested"},
+                            {"kind": "EventsNode", "event": "chargeback"},
+                        ],
+                    },
+                ],
+                {"funnelVizType": "steps"},
+                [
+                    _funnel_step(0, "invoices", 25),
+                    _funnel_step(1, "Paid", 9),
+                    _funnel_step(2, "refund requested, chargeback", 2),
+                ],
+                [("invoices", "invoices", 25), ("Paid", 7, 9), ("refund requested, chargeback", "", 2)],
+                id="warehouse, action and group steps",
+            ),
+            pytest.param(
+                [
+                    {"kind": "EventsNode", "event": "signed up", "name": "signed up"},
+                    {"kind": "EventsNode", "event": "invited teammate", "name": "invited teammate"},
+                ],
+                {"funnelVizType": "steps", "funnelOrderType": "unordered"},
+                [_funnel_step(0, "Completed 1 step", 12), _funnel_step(1, "Completed 2 steps", 5)],
+                [("Completed 1 step", "", 12), ("Completed 2 steps", "", 5)],
+                id="unordered",
+            ),
+            pytest.param(
+                [{"kind": "EventsNode", "event": None}, {"kind": "ActionsNode", "id": 7, "name": "Paid"}],
+                {"funnelVizType": "steps"},
+                [
+                    {**_funnel_step(0, None, 10), "compare_label": "current"},
+                    {**_funnel_step(1, "Paid", 4), "compare_label": "current"},
+                    {**_funnel_step(0, None, 8), "compare_label": "previous"},
+                    {**_funnel_step(1, "Paid", 3), "compare_label": "previous"},
+                ],
+                [("All events", "", 10), ("Paid", 7, 4), ("All events", "", 8), ("Paid", 7, 3)],
+                id="compared periods",
+            ),
+        ],
+    )
+    def test_exports_funnel_step_rows_from_query_series(
+        self,
+        series: list[dict[str, Any]],
+        funnels_filter: dict[str, Any],
+        steps: list[dict[str, Any]],
+        expected: list[tuple[str, str | int, int]],
+    ) -> None:
+        query = {"kind": "FunnelsQuery", "series": series, "funnelsFilter": funnels_filter}
+
+        rows = list(_convert_response_to_csv_data({"results": steps}, series_query=query))
+
+        assert [(row["name"], row["action_id"], row["count"]) for row in rows] == expected
 
 
 class TestExcelWriter:

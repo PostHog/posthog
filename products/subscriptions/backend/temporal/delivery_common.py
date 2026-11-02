@@ -7,7 +7,7 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.email import EmailDeliveryError
 from posthog.exceptions_capture import capture_exception
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationRecord
 from posthog.sync import database_sync_to_async
 
 from products.subscriptions.backend.logic import SLACK_USER_CONFIG_ERRORS, _capture_delivery_failed_event
@@ -32,26 +32,6 @@ LOGGER = get_logger(__name__)
 # details into history events capped at the gRPC payload limit, and an oversized non-retryable
 # error can't be recorded, leaving the workflow unable to complete its failing task.
 _MAX_ERROR_DETAIL_RESULTS = 50
-
-
-def strip_null_bytes(value: Any) -> Any:
-    """Recursively remove NUL (\\x00) from strings — Postgres text/jsonb columns cannot store it.
-
-    Anything written to ``SubscriptionDelivery.content_snapshot`` that originates outside a Postgres
-    text column (ClickHouse query results, LLM output, user-supplied prompts) must pass through this
-    first, or the NUL surfaces as a unicode escape that fails the whole delivery write with a DataError.
-    """
-    if isinstance(value, str):
-        return value.replace("\x00", "")
-    if isinstance(value, list):
-        return [strip_null_bytes(v) for v in value]
-    if isinstance(value, tuple):
-        return tuple(strip_null_bytes(v) for v in value)
-    if isinstance(value, dict):
-        # Strip keys too: a Map(String, …) column can produce data-derived keys carrying NUL,
-        # and Postgres rejects it in a jsonb key just as it does in a value.
-        return {strip_null_bytes(k): strip_null_bytes(v) for k, v in value.items()}
-    return value
 
 
 def error_detail_results(recipient_results: list[RecipientResult]) -> list[dict[str, Any]]:
@@ -171,8 +151,8 @@ async def deliver_email(
     return DeliverSubscriptionResult(recipient_results=recipient_results)
 
 
-def _resolve_slack_integration(subscription: Subscription) -> Integration | None:
-    integration = subscription.integration
+def _resolve_slack_integration(subscription: Subscription) -> IntegrationRecord | None:
+    integration: IntegrationRecord | None = subscription.integration
     if integration is not None and integration.kind != "slack":
         LOGGER.warning(
             "deliver_subscription.invalid_integration_kind",
@@ -189,7 +169,7 @@ def _resolve_slack_integration(subscription: Subscription) -> Integration | None
 async def deliver_slack(
     subscription: Subscription,
     recipient_results: list[RecipientResult],
-    send: Callable[[Integration], Awaitable[SlackDeliveryResult]],
+    send: Callable[[IntegrationRecord], Awaitable[SlackDeliveryResult]],
 ) -> DeliverSubscriptionResult:
     """A missing integration or a permanent Slack config error auto-disables the subscription;
     transient Slack errors raise so Temporal retries."""

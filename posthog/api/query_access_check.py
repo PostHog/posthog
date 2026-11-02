@@ -17,7 +17,7 @@ from posthog.models import Team, User
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
 
-def blocked_access_for_user(user: User, team: Team, queries: list[dict[str, Any]]) -> list[str]:
+def denied_query_resources(user: User, team: Team, queries: list[dict[str, Any]]) -> list[str]:
     """Tables (and runner-level resources) the user can't access among everything the given
     queries read. Each query is compiled (resolved, not executed) as the user, the same resolution
     the read path uses. Non-access compile errors don't gate. Empty list = the user can run them all."""
@@ -28,7 +28,7 @@ def blocked_access_for_user(user: User, team: Team, queries: list[dict[str, Any]
     # query's own modifiers must shape it, because a warehouse events mapping can put an expression
     # into the schema, and the run would compile that expression against the same modifiers.
     contexts: dict[str, HogQLContext] = {}
-    blocked: set[str] = set()
+    denied_resources: set[str] = set()
     for query in queries:
         try:
             # get_query_runner unwraps container nodes (DataTableNode, InsightVizNode, ...) itself.
@@ -46,10 +46,10 @@ def blocked_access_for_user(user: User, team: Team, queries: list[dict[str, Any]
                 )
             prepare_ast_for_printing(runner.to_query(), context=context, dialect="clickhouse")
         except UserAccessControlError as e:
-            blocked.add(e.resource)
+            denied_resources.add(e.resource)
         except TableAccessDeniedError as e:
-            blocked.add(e.table_name)
+            denied_resources.add(e.table_name)
         except Exception:
             # Only access denials gate publishing; anything else is the query's own problem.
             continue
-    return sorted(blocked)
+    return sorted(denied_resources)

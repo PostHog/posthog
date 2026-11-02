@@ -347,6 +347,11 @@ def _session_scope_field(noun: str) -> serializers.CharField:
     )
 
 
+# The query action uses _LOGS_QUERY_SERVER_DEFAULT_LIMIT when the body omits limit, and caps larger values.
+_LOGS_QUERY_MAX_LIMIT = 2000
+_LOGS_QUERY_SERVER_DEFAULT_LIMIT = 1000
+
+
 class _LogsQueryBodySerializer(serializers.Serializer):
     dateRange = _DateRangeSerializer(
         required=False,
@@ -377,7 +382,12 @@ class _LogsQueryBodySerializer(serializers.Serializer):
             "or a filter group object with nested AND/OR groups."
         ),
     )
-    limit = serializers.IntegerField(required=False, default=100, help_text="Max results (1-1000).")
+    limit = serializers.IntegerField(
+        required=False,
+        default=100,
+        min_value=1,
+        help_text=f"Max results. Values above {_LOGS_QUERY_MAX_LIMIT} are capped at {_LOGS_QUERY_MAX_LIMIT}.",
+    )
     after = serializers.CharField(required=False, help_text="Pagination cursor from previous response.")
     excludeAttributes = serializers.BooleanField(
         required=False,
@@ -397,6 +407,11 @@ class _LogsQueryBodySerializer(serializers.Serializer):
     )
     personId = _person_scope_field("results")
     sessionId = _session_scope_field("results")
+
+
+class _LogsBodyLimitSerializer(serializers.Serializer):
+    # Validates only the limit key of a raw query body; the other keys pass through untouched.
+    limit = serializers.IntegerField(required=False, allow_null=True, min_value=1, help_text="Max results.")
 
 
 class _LogsQueryRequestSerializer(serializers.Serializer):
@@ -1511,6 +1526,19 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         return {"type": "AND", "values": []}
 
     @staticmethod
+    def _filter_group_from_query_params(request: Request) -> PropertyGroupFilter | None:
+        try:
+            filter_group = json.loads(request.GET.get("filterGroup") or "null")
+        except ValueError:
+            return None
+        if not isinstance(filter_group, dict | list) or not filter_group:
+            return None
+        try:
+            return PropertyGroupFilter.model_validate(LogsViewSet._normalize_filter_group(filter_group))
+        except ValidationError:
+            return None
+
+    @staticmethod
     def _require_dict_query(query_data: object) -> None:
         """Guard against a non-object `query` field crashing on the first `.get()` call below."""
         if not isinstance(query_data, dict):
@@ -1590,8 +1618,10 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             except (KeyError, ValueError, json.JSONDecodeError):
                 pass  # Invalid cursor format, continue with original date range
 
-        limit = query_data.get("limit")
-        requested_limit = min(1000 if limit is None else limit, 2000)
+        paging = _LogsBodyLimitSerializer(data=query_data)
+        paging.is_valid(raise_exception=True)
+        limit = paging.validated_data.get("limit")
+        requested_limit = min(_LOGS_QUERY_SERVER_DEFAULT_LIMIT if limit is None else limit, _LOGS_QUERY_MAX_LIMIT)
         logs_query_params = {
             "dateRange": date_range,
             "severityLevels": query_data.get("severityLevels", []),
@@ -1620,7 +1650,10 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         # Note: cursor pagination no longer skips time-slicing because we narrow the date range
         # to end at the cursor timestamp, allowing time-slicing to work on the remaining range.
         try:
-            if live_logs_checkpoint:
+            # Replay asks for session logs on every recording open, and most of those teams send no logs.
+            if query.sessionId and not team_has_logs(self.team, cache_negative=True):
+                results: list[Any] = []
+            elif live_logs_checkpoint:
                 response = LogsQueryRunner(query, self.team).run(
                     ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props
                 )
@@ -1651,18 +1684,22 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             next_cursor = base64.b64encode(json.dumps(cursor_data).encode("utf-8")).decode("utf-8")
 
         if not live_logs_checkpoint:
+            event_properties: dict[str, object] = {
+                "results_count": len(results),
+                "has_more": has_more,
+                "has_search_term": bool(query_data.get("searchTerm")),
+                "has_filter_group": bool(query_data.get("filterGroup")),
+                "severity_levels_count": len(query_data.get("severityLevels") or []),
+                "service_names_count": len(query_data.get("serviceNames") or []),
+                "is_paginated": bool(after_cursor),
+            }
+            if results:
+                # This endpoint serves the app, API keys, MCP and other integrations, so the property covers all of them.
+                event_properties["$set_once"] = {"first_used_logs_at": timezone.now().isoformat()}
             report_user_action(
                 request.user,
                 "logs query executed",
-                {
-                    "results_count": len(results),
-                    "has_more": has_more,
-                    "has_search_term": bool(query_data.get("searchTerm")),
-                    "has_filter_group": bool(query_data.get("filterGroup")),
-                    "severity_levels_count": len(query_data.get("severityLevels") or []),
-                    "service_names_count": len(query_data.get("serviceNames") or []),
-                    "is_paginated": bool(after_cursor),
-                },
+                event_properties,
                 team=self.team,
                 request=request,
             )
@@ -2033,13 +2070,17 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         else:
             group_bys = [(query_data.get("groupBy", ""), query_data.get("groupBySource", "log"))]
 
+        paging = _LogsBodyLimitSerializer(data=query_data)
+        paging.is_valid(raise_exception=True)
+        limit = paging.validated_data.get("limit")
+
         try:
             runner = LogsGroupByQueryRunner(
                 team=self.team,
                 query=query,
                 group_bys=group_bys,
                 order_groups_by=query_data.get("orderGroupsBy", "log_count"),
-                group_limit=int(query_data.get("limit", DEFAULT_GROUP_LIMIT)),
+                group_limit=DEFAULT_GROUP_LIMIT if limit is None else limit,
             )
         except (ValueError, TypeError) as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -2092,10 +2133,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             serviceNames = json.loads(request.GET.get("serviceNames", "[]"))
         except json.JSONDecodeError:
             serviceNames = []
-        try:
-            filterGroup = self.get_model(json.loads(request.GET.get("filterGroup", "{}")), PropertyGroupFilter)
-        except (json.JSONDecodeError, ValidationError, ValueError, ParseError):
-            filterGroup = None
+        filterGroup = self._filter_group_from_query_params(request)
 
         attributeType = request.GET.get("attribute_type", "log")
         # I don't know why went with 'log' and 'resource' not 'log_attribute' and 'log_resource_attribute'
@@ -2176,10 +2214,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 serviceNames = json.loads(request.GET.get("serviceNames", "[]"))
             except json.JSONDecodeError:
                 serviceNames = []
-            try:
-                filterGroup = self.get_model(json.loads(request.GET.get("filterGroup", "{}")), PropertyGroupFilter)
-            except (json.JSONDecodeError, ValidationError, ValueError, ParseError):
-                filterGroup = None
+            filterGroup = self._filter_group_from_query_params(request)
 
             attributeType = request.GET.get("attribute_type", "log")
             # I don't know why went with 'log' and 'resource' not 'log_attribute' and 'log_resource_attribute'

@@ -36,6 +36,7 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
     PageHttpStatusError,
     _classify_failure,
     _resolve_widths,
+    is_retryable_failure,
     render_page,
 )
 from products.web_analytics.backend.temporal.page_history.types import (
@@ -500,17 +501,17 @@ class HeatmapHistoryService:
                 except Exception:
                     logger.warning("heatmap_history.thumbnail_write_failed", exc_info=True)
                     thumbnail = None
-        except BrowserlessPermanentError as error:
-            return RenderOutcome(
-                failure_cause=_classify_failure(error),
-                page_status=error.status_code if isinstance(error, PageHttpStatusError) else None,
-            )
         except Exception as error:
-            if not final_attempt and timezone.now() + RENDER_RETRY_DELAY < request.deadline:
+            if (
+                is_retryable_failure(error)
+                and not final_attempt
+                and timezone.now() + RENDER_RETRY_DELAY < request.deadline
+            ):
                 raise
             return RenderOutcome(
                 failure_cause="storage_write_failed"
                 if isinstance(error, ObjectStorageError)
-                else _classify_failure(error)
+                else _classify_failure(error),
+                page_status=error.status_code if isinstance(error, PageHttpStatusError) else None,
             )
         return RenderOutcome(has_thumbnail=thumbnail is not None)

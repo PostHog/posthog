@@ -231,6 +231,9 @@ class SlackAppModelOverrideInput(BaseModel):
     slack_team_id: str
     event_text: str
     thread_ts: str | None = None
+    # Who sent the message, so a model named in it counts as a use of that feature. Trailing and
+    # defaulted, so a task queued before this field existed still decodes.
+    slack_user_id: str | None = None
 
 
 class SlackAppModelOverride(BaseModel):

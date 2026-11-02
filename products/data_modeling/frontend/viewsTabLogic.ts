@@ -67,6 +67,10 @@ export interface viewsTabLogicActions {
         fullRefresh: boolean | undefined
         viewId: string
     } // dataWarehouseViewsLogic
+    loadDataWarehouseSavedQueries: () => any // dataWarehouseViewsLogic
+    addMaterializingViews: (viewIds: string[]) => {
+        viewIds: string[]
+    } // dataWarehouseViewsLogic
     loadDataWarehouseSavedQueriesSuccess: (
         dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
         payload?: any
@@ -127,6 +131,13 @@ export interface viewsTabLogicActions {
     setTypeFilter: (typeFilter: ViewTypeFilter) => {
         typeFilter: ViewTypeFilter
     }
+    suggestionAccepted: (
+        viewId: string,
+        startsMaterializing: boolean
+    ) => {
+        viewId: string
+        startsMaterializing: boolean
+    }
 }
 
 export interface viewsTabLogicMeta {
@@ -172,7 +183,13 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
         ],
         actions: [
             dataWarehouseViewsLogic,
-            ['deleteDataWarehouseSavedQuery', 'runDataWarehouseSavedQuery', 'loadDataWarehouseSavedQueriesSuccess'],
+            [
+                'deleteDataWarehouseSavedQuery',
+                'runDataWarehouseSavedQuery',
+                'loadDataWarehouseSavedQueries',
+                'addMaterializingViews',
+                'loadDataWarehouseSavedQueriesSuccess',
+            ],
             databaseTableListLogic,
             ['loadDatabase'],
         ],
@@ -185,6 +202,7 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
         runMaterialization: (viewId: string) => ({ viewId }),
         loadRunHistory: (viewIds: string[]) => ({ viewIds }),
         loadVisibleData: true,
+        suggestionAccepted: (viewId: string, startsMaterializing: boolean) => ({ viewId, startsMaterializing }),
         openAccessControlModal: (view: DataWarehouseSavedQuerySummary) => ({ view }),
         closeAccessControlModal: true,
     }),
@@ -349,7 +367,18 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
         runMaterialization: ({ viewId }) => {
             actions.runDataWarehouseSavedQuery(viewId)
         },
+        suggestionAccepted: ({ viewId, startsMaterializing }) => {
+            if (startsMaterializing) {
+                actions.addMaterializingViews([viewId])
+            }
+            actions.loadDataWarehouseSavedQueries()
+        },
         loadDataWarehouseSavedQueriesSuccess: () => {
+            const lastPage = Math.max(1, Math.ceil(values.filteredViews.length / PAGE_SIZE))
+            if (values.currentPage > lastPage) {
+                actions.setPage(lastPage)
+                return
+            }
             actions.loadVisibleData()
         },
         setPage: () => {

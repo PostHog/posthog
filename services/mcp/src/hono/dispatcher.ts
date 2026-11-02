@@ -42,6 +42,7 @@ import {
 import { trackInitEvent } from './analytics'
 import type { RedisLike } from './cache/RedisCache'
 import { getEnv, MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
+import { GuidanceEngine } from './guidance/engine'
 import { InstructionsBuilder } from './instructions'
 import { InterviewRecruitment, InterviewRequestError } from './interview-recruitment'
 import { initDurationSeconds, initTotal } from './metrics'
@@ -165,8 +166,16 @@ class McpDispatcher {
         this.resourceCatalog = new ResourceCatalog(env, redis)
         this.stateResolver = new RequestStateResolver(catalog, redis, env)
         this.instructionsBuilder = new InstructionsBuilder(GUIDELINES)
-        this.skillCatalogService = new SkillCatalogService(redis, { archiveUrl: env.POSTHOG_MCP_SKILLS_URL })
-        this.toolExecutor = new ToolExecutor(catalog, this.instructionsBuilder, this.skillCatalogService)
+        this.skillCatalogService = new SkillCatalogService(redis, {
+            archiveUrl: env.POSTHOG_MCP_SKILLS_URL,
+            expectedArchiveSha: env.POSTHOG_MCP_SKILLS_SHA256,
+        })
+        this.toolExecutor = new ToolExecutor(
+            catalog,
+            this.instructionsBuilder,
+            this.skillCatalogService,
+            new GuidanceEngine(redis)
+        )
         this.interviewRecruitment = new InterviewRecruitment(redis)
     }
 

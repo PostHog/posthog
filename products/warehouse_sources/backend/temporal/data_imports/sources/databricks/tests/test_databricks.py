@@ -6,9 +6,12 @@ from unittest.mock import MagicMock, patch
 import pyarrow as pa
 from databricks.sql.exc import RequestError
 
+from posthog.models.integration.databricks import NOT_A_DATABRICKS_HOST_MESSAGE
+
 from products.warehouse_sources.backend.temporal.data_imports.discover_schemas_workflow import (
     DISCOVER_SCHEMAS_ACTIVITY_TIMEOUT,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import HostNotAllowedError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.databricks.databricks import (
     DATABRICKS_SCHEMA_DISCOVERY_DEADLINE_SECONDS,
@@ -136,11 +139,23 @@ class TestConnect:
             kwargs = mock_connect.call_args.kwargs
             assert "access_token" not in kwargs
             assert callable(kwargs["credentials_provider"])
+            assert kwargs["enable_telemetry"] is False
 
-    def test_pasted_workspace_url_is_cleaned(self, impl):
+    def test_refuses_a_host_outside_databricks_zones(self, impl):
+        with patch(_CONNECT_PATH) as mock_connect:
+            with pytest.raises(HostNotAllowedError, match="not a Databricks workspace hostname"):
+                with impl.connect(_make_config(host="dbc-abc123.example.com")):
+                    pass
+            mock_connect.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "pasted_host",
+        ["https://dbc-abc123.cloud.databricks.com/", "HTTPS://DBC-abc123.cloud.databricks.com/"],
+    )
+    def test_pasted_workspace_url_is_cleaned(self, impl, pasted_host):
         # A `https://…/` host reaches the connector as a bare hostname, or every request fails.
         with patch(_CONNECT_PATH) as mock_connect:
-            with impl.connect(_make_config(host="https://dbc-abc123.cloud.databricks.com/")):
+            with impl.connect(_make_config(host=pasted_host)):
                 pass
             assert mock_connect.call_args.kwargs["server_hostname"] == "dbc-abc123.cloud.databricks.com"
 
@@ -415,6 +430,17 @@ class TestDatabricksSource:
             ok, message = source.validate_credentials(_make_config(), team_id=1)
         assert ok is False
         assert message == "Host is not allowed"
+        mock_get_schemas.assert_not_called()
+
+    def test_validate_credentials_refuses_a_host_outside_databricks_zones(self, source):
+        with (
+            patch.object(DatabricksSource, "is_database_host_valid") as mock_is_database_host_valid,
+            patch.object(DatabricksSource, "get_schemas") as mock_get_schemas,
+        ):
+            ok, message = source.validate_credentials(_make_config(host="dbc-abc123.example.com"), team_id=1)
+        assert ok is False
+        assert message == NOT_A_DATABRICKS_HOST_MESSAGE
+        mock_is_database_host_valid.assert_not_called()
         mock_get_schemas.assert_not_called()
 
     def test_get_retryable_errors_matches_stopped_warehouse(self, source):

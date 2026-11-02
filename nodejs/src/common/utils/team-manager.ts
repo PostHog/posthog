@@ -7,7 +7,18 @@ import { logger } from './logger'
 import { captureTeamEvent } from './posthog'
 
 type RawTeam = Omit<Team, 'available_features'> & {
-    available_product_features: { key: string; name: string }[]
+    available_product_features: unknown
+}
+
+// One team's row must not throw, because a throw fails the batched lookup for every team in it. The
+// column is a jsonb array, so an entry can be null. An entry without a string key is skipped.
+function availableFeatures(raw: unknown): OrganizationAvailableFeature[] {
+    if (!Array.isArray(raw)) {
+        return []
+    }
+    return raw.flatMap((feature) =>
+        typeof feature?.key === 'string' ? [feature.key as OrganizationAvailableFeature] : []
+    )
 }
 
 // Postgres stores team ids in int4 columns. A query that compares one of those columns to a
@@ -15,6 +26,11 @@ type RawTeam = Omit<Team, 'available_features'> & {
 // also rejects 0 and negative numbers.
 export function isValidTeamId(value: unknown): value is number {
     return Number.isInteger(value) && (value as number) > 0 && (value as number) <= 2_147_483_647
+}
+
+export function validTeamIds(keys: string[]): number[] {
+    // parseInt would read "1.5" as team 1. Number keeps it 1.5, which isValidTeamId rejects.
+    return keys.map(Number).filter(isValidTeamId)
 }
 
 export interface TeamManagerOptions {
@@ -205,7 +221,7 @@ export class TeamManager {
                     teamPartial.drop_events_older_than_seconds !== null
                         ? Number(teamPartial.drop_events_older_than_seconds)
                         : null,
-                available_features: available_product_features?.map((f) => f.key as OrganizationAvailableFeature) || [],
+                available_features: availableFeatures(available_product_features),
             }
             resultRecord[row.id] = team
             resultRecord[row.api_token] = team

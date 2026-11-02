@@ -15,8 +15,12 @@ while [ "$dir" != "/" ]; do
                         "    source .venv/bin/activate" \
                         "" \
                         "This image already ships a migrated Postgres and ClickHouse, plus a seeded" \
-                        "test_posthog database. Start them with 'hogli start -y -d && hogli wait' when" \
-                        "a test needs one. Never hand-roll a database container: it takes the ports the" \
+                        "test_posthog database. When a test needs them and the task does not need the" \
+                        "running app, start only the datastores:" \
+                        "    docker compose -f docker-compose.dev.yml up -d --no-build db redis7 zookeeper kafka clickhouse objectstorage" \
+                        "    bin/wait-for-docker objectstorage" \
+                        "The full 'hogli start -y -d && hogli wait' stack takes about 12 GiB, too much" \
+                        "for a 16 GiB VM. Never hand-roll a database container: it takes the ports the" \
                         "baked stack needs, and pytest then replays the whole migration history." \
                         "" \
                         "See docs/internal/cloud-task-sandbox.md."

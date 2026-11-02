@@ -76,9 +76,11 @@ class SkillAccessMixin(_SkillViewBase):
         skill_name: str,
         version: int | None = None,
         version_id: str | None = None,
+        *,
+        defer_body: bool = False,
     ) -> LLMSkill | None:
         # has_permission passes anyone with a grant on any one skill, so the loaded row is checked here.
-        skill = get_skill_by_name_from_db(self.team, skill_name, version, version_id)
+        skill = get_skill_by_name_from_db(self.team, skill_name, version, version_id, defer_body=defer_body)
         if skill is not None:
             self.check_object_permissions(request, skill)
             skill = self._apply_trial_skill(request, skill)

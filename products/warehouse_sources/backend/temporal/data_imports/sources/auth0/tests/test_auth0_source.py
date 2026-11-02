@@ -39,6 +39,12 @@ class TestAuth0Source:
         # preserved client secret would be sent there.
         assert self.source.connection_host_fields == ["auth0_domain"]
 
+    def test_retryable_errors_match_rate_limit_raise(self) -> None:
+        # The message `fetch` (auth0.py) re-raises once the tracked session's own 429 retries exhaust.
+        observed_error = "429 Client Error: Too Many Requests for url: https://tenant.us.auth0.com/api/v2/logs?page=1"
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(key in observed_error for key in retryable_errors)
+
     @pytest.mark.parametrize("schema_name", [None, "users"])
     def test_validate_credentials_passes_the_config_through(self, schema_name: Optional[str]) -> None:
         with mock.patch(f"{SOURCE_MODULE}.validate_auth0_credentials", return_value=(True, None)) as mock_validate:

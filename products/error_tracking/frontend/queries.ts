@@ -1,11 +1,14 @@
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
+import { HogQLQueryString, escapeHogQLString, hogql } from 'lib/utils/hogql'
 
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     DataTableNode,
     DateRange,
     DocumentSimilarityQuery,
     ErrorTrackingBreakdownsQuery,
     ErrorTrackingIssueCorrelationQuery,
+    ErrorTrackingIssueEventsQuery,
     ErrorTrackingPendingFingerprintIssueStateUpdate,
     ErrorTrackingQuery,
     ErrorTrackingQueryIssueSeverity,
@@ -16,7 +19,6 @@ import {
     NodeKind,
     ProductKey,
 } from '~/queries/schema/schema-general'
-import { HogQLQueryString, escapeHogQLString, hogql, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     BaseMathType,
@@ -230,6 +232,24 @@ export const errorTrackingIssueEventsQuery = ({
     }
 
     return eventsQuery
+}
+
+export const errorTrackingIssueEventsListQuery = ({
+    issueId,
+    source,
+    onlyWithRecording,
+}: {
+    issueId: string
+    source: EventsQuery
+    onlyWithRecording: boolean
+}): ErrorTrackingIssueEventsQuery => {
+    return setLatestVersionsOnQuery<ErrorTrackingIssueEventsQuery>({
+        kind: NodeKind.ErrorTrackingIssueEventsQuery,
+        issueId,
+        source,
+        onlyWithRecording,
+        tags: { productKey: ProductKey.ERROR_TRACKING },
+    })
 }
 
 export const errorTrackingIssueCorrelationQuery = ({

@@ -43,7 +43,12 @@ function ValueCell({ rule }: { rule: FeatureFlagRulesV2Rule }): JSX.Element {
     return (
         <div className="flex flex-col gap-1">
             {rule.paused && (
-                <LemonTag type="warning" size="small" className="self-start">
+                <LemonTag
+                    type="warning"
+                    size="small"
+                    className="self-start"
+                    title="Persons this rule targets get the default value while it is paused."
+                >
                     Paused
                 </LemonTag>
             )}
@@ -56,7 +61,7 @@ function ValueCell({ rule }: { rule: FeatureFlagRulesV2Rule }): JSX.Element {
             ))}
             {rule.holdout && (
                 <span className="text-xs text-muted">
-                    Holdout #{rule.holdout.id} excludes {formatPercentage(rule.holdout.exclusion_percentage)}
+                    Holdout excludes {formatPercentage(rule.holdout.exclusion_percentage)}
                 </span>
             )}
         </div>

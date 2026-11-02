@@ -54,9 +54,9 @@ const LANE_SECTION: &str = "section";
 pub enum OffloadMode {
     /// Every op runs inline on the caller's thread. The operator kill switch.
     Off,
-    /// Maintenance-lane reads, `flush_wal_sync`, `run_section`, and `stats_snapshot` offload;
-    /// Event-lane reads and every other write run inline. Keeps the event path off the blocking pool
-    /// while still isolating maintenance storms and the fsync syscall.
+    /// Maintenance-lane reads, `flush_wal_sync`, `delete_partition`, `run_section`, and
+    /// `stats_snapshot` offload; Event-lane reads and every other write run inline. Keeps the event
+    /// path off the blocking pool while still isolating maintenance storms and the fsync syscall.
     Maintenance,
     /// Every op offloads. The default operating point.
     #[default]
@@ -169,9 +169,9 @@ impl StoreHandle {
     }
 
     /// Run a write op. Writes take no permit. Under Maintenance every write runs inline *except*
-    /// `flush_wal_sync` (`is_fsync`): the fsync is the expensive syscall, memtable writes are cheap,
-    /// so the fsync offloads while ordinary commits stay on the caller's thread. Under Off all
-    /// inline, under All all offloaded.
+    /// the ones that fsync (`is_fsync`): the fsync is the expensive syscall, memtable writes are
+    /// cheap, so the fsync offloads while ordinary commits stay on the caller's thread. Under Off
+    /// all inline, under All all offloaded.
     #[hotpath::skip]
     async fn write<T, F>(&self, op: &'static str, is_fsync: bool, f: F) -> Result<T, StoreError>
     where
@@ -499,9 +499,9 @@ impl StoreHandle {
         .await
     }
 
-    /// Reclaim all state for one partition. No permit.
-    pub async fn delete_partition(&self, partition_id: u16) -> Result<(), StoreError> {
-        self.write("delete_partition", false, move |store| {
+    /// Reclaim all state for one partition, and return whether it held any key. No permit.
+    pub async fn delete_partition(&self, partition_id: u16) -> Result<bool, StoreError> {
+        self.write("delete_partition", true, move |store| {
             store.delete_partition(partition_id)
         })
         .await

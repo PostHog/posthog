@@ -60,7 +60,7 @@ interface QuillAddAccessDialogProps {
 }
 
 export function QuillAddAccessDialog(props: QuillAddAccessDialogProps): JSX.Element {
-    const { availableLevels, canEditAccessControls } = useValues(accessControlLogic)
+    const { availableLevels, availableLevelsWithNone, canEditAccessControls } = useValues(accessControlLogic)
     const [items, setItems] = useState<string[]>([])
     const [level, setLevel] = useState<AccessControlLevel | null>(availableLevels[0] ?? null)
     const [submitting, setSubmitting] = useState(false)
@@ -96,7 +96,7 @@ export function QuillAddAccessDialog(props: QuillAddAccessDialogProps): JSX.Elem
             <DialogContent>
                 <DialogHeader>
                     <DialogTitle>Add access</DialogTitle>
-                    <DialogDescription>Allow other users or roles to access this resource</DialogDescription>
+                    <DialogDescription>Set access for specific users or roles on this resource</DialogDescription>
                 </DialogHeader>
                 <DialogBody>
                     <FieldGroup>
@@ -125,7 +125,11 @@ export function QuillAddAccessDialog(props: QuillAddAccessDialogProps): JSX.Elem
                         <Field>
                             <FieldTitle>Access level</FieldTitle>
                             <div>
-                                <QuillAccessLevelSelect levels={availableLevels} level={level} onChange={setLevel} />
+                                <QuillAccessLevelSelect
+                                    levels={availableLevelsWithNone}
+                                    level={level}
+                                    onChange={setLevel}
+                                />
                             </div>
                         </Field>
                     </FieldGroup>

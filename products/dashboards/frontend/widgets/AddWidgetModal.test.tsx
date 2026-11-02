@@ -6,6 +6,8 @@ import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -80,19 +82,20 @@ describe('AddWidgetModal', () => {
         expect(screen.queryByText('Notebook widget')).not.toBeInTheDocument()
     })
 
-    it('shows alphabetized badges for each widget product section', () => {
+    it.each([
+        [false, ['Activity', 'Error tracking', 'Experiments', 'Logs', 'Session replay', 'Support', 'Surveys']],
+        [
+            true,
+            ['Activity', 'Error tracking', 'Experiments', 'Logs', 'Metrics', 'Session replay', 'Support', 'Surveys'],
+        ],
+    ])('shows alphabetized product badges when the metrics flag is %s', (metricsEnabled, expectedBadges) => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.METRICS]: metricsEnabled })
         renderAddWidgetModal()
 
         const badges = screen.getByTestId('dashboard-widget-product-badges')
-        expect(Array.from(badges.children).map((badge) => badge.textContent)).toEqual([
-            'Activity',
-            'Error tracking',
-            'Experiments',
-            'Logs',
-            'Session replay',
-            'Support',
-            'Surveys',
-        ])
+        expect(Array.from(badges.children).map((badge) => badge.textContent)).toEqual(expectedBadges)
+        expect(!!screen.queryByText('Metrics', { selector: 'h5' })).toEqual(metricsEnabled)
     })
 
     it('filters widget sections to the selected product badges', async () => {
@@ -111,7 +114,7 @@ describe('AddWidgetModal', () => {
 
         await userEvent.click(within(badges).getByText('Logs'))
         await userEvent.click(within(badges).getByText('Error tracking'))
-        expect(sectionHeadings()).toHaveLength(7)
+        expect(sectionHeadings()).toHaveLength(8)
     })
 
     it('allows multi-select checkbox behavior within grouped layout', async () => {

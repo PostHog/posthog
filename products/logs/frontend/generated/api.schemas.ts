@@ -2651,7 +2651,10 @@ export interface _LogsQueryBodyApi {
     searchTerm?: string
     /** Property filters for the query. Pass a list of filters, which are all combined with AND, or a filter group object with nested AND/OR groups. */
     filterGroup?: LogsFilterGroupInputApi
-    /** Max results (1-1000). */
+    /**
+     * Max results. Values above 2000 are capped at 2000.
+     * @minimum 1
+     */
     limit?: number
     /** Pagination cursor from previous response. */
     after?: string
@@ -3605,4 +3608,19 @@ export type TasksRunsLogsRetrieveParams = {
      * @minimum 1
      */
     tail_bytes?: number
+    /**
+     * 'full' returns every entry as stored. 'thread' drops the duplicate tool response copy in _meta.claudeCode.toolResponse and keeps only its decisionReason and message, for clients that render the conversation. It applies to the full log and to every slice.
+     *
+     * * `full` - full
+     * * `thread` - thread
+     * @minLength 1
+     */
+    view?: TasksRunsLogsRetrieveView
 }
+
+export type TasksRunsLogsRetrieveView = (typeof TasksRunsLogsRetrieveView)[keyof typeof TasksRunsLogsRetrieveView]
+
+export const TasksRunsLogsRetrieveView = {
+    Full: 'full',
+    Thread: 'thread',
+} as const

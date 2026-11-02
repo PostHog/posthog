@@ -22,12 +22,12 @@ from products.tasks.backend.temporal.process_task.activities.send_followup_to_sa
     SendFollowupToSandboxInput,
     _refresh_sandbox_github,
     _refresh_sandbox_mcp,
-    _resolve_peer_credential_actor,
     send_followup_to_sandbox,
 )
 from products.tasks.backend.temporal.process_task.utils import (
     McpServerConfig,
     PrAuthorshipMode,
+    UserMcpServerConfigs,
     _sandbox_identity_cache_key,
     get_sandbox_github_identity_user,
     get_sandbox_mcp_session_user,
@@ -95,7 +95,7 @@ def _refresh(task_run, actor_id: int | None = 42, scopes="read_only", auth_token
 def _arm_success(mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh):
     mock_oauth.return_value = "fresh-token"
     mock_ph_configs.return_value = [_make_mcp_config(token="fresh-token")]
-    mock_user_configs.return_value = []
+    mock_user_configs.return_value = UserMcpServerConfigs(configs=[])
     mock_send_refresh.return_value = CommandResult(success=True, status_code=200)
 
 
@@ -159,7 +159,7 @@ class TestRefreshSandboxMcp:
         this, the run's client-imported servers vanish at the first token refresh."""
         mock_oauth.return_value = "fresh-token"
         mock_ph_configs.return_value = [_make_mcp_config(token="fresh-token")]
-        mock_user_configs.return_value = []
+        mock_user_configs.return_value = UserMcpServerConfigs(configs=[])
         mock_send_refresh.return_value = CommandResult(success=True, status_code=200)
 
         task_run = _make_task_run_mock()
@@ -272,7 +272,7 @@ class TestRefreshSandboxMcp:
         # caller fails the follow-up closed) and the previous binding is left as is.
         mock_oauth.return_value = "fresh-token"
         mock_ph_configs.return_value = [_make_mcp_config()]
-        mock_user_configs.return_value = []
+        mock_user_configs.return_value = UserMcpServerConfigs(configs=[])
         mock_send_refresh.return_value = CommandResult(success=False, status_code=502, error="down")
         mark_sandbox_mcp_session("run-1", 99)
 
@@ -291,7 +291,7 @@ class TestRefreshSandboxMcp:
         # rebind, the gate reports unsafe so the caller fails closed.
         mock_oauth.return_value = "fresh-token"
         mock_ph_configs.return_value = [_make_mcp_config()]
-        mock_user_configs.return_value = []
+        mock_user_configs.return_value = UserMcpServerConfigs(configs=[])
         mock_send_refresh.return_value = CommandResult(success=False, status_code=502, error="down")
 
         actor = MagicMock(id=42)
@@ -393,7 +393,7 @@ class TestSessionIdentityGate:
         # Reject the turn rather than run it against the prior actor's session.
         mock_oauth.return_value = "fresh-token"
         mock_ph_configs.return_value = []
-        mock_user_configs.return_value = []
+        mock_user_configs.return_value = UserMcpServerConfigs(configs=[])
         mark_sandbox_mcp_session("run-1", 99)
 
         actor = MagicMock(id=42)
@@ -411,7 +411,7 @@ class TestSessionIdentityGate:
         # because MCP is unavailable. The binding is recorded for later transitions.
         mock_oauth.return_value = "fresh-token"
         mock_ph_configs.return_value = []
-        mock_user_configs.return_value = []
+        mock_user_configs.return_value = UserMcpServerConfigs(configs=[])
 
         actor = MagicMock(id=42)
         failure = _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", None, actor_user=actor, state=None)
@@ -1246,261 +1246,3 @@ class TestSendFollowupTurnTimeout:
 
         _, kwargs = _patches["user_msg"].call_args
         assert kwargs["message_id"] == "m-1"
-
-
-class TestPeerDeliveryMode:
-    # Delivery contract, item 2: in peer mode the credential actor can never be
-    # derived from message input or task-state overlays, failures never write the
-    # recipient's stream sentinels, and the message row carries the outcome.
-
-    _PEER_ID = "7f000000-0000-4000-8000-000000000001"
-
-    def _peer_context(self, peer_id: str | None = None) -> dict:
-        return {"kind": "agent_peer_message", "peer_message_id": peer_id or self._PEER_ID}
-
-    @pytest.fixture
-    def _patches(self):
-        with (
-            patch(
-                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.TaskRun"
-            ) as mock_task_run_cls,
-            patch(
-                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_sandbox_connection_token"
-            ) as mock_conn_token,
-            patch(
-                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox._refresh_sandbox_mcp"
-            ) as mock_refresh_mcp,
-            patch(
-                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox._refresh_sandbox_github",
-                return_value=None,
-            ) as mock_refresh_github,
-            patch(
-                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_user_message"
-            ) as mock_user_msg,
-            patch(
-                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox._write_turn_complete"
-            ) as mock_turn_complete,
-            patch(
-                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox._write_error_and_complete"
-            ) as mock_error,
-            patch(
-                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_task_run_credential_user"
-            ) as mock_resolve_actor,
-            patch(
-                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_mcp_session_user"
-            ) as mock_bound_user,
-            patch(
-                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox._resolve_peer_credential_actor"
-            ) as mock_bound_actor,
-            patch(
-                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.mark_peer_message_outcome"
-            ) as mock_mark,
-        ):
-            task_run = _make_task_run_mock()
-            mock_task_run_cls.objects.select_related.return_value.get.return_value = task_run
-            mock_task_run_cls.DoesNotExist = Exception
-            mock_conn_token.return_value = "jwt"
-            mock_refresh_mcp.return_value = None
-            mock_bound_actor.return_value = (None, "the sandbox's bound credential identity is unconfirmed")
-            mock_bound_user.return_value = None
-
-            yield {
-                "task_run": task_run,
-                "conn_token": mock_conn_token,
-                "refresh_mcp": mock_refresh_mcp,
-                "refresh_github": mock_refresh_github,
-                "user_msg": mock_user_msg,
-                "turn_complete": mock_turn_complete,
-                "error": mock_error,
-                "resolve_actor": mock_resolve_actor,
-                "bound_actor": mock_bound_actor,
-                "mark": mock_mark,
-            }
-
-    def test_sender_actor_cannot_influence_credentials_only_bound_identity_can(self, _patches):
-        # A spoofed/compromised sender sets actor_user_id=99 on a peer message; the
-        # run-state resolver must never run, and every credential call must key on
-        # the sandbox's own bound identity instead.
-        bound = MagicMock(id=42, distinct_id="u42")
-        _patches["bound_actor"].return_value = (bound, "")
-        _patches["user_msg"].return_value = CommandResult(success=True, status_code=200)
-
-        _run_activity(
-            SendFollowupToSandboxInput(
-                run_id="run-1",
-                message="peer ping",
-                message_id="m-1",
-                actor_user_id=99,
-                context=self._peer_context(),
-            )
-        )
-
-        _patches["resolve_actor"].assert_not_called()
-        assert _patches["conn_token"].call_args.kwargs["user_id"] == 42
-        assert _patches["refresh_mcp"].call_args.kwargs["actor_user"] is bound
-        assert _patches["refresh_github"].call_args.args[1] is bound
-        assert _patches["user_msg"].call_args.kwargs["steer"] is False
-        _patches["mark"].assert_called_once()
-        assert _patches["mark"].call_args.args == (self._PEER_ID, "delivered")
-
-    def test_unconfirmed_identity_fails_closed_without_delivering(self, _patches):
-        # An expired binding marker can hide another actor's still-live session
-        # (the marker lives half the token lifetime), so an unconfirmed identity
-        # must never run a peer turn on the sandbox's residual credentials.
-        with pytest.raises(ApplicationError) as excinfo:
-            _run_activity(
-                SendFollowupToSandboxInput(
-                    run_id="run-1", message="peer ping", message_id="m-1", context=self._peer_context()
-                )
-            )
-
-        assert excinfo.value.non_retryable is True
-        _patches["user_msg"].assert_not_called()
-        _patches["conn_token"].assert_not_called()
-        _patches["error"].assert_not_called()
-        assert _patches["mark"].call_args.args == (self._PEER_ID, "delivery_failed")
-        assert _patches["mark"].call_args.kwargs["failure_phase"] == "credential_identity"
-
-    def test_stopping_run_rejects_before_peer_delivery(self, _patches):
-        _patches["task_run"].state = {"cancel_requested_at": "2026-01-01T00:00:00+00:00"}
-
-        with pytest.raises(ApplicationError) as excinfo:
-            _run_activity(
-                SendFollowupToSandboxInput(
-                    run_id="run-1", message="peer ping", message_id="m-1", context=self._peer_context()
-                )
-            )
-
-        assert excinfo.value.non_retryable is True
-        _patches["conn_token"].assert_not_called()
-        _patches["refresh_mcp"].assert_not_called()
-        _patches["refresh_github"].assert_not_called()
-        _patches["user_msg"].assert_not_called()
-        assert _patches["mark"].call_args.args == (self._PEER_ID, "delivery_failed")
-        assert _patches["mark"].call_args.kwargs["failure_phase"] == "run_stopping"
-
-    @pytest.mark.parametrize("refresh_key", ["refresh_mcp", "refresh_github"])
-    def test_refresh_failure_marks_row_without_stream_sentinels(self, _patches, refresh_key):
-        _patches["bound_actor"].return_value = (MagicMock(id=42, distinct_id="u42"), "")
-        _patches[refresh_key].return_value = SandboxRebindFailure.REFRESH_SESSION_FAILED
-
-        with pytest.raises(ApplicationError) as excinfo:
-            _run_activity(
-                SendFollowupToSandboxInput(
-                    run_id="run-1", message="peer ping", message_id="m-1", context=self._peer_context()
-                )
-            )
-
-        assert excinfo.value.non_retryable is True
-        _patches["error"].assert_not_called()
-        _patches["user_msg"].assert_not_called()
-        assert _patches["mark"].call_args.args == (self._PEER_ID, "delivery_failed")
-        assert _patches["mark"].call_args.kwargs["failure_phase"] == "credential_refresh"
-
-    def test_final_delivery_failure_marks_row_without_stream_sentinels(self, _patches):
-        _patches["bound_actor"].return_value = (MagicMock(id=42, distinct_id="u42"), "")
-        _patches["user_msg"].return_value = CommandResult(
-            success=False, status_code=500, error="agent exploded", retryable=False
-        )
-
-        with pytest.raises(ApplicationError) as excinfo:
-            _run_activity(
-                SendFollowupToSandboxInput(
-                    run_id="run-1", message="peer ping", message_id="m-1", context=self._peer_context()
-                )
-            )
-
-        assert excinfo.value.non_retryable is True
-        _patches["error"].assert_not_called()
-        assert _patches["mark"].call_args.args == (self._PEER_ID, "delivery_failed")
-        assert _patches["mark"].call_args.kwargs["failure_phase"] == "sandbox_delivery"
-
-    @pytest.mark.parametrize(
-        "result, expected_outcome",
-        [
-            (CommandResult(success=True, status_code=200, data={"result": {"duplicate": True}}), None),
-            (
-                CommandResult(success=False, status_code=504, turn_in_flight=True),
-                TURN_IN_FLIGHT_OUTCOME,
-            ),
-        ],
-    )
-    def test_accepted_delivery_marks_row_delivered_without_turn_complete(
-        self, _patches, result: CommandResult, expected_outcome: str | None
-    ) -> None:
-        _patches["bound_actor"].return_value = (MagicMock(id=42, distinct_id="u42"), "")
-        _patches["user_msg"].return_value = result
-
-        outcome = _run_activity(
-            SendFollowupToSandboxInput(
-                run_id="run-1", message="peer ping", message_id="m-1", context=self._peer_context()
-            )
-        )
-
-        assert outcome == expected_outcome
-        assert _patches["mark"].call_args.args == (self._PEER_ID, "delivered")
-        _patches["turn_complete"].assert_not_called()
-
-    def test_malformed_peer_context_falls_back_to_user_path(self, _patches):
-        # A context that claims the peer kind but fails strict id validation must
-        # NOT unlock peer mode — the message runs as an ordinary follow-up, whose
-        # path resolves the actor from run state.
-        _patches["resolve_actor"].return_value = MagicMock(id=42, distinct_id="u42")
-        _patches["user_msg"].return_value = CommandResult(success=True, status_code=200)
-
-        _run_activity(
-            SendFollowupToSandboxInput(
-                run_id="run-1",
-                message="hi",
-                message_id="m-1",
-                context={"kind": "agent_peer_message", "peer_message_id": "spoof-not-a-uuid"},
-            )
-        )
-
-        _patches["resolve_actor"].assert_called_once()
-        _patches["mark"].assert_not_called()
-
-
-class TestResolvePeerCredentialActor:
-    # The fail-closed identity gate: a peer turn may only ever execute as the task
-    # creator, confirmed bound and still holding active team access. Residual or
-    # foreign credentials must never run a turn the sender authorized as creator.
-
-    def _resolve(self, bound_user_id, has_team_access=True, created_by_id=42):
-        task_run = _make_task_run_mock(created_by_id=created_by_id)
-        with (
-            patch(
-                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_mcp_session_user",
-                return_value=bound_user_id,
-            ),
-            patch(
-                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.user_has_current_team_access",
-                return_value=has_team_access,
-            ) as mock_access,
-        ):
-            actor, reason = _resolve_peer_credential_actor(task_run)
-        return task_run, actor, reason, mock_access
-
-    @pytest.mark.parametrize(
-        "bound_user_id,has_team_access,expected_reason_fragment",
-        [
-            (None, True, "unconfirmed"),
-            (99, True, "different user"),
-            (42, False, "no longer has active access"),
-        ],
-    )
-    def test_fails_closed(self, bound_user_id, has_team_access, expected_reason_fragment):
-        _, actor, reason, _ = self._resolve(bound_user_id, has_team_access=has_team_access)
-        assert actor is None
-        assert expected_reason_fragment in reason
-
-    def test_creatorless_task_fails_closed_even_when_bound(self):
-        _, actor, reason, _ = self._resolve(42, created_by_id=None)
-        assert actor is None
-        assert "different user" in reason
-
-    def test_creator_bound_with_access_is_honored(self):
-        task_run, actor, reason, mock_access = self._resolve(42)
-        assert actor is task_run.task.created_by
-        assert reason == ""
-        mock_access.assert_called_once_with(task_run.task.created_by, task_run.task.team)

@@ -104,3 +104,41 @@ def test_host_allowlist(host: str, args: tuple[str, ...], expected_origin: str |
         assert opened[0].startswith(f"{expected_origin}/settings/")
         assert post.call_args.args[0].startswith(f"{expected_origin}/api/")
         assert post.call_args.kwargs["allow_redirects"] is False
+
+
+@pytest.mark.parametrize(
+    "stdin,env,sent",
+    [
+        ("phe_piped\n", {"POSTHOG_GATEWAY_TOKEN": "phe_env"}, "phe_piped"),
+        # A real provider key in ANTHROPIC_API_KEY is skipped, never sent to PostHog.
+        ("", {"ANTHROPIC_API_KEY": "sk-ant-real", "OPENAI_API_KEY": "phe_openai"}, "phe_openai"),
+    ],
+)
+def test_status_sends_only_a_phe_token(
+    stdin: str, env: dict[str, str], sent: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name in gateway._TOKEN_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+    status = {"status": "live", "cap_usd": "25.00", "remaining_usd": "24.999343", "expires_at": "2026-10-23T22:00:00Z"}
+    post = MagicMock(return_value=_response(200, status))
+
+    with patch.object(gateway.requests, "post", post):
+        result = CliRunner(mix_stderr=False).invoke(gateway.gateway_status, [], input=stdin, env=env)
+
+    assert result.exit_code == 0, result.output
+    assert post.call_args.kwargs["json"] == {"token": sent}
+    assert "$24.9993 of $25.00 left ($0.0007 spent)." in result.output
+
+
+def test_status_refuses_without_a_phe_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in gateway._TOKEN_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+    post = MagicMock()
+
+    with patch.object(gateway.requests, "post", post):
+        result = CliRunner(mix_stderr=False).invoke(
+            gateway.gateway_status, [], env={"ANTHROPIC_API_KEY": "sk-ant-real"}
+        )
+
+    assert result.exit_code != 0
+    post.assert_not_called()

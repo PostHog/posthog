@@ -75,6 +75,9 @@ class TestShouldCheckShutdown:
             ("ascending_incremental", True, "asc", False, False, True, 2, 20, True),
             ("unordered_incremental", True, None, False, False, True, 2, 20, True),
             ("descending_incremental", True, "desc", False, False, True, 2, 20, False),
+            # The shutdown grace does not count toward the age.
+            ("young_at_signal_after_grace", False, "asc", True, False, True, 1, 10, True, 60.0),
+            ("old_at_signal_after_grace", False, "asc", True, False, True, 1, 12, False, 60.0),
         ]
     )
     def test_should_check_shutdown(
@@ -88,6 +91,7 @@ class TestShouldCheckShutdown:
         attempt: int,
         age_minutes: int,
         expected: bool,
+        shutdown_grace_seconds: float = 0.0,
     ) -> None:
         schema = MagicMock(should_use_incremental_field=is_incremental)
         resource = MagicMock(sort_mode=sort_mode)
@@ -97,7 +101,12 @@ class TestShouldCheckShutdown:
             patch(f"{_EXTRACT_MODULE}.activity.in_activity", return_value=in_activity),
             patch(f"{_EXTRACT_MODULE}.activity.info", return_value=info) as activity_info,
         ):
-            assert should_check_shutdown(schema, resource, reset_pipeline, source_is_resumable) is expected
+            assert (
+                should_check_shutdown(
+                    schema, resource, reset_pipeline, source_is_resumable, shutdown_grace_seconds=shutdown_grace_seconds
+                )
+                is expected
+            )
 
         if not in_activity:
             activity_info.assert_not_called()

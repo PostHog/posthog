@@ -256,8 +256,7 @@ class TestSessionsRecordBatchModel:
         )
 
         assert "INSERT INTO FUNCTION" in printed_query
-        # parition_id is a ClickHouse variable, so we need to escape it
-        assert "https://test-bucket.s3.amazonaws.com/test-prefix/export_{{_partition_id}}.arrow" in printed_query
+        assert "https://test-bucket.s3.amazonaws.com/test-prefix/export_{_partition_id}.arrow" in printed_query
         assert "PARTITION BY rand() %% 5" in printed_query
         assert f"equals(raw_sessions.team_id, {ateam.id})" in printed_query
         assert (
@@ -302,10 +301,10 @@ class TestSessionsRecordBatchModel:
         )
 
         assert "INSERT INTO FUNCTION" in printed_query
-        assert "https://test-bucket.s3.amazonaws.com/test-prefix/export_{{_partition_id}}.arrow" in printed_query
+        assert "https://test-bucket.s3.amazonaws.com/test-prefix/export_{_partition_id}.arrow" in printed_query
         # For keyless auth, the s3() call should only have 2 parameters (url, format), not 4
         assert (
-            "s3('https://test-bucket.s3.amazonaws.com/test-prefix/export_{{_partition_id}}.arrow', 'ArrowStream')"
+            "s3('https://test-bucket.s3.amazonaws.com/test-prefix/export_{_partition_id}.arrow', 'ArrowStream')"
             in printed_query
         )
         assert "PARTITION BY rand() %% 5" in printed_query
@@ -427,10 +426,19 @@ class TestSessionsRecordBatchModelSelection:
 
 @pytest.mark.django_db
 class TestHogQLQueryRecordBatchModel:
-    async def test_as_query_with_parameters(self, ateam, auser, data_interval_start, data_interval_end):
+    @pytest.mark.parametrize(
+        "hogql_query",
+        [
+            "SELECT event AS event, distinct_id AS distinct_id FROM events",
+            "WITH exported_events AS (SELECT event, distinct_id FROM events) "
+            "SELECT event AS event, distinct_id AS distinct_id FROM exported_events",
+        ],
+        ids=["table", "cte"],
+    )
+    async def test_as_query_with_parameters(self, ateam, auser, data_interval_start, data_interval_end, hogql_query):
         model = HogQLQueryRecordBatchModel(
             team_id=ateam.id,
-            hogql_query="SELECT event AS event, distinct_id AS distinct_id FROM events",
+            hogql_query=hogql_query,
             user_id=auser.pk,
         )
         printed_query, query_parameters = await model.as_query_with_parameters(data_interval_start, data_interval_end)
@@ -442,6 +450,7 @@ class TestHogQLQueryRecordBatchModel:
         # without interval placeholders the query runs as-is, as of now
         assert f"toDateTime64('{data_interval_end:%Y-%m-%d %H:%M:%S.%f}', 6, 'UTC')" not in printed_query
         assert model.wait_for_data_interval_end is False
+        assert model.hogql_table_names == ("events",)
 
     async def test_as_query_with_parameters_applies_data_interval(
         self, ateam, auser, data_interval_start, data_interval_end
@@ -510,7 +519,7 @@ class TestHogQLQueryRecordBatchModel:
         )
 
         assert "INSERT INTO FUNCTION" in printed_query
-        assert "https://test-bucket.s3.amazonaws.com/test-prefix/export_{{_partition_id}}.arrow" in printed_query
+        assert "https://test-bucket.s3.amazonaws.com/test-prefix/export_{_partition_id}.arrow" in printed_query
         assert "PARTITION BY rand() %% 5" in printed_query
         assert f"equals(events.team_id, {ateam.id})" in printed_query
         # the user's query is wrapped as-is: settings are sent as query parameters, so we never write a

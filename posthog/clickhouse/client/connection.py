@@ -6,6 +6,7 @@ import logging
 from collections.abc import Callable, Mapping
 from contextlib import contextmanager
 from dataclasses import field
+from datetime import date, timedelta
 from enum import StrEnum
 from functools import cache
 from pathlib import Path
@@ -14,8 +15,9 @@ from typing import TYPE_CHECKING, Any
 from django.conf import settings
 
 from clickhouse_driver import Client as SyncClient
+from clickhouse_driver.columns.datecolumn import DateColumn
 from clickhouse_pool import ChPool
-from prometheus_client import Counter
+from prometheus_client import Counter, Gauge
 
 from posthog.dataclasses import frozen
 
@@ -30,6 +32,41 @@ from posthog.utils import patchable
 # read on the native-JSON events table expands to a few hundred bytes of SQL, so a query that reads many properties
 # (the bot-traffic classifier is ~2 MB) needs more room than the 1 MB default.
 MAX_QUERY_SIZE_BYTES = 8 * 1024 * 1024
+
+
+_EPOCH = date(1970, 1, 1)
+
+OUT_OF_RANGE_DATES_DECODED_COUNTER = Counter(
+    "posthog_clickhouse_out_of_range_dates_decoded",
+    "Date and Date32 values decoded from a day outside the driver's 1900-2299 lookup table.",
+)
+OUT_OF_RANGE_DISTINCT_DAYS_GAUGE = Gauge(
+    "posthog_clickhouse_out_of_range_distinct_days",
+    "Distinct out-of-range days this process has decoded, up to the tracking cap.",
+    multiprocess_mode="livemax",
+)
+# Bounds the tracking set. A gauge at the cap means a process saw at least this many distinct days.
+_DISTINCT_DAYS_TRACKING_CAP = 10_000
+
+
+class _DateLookup(dict[int, date]):
+    # Computes days outside the prefilled range without storing them. The table is shared by every query in the
+    # process, so a cache here would grow with whatever dates any team's data holds.
+    def __init__(self, prefilled: dict[int, date]) -> None:
+        super().__init__(prefilled)
+        self._seen_days: set[int] = set()
+
+    def __missing__(self, day: int) -> date:
+        OUT_OF_RANGE_DATES_DECODED_COUNTER.inc()
+        if day not in self._seen_days and len(self._seen_days) < _DISTINCT_DAYS_TRACKING_CAP:
+            self._seen_days.add(day)
+            OUT_OF_RANGE_DISTINCT_DAYS_GAUGE.set(len(self._seen_days))
+        return _EPOCH + timedelta(days=day)
+
+
+# clickhouse_driver decodes Date and Date32 through a lookup table that covers 1900-2299 and raises KeyError for any
+# other day. ClickHouse 26.9 returns days outside that range from Parquet reads and casts.
+DateColumn.date_lut = _DateLookup(DateColumn.date_lut)
 
 
 class NodeRole(StrEnum):
@@ -454,18 +491,6 @@ def get_kwargs_for_client(
 
     creds = get_clickhouse_creds(ch_user)
     base_kwargs = {"user": creds.user, "password": creds.password}
-
-    if workload == Workload.NEW_EVENTS_CLUSTER:
-        from posthog.models.event.new_events_schema import get_new_events_cluster_host  # noqa: PLC0415
-
-        host = get_new_events_cluster_host()
-        if not host:
-            raise ValueError("Native events ClickHouse host is not configured")
-        return {
-            **get_kwargs_for_client(Workload.DEFAULT, team_id, readonly, ch_user),
-            "host": host,
-            "verify": settings.CLICKHOUSE_VERIFY,
-        }
 
     if team_id is not None and str(team_id) in settings.CLICKHOUSE_PER_TEAM_SETTINGS:
         user_settings = settings.CLICKHOUSE_PER_TEAM_SETTINGS[str(team_id)]

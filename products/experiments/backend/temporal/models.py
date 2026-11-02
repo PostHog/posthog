@@ -37,14 +37,24 @@ MAX_METRIC_ATTEMPTS = 8
 
 # Below MAX_METRIC_ATTEMPTS for errors where a retry rarely succeeds and adds ClickHouse load. At the cap the
 # activity fails the metric non-retryable, so the RetryPolicy keeps MAX_METRIC_ATTEMPTS.
-CAPACITY_MAX_METRIC_ATTEMPTS = 3
+# A capacity rejection costs nothing, because ClickHouse refuses the query before it runs, so it gets more
+# attempts than a timeout. 6 attempts are 5 waits, one per band of the CAPACITY_RETRY_* schedule below.
+CAPACITY_MAX_METRIC_ATTEMPTS = 6
 # The timeout class also holds SOCKET_TIMEOUT, so one retry stays for network failures.
 TIMEOUT_MAX_METRIC_ATTEMPTS = 2
 
-# Jittered delay after a capacity rejection (ClickHouseAtCapacity or ConcurrencyLimitExceeded), set via
-# next_retry_delay. The per-org app limiter skips Temporal activities, so the delay lets the cluster drain.
-CONCURRENCY_LIMIT_RETRY_DELAY_MIN_SECONDS = 120
-CONCURRENCY_LIMIT_RETRY_DELAY_MAX_SECONDS = 300
+# Delay before the retry of an attempt that a capacity rejection ended (ClickHouseAtCapacity or
+# ConcurrencyLimitExceeded), set via next_retry_delay. The delay is a random value in a band, and the band
+# doubles with each attempt: 10-20 s, 20-40 s, 40-80 s, 80-160 s, then 160-300 s. The short first wait fits the
+# common case, a pool that frees up within seconds. The later, longer waits stop a sustained full pool from
+# being polled constantly. The random position in the band spreads out metrics that bounced in the same burst,
+# so their retries do not arrive together. The per-org app limiter skips Temporal activities, so this delay is
+# what lets the cluster drain. The sum of the bands, at most 600 s, stays inside
+# METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS.
+CAPACITY_RETRY_FIRST_DELAY_MIN_SECONDS = 10
+CAPACITY_RETRY_FIRST_DELAY_MAX_SECONDS = 20
+CAPACITY_RETRY_BACKOFF_COEFFICIENT = 2.0
+CAPACITY_RETRY_MAX_DELAY_SECONDS = 300
 
 RECALCULATION_RETRY_INITIAL_INTERVAL_SECONDS = 5
 RECALCULATION_RETRY_BACKOFF_COEFFICIENT = 2.0

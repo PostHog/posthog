@@ -5,6 +5,7 @@ import { Link } from '@posthog/lemon-ui'
 import {
     DASHBOARD_GRID_COMPACTION_LABELS,
     DASHBOARD_TILE_SPACING_LABELS,
+    TILE_GROUP_DISPLAY_LABELS,
 } from '@posthog/products-dashboards/frontend/dashboardCustomization'
 
 import {
@@ -170,6 +171,16 @@ const dashboardActionsMapping: Record<
             description.push(
                 <>
                     changed tile density to <strong>{DASHBOARD_TILE_SPACING_LABELS[after.tile_spacing]}</strong>
+                </>
+            )
+        }
+        if (after?.group_display && after.group_display !== (before?.group_display ?? 'sections')) {
+            if (description.length > 0) {
+                description.push(' and ')
+            }
+            description.push(
+                <>
+                    changed how groups show to <strong>{TILE_GROUP_DISPLAY_LABELS[after.group_display]}</strong>
                 </>
             )
         }

@@ -2,10 +2,11 @@ import hmac
 import json
 import time
 import hashlib
+from collections.abc import Callable
 from contextlib import nullcontext
 from datetime import timedelta
 from typing import Any, cast
-from urllib.parse import quote, urlencode
+from urllib.parse import parse_qs, quote, urlencode, urlparse
 from uuid import uuid4
 
 import pytest
@@ -73,6 +74,7 @@ from posthog.models.integration import (
     StripeIntegration,
     github_account_type,
 )
+from posthog.models.integration.databricks import NOT_A_DATABRICKS_HOST_MESSAGE
 from posthog.models.integration.github_audit import GitHubAudit, GitHubAuditPayload
 from posthog.models.integration.twitter_ads import TwitterAdsIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
@@ -856,7 +858,7 @@ class TestDatabricksIntegration:
             {
                 "kind": "databricks",
                 "config": {
-                    "server_hostname": "databricks.com",
+                    "server_hostname": "dbc-a1b2c3d4-e5f6.cloud.databricks.com",
                     "client_id": "client_id",
                     "client_secret": "client_secret",
                 },
@@ -872,22 +874,22 @@ class TestDatabricksIntegration:
         integration = Integration.objects.get(id=id)
         assert integration.kind == "databricks"
         assert integration.team == self.team
-        assert integration.config == {"server_hostname": "databricks.com"}
+        assert integration.config == {"server_hostname": "dbc-a1b2c3d4-e5f6.cloud.databricks.com"}
         assert integration.sensitive_config == {"client_id": "client_id", "client_secret": "client_secret"}
         assert integration.created_by == self.user
-        assert integration.integration_id == "databricks.com"
+        assert integration.integration_id == "dbc-a1b2c3d4-e5f6.cloud.databricks.com"
 
     @pytest.mark.parametrize(
         "invalid_config,expected_error_message",
         [
             # missing client_secret
             (
-                {"server_hostname": "databricks.com", "client_id": "client_id"},
+                {"server_hostname": "dbc-a1b2c3d4-e5f6.cloud.databricks.com", "client_id": "client_id"},
                 "Server hostname, client ID, and client secret must be provided",
             ),
             # missing client_id
             (
-                {"server_hostname": "databricks.com", "client_secret": "client_secret"},
+                {"server_hostname": "dbc-a1b2c3d4-e5f6.cloud.databricks.com", "client_secret": "client_secret"},
                 "Server hostname, client ID, and client secret must be provided",
             ),
             # missing server_hostname
@@ -899,7 +901,11 @@ class TestDatabricksIntegration:
             ({}, "Server hostname, client ID, and client secret must be provided"),
             # wrong type for client_secret
             (
-                {"server_hostname": "databricks.com", "client_id": "client_id", "client_secret": 1},
+                {
+                    "server_hostname": "dbc-a1b2c3d4-e5f6.cloud.databricks.com",
+                    "client_id": "client_id",
+                    "client_secret": 1,
+                },
                 "Server hostname, client ID, and client secret must be strings",
             ),
         ],
@@ -931,17 +937,17 @@ class TestDatabricksIntegration:
             "127.0.0.1",
             "10.0.0.1",
             "192.168.1.1",
+            "evil.example.com",
         ],
     )
     # FORCE_URL_VALIDATION exercises the real SSRF guard; otherwise is_url_allowed short-circuits
     # in dev/DEBUG, which is on under tests.
     @override_settings(FORCE_URL_VALIDATION=True)
-    def test_integration_from_config_rejects_internal_host(
+    def test_integration_from_config_rejects_non_databricks_host(
         self,
         host,
         client: HttpClient,
     ):
-        """Member-supplied Databricks hosts that resolve to internal IPs must be rejected (SSRF guard)."""
         client.force_login(self.user)
 
         response = client.post(
@@ -958,7 +964,7 @@ class TestDatabricksIntegration:
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert host in response.json()["detail"]
+        assert response.json()["detail"] == NOT_A_DATABRICKS_HOST_MESSAGE
         assert not Integration.objects.filter(team=self.team, kind="databricks").exists()
 
 
@@ -1550,12 +1556,12 @@ class TestAzureBlobIntegration:
         ],
     )
     @override_settings(FORCE_URL_VALIDATION=True)
-    @patch("posthog.models.integration.azure_blob.is_url_allowed")
+    @patch("dns.resolver.Resolver.resolve_name")
     def test_create_azure_blob_integration(
-        self, mock_is_url_allowed: MagicMock, connection_string: str, client: HttpClient
+        self, mock_resolve_name: MagicMock, connection_string: str, client: HttpClient
     ) -> None:
         # Required mock otherwise we need a valid hostname for tests
-        mock_is_url_allowed.return_value = (True, None)
+        mock_resolve_name.return_value = MagicMock(addresses=MagicMock(return_value=["93.184.216.34"]))
         client.force_login(self.user)
 
         response = client.post(
@@ -1734,6 +1740,7 @@ class TestIntegrationAPIKeyAccess:
         "url_suffix,method,expected_provider",
         [
             ("github_repos/", "get", "GitHub"),
+            ("github_repository_access/", "get", "GitHub"),
             ("github_repos/refresh/", "post", "GitHub"),
             ("github_branches/?repo=org/repo", "get", "GitHub"),
             ("jira_projects/", "get", "Jira"),
@@ -1762,6 +1769,52 @@ class TestIntegrationAPIKeyAccess:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert expected_provider in response.json()["detail"]
+
+    @pytest.mark.parametrize("repository", ["", "org/repo"])
+    @pytest.mark.parametrize(
+        "github_status,refresh_status,expected_status",
+        [(200, None, 200), (404, None, 200), (503, None, 503), (None, None, 503), (401, 404, 200), (401, 503, 503)],
+    )
+    @patch("posthog.models.integration.github.GitHubIntegration.client_request")
+    @patch("posthog.models.github_integration_base.github_request")
+    def test_github_repository_access_ignores_stale_cache(
+        self,
+        mock_request: MagicMock,
+        mock_token_request: MagicMock,
+        repository: str,
+        github_status: int | None,
+        refresh_status: int | None,
+        expected_status: int,
+        client: HttpClient,
+    ) -> None:
+        self.github_integration.repository_cache = []
+        self.github_integration.repository_cache_updated_at = timezone.now() - timedelta(days=2)
+        self.github_integration.save()
+        if github_status is None:
+            mock_request.side_effect = requests.ConnectionError("Network unavailable")
+        else:
+            mock_request.return_value.status_code = github_status
+            mock_request.return_value.headers = {}
+            mock_request.return_value.json.return_value = {
+                "repositories": [{"id": 1, "name": "repo", "full_name": "org/repo"}]
+            }
+        mock_token_request.return_value.status_code = refresh_status
+        mock_token_request.return_value.text = "Token refresh failed"
+        mock_token_request.return_value.json.return_value = {"message": "Token refresh failed"}
+        key_value = "test_repository_access"
+        PersonalAPIKey.objects.create(
+            user=self.user, secure_value=hash_key_value(key_value), scopes=["integration:read"]
+        )
+
+        response = client.get(
+            f"/api/projects/{self.team.pk}/integrations/{self.github_integration.id}/github_repository_access/",
+            {"repository": repository} if repository else {},
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == expected_status
+        if expected_status == 200:
+            assert response.json() == {"available": github_status == 200}
 
     @patch("posthog.models.integration.github.GitHubIntegration.list_cached_repositories")
     def test_github_repos_with_scope_succeeds(self, mock_list_repos, client: HttpClient):
@@ -1928,21 +1981,21 @@ class TestIntegrationAPIKeyAccess:
         )
 
         seen: list[str] = []
-        offset: int | None = 0
+        url: str | None = (
+            f"/api/environments/{self.team.pk}/integrations/{self.github_integration.id}/github_repos/"
+            f"?limit=100&offset=0&compact={str(compact).lower()}"
+        )
         pages = 0
-        while offset is not None:
-            response = client.get(
-                f"/api/environments/{self.team.pk}/integrations/{self.github_integration.id}/github_repos/"
-                f"?limit=100&offset={offset}&compact={str(compact).lower()}",
-                HTTP_AUTHORIZATION=f"Bearer {key_value}",
-            )
+        while url is not None:
+            response = client.get(url, HTTP_AUTHORIZATION=f"Bearer {key_value}")
             assert response.status_code == status.HTTP_200_OK
             data = response.json()
             assert data["total"] == 250
-            assert data["has_more"] is (data["next_offset"] is not None)
+            assert data["has_more"] is (data["next_offset"] is not None) is (data["next"] is not None)
+            assert (data["previous"] is None) is (pages == 0)
             assert all(set(repo) == expected_keys for repo in data["repositories"])
             seen.extend(repo["full_name"] for repo in data["repositories"])
-            offset = data["next_offset"]
+            url = data["next"]
             pages += 1
 
         assert pages == 3
@@ -2461,6 +2514,10 @@ class TestIntegrationAPIKeyAccess:
         assert data["channels"][0]["id"] == "C2"
         assert data["has_more"] is True
 
+        last_page = client.get(data["next"], HTTP_AUTHORIZATION=f"Bearer {key_value}").json()
+        assert [channel["id"] for channel in last_page["channels"]] == ["C3"]
+        assert last_page["next"] is None
+
         mock_slack_instance.list_channels.assert_called_once()
 
     @pytest.mark.parametrize("owns_integration", [True, False])
@@ -2889,6 +2946,11 @@ class TestIntegrationAPIKeyAccess:
         assert [member["id"] for member in data["users"]] == ["U1"]
         assert data["has_more"] is True
 
+        last_page = client.get(data["next"], HTTP_AUTHORIZATION=f"Bearer {key_value}").json()
+        assert [member["id"] for member in last_page["users"]] == ["U2"]
+        assert last_page["next"] is None
+        assert last_page["previous"] is not None
+
     @patch("posthog.api.integration.SlackIntegration")
     def test_users_action_direct_lookup_and_kind_guard(self, mock_slack_class, client: HttpClient):
         slack_integration = Integration.objects.create(
@@ -2922,6 +2984,7 @@ class TestIntegrationAPIKeyAccess:
         )
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["users"] == [{"id": "U42", "name": "andy.m", "display_name": "andy"}]
+        assert response.json()["next"] is None and response.json()["previous"] is None
         mock_slack_instance.get_user_by_id.assert_called_once_with("U42")
 
         # Lookups are cached per id — hits and misses alike — so repeated probes can't spend the
@@ -3218,6 +3281,39 @@ class TestIntegrationAPIKeyAccess:
         kinds = [integration["kind"] for integration in results]
         assert "github" in kinds
         assert "twilio" in kinds
+
+    def test_list_and_retrieve_show_every_auth_type(self, client: HttpClient):
+        client.force_login(self.user)
+        token_row = Integration.objects._with_auth(Integration.AuthType.TOKEN).create(
+            team=self.team, kind="github", integration_id="typed-in", sensitive_config={"token": "secret"}
+        )
+        source_row = Integration.objects._with_auth(Integration.AuthType.CREDENTIALS).create(
+            team=self.team, kind="postgresql", integration_id="source", config={"warehouse_source_type": "Postgres"}
+        )
+        base_url = f"/api/environments/{self.team.pk}/integrations"
+
+        with patch.object(GitHubIntegration, "ensure_account_name") as heal:
+            listed = client.get(f"{base_url}/").json()["results"]
+            retrieved = client.get(f"{base_url}/{token_row.id}/")
+        repos = client.get(f"{base_url}/{token_row.id}/github_repos/")
+
+        assert {(row["id"], row["auth_type"]) for row in listed} == {
+            (self.github_integration.id, "oauth"),
+            (self.twilio_integration.id, "token"),
+            (token_row.id, "token"),
+            (source_row.id, "credentials"),
+        }
+        # Code that does not state its auth types does not see the warehouse source row.
+        assert not Integration.objects.filter(team=self.team, kind="postgresql").exists()
+        assert retrieved.status_code == status.HTTP_200_OK
+        assert (retrieved.json()["auth_type"], retrieved.json()["installation_status"]) == ("token", None)
+        assert repos.status_code == status.HTTP_404_NOT_FOUND
+        # Only the App row of the list heals its account name. The token row has no installation.
+        assert heal.call_count == 1
+        # Actions other than list and retrieve do not reach the warehouse source row.
+        deleted = client.delete(f"{base_url}/{source_row.id}/")
+        assert deleted.status_code == status.HTTP_404_NOT_FOUND
+        assert Integration._base_manager.filter(id=source_row.id).exists()
 
     def test_list_integrations_filtered_by_kind(self, client: HttpClient):
         client.force_login(self.user)
@@ -5803,6 +5899,13 @@ class TestOauthIntegrationRevokeOnDisconnect:
         mock_post.assert_not_called()
 
 
+def _stripe_app_ids(orchestrator: str, settings_mock: MagicMock) -> Callable[[str, object], str]:
+    def resolve(key: str, _caller: object) -> str:
+        return orchestrator if key == "STRIPE_POSTHOG_OAUTH_CLIENT_ID" else getattr(settings_mock, key)
+
+    return resolve
+
+
 class TestStripeIntegrationOAuthTokens:
     @pytest.fixture(autouse=True)
     def setup(self, db):
@@ -5849,7 +5952,7 @@ class TestStripeIntegrationOAuthTokens:
     def test_destroy_oauth_tokens_deletes_tokens(
         self, mock_settings: MagicMock, mock_get_or_settings: MagicMock
     ) -> None:
-        mock_get_or_settings.return_value = "orchestrator_client_id"
+        mock_get_or_settings.side_effect = _stripe_app_ids("orchestrator_client_id", mock_settings)
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
         integration, access_token, refresh_token = self._create_integration_with_tokens()
         unlinked_refresh_token = OAuthRefreshToken.objects.create(
@@ -5874,7 +5977,7 @@ class TestStripeIntegrationOAuthTokens:
     def test_destroy_oauth_tokens_only_affects_same_team(
         self, mock_settings: MagicMock, mock_get_or_settings: MagicMock, other_credential: str
     ) -> None:
-        mock_get_or_settings.return_value = "orchestrator_client_id"
+        mock_get_or_settings.side_effect = _stripe_app_ids("orchestrator_client_id", mock_settings)
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
         integration, _, _ = self._create_integration_with_tokens()
 
@@ -5912,7 +6015,7 @@ class TestStripeIntegrationOAuthTokens:
     def test_destroy_oauth_tokens_noop_when_no_oauth_app(
         self, mock_settings: MagicMock, mock_get_or_settings: MagicMock
     ) -> None:
-        mock_get_or_settings.return_value = ""
+        mock_get_or_settings.side_effect = _stripe_app_ids("", mock_settings)
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = None
         integration, access_token, refresh_token = self._create_integration_with_tokens()
         stripe_int = StripeIntegration(integration)
@@ -5942,7 +6045,7 @@ class TestStripeIntegrationOAuthTokens:
             redirect_uris="https://example.com/callback",
             algorithm="RS256",
         )
-        mock_get_or_settings.return_value = orchestrator_app.client_id
+        mock_get_or_settings.side_effect = _stripe_app_ids(orchestrator_app.client_id, mock_settings)
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = {
             "configured": self.oauth_app.client_id,
             "unset": "",
@@ -5984,7 +6087,7 @@ class TestStripeIntegrationOAuthTokens:
             redirect_uris="https://example.com/callback",
             algorithm="RS256",
         )
-        mock_get_or_settings.return_value = self.oauth_app.client_id
+        mock_get_or_settings.side_effect = _stripe_app_ids(self.oauth_app.client_id, mock_settings)
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = marketplace_app.client_id
 
         integration, legacy_access, legacy_refresh = self._create_integration_with_tokens()
@@ -6018,7 +6121,7 @@ class TestStripeIntegrationOAuthTokens:
     def test_write_posthog_secrets_uses_account_scope(
         self, mock_settings: MagicMock, mock_get_or_settings: MagicMock, MockStripeClient: MagicMock
     ) -> None:
-        mock_get_or_settings.return_value = "orchestrator_client_id"
+        mock_get_or_settings.side_effect = _stripe_app_ids("orchestrator_client_id", mock_settings)
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
         mock_client = MagicMock()
         MockStripeClient.return_value = mock_client
@@ -6051,7 +6154,7 @@ class TestStripeIntegrationOAuthTokens:
     def test_write_posthog_secrets_mints_read_only_token(
         self, mock_settings: MagicMock, mock_get_or_settings: MagicMock, MockStripeClient: MagicMock
     ) -> None:
-        mock_get_or_settings.return_value = "orchestrator_client_id"
+        mock_get_or_settings.side_effect = _stripe_app_ids("orchestrator_client_id", mock_settings)
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
         MockStripeClient.return_value = MagicMock()
 
@@ -6085,7 +6188,7 @@ class TestStripeIntegrationOAuthTokens:
     def test_clear_posthog_secrets_uses_account_scope(
         self, mock_settings: MagicMock, mock_get_or_settings: MagicMock, MockStripeClient: MagicMock
     ) -> None:
-        mock_get_or_settings.return_value = ""
+        mock_get_or_settings.side_effect = _stripe_app_ids("", mock_settings)
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = None
         mock_client = MagicMock()
         MockStripeClient.return_value = mock_client
@@ -6125,7 +6228,7 @@ class TestStripeIntegrationOAuthTokens:
         mock_get_or_settings: MagicMock,
         MockStripeClient: MagicMock,
     ) -> None:
-        mock_get_or_settings.return_value = "orchestrator_client_id"
+        mock_get_or_settings.side_effect = _stripe_app_ids("orchestrator_client_id", mock_settings)
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
         MockStripeClient.return_value = MagicMock()
 
@@ -6157,7 +6260,7 @@ class TestStripeIntegrationOAuthTokens:
         MockStripeClient: MagicMock,
         mock_capture: MagicMock,
     ) -> None:
-        mock_get_or_settings.return_value = "orchestrator_client_id"
+        mock_get_or_settings.side_effect = _stripe_app_ids("orchestrator_client_id", mock_settings)
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
         MockStripeClient.return_value = MagicMock()
 
@@ -6198,7 +6301,7 @@ class TestStripeIntegrationOAuthTokens:
         failing_secrets: tuple[str, ...],
         credential_kept: bool,
     ) -> None:
-        mock_get_or_settings.return_value = "orchestrator_client_id"
+        mock_get_or_settings.side_effect = _stripe_app_ids("orchestrator_client_id", mock_settings)
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
 
         def create_secret(params, options):
@@ -6233,7 +6336,7 @@ class TestStripeIntegrationOAuthTokens:
         MockStripeClient: MagicMock,
         mock_capture: MagicMock,
     ) -> None:
-        mock_get_or_settings.return_value = "orchestrator_client_id"
+        mock_get_or_settings.side_effect = _stripe_app_ids("orchestrator_client_id", mock_settings)
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
         MockStripeClient.return_value = MagicMock()
 
@@ -6398,6 +6501,8 @@ class TestGitHubBranches:
         data = response.json()
         assert len(data["branches"]) == 10
         assert data["has_more"] is True
+        assert parse_qs(urlparse(data["next"]).query)["offset"] == ["60"]
+        assert parse_qs(urlparse(data["previous"]).query)["offset"] == ["40"]
         assert data["default_branch"] == "main"
         mock_list_cached.assert_called_once_with(
             "org/repo",

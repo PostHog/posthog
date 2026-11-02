@@ -1,5 +1,9 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
+import { expectLogic } from 'kea-test-utils'
+
+import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
+
 import type { OverviewMetricCardItem } from '~/queries/nodes/OverviewGrid/OverviewMetricCardGrid'
 import { initKeaTests } from '~/test/init'
 
@@ -50,6 +54,38 @@ describe('overview metric configuration', () => {
         unmountOther()
         unmountRestored()
     })
+
+    it.each([
+        ['none', [], []],
+        ['platforms', ['Cost'], []],
+        ['posthog', [], ['Trial started']],
+        ['both', ['Cost'], ['Trial started']],
+    ])(
+        'reports %s when applying with those groups hidden, and nothing on cancel',
+        async (value, platforms, posthogHidden) => {
+            const logic = overviewMetricsLogic({ viewKey: 'ad-performance' })
+            const unmount = logic.mount()
+            logic.actions.configureMetrics(logic.values.configuration)
+            logic.actions.updateDraftGroup('platforms', { hidden: platforms })
+            logic.actions.updateDraftGroup('posthog', { hidden: posthogHidden })
+            await expectLogic(logic, () => logic.actions.closeConfiguration()).toNotHaveDispatchedActions([
+                'reportDashboardControlUsed',
+            ])
+            logic.actions.configureMetrics(logic.values.configuration)
+            logic.actions.updateDraftGroup('platforms', { hidden: platforms })
+            logic.actions.updateDraftGroup('posthog', { hidden: posthogHidden })
+            await expectLogic(logic, () =>
+                logic.actions.applyConfiguration(logic.values.draftConfiguration!)
+            ).toDispatchActions([
+                marketingAnalyticsLogic.actionCreators.reportDashboardControlUsed(
+                    'overview',
+                    'metric_configuration_applied',
+                    value
+                ),
+            ])
+            unmount()
+        }
+    )
 
     it('keeps platform metrics separate, appends new goals, and drops removed metrics from saved ordering', () => {
         const configuration = defaultOverviewMetricConfiguration()

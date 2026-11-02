@@ -43,7 +43,7 @@ export function ReportChecksSection({ report }: { report: SignalReport }): JSX.E
         return null
     }
 
-    const rows = buildReportCheckRows(reportChecks, latestCheckExplanations(reportArtefacts ?? []))
+    const rows = buildReportCheckRows(reportChecks, latestCheckExplanations(reportArtefacts ?? []), report.status)
     const { visible, hidden } = splitReportCheckRows(rows)
 
     return (
@@ -51,7 +51,11 @@ export function ReportChecksSection({ report }: { report: SignalReport }): JSX.E
             icon={<IconTarget />}
             title="Follow-up checks"
             collapsible
-            meta={<span className="text-xs text-tertiary tabular-nums">{reportChecksMeta(reportChecks)}</span>}
+            meta={
+                <span className="text-xs text-tertiary tabular-nums">
+                    {reportChecksMeta(reportChecks, report.status)}
+                </span>
+            }
         >
             <div className="flex flex-col gap-1.5">
                 {(showRetired ? rows : visible).map((row) => (

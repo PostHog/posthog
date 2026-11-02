@@ -5,7 +5,7 @@ use common_kafka_consumer::{Charge, Offset, Rejection, TopicOffsetLedger, TopicP
 use metrics::counter;
 use tracing::warn;
 
-use super::{offsets, Accounting, ChargedSlice, Commit, Pause, Settlement, Uncommitted};
+use super::{Accounting, Charged, ChargedSlice, Commit, RunOutcome, Settlement, Uncommitted};
 use crate::commit_pacer::CommitPacer;
 use crate::ledger_rejection::{report_rejection, RejectedSlice};
 
@@ -27,10 +27,13 @@ impl<A: Accounting + 'static> Settlement for PollSettlement<A> {
         topic_partition: &TopicPartition,
         generation: u64,
         charges: &[(Offset, Charge)],
-    ) -> Result<Option<Pause>, Rejection> {
+    ) -> Result<Charged, Rejection> {
         self.uncommitted
             .charge(topic_partition, generation, charges)
-            .map(|_| None)
+            .map(|uncommitted| Charged {
+                uncommitted: uncommitted.charge,
+                pause: None,
+            })
     }
 
     fn settle_run(
@@ -38,8 +41,8 @@ impl<A: Accounting + 'static> Settlement for PollSettlement<A> {
         _topic_partition: &TopicPartition,
         _generation: u64,
         _offsets: &[Offset],
-    ) -> anyhow::Result<()> {
-        Ok(())
+    ) -> anyhow::Result<RunOutcome> {
+        Ok(RunOutcome::Settled)
     }
 
     fn settle_poll(&self, slices: &[ChargedSlice<'_>]) -> anyhow::Result<()> {
@@ -61,18 +64,12 @@ impl<A: Accounting + 'static> Settlement for PollSettlement<A> {
 
     fn take_due(&self, now: Instant) -> Option<Commit> {
         let handed_out = self.uncommitted.take_due(now)?;
-        Some(Commit {
-            offsets: offsets(handed_out),
-            resume: Vec::new(),
-        })
+        Some(Commit::new(handed_out, Vec::new()))
     }
 
     fn take_all(&self) -> Option<Commit> {
         let handed_out = self.uncommitted.take_all()?;
-        Some(Commit {
-            offsets: offsets(handed_out),
-            resume: Vec::new(),
-        })
+        Some(Commit::new(handed_out, Vec::new()))
     }
 
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
@@ -307,7 +304,12 @@ mod tests {
             },
         }));
 
-        assert_eq!(settlement.charge(&p(0), 2, &[]), Ok(None));
+        assert_eq!(
+            settlement
+                .charge(&p(0), 2, &[])
+                .map(|charged| charged.pause),
+            Ok(None)
+        );
     }
 
     #[test]

@@ -2000,7 +2000,7 @@ class TestSendEmailReplyMultiConfig(BaseTest):
         assert b"From: " in mime_bytes
         assert b"support@example.com" in mime_bytes
 
-        # Guard against someone dropping linesep="\r\n" from the as_bytes() call.
+        # Guard against someone dropping linesep="\r\n" from mime_bytes_with_crlf().
         # RFC 5322 wants CRLF; Django's default is LF-only.
         assert b"\r\n" in mime_bytes
 
@@ -2763,6 +2763,9 @@ class TestEmailInboundTeamMemberDetection(MailgunWebhookTestMixin, BaseTest):
         )
         ticket = Ticket.objects.get(team=self.team)
         assert ticket.identity_verified is expected_verified
+        comment = Comment.objects.get(team=self.team, scope="conversations_ticket")
+        assert isinstance(comment.item_context, dict)
+        assert comment.item_context["email_sender_authenticated"] is expected_verified
 
     def test_no_spf_treated_as_customer(self):
         """From header matches a team member but no SPF pass → customer."""

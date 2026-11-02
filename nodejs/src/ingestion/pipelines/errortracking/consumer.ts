@@ -82,7 +82,10 @@ export function createErrorTrackingConsumer(config: ErrorTrackingLaneConfig, sha
                 'eventIngestionRestrictionManager',
                 new EventIngestionRestrictionManagerComponent(container.redisPool, { pipeline: 'errortracking' })
             )
-            .add('eventFilterManager', new EventFilterManagerComponent(container.postgres))
+            .add(
+                'eventFilterManager',
+                new EventFilterManagerComponent(container.postgres, { pipeline: 'errortracking' })
+            )
             .add(
                 'overflowRedirectService',
                 overflowMode === 'redirect'

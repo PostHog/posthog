@@ -16,6 +16,7 @@ import structlog
 from posthog.egress.github.transport import GitHubRateLimitError, github_request
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.transport.transport import EgressBudgetExhausted
+from posthog.integrations.contracts import IntegrationRecord
 from posthog.models.github_integration_base import (
     GitHubIntegrationBase,
     GitHubIntegrationError,
@@ -368,10 +369,10 @@ class GitHubIntegration(GitHubIntegrationBase):
             raise exhausted
         return None
 
-    def __init__(self, integration: model.Integration, *, source: str, priority: Priority) -> None:
+    def __init__(self, integration: IntegrationRecord, *, source: str, priority: Priority) -> None:
         if integration.kind != "github":
             raise Exception("GitHubIntegration init called with Integration with wrong 'kind'")
-        self.integration = integration
+        self.integration = model.integration_model(integration)
         self.source = source
         self.priority = priority
 

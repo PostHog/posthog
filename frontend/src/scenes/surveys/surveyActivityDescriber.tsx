@@ -33,6 +33,10 @@ import { SurveyQuestionLabel } from './constants'
 
 const isEmptyOrUndefined = (value: any): boolean => value === undefined || value === null || value === ''
 
+// A survey can hold no questions, and the activity log records an empty list as null,
+// so one side of a questions change carries null instead of an array.
+const toQuestionList = (value: unknown): Survey['questions'] => (Array.isArray(value) ? value : [])
+
 const nameOrLinkToSurvey = (
     id: string | undefined,
     name: string | null | undefined,
@@ -86,8 +90,8 @@ const surveyActionsMapping: Record<
             return null
         }
 
-        const beforeQuestions = change.before as Survey['questions']
-        const afterQuestions = change.after as Survey['questions']
+        const beforeQuestions = toQuestionList(change.before)
+        const afterQuestions = toQuestionList(change.after)
 
         if (beforeQuestions.length !== afterQuestions.length) {
             return {

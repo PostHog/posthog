@@ -100,4 +100,40 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "eventData": "Additional data about the event.",
         },
     },
+    "device_availabilities": {
+        "description": "Availability status of each device in the selected Meraki organization. Meraki updates this data every 5 minutes.",
+        "docs_url": "https://developer.cisco.com/meraki/api-v1/get-organization-devices-availabilities/",
+        "columns": {
+            "serial": "Serial number that identifies the device.",
+            "mac": "MAC address of the device.",
+            "name": "Name of the device.",
+            "network": "Network that contains the device.",
+            "productType": "Product type of the device.",
+            "status": "Status of the device: online, alerting, offline, or dormant.",
+            "tags": "Tags assigned to the device.",
+        },
+    },
+    "uplink_usage_history": {
+        "description": "Data sent and received by each uplink of the security appliance networks in the selected Meraki organization, for each hour.",
+        "docs_url": "https://developer.cisco.com/meraki/api-v1/get-network-appliance-uplinks-usage-history/",
+        "columns": {
+            "networkId": "Identifier of the network.",
+            "startTime": "Start time of the interval.",
+            "endTime": "End time of the interval.",
+            "byInterface": "Data sent and received by each uplink interface in the interval, in bytes.",
+        },
+    },
+    "client_usage_histories": {
+        "description": "Data sent and received by each client of each network in the selected Meraki organization, for each day.",
+        "docs_url": "https://developer.cisco.com/meraki/api-v1/get-network-clients-usage-histories/",
+        "columns": {
+            "networkId": "Identifier of the network that the client used.",
+            "clientId": "Identifier of the client. It is unique within the network.",
+            "clientIp": "IP address of the client.",
+            "clientMac": "MAC address of the client.",
+            "ts": "Start of the day that the usage covers.",
+            "sent": "Data that the client sent on the day, in kilobytes.",
+            "received": "Data that the client received on the day, in kilobytes.",
+        },
+    },
 }

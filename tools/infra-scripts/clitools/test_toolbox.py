@@ -653,6 +653,26 @@ class TestToolbox(unittest.TestCase):
         self.assertNotIn("--resource-version=42", annotate_args)
 
     @patch("subprocess.run")
+    def test_claim_pod_keeps_the_warpstream_client_label(self, mock_run):
+        """The claim orphans the pod but keeps the label that lets it produce to WarpStream."""
+        mock_get_response = MagicMock()
+        mock_get_response.stdout = json.dumps(
+            {
+                "app.kubernetes.io/name": "posthog-toolbox-django",
+                "app.kubernetes.io/component": "app",
+                "pod-template-hash": "abc123",
+                "posthog.com/warpstream-client": "true",
+            }
+        )
+        mock_run.side_effect = [mock_get_response, *(MagicMock() for _ in range(4))]
+
+        claim_pod("toolbox-pod-1", {"toolbox-claimed": "u_at_posthog.com"}, 1234567890, namespace="posthog")
+
+        strip_args = mock_run.call_args_list[1][0][0]
+        self.assertEqual(strip_args[-2:], ["app.kubernetes.io/component-", "pod-template-hash-"])
+        self.assertFalse(any(arg.startswith("posthog.com/warpstream-client") for arg in strip_args))
+
+    @patch("subprocess.run")
     def test_claim_pod_raises_claim_race_error_on_conflict(self, mock_run):
         """A 409 Conflict on the first mutation surfaces as ClaimRaceError so the caller can retry."""
         mock_get_response = MagicMock()
@@ -1283,9 +1303,9 @@ class TestToolbox(unittest.TestCase):
 
         mock_run.assert_called_once()
 
+    @patch.dict(os.environ, {"DEBUG": "1", "PATH": "/test/bin", "AWS_PROFILE": "test-profile"}, clear=True)
     @patch("subprocess.run")
     def test_connect_to_pod_returns_zero_on_success(self, mock_run):
-        """connect_to_pod returns 0 when kubectl exec exits cleanly."""
         from toolbox.pod import connect_to_pod
 
         mock_result = MagicMock()
@@ -1294,6 +1314,8 @@ class TestToolbox(unittest.TestCase):
 
         rc = connect_to_pod("toolbox-pod-1", namespace="posthog")
         self.assertEqual(rc, 0)
+        self.assertEqual(mock_run.call_args.kwargs["env"], {"PATH": "/test/bin", "AWS_PROFILE": "test-profile"})
+        self.assertEqual(os.environ["DEBUG"], "1")
 
     @patch("subprocess.run")
     def test_connect_to_pod_returns_nonzero_on_failure(self, mock_run):
@@ -1312,16 +1334,16 @@ class TestToolbox(unittest.TestCase):
         rc = connect_to_pod("toolbox-pod-1", namespace="posthog")
         self.assertEqual(rc, 1)
 
+    @patch.dict(os.environ, {"PATH": "/test/bin", "AWS_PROFILE": "test-profile"}, clear=True)
     @patch("subprocess.run")
     def test_connect_to_pod_with_context(self, mock_run):
-        """connect_to_pod with context= passes --context to kubectl exec."""
         from toolbox.pod import connect_to_pod
 
         mock_result = MagicMock()
         mock_result.returncode = 0
         mock_run.return_value = mock_result
 
-        connect_to_pod("toolbox-pod-1", namespace="posthog", context="posthog-dev")
+        connect_to_pod("toolbox-pod-1", namespace="posthog", context="posthog-dev", kubectl_debug=True)
         mock_run.assert_called_once_with(
             [
                 "kubectl",
@@ -1333,8 +1355,10 @@ class TestToolbox(unittest.TestCase):
                 "toolbox-pod-1",
                 "--",
                 "bash",
-            ]
+            ],
+            env={"PATH": "/test/bin", "AWS_PROFILE": "test-profile", "DEBUG": "1"},
         )
+        self.assertNotIn("DEBUG", os.environ)
 
     def _patch_main_collaborators(self, *, get_pod_returns=("toolbox-pod-1", False, "12345")):
         """Common patch stack for main() integration tests.
@@ -1717,7 +1741,6 @@ class TestToolbox(unittest.TestCase):
         self.assertEqual(m_claim.call_args.kwargs["resource_version"], None)
 
     def test_main_propagates_connect_to_pod_exit_code(self):
-        """When kubectl exec returns non-zero, main() exits with the same code."""
         patches = self._patch_main_collaborators()
         patches["connect_to_pod"] = patch.object(toolbox_script, "connect_to_pod", return_value=42)
 
@@ -1725,11 +1748,11 @@ class TestToolbox(unittest.TestCase):
             patches["get_current_user"],
             patches["get_toolbox_pod"],
             patches["claim_pod"],
-            patches["connect_to_pod"],
+            patches["connect_to_pod"] as mock_connect,
             patches["delete_pod"],
             patches["select_context"],
             patches["validate_context"],
-            patch.object(toolbox_script.sys, "argv", ["toolbox.py", "--auto-delete"]),
+            patch.object(toolbox_script.sys, "argv", ["toolbox.py", "--auto-delete", "--kubectl-debug"]),
             patch.dict(os.environ, {}, clear=False),
         ):
             self._clean_env()
@@ -1737,6 +1760,7 @@ class TestToolbox(unittest.TestCase):
                 toolbox_script.main()
 
         self.assertEqual(ctx.exception.code, 42)
+        self.assertTrue(mock_connect.call_args.kwargs["kubectl_debug"])
 
     def test_main_retries_on_claim_race_and_picks_new_pod(self):
         """A ClaimRaceError on the first attempt triggers a re-fetch and retry against the next available pod."""
@@ -1777,7 +1801,9 @@ class TestToolbox(unittest.TestCase):
         self.assertEqual(m_get_pod.call_count, 2)
         self.assertEqual(m_claim.call_count, 2)
         # We connected to the pod we won, not the one we lost.
-        m_connect.assert_called_once_with("toolbox-pod-B", namespace="posthog-toolbox-django", context="posthog-dev")
+        m_connect.assert_called_once_with(
+            "toolbox-pod-B", namespace="posthog-toolbox-django", context="posthog-dev", kubectl_debug=False
+        )
         # atexit was registered twice (once per candidate pod) and unregistered once
         # to clear the stale registration after the race.
         self.assertEqual(m_atexit.call_count, 2)
@@ -1867,7 +1893,9 @@ class TestToolbox(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 toolbox_script.main()
 
-        m_connect.assert_called_once_with("toolbox-pod-mine", namespace="posthog-toolbox-django", context="posthog-dev")
+        m_connect.assert_called_once_with(
+            "toolbox-pod-mine", namespace="posthog-toolbox-django", context="posthog-dev", kubectl_debug=False
+        )
         # claim_pod was called once (the racing one) and not retried since we found our own pod.
         self.assertEqual(m_claim.call_count, 1)
         # First atexit register armed cleanup for pod-A; on the race we unregistered;

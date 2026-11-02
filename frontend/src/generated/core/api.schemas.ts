@@ -494,13 +494,19 @@ export interface OrganizationInviteApi {
     /** @maxLength 30 */
     first_name?: string
     readonly emailing_attempt_made: boolean
+    /** True when the email provider reported the target address as suppressed at send time. */
+    readonly email_suppressed: boolean
     level?: OrganizationMembershipLevelEnumApi
     /** Check if invite is older than INVITE_DAYS_VALIDITY days. */
     readonly is_expired: boolean
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly updated_at: string
-    /** @nullable */
+    /**
+     * Optional personal message in the invite email.
+     * @maxLength 1000
+     * @nullable
+     */
     message?: string | null
     /** List of team IDs and corresponding access levels to private projects. */
     private_project_access?: unknown
@@ -1789,7 +1795,7 @@ export interface TeamWorkflowsConfigApi {
      * * `opt_out` - Opt Out
      * * `opt_in` - Opt In */
     email_tracking_consent_mode?: EmailTrackingConsentModeEnumApi
-    /** Whether new email steps and broadcasts start with UTM tags on their links. Each email can still change it. Existing emails keep their current values. */
+    /** Whether new email steps and broadcasts start with UTM tags on their links. Each email can still change it. Existing emails change only through apply_utm_defaults. */
     email_utm_tags_enabled?: boolean
     /** Default UTM values that new email steps and broadcasts copy. An empty value keeps the built-in default for that tag. */
     email_utm_params?: EmailUtmParamsApi
@@ -1841,6 +1847,18 @@ export interface TeamWorkflowsConfigApi {
 export interface TeamFeatureFlagPolicyConfigApi {
     /** When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag. */
     require_tags?: boolean
+    /**
+     * Domains to block from feature flag requests (/flags and /decide), up to 100. A domain also covers its subdomains. It is compared with the Origin header, or with the Referer header when Origin is missing. Entries are stored lowercase without duplicates. A pasted URL is reduced to its domain, and an internationalized domain is stored as punycode.
+     * @maxItems 1000
+     * @items.maxLength 2000
+     */
+    blocked_hosts?: string[]
+    /**
+     * IPv4 or IPv6 addresses or CIDR ranges to block from feature flag requests (/flags and /decide), up to 100. Ranges can be /8 or narrower for IPv4 and /16 or narrower for IPv6. Entries are stored in canonical form without duplicates, and an IPv4-mapped IPv6 address is stored as IPv4.
+     * @maxItems 1000
+     * @items.maxLength 2000
+     */
+    blocked_ips?: string[]
 }
 
 /**
@@ -3664,6 +3682,8 @@ export interface ProjectBackwardCompatApi {
     readonly managed_viewsets: ProjectBackwardCompatApiManagedViewsets
     /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
     readonly flag_evaluations_mode: FlagEvaluationsModeEnumApi
+    /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
+    readonly api_host: string
     revenue_analytics_config?: TeamRevenueAnalyticsConfigApi
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
@@ -4552,6 +4572,8 @@ export interface PatchedProjectBackwardCompatApi {
     readonly managed_viewsets?: PatchedProjectBackwardCompatApiManagedViewsets
     /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
     readonly flag_evaluations_mode?: FlagEvaluationsModeEnumApi
+    /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
+    readonly api_host?: string
     revenue_analytics_config?: TeamRevenueAnalyticsConfigApi
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
@@ -5526,61 +5548,6 @@ export interface SearchIntentResponseApi {
     model_query: string | null
 }
 
-export interface EventMatchRequestApi {
-    /**
-     * What the person typed into the events list search box, which matched no event name.
-     * @maxLength 200
-     */
-    query: string
-}
-
-export interface EventMatchApi {
-    /** The event name to select, such as $autocapture. */
-    name: string
-    /** The event's display name, such as Autocapture. */
-    display_name: string
-    /** How likely the search means this event, from 0 to 1. */
-    probability: number
-}
-
-/**
- * * `wrong_length` - The search is too short or too long to ask about
- * * `only_values` - Nothing but values is left for the model to read
- * * `unavailable` - The model could not answer at all
- * * `partial` - Some model requests failed, so an event it never asked about might have matched
- * * `nothing_likely` - The model found no core event likely
- * * `not_ingested` - The project never sent the likely events
- * * `matched` - At least one likely event has data
- */
-export type EventMatchOutcomeEnumApi = (typeof EventMatchOutcomeEnumApi)[keyof typeof EventMatchOutcomeEnumApi]
-
-export const EventMatchOutcomeEnumApi = {
-    WrongLength: 'wrong_length',
-    OnlyValues: 'only_values',
-    Unavailable: 'unavailable',
-    Partial: 'partial',
-    NothingLikely: 'nothing_likely',
-    NotIngested: 'not_ingested',
-    Matched: 'matched',
-} as const
-
-export interface EventMatchResponseApi {
-    /** PostHog core events the search most likely means, strongest first. Empty when nothing is likely. */
-    matches: EventMatchApi[]
-    /** The step that decided the answer, so an empty answer says why it is empty.
-     *
-     * * `wrong_length` - The search is too short or too long to ask about
-     * * `only_values` - Nothing but values is left for the model to read
-     * * `unavailable` - The model could not answer at all
-     * * `partial` - Some model requests failed, so an event it never asked about might have matched
-     * * `nothing_likely` - The model found no core event likely
-     * * `not_ingested` - The project never sent the likely events
-     * * `matched` - At least one likely event has data */
-    outcome: EventMatchOutcomeEnumApi
-    /** Likely core events this project never sent, strongest first. Only filled when outcome is not_ingested. */
-    unsent: EventMatchApi[]
-}
-
 /**
  * * `offer` - offer
  * * `answer` - answer
@@ -6173,6 +6140,8 @@ export interface UserApi {
     readonly pending_invites: readonly PendingInviteApi[]
     /** True if the user belongs to an organization that a partner provisioned, has not yet acknowledged the access on their account, and has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
     readonly requires_credential_review: boolean
+    /** How many personal API keys the user may hold, from the `personal_api_keys` billing entitlement of the user's organizations. The highest limit across their organizations applies, and 10 when no organization grants a limit. Creating a key beyond it is rejected with a validation error. Read-only. */
+    readonly personal_api_keys_limit: number
 }
 
 export interface PaginatedUserListApi {
@@ -6289,6 +6258,8 @@ export interface PatchedUserApi {
     readonly pending_invites?: readonly PendingInviteApi[]
     /** True if the user belongs to an organization that a partner provisioned, has not yet acknowledged the access on their account, and has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
     readonly requires_credential_review?: boolean
+    /** How many personal API keys the user may hold, from the `personal_api_keys` billing entitlement of the user's organizations. The highest limit across their organizations applies, and 10 when no organization grants a limit. Creating a key beyond it is rejected with a validation error. Read-only. */
+    readonly personal_api_keys_limit?: number
 }
 
 export interface UserGithubLoginApi {
@@ -6431,7 +6402,20 @@ export interface UserCodexConnectRequestApi {
     tokens: UserCodexAuthTokensApi
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface GitHubBranchesResponseApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** List of branch names */
     branches: string[]
     /**
@@ -6464,7 +6448,20 @@ export interface GitHubRepoApi {
     can_push?: boolean
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface GitHubReposResponseApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     repositories: GitHubRepoApi[]
     /** Whether more repositories are available beyond this page. */
     has_more: boolean
@@ -7016,6 +7013,7 @@ export type FileSystemListParams = {
     include_tags?: boolean
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -7033,6 +7031,19 @@ export type FileSystemDestroyParams = {
      * Delete folder contents too (default: true). Set false to delete only empty folders. Nonempty folders return HTTP 409 with code directory_not_empty.
      */
     recursive?: boolean
+}
+
+export type FileSystemFrequentListParams = {
+    /**
+     * Maximum number of frequently viewed items to return.
+     * @minimum 1
+     * @maximum 20
+     */
+    limit?: number
+    /**
+     * A search term.
+     */
+    search?: string
 }
 
 export type FileSystemSearchRetrieveParams = {

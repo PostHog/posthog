@@ -1,7 +1,9 @@
 use std::fs;
 use std::net::SocketAddr;
+use std::num::NonZeroU32;
 use std::time::Duration;
 
+use common_ingestion_warnings::RowWarningsSettings;
 use common_kafka::config::KafkaConfig;
 use envconfig::Envconfig;
 use personhog_common::h2_window::{Http2Windows, WindowSize};
@@ -197,10 +199,48 @@ pub struct Config {
     #[envconfig(default = "524288")]
     pub properties_trim_target: usize,
 
-    /// Topic for in-product ingestion warnings emitted when admission
-    /// trims or rejects an update.
+    #[envconfig(default = "false")]
+    pub ingestion_warnings_enabled: bool,
+
+    #[envconfig(default = "")]
+    pub ingestion_warnings_kafka_hosts: String,
+
+    #[envconfig(default = "false")]
+    pub ingestion_warnings_kafka_tls: bool,
+
     #[envconfig(default = "clickhouse_ingestion_warnings")]
     pub ingestion_warnings_topic: String,
+
+    #[envconfig(default = "16")]
+    pub ingestion_warnings_kafka_queue_mib: u32,
+
+    #[envconfig(default = "1048576")]
+    pub ingestion_warnings_kafka_message_max_bytes: u32,
+
+    /// The defaults below are fire-and-forget: a warning is worth less than
+    /// the cost of retrying it, and a slow warnings topic must not hold an update.
+    #[envconfig(default = "1")]
+    pub ingestion_warnings_kafka_acks: String,
+
+    #[envconfig(default = "0")]
+    pub ingestion_warnings_kafka_retries: u32,
+
+    #[envconfig(default = "100")]
+    pub ingestion_warnings_kafka_linger_ms: u32,
+
+    #[envconfig(default = "10000")]
+    pub ingestion_warnings_kafka_queue_messages: u32,
+
+    #[envconfig(default = "5000")]
+    pub ingestion_warnings_kafka_message_timeout_ms: u32,
+
+    /// Warnings of one type a minute that one pod sends, shared by every team
+    /// on it; the rest are dropped as `type_budget_exhausted`.
+    #[envconfig(default = "60")]
+    pub ingestion_warnings_type_budget_per_minute: NonZeroU32,
+
+    #[envconfig(default = "1000000")]
+    pub ingestion_warnings_max_tracked_scopes: usize,
 
     // ── Dirty index / changelog recovery ─────────────────────────
     /// How often to poll the writer's committed offsets and prune dirty
@@ -755,6 +795,24 @@ impl Config {
 
     pub fn heartbeat_interval(&self) -> Duration {
         Duration::from_secs(self.heartbeat_interval_secs)
+    }
+
+    pub fn ingestion_warnings_settings(&self) -> RowWarningsSettings {
+        RowWarningsSettings {
+            enabled: self.ingestion_warnings_enabled,
+            kafka_hosts: self.ingestion_warnings_kafka_hosts.clone(),
+            kafka_tls: self.ingestion_warnings_kafka_tls,
+            topic: self.ingestion_warnings_topic.clone(),
+            kafka_queue_mib: self.ingestion_warnings_kafka_queue_mib,
+            kafka_message_max_bytes: self.ingestion_warnings_kafka_message_max_bytes,
+            kafka_acks: self.ingestion_warnings_kafka_acks.clone(),
+            kafka_retries: self.ingestion_warnings_kafka_retries,
+            kafka_linger_ms: self.ingestion_warnings_kafka_linger_ms,
+            kafka_queue_messages: self.ingestion_warnings_kafka_queue_messages,
+            kafka_message_timeout_ms: self.ingestion_warnings_kafka_message_timeout_ms,
+            type_budget_per_minute: self.ingestion_warnings_type_budget_per_minute,
+            max_tracked_scopes: self.ingestion_warnings_max_tracked_scopes,
+        }
     }
 
     /// Resolve the K8s namespace from config or the service account mount.

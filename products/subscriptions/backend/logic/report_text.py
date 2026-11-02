@@ -20,16 +20,25 @@ class ReportLinkItem(BaseModel):
     url: str = Field(description="The complete original URL from the query results. Never shorten or rewrite it.")
 
 
+class ReportChangeItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["change"]
+    text: str
+    direction: Literal["increase", "decrease"]
+
+
 class ReportText(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    items: list[ReportTextItem | ReportLinkItem]
+    items: list[ReportTextItem | ReportLinkItem | ReportChangeItem]
 
     def render(self, bold_marker: str = "**") -> str:
         markers = {
             "text": ("", ""),
             "name": (bold_marker, bold_marker),
             "value": (bold_marker, bold_marker),
+            "change": (bold_marker, bold_marker),
             "time": ("_", "_"),
             "link": ("", ""),
         }
@@ -55,6 +64,9 @@ class ReportText(BaseModel):
                     except ValueError:
                         label = "Page"
                 parts.append(f"[{label}]({item.url})")
+            elif item.kind == "change":
+                triangle = "▲" if item.direction == "increase" else "▼"
+                parts.append(f"{opening}{triangle} {item.text}{closing}")
             else:
                 parts.append(f"{opening}{item.text}{closing}")
             previous_text = item.text
@@ -65,6 +77,17 @@ class ReportText(BaseModel):
         if not content:
             return ""
         return f"{marker} {content}"
+
+
+class ReportSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    findings: list[ReportText]
+
+    def render(self, *, slack_formatting: bool = False) -> str:
+        if slack_formatting:
+            return "\n\n".join(finding.render_bullet("•", "*") for finding in self.findings)
+        return "\n\n".join(finding.render_bullet() for finding in self.findings)
 
 
 class ReportSubsection(BaseModel):
@@ -125,7 +148,9 @@ class ReportDocument(BaseModel):
 REPORT_TEXT_INSTRUCTIONS = """Return structured text items. The renderer applies inline styles from their kinds.
 - Use kind=link for a page or referrer with a supplied URL. Put a short descriptive label in text and the complete original destination in url. Do not put link brackets or Markdown link syntax in text. Do not replace a supplied URL with an unlinked name item. Do not include url for other kinds.
 - Use kind=name for every event name and metric name, including repeated mentions.
-- Use kind=value for each measured count, amount, percentage, and change. Include its unit in the same item.
+- Use kind=value for each measured count, amount, and percentage. Include its unit in the same item.
+- Use kind=change for a measured increase or decrease against an explicit comparable baseline. Set direction to increase or decrease and put the change amount with its unit in text. The renderer adds a direction triangle. Do not add arrows to the text.
+- Use change items only for differences, not absolute values, dates, incomplete periods, or funnel step drop-offs. If the baseline or change is uncertain, use plain text. An increase is not automatically good and a decrease is not automatically bad.
 - Use kind=time for every date, clock time, duration, and reporting window, even when it contains numbers.
 - Use kind=text for connecting words, punctuation, and Markdown structure. Never include event names, measured values, or dates inside a text item.
 - Do not include bold, italic, or underline markers in item text. Keep each styled item to the relevant name, value, or time expression.

@@ -2,10 +2,10 @@ import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { SeriesActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
 

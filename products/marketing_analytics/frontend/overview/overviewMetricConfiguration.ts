@@ -24,6 +24,17 @@ export function defaultOverviewMetricConfiguration(): OverviewMetricConfiguratio
     }
 }
 
+export type OverviewHiddenGroups = 'none' | OverviewMetricGroup | 'both'
+
+export function hiddenOverviewMetricGroups(configuration: OverviewMetricConfiguration): OverviewHiddenGroups {
+    const platforms = configuration.platforms.hidden.length > 0
+    const posthog = configuration.posthog.hidden.length > 0
+    if (platforms && posthog) {
+        return 'both'
+    }
+    return platforms ? 'platforms' : posthog ? 'posthog' : 'none'
+}
+
 export function overviewMetricsForGroup(
     items: OverviewMetricCardItem[],
     group: OverviewMetricGroup,

@@ -3,17 +3,23 @@ import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import { createElement } from 'react'
 
-import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
+import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
+import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
+import {
+    DataWarehouseSavedQueryUpdate,
+    dataWarehouseViewsLogic,
+} from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/materializationJobsLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { DataModelingNode, DataModelingNodeType, DataWarehouseSavedQuery } from '~/types'
+import { AccessControlLevel, DataModelingNode, DataModelingNodeType, DataWarehouseSavedQuery } from '~/types'
 
 import { NodeDetailOverview } from './NodeDetailOverview'
 import { NodeDetailQuery } from './NodeDetailQuery'
-import { NodeDetailSceneTab, nodeDetailSceneLogic } from './nodeDetailSceneLogic'
+import { NodeDetailSceneTab, nodeDetailQueryEditorTabId, nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 import { NodeDetailTests } from './NodeDetailTests'
 
 const NODE_ID = 'node-1'
@@ -102,6 +108,74 @@ describe('nodeDetailSceneLogic', () => {
         expect(logic.values.currentTab).toEqual(expectedTab)
     })
 
+    // An endpoint's query is versioned by the endpoint, and a viewer cannot save a view, so only
+    // an editor on a plain or materialized view gets the editable query.
+    it.each<[string, DataModelingNodeType, AccessControlLevel, boolean]>([
+        ['an editor on a view', 'view', AccessControlLevel.Editor, true],
+        ['an editor on a materialized view', 'matview', AccessControlLevel.Editor, true],
+        ['a viewer on a view', 'view', AccessControlLevel.Viewer, false],
+        ['an editor on an endpoint', 'endpoint', AccessControlLevel.Editor, false],
+    ])('decides whether the query is editable for %s', async (_case, type, accessLevel, expected) => {
+        node = buildNode(type)
+        savedQuery = {
+            ...savedQuery,
+            user_access_level: accessLevel,
+            query: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' },
+        }
+
+        await mountScene(urls.nodeDetail(NODE_ID))
+
+        expect(logic.values.canEditQuery).toBe(expected)
+    })
+
+    // The buttons above the editor have no access to its bindings, so they act through the editor
+    // mounted under the scene's tab id. A wrong id would leave them clicking into nothing.
+    it('sends Update view and Discard changes to the mounted query editor', async () => {
+        savedQuery = { ...savedQuery, query: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' } }
+        await mountScene(urls.nodeDetail(NODE_ID))
+        const editor = sqlEditorLogic({
+            tabId: nodeDetailQueryEditorTabId(SAVED_QUERY_ID),
+            mode: SQLEditorMode.Embedded,
+        })
+        editor.mount()
+        try {
+            editor.actions.editView('SELECT 1', savedQuery as DataWarehouseSavedQuery)
+            await expectLogic(editor).toDispatchActions(['editView', 'createTab', 'updateTab'])
+            editor.actions.setQueryInput('SELECT 2')
+
+            logic.actions.updateViewFromQueryEditor()
+            await expectLogic(editor).toDispatchActions(['reviewEditingViewUpdate', 'reviewViewUpdate'])
+
+            logic.actions.discardQueryEditorChanges()
+            await expectLogic(editor).toDispatchActions(['discardChanges'])
+        } finally {
+            editor.unmount()
+        }
+    })
+
+    // Saving a new query from this page changes what the model depends on, and the lineage tab stays
+    // mounted, so it must reload. A frequency change reaches the same success action without a query.
+    it.each<[string, Partial<DataWarehouseSavedQueryUpdate>, number]>([
+        ['changes the query', { query: { kind: NodeKind.HogQLQuery, query: 'SELECT 2' } }, 1],
+        ['changes only the sync frequency', { sync_frequency: '24hour' }, 0],
+    ])('reloads the lineage graph only when an update %s', async (_case, change, expectedReloads) => {
+        const lineageRequests = jest.fn(() => [200, { nodes: [], edges: [] }])
+        useMocks({
+            get: {
+                '/api/environments/:team_id/data_modeling_nodes/lineage/': lineageRequests,
+                '/api/environments/:team_id/data_modeling_nodes/:id/': () => [200, node],
+                '/api/environments/:team_id/warehouse_saved_queries/:id/': () => [200, savedQuery],
+            },
+        })
+        await mountScene(urls.nodeDetail(NODE_ID))
+        const requestsBefore = lineageRequests.mock.calls.length
+
+        dataWarehouseViewsLogic.actions.updateDataWarehouseSavedQuerySuccess([], { id: SAVED_QUERY_ID, ...change })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(lineageRequests.mock.calls.length - requestsBefore).toBe(expectedReloads)
+    })
+
     it.each(['table', 'metric'] as const)('offers a %s only its lineage, and opens on it', async (type) => {
         node = buildNode(type)
 
@@ -109,6 +183,22 @@ describe('nodeDetailSceneLogic', () => {
 
         expect(logic.values.availableTabs).toEqual(['lineage'])
         expect(logic.values.currentTab).toEqual('lineage')
+    })
+
+    it('keeps the current model in its lineage when its type is hidden', async () => {
+        await mountScene(urls.nodeDetail(NODE_ID, 'lineage'))
+        logic.actions.loadLineageGraphSuccess({
+            currentNodeId: NODE_ID,
+            nodes: [buildNode('table', { id: 'source' }), node, buildNode('metric', { id: 'revenue' })],
+            edges: [
+                { id: 'e1', source_id: 'source', target_id: NODE_ID },
+                { id: 'e2', source_id: NODE_ID, target_id: 'revenue' },
+            ],
+        })
+
+        logic.actions.setLineageTypeFilter(['table'])
+
+        expect(logic.values.lineageVisibleNodeIds).toEqual(new Set(['source', NODE_ID]))
     })
 
     it('replaces a backing-resource URL with the canonical node URL', async () => {

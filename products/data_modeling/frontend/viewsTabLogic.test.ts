@@ -80,6 +80,62 @@ describe('viewsTabLogic', () => {
         expect(logic.values.filteredViews.map((view) => view.id)).toEqual(['mat-10'])
     })
 
+    it.each([
+        ['a materialize', 'plain-a', true],
+        ['an unmaterialize', 'mat-0', false],
+    ])('shows the new materialization after %s suggestion is accepted', async (_kind, viewId, isMaterialized) => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/warehouse_saved_queries/': {
+                    count: 1,
+                    results: [buildView(viewId, isMaterialized, isMaterialized ? 'Completed' : undefined)],
+                },
+            },
+        })
+
+        logic.actions.suggestionAccepted(viewId, isMaterialized)
+        await expectLogic(dataWarehouseViewsLogic).toFinishAllListeners()
+        logic.actions.setTypeFilter(isMaterialized ? 'materialized' : 'view')
+
+        expect(logic.values.filteredViews.map((view) => view.id)).toEqual([viewId])
+    })
+
+    it.each([
+        ['a materialize', 'view' as const, false],
+        ['an unmaterialize', 'materialized' as const, true],
+    ])(
+        'moves back to the last page when %s empties the filtered page',
+        async (_kind, typeFilter, startsMaterialized) => {
+            const views = Array.from({ length: PAGE_SIZE + 1 }, (_, i) => buildView(`v-${i}`, startsMaterialized))
+            useMocks({
+                get: { '/api/projects/:team_id/warehouse_saved_queries/': { count: views.length, results: views } },
+            })
+            dataWarehouseViewsLogic.actions.loadDataWarehouseSavedQueries()
+            await expectLogic(dataWarehouseViewsLogic).toFinishAllListeners()
+            logic.actions.setTypeFilter(typeFilter)
+            logic.actions.setPage(2)
+            const flipped = views.map((view, i) => (i === PAGE_SIZE ? buildView(`v-${i}`, !startsMaterialized) : view))
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/warehouse_saved_queries/': { count: flipped.length, results: flipped },
+                },
+            })
+
+            logic.actions.suggestionAccepted(`v-${PAGE_SIZE}`, !startsMaterialized)
+            await expectLogic(dataWarehouseViewsLogic).toFinishAllListeners()
+
+            expect(logic.values.currentPage).toEqual(1)
+            expect(logic.values.visibleViews).toHaveLength(PAGE_SIZE)
+        }
+    )
+
+    it('keeps polling an accepted materialize until the view reports it is materialized', async () => {
+        logic.actions.suggestionAccepted('plain-a', true)
+        await expectLogic(dataWarehouseViewsLogic).toFinishAllListeners()
+
+        expect(dataWarehouseViewsLogic.values.materializingViewIds).toEqual(['plain-a'])
+    })
+
     it('keeps name matches visible while lineage data reloads', () => {
         lineageDataLogic.actions.loadNodes()
         logic.actions.setSearchTerm('+mat-1')

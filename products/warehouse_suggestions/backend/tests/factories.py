@@ -38,6 +38,8 @@ def busy_reads(**overrides: Any) -> SubjectReads:
         human_days=25,
         background_requests=0,
         background_reads=0,
+        background_duration_ms=0,
+        background_read_bytes=0,
         human_reads=200,
         human_duration_ms=200 * 20_000,
         human_read_bytes=200 * 10**9,

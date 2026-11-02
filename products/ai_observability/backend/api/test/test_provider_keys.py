@@ -79,18 +79,26 @@ class TestProviderKeySerializer(SimpleTestCase):
         self.assertFalse(serializer.is_valid())
         self.assertIn(missing_field, serializer.errors)
 
-    def test_system_one_connection_rejects_hosted_typesafe_endpoint(self) -> None:
+    @parameterized.expand(
+        [
+            ("openai_compatible", "https://api.typesafe.ai/v1", False),
+            ("openai_compatible", "https://API.TYPESAFE.AI.:443/v1", False),
+            ("system_one", "https://api.typesafe.ai/v1", True),
+        ]
+    )
+    def test_typesafe_endpoint_is_only_accepted_for_system_one(self, provider: str, base_url: str, valid: bool) -> None:
         serializer = LLMProviderKeySerializer(
             data={
-                "provider": "system_one",
+                "provider": provider,
                 "name": "Example connection",
                 "api_key": "example-token",
-                "base_url": "https://api.typesafe.ai/v1",
-                "system_one_model": "example-judge-v1",
+                "base_url": base_url,
+                **({"system_one_model": "example-judge-v1"} if provider == "system_one" else {}),
             }
         )
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("base_url", serializer.errors)
+        self.assertEqual(serializer.is_valid(), valid, serializer.errors)
+        if not valid:
+            self.assertIn("base_url", serializer.errors)
 
     def test_non_system_one_model_error_uses_model_field(self) -> None:
         serializer = LLMProviderKeySerializer(
@@ -199,50 +207,6 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-    @parameterized.expand([("create",), ("update",), ("validate",), ("prevalidate",)])
-    def test_system_one_connection_requires_enabled_feature(self, operation: str) -> None:
-        gateway_url = "https://ai-gateway.us.posthog.com/v1"
-        key = LLMProviderKey.objects.create(
-            team=self.team,
-            provider="system_one",
-            name="Example connection",
-            encrypted_config={"api_key": "example-token", "base_url": gateway_url},
-            created_by=self.user,
-        )
-        base_url = f"/api/environments/{self.team.id}/llm_analytics/"
-        with (
-            self.settings(POSTHOG_INTERNAL_ORG_IDS=[]),
-            patch(
-                "products.ai_observability.backend.llm.decisions.get_feature_flag_or_none",
-                return_value=False,
-            ),
-            patch("httpx.AsyncHTTPTransport.handle_async_request") as request,
-        ):
-            if operation == "create":
-                response = self.client.post(
-                    f"{base_url}provider_keys/",
-                    {
-                        "provider": "system_one",
-                        "name": "Example connection",
-                        "api_key": "example-token",
-                        "base_url": gateway_url,
-                        "system_one_model": "custom-model",
-                    },
-                )
-            elif operation == "update":
-                response = self.client.patch(f"{base_url}provider_keys/{key.id}/", {"api_key": "new-example-token"})
-            elif operation == "validate":
-                response = self.client.post(f"{base_url}provider_keys/{key.id}/validate/")
-            else:
-                response = self.client.post(
-                    f"{base_url}provider_key_validations/",
-                    {"provider": "system_one", "api_key": "example-token", "base_url": gateway_url},
-                )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.data)
-        request.assert_not_called()
-        key.refresh_from_db()
-        self.assertEqual(key.encrypted_config["api_key"], "example-token")
-
     def test_unauthenticated_user_cannot_access_provider_keys(self):
         self.client.logout()
         response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/provider_keys/")
@@ -288,8 +252,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
 
     @patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")})
     @patch("httpx.AsyncHTTPTransport.handle_async_request")
-    @patch("products.ai_observability.backend.llm.decisions.get_feature_flag_or_none", return_value=True)
-    def test_custom_system_one_connection_round_trip(self, _flag: Mock, request: Mock, _dns: Mock) -> None:
+    def test_custom_system_one_connection_round_trip(self, request: Mock, _dns: Mock) -> None:
         body = json.dumps(
             {
                 "model": "custom-model",

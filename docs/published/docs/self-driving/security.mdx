@@ -1,0 +1,42 @@
+---
+title: Self-Driving security
+sidebarTitle: Security
+sidebar: Docs
+showTitle: true
+---
+
+Self-Driving uses Cloud Tasks to investigate signals and prepare code changes. This page describes its code access, prompt injection controls, and GitHub permissions.
+
+Last reviewed: October 27, 2026.
+
+## Code access and storage
+
+Repository cloning is optional. When a Self-Driving run needs repository code, it can clone the repository into an isolated sandbox.
+
+Self-Driving agents do not create repository snapshots. Snapshot creation for other Cloud Tasks depends on the task and its execution mode.
+
+See [Cloud Tasks security](/docs/tasks/security) for sandbox lifetime, snapshot storage, and AI data processing information.
+
+## Prompt injection controls
+
+Prompt injection occurs when content that an agent reads tries to change its instructions. Events, error messages, feedback, repository files, and connected sources can contain such content.
+
+Self-Driving uses controls at several stages:
+
+1. **Incoming signals.** A large language model (LLM) safety filter checks ingested signals before further processing.
+2. **Agent execution.** Agents run in isolated sandboxes with restricted outbound network access by default. Shell execution policies apply additional controls.
+3. **Instructions and tools.** Agent prompts identify external content as data that must not change their instructions. Each agent type receives the capabilities and access needed for its work.
+4. **Generated reports.** A safety judge checks reports before further research or implementation.
+5. **Code changes.** Agents submit changes through pull requests. Your review process and GitHub branch protections control whether those changes merge.
+
+These controls reduce risk. They do not guarantee that an agent will detect every prompt injection attempt. LLM safety checks can make mistakes.
+
+Network access depends on the task environment. Restricted access is the default for Self-Driving agents. A restricted environment allows approved destinations. An environment configured for full network access permits unrestricted outbound connections. See [sandbox network access](/handbook/engineering/ai/sandboxed-agents#network-access) for the available settings.
+
+## GitHub permissions
+
+During [GitHub installation](/docs/libraries/github#all-repositories-or-selected-repositories), choose **Only select repositories** to limit the repositories that PostHog can access.
+
+The Self-Driving GitHub integration does not support a read-only installation. It requests write access so agents can create branches and pull requests.
+
+Review the permissions shown by GitHub before you approve the installation. Apply your required reviews, status checks, and branch protections to agent pull requests.

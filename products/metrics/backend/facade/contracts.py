@@ -44,6 +44,14 @@ from .enums import (
 MAX_CLAUSES_PER_QUERY = 10
 MAX_SPARKLINE_BATCH_SIZE = 20
 
+
+class MetricQueryTooManyRowsError(ValueError):
+    """The query has more (time bucket, series) rows than the row budget allows.
+
+    A caller can retry with a coarser interval, because fewer buckets give fewer rows.
+    """
+
+
 # Private-alpha gate. Every read surface (viewset, query runner, MCP tools)
 # must check the same flag, or one of them becomes a bypass.
 METRICS_FEATURE_FLAG = "metrics"
@@ -125,6 +133,9 @@ class MetricQueryRequest:
     date_to: dt.datetime
     interval: str | None = None
     formula: str | None = None
+    # False leaves a bucket without data as a None point (a gap), so a mean over the points skips it.
+    # A formula needs aligned values, so it requires the zero fill.
+    zero_fill: bool = True
 
     def __post_init__(self) -> None:
         if not self.clauses:
@@ -133,6 +144,8 @@ class MetricQueryRequest:
             raise ValueError(f"at most {MAX_CLAUSES_PER_QUERY} clauses are allowed per query")
         if self.date_to <= self.date_from:
             raise ValueError("date_to must be after date_from")
+        if self.formula is not None and not self.zero_fill:
+            raise ValueError("a formula requires zero_fill")
         names = [c.name for c in self.clauses]
         if len(names) != len(set(names)):
             raise ValueError("clause names must be unique")
@@ -163,6 +176,9 @@ class MetricSeries:
     # from the ingested unit when the clause transforms the values: COUNT has no
     # unit and RATE is per second. Set by `run_metric_query`, not by callers.
     unit: str | None = None
+    # Bucket upper edges a histogram quantile was estimated from, merged over every
+    # point. The estimate can be anywhere between two edges. None for other aggregations.
+    histogram_bounds: tuple[float, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)

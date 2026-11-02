@@ -73,7 +73,12 @@ class HeyReachSource(ResumableSource[HeyReachSourceConfig, HeyReachResumeConfig]
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            should_sync_default={name: config.should_sync_default for name, config in ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self,

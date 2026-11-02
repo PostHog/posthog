@@ -330,6 +330,13 @@ export const ErrorTrackingAssignmentRulesReorderPartialUpdateBody = /* @__PURE__
         .describe('Mapping from assignment rule UUID to its new evaluation order.'),
 })
 
+export const ErrorTrackingBuiltInFiltersPartialUpdateBody = /* @__PURE__ */ zod.object({
+    enabled: zod
+        .boolean()
+        .optional()
+        .describe('`true` drops matching exceptions for this project. `false` stops dropping them.'),
+})
+
 export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
     filters: zod
         .record(zod.string(), zod.unknown())
@@ -828,6 +835,12 @@ export const errorTrackingQueryIssuesListCreateBodyUrlMax = 1000
 export const errorTrackingQueryIssuesListCreateBodyFilePathMax = 1000
 
 export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object({
+    firstSeenAfter: zod
+        .string()
+        .optional()
+        .describe(
+            'Only include issues first seen strictly after this ISO timestamp or relative date, such as -24h or -7d. Independent of dateRange, which filters occurrences.'
+        ),
     dateRange: zod
         .object({
             date_from: zod
@@ -1105,6 +1118,18 @@ export const ErrorTrackingSettingsUpdateSettingsPartialUpdateBody = /* @__PURE__
         .min(1)
         .nullish()
         .describe('Bucket window over which the per-issue rate limit applies, in minutes.'),
+    ingestion_enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered.'
+        ),
+    linear_status_sync_enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether status changes on linked Linear tickets update the issue. When true, an issue resolves once every linked Linear ticket is closed and at least one is done, and a resolved issue becomes active again when a linked ticket reopens.'
+        ),
 })
 
 export const errorTrackingSeverityRulesCreateBodyOrderKeyDefault = 0

@@ -1,6 +1,6 @@
 import re
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from typing import ClassVar, cast
 
@@ -12,7 +12,10 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.dataclasses import frozen
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.file_parsing import FILE_PATH_COLUMN
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.file_parsing import (
+    FILE_PATH_COLUMN,
+    uses_brotli_compression,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.errors import (
     ACCESS_DENIED_ERROR,
     DELTA_UNSUPPORTED_ERROR,
@@ -112,6 +115,7 @@ class DeltaRead:
         yielded = False
         try:
             for file_name, scan_fragments in scans:
+                self._refuse_brotli(scan_fragments if scan_fragments is not None else self.dataset.get_fragments())
                 for batch in self._scanner(scan_fragments, batch_rows).to_batches():
                     if batch.num_rows:
                         yielded = True
@@ -128,6 +132,15 @@ class DeltaRead:
             # An empty snapshot still has to reach the pipeline as a schema, or the table is dropped and
             # never recreated.
             yield self._tagged(self.dataset.schema.empty_table(), with_version, with_file_names, None)
+
+    def _refuse_brotli(self, fragments: Iterable[ds.Fragment]) -> None:
+        for fragment in fragments:
+            parquet_fragment = cast(ds.ParquetFileFragment, fragment)
+            if uses_brotli_compression(parquet_fragment.metadata):
+                raise ObjectStorageError(
+                    f"{FILE_PARSE_ERROR} '{parquet_fragment.path}' in the Delta table '{self.table_name}': Brotli "
+                    "compression isn't supported. Write the table with Snappy, Gzip, or Zstd compression instead."
+                )
 
     def _scanner(self, fragments: list[ds.FileFragment] | None, batch_rows: int) -> ds.Scanner:
         dataset: ds.Dataset = self.dataset

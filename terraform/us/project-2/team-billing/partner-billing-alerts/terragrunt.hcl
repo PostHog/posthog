@@ -25,5 +25,7 @@ generate "variables_team" {
   contents  = file("${get_terragrunt_dir()}/../variables_team.tf.tpl")
 }
 
-# Merge team-level inputs
-inputs = local.team_config.inputs
+# Merge team-level inputs. Partner billing alerts post to the channel without mentioning anyone.
+inputs = merge(local.team_config.inputs, {
+  billing_alert_mention_slack_user_ids = []
+})

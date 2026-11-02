@@ -18,12 +18,7 @@ describe('dashboardControls', () => {
     it.each([
         ['a trends insight', trendsTile, ['dateRange', 'interval', 'properties', 'breakdown', 'testAccounts']],
         ['a retention insight', retentionTile, ['dateRange', 'properties', 'breakdown', 'testAccounts']],
-        ['a metrics insight', metricsTile, ['dateRange', 'metricLabels', 'metricVariables']],
-        [
-            'a PromQL metrics insight',
-            insightTile({ kind: NodeKind.MetricsQuery, clauses: [], language: 'promql', promql: 'sum(x)' }),
-            ['dateRange', 'metricVariables'],
-        ],
+        ['a metrics insight', metricsTile, ['dateRange', 'metricVariables']],
         [
             'a SQL insight',
             insightTile({ kind: NodeKind.DataVisualizationNode, source: { kind: NodeKind.HogQLQuery, query: '' } }),
@@ -39,7 +34,7 @@ describe('dashboardControls', () => {
         expect(scopes.dateRange).toEqual({ applies: 3, total: 3 })
         expect(scopes.interval).toEqual({ applies: 1, total: 3 })
         expect(scopes.properties).toEqual({ applies: 2, total: 3 })
-        expect(scopes.metricLabels).toEqual({ applies: 1, total: 3 })
+        expect(scopes.metricVariables).toEqual({ applies: 1, total: 3 })
     })
 
     it.each([

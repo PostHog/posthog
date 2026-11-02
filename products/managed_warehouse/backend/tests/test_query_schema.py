@@ -15,6 +15,7 @@ from posthog.models import Team, User
 
 
 @pytest.mark.parametrize("include_fields,table_names", [(False, None), (True, None), (True, ["analytics.orders"])])
+@pytest.mark.django_db
 def test_native_schema_uses_warehouse_inventory(include_fields: bool, table_names: list[str] | None) -> None:
     team = Team(id=7, organization_id=UUID("00000000-0000-0000-0000-000000000001"))
     user = User(id=9)
@@ -60,6 +61,7 @@ def test_native_schema_uses_warehouse_inventory(include_fields: bool, table_name
 
 
 @pytest.mark.parametrize("failure", ["flag", "anonymous", "token", "project", "connection", "discovery"])
+@pytest.mark.django_db
 def test_native_schema_rejects_unavailable_access_without_loading_default_catalog(failure: str) -> None:
     team = Team(id=7, organization_id=UUID("00000000-0000-0000-0000-000000000001"))
     with (

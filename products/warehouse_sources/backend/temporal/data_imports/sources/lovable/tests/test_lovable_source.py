@@ -10,6 +10,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lovable.so
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.lovable.source"
 
+DATED_ENDPOINTS = [
+    "Workspaces",
+    "Projects",
+    "WorkspaceMembers",
+    "ProjectSecurityScans",
+    "ProjectPiiLabels",
+    "WorkspaceGroups",
+    "ProjectSecurityScanFindings",
+    "ProjectAnalytics",
+    "WorkspaceAnalytics",
+]
+
 
 class TestLovableSource:
     def setup_method(self) -> None:
@@ -31,27 +43,21 @@ class TestLovableSource:
                     "ProjectPiiLabels",
                 ],
             ),
-            (
-                "dated",
-                "2026-09-11",
-                ["Workspaces", "Projects", "WorkspaceMembers", "ProjectSecurityScans", "ProjectPiiLabels"],
-            ),
-            (
-                "unpinned_uses_the_default",
-                None,
-                ["Workspaces", "Projects", "WorkspaceMembers", "ProjectSecurityScans", "ProjectPiiLabels"],
-            ),
+            ("dated", "2026-09-11", DATED_ENDPOINTS),
+            ("unpinned_uses_the_default", None, DATED_ENDPOINTS),
         ]
     )
-    def test_get_schemas_lists_the_pinned_versions_endpoints_as_full_refresh(
+    def test_get_schemas_lists_the_pinned_versions_endpoints(
         self, _name: str, api_version: str | None, expected: list[str]
     ) -> None:
         schemas = self.source.get_schemas(self.config, team_id=1, api_version=api_version)
 
         assert [schema.name for schema in schemas] == expected
-        # No v1 list endpoint takes a timestamp filter, so nothing here can sync incrementally.
-        assert all(not schema.supports_incremental and not schema.supports_append for schema in schemas)
-        assert all(schema.incremental_fields == [] for schema in schemas)
+        # Only the analytics endpoints take a timestamp filter, so nothing else can sync incrementally.
+        incremental = {schema.name for schema in schemas if schema.supports_incremental}
+        assert incremental == {"ProjectAnalytics", "WorkspaceAnalytics"} & set(expected)
+        # Each analytics run rereads the watermark day, which append would duplicate.
+        assert all(not schema.supports_append for schema in schemas)
 
     @parameterized.expand(
         [
@@ -85,8 +91,10 @@ class TestLovableSource:
         self, _name: str, pinned: str | None, expected_version: str, mock_lovable_source: mock.MagicMock
     ) -> None:
         inputs = mock.MagicMock()
-        inputs.schema_name = "Projects"
+        inputs.schema_name = "ProjectAnalytics"
         inputs.api_version = pinned
+        inputs.should_use_incremental_field = True
+        inputs.db_incremental_field_last_value = "2026-10-01T00:00:00Z"
         manager = mock.MagicMock()
 
         self.source.source_for_pipeline(self.config, manager, inputs)
@@ -95,8 +103,10 @@ class TestLovableSource:
         assert kwargs == {
             "api_key": "lov_key",
             "api_version": expected_version,
-            "endpoint": "Projects",
+            "endpoint": "ProjectAnalytics",
             "resumable_source_manager": manager,
+            "should_use_incremental_field": True,
+            "db_incremental_field_last_value": "2026-10-01T00:00:00Z",
         }
 
     @mock.patch(f"{SOURCE_MODULE}.validate_lovable_credentials", return_value=(True, None))

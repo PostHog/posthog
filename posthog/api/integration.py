@@ -20,11 +20,11 @@ import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from django_redis.cache import RedisCache
 from django_redis.exceptions import ConnectionInterrupted
-from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_serializer
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field, extend_schema_serializer
 from prometheus_client import Counter
 from redis.exceptions import RedisError
 from rest_framework import mixins, serializers, status, viewsets
-from rest_framework.exceptions import APIException, PermissionDenied, Throttled, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, Throttled, ValidationError
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -45,22 +45,42 @@ from posthog.api.github_callback.types import (
     github_app_install_url,
     is_valid_github_installation_id,
 )
+from posthog.api.integration_email_status_serializers import (
+    EmailDomainConnectCheckQuerySerializer,
+    EmailDomainConnectCheckSerializer,
+    EmailDomainDnsHostSerializer,
+    EmailDomainStatusQuerySerializer,
+    EmailDomainStatusSerializer,
+    EmailDomainVerificationSerializer,
+)
+from posthog.api.integration_push_tokens import (
+    PushTokenImportRequestSerializer,
+    PushTokenImportResponseSerializer,
+    import_push_tokens,
+    push_channel_app_id,
+)
+from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.pagination import PageLinksSerializer, offset_page_links
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.utils import action
-from posthog.auth import SessionAuthentication
+from posthog.api.utils import ErrorResponseSerializer, action
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.dns_hosts import lookup_dns_host
 from posthog.domain_connect import discover_domain_connect, extract_root_domain_and_host, get_available_providers
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.fuzzy_search import fuzzy_filter
+from posthog.integrations import IntegrationNotFound, IntegrationRecord
 from posthog.models import OrganizationMembership, User
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import (
     ANTHROPIC_DEFAULT_INTEGRATION_ID_PREFIX,
     ANTHROPIC_MANAGED_AGENT_LIST_PAGE_LIMIT,
     ANTHROPIC_WORKSPACE_LABEL_MAX_LENGTH,
+    ANY,
+    DEFAULT,
     ERROR_TOKEN_REFRESH_FAILED,
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
     POSTHOG_CONNECT_ALLOWED_REGIONS,
@@ -91,7 +111,9 @@ from posthog.models.integration import (
     GoogleCloudIntegration,
     GoogleCloudServiceAccountIntegration,
     Integration,
+    IntegrationAuthType,
     IntegrationError,
+    IntegrationQuerySet,
     JiraIntegration,
     LinearIntegration,
     LinkedInAdsIntegration,
@@ -108,7 +130,9 @@ from posthog.models.integration import (
     defer_repository_cache_fields,
     resolve_aliased_oauth_kind,
 )
+from posthog.models.integration.auth_types import rows_without_source_marker_q
 from posthog.models.integration.github_audit import GitHubAudit
+from posthog.models.integration.stripe import stripe_signing_secret
 from posthog.models.integration.twitter_ads import TwitterAdsIntegration
 from posthog.models.user_integration import UserIntegration
 from posthog.permissions import (
@@ -119,7 +143,8 @@ from posthog.permissions import (
     TeamMemberStrictManagementPermission,
     TimeSensitiveActionPermission,
 )
-from posthog.rate_limit import GitHubRepositoryRefreshThrottle
+from posthog.ph_client import feature_enabled_or_false
+from posthog.rate_limit import GitHubRepositoryRefreshThrottle, PushTokenImportThrottle
 from posthog.tasks.email import send_integration_access_request
 from posthog.utils import absolute_uri, is_relative_url
 
@@ -129,7 +154,9 @@ from products.cdp.backend.services.integration_usage import get_enabled_hog_func
 from products.slack_app.backend.services.slack_auth import SLACK_AUTH_FAILURE_CODES
 from products.tasks.backend.facade.api import get_in_progress_runs_for_github_integration
 from products.tasks.backend.facade.contracts import InProgressGithubRunsDTO
-from products.workflows.backend.facade.api import get_active_workflows_using_integration
+from products.workflows.backend.facade.api import get_active_workflows_using_integration, lookup_existing_email_tools
+from products.workflows.backend.facade.contracts import EmailProviderUnavailableError
+from products.workflows.backend.facade.enums import EmailDomainSetupMethod
 
 logger = structlog.get_logger(__name__)
 
@@ -144,6 +171,13 @@ stripe_marketplace_install_counter = Counter(
 )
 
 GITHUB_REPOSITORY_NAME_RE = re.compile(r"[A-Za-z0-9_.\-]+")
+
+
+class EmailProviderUnavailable(APIException):
+    # A stable code lets the setup page keep polling through an outage instead of treating it as a broken sender.
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "email_provider_unavailable"
+    default_detail = "Couldn't reach the email provider to check this domain. Try again in a moment."
 
 
 class SlackIntegrationInactiveError(APIException):
@@ -230,7 +264,8 @@ def _verify_stripe_install_signature(state: str, user_id: str, account_id: str, 
 
     See: https://docs.stripe.com/stripe-apps/install-links-oauth
     """
-    if not install_signature or not settings.STRIPE_SIGNING_SECRET:
+    signing_secret = stripe_signing_secret()
+    if not install_signature or not signing_secret:
         return False
 
     import stripe  # noqa: PLC0415
@@ -241,7 +276,7 @@ def _verify_stripe_install_signature(state: str, user_id: str, account_id: str, 
     )
     try:
         # 300s tolerance matches the Stripe provisioning check at ee/partners/stripe/api/provisioning/signature.py.
-        stripe.WebhookSignature.verify_header(payload, install_signature, settings.STRIPE_SIGNING_SECRET, tolerance=300)
+        stripe.WebhookSignature.verify_header(payload, install_signature, signing_secret, tolerance=300)
         return True
     except stripe.SignatureVerificationError:
         return False
@@ -314,6 +349,12 @@ class NativeEmailIntegrationSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Reply-to address for emails from this sender when the email step sets none. Blank clears it.",
     )
+    setup_method = serializers.ChoiceField(
+        choices=EmailDomainSetupMethod.choices,
+        required=False,
+        help_text="How the DNS records are being published: `auto` through Domain Connect, `manual` by hand. "
+        "Reported on the verification event.",
+    )
 
     def validate_email(self, value: str) -> str:
         return value.lower()
@@ -339,6 +380,20 @@ class GitHubRepoSerializer(serializers.Serializer):
         required=False,
         help_text="Whether the PostHog GitHub App has write access — required to open pull requests.",
     )
+
+
+class GitHubRepositoryAccessQuerySerializer(serializers.Serializer):
+    repository = serializers.CharField(
+        required=False,
+        help_text="Repository in owner/repo format. Omit to check access to any repository.",
+    )
+
+    def validate_repository(self, value: str) -> str:
+        return validate_github_repository_name(value)
+
+
+class GitHubRepositoryAccessResponseSerializer(serializers.Serializer):
+    available = serializers.BooleanField(help_text="Whether a live GitHub request confirmed repository access.")
 
 
 class GitHubReposQuerySerializer(serializers.Serializer):
@@ -371,7 +426,7 @@ class GitHubReposQuerySerializer(serializers.Serializer):
     )
 
 
-class GitHubReposResponseSerializer(serializers.Serializer):
+class GitHubReposResponseSerializer(PageLinksSerializer):
     repositories = GitHubRepoSerializer(many=True)
     has_more = serializers.BooleanField(help_text="Whether more repositories are available beyond this page.")
     next_offset = serializers.IntegerField(
@@ -383,7 +438,16 @@ class GitHubReposResponseSerializer(serializers.Serializer):
     )
 
 
-def github_repos_page(github: GitHubIntegrationBase, query: dict[str, Any]) -> dict[str, Any]:
+def external_page_links(request: Request, *, offset: int, limit: int, next_offset: int | None) -> dict[str, str | None]:
+    """Build the `next` and `previous` links of one offset page of a list read from an external API.
+
+    The links drop `force_refresh`, so a followed link reads the list that the first page cached
+    and does not call the external API again.
+    """
+    return offset_page_links(request, offset=offset, limit=limit, next_offset=next_offset, drop="force_refresh")
+
+
+def github_repos_page(request: Request, github: GitHubIntegrationBase, query: dict[str, Any]) -> dict[str, Any]:
     """Build one `GitHubReposResponseSerializer` page from validated `GitHubReposQuerySerializer` data."""
     search, limit, offset = query["search"], query["limit"], query["offset"]
     repositories, has_more = github.list_cached_repositories(search=search, limit=limit, offset=offset)
@@ -392,11 +456,13 @@ def github_repos_page(github: GitHubIntegrationBase, query: dict[str, Any]) -> d
         repositories = [
             {"id": repo["id"], "name": repo["name"], "full_name": repo["full_name"]} for repo in repositories
         ]
+    next_offset = offset + len(repositories) if has_more else None
     return {
         "repositories": repositories,
         "has_more": has_more,
-        "next_offset": offset + len(repositories) if has_more else None,
+        "next_offset": next_offset,
         "total": total,
+        **external_page_links(request, offset=offset, limit=limit, next_offset=next_offset),
     }
 
 
@@ -516,7 +582,7 @@ class GitHubTeamsQuerySerializer(serializers.Serializer):
     )
 
 
-class GitHubTeamsResponseSerializer(serializers.Serializer):
+class GitHubTeamsResponseSerializer(PageLinksSerializer):
     teams = GitHubTeamSerializer(
         many=True, help_text="List of GitHub teams available to the installation organization."
     )
@@ -537,7 +603,7 @@ class GitHubBranchesQuerySerializer(serializers.Serializer):
     offset = serializers.IntegerField(required=False, default=0, min_value=0, help_text="Number of branches to skip")
 
 
-class GitHubBranchesResponseSerializer(serializers.Serializer):
+class GitHubBranchesResponseSerializer(PageLinksSerializer):
     branches = serializers.ListField(child=serializers.CharField(), help_text="List of branch names")
     default_branch = serializers.CharField(
         help_text="The default branch of the repository", required=False, allow_null=True
@@ -600,7 +666,7 @@ class SlackChannelsQuerySerializer(serializers.Serializer):
     )
 
 
-class SlackChannelsResponseSerializer(serializers.Serializer):
+class SlackChannelsResponseSerializer(PageLinksSerializer):
     channels = SlackChannelSerializer(many=True, help_text="Slack channels visible to the PostHog Slack app.")
     lastRefreshedAt = serializers.CharField(
         required=False,
@@ -684,7 +750,7 @@ class SlackUsersQuerySerializer(serializers.Serializer):
     )
 
 
-class SlackUsersResponseSerializer(serializers.Serializer):
+class SlackUsersResponseSerializer(PageLinksSerializer):
     users = SlackUserSerializer(many=True, help_text="Human Slack workspace members the PostHog Slack app can DM.")
     lastRefreshedAt = serializers.CharField(
         required=False,
@@ -721,6 +787,15 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
     """Standard Integration serializer."""
 
     created_by = UserBasicSerializer(read_only=True)
+    auth_type = serializers.ChoiceField(
+        choices=IntegrationAuthType.choices,
+        read_only=True,
+        help_text=(
+            "How this integration authenticates with the provider: `oauth` for a connection the provider manages "
+            "(an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several "
+            "typed-in fields. A kind can have several auth types."
+        ),
+    )
     files_write_requestable = serializers.SerializerMethodField(
         help_text="Slack only: whether reconnecting can request the files:write scope."
     )
@@ -743,6 +818,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         fields = [
             "id",
             "kind",
+            "auth_type",
             "config",
             "created_at",
             "created_by",
@@ -754,6 +830,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         ]
         read_only_fields = [
             "id",
+            "auth_type",
             "created_at",
             "created_by",
             "errors",
@@ -765,11 +842,15 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
 
     @extend_schema_field(serializers.BooleanField())
     def get_files_write_requestable(self, obj: Integration) -> bool:
-        return obj.kind == "slack" and "files:write" in POSTHOG_SLACK_SCOPE.split(",")
+        return (
+            obj.kind == "slack"
+            and obj.auth_type == IntegrationAuthType.OAUTH
+            and "files:write" in POSTHOG_SLACK_SCOPE.split(",")
+        )
 
     @extend_schema_field(serializers.BooleanField(allow_null=True))
     def get_installation_shared(self, obj: Integration) -> bool | None:
-        if obj.kind != "github" or not obj.integration_id:
+        if obj.kind != "github" or obj.auth_type != IntegrationAuthType.OAUTH or not obj.integration_id:
             return None
         # Mirrors the check in IntegrationViewSet.perform_destroy: only other *team* rows keep the App
         # installed on GitHub. Personal rows don't count because destroy deletes them along with it.
@@ -781,7 +862,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
 
     @extend_schema_field(serializers.ChoiceField(choices=GITHUB_INSTALLATION_STATUS_CHOICES, allow_null=True))
     def get_installation_status(self, obj: Integration) -> str | None:
-        if obj.kind != "github":
+        if obj.kind != "github" or obj.auth_type != IntegrationAuthType.OAUTH:
             return None
         return (
             "unavailable"
@@ -1474,6 +1555,7 @@ class IntegrationViewSet(
         "channels",
         "users",
         "github_repos",
+        "github_repository_access",
         "github_branches",
         "github_teams",
         "github_available_installations",
@@ -1486,6 +1568,7 @@ class IntegrationViewSet(
         "anthropic_managed_agents",
         "anthropic_managed_agent_environments",
         "anthropic_managed_agent_vaults",
+        "email_status",
     ]
     scope_object_write_actions = [
         "create",
@@ -1497,15 +1580,18 @@ class IntegrationViewSet(
         "github_prepare_callback",
         "github_link_existing",
         "github_oauth_authorize",
+        "email_verify",
         # Side-effecting POST (emails admins) — a read-only token must not be able to trigger it.
         "request_access",
+        "push_tokens",
     ]
     permission_classes = [IntegrationManagementPermission, PersonalConnectionRecentAuthPermission]
     # LimitOffsetPagination needs a total order, or Postgres can return a row on neither side of a
     # page boundary. Clients page this list to find one kind, so a dropped row reads as
     # "not configured". Order oldest-first: several clients take the first row of a kind as their
     # default connection.
-    queryset = defer_repository_cache_fields(Integration.objects.all()).order_by("created_at", "id")
+    # Lists every auth type, so typed-in credentials show next to installations and OAuth grants.
+    queryset = defer_repository_cache_fields(Integration.objects._with_auth(ANY)).order_by("created_at", "id")
     serializer_class = IntegrationSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["kind"]
@@ -1516,7 +1602,14 @@ class IntegrationViewSet(
         # creator. Unlike team-shared integrations, don't expose other members' connections in
         # list/retrieve — scope `posthog` rows to the requesting user. Other kinds stay team-visible.
         user_id = getattr(self.request.user, "id", None)
-        return queryset.exclude(Q(kind=POSTHOG_CONNECT_KIND) & ~Q(created_by_id=user_id))
+        queryset = queryset.exclude(Q(kind=POSTHOG_CONNECT_KIND) & ~Q(created_by_id=user_id))
+        # The other actions (destroy, channels, github_repos, ...) call provider code that reads the
+        # row in the default shape of its kind, so they keep to rows with the default auth type, and
+        # skip warehouse source rows, the same as the implicit filter of `Integration.objects`.
+        if self.action not in ("list", "retrieve"):
+            assert isinstance(queryset, IntegrationQuerySet)
+            queryset = queryset._with_auth(DEFAULT).filter(rows_without_source_marker_q())
+        return queryset
 
     def handle_exception(self, exc: Exception) -> Response:
         # GitHub rate limits surface from any GitHub-backed action (teams, repos, branches, refresh);
@@ -1544,6 +1637,8 @@ class IntegrationViewSet(
     def get_throttles(self):
         if self.action == "refresh_github_repos":
             return [GitHubRepositoryRefreshThrottle(), *super().get_throttles()]
+        if self.action == "push_tokens":
+            return [PushTokenImportThrottle(), *super().get_throttles()]
         return super().get_throttles()
 
     def perform_destroy(self, instance: Integration) -> None:
@@ -1842,7 +1937,7 @@ class IntegrationViewSet(
                 if data is not None:
                     for channel in data["channels"]:
                         if channel["id"] == channel_id:
-                            return Response({"channels": [channel]})
+                            return Response({"channels": [channel], "next": None, "previous": None})
             # Past the cached list every lookup reaches Slack, and a forced one skips the list
             # altogether, so the same per-minute budget the member lookup uses applies here.
             _take_slack_lookup_budget(
@@ -1857,11 +1952,11 @@ class IntegrationViewSet(
             if channel:
                 serialized_channel = self._serialize_slack_channel(channel)
                 self._cache_slack_channel(key, serialized_channel)
-                return Response({"channels": [serialized_channel]})
+                return Response({"channels": [serialized_channel], "next": None, "previous": None})
             # Only a forced lookup reaches Slack for a channel the cached list still holds, so this
             # drops a channel the workspace no longer offers rather than leaving it pickable.
             self._drop_cached_slack_channel(key, channel_id)
-            return Response({"channels": []})
+            return Response({"channels": [], "next": None, "previous": None})
 
         search = query_serializer.validated_data["search"]
         limit = query_serializer.validated_data["limit"]
@@ -1889,6 +1984,9 @@ class IntegrationViewSet(
                 "channels": page,
                 "lastRefreshedAt": data.get("lastRefreshedAt"),
                 "has_more": has_more,
+                **external_page_links(
+                    request, offset=offset, limit=limit, next_offset=offset + limit if has_more else None
+                ),
             }
         )
 
@@ -1942,13 +2040,13 @@ class IntegrationViewSet(
             if data is not None:
                 for member in data["users"]:
                     if member["id"] == user_id:
-                        return Response({"users": [member]})
+                        return Response({"users": [member], "next": None, "previous": None})
             # Cache hits AND misses per id, so a loop over arbitrary ids can't spend the
             # workspace's Slack API quota one uncached users.info call at a time.
             lookup_key = f"slack/{instance.id}/users/{user_id}"
             cached_lookup = cache.get(lookup_key)
             if cached_lookup is not None:
-                return Response({"users": cached_lookup})
+                return Response({"users": cached_lookup, "next": None, "previous": None})
             # The per-id cache doesn't bound a caller cycling through distinct fabricated ids, so
             # also cap how many uncached lookups an integration can send to Slack per minute.
             _take_slack_lookup_budget(
@@ -1962,7 +2060,7 @@ class IntegrationViewSet(
                 _reraise_slack_users_api_error(e)
             serialized_lookup = [self._serialize_slack_user(member)] if member else []
             cache.set(lookup_key, serialized_lookup, 60 * 60)
-            return Response({"users": serialized_lookup})
+            return Response({"users": serialized_lookup, "next": None, "previous": None})
 
         search = query_serializer.validated_data["search"]
         limit = query_serializer.validated_data["limit"]
@@ -2025,6 +2123,9 @@ class IntegrationViewSet(
                 "users": page,
                 "lastRefreshedAt": data.get("lastRefreshedAt"),
                 "has_more": has_more,
+                **external_page_links(
+                    request, offset=offset, limit=limit, next_offset=offset + limit if has_more else None
+                ),
             }
         )
 
@@ -2346,10 +2447,38 @@ class IntegrationViewSet(
             raise ValidationError("github_repos endpoint is only supported for GitHub integrations")
         return Response(
             github_repos_page(
+                request,
                 GitHubIntegration(instance, source="integrations_api", priority=Priority.CRITICAL),
                 query_serializer.validated_data,
             )
         )
+
+    @validated_request(
+        query_serializer=GitHubRepositoryAccessQuerySerializer,
+        responses={200: GitHubRepositoryAccessResponseSerializer, 503: ErrorResponseSerializer},
+    )
+    @action(methods=["GET"], detail=True, url_path="github_repository_access")
+    def github_repository_access(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        if instance.kind != "github":
+            raise ValidationError("github_repository_access endpoint is only supported for GitHub integrations")
+        github = GitHubIntegration(instance, source="integrations_api", priority=Priority.CRITICAL)
+        repository = request.validated_query_data.get("repository")
+        try:
+            if repository:
+                available = github.installation_can_access_repository(repository, raise_on_transient=True)
+            else:
+                repositories, _ = github.list_repositories(per_page=1)
+                available = bool(repositories)
+        except GitHubIntegrationError as error:
+            if error.status_code in (401, 403, 404) or github.installation_unavailable():
+                available = False
+            else:
+                return Response(
+                    {"error": "Couldn't check GitHub access. Try again in a moment."},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+        return Response({"available": available})
 
     @extend_schema(parameters=[GitHubAssigneesQuerySerializer], responses={200: IntegrationAssigneesResponseSerializer})
     @action(methods=["GET"], detail=True, url_path="github_assignees")
@@ -2470,7 +2599,7 @@ class IntegrationViewSet(
             "link_completed",
             discovery_id=discovery_id,
             installation_id=instance.integration_id,
-            linked_integration_id=instance.pk,
+            linked_integration_id=instance.id,
             after_commit=True,
         )
         return Response(self.get_serializer(instance).data)
@@ -2576,7 +2705,14 @@ class IntegrationViewSet(
                 "Unable to fetch GitHub teams. Please check integration settings and try again."
             ) from err
 
-        return Response({"teams": teams, "has_more": has_more})
+        next_offset = offset + limit if has_more else None
+        return Response(
+            {
+                "teams": teams,
+                "has_more": has_more,
+                **external_page_links(request, offset=offset, limit=limit, next_offset=next_offset),
+            }
+        )
 
     @extend_schema(
         parameters=[GitHubBranchesQuerySerializer],
@@ -2605,7 +2741,15 @@ class IntegrationViewSet(
             offset=offset,
         )
 
-        return Response({"branches": branches, "default_branch": default_branch, "has_more": has_more})
+        next_offset = offset + limit if has_more else None
+        return Response(
+            {
+                "branches": branches,
+                "default_branch": default_branch,
+                "has_more": has_more,
+                **external_page_links(request, offset=offset, limit=limit, next_offset=next_offset),
+            }
+        )
 
     @extend_schema(responses={200: JiraProjectsResponseSerializer})
     @action(methods=["GET"], detail=True, url_path="jira_projects")
@@ -2648,11 +2792,101 @@ class IntegrationViewSet(
         search = query_serializer.validated_data["search"]
         return assignees_response(lambda: GitLabIntegration(instance).list_assignees(search))
 
+    @validated_request(
+        PushTokenImportRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=PushTokenImportResponseSerializer, description="Import outcome."),
+            400: OpenApiResponse(description="The rows are invalid, or the integration is not a push channel."),
+            429: OpenApiResponse(description="Too many imports for this project. Retry after a minute."),
+        },
+        summary="Import push device tokens",
+        description="Register existing device tokens, for example exported from another provider, on this push "
+        "channel. Each token is stored encrypted on its person, as the mobile SDK stores it.",
+    )
+    @action(methods=["POST"], detail=True, url_path="push_tokens")
+    def push_tokens(self, request: ValidatedRequest, **kwargs) -> Response:
+        integration = self.get_object()
+        if not push_channel_app_id(integration):
+            raise ValidationError("Device tokens can only be imported into an APNs or Firebase push channel.")
+        result = import_push_tokens(integration, request.validated_data["subscriptions"], integration.team.api_token)
+        return Response(
+            PushTokenImportResponseSerializer(
+                {"imported": result.imported, "failed_distinct_ids": result.failed_distinct_ids}
+            ).data
+        )
+
+    @extend_schema(
+        request=None,
+        responses={200: EmailDomainVerificationSerializer},
+        summary="Verify an email sending domain",
+        description="Ask SES to check the domain's DNS records again. When SES has verified the domain, mark "
+        "the domain's senders as verified so they can send. Call it once email/status reports status verified.",
+    )
     @action(methods=["POST"], detail=True, url_path="email/verify")
     def email_verify(self, request, **kwargs):
-        email = EmailIntegration(self.get_object())
-        verification_result = email.verify()
+        instance = self.get_object()
+        email = EmailIntegration(instance)
+        verification_result = email.verify(
+            on_domain_verified=lambda: self._report_email_domain_verified(request, instance)
+        )
         return Response(verification_result)
+
+    @validated_request(
+        query_serializer=EmailDomainStatusQuerySerializer,
+        responses={
+            200: EmailDomainStatusSerializer,
+            503: OpenApiResponse(
+                description="The email provider could not be reached. The error code is email_provider_unavailable. "
+                "Nothing changed, so poll again."
+            ),
+        },
+        summary="Get email sending domain status",
+        description="Read the setup progress of an email sender's domain from SES and public DNS without "
+        "changing either. Poll this until status is verified, then call email/verify once so the sender can send.",
+    )
+    @action(methods=["GET"], detail=True, url_path="email/status")
+    def email_status(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        if not any(
+            feature_enabled_or_false(
+                flag,
+                str(cast(User, request.user).distinct_id),
+                groups={"organization": str(self.team.organization_id), "project": str(self.team.uuid)},
+                group_properties={
+                    "organization": {"id": str(self.team.organization_id)},
+                    "project": {"id": str(self.team.uuid)},
+                },
+                send_feature_flag_events=False,
+            )
+            for flag in ("workflows-email-domain-wizard", "workflows-email-domain-agent-setup")
+        ):
+            raise NotFound()
+        instance = self.get_object()
+        if instance.kind != "email":
+            raise ValidationError("email/status is only supported for email integrations")
+        try:
+            report = EmailIntegration(instance).status(
+                refresh=request.validated_query_data["refresh"],
+            )
+        except EmailProviderUnavailableError as error:
+            raise EmailProviderUnavailable() from error
+        return Response(EmailDomainStatusSerializer(report).data)
+
+    def _report_email_domain_verified(self, request: Request, instance: IntegrationRecord) -> None:
+        report_user_action(
+            request.user,
+            "email domain verified",
+            {
+                "method": self._email_domain_setup_method(request, instance),
+                "seconds_since_created": int((timezone.now() - instance.created_at).total_seconds()),
+            },
+            team=self.team,
+        )
+
+    @staticmethod
+    def _email_domain_setup_method(request: Request, instance: IntegrationRecord) -> str:
+        if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication | OAuthAccessTokenAuthentication):
+            return "agent"
+        return instance.config.get("setup_method", "manual")
 
     @extend_schema(responses={200: IntegrationSerializer})
     @action(methods=["PATCH"], detail=True, url_path="email")
@@ -2668,21 +2902,27 @@ class IntegrationViewSet(
 
         return Response(IntegrationSerializer(email.integration).data)
 
+    @validated_request(
+        query_serializer=EmailDomainConnectCheckQuerySerializer,
+        responses={200: EmailDomainConnectCheckSerializer},
+    )
     # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(methods=["GET"], detail=False, url_path="domain-connect/check")
-    def domain_connect_check(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        domain = request.query_params.get("domain", "")
-        if not domain:
-            raise ValidationError("domain query parameter is required")
-
+    def domain_connect_check(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         # Extract root domain so subdomains (e.g. ph.example.com) resolve correctly
-        domain_parts = extract_root_domain_and_host(domain)
+        domain_parts = extract_root_domain_and_host(request.validated_query_data["domain"])
         result = discover_domain_connect(domain_parts.root_domain)
+        include_email_setup = request.validated_query_data["include_email_setup"]
+        dns_host = lookup_dns_host(domain_parts.root_domain) if include_email_setup else None
         return Response(
             {
                 "supported": result is not None,
                 "provider_name": result["provider_name"] if result else None,
                 "available_providers": get_available_providers() if result is None else [],
+                "dns_host": EmailDomainDnsHostSerializer(dns_host).data if dns_host else None,
+                "existing_email_tools": lookup_existing_email_tools(domain_parts.root_domain)
+                if include_email_setup
+                else [],
             }
         )
 
@@ -2715,7 +2955,13 @@ class IntegrationViewSet(
             if not integration_id:
                 raise ValidationError("integration_id is required for email context")
             try:
-                resolved = resolve_email_context(integration_id, self.team_id)
+                resolved = resolve_email_context(
+                    integration_id,
+                    self.team_id,
+                    on_domain_verified=lambda instance: self._report_email_domain_verified(request, instance),
+                )
+            except IntegrationNotFound:
+                raise NotFound("Email integration not found.")
             except ValueError as e:
                 capture_exception(e, {"integration_id": integration_id, "team_id": self.team_id, "context": context})
                 raise ValidationError(
@@ -2771,7 +3017,15 @@ class IntegrationViewSet(
             )
             raise ValidationError("Error generating apply URL. Please try again later or contact support.")
 
+        if context == "email" and integration_id:
+            self._record_email_setup_method(integration_id, "auto")
         return Response({"url": url})
+
+    def _record_email_setup_method(self, integration_id: int, setup_method: str) -> None:
+        with transaction.atomic():
+            instance = Integration.objects.select_for_update().get(id=integration_id, team_id=self.team_id)
+            instance.config["setup_method"] = setup_method
+            instance.save(update_fields=["config"])
 
     # Defined last: a method named `list` shadows the builtin for the annotations of every method
     # declared after it in this class body.
@@ -2785,17 +3039,18 @@ class IntegrationViewSet(
         queryset = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(queryset)
         instances = page if page is not None else list(queryset)
-        for instance in instances:
-            if instance.kind == "github":
-                GitHubIntegration(instance, source="integrations_api", priority=Priority.NORMAL).ensure_account_name()
+        # Only App installations have an installation id to heal from. A typed-in token row does not.
+        github_apps = [
+            instance
+            for instance in instances
+            if instance.kind == "github" and instance.auth_type == IntegrationAuthType.OAUTH
+        ]
+        for instance in github_apps:
+            GitHubIntegration(instance, source="integrations_api", priority=Priority.NORMAL).ensure_account_name()
         # One grouped lookup for the whole page instead of an `exists()` per row, so
         # `installation_shared` stays a fixed one query however many GitHub rows there are.
         reference_counts = GitHubIntegration.installation_reference_counts(
-            {
-                instance.integration_id
-                for instance in instances
-                if instance.kind == "github" and instance.integration_id
-            },
+            {instance.integration_id for instance in github_apps if instance.integration_id},
             include_personal=False,
         )
         serializer = self.get_serializer(
@@ -2811,6 +3066,6 @@ class IntegrationViewSet(
         # Inlined from RetrieveModelMixin too: deferring to it would re-run `get_object`, paying a
         # second query and permission check for the row already in hand.
         instance = self.get_object()
-        if instance.kind == "github":
+        if instance.kind == "github" and instance.auth_type == IntegrationAuthType.OAUTH:
             GitHubIntegration(instance, source="integrations_api", priority=Priority.NORMAL).ensure_account_name()
         return Response(self.get_serializer(instance).data)

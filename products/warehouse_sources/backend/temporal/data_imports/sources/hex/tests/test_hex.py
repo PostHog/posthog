@@ -2,6 +2,7 @@ from typing import Any
 
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -118,6 +119,18 @@ class TestProjectRunsFanout:
         assert [row["runId"] for row in result.rows] == ["r-b"]
         assert result.paths == ["/api/v1/projects", "/api/v1/projects/p2/runs"]
 
+    def test_422_on_project_runs_is_classified_non_retryable(self) -> None:
+        # Hex rejects GetProjectRuns for a specific project with a 422 and a structured error
+        # code. Every retry sends the identical request and fails identically, so the raised
+        # error must match a `get_non_retryable_errors()` key, not just reach the caller.
+        result = _driver().run(
+            "project_runs",
+            [_projects_page(["p1"]), ScriptedResponse(status=422, json={"code": "UNPROCESSABLE_CONTENT"})],
+        )
+
+        assert result.raised is not None
+        assert error_message_matches(str(result.raised), HexSource().get_non_retryable_errors())
+
 
 class TestPerProjectCursorFanout:
     def test_queried_tables_follow_child_cursor_and_carry_project_id(self) -> None:
@@ -154,6 +167,19 @@ class TestPerProjectCursorFanout:
         assert result.requests[2].param("after") == "cur-1"
         assert result.paths[3] == "/api/v1/projects/p2/queriedTables"
         assert result.requests[3].param("after") is None
+
+    def test_422_with_no_structured_error_code_is_still_classified_non_retryable(self) -> None:
+        # Unlike GetProjectRuns, GetQueriedTables's 422 body carries no `code` field at all (just
+        # `details`/`traceId`/`reason`), so the structured-code key never matches. The raised
+        # error must still match a `get_non_retryable_errors()` key via the generic 422 fallback,
+        # or this project would retry forever against an identical, permanently-rejected request.
+        result = _driver().run(
+            "queried_tables",
+            [_projects_page(["p1"]), ScriptedResponse(status=422, json={"details": [], "traceId": "t", "reason": "x"})],
+        )
+
+        assert result.raised is not None
+        assert error_message_matches(str(result.raised), HexSource().get_non_retryable_errors())
 
 
 class TestRuntimeHostCheck:

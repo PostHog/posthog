@@ -5,7 +5,7 @@ import { GeoIPService } from '~/common/utils/geoip'
 import { logger } from '~/common/utils/logger'
 
 import type { CommonConfig } from '../../common/config'
-import { HealthCheckResult, PluginServerService, TeamId } from '../../types'
+import { HealthCheckResult, PluginServerService, Team, TeamId } from '../../types'
 import {
     CdpCoreServicesConfig,
     CdpCoreServicesDeps,
@@ -34,6 +34,7 @@ import { HogWatcherService } from '../services/monitoring/hog-watcher.service'
 import { NativeDestinationExecutorService } from '../services/native-destination-executor.service'
 import { SegmentDestinationExecutorService } from '../services/segment-destination-executor.service'
 import { CdpUsageReporterService } from '../services/usage/cdp-usage-reporter.service'
+import { HogFunctionTypeType } from '../types'
 
 export type CdpConsumerBaseConfig = CdpCoreServicesConfig &
     Pick<CommonConfig, 'KAFKA_CLIENT_RACK'> &
@@ -122,6 +123,19 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
             onShutdown: async () => await this.stop(),
             healthcheck: () => this.isHealthy(),
         }
+    }
+
+    /** The team, or null when it has no hog function of these types and no hog flow. */
+    protected async loadTeamWithHogFunctionsOrFlows(
+        teamId: TeamId,
+        hogTypes: HogFunctionTypeType[]
+    ): Promise<Team | null> {
+        const [teamHogFunctions, teamHogFlows, team] = await Promise.all([
+            this.hogFunctionManager.getHogFunctionsForTeam(teamId, hogTypes),
+            this.hogFlowManager.getHogFlowsForTeam(teamId),
+            this.deps.teamManager.getTeam(teamId),
+        ])
+        return teamHogFunctions.length || teamHogFlows.length ? team : null
     }
 
     public async start(): Promise<void> {

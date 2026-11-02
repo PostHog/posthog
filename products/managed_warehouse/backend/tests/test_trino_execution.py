@@ -4,7 +4,7 @@ import threading
 import pytest
 from unittest.mock import MagicMock, patch
 
-from trino.exceptions import TrinoQueryError
+from trino.exceptions import HttpError, TrinoQueryError, TrinoUserError
 
 from products.managed_warehouse.backend import trino_execution as execution
 
@@ -64,11 +64,39 @@ async def test_success_preserves_result() -> None:
 
 
 @pytest.mark.asyncio
+async def test_reports_cpu_time() -> None:
+    cpu_milliseconds: list[int] = []
+
+    def execute(control: execution.TrinoQueryControl) -> int:
+        control.record_cpu_milliseconds(25)
+        return 42
+
+    assert await execution.run_trino_model(execute, query_seconds=60, on_cpu_milliseconds=cpu_milliseconds.append) == 42
+    assert cpu_milliseconds == [25]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "error_name,expected_attempts",
-    [("CLUSTER_OUT_OF_MEMORY", 2), ("EXCEEDED_LOCAL_MEMORY_LIMIT", 1)],
+    "error,expected_attempts",
+    [
+        (TrinoQueryError({"errorName": "CLUSTER_OUT_OF_MEMORY", "message": "Query killed"}), 2),
+        (TrinoQueryError({"errorName": "TOO_MANY_REQUESTS_FAILED", "message": "Query killed"}), 2),
+        (TrinoQueryError({"errorName": "PAGE_TRANSPORT_TIMEOUT", "message": "Query killed"}), 2),
+        (HttpError("error 403: b'This tenant is not admitted to the pool yet; the request was not dispatched'"), 2),
+        (HttpError("error 403: b'Forbidden'"), 1),
+        (
+            TrinoUserError(
+                {
+                    "errorName": "COLUMN_NOT_FOUND",
+                    "message": "line 1:8: Column 'This tenant is not admitted to the pool yet' cannot be resolved",
+                }
+            ),
+            1,
+        ),
+        (TrinoQueryError({"errorName": "EXCEEDED_LOCAL_MEMORY_LIMIT", "message": "Query killed"}), 1),
+    ],
 )
-async def test_retries_only_cluster_out_of_memory(error_name: str, expected_attempts: int) -> None:
+async def test_retries_only_transient_trino_errors(error: Exception, expected_attempts: int) -> None:
     attempts = 0
     processed: list[int] = []
 
@@ -77,11 +105,11 @@ async def test_retries_only_cluster_out_of_memory(error_name: str, expected_atte
         attempts += 1
         control.record_processed_bytes(10)
         if attempts == 1:
-            raise TrinoQueryError({"errorName": error_name, "message": "Query killed"})
+            raise error
         return 42
 
     if expected_attempts == 1:
-        with pytest.raises(TrinoQueryError):
+        with pytest.raises(type(error)):
             await execution.run_trino_model_with_retries(
                 execute, query_seconds=60, retry_delays=(0,), on_processed_bytes=processed.append
             )
@@ -94,3 +122,19 @@ async def test_retries_only_cluster_out_of_memory(error_name: str, expected_atte
         )
     assert attempts == expected_attempts
     assert processed == [10] * expected_attempts
+
+
+@pytest.mark.asyncio
+async def test_deadline_after_a_retry_reports_the_whole_budget() -> None:
+    attempts = 0
+
+    def execute(control: execution.TrinoQueryControl) -> int:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise TrinoQueryError({"errorName": "CLUSTER_OUT_OF_MEMORY", "message": "Query killed"})
+        assert control.cancelled.wait(10)
+        return 42
+
+    with pytest.raises(TimeoutError, match=r"exceeded its 0\.01-minute deadline after 2 attempts"):
+        await execution.run_trino_model_with_retries(execute, query_seconds=0.6, retry_delays=(0,))
