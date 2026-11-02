@@ -1,6 +1,5 @@
 import json
 import datetime as dt
-from concurrent.futures import Future
 from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -31,24 +30,6 @@ HEATMAP_QUERY: dict[str, Any] = {
 }
 
 
-class _InlineExecutor:
-    """Runs run_widgets work items on the test thread, so queries see the rows of the test transaction."""
-
-    def __init__(self, max_workers: int | None = None) -> None:
-        pass
-
-    def __enter__(self) -> "_InlineExecutor":
-        return self
-
-    def __exit__(self, *args: object) -> None:
-        pass
-
-    def submit(self, fn: Any, *args: Any, **kwargs: Any) -> "Future[Any]":
-        future: Future[Any] = Future()
-        future.set_result(fn(*args, **kwargs))
-        return future
-
-
 class TestMetricsDashboardWidget(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -63,9 +44,6 @@ class TestMetricsDashboardWidget(ClickhouseTestMixin, APIBaseTest):
         )
         flags_patcher.start()
         self.addCleanup(flags_patcher.stop)
-        executor_patcher = patch("products.dashboards.backend.api.dashboard.ThreadPoolExecutor", _InlineExecutor)
-        executor_patcher.start()
-        self.addCleanup(executor_patcher.stop)
 
         now = dt.datetime.now(dt.UTC).replace(second=0, microsecond=0)
         # The value is the age in minutes, so a narrower window shows which points it kept.
