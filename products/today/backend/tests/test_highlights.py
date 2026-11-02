@@ -601,6 +601,7 @@ class TestProgressiveHighlights(BaseTest):
         self.assertTrue(all(m.period_starts == [DAY - timedelta(days=1)] for m in final.pulse))
 
     def test_retry_reuses_active_workflow_and_keeps_ready_numbers(self) -> None:
+        cache.clear()
         connect = MagicMock()
         connect.return_value.start_workflow = AsyncMock()
         with (
@@ -647,6 +648,25 @@ class TestProgressiveHighlights(BaseTest):
             )
             self.assertEqual(connect.return_value.start_workflow.call_count, 2)
             self.assertTrue(connect.return_value.start_workflow.call_args.args[1].progressive)
+            retry_at = timezone.now() + timedelta(seconds=highlights.FAILED_CACHE_SECONDS + 1)
+            with time_machine.travel(timezone.now() + timedelta(seconds=30), tick=False):
+                highlights.finalize(
+                    FinalizeHighlightsInputs(
+                        team_id=self.team.id,
+                        highlights_id=str(new.id),
+                        results=[HighlightSourceResult(source_name="routine", found=None, failed=True)],
+                    )
+                )
+                for _ in range(3):
+                    limited = highlights.get_highlights(team=self.team, user=self.user, scopes=None, refresh=True)
+                    self.assertEqual(limited.status, HighlightsStatus.FAILED)
+                self.assertEqual(rows.count(), 2)
+                self.assertEqual(connect.return_value.start_workflow.call_count, 2)
+            with time_machine.travel(retry_at, tick=False):
+                retried = highlights.get_highlights(team=self.team, user=self.user, scopes=None, refresh=True)
+                self.assertEqual(retried.status, HighlightsStatus.COMPUTING)
+                self.assertEqual(rows.count(), 3)
+                self.assertEqual(connect.return_value.start_workflow.call_count, 3)
 
 
 @pytest.mark.django_db(transaction=True)

@@ -97,6 +97,7 @@ def get_highlights(
         and latest is not None
         and latest.failed_sources
         and latest.status != HighlightsStatus.COMPUTING
+        and cache.add(f"today_highlights:retry:{team.id}:{user.id}", True, FAILED_CACHE_SECONDS)
     )
     if latest is None or latest.pins_key or _is_due(latest, now) or retry_failed:
         _start(team, user, scopes, day, key, after=latest.id if latest else None, progressive=progressive)
