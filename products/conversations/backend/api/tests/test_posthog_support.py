@@ -38,14 +38,14 @@ class TestPostHogSupportAPI(APIBaseTest):
         super().setUp()
         self.base = f"/api/projects/{self.team.id}/posthog_support"
 
-    def _token_headers(self, scopes: list[str]) -> dict[str, str]:
+    def _use_token(self, scopes: list[str]) -> None:
         self.client.logout()
-        return {"HTTP_AUTHORIZATION": f"Bearer {self.create_personal_api_key_with_scopes(scopes)}"}
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.create_personal_api_key_with_scopes(scopes)}")
 
     def test_token_can_draft_but_never_complete_a_send(self) -> None:
-        headers = self._token_headers(["posthog_support:write"])
+        self._use_token(["posthog_support:write"])
 
-        created = self.client.post(f"{self.base}/drafts/", DRAFT_BODY, format="json", **headers)
+        created = self.client.post(f"{self.base}/drafts/", DRAFT_BODY, format="json")
         assert created.status_code == status.HTTP_201_CREATED, created.json()
         draft = created.json()
         assert draft["sent"] is False
@@ -53,8 +53,9 @@ class TestPostHogSupportAPI(APIBaseTest):
         assert draft["message"].startswith("In my words:\nMy funnel shows zero conversions since Tuesday")
 
         claim_url = f"{self.base}/drafts/{draft['id']}/claim/"
-        assert self.client.post(claim_url, **headers).status_code == status.HTTP_403_FORBIDDEN
+        assert self.client.post(claim_url).status_code == status.HTTP_403_FORBIDDEN
 
+        self.client.credentials()
         self.client.force_login(self.user)
         assert self.client.get(f"{self.base}/drafts/{draft['id']}/").status_code == status.HTTP_200_OK
         assert self.client.post(claim_url).status_code == status.HTTP_204_NO_CONTENT
@@ -114,10 +115,9 @@ class TestPostHogSupportAPI(APIBaseTest):
             },
         )
 
+        self._use_token(["posthog_support:read"])
         with override_instance_config("CONVERSATIONS_HMAC_SIGNING_SECRET", "secret"):
-            response = self.client.get(
-                f"{self.base}/tickets/?status=open", **self._token_headers(["posthog_support:read"])
-            )
+            response = self.client.get(f"{self.base}/tickets/?status=open")
 
         assert response.status_code == 200, response.json()
         assert response.json()["results"][0]["ticket_number"] == 42
