@@ -37,10 +37,14 @@ type CapturedMessage = { batch: number; output: string; message: IngestionOutput
 /** Records every message the consumer hands to an output, and fails the ones the scenario names. */
 class CapturingIngestionOutputs extends IngestionOutputs<string> {
     public readonly captured: CapturedMessage[] = []
+    public producedCount = 0
     public currentBatch = 0
     private readonly remainingFaults: number[]
 
-    constructor(private readonly scenario: ParityScenario) {
+    constructor(
+        private readonly scenario: ParityScenario,
+        private readonly discard = false
+    ) {
         super({})
         this.remainingFaults = scenario.produce_faults.map((fault) => fault.times)
     }
@@ -71,8 +75,11 @@ class CapturingIngestionOutputs extends IngestionOutputs<string> {
                 return Promise.reject(fault)
             }
         }
-        for (const message of messages) {
-            this.captured.push({ batch: this.currentBatch, output, message })
+        this.producedCount += messages.length
+        if (!this.discard) {
+            for (const message of messages) {
+                this.captured.push({ batch: this.currentBatch, output, message })
+            }
         }
         return Promise.resolve()
     }
@@ -236,15 +243,23 @@ function indexInputs(scenario: ParityScenario): Map<string, { batch: number; ind
     return inputs
 }
 
+export type ParityConsumerClasses = {
+    logs: new (config: any, deps: any) => Pick<LogsIngestionConsumer, 'processKafkaBatch'>
+    traces: new (config: any, deps: any) => Pick<LogsIngestionConsumer, 'processKafkaBatch'>
+}
+
+const CURRENT_CLASSES: ParityConsumerClasses = { logs: LogsIngestionConsumer, traces: TracesIngestionConsumer }
+
 /**
- * Runs one scenario through the consumer and returns its canonical outputs. The caller empties
- * Redis before the call, and `setClock` pins `Date` for each batch.
+ * A consumer wired to in-memory dependencies that the scenario describes. The benchmark reuses it
+ * with `discard`, which counts produced messages instead of keeping them.
  */
-export async function runParityScenario(
+export function buildParityConsumer(
     scenario: ParityScenario,
-    setClock: (nowMs: number) => void
-): Promise<ParityExpected> {
-    const outputs = new CapturingIngestionOutputs(scenario)
+    options: { classes?: ParityConsumerClasses; discard?: boolean } = {}
+) {
+    const classes = options.classes ?? CURRENT_CLASSES
+    const outputs = new CapturingIngestionOutputs(scenario, options.discard)
     const teamsById = new Map(scenario.teams.map((team) => [team.id, team]))
     const teamsByToken = new Map(scenario.teams.map((team) => [team.api_token, team]))
     const teamsIngested: number[][] = []
@@ -355,11 +370,19 @@ export async function runParityScenario(
     }
 
     const config = scenario.config as any
-    const consumer =
-        scenario.consumer === 'traces'
-            ? new TracesIngestionConsumer(config, deps)
-            : new LogsIngestionConsumer(config, deps)
+    const consumer = scenario.consumer === 'traces' ? new classes.traces(config, deps) : new classes.logs(config, deps)
+    return { consumer, outputs, teamsIngested, metricEmits, usageRecords, quotaChecks }
+}
 
+/**
+ * Runs one scenario through the consumer and returns its canonical outputs. The caller empties
+ * Redis before the call, and `setClock` pins `Date` for each batch.
+ */
+export async function runParityScenario(
+    scenario: ParityScenario,
+    setClock: (nowMs: number) => void
+): Promise<ParityExpected> {
+    const { consumer, outputs, teamsIngested, metricEmits, usageRecords, quotaChecks } = buildParityConsumer(scenario)
     const inputs = indexInputs(scenario)
     const batchResults: ParityExpected['batches'] = []
     for (let batchIndex = 0; batchIndex < scenario.batches.length; batchIndex++) {

@@ -1,6 +1,6 @@
 import { logger } from '~/common/utils/logger'
 import { ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
-import { newChunkPipelineBuilder } from '~/ingestion/framework/builders'
+import { newChunkPipelineBuilder, perElement } from '~/ingestion/framework/builders'
 import { ChunkPipeline, OkResultWithContext } from '~/ingestion/framework/chunk-pipeline.interface'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { isOkResult, ok } from '~/ingestion/framework/results'
@@ -55,15 +55,15 @@ function createFailParseOnErrorStep(): ChunkProcessingStep<ParseOutcome, LogsIng
 
 /**
  * Header parse and team lookup, emitted in input order. Unbounded concurrency: a lookup is a cache
- * hit in the common case. Built once per batch, like every logs pipeline, because a chunk pipeline
+ * hit in the common case. `perElement`, not `concurrently`: per-element instrumentation costs more
+ * than the parse. Built once per batch, like every logs pipeline, because a chunk pipeline
  * instance must not be shared between concurrent callers.
  */
 export function createLogsParsePipeline(
     context: LogsPipelineContext
 ): ChunkPipeline<LogsPipelineInput, LogsIngestionMessage, LogsItemContext> {
     return newChunkPipelineBuilder<LogsPipelineInput, LogsItemContext>()
-        .concurrently((builder) => builder.pipe(createSettledParseStep(context)))
-        .gather()
+        .pipeChunk(perElement(createSettledParseStep(context)))
         .pipeChunk(createFailParseOnErrorStep())
         .build()
 }
@@ -108,10 +108,9 @@ export function createLogsProcessingPipeline(
     context: LogsPipelineContext
 ): ChunkPipeline<LogsProcessingInput, LogsProcessingOutcome, LogsItemContext> {
     return newChunkPipelineBuilder<LogsProcessingInput, LogsItemContext>()
-        .concurrently((builder) => builder.pipe(createProcessLogMessageStep(context)), {
-            maxConcurrency: MAX_CONCURRENT_MESSAGE_PROCESSES,
-        })
-        .gather()
+        .pipeChunk(
+            perElement(createProcessLogMessageStep(context), { maxConcurrency: MAX_CONCURRENT_MESSAGE_PROCESSES })
+        )
         .pipeChunk(createFailPassOnErrorStep())
         .build()
 }

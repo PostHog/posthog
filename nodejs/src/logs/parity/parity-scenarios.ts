@@ -11,8 +11,9 @@ import type { ParityError, ParityHeader, ParityMessage, ParityScenario, ParityTe
 
 /**
  * Builds the parity corpus. Run only in record mode: the fixture files on disk are the contract,
- * and the Rust crate replays them without this generator. Everything here is seeded, so a re-record
- * on unchanged code writes the same inputs.
+ * and the Rust crate replays them without this generator. The records are seeded, but every Avro
+ * container gets a random sync marker, so a re-record rewrites the input bytes even when nothing
+ * else changed.
  *
  * Two outcomes depend on the order that concurrent messages reach shared state, so no scenario
  * relies on them: a sampling `rate_limit` bucket shared by several messages of one team in one
@@ -20,8 +21,18 @@ import type { ParityError, ParityHeader, ParityMessage, ParityScenario, ParityTe
  */
 
 // Mid-hour, so app metric hour truncation and the token bucket refill both show.
-const NOW_MS = Date.UTC(2025, 0, 15, 12, 37, 13, 250)
-const NOW_MICROS = NOW_MS * 1000
+const PARITY_NOW_MS = Date.UTC(2025, 0, 15, 12, 37, 13, 250)
+let NOW_MS = PARITY_NOW_MS
+let NOW_MICROS = NOW_MS * 1000
+
+/**
+ * The benchmark stamps its workloads with the real clock instead, because metric rules skip
+ * records older than 20 minutes. Parity scenarios always use the pinned clock.
+ */
+export function setGeneratorClock(nowMs: number = PARITY_NOW_MS): void {
+    NOW_MS = nowMs
+    NOW_MICROS = nowMs * 1000
+}
 const DAY_MICROS = 86_400_000_000
 const SIGNING_KEY = 'parity-signing-key'
 
@@ -31,7 +42,7 @@ function loadSchema(name: 'logs' | 'traces'): avro.Type {
 }
 
 /** mulberry32 — small, seedable, and good enough to spread inputs across code paths. */
-class Rng {
+export class Rng {
     constructor(private state: number) {}
     next(): number {
         this.state = (this.state + 0x6d2b79f5) | 0
@@ -56,7 +67,7 @@ class Rng {
 
 type Rec = Record<string, unknown>
 
-const TEAMS: ParityTeam[] = [
+export const TEAMS: ParityTeam[] = [
     { id: 101, api_token: 'phc_parity_plain', logs_settings: null },
     { id: 102, api_token: 'phc_parity_json', logs_settings: { json_parse_logs: true } },
     { id: 103, api_token: 'phc_parity_pii', logs_settings: { pii_scrub_logs: true } },
@@ -73,7 +84,7 @@ const TEAMS: ParityTeam[] = [
     { id: 106, api_token: 'phc_parity_ret7', logs_settings: { retention_days: 7 } },
 ]
 
-function jsonAttr(value: unknown): string {
+export function jsonAttr(value: unknown): string {
     return JSON.stringify(value)
 }
 
@@ -116,7 +127,7 @@ const SEVERITIES: [string, number][] = [
     ['', 0],
 ]
 
-function makeLogRecord(rng: Rng, i: number, overrides: Rec = {}): Rec {
+export function makeLogRecord(rng: Rng, i: number, overrides: Rec = {}): Rec {
     const [severityText, severityNumber] = rng.pick(SEVERITIES)
     const attributes: Record<string, string> = {}
     const attributeCount = rng.int(6)
@@ -166,7 +177,7 @@ function makeLogRecord(rng: Rng, i: number, overrides: Rec = {}): Rec {
     }
 }
 
-function makeSpanRecord(rng: Rng, i: number): Rec {
+export function makeSpanRecord(rng: Rng, i: number): Rec {
     return {
         uuid: `00000000-0000-4000-9000-${String(i).padStart(12, '0')}`,
         trace_id: rng.bytes(16),
@@ -224,7 +235,7 @@ type MessageOptions = {
     key?: string
 }
 
-class MessageFactory {
+export class MessageFactory {
     private offset = 0
     constructor(
         private readonly rng: Rng,
@@ -306,7 +317,7 @@ const RESOLVED_DEFAULT_CONFIG = (): Record<string, string | number | boolean> =>
     LOGS_BILLING_PRORATE_ENABLED: false,
 })
 
-function baseScenario(
+export function baseScenario(
     name: string,
     description: string,
     overrides: Record<string, string | number | boolean> = {}
@@ -337,24 +348,24 @@ function baseScenario(
 }
 
 /** Every batch at NOW_MS, or one clock per batch when given. */
-function finish(scenario: ParityScenario, clocks?: number[]): ParityScenario {
+export function finish(scenario: ParityScenario, clocks?: number[]): ParityScenario {
     scenario.batch_now_ms = clocks ?? scenario.batches.map(() => NOW_MS)
     return scenario
 }
 
-const leaf = (key: string, operator: string, value: unknown, type = 'log_attribute'): Rec => ({
+export const leaf = (key: string, operator: string, value: unknown, type = 'log_attribute'): Rec => ({
     key,
     operator,
     value,
     type,
 })
-const group = (type: 'AND' | 'OR', ...values: Rec[]): Rec => ({ type: 'AND', values: [{ type, values }] })
+export const group = (type: 'AND' | 'OR', ...values: Rec[]): Rec => ({ type: 'AND', values: [{ type, values }] })
 const err = (name: string, message: string, dependencyUnavailable = false): ParityError => ({
     name,
     message,
     dependency_unavailable: dependencyUnavailable,
 })
-const severityRule = (id: string, actions: Rec, scope_service: string | null = null): Rec => ({
+export const severityRule = (id: string, actions: Rec, scope_service: string | null = null): Rec => ({
     id,
     rule_type: 'severity_sampling',
     scope_service,
@@ -362,7 +373,7 @@ const severityRule = (id: string, actions: Rec, scope_service: string | null = n
     scope_attribute_filters: [],
     config: { actions },
 })
-const pathRule = (id: string, config: Rec, scope_service: string | null = null): Rec => ({
+export const pathRule = (id: string, config: Rec, scope_service: string | null = null): Rec => ({
     id,
     rule_type: 'path_drop',
     scope_service,
@@ -370,7 +381,7 @@ const pathRule = (id: string, config: Rec, scope_service: string | null = null):
     scope_attribute_filters: [],
     config,
 })
-const rateRule = (id: string, config: Rec): Rec => ({
+export const rateRule = (id: string, config: Rec): Rec => ({
     id,
     rule_type: 'rate_limit',
     scope_service: null,
@@ -380,6 +391,7 @@ const rateRule = (id: string, config: Rec): Rec => ({
 })
 
 export async function buildParityScenarios(): Promise<ParityScenario[]> {
+    setGeneratorClock()
     const scenarios: ParityScenario[] = []
     const [plain, json, pii, both, attr, ret7] = TEAMS
 
