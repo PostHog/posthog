@@ -2,6 +2,7 @@ import { HogFunctionInvocationGlobalsWithInputs } from '~/cdp/types'
 import { LiquidRenderer } from '~/cdp/utils/liquid'
 
 import { decodeHtmlEntitiesInHref } from '../email-tracking.service'
+import { addUtmTagsToEmailLegacy } from './utm-legacy'
 
 export type UtmTags = {
     utm_source: string
@@ -159,7 +160,10 @@ const findAnchorStart = (html: string, from: number): number => {
 
 // One forward pass rather than a regex, so a body full of unclosed `<a` tags costs linear time instead
 // of rescanning the rest of the email for each one and stalling the worker.
-export const addUtmTagsToEmail = (html: string, tags: UtmTags, siteUrl: string): string => {
+export const addUtmTagsToEmail = (html: string, tags: UtmTags, siteUrl: string, fixedScanner: boolean): string => {
+    if (!fixedScanner) {
+        return addUtmTagsToEmailLegacy(html, tags, siteUrl)
+    }
     const siteHost = hostOf(siteUrl)
     let output = ''
     let cursor = 0

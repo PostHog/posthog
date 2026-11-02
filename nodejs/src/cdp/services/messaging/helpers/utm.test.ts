@@ -5,7 +5,7 @@ const SITE_URL = 'https://us.posthog.com'
 const QUERY = 'utm_source=posthog&amp;utm_medium=email&amp;utm_campaign=Spring%20sale'
 
 describe('addUtmTagsToEmail', () => {
-    it.each([
+    it.each<{ case: string; html: string; expected: string; fixedScanner?: boolean }>([
         {
             case: 'a plain link',
             html: '<a href="https://example.com/pricing">x</a>',
@@ -83,6 +83,18 @@ describe('addUtmTagsToEmail', () => {
             expected: `<a href="https://example.com/pricing?plan=pro&amp;${QUERY}">x</a>`,
         },
         {
+            case: 'a quoted and an unquoted href with the fixed scanner on for the team',
+            html: '<a href="https://example.com/a">x</a><a href=https://example.com/b>y</a>',
+            expected: `<a href="https://example.com/a?${QUERY}">x</a><a href="https://example.com/b?${QUERY}">y</a>`,
+            fixedScanner: true,
+        },
+        {
+            case: "a quoted and an unquoted href with the fixed scanner off for the team, which keeps master's scanner",
+            html: '<a href="https://example.com/a">x</a><a href=https://example.com/b>y</a>',
+            expected: `<a href="https://example.com/a?${QUERY}">x</a><a href=https://example.com/b>y</a>`,
+            fixedScanner: false,
+        },
+        {
             case: 'an unquoted href with a non-breaking space, which HTML keeps in the value',
             html: '<a href=https://example.com/summer sale>x</a>',
             expected: `<a href="https://example.com/summer sale?${QUERY}">x</a>`,
@@ -102,8 +114,8 @@ describe('addUtmTagsToEmail', () => {
             html: '<p>İstanbul, İzmir, İzmit</p><a data-ph-no-utm href="https://example.com/a">x</a><a href="https://example.com/b">y</a>',
             expected: `<p>İstanbul, İzmir, İzmit</p><a data-ph-no-utm href="https://example.com/a">x</a><a href="https://example.com/b?${QUERY}">y</a>`,
         },
-    ])('tags $case', ({ html, expected }) => {
-        expect(addUtmTagsToEmail(html, TAGS, SITE_URL)).toEqual(expected)
+    ])('tags $case', ({ html, expected, fixedScanner = true }) => {
+        expect(addUtmTagsToEmail(html, TAGS, SITE_URL, fixedScanner)).toEqual(expected)
     })
 
     it.each([
