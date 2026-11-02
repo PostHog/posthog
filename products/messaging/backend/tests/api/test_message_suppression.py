@@ -129,15 +129,14 @@ class TestRemoveSuppressionResetsSource(APIBaseTest):
             "remove_suppression must reset the row so the node write path can auto-suppress this address again if it later bounces"
         )
 
-    @parameterized.expand([("hard_bounced_row", True), ("manual_row_without_a_bounce", False)])
-    def test_remove_clears_the_ses_account_suppression_only_after_a_hard_bounce(
-        self, _name: str, hard_bounced: bool
+    @parameterized.expand([("row_with_own_bounce", "msg-own"), ("manual_row_without_a_bounce", None)])
+    def test_remove_clears_the_ses_account_suppression_only_for_own_bounce(
+        self, _name: str, bounce_message_id: str | None
     ) -> None:
         self.client.post(self._url("add_suppression"), {"identifier": "user@example.com"}, format="json")
-        if hard_bounced:
-            MessageSuppression.objects.for_team(self.team.id).filter(identifier="user@example.com").update(
-                hard_bounced_at=timezone.now()
-            )
+        MessageSuppression.objects.for_team(self.team.id).filter(identifier="user@example.com").update(
+            hard_bounced_at=timezone.now(), last_hard_bounce_message_id=bounce_message_id
+        )
 
         with (
             patch("products.messaging.backend.services.suppression.is_cloud", return_value=True),
@@ -151,4 +150,4 @@ class TestRemoveSuppressionResetsSource(APIBaseTest):
             )
 
         assert response.status_code == 204
-        assert clear_ses.call_args_list == ([call("user@example.com")] if hard_bounced else [])
+        assert clear_ses.call_args_list == ([call("user@example.com", "msg-own")] if bounce_message_id else [])

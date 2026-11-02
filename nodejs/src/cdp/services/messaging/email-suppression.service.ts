@@ -211,13 +211,14 @@ export class EmailSuppressionService {
      * that a complaint already claimed keeps its source and reason, so the bounce refreshes the
      * diagnostic without relabelling why the address is suppressed. `blockedByProvider` marks a send
      * that SES refused for its account-level suppression list, so the row tells the user where the
-     * block comes from. Removing that row through the API also clears the SES entry for a bounce.
+     * block comes from. `messageId` is the SES message id of a real hard bounce. A refusal passes none
+     * and keeps the stored id, so that removing the row can still prove whose bounce created the SES entry.
      */
     public async recordHardBounces(
         teamId: number,
         emails: string[],
         diagnostic?: string,
-        { blockedByProvider = false }: { blockedByProvider?: boolean } = {}
+        { blockedByProvider = false, messageId }: { blockedByProvider?: boolean; messageId?: string } = {}
     ): Promise<void> {
         const identifiers = Array.from(new Set(emails.map(normalizeIdentifier).filter(Boolean)))
         if (identifiers.length === 0) {
@@ -225,17 +226,18 @@ export class EmailSuppressionService {
         }
 
         const diag = diagnostic ? diagnostic.slice(0, DIAGNOSTIC_MAX_LENGTH) : null
-        // Params: teamId, reason, diag, then one identifier per row.
+        // Params: teamId, reason, diag, message id, then one identifier per row.
         const valueClauses: string[] = []
         const params: (number | string | null)[] = [
             teamId,
             blockedByProvider ? PROVIDER_BLOCKED_REASON : HARD_BOUNCE_REASON,
             diag,
+            messageId ?? null,
         ]
         identifiers.forEach((identifier, i) => {
             const p = params.length + 1 + i
             valueClauses.push(
-                `(gen_random_uuid(), $1, $${p}, 'BOUNCE', $2, 0, NOW(), $3, true, NOW(), false, NOW(), NOW(), NOW())`
+                `(gen_random_uuid(), $1, $${p}, 'BOUNCE', $2, 0, NOW(), $3, true, NOW(), false, NOW(), NOW(), NOW(), $4)`
             )
         })
         params.push(...identifiers)
@@ -244,10 +246,12 @@ export class EmailSuppressionService {
             INSERT INTO posthog_messagesuppression
                 (id, team_id, identifier, source, reason, transient_bounce_count, last_bounce_at,
                  last_bounce_diagnostic, suppressed, suppressed_at, deleted, created_at, updated_at,
-                 hard_bounced_at)
+                 hard_bounced_at, last_hard_bounce_message_id)
             VALUES ${valueClauses.join(', ')}
             ON CONFLICT (team_id, identifier) DO UPDATE SET
                 last_bounce_at = NOW(),
+                last_hard_bounce_message_id = COALESCE(
+                    EXCLUDED.last_hard_bounce_message_id, posthog_messagesuppression.last_hard_bounce_message_id),
                 last_bounce_diagnostic = EXCLUDED.last_bounce_diagnostic,
                 -- Manual entries are authoritative; never override them.
                 suppressed = CASE

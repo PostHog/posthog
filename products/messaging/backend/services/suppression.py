@@ -55,7 +55,7 @@ def remove_suppression(team_id: int, identifier: str) -> bool:
     # source='MANUAL' (to protect user-managed entries), so a removed MANUAL row would otherwise
     # be permanently invisible to the bounce-driven write path.
     rows = MessageSuppression.objects.for_team(team_id).filter(identifier=identifier)
-    hard_bounced = rows.filter(hard_bounced_at__isnull=False).exists()
+    bounce_message_id = rows.values_list("last_hard_bounce_message_id", flat=True).first()
     updated = rows.update(
         suppressed=False,
         deleted=True,
@@ -67,8 +67,7 @@ def remove_suppression(team_id: int, identifier: str) -> bool:
     )
     # SES keeps its own account-level list. While SES still lists the address, it refuses the next
     # send, and the refusal puts the address back on this list. Only cloud sends through that account.
-    # Every team shares that list, so clear it only when this team's own send hard-bounced or was
-    # refused. Otherwise any editor could add and remove an address to clear another team's bounce.
-    if updated and hard_bounced and is_cloud():
-        clear_ses_bounce_suppression(identifier)
+    # Every team shares that list, so clear an entry only when this team's own bounce created it.
+    if updated and bounce_message_id and is_cloud():
+        clear_ses_bounce_suppression(identifier, bounce_message_id)
     return bool(updated)

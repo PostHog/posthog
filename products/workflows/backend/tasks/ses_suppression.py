@@ -16,5 +16,5 @@ from products.workflows.backend.providers.ses import SESProvider
     max_retries=5,
     retry_jitter=True,
 )
-def clear_ses_bounce_suppression_task(email: str) -> None:
-    SESProvider().clear_bounce_suppression(email)
+def clear_ses_bounce_suppression_task(email: str, bounce_message_id: str) -> None:
+    SESProvider().clear_bounce_suppression(email, bounce_message_id)

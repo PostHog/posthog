@@ -530,7 +530,7 @@ describe('SesWebhookHandler', () => {
         // address from a full mailbox.
         expect(result.metrics?.[0].properties).toMatchObject({ $bounce_type: 'hard' })
         expect(result.hardBounceRecipients).toEqual([
-            { teamId: '1', emailAddresses: ['to@example.com'], diagnostic: 'bad' },
+            { teamId: '1', emailAddresses: ['to@example.com'], diagnostic: 'bad', messageId: 'msg-123' },
         ])
         expect(result.transientBounceRecipients).toEqual([])
     })
@@ -1190,7 +1190,7 @@ describe('SesWebhookHandler', () => {
             const result = await restricted.handleWebhook({ body: envelope, headers: {}, verifySignature: false })
             expect(result.status).toBe(200)
             expect(result.hardBounceRecipients).toEqual([
-                { teamId: '1', emailAddresses: ['recipient@example.com'], diagnostic: 'bad' },
+                { teamId: '1', emailAddresses: ['recipient@example.com'], diagnostic: 'bad', messageId: 'msg-123' },
             ])
         })
 

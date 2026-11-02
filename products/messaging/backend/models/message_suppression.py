@@ -60,6 +60,10 @@ class MessageSuppression(TeamScopedRootMixin, UUIDModel):
     # When the address last hard-bounced. Set on every row, manual entries included, and cleared when a
     # user removes the suppression. A suppressed row with this set also blocks transactional messages.
     hard_bounced_at = models.DateTimeField(null=True, blank=True)
+    # SES message id of this team's last real hard bounce to the address. SES records the same id on
+    # the account-level suppression entry that the bounce created, so a match proves that this team's
+    # send created the entry. Removal keeps the value, because a later SES refusal re-suppresses the row.
+    last_hard_bounce_message_id = models.CharField(max_length=255, null=True, blank=True)
 
     # Whether the address is actively suppressed. A row can exist while still only counting
     # bounces (suppressed=False) before it crosses the threshold.

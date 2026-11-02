@@ -1,1 +1,1 @@
-0011_messagesuppression_hard_bounced_at
+0012_messagesuppression_last_hard_bounce_message_id

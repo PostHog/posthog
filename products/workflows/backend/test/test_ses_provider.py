@@ -549,8 +549,21 @@ class TestClearBounceSuppression(TestCase):
 
     @parameterized.expand(
         [
-            ("bounce_entry_is_removed", {"SuppressedDestination": {"Reason": "BOUNCE"}}, True),
-            ("complaint_entry_stays", {"SuppressedDestination": {"Reason": "COMPLAINT"}}, False),
+            (
+                "own_bounce_entry_is_removed",
+                {"SuppressedDestination": {"Reason": "BOUNCE", "Attributes": {"MessageId": "msg-own"}}},
+                True,
+            ),
+            (
+                "another_teams_bounce_entry_stays",
+                {"SuppressedDestination": {"Reason": "BOUNCE", "Attributes": {"MessageId": "msg-other"}}},
+                False,
+            ),
+            (
+                "complaint_entry_stays",
+                {"SuppressedDestination": {"Reason": "COMPLAINT", "Attributes": {"MessageId": "msg-own"}}},
+                False,
+            ),
             (
                 "unlisted_address",
                 ClientError({"Error": {"Code": "NotFoundException"}}, "GetSuppressedDestination"),
@@ -564,7 +577,7 @@ class TestClearBounceSuppression(TestCase):
         else:
             self.mock_client.get_suppressed_destination.return_value = lookup
 
-        assert self.provider.clear_bounce_suppression("user@example.com") is expected_removed
+        assert self.provider.clear_bounce_suppression("user@example.com", "msg-own") is expected_removed
         assert self.mock_client.delete_suppressed_destination.called is expected_removed
 
 

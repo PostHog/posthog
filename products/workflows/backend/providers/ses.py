@@ -911,12 +911,12 @@ class SESProvider:
             logger.exception(f"SES API error deleting identity: {e}")
             raise
 
-    def clear_bounce_suppression(self, email: str) -> bool:
+    def clear_bounce_suppression(self, email: str, bounce_message_id: str) -> bool:
         """
-        Remove `email` from the account-level suppression list when SES put it there for a bounce.
+        Remove `email` from the account-level suppression list when the bounce of `bounce_message_id` put it there.
 
-        Every team shares this list. A complaint entry stays, because one team must not lift a spam
-        complaint that a recipient made against another team's mail. Returns whether SES removed an entry.
+        Every team shares this list, so the message id must match. Otherwise one team could lift an entry
+        that another team's bounce or a recipient's complaint created. Returns whether SES removed an entry.
         """
         # The status client has bounded timeouts, which this call needs because a person waits on it.
         try:
@@ -925,7 +925,8 @@ class SESProvider:
             if e.response["Error"]["Code"] == "NotFoundException":
                 return False
             raise
-        if entry["SuppressedDestination"]["Reason"] != "BOUNCE":
+        destination = entry["SuppressedDestination"]
+        if destination["Reason"] != "BOUNCE" or destination.get("Attributes", {}).get("MessageId") != bounce_message_id:
             return False
         self.ses_v2_status_client.delete_suppressed_destination(EmailAddress=email)
         return True

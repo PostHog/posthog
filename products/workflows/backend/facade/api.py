@@ -365,12 +365,12 @@ def delete_ses_identity(identity: str) -> None:
     providers.SESProvider().delete_identity(identity)
 
 
-def clear_ses_bounce_suppression(email: str) -> None:
-    """Queue the removal of a bounce entry for `email` from the SES account suppression list."""
+def clear_ses_bounce_suppression(email: str, bounce_message_id: str) -> None:
+    """Queue the removal of the SES account suppression entry that the bounce of `bounce_message_id` created."""
     # The task module imports boto3, so import it here to keep boto3 off the facade import path.
     from products.workflows.backend.tasks.ses_suppression import clear_ses_bounce_suppression_task  # noqa: PLC0415
 
-    transaction.on_commit(lambda: clear_ses_bounce_suppression_task.delay(email))
+    transaction.on_commit(lambda: clear_ses_bounce_suppression_task.delay(email, bounce_message_id))
 
 
 def get_maildev_mock_dns_records() -> list[EmailDomainDnsRecord]:

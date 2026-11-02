@@ -685,6 +685,8 @@ export class SesWebhookHandler {
             diagnostic?: string
             // SES refused the send because the address is on its account-level suppression list.
             blockedByProvider?: boolean
+            // SES message id of a real hard bounce, which SES also records on the suppression entry.
+            messageId?: string
         }[]
         // Spam complaints — recorded in the suppression list so future sends to the address are
         // blocked. A complaint is the recipient asking us to stop, and provider complaint-rate
@@ -796,6 +798,7 @@ export class SesWebhookHandler {
             emailAddresses: string[]
             diagnostic?: string
             blockedByProvider?: boolean
+            messageId?: string
         }[] = []
         const complainedRecipients: {
             teamId?: string
@@ -985,7 +988,7 @@ export class SesWebhookHandler {
                     teamId,
                     emailAddresses: emails,
                     diagnostic,
-                    ...(blockedByProvider ? { blockedByProvider } : {}),
+                    ...(blockedByProvider ? { blockedByProvider } : { messageId: rec.mail.messageId }),
                 })
             }
 
