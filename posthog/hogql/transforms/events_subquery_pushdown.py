@@ -31,7 +31,9 @@ Two rewrites, each result-equivalent:
 
 A moved key read is lowered to a raw extract on the spot, as the lazy-join wrapper does, so it keeps the untyped
 string value the outer read has today rather than the property-definition type a direct read gets: an outer
-`toFloatOrZero(properties.amount)` would otherwise receive a Float and fail.
+`toFloatOrZero(properties.amount)` would otherwise receive a Float and fail. On the native JSON table a property read
+decodes a JSON string while the outer read of the rebuilt document keeps its escapes, so there the moved read stays the
+outer read's `JSONExtractRaw` over the events document, which the ClickHouse property pass turns into one subcolumn read.
 
 Runs after type resolution, before projection pruning (so a blob nobody reads anymore can be pruned) and before the
 lazy-join pass (so the subquery is still a bare events scan). A pure optimization: an unexpected error leaves the
@@ -47,6 +49,7 @@ from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, ExpressionField, StringJSONDatabaseField
 from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.schema.util.null_sentinels import null_if_sentinels
 from posthog.hogql.database.schema.util.where_clause_extractor import (
     contains_in_cohort,
     contains_row_multiplying_function,
@@ -126,6 +129,20 @@ def _output_name(expr: ast.Expr) -> str | None:
     return None
 
 
+def _document_key_extract(document: ast.Field, chain: list[str | int]) -> ast.Expr:
+    """The key's raw JSON text with the quotes trimmed, as the printer renders a property read of a text document."""
+    extract = ast.Call(
+        name="JSONExtractRaw",
+        args=[document, *(ast.Constant(value=key) for key in chain)],
+        type=ast.StringType(nullable=False),
+    )
+    return ast.Call(
+        name="replaceRegexpAll",
+        args=[null_if_sentinels(extract), ast.Constant(value='^"|"$'), ast.Constant(value="")],
+        type=ast.StringType(nullable=True),
+    )
+
+
 class _ExportedColumns:
     """The columns a plain events subquery exports verbatim from the events table, by output name, and the reads an
     outer query can make of them: the events column behind a subquery column, or a raw key read off its blob."""
@@ -164,10 +181,11 @@ class _ExportedColumns:
             return None
         if not isinstance(source.type.resolve_database_field(self.context), StringJSONDatabaseField):
             return None
-        read = ast.Field(
-            chain=[*source.chain, *property_type.chain],
-            type=ast.PropertyType(chain=list(property_type.chain), field_type=source.type),
-        )
+        chain = list(property_type.chain)
+        if self.context.uses_new_events_schema():
+            # A native property read decodes the JSON string; the outer read of the rebuilt document did not.
+            return _document_key_extract(clone_expr(source, clear_types=False), chain)
+        read = ast.Field(chain=[*source.chain, *chain], type=ast.PropertyType(chain=chain, field_type=source.type))
         return lower_property_access(read, self.context)
 
 

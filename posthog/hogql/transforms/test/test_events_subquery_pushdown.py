@@ -28,8 +28,12 @@ def _modifiers(on: bool) -> HogQLQueryModifiers:
 class TestEventsSubqueryPushdown(BaseTest):
     maxDiff = None
 
-    def _print(self, select: str, *, on: bool = True, restricted: set[RestrictedProperty] | None = None) -> str:
-        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=_modifiers(on))
+    def _print(
+        self, select: str, *, on: bool = True, native: bool = False, restricted: set[RestrictedProperty] | None = None
+    ) -> str:
+        context = HogQLContext(
+            team_id=self.team.pk, enable_select_queries=True, modifiers=_modifiers(on), use_new_events_schema=native
+        )
         if restricted is not None:
             context.restricted_properties = restricted
         query, _ = prepare_and_print_ast(parse_select(select), context, "clickhouse")
@@ -56,6 +60,11 @@ class TestEventsSubqueryPushdown(BaseTest):
                 "select_alias_inlined",
                 f"SELECT toString(event) AS ev FROM {STAR_EVENTS} WHERE ev = 'x'",
                 "SELECT toString(event) AS ev FROM (SELECT * FROM events WHERE toString(event) = 'x')",
+            ),
+            (
+                "nested_select_keeps_its_own_alias",
+                f"SELECT event AS x FROM {STAR_EVENTS} WHERE distinct_id IN (SELECT distinct_id AS x FROM events WHERE x = 'u')",
+                "SELECT event AS x FROM (SELECT * FROM events WHERE distinct_id IN (SELECT distinct_id AS x FROM events WHERE x = 'u'))",
             ),
             (
                 "scalar_subquery_moves_with_the_conjunct",
@@ -132,6 +141,12 @@ class TestEventsSubqueryPushdown(BaseTest):
         assert " AS properties__utm_source" in printed and " AS properties__a__b" in printed, printed
         assert "ORDER BY properties__utm_source ASC" in printed, printed
 
+    def test_native_hoisted_read_keeps_the_document_text(self) -> None:
+        printed = self._print(f"SELECT properties.utm_source FROM {STAR_EVENTS}", native=True)
+        assert "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(" in printed, printed
+        assert "toString(events.properties.utm_source)" not in printed, printed
+        assert "JSONExtractKeysAndValuesRaw" not in printed, printed
+
     def test_hoisted_read_keeps_the_string_value_under_a_string_parser(self) -> None:
         PropertyDefinition.objects.create(
             team=self.team, name="amount", property_type=PropertyType.Numeric, type=PropertyDefinition.Type.EVENT
@@ -145,12 +160,16 @@ class TestEventsSubqueryPushdown(BaseTest):
         assert "AS __hoisted_properties_0" in printed, printed
         assert printed.count(" AS properties__utm_source") == 1, printed
 
-    def test_hoisted_restricted_key_stays_masked(self) -> None:
+    @parameterized.expand([("legacy", False), ("native", True)])
+    def test_hoisted_restricted_key_stays_masked(self, _name: str, native: bool) -> None:
         printed = self._print(
             f"SELECT properties.email, properties.utm_source FROM {STAR_EVENTS}",
+            native=native,
             restricted={RestrictedProperty(name="email", property_type=PropertyDefinition.Type.EVENT)},
         )
-        assert "NULL AS properties__email" in printed, printed
+        assert " AS properties__email" in printed, printed
+        assert "properties.email" not in printed, printed
+        assert "properties, 'email'" not in printed, printed
         assert "JSONDropKeys" not in printed, printed
 
     def test_unexpected_internal_error_leaves_the_query_untouched(self) -> None:
@@ -171,6 +190,7 @@ class TestEventsSubqueryPushdownExecution(ClickhouseTestMixin, APIBaseTest):
             ("2024-01-02T11:00:00", "$pageview", {"utm_source": "", "amount": "7.5"}),
             ("2024-01-03T10:00:00", "$pageview", {"amount": None}),
             ("2024-01-03T11:00:00", "signup", {"utm_source": "bing"}),
+            ("2024-01-03T12:00:00", "signup", {"utm_source": 'say "hi"\\now'}),
             ("2023-12-31T23:59:59", "$pageview", {"utm_source": "google", "amount": 100}),
         ]
         for index, (timestamp, event, properties) in enumerate(rows):
@@ -193,6 +213,14 @@ class TestEventsSubqueryPushdownExecution(ClickhouseTestMixin, APIBaseTest):
             (
                 "string_parser_on_numeric_property",
                 f"SELECT sum(toFloatOrZero(properties.amount)), arraySort(groupArray(properties.amount)) FROM {STAR_EVENTS} WHERE event = '$pageview'",
+            ),
+            (
+                "escaped_string_value",
+                f"SELECT properties.utm_source FROM {STAR_EVENTS} WHERE event = 'signup' ORDER BY 1",
+            ),
+            (
+                "property_filter",
+                f"SELECT count() FROM {STAR_EVENTS} WHERE properties.utm_source = 'google'",
             ),
             (
                 "colliding_alias_name",

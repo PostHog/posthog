@@ -99,6 +99,13 @@ class SelectAliasInliner(CloningVisitor):
                 self._resolving.discard(alias)
         return super().visit_field(node)
 
+    def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
+        # A nested select is its own scope, so an alias of the same name inside it is a different binding.
+        return cast(ast.SelectQuery, clone_expr(node, clear_types=False))
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> ast.SelectSetQuery:
+        return cast(ast.SelectSetQuery, clone_expr(node, clear_types=False))
+
 
 class _StructuralNormalizer(CloningVisitor):
     """Builds the hoister's structural-identity clone of an events-only expression: type- and location-stripped,
