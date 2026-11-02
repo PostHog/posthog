@@ -106,6 +106,9 @@ export const Loading: Story = {
         result: null,
         loading: true,
     },
+    parameters: {
+        testOptions: { waitForLoadersToDisappear: false },
+    },
 }
 
 export const Empty: Story = {

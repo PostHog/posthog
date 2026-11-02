@@ -79,12 +79,12 @@ export interface editMetricsWidgetModalLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         hasUnsavedChanges: (
             query: MetricsQuery,
-            hasUnrunQueryText: any,
+            hasUnrunQueryText: boolean,
             tileName: string,
             tileDescription: string,
             arg: any
         ) => boolean
-        saveDisabledReason: (saving: boolean, query: MetricsQuery, hasUnrunQueryText: any) => string | undefined
+        saveDisabledReason: (saving: boolean, query: MetricsQuery, hasUnrunQueryText: boolean) => string | undefined
     }
 }
 
