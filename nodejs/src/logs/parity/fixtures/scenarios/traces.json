@@ -1,0 +1,1941 @@
+{
+ "scenario": {
+  "name": "traces",
+  "description": "The traces consumer: spans schema, spans retention and metric rules.",
+  "consumer": "traces",
+  "now_ms": 1736942400000,
+  "config": {
+   "TRACES_RETENTION_ENABLED_TEAMS": "101",
+   "TRACES_METRICS_RULES_ENABLED_TEAMS": "101",
+   "LOGS_PATTERN_MASKING_ENABLED_TEAMS": "*"
+  },
+  "teams": [
+   {
+    "id": 101,
+    "api_token": "phc_parity_plain",
+    "logs_settings": null
+   },
+   {
+    "id": 102,
+    "api_token": "phc_parity_json",
+    "logs_settings": {
+     "json_parse_logs": true
+    }
+   },
+   {
+    "id": 103,
+    "api_token": "phc_parity_pii",
+    "logs_settings": {
+     "pii_scrub_logs": true
+    }
+   },
+   {
+    "id": 104,
+    "api_token": "phc_parity_both",
+    "logs_settings": {
+     "json_parse_logs": true,
+     "pii_scrub_logs": true,
+     "retention_days": 30
+    }
+   },
+   {
+    "id": 105,
+    "api_token": "phc_parity_attr",
+    "logs_settings": {
+     "json_parse_logs": true,
+     "json_parse_logs_attribute_key": "payload",
+     "retention_days": 90
+    }
+   },
+   {
+    "id": 106,
+    "api_token": "phc_parity_ret7",
+    "logs_settings": {
+     "retention_days": 7
+    }
+   }
+  ],
+  "quota_limited_tokens": [],
+  "sampling_rules": {},
+  "retention_rules": {
+   "101": {
+    "spans": [
+     {
+      "id": "span-ret",
+      "config": {
+       "retention_days": 60,
+       "filter_group": {
+        "type": "AND",
+        "values": [
+         {
+          "type": "AND",
+          "values": [
+           {
+            "key": "name",
+            "operator": "exact",
+            "value": "job",
+            "type": "span_attribute"
+           }
+          ]
+         }
+        ]
+       }
+      }
+     }
+    ]
+   }
+  },
+  "metric_rules": {
+   "101": [
+    {
+     "id": "span-count",
+     "metric_name": "span_count",
+     "filter_group": null,
+     "value_attribute": null,
+     "group_by": [
+      "service_name",
+      "name"
+     ],
+     "source": "spans"
+    }
+   ]
+  },
+  "pattern_message_keys": {},
+  "traces_retention_days": {
+   "101": 30,
+   "102": 14
+  },
+  "team_lookup_faults": {},
+  "produce_faults": [],
+  "batches": [
+   [
+    {
+     "topic": "traces_ingestion",
+     "partition": 2,
+     "offset": 0,
+     "timestamp": 1736942399000,
+     "headers": [
+      [
+       "token",
+       "phc_parity_plain"
+      ],
+      [
+       "bytes_uncompressed",
+       "10449"
+      ],
+      [
+       "bytes_uncompressed_records",
+       "6966"
+      ],
+      [
+       "bytes_compressed",
+       "3483"
+      ],
+      [
+       "record_count",
+       "4"
+      ],
+      [
+       "created_at",
+       "2025-01-15T11:59:59.000Z"
+      ]
+     ],
+     "value_b64": "T2JqAQQWYXZyby5zY2hlbWGqL3sibmFtZSI6IlRyYWNlUmVjb3JkIiwidHlwZSI6InJlY29yZCIsImZpZWxkcyI6W3sibmFtZSI6InV1aWQiLCJ0eXBlIjpbIm51bGwiLCJzdHJpbmciXSwiZG9jIjoiVW5pcXVlIGlkZW50aWZpZXIgZm9yIHRoZSBzcGFuIHJlY29yZC4ifSx7Im5hbWUiOiJ0cmFjZV9pZCIsInR5cGUiOlsibnVsbCIsImJ5dGVzIl0sImRvYyI6IklkZW50aWZpZXIgZm9yIHRoZSB0cmFjZSB0aGlzIHNwYW4gYmVsb25ncyB0by4ifSx7Im5hbWUiOiJzcGFuX2lkIiwidHlwZSI6WyJudWxsIiwiYnl0ZXMiXSwiZG9jIjoiSWRlbnRpZmllciBmb3IgdGhpcyBzcGFuIHdpdGhpbiB0aGUgdHJhY2UuIn0seyJuYW1lIjoicGFyZW50X3NwYW5faWQiLCJ0eXBlIjpbIm51bGwiLCJieXRlcyJdLCJkb2MiOiJJZGVudGlmaWVyIGZvciB0aGUgcGFyZW50IHNwYW4sIGlmIGFueS4ifSx7Im5hbWUiOiJ0cmFjZV9zdGF0ZSIsInR5cGUiOlsibnVsbCIsInN0cmluZyJdLCJkb2MiOiJXM0MgdHJhY2Ugc3RhdGUgc3RyaW5nLiJ9LHsibmFtZSI6Im5hbWUiLCJ0eXBlIjpbIm51bGwiLCJzdHJpbmciXSwiZG9jIjoiT3BlcmF0aW9uIG5hbWUgb2YgdGhlIHNwYW4uIn0seyJuYW1lIjoia2luZCIsInR5cGUiOlsibnVsbCIsImludCJdLCJkb2MiOiJTcGFuS2luZDogMD1VTlNQRUNJRklFRCwgMT1JTlRFUk5BTCwgMj1TRVJWRVIsIDM9Q0xJRU5ULCA0PVBST0RVQ0VSLCA1PUNPTlNVTUVSLiJ9LHsibmFtZSI6ImZsYWdzIiwidHlwZSI6WyJudWxsIiwiaW50Il0sImRvYyI6IlRyYWNlIGZsYWdzIGFzIGRlZmluZWQgaW4gVzNDIFRyYWNlIENvbnRleHQgc3BlY2lmaWNhdGlvbi4ifSx7Im5hbWUiOiJ0aW1lc3RhbXAiLCJ0eXBlIjpbIm51bGwiLCJsb25nIl0sImRvYyI6IlN0YXJ0IHRpbWUgb2YgdGhlIHNwYW4sIGluIG1pY3Jvc2Vjb25kcyBzaW5jZSBlcG9jaC4ifSx7Im5hbWUiOiJlbmRfdGltZSIsInR5cGUiOlsibnVsbCIsImxvbmciXSwiZG9jIjoiRW5kIHRpbWUgb2YgdGhlIHNwYW4sIGluIG1pY3Jvc2Vjb25kcyBzaW5jZSBlcG9jaC4ifSx7Im5hbWUiOiJvYnNlcnZlZF90aW1lc3RhbXAiLCJ0eXBlIjpbIm51bGwiLCJsb25nIl0sImRvYyI6IlRoZSB0aW1lc3RhbXAgd2hlbiB0aGUgc3BhbiB3YXMgcmVjZWl2ZWQgYnkgdGhlIGNvbGxlY3Rvci4ifSx7Im5hbWUiOiJzZXJ2aWNlX25hbWUiLCJ0eXBlIjpbIm51bGwiLCJzdHJpbmciXSwiZG9jIjoiVGhlIG5hbWUgb2YgdGhlIHNlcnZpY2UgdGhhdCBnZW5lcmF0ZWQgdGhlIHNwYW4uIn0seyJuYW1lIjoicmVzb3VyY2VfYXR0cmlidXRlcyIsInR5cGUiOlsibnVsbCIseyJ0eXBlIjoibWFwIiwidmFsdWVzIjoic3RyaW5nIn1dLCJkb2MiOiJBdHRyaWJ1dGVzIGRlc2NyaWJpbmcgdGhlIHJlc291cmNlIHRoYXQgcHJvZHVjZWQgdGhlIHNwYW4uIn0seyJuYW1lIjoiaW5zdHJ1bWVudGF0aW9uX3Njb3BlIiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6IlRoZSBuYW1lIGFuZCB2ZXJzaW9uIG9mIHRoZSBpbnN0cnVtZW50YXRpb24gbGlicmFyeSB0aGF0IGNhcHR1cmVkIHRoZSBzcGFuLiJ9LHsibmFtZSI6ImF0dHJpYnV0ZXMiLCJ0eXBlIjpbIm51bGwiLHsidHlwZSI6Im1hcCIsInZhbHVlcyI6InN0cmluZyJ9XSwiZG9jIjoiQSBtYXAgb2YgY3VzdG9tIHN0cmluZy12YWx1ZWQgYXR0cmlidXRlcyBhc3NvY2lhdGVkIHdpdGggdGhlIHNwYW4uIn0seyJuYW1lIjoiZHJvcHBlZF9hdHRyaWJ1dGVzX2NvdW50IiwidHlwZSI6WyJudWxsIiwiaW50Il0sImRvYyI6Ik51bWJlciBvZiBhdHRyaWJ1dGVzIHRoYXQgd2VyZSBkcm9wcGVkIGR1ZSB0byBsaW1pdHMuIn0seyJuYW1lIjoiZXZlbnRzIiwidHlwZSI6WyJudWxsIix7InR5cGUiOiJhcnJheSIsIml0ZW1zIjoic3RyaW5nIn1dLCJkb2MiOiJBcnJheSBvZiBzcGFuIGV2ZW50cywgZWFjaCBzZXJpYWxpemVkIGFzIGEgSlNPTiBzdHJpbmcuIn0seyJuYW1lIjoiZHJvcHBlZF9ldmVudHNfY291bnQiLCJ0eXBlIjpbIm51bGwiLCJpbnQiXSwiZG9jIjoiTnVtYmVyIG9mIGV2ZW50cyB0aGF0IHdlcmUgZHJvcHBlZCBkdWUgdG8gbGltaXRzLiJ9LHsibmFtZSI6ImxpbmtzIiwidHlwZSI6WyJudWxsIix7InR5cGUiOiJhcnJheSIsIml0ZW1zIjoic3RyaW5nIn1dLCJkb2MiOiJBcnJheSBvZiBzcGFuIGxpbmtzLCBlYWNoIHNlcmlhbGl6ZWQgYXMgYSBKU09OIHN0cmluZy4ifSx7Im5hbWUiOiJkcm9wcGVkX2xpbmtzX2NvdW50IiwidHlwZSI6WyJudWxsIiwiaW50Il0sImRvYyI6Ik51bWJlciBvZiBsaW5rcyB0aGF0IHdlcmUgZHJvcHBlZCBkdWUgdG8gbGltaXRzLiJ9LHsibmFtZSI6InN0YXR1c19jb2RlIiwidHlwZSI6WyJudWxsIiwiaW50Il0sImRvYyI6IlN0YXR1cyBjb2RlOiAwPVVOU0VULCAxPU9LLCAyPUVSUk9SLiJ9LHsibmFtZSI6InN0YXR1c19tZXNzYWdlIiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6IlN0YXR1cyBtZXNzYWdlIn0seyJuYW1lIjoiYnl0ZXNfdW5jb21wcmVzc2VkIiwidHlwZSI6WyJudWxsIiwibG9uZyJdLCJkb2MiOiJMb2dpY2FsIGNvbnRlbnQgc2l6ZSBvZiB0aGUgcm93IChzdW0gb2YgYnl0ZSBsZW5ndGhzIG9mIHN0cmluZy9tYXAvYXJyYXkgZmllbGRzKS4gVXNlZCBieSBkcm9wLXJ1bGUgYWNjb3VudGluZzsgZG9lcyBub3QgaW5jbHVkZSBmaXhlZC13aWR0aCBudW1lcmljIG9yIHRpbWVzdGFtcCBmaWVsZHMuIn0seyJuYW1lIjoicmV0ZW50aW9uX2RheXMiLCJ0eXBlIjpbIm51bGwiLCJpbnQiXSwiZGVmYXVsdCI6bnVsbCwiZG9jIjoiUGVyLXJvdyByZXRlbnRpb24gaW4gZGF5cywgc3RhbXBlZCBieSB0aGUgTm9kZSBjb25zdW1lciBmcm9tIHRlYW0gcmV0ZW50aW9uIHJ1bGVzLiBOdWxsIHdoZW4gdW5zZXQg4oCUIENsaWNrSG91c2UgdGhlbiBmYWxscyBiYWNrIHRvIHRoZSBiYXRjaCBgcmV0ZW50aW9uLWRheXNgIGhlYWRlci4gY2FwdHVyZS1sb2dzIGFsd2F5cyB3cml0ZXMgbnVsbDsgaXQgZG9lcyBub3QgZXZhbHVhdGUgdGVhbSBydWxlcy4ifV0sImRvYyI6IlNjaGVtYSBmb3IgYW4gT1RFTCB0cmFjZSBzcGFuLiJ9FGF2cm8uY29kZWMSenN0YW5kYXJkAMED/RSkX1fcnTG8t5+fxcEI9AUotS/9YDwChQsANBQCSDAtMDAwMC00MDAwLTkCIEkTlPAnA7KjjrwH7VODv6cCEIjM/z1O5GNtAhAhZg1FTFIrmwACEGRiLnF1ZXJ5ArKuvYyf75UGAoDA+qutBmFwaQICGHNlcnZpY2UubmFtZQoiYXBpIgAAAgQgaHR0cC5zdGF0dXNfY29kZQYyMDAUdXNlci5lbWFpbB4iZEBleGFtcGxlLmNvbSIAAgIAAAAxAiDAKwSSgiYZtF8lYGnaEb1jAhA5ag/BAAeYhQIQay8LiZDzwEAIAgICoM2VzKUMd29ya2VyBDICICTjEUH3PX5Ng2S/H/OI5vcCEBt4gzXbQg1cAAACBmpvYgIGAgIC+I/dvqcEMwIgG35fLrU9VaFrw1wilhdypwIQFXP2MTWp43oAAAIQR0VUIC9hcGkCAAICAo7O/r6qNDA0AAAAABAAoBwjToNCKNlAd7JmGqWEUojWTAYo58A9V/PoyW0myykBAQAJMknKwBDBA/0UpF9X3J0xvLefn8XB"
+    },
+    {
+     "topic": "traces_ingestion",
+     "partition": 3,
+     "offset": 1,
+     "timestamp": 1736942399000,
+     "headers": [
+      [
+       "token",
+       "phc_parity_json"
+      ],
+      [
+       "bytes_uncompressed",
+       "10443"
+      ],
+      [
+       "bytes_uncompressed_records",
+       "6962"
+      ],
+      [
+       "bytes_compressed",
+       "3481"
+      ],
+      [
+       "record_count",
+       "4"
+      ],
+      [
+       "created_at",
+       "2025-01-15T11:59:59.000Z"
+      ]
+     ],
+     "value_b64": "T2JqAQQWYXZyby5zY2hlbWGqL3sibmFtZSI6IlRyYWNlUmVjb3JkIiwidHlwZSI6InJlY29yZCIsImZpZWxkcyI6W3sibmFtZSI6InV1aWQiLCJ0eXBlIjpbIm51bGwiLCJzdHJpbmciXSwiZG9jIjoiVW5pcXVlIGlkZW50aWZpZXIgZm9yIHRoZSBzcGFuIHJlY29yZC4ifSx7Im5hbWUiOiJ0cmFjZV9pZCIsInR5cGUiOlsibnVsbCIsImJ5dGVzIl0sImRvYyI6IklkZW50aWZpZXIgZm9yIHRoZSB0cmFjZSB0aGlzIHNwYW4gYmVsb25ncyB0by4ifSx7Im5hbWUiOiJzcGFuX2lkIiwidHlwZSI6WyJudWxsIiwiYnl0ZXMiXSwiZG9jIjoiSWRlbnRpZmllciBmb3IgdGhpcyBzcGFuIHdpdGhpbiB0aGUgdHJhY2UuIn0seyJuYW1lIjoicGFyZW50X3NwYW5faWQiLCJ0eXBlIjpbIm51bGwiLCJieXRlcyJdLCJkb2MiOiJJZGVudGlmaWVyIGZvciB0aGUgcGFyZW50IHNwYW4sIGlmIGFueS4ifSx7Im5hbWUiOiJ0cmFjZV9zdGF0ZSIsInR5cGUiOlsibnVsbCIsInN0cmluZyJdLCJkb2MiOiJXM0MgdHJhY2Ugc3RhdGUgc3RyaW5nLiJ9LHsibmFtZSI6Im5hbWUiLCJ0eXBlIjpbIm51bGwiLCJzdHJpbmciXSwiZG9jIjoiT3BlcmF0aW9uIG5hbWUgb2YgdGhlIHNwYW4uIn0seyJuYW1lIjoia2luZCIsInR5cGUiOlsibnVsbCIsImludCJdLCJkb2MiOiJTcGFuS2luZDogMD1VTlNQRUNJRklFRCwgMT1JTlRFUk5BTCwgMj1TRVJWRVIsIDM9Q0xJRU5ULCA0PVBST0RVQ0VSLCA1PUNPTlNVTUVSLiJ9LHsibmFtZSI6ImZsYWdzIiwidHlwZSI6WyJudWxsIiwiaW50Il0sImRvYyI6IlRyYWNlIGZsYWdzIGFzIGRlZmluZWQgaW4gVzNDIFRyYWNlIENvbnRleHQgc3BlY2lmaWNhdGlvbi4ifSx7Im5hbWUiOiJ0aW1lc3RhbXAiLCJ0eXBlIjpbIm51bGwiLCJsb25nIl0sImRvYyI6IlN0YXJ0IHRpbWUgb2YgdGhlIHNwYW4sIGluIG1pY3Jvc2Vjb25kcyBzaW5jZSBlcG9jaC4ifSx7Im5hbWUiOiJlbmRfdGltZSIsInR5cGUiOlsibnVsbCIsImxvbmciXSwiZG9jIjoiRW5kIHRpbWUgb2YgdGhlIHNwYW4sIGluIG1pY3Jvc2Vjb25kcyBzaW5jZSBlcG9jaC4ifSx7Im5hbWUiOiJvYnNlcnZlZF90aW1lc3RhbXAiLCJ0eXBlIjpbIm51bGwiLCJsb25nIl0sImRvYyI6IlRoZSB0aW1lc3RhbXAgd2hlbiB0aGUgc3BhbiB3YXMgcmVjZWl2ZWQgYnkgdGhlIGNvbGxlY3Rvci4ifSx7Im5hbWUiOiJzZXJ2aWNlX25hbWUiLCJ0eXBlIjpbIm51bGwiLCJzdHJpbmciXSwiZG9jIjoiVGhlIG5hbWUgb2YgdGhlIHNlcnZpY2UgdGhhdCBnZW5lcmF0ZWQgdGhlIHNwYW4uIn0seyJuYW1lIjoicmVzb3VyY2VfYXR0cmlidXRlcyIsInR5cGUiOlsibnVsbCIseyJ0eXBlIjoibWFwIiwidmFsdWVzIjoic3RyaW5nIn1dLCJkb2MiOiJBdHRyaWJ1dGVzIGRlc2NyaWJpbmcgdGhlIHJlc291cmNlIHRoYXQgcHJvZHVjZWQgdGhlIHNwYW4uIn0seyJuYW1lIjoiaW5zdHJ1bWVudGF0aW9uX3Njb3BlIiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6IlRoZSBuYW1lIGFuZCB2ZXJzaW9uIG9mIHRoZSBpbnN0cnVtZW50YXRpb24gbGlicmFyeSB0aGF0IGNhcHR1cmVkIHRoZSBzcGFuLiJ9LHsibmFtZSI6ImF0dHJpYnV0ZXMiLCJ0eXBlIjpbIm51bGwiLHsidHlwZSI6Im1hcCIsInZhbHVlcyI6InN0cmluZyJ9XSwiZG9jIjoiQSBtYXAgb2YgY3VzdG9tIHN0cmluZy12YWx1ZWQgYXR0cmlidXRlcyBhc3NvY2lhdGVkIHdpdGggdGhlIHNwYW4uIn0seyJuYW1lIjoiZHJvcHBlZF9hdHRyaWJ1dGVzX2NvdW50IiwidHlwZSI6WyJudWxsIiwiaW50Il0sImRvYyI6Ik51bWJlciBvZiBhdHRyaWJ1dGVzIHRoYXQgd2VyZSBkcm9wcGVkIGR1ZSB0byBsaW1pdHMuIn0seyJuYW1lIjoiZXZlbnRzIiwidHlwZSI6WyJudWxsIix7InR5cGUiOiJhcnJheSIsIml0ZW1zIjoic3RyaW5nIn1dLCJkb2MiOiJBcnJheSBvZiBzcGFuIGV2ZW50cywgZWFjaCBzZXJpYWxpemVkIGFzIGEgSlNPTiBzdHJpbmcuIn0seyJuYW1lIjoiZHJvcHBlZF9ldmVudHNfY291bnQiLCJ0eXBlIjpbIm51bGwiLCJpbnQiXSwiZG9jIjoiTnVtYmVyIG9mIGV2ZW50cyB0aGF0IHdlcmUgZHJvcHBlZCBkdWUgdG8gbGltaXRzLiJ9LHsibmFtZSI6ImxpbmtzIiwidHlwZSI6WyJudWxsIix7InR5cGUiOiJhcnJheSIsIml0ZW1zIjoic3RyaW5nIn1dLCJkb2MiOiJBcnJheSBvZiBzcGFuIGxpbmtzLCBlYWNoIHNlcmlhbGl6ZWQgYXMgYSBKU09OIHN0cmluZy4ifSx7Im5hbWUiOiJkcm9wcGVkX2xpbmtzX2NvdW50IiwidHlwZSI6WyJudWxsIiwiaW50Il0sImRvYyI6Ik51bWJlciBvZiBsaW5rcyB0aGF0IHdlcmUgZHJvcHBlZCBkdWUgdG8gbGltaXRzLiJ9LHsibmFtZSI6InN0YXR1c19jb2RlIiwidHlwZSI6WyJudWxsIiwiaW50Il0sImRvYyI6IlN0YXR1cyBjb2RlOiAwPVVOU0VULCAxPU9LLCAyPUVSUk9SLiJ9LHsibmFtZSI6InN0YXR1c19tZXNzYWdlIiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6IlN0YXR1cyBtZXNzYWdlIn0seyJuYW1lIjoiYnl0ZXNfdW5jb21wcmVzc2VkIiwidHlwZSI6WyJudWxsIiwibG9uZyJdLCJkb2MiOiJMb2dpY2FsIGNvbnRlbnQgc2l6ZSBvZiB0aGUgcm93IChzdW0gb2YgYnl0ZSBsZW5ndGhzIG9mIHN0cmluZy9tYXAvYXJyYXkgZmllbGRzKS4gVXNlZCBieSBkcm9wLXJ1bGUgYWNjb3VudGluZzsgZG9lcyBub3QgaW5jbHVkZSBmaXhlZC13aWR0aCBudW1lcmljIG9yIHRpbWVzdGFtcCBmaWVsZHMuIn0seyJuYW1lIjoicmV0ZW50aW9uX2RheXMiLCJ0eXBlIjpbIm51bGwiLCJpbnQiXSwiZGVmYXVsdCI6bnVsbCwiZG9jIjoiUGVyLXJvdyByZXRlbnRpb24gaW4gZGF5cywgc3RhbXBlZCBieSB0aGUgTm9kZSBjb25zdW1lciBmcm9tIHRlYW0gcmV0ZW50aW9uIHJ1bGVzLiBOdWxsIHdoZW4gdW5zZXQg4oCUIENsaWNrSG91c2UgdGhlbiBmYWxscyBiYWNrIHRvIHRoZSBiYXRjaCBgcmV0ZW50aW9uLWRheXNgIGhlYWRlci4gY2FwdHVyZS1sb2dzIGFsd2F5cyB3cml0ZXMgbnVsbDsgaXQgZG9lcyBub3QgZXZhbHVhdGUgdGVhbSBydWxlcy4ifV0sImRvYyI6IlNjaGVtYSBmb3IgYW4gT1RFTCB0cmFjZSBzcGFuLiJ9FGF2cm8uY29kZWMSenN0YW5kYXJkAL3n+2bkMzLOLPYWXy70hHAI8AUotS/9YC4CdQsApBMCSDAtMDAwMC00MDAwLTkxMAIgrsN/EgCnYV7BHhtSZZ4VFgIQcHWoyJyUqDAAAAIGam9iAggCAgKw3Yqzoe+VBgKAwPqrrQZhcGkCAhhzZXJ2aWNlLm5hbWUKImFwaSIAAAIEIGh0dHAuc3RhdHVzX2NvZGUGMjAwFHVzZXIuZW1haWweImRAZXhhbXBsZS5jb20iAAICAAAAMQIgJFpc03+28FpbzNE/ATGtfQIQIV+oiMV9rOACEHtvhMmtniBSAAIQR0VUIC8CAgL4iLbtlQQyAiBc96p6+ArQdGY7ffORXTYNAhAJFWsAz4faSwAAAhBkYi5xdWVyeQIAAgICkLjhhZsMd29ya2VyNDA0ADMCIMW0p1nKi5qfW4xvZ3BTuVsCEObMPPdXgNCEBgICAvTz886bBAAAABIAkwYCAtBpjXg9KC8oB6VrmnEaBULJdrVpYCuC045/ZleRNC+f3HaQ5SwYSyahGXADvef7ZuQzMs4s9hZfLvSEcA=="
+    },
+    {
+     "topic": "traces_ingestion",
+     "partition": 3,
+     "offset": 2,
+     "timestamp": 1736942399000,
+     "headers": [
+      [
+       "token",
+       "phc_parity_pii"
+      ],
+      [
+       "bytes_uncompressed",
+       "10443"
+      ],
+      [
+       "bytes_uncompressed_records",
+       "6962"
+      ],
+      [
+       "bytes_compressed",
+       "3481"
+      ],
+      [
+       "record_count",
+       "4"
+      ],
+      [
+       "created_at",
+       "2025-01-15T11:59:59.000Z"
+      ]
+     ],
+     "value_b64": "T2JqAQQWYXZyby5zY2hlbWGqL3sibmFtZSI6IlRyYWNlUmVjb3JkIiwidHlwZSI6InJlY29yZCIsImZpZWxkcyI6W3sibmFtZSI6InV1aWQiLCJ0eXBlIjpbIm51bGwiLCJzdHJpbmciXSwiZG9jIjoiVW5pcXVlIGlkZW50aWZpZXIgZm9yIHRoZSBzcGFuIHJlY29yZC4ifSx7Im5hbWUiOiJ0cmFjZV9pZCIsInR5cGUiOlsibnVsbCIsImJ5dGVzIl0sImRvYyI6IklkZW50aWZpZXIgZm9yIHRoZSB0cmFjZSB0aGlzIHNwYW4gYmVsb25ncyB0by4ifSx7Im5hbWUiOiJzcGFuX2lkIiwidHlwZSI6WyJudWxsIiwiYnl0ZXMiXSwiZG9jIjoiSWRlbnRpZmllciBmb3IgdGhpcyBzcGFuIHdpdGhpbiB0aGUgdHJhY2UuIn0seyJuYW1lIjoicGFyZW50X3NwYW5faWQiLCJ0eXBlIjpbIm51bGwiLCJieXRlcyJdLCJkb2MiOiJJZGVudGlmaWVyIGZvciB0aGUgcGFyZW50IHNwYW4sIGlmIGFueS4ifSx7Im5hbWUiOiJ0cmFjZV9zdGF0ZSIsInR5cGUiOlsibnVsbCIsInN0cmluZyJdLCJkb2MiOiJXM0MgdHJhY2Ugc3RhdGUgc3RyaW5nLiJ9LHsibmFtZSI6Im5hbWUiLCJ0eXBlIjpbIm51bGwiLCJzdHJpbmciXSwiZG9jIjoiT3BlcmF0aW9uIG5hbWUgb2YgdGhlIHNwYW4uIn0seyJuYW1lIjoia2luZCIsInR5cGUiOlsibnVsbCIsImludCJdLCJkb2MiOiJTcGFuS2luZDogMD1VTlNQRUNJRklFRCwgMT1JTlRFUk5BTCwgMj1TRVJWRVIsIDM9Q0xJRU5ULCA0PVBST0RVQ0VSLCA1PUNPTlNVTUVSLiJ9LHsibmFtZSI6ImZsYWdzIiwidHlwZSI6WyJudWxsIiwiaW50Il0sImRvYyI6IlRyYWNlIGZsYWdzIGFzIGRlZmluZWQgaW4gVzNDIFRyYWNlIENvbnRleHQgc3BlY2lmaWNhdGlvbi4ifSx7Im5hbWUiOiJ0aW1lc3RhbXAiLCJ0eXBlIjpbIm51bGwiLCJsb25nIl0sImRvYyI6IlN0YXJ0IHRpbWUgb2YgdGhlIHNwYW4sIGluIG1pY3Jvc2Vjb25kcyBzaW5jZSBlcG9jaC4ifSx7Im5hbWUiOiJlbmRfdGltZSIsInR5cGUiOlsibnVsbCIsImxvbmciXSwiZG9jIjoiRW5kIHRpbWUgb2YgdGhlIHNwYW4sIGluIG1pY3Jvc2Vjb25kcyBzaW5jZSBlcG9jaC4ifSx7Im5hbWUiOiJvYnNlcnZlZF90aW1lc3RhbXAiLCJ0eXBlIjpbIm51bGwiLCJsb25nIl0sImRvYyI6IlRoZSB0aW1lc3RhbXAgd2hlbiB0aGUgc3BhbiB3YXMgcmVjZWl2ZWQgYnkgdGhlIGNvbGxlY3Rvci4ifSx7Im5hbWUiOiJzZXJ2aWNlX25hbWUiLCJ0eXBlIjpbIm51bGwiLCJzdHJpbmciXSwiZG9jIjoiVGhlIG5hbWUgb2YgdGhlIHNlcnZpY2UgdGhhdCBnZW5lcmF0ZWQgdGhlIHNwYW4uIn0seyJuYW1lIjoicmVzb3VyY2VfYXR0cmlidXRlcyIsInR5cGUiOlsibnVsbCIseyJ0eXBlIjoibWFwIiwidmFsdWVzIjoic3RyaW5nIn1dLCJkb2MiOiJBdHRyaWJ1dGVzIGRlc2NyaWJpbmcgdGhlIHJlc291cmNlIHRoYXQgcHJvZHVjZWQgdGhlIHNwYW4uIn0seyJuYW1lIjoiaW5zdHJ1bWVudGF0aW9uX3Njb3BlIiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6IlRoZSBuYW1lIGFuZCB2ZXJzaW9uIG9mIHRoZSBpbnN0cnVtZW50YXRpb24gbGlicmFyeSB0aGF0IGNhcHR1cmVkIHRoZSBzcGFuLiJ9LHsibmFtZSI6ImF0dHJpYnV0ZXMiLCJ0eXBlIjpbIm51bGwiLHsidHlwZSI6Im1hcCIsInZhbHVlcyI6InN0cmluZyJ9XSwiZG9jIjoiQSBtYXAgb2YgY3VzdG9tIHN0cmluZy12YWx1ZWQgYXR0cmlidXRlcyBhc3NvY2lhdGVkIHdpdGggdGhlIHNwYW4uIn0seyJuYW1lIjoiZHJvcHBlZF9hdHRyaWJ1dGVzX2NvdW50IiwidHlwZSI6WyJudWxsIiwiaW50Il0sImRvYyI6Ik51bWJlciBvZiBhdHRyaWJ1dGVzIHRoYXQgd2VyZSBkcm9wcGVkIGR1ZSB0byBsaW1pdHMuIn0seyJuYW1lIjoiZXZlbnRzIiwidHlwZSI6WyJudWxsIix7InR5cGUiOiJhcnJheSIsIml0ZW1zIjoic3RyaW5nIn1dLCJkb2MiOiJBcnJheSBvZiBzcGFuIGV2ZW50cywgZWFjaCBzZXJpYWxpemVkIGFzIGEgSlNPTiBzdHJpbmcuIn0seyJuYW1lIjoiZHJvcHBlZF9ldmVudHNfY291bnQiLCJ0eXBlIjpbIm51bGwiLCJpbnQiXSwiZG9jIjoiTnVtYmVyIG9mIGV2ZW50cyB0aGF0IHdlcmUgZHJvcHBlZCBkdWUgdG8gbGltaXRzLiJ9LHsibmFtZSI6ImxpbmtzIiwidHlwZSI6WyJudWxsIix7InR5cGUiOiJhcnJheSIsIml0ZW1zIjoic3RyaW5nIn1dLCJkb2MiOiJBcnJheSBvZiBzcGFuIGxpbmtzLCBlYWNoIHNlcmlhbGl6ZWQgYXMgYSBKU09OIHN0cmluZy4ifSx7Im5hbWUiOiJkcm9wcGVkX2xpbmtzX2NvdW50IiwidHlwZSI6WyJudWxsIiwiaW50Il0sImRvYyI6Ik51bWJlciBvZiBsaW5rcyB0aGF0IHdlcmUgZHJvcHBlZCBkdWUgdG8gbGltaXRzLiJ9LHsibmFtZSI6InN0YXR1c19jb2RlIiwidHlwZSI6WyJudWxsIiwiaW50Il0sImRvYyI6IlN0YXR1cyBjb2RlOiAwPVVOU0VULCAxPU9LLCAyPUVSUk9SLiJ9LHsibmFtZSI6InN0YXR1c19tZXNzYWdlIiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6IlN0YXR1cyBtZXNzYWdlIn0seyJuYW1lIjoiYnl0ZXNfdW5jb21wcmVzc2VkIiwidHlwZSI6WyJudWxsIiwibG9uZyJdLCJkb2MiOiJMb2dpY2FsIGNvbnRlbnQgc2l6ZSBvZiB0aGUgcm93IChzdW0gb2YgYnl0ZSBsZW5ndGhzIG9mIHN0cmluZy9tYXAvYXJyYXkgZmllbGRzKS4gVXNlZCBieSBkcm9wLXJ1bGUgYWNjb3VudGluZzsgZG9lcyBub3QgaW5jbHVkZSBmaXhlZC13aWR0aCBudW1lcmljIG9yIHRpbWVzdGFtcCBmaWVsZHMuIn0seyJuYW1lIjoicmV0ZW50aW9uX2RheXMiLCJ0eXBlIjpbIm51bGwiLCJpbnQiXSwiZGVmYXVsdCI6bnVsbCwiZG9jIjoiUGVyLXJvdyByZXRlbnRpb24gaW4gZGF5cywgc3RhbXBlZCBieSB0aGUgTm9kZSBjb25zdW1lciBmcm9tIHRlYW0gcmV0ZW50aW9uIHJ1bGVzLiBOdWxsIHdoZW4gdW5zZXQg4oCUIENsaWNrSG91c2UgdGhlbiBmYWxscyBiYWNrIHRvIHRoZSBiYXRjaCBgcmV0ZW50aW9uLWRheXNgIGhlYWRlci4gY2FwdHVyZS1sb2dzIGFsd2F5cyB3cml0ZXMgbnVsbDsgaXQgZG9lcyBub3QgZXZhbHVhdGUgdGVhbSBydWxlcy4ifV0sImRvYyI6IlNjaGVtYSBmb3IgYW4gT1RFTCB0cmFjZSBzcGFuLiJ9FGF2cm8uY29kZWMSenN0YW5kYXJkAHGghp0oaaiF0B/LQi007dcI8AUotS/9YEACdQsAVBQCSDAtMDAwMC00MDAwLTkyMAIgNhebUJ+He+AJECkSWFOONQIQ51jxBcndN6UCEHLZShVN5UVRAAIQR0VUIC9hcGkCCgICAsba16Co75UGAoDA+qutDHdvcmtlcgICGHNlcnZpY2UubmFtZQoiYXBpIgAAAgQgaHR0cC5zdGF0dXNfY29kZQY0MDQUdXNlci5lbWFpbB4iZEBleGFtcGxlLmNvbSIAAgQAAAAxAiBo21mBSCMJ5o6xFmDsX287AhC78W+FaEHZ9QIQo5CiGH+S+1sAAgICkI+/qZwGYXBpMgIgEnxx7NWZUNNsMgCh79024QIQBmS61SYneZoCEANV1myBsr4LAAIGam9iAggCAgL+o/jylwIzAiDyo7Cz+QkYghFu+jWDr1SrAhBQaeTThVi0uwAEAgICqPPM/6cyMDAAAAAADgBAOQTQMWlcD+U9JrUU7qtJCVDOgXu05pGU24zBcgKMIJOkDAwBcaCGnShpqIXQH8tCLTTt1w=="
+    }
+   ]
+  ]
+ },
+ "expected": {
+  "batches": [
+   {
+    "error": null
+   }
+  ],
+  "outputs": [
+   {
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "json": {
+      "app_source": "traces",
+      "app_source_id": "",
+      "count": 10443,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_ingested",
+      "team_id": 102,
+      "timestamp": "2025-01-15 12:00:00.000"
+     }
+    }
+   },
+   {
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "json": {
+      "app_source": "traces",
+      "app_source_id": "",
+      "count": 10443,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_ingested",
+      "team_id": 103,
+      "timestamp": "2025-01-15 12:00:00.000"
+     }
+    }
+   },
+   {
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "json": {
+      "app_source": "traces",
+      "app_source_id": "",
+      "count": 10443,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_ingested_retention_14d",
+      "team_id": 102,
+      "timestamp": "2025-01-15 12:00:00.000"
+     }
+    }
+   },
+   {
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "json": {
+      "app_source": "traces",
+      "app_source_id": "",
+      "count": 10443,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_ingested_retention_30d",
+      "team_id": 103,
+      "timestamp": "2025-01-15 12:00:00.000"
+     }
+    }
+   },
+   {
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "json": {
+      "app_source": "traces",
+      "app_source_id": "",
+      "count": 10443,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_received",
+      "team_id": 102,
+      "timestamp": "2025-01-15 12:00:00.000"
+     }
+    }
+   },
+   {
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "json": {
+      "app_source": "traces",
+      "app_source_id": "",
+      "count": 10443,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_received",
+      "team_id": 103,
+      "timestamp": "2025-01-15 12:00:00.000"
+     }
+    }
+   },
+   {
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "json": {
+      "app_source": "traces",
+      "app_source_id": "",
+      "count": 10449,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_ingested",
+      "team_id": 101,
+      "timestamp": "2025-01-15 12:00:00.000"
+     }
+    }
+   },
+   {
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "json": {
+      "app_source": "traces",
+      "app_source_id": "",
+      "count": 10449,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_ingested_retention_30d",
+      "team_id": 101,
+      "timestamp": "2025-01-15 12:00:00.000"
+     }
+    }
+   },
+   {
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "json": {
+      "app_source": "traces",
+      "app_source_id": "",
+      "count": 10449,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_received",
+      "team_id": 101,
+      "timestamp": "2025-01-15 12:00:00.000"
+     }
+    }
+   },
+   {
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "json": {
+      "app_source": "traces",
+      "app_source_id": "",
+      "count": 313290,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "retention_byte_days",
+      "team_id": 103,
+      "timestamp": "2025-01-15 12:00:00.000"
+     }
+    }
+   },
+   {
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "json": {
+      "app_source": "traces",
+      "app_source_id": "",
+      "count": 313470,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "retention_byte_days",
+      "team_id": 101,
+      "timestamp": "2025-01-15 12:00:00.000"
+     }
+    }
+   },
+   {
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "json": {
+      "app_source": "traces",
+      "app_source_id": "",
+      "count": 4,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "pii_replacements",
+      "team_id": 103,
+      "timestamp": "2025-01-15 12:00:00.000"
+     }
+    }
+   },
+   {
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "json": {
+      "app_source": "traces",
+      "app_source_id": "",
+      "count": 4,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "records_ingested",
+      "team_id": 101,
+      "timestamp": "2025-01-15 12:00:00.000"
+     }
+    }
+   },
+   {
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "json": {
+      "app_source": "traces",
+      "app_source_id": "",
+      "count": 4,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "records_ingested",
+      "team_id": 102,
+      "timestamp": "2025-01-15 12:00:00.000"
+     }
+    }
+   },
+   {
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "json": {
+      "app_source": "traces",
+      "app_source_id": "",
+      "count": 4,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "records_ingested",
+      "team_id": 103,
+      "timestamp": "2025-01-15 12:00:00.000"
+     }
+    }
+   },
+   {
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "json": {
+      "app_source": "traces",
+      "app_source_id": "",
+      "count": 4,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "records_received",
+      "team_id": 101,
+      "timestamp": "2025-01-15 12:00:00.000"
+     }
+    }
+   },
+   {
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "json": {
+      "app_source": "traces",
+      "app_source_id": "",
+      "count": 4,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "records_received",
+      "team_id": 102,
+      "timestamp": "2025-01-15 12:00:00.000"
+     }
+    }
+   },
+   {
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "json": {
+      "app_source": "traces",
+      "app_source_id": "",
+      "count": 4,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "records_received",
+      "team_id": 103,
+      "timestamp": "2025-01-15 12:00:00.000"
+     }
+    }
+   },
+   {
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "json": {
+      "app_source": "traces",
+      "app_source_id": "",
+      "count": 6962,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_ingested_records",
+      "team_id": 102,
+      "timestamp": "2025-01-15 12:00:00.000"
+     }
+    }
+   },
+   {
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "json": {
+      "app_source": "traces",
+      "app_source_id": "",
+      "count": 6962,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_ingested_records",
+      "team_id": 103,
+      "timestamp": "2025-01-15 12:00:00.000"
+     }
+    }
+   },
+   {
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "json": {
+      "app_source": "traces",
+      "app_source_id": "",
+      "count": 6966,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_ingested_records",
+      "team_id": 101,
+      "timestamp": "2025-01-15 12:00:00.000"
+     }
+    }
+   },
+   {
+    "output": "logs",
+    "key": null,
+    "headers": {
+     "bytes_compressed": "3481",
+     "bytes_uncompressed": "10443",
+     "bytes_uncompressed_records": "6962",
+     "created_at": "2025-01-15T11:59:59.000Z",
+     "json-parse": "false",
+     "record_count": "4",
+     "retention-days": "30",
+     "source_partition": "3",
+     "source_topic": "traces_ingestion",
+     "team_id": "103",
+     "token": "phc_parity_pii"
+    },
+    "value": {
+     "kind": "avro",
+     "schema": {
+      "name": "TraceRecord",
+      "type": "record",
+      "fields": [
+       {
+        "name": "uuid",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "Unique identifier for the span record."
+       },
+       {
+        "name": "trace_id",
+        "type": [
+         "null",
+         "bytes"
+        ],
+        "doc": "Identifier for the trace this span belongs to."
+       },
+       {
+        "name": "span_id",
+        "type": [
+         "null",
+         "bytes"
+        ],
+        "doc": "Identifier for this span within the trace."
+       },
+       {
+        "name": "parent_span_id",
+        "type": [
+         "null",
+         "bytes"
+        ],
+        "doc": "Identifier for the parent span, if any."
+       },
+       {
+        "name": "trace_state",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "W3C trace state string."
+       },
+       {
+        "name": "name",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "Operation name of the span."
+       },
+       {
+        "name": "kind",
+        "type": [
+         "null",
+         "int"
+        ],
+        "doc": "SpanKind: 0=UNSPECIFIED, 1=INTERNAL, 2=SERVER, 3=CLIENT, 4=PRODUCER, 5=CONSUMER."
+       },
+       {
+        "name": "flags",
+        "type": [
+         "null",
+         "int"
+        ],
+        "doc": "Trace flags as defined in W3C Trace Context specification."
+       },
+       {
+        "name": "timestamp",
+        "type": [
+         "null",
+         "long"
+        ],
+        "doc": "Start time of the span, in microseconds since epoch."
+       },
+       {
+        "name": "end_time",
+        "type": [
+         "null",
+         "long"
+        ],
+        "doc": "End time of the span, in microseconds since epoch."
+       },
+       {
+        "name": "observed_timestamp",
+        "type": [
+         "null",
+         "long"
+        ],
+        "doc": "The timestamp when the span was received by the collector."
+       },
+       {
+        "name": "service_name",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "The name of the service that generated the span."
+       },
+       {
+        "name": "resource_attributes",
+        "type": [
+         "null",
+         {
+          "type": "map",
+          "values": "string"
+         }
+        ],
+        "doc": "Attributes describing the resource that produced the span."
+       },
+       {
+        "name": "instrumentation_scope",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "The name and version of the instrumentation library that captured the span."
+       },
+       {
+        "name": "attributes",
+        "type": [
+         "null",
+         {
+          "type": "map",
+          "values": "string"
+         }
+        ],
+        "doc": "A map of custom string-valued attributes associated with the span."
+       },
+       {
+        "name": "dropped_attributes_count",
+        "type": [
+         "null",
+         "int"
+        ],
+        "doc": "Number of attributes that were dropped due to limits."
+       },
+       {
+        "name": "events",
+        "type": [
+         "null",
+         {
+          "type": "array",
+          "items": "string"
+         }
+        ],
+        "doc": "Array of span events, each serialized as a JSON string."
+       },
+       {
+        "name": "dropped_events_count",
+        "type": [
+         "null",
+         "int"
+        ],
+        "doc": "Number of events that were dropped due to limits."
+       },
+       {
+        "name": "links",
+        "type": [
+         "null",
+         {
+          "type": "array",
+          "items": "string"
+         }
+        ],
+        "doc": "Array of span links, each serialized as a JSON string."
+       },
+       {
+        "name": "dropped_links_count",
+        "type": [
+         "null",
+         "int"
+        ],
+        "doc": "Number of links that were dropped due to limits."
+       },
+       {
+        "name": "status_code",
+        "type": [
+         "null",
+         "int"
+        ],
+        "doc": "Status code: 0=UNSET, 1=OK, 2=ERROR."
+       },
+       {
+        "name": "status_message",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "Status message"
+       },
+       {
+        "name": "bytes_uncompressed",
+        "type": [
+         "null",
+         "long"
+        ],
+        "doc": "Logical content size of the row (sum of byte lengths of string/map/array fields). Used by drop-rule accounting; does not include fixed-width numeric or timestamp fields."
+       },
+       {
+        "name": "retention_days",
+        "type": [
+         "null",
+         "int"
+        ],
+        "default": null,
+        "doc": "Per-row retention in days, stamped by the Node consumer from team retention rules. Null when unset — ClickHouse then falls back to the batch `retention-days` header. capture-logs always writes null; it does not evaluate team rules."
+       }
+      ],
+      "doc": "Schema for an OTEL trace span."
+     },
+     "codec": "zstandard",
+     "records": [
+      {
+       "attributes": {
+        "http.status_code": "404",
+        "user.email": "\"{{REDACTED}}\""
+       },
+       "bytes_uncompressed": null,
+       "dropped_attributes_count": 0,
+       "dropped_events_count": 0,
+       "dropped_links_count": 0,
+       "end_time": 1736942400000000,
+       "events": [],
+       "flags": 1,
+       "instrumentation_scope": null,
+       "kind": 5,
+       "links": [],
+       "name": "GET /api",
+       "observed_timestamp": 1736942400000000,
+       "parent_span_id": {
+        "$bytes": "72d94a154de54551"
+       },
+       "resource_attributes": {
+        "service.name": "\"api\""
+       },
+       "retention_days": null,
+       "service_name": "worker",
+       "span_id": {
+        "$bytes": "e758f105c9dd37a5"
+       },
+       "status_code": 2,
+       "status_message": null,
+       "timestamp": 1736941717092003,
+       "trace_id": {
+        "$bytes": "36179b509f877be00910291258538e35"
+       },
+       "trace_state": null,
+       "uuid": "00000000-0000-4000-9000-000000000020"
+      },
+      {
+       "attributes": {
+        "http.status_code": "404",
+        "user.email": "\"{{REDACTED}}\""
+       },
+       "bytes_uncompressed": null,
+       "dropped_attributes_count": 0,
+       "dropped_events_count": 0,
+       "dropped_links_count": 0,
+       "end_time": 1736942400000000,
+       "events": [],
+       "flags": 1,
+       "instrumentation_scope": null,
+       "kind": 0,
+       "links": [],
+       "name": "GET /api",
+       "observed_timestamp": 1736942400000000,
+       "parent_span_id": {
+        "$bytes": "a390a2187f92fb5b"
+       },
+       "resource_attributes": {
+        "service.name": "\"api\""
+       },
+       "retention_days": null,
+       "service_name": "api",
+       "span_id": {
+        "$bytes": "bbf16f856841d9f5"
+       },
+       "status_code": 2,
+       "status_message": null,
+       "timestamp": 1736940115715016,
+       "trace_id": {
+        "$bytes": "68db5981482309e68eb11660ec5f6f3b"
+       },
+       "trace_state": null,
+       "uuid": "00000000-0000-4000-9000-000000000021"
+      },
+      {
+       "attributes": {
+        "http.status_code": "404",
+        "user.email": "\"{{REDACTED}}\""
+       },
+       "bytes_uncompressed": null,
+       "dropped_attributes_count": 0,
+       "dropped_events_count": 0,
+       "dropped_links_count": 0,
+       "end_time": 1736942400000000,
+       "events": [],
+       "flags": 1,
+       "instrumentation_scope": null,
+       "kind": 4,
+       "links": [],
+       "name": "job",
+       "observed_timestamp": 1736942400000000,
+       "parent_span_id": {
+        "$bytes": "0355d66c81b2be0b"
+       },
+       "resource_attributes": {
+        "service.name": "\"api\""
+       },
+       "retention_days": null,
+       "service_name": "api",
+       "span_id": {
+        "$bytes": "0664bad52627799a"
+       },
+       "status_code": 1,
+       "status_message": null,
+       "timestamp": 1736939521640703,
+       "trace_id": {
+        "$bytes": "127c71ecd59950d36c3200a1efdd36e1"
+       },
+       "trace_state": null,
+       "uuid": "00000000-0000-4000-9000-000000000022"
+      },
+      {
+       "attributes": {
+        "http.status_code": "200",
+        "user.email": "\"{{REDACTED}}\""
+       },
+       "bytes_uncompressed": null,
+       "dropped_attributes_count": 0,
+       "dropped_events_count": 0,
+       "dropped_links_count": 0,
+       "end_time": 1736942400000000,
+       "events": [],
+       "flags": 1,
+       "instrumentation_scope": null,
+       "kind": 2,
+       "links": [],
+       "name": "job",
+       "observed_timestamp": 1736942400000000,
+       "parent_span_id": null,
+       "resource_attributes": {
+        "service.name": "\"api\""
+       },
+       "retention_days": null,
+       "service_name": "api",
+       "span_id": {
+        "$bytes": "5069e4d38558b4bb"
+       },
+       "status_code": 0,
+       "status_message": null,
+       "timestamp": 1736941682400468,
+       "trace_id": {
+        "$bytes": "f2a3b0b3f9091882116efa3583af54ab"
+       },
+       "trace_state": null,
+       "uuid": "00000000-0000-4000-9000-000000000023"
+      }
+     ]
+    }
+   },
+   {
+    "output": "logs",
+    "key": null,
+    "headers": {
+     "bytes_compressed": "3481",
+     "bytes_uncompressed": "10443",
+     "bytes_uncompressed_records": "6962",
+     "created_at": "2025-01-15T11:59:59.000Z",
+     "json-parse": "true",
+     "record_count": "4",
+     "retention-days": "14",
+     "source_partition": "3",
+     "source_topic": "traces_ingestion",
+     "team_id": "102",
+     "token": "phc_parity_json"
+    },
+    "value": {
+     "kind": "avro",
+     "schema": {
+      "name": "TraceRecord",
+      "type": "record",
+      "fields": [
+       {
+        "name": "uuid",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "Unique identifier for the span record."
+       },
+       {
+        "name": "trace_id",
+        "type": [
+         "null",
+         "bytes"
+        ],
+        "doc": "Identifier for the trace this span belongs to."
+       },
+       {
+        "name": "span_id",
+        "type": [
+         "null",
+         "bytes"
+        ],
+        "doc": "Identifier for this span within the trace."
+       },
+       {
+        "name": "parent_span_id",
+        "type": [
+         "null",
+         "bytes"
+        ],
+        "doc": "Identifier for the parent span, if any."
+       },
+       {
+        "name": "trace_state",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "W3C trace state string."
+       },
+       {
+        "name": "name",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "Operation name of the span."
+       },
+       {
+        "name": "kind",
+        "type": [
+         "null",
+         "int"
+        ],
+        "doc": "SpanKind: 0=UNSPECIFIED, 1=INTERNAL, 2=SERVER, 3=CLIENT, 4=PRODUCER, 5=CONSUMER."
+       },
+       {
+        "name": "flags",
+        "type": [
+         "null",
+         "int"
+        ],
+        "doc": "Trace flags as defined in W3C Trace Context specification."
+       },
+       {
+        "name": "timestamp",
+        "type": [
+         "null",
+         "long"
+        ],
+        "doc": "Start time of the span, in microseconds since epoch."
+       },
+       {
+        "name": "end_time",
+        "type": [
+         "null",
+         "long"
+        ],
+        "doc": "End time of the span, in microseconds since epoch."
+       },
+       {
+        "name": "observed_timestamp",
+        "type": [
+         "null",
+         "long"
+        ],
+        "doc": "The timestamp when the span was received by the collector."
+       },
+       {
+        "name": "service_name",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "The name of the service that generated the span."
+       },
+       {
+        "name": "resource_attributes",
+        "type": [
+         "null",
+         {
+          "type": "map",
+          "values": "string"
+         }
+        ],
+        "doc": "Attributes describing the resource that produced the span."
+       },
+       {
+        "name": "instrumentation_scope",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "The name and version of the instrumentation library that captured the span."
+       },
+       {
+        "name": "attributes",
+        "type": [
+         "null",
+         {
+          "type": "map",
+          "values": "string"
+         }
+        ],
+        "doc": "A map of custom string-valued attributes associated with the span."
+       },
+       {
+        "name": "dropped_attributes_count",
+        "type": [
+         "null",
+         "int"
+        ],
+        "doc": "Number of attributes that were dropped due to limits."
+       },
+       {
+        "name": "events",
+        "type": [
+         "null",
+         {
+          "type": "array",
+          "items": "string"
+         }
+        ],
+        "doc": "Array of span events, each serialized as a JSON string."
+       },
+       {
+        "name": "dropped_events_count",
+        "type": [
+         "null",
+         "int"
+        ],
+        "doc": "Number of events that were dropped due to limits."
+       },
+       {
+        "name": "links",
+        "type": [
+         "null",
+         {
+          "type": "array",
+          "items": "string"
+         }
+        ],
+        "doc": "Array of span links, each serialized as a JSON string."
+       },
+       {
+        "name": "dropped_links_count",
+        "type": [
+         "null",
+         "int"
+        ],
+        "doc": "Number of links that were dropped due to limits."
+       },
+       {
+        "name": "status_code",
+        "type": [
+         "null",
+         "int"
+        ],
+        "doc": "Status code: 0=UNSET, 1=OK, 2=ERROR."
+       },
+       {
+        "name": "status_message",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "Status message"
+       },
+       {
+        "name": "bytes_uncompressed",
+        "type": [
+         "null",
+         "long"
+        ],
+        "doc": "Logical content size of the row (sum of byte lengths of string/map/array fields). Used by drop-rule accounting; does not include fixed-width numeric or timestamp fields."
+       },
+       {
+        "name": "retention_days",
+        "type": [
+         "null",
+         "int"
+        ],
+        "default": null,
+        "doc": "Per-row retention in days, stamped by the Node consumer from team retention rules. Null when unset — ClickHouse then falls back to the batch `retention-days` header. capture-logs always writes null; it does not evaluate team rules."
+       }
+      ],
+      "doc": "Schema for an OTEL trace span."
+     },
+     "codec": "zstandard",
+     "records": [
+      {
+       "attributes": {
+        "http.status_code": "200",
+        "user.email": "\"d@example.com\""
+       },
+       "bytes_uncompressed": null,
+       "dropped_attributes_count": 0,
+       "dropped_events_count": 0,
+       "dropped_links_count": 0,
+       "end_time": 1736942400000000,
+       "events": [],
+       "flags": 1,
+       "instrumentation_scope": null,
+       "kind": 4,
+       "links": [],
+       "name": "job",
+       "observed_timestamp": 1736942400000000,
+       "parent_span_id": null,
+       "resource_attributes": {
+        "service.name": "\"api\""
+       },
+       "retention_days": null,
+       "service_name": "api",
+       "span_id": {
+        "$bytes": "7075a8c89c94a830"
+       },
+       "status_code": 1,
+       "status_message": null,
+       "timestamp": 1736940796860248,
+       "trace_id": {
+        "$bytes": "aec37f1200a7615ec11e1b52659e1516"
+       },
+       "trace_state": null,
+       "uuid": "00000000-0000-4000-9000-000000000010"
+      },
+      {
+       "attributes": {
+        "http.status_code": "200",
+        "user.email": "\"d@example.com\""
+       },
+       "bytes_uncompressed": null,
+       "dropped_attributes_count": 0,
+       "dropped_events_count": 0,
+       "dropped_links_count": 0,
+       "end_time": 1736942400000000,
+       "events": [],
+       "flags": 1,
+       "instrumentation_scope": null,
+       "kind": 1,
+       "links": [],
+       "name": "GET /api",
+       "observed_timestamp": 1736942400000000,
+       "parent_span_id": {
+        "$bytes": "7b6f84c9ad9e2052"
+       },
+       "resource_attributes": {
+        "service.name": "\"api\""
+       },
+       "retention_days": null,
+       "service_name": "api",
+       "span_id": {
+        "$bytes": "215fa888c57dace0"
+       },
+       "status_code": 2,
+       "status_message": null,
+       "timestamp": 1736939247419964,
+       "trace_id": {
+        "$bytes": "245a5cd37fb6f05a5bccd13f0131ad7d"
+       },
+       "trace_state": null,
+       "uuid": "00000000-0000-4000-9000-000000000011"
+      },
+      {
+       "attributes": {
+        "http.status_code": "404",
+        "user.email": "\"d@example.com\""
+       },
+       "bytes_uncompressed": null,
+       "dropped_attributes_count": 0,
+       "dropped_events_count": 0,
+       "dropped_links_count": 0,
+       "end_time": 1736942400000000,
+       "events": [],
+       "flags": 1,
+       "instrumentation_scope": null,
+       "kind": 0,
+       "links": [],
+       "name": "db.query",
+       "observed_timestamp": 1736942400000000,
+       "parent_span_id": null,
+       "resource_attributes": {
+        "service.name": "\"api\""
+       },
+       "retention_days": null,
+       "service_name": "worker",
+       "span_id": {
+        "$bytes": "09156b00cf87da4b"
+       },
+       "status_code": 0,
+       "status_message": null,
+       "timestamp": 1736939944029704,
+       "trace_id": {
+        "$bytes": "5cf7aa7af80ad074663b7df3915d360d"
+       },
+       "trace_state": null,
+       "uuid": "00000000-0000-4000-9000-000000000012"
+      },
+      {
+       "attributes": {
+        "http.status_code": "404",
+        "user.email": "\"d@example.com\""
+       },
+       "bytes_uncompressed": null,
+       "dropped_attributes_count": 0,
+       "dropped_events_count": 0,
+       "dropped_links_count": 0,
+       "end_time": 1736942400000000,
+       "events": [],
+       "flags": 1,
+       "instrumentation_scope": null,
+       "kind": 3,
+       "links": [],
+       "name": "job",
+       "observed_timestamp": 1736942400000000,
+       "parent_span_id": null,
+       "resource_attributes": {
+        "service.name": "\"api\""
+       },
+       "retention_days": null,
+       "service_name": "api",
+       "span_id": {
+        "$bytes": "e6cc3cf75780d084"
+       },
+       "status_code": 2,
+       "status_message": null,
+       "timestamp": 1736940020727034,
+       "trace_id": {
+        "$bytes": "c5b4a759ca8b9a9f5b8c6f677053b95b"
+       },
+       "trace_state": null,
+       "uuid": "00000000-0000-4000-9000-000000000013"
+      }
+     ]
+    }
+   },
+   {
+    "output": "logs",
+    "key": null,
+    "headers": {
+     "bytes_compressed": "3483",
+     "bytes_uncompressed": "10449",
+     "bytes_uncompressed_records": "6966",
+     "created_at": "2025-01-15T11:59:59.000Z",
+     "json-parse": "false",
+     "record_count": "4",
+     "retention-days": "30",
+     "source_partition": "2",
+     "source_topic": "traces_ingestion",
+     "team_id": "101",
+     "token": "phc_parity_plain"
+    },
+    "value": {
+     "kind": "avro",
+     "schema": {
+      "name": "TraceRecord",
+      "type": "record",
+      "fields": [
+       {
+        "name": "uuid",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "Unique identifier for the span record."
+       },
+       {
+        "name": "trace_id",
+        "type": [
+         "null",
+         "bytes"
+        ],
+        "doc": "Identifier for the trace this span belongs to."
+       },
+       {
+        "name": "span_id",
+        "type": [
+         "null",
+         "bytes"
+        ],
+        "doc": "Identifier for this span within the trace."
+       },
+       {
+        "name": "parent_span_id",
+        "type": [
+         "null",
+         "bytes"
+        ],
+        "doc": "Identifier for the parent span, if any."
+       },
+       {
+        "name": "trace_state",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "W3C trace state string."
+       },
+       {
+        "name": "name",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "Operation name of the span."
+       },
+       {
+        "name": "kind",
+        "type": [
+         "null",
+         "int"
+        ],
+        "doc": "SpanKind: 0=UNSPECIFIED, 1=INTERNAL, 2=SERVER, 3=CLIENT, 4=PRODUCER, 5=CONSUMER."
+       },
+       {
+        "name": "flags",
+        "type": [
+         "null",
+         "int"
+        ],
+        "doc": "Trace flags as defined in W3C Trace Context specification."
+       },
+       {
+        "name": "timestamp",
+        "type": [
+         "null",
+         "long"
+        ],
+        "doc": "Start time of the span, in microseconds since epoch."
+       },
+       {
+        "name": "end_time",
+        "type": [
+         "null",
+         "long"
+        ],
+        "doc": "End time of the span, in microseconds since epoch."
+       },
+       {
+        "name": "observed_timestamp",
+        "type": [
+         "null",
+         "long"
+        ],
+        "doc": "The timestamp when the span was received by the collector."
+       },
+       {
+        "name": "service_name",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "The name of the service that generated the span."
+       },
+       {
+        "name": "resource_attributes",
+        "type": [
+         "null",
+         {
+          "type": "map",
+          "values": "string"
+         }
+        ],
+        "doc": "Attributes describing the resource that produced the span."
+       },
+       {
+        "name": "instrumentation_scope",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "The name and version of the instrumentation library that captured the span."
+       },
+       {
+        "name": "attributes",
+        "type": [
+         "null",
+         {
+          "type": "map",
+          "values": "string"
+         }
+        ],
+        "doc": "A map of custom string-valued attributes associated with the span."
+       },
+       {
+        "name": "dropped_attributes_count",
+        "type": [
+         "null",
+         "int"
+        ],
+        "doc": "Number of attributes that were dropped due to limits."
+       },
+       {
+        "name": "events",
+        "type": [
+         "null",
+         {
+          "type": "array",
+          "items": "string"
+         }
+        ],
+        "doc": "Array of span events, each serialized as a JSON string."
+       },
+       {
+        "name": "dropped_events_count",
+        "type": [
+         "null",
+         "int"
+        ],
+        "doc": "Number of events that were dropped due to limits."
+       },
+       {
+        "name": "links",
+        "type": [
+         "null",
+         {
+          "type": "array",
+          "items": "string"
+         }
+        ],
+        "doc": "Array of span links, each serialized as a JSON string."
+       },
+       {
+        "name": "dropped_links_count",
+        "type": [
+         "null",
+         "int"
+        ],
+        "doc": "Number of links that were dropped due to limits."
+       },
+       {
+        "name": "status_code",
+        "type": [
+         "null",
+         "int"
+        ],
+        "doc": "Status code: 0=UNSET, 1=OK, 2=ERROR."
+       },
+       {
+        "name": "status_message",
+        "type": [
+         "null",
+         "string"
+        ],
+        "doc": "Status message"
+       },
+       {
+        "name": "bytes_uncompressed",
+        "type": [
+         "null",
+         "long"
+        ],
+        "doc": "Logical content size of the row (sum of byte lengths of string/map/array fields). Used by drop-rule accounting; does not include fixed-width numeric or timestamp fields."
+       },
+       {
+        "name": "retention_days",
+        "type": [
+         "null",
+         "int"
+        ],
+        "default": null,
+        "doc": "Per-row retention in days, stamped by the Node consumer from team retention rules. Null when unset — ClickHouse then falls back to the batch `retention-days` header. capture-logs always writes null; it does not evaluate team rules."
+       }
+      ],
+      "doc": "Schema for an OTEL trace span."
+     },
+     "codec": "zstandard",
+     "records": [
+      {
+       "attributes": {
+        "http.status_code": "200",
+        "user.email": "\"d@example.com\""
+       },
+       "bytes_uncompressed": null,
+       "dropped_attributes_count": 0,
+       "dropped_events_count": 0,
+       "dropped_links_count": 0,
+       "end_time": 1736942400000000,
+       "events": [],
+       "flags": 1,
+       "instrumentation_scope": null,
+       "kind": 1,
+       "links": [],
+       "name": "db.query",
+       "observed_timestamp": 1736942400000000,
+       "parent_span_id": {
+        "$bytes": "21660d454c522b9b"
+       },
+       "resource_attributes": {
+        "service.name": "\"api\""
+       },
+       "retention_days": 30,
+       "service_name": "api",
+       "span_id": {
+        "$bytes": "88ccff3d4ee4636d"
+       },
+       "status_code": 1,
+       "status_message": null,
+       "timestamp": 1736940487945113,
+       "trace_id": {
+        "$bytes": "491394f02703b2a38ebc07ed5383bfa7"
+       },
+       "trace_state": null,
+       "uuid": "00000000-0000-4000-9000-000000000000"
+      },
+      {
+       "attributes": {
+        "http.status_code": "200",
+        "user.email": "\"d@example.com\""
+       },
+       "bytes_uncompressed": null,
+       "dropped_attributes_count": 0,
+       "dropped_events_count": 0,
+       "dropped_links_count": 0,
+       "end_time": 1736942400000000,
+       "events": [],
+       "flags": 1,
+       "instrumentation_scope": null,
+       "kind": 4,
+       "links": [],
+       "name": "db.query",
+       "observed_timestamp": 1736942400000000,
+       "parent_span_id": {
+        "$bytes": "6b2f0b8990f3c040"
+       },
+       "resource_attributes": {
+        "service.name": "\"api\""
+       },
+       "retention_days": 30,
+       "service_name": "worker",
+       "span_id": {
+        "$bytes": "396a0fc100079885"
+       },
+       "status_code": 2,
+       "status_message": null,
+       "timestamp": 1736941360034640,
+       "trace_id": {
+        "$bytes": "c02b0492822619b45f256069da11bd63"
+       },
+       "trace_state": null,
+       "uuid": "00000000-0000-4000-9000-000000000001"
+      },
+      {
+       "attributes": {
+        "http.status_code": "200",
+        "user.email": "\"d@example.com\""
+       },
+       "bytes_uncompressed": null,
+       "dropped_attributes_count": 0,
+       "dropped_events_count": 0,
+       "dropped_links_count": 0,
+       "end_time": 1736942400000000,
+       "events": [],
+       "flags": 1,
+       "instrumentation_scope": null,
+       "kind": 3,
+       "links": [],
+       "name": "job",
+       "observed_timestamp": 1736942400000000,
+       "parent_span_id": null,
+       "resource_attributes": {
+        "service.name": "\"api\""
+       },
+       "retention_days": 60,
+       "service_name": "api",
+       "span_id": {
+        "$bytes": "1b788335db420d5c"
+       },
+       "status_code": 2,
+       "status_message": null,
+       "timestamp": 1736941614375932,
+       "trace_id": {
+        "$bytes": "24e31141f73d7e4d8364bf1ff388e6f7"
+       },
+       "trace_state": null,
+       "uuid": "00000000-0000-4000-9000-000000000002"
+      },
+      {
+       "attributes": {
+        "http.status_code": "404",
+        "user.email": "\"d@example.com\""
+       },
+       "bytes_uncompressed": null,
+       "dropped_attributes_count": 0,
+       "dropped_events_count": 0,
+       "dropped_links_count": 0,
+       "end_time": 1736942400000000,
+       "events": [],
+       "flags": 1,
+       "instrumentation_scope": null,
+       "kind": 0,
+       "links": [],
+       "name": "GET /api",
+       "observed_timestamp": 1736942400000000,
+       "parent_span_id": null,
+       "resource_attributes": {
+        "service.name": "\"api\""
+       },
+       "retention_days": 30,
+       "service_name": "api",
+       "span_id": {
+        "$bytes": "1573f63135a9e37a"
+       },
+       "status_code": 0,
+       "status_message": null,
+       "timestamp": 1736942017303431,
+       "trace_id": {
+        "$bytes": "1b7e5f2eb53d55a16bc35c22961772a7"
+       },
+       "trace_state": null,
+       "uuid": "00000000-0000-4000-9000-000000000003"
+      }
+     ]
+    }
+   }
+  ],
+  "metric_emits": [
+   {
+    "token": "phc_parity_plain",
+    "team_id": 101,
+    "payload": {
+     "resourceMetrics": [
+      {
+       "resource": {
+        "attributes": [
+         {
+          "key": "service.name",
+          "value": {
+           "stringValue": "api"
+          }
+         }
+        ]
+       },
+       "scopeMetrics": [
+        {
+         "metrics": [
+          {
+           "name": "span_count",
+           "sum": {
+            "aggregationTemporality": 1,
+            "dataPoints": [
+             {
+              "asDouble": 1,
+              "attributes": [
+               {
+                "key": "name",
+                "value": {
+                 "stringValue": "db.query"
+                }
+               }
+              ],
+              "exemplars": [
+               {
+                "asDouble": 1,
+                "filteredAttributes": [],
+                "spanId": "88ccff3d4ee4636d",
+                "timeUnixNano": "1736942400000000000",
+                "traceId": "491394f02703b2a38ebc07ed5383bfa7"
+               }
+              ],
+              "startTimeUnixNano": "1736942390000000000",
+              "timeUnixNano": "1736942400000000000"
+             },
+             {
+              "asDouble": 1,
+              "attributes": [
+               {
+                "key": "name",
+                "value": {
+                 "stringValue": "job"
+                }
+               }
+              ],
+              "exemplars": [
+               {
+                "asDouble": 1,
+                "filteredAttributes": [],
+                "spanId": "1b788335db420d5c",
+                "timeUnixNano": "1736942400000000000",
+                "traceId": "24e31141f73d7e4d8364bf1ff388e6f7"
+               }
+              ],
+              "startTimeUnixNano": "1736942390000000000",
+              "timeUnixNano": "1736942400000000000"
+             },
+             {
+              "asDouble": 1,
+              "attributes": [
+               {
+                "key": "name",
+                "value": {
+                 "stringValue": "GET /api"
+                }
+               }
+              ],
+              "exemplars": [
+               {
+                "asDouble": 1,
+                "filteredAttributes": [],
+                "spanId": "1573f63135a9e37a",
+                "timeUnixNano": "1736942400000000000",
+                "traceId": "1b7e5f2eb53d55a16bc35c22961772a7"
+               }
+              ],
+              "startTimeUnixNano": "1736942390000000000",
+              "timeUnixNano": "1736942400000000000"
+             }
+            ],
+            "isMonotonic": true
+           }
+          }
+         ],
+         "scope": {
+          "name": "posthog/logs-metric-rules"
+         }
+        }
+       ]
+      },
+      {
+       "resource": {
+        "attributes": [
+         {
+          "key": "service.name",
+          "value": {
+           "stringValue": "worker"
+          }
+         }
+        ]
+       },
+       "scopeMetrics": [
+        {
+         "metrics": [
+          {
+           "name": "span_count",
+           "sum": {
+            "aggregationTemporality": 1,
+            "dataPoints": [
+             {
+              "asDouble": 1,
+              "attributes": [
+               {
+                "key": "name",
+                "value": {
+                 "stringValue": "db.query"
+                }
+               }
+              ],
+              "exemplars": [
+               {
+                "asDouble": 1,
+                "filteredAttributes": [],
+                "spanId": "396a0fc100079885",
+                "timeUnixNano": "1736942400000000000",
+                "traceId": "c02b0492822619b45f256069da11bd63"
+               }
+              ],
+              "startTimeUnixNano": "1736942390000000000",
+              "timeUnixNano": "1736942400000000000"
+             }
+            ],
+            "isMonotonic": true
+           }
+          }
+         ],
+         "scope": {
+          "name": "posthog/logs-metric-rules"
+         }
+        }
+       ]
+      }
+     ]
+    }
+   }
+  ],
+  "usage_records": [
+   {
+    "team_id": 101,
+    "metric": "apm_traces_bytes",
+    "quantity": 10449,
+    "unit": "bytes"
+   },
+   {
+    "team_id": 101,
+    "metric": "apm_traces_spans",
+    "quantity": 4,
+    "unit": "records"
+   },
+   {
+    "team_id": 102,
+    "metric": "apm_traces_bytes",
+    "quantity": 10443,
+    "unit": "bytes"
+   },
+   {
+    "team_id": 102,
+    "metric": "apm_traces_spans",
+    "quantity": 4,
+    "unit": "records"
+   },
+   {
+    "team_id": 103,
+    "metric": "apm_traces_bytes",
+    "quantity": 10443,
+    "unit": "bytes"
+   },
+   {
+    "team_id": 103,
+    "metric": "apm_traces_spans",
+    "quantity": 4,
+    "unit": "records"
+   }
+  ],
+  "teams_ingested": [
+   [
+    101,
+    102,
+    103
+   ]
+  ]
+ }
+}
