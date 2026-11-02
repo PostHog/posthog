@@ -156,6 +156,29 @@ pub fn rewrite_functions(
     Some(out)
 }
 
+pub fn rewrite_font_src_functions(
+    css: &str,
+    replacement: &mut impl FnMut(&str) -> Option<String>,
+) -> Option<String> {
+    let mut out: Option<String> = None;
+    let mut copied_to = 0;
+    for declaration in declarations(css) {
+        if !matches!(declaration.kind, DeclarationKind::FontSrc(_)) {
+            continue;
+        }
+        let value = &css[declaration.start..declaration.end];
+        if let Some(rewritten) = rewrite_functions(value, replacement) {
+            let out = out.get_or_insert_with(|| String::with_capacity(css.len()));
+            out.push_str(&css[copied_to..declaration.start]);
+            out.push_str(&rewritten);
+            copied_to = declaration.end;
+        }
+    }
+    let mut out = out?;
+    out.push_str(&css[copied_to..]);
+    Some(out)
+}
+
 /// Calls `found` with each URL and rewrite in `css`: a `style` attribute, `<style>` text or `_cssText`.
 pub fn urls(css: &str, resolver: &mut Resolver<'_>, found: &mut impl FnMut(CssUrl<'_>)) {
     let declarations = declarations(css);

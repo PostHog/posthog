@@ -1,6 +1,6 @@
 //! The fallback for a block whose remote URLs the writer could not all name or replace. Each remote URL token left in
-//! the stored bytes becomes [`UNCHECKED_MARKER`], so no URL the policy would refuse is stored, and the block is kept
-//! instead of dropped.
+//! the stored bytes becomes [`UNCHECKED_MARKER`], or [`UNCHECKED_FONT_MARKER`] in the `src` of an `@font-face` rule, so
+//! no URL the policy would refuse is stored, and the block is kept instead of dropped.
 //!
 //! The scrub reads the bytes one character at a time through their JSON escapes and CSS escapes, so it never splits an
 //! escape and the stored JSON stays valid. A URL token ends at whitespace or at the end of its JSON string. A URL that
@@ -14,6 +14,7 @@ use aho_corasick::{AhoCorasick, AhoCorasickBuilder, MatchKind};
 
 /// What a scrubbed URL token becomes.
 pub const UNCHECKED_MARKER: &str = "imageurl:v4:declined:unchecked";
+pub const UNCHECKED_FONT_MARKER: &str = "fonturl:v4:declined:unchecked";
 
 /// Which URL tokens the scrub replaces.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -361,6 +362,10 @@ impl Scrubber {
             all_remote: *scrub == Scrub::AllRemote,
             hosts,
         }
+    }
+
+    pub fn replaces_tokens(&self) -> bool {
+        self.all_remote || self.hosts.is_some()
     }
 
     /// The bytes with each URL token replaced, and how many were.

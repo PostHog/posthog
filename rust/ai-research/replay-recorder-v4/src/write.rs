@@ -945,15 +945,29 @@ mod tests {
         let fonts = vec![
             json!({"type": 2, "tagName": "style", "attributes": {"_cssText": faces}, "childNodes": [], "id": 2}),
         ];
-        for (nodes, named) in [
-            (images, "imageurl:v4:7:2026-10:"),
-            (fonts, "fonturl:v4:7:2026-10:"),
+        use crate::scrub::{UNCHECKED_FONT_MARKER, UNCHECKED_MARKER};
+        for (nodes, named, marker, other_marker) in [
+            (
+                images,
+                "imageurl:v4:7:2026-10:",
+                UNCHECKED_MARKER,
+                UNCHECKED_FONT_MARKER,
+            ),
+            (
+                fonts,
+                "fonturl:v4:7:2026-10:",
+                UNCHECKED_FONT_MARKER,
+                UNCHECKED_MARKER,
+            ),
         ] {
             let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": nodes}}}]).to_string();
             let lines = stored_lines(&events, &[]);
             // The inspector named the first URLs, which keep their references; the fallback scrubbed the rest.
             assert!(lines.contains(named), "named URLs keep their references");
-            assert!(lines.contains(crate::scrub::UNCHECKED_MARKER));
+            assert!(
+                lines.contains(marker) && !lines.contains(other_marker),
+                "{marker}"
+            );
             assert!(!lines.contains("https://"));
         }
     }

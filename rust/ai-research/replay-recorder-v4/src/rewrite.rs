@@ -15,7 +15,9 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use aho_corasick::{AhoCorasick, AhoCorasickKind, MatchKind};
 use metrics::counter;
 use replay_core_v4::bytescan::{canonical_strings, unescape, write_json_string, Span};
-use replay_core_v4::inspect::css::{escape_in_identifier, rewrite_functions, CssRewrite};
+use replay_core_v4::inspect::css::{
+    escape_in_identifier, rewrite_font_src_functions, rewrite_functions, CssRewrite,
+};
 use replay_core_v4::inspect::dom::{for_each_srcset_candidate, RemoteKind, RemoteUrl, Srcset};
 use replay_core_v4::refs::{bundled_font_ref, declined_url_ref, UrlAsset};
 use replay_core_v4::scan::images::{
@@ -25,7 +27,7 @@ use replay_core_v4::scan::tokens::{Token, Tokens};
 use replay_core_v4::seal::{image_content_key, image_url_key};
 use replay_core_v4::url_policy::is_remote;
 
-use crate::scrub::{Scrub, Scrubber};
+use crate::scrub::{Scrub, Scrubber, UNCHECKED_FONT_MARKER};
 use crate::urls::url_reference;
 
 /// What a declined URL becomes. The reason is the policy's metric label.
@@ -226,6 +228,12 @@ impl Iterator for CssStrings<'_> {
         }
         None
     }
+}
+
+fn holds_font_face(bytes: &[u8]) -> bool {
+    bytes
+        .windows(b"font-face".len())
+        .any(|window| window.eq_ignore_ascii_case(b"font-face"))
 }
 
 /// The metric label of a rewrite: the inspector rewrites a whole `url()` only to resolve a relative URL.
@@ -646,12 +654,51 @@ impl UrlRewrite {
         } else {
             replaced
         };
+        let replaced = then_stage!(replaced, self.mark_unchecked_fonts);
         let (scrubbed, count) = self.scrubber.apply(&replaced);
         if count == 0 {
             return replaced;
         }
         self.scrubbed += count;
         Cow::Owned(scrubbed.into_owned())
+    }
+
+    /// Runs before the scrub, which would leave an image marker where the renderer loads a font.
+    fn mark_unchecked_fonts<'b>(&mut self, bytes: &'b [u8]) -> Cow<'b, [u8]> {
+        if !self.scrubber.replaces_tokens() || !holds_font_face(bytes) {
+            return Cow::Borrowed(bytes);
+        }
+        let mut out: Option<Vec<u8>> = None;
+        let mut copied_to = 0;
+        for string in CssStrings::new(bytes) {
+            if !holds_font_face(&bytes[string.0..string.1]) {
+                continue;
+            }
+            let Ok(css) = unescape(bytes, string) else {
+                continue;
+            };
+            let rewritten = rewrite_font_src_functions(&css, &mut |function| {
+                let mut json = Vec::with_capacity(function.len() + 2);
+                write_json_string(function, &mut json);
+                (self.scrubber.apply(&json).1 > 0).then(|| {
+                    self.scrubbed += 1;
+                    format!("url(\"{UNCHECKED_FONT_MARKER}\")")
+                })
+            });
+            if let Some(rewritten) = rewritten {
+                let out = out.get_or_insert_with(|| Vec::with_capacity(bytes.len()));
+                out.extend_from_slice(&bytes[copied_to..string.0]);
+                write_json_string(&rewritten, out);
+                copied_to = string.1;
+            }
+        }
+        match out {
+            Some(mut out) => {
+                out.extend_from_slice(&bytes[copied_to..]);
+                Cow::Owned(out)
+            }
+            None => Cow::Borrowed(bytes),
+        }
     }
 
     fn replace_escaped_urls<'b>(&mut self, bytes: &'b [u8]) -> Cow<'b, [u8]> {
