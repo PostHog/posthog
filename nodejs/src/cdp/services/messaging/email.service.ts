@@ -16,7 +16,6 @@ import { createAddLogFunction, logEntry } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 import { buildIntegerMatcher } from '~/common/config/matchers'
 import { logger } from '~/common/utils/logger'
-import type { ValueMatcher } from '~/types'
 
 import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflows/hogflow-sensitivity'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
@@ -413,7 +412,6 @@ export class EmailService {
 
     private recipientTokensService: RecipientTokensService
     private untrackedConfigSetWarningLogged = false
-    private utmLinkScannerTeams: ValueMatcher<number>
 
     constructor(
         private sesConfig: EmailServiceConfig,
@@ -438,7 +436,6 @@ export class EmailService {
               })
             : null
         this.recipientTokensService = new RecipientTokensService(encryptionSaltKeys, siteUrl)
-        this.utmLinkScannerTeams = buildIntegerMatcher(this.sesConfig.utmLinkScannerTeams, true)
     }
 
     // Send email. `isTest` flags sends from the editor's "Run test" path so the tracking code
@@ -738,7 +735,7 @@ export class EmailService {
                                   )
                               ),
                               this.siteUrl,
-                              this.utmLinkScannerTeams(invocation.teamId)
+                              buildIntegerMatcher(this.sesConfig.utmLinkScannerTeams, true)(invocation.teamId)
                           ),
                       }
                     : paramsWithReplyTo
