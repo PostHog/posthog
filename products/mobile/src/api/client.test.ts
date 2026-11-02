@@ -133,16 +133,24 @@ describe('api client send path', () => {
     })
 
     test.each(['before', 'headers', 'refresh'])('cancels %s without sending a late retry', async (stage) => {
+        jest.useFakeTimers()
         let finishRefresh!: (token: string) => void
+        let markRefreshStarted!: () => void
+        const refreshStarted = new Promise<void>((resolve) => {
+            markRefreshStarted = resolve
+        })
+        const refreshed = new Promise<string>((resolve) => {
+            finishRefresh = resolve
+        })
         fetchMock.mockImplementation(() =>
             stage === 'refresh' ? Promise.resolve({ status: 401 }) : new Promise(() => undefined)
         )
         setAuthProvider({
             getAuth: () => ({ host: 'https://app.example.com', accessToken: 'token', projectId: 2, session: 1 }),
-            refreshAccessToken: () =>
-                new Promise((resolve) => {
-                    finishRefresh = resolve
-                }),
+            refreshAccessToken: () => {
+                markRefreshStarted()
+                return refreshed
+            },
         })
         const controller = new AbortController()
         if (stage === 'before') {
@@ -150,16 +158,15 @@ describe('api client send path', () => {
         }
         const request = apiJson('/api/projects/2/tasks/task-1/', { signal: controller.signal })
         const assertion = expect(request).rejects.toMatchObject({ name: 'AbortError' })
-        for (let tick = 0; tick < 5; tick += 1) {
-            await Promise.resolve()
+        if (stage === 'refresh') {
+            await refreshStarted
         }
         controller.abort()
         await assertion
         if (stage === 'refresh') {
             finishRefresh('rotated')
-            for (let tick = 0; tick < 5; tick += 1) {
-                await Promise.resolve()
-            }
+            await refreshed
+            await jest.advanceTimersByTimeAsync(0)
         }
         expect(fetchMock).toHaveBeenCalledTimes(stage === 'before' ? 0 : 1)
         expect(isAppReloadBlocked()).toBe(false)

@@ -20,10 +20,6 @@ function retryHint(seconds: number | undefined): string {
     return `Try again in ${Math.ceil(seconds / 60)} minutes.`
 }
 
-export function isNetworkError(error: unknown): boolean {
-    return error instanceof TransportError
-}
-
 /** The tasks API's PostHog Desktop gate and limits. Their copy is under `error`, which `ApiError.detail` carries. */
 function taskRunError(error: ApiError): ChatError | undefined {
     const type = isRecord(error.body) ? error.body.type : undefined
