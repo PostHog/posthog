@@ -51,6 +51,19 @@ export interface RecordingMomentsProps {
     playerLogicProps: SessionRecordingPlayerLogicProps
 }
 
+// Aligned to the card's start, a snap point; a smaller scroll gets snapped back and the card stays clipped.
+function scrollIntoStrip(card: HTMLElement): void {
+    const strip = card.parentElement
+    if (!strip) {
+        return
+    }
+    const cardRect = card.getBoundingClientRect()
+    const stripRect = strip.getBoundingClientRect()
+    if (cardRect.left < stripRect.left || cardRect.right > stripRect.right) {
+        strip.scrollBy({ left: cardRect.left - stripRect.left })
+    }
+}
+
 export function RecordingMoments({ sessionId, playerLogicProps }: RecordingMomentsProps): JSX.Element {
     const logic = observationsDockLogic({ sessionId })
     const { observations, observationsLoading, timeline, followMoments, summarizePending } = useValues(logic)
@@ -89,6 +102,10 @@ export function RecordingMoments({ sessionId, playerLogicProps }: RecordingMomen
     const currentIndex = currentRowIndex(timelineRows, currentPlayerTime)
 
     useEffect(() => {
+        followedIndex.current = null
+    }, [filmstrip])
+
+    useEffect(() => {
         if (!followMoments) {
             followedIndex.current = null
             return
@@ -102,7 +119,12 @@ export function RecordingMoments({ sessionId, playerLogicProps }: RecordingMomen
             return
         }
         followedIndex.current = currentIndex
-        current.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+        if (filmstrip) {
+            // Sideways only, so following never pulls the reader up from a scan below the strip.
+            scrollIntoStrip(current)
+        } else {
+            current.scrollIntoView({ block: 'nearest' })
+        }
     }, [currentIndex, followMoments, filmstrip, width])
 
     const timelineProps = {
@@ -123,7 +145,11 @@ export function RecordingMoments({ sessionId, playerLogicProps }: RecordingMomen
                     <Spinner /> Loading observations…
                 </div>
             ) : observations.length === 0 ? (
-                <RecordingObservationsEmptyState sessionId={sessionId} scanBlock={scanBlock} />
+                <RecordingObservationsEmptyState
+                    sessionId={sessionId}
+                    scanBlock={scanBlock}
+                    surface={inWatchLayout ? 'watch' : 'tab'}
+                />
             ) : (
                 <>
                     <div className="flex items-center gap-2 p-2 border-b bg-surface-secondary">

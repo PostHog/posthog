@@ -55,16 +55,14 @@ function MomentTicks({
     onSeek,
 }: {
     moments: number[]
-    endMs: number | null
+    endMs: number
     currentTimeMs: number
     onSeek: (timestampMs: number) => void
-}): JSX.Element | null {
-    if (!endMs || moments.length === 0) {
-        return null
-    }
+}): JSX.Element {
     return (
+        // Overlaid, so the row button stays clickable up to its right edge.
         <span
-            className="relative hidden h-2 w-28 shrink-0 rounded-sm bg-surface-tertiary @[560px]:block"
+            className="pointer-events-none absolute right-8 top-1/2 hidden h-2 w-28 -translate-y-1/2 rounded-sm bg-surface-tertiary @[560px]:block"
             data-attr="vision-scan-moment-ticks"
         >
             {moments.map((ms) => {
@@ -76,7 +74,7 @@ function MomentTicks({
                             aria-label={`Jump to ${label}`}
                             onClick={() => onSeek(ms)}
                             className={cn(
-                                'absolute -top-0.5 h-3 w-1 -translate-x-1/2 cursor-pointer rounded-sm',
+                                'pointer-events-auto absolute -top-0.5 h-3 w-1 -translate-x-1/2 cursor-pointer rounded-sm',
                                 Math.abs(ms - currentTimeMs) < NEAR_PLAYHEAD_MS ? 'bg-accent' : 'bg-border-bold'
                             )}
                             // eslint-disable-next-line react/forbid-dom-props
@@ -193,9 +191,11 @@ export function ScanList({ sessionId, observations, endMs, currentTimeMs, onSeek
             {observations.map((observation) => {
                 const scannerType = observation.scanner_snapshot?.scanner_type
                 const isFocused = observation.id === focused?.id
+                const ticks = moments.get(observation.id) ?? []
+                const ticksEndMs = endMs !== null && ticks.length > 0 ? endMs : null
                 return (
                     <div key={observation.id} className="border-b border-primary">
-                        <div className={cn('flex items-center', isFocused && 'bg-fill-highlight-50')}>
+                        <div className={cn('relative flex items-center', isFocused && 'bg-fill-highlight-50')}>
                             <LemonButton
                                 fullWidth
                                 size="small"
@@ -209,10 +209,17 @@ export function ScanList({ sessionId, observations, endMs, currentTimeMs, onSeek
                                         </Tooltip>
                                     ) : undefined
                                 }
+                                sideIcon={<IconChevronRight className={cn(isFocused && 'invisible')} />}
                                 onClick={() => focusObservation(observation.id)}
+                                aria-expanded={isFocused}
                                 data-attr="vision-run-row"
                             >
-                                <span className="flex items-center gap-2 min-w-0 w-full font-normal">
+                                <span
+                                    className={cn(
+                                        'flex items-center gap-2 min-w-0 w-full font-normal',
+                                        ticksEndMs !== null && '@[560px]:pr-32'
+                                    )}
+                                >
                                     <span className="min-w-0 truncate text-sm @[760px]:shrink-0 @[760px]:max-w-[40%]">
                                         {scannerLabel(observation)}
                                     </span>
@@ -226,15 +233,14 @@ export function ScanList({ sessionId, observations, endMs, currentTimeMs, onSeek
                                     )}
                                 </span>
                             </LemonButton>
-                            <MomentTicks
-                                moments={moments.get(observation.id) ?? []}
-                                endMs={endMs}
-                                currentTimeMs={currentTimeMs}
-                                onSeek={onSeek}
-                            />
-                            <span className="flex w-8 shrink-0 items-center justify-center text-secondary" aria-hidden>
-                                {!isFocused && <IconChevronRight />}
-                            </span>
+                            {ticksEndMs !== null && (
+                                <MomentTicks
+                                    moments={ticks}
+                                    endMs={ticksEndMs}
+                                    currentTimeMs={currentTimeMs}
+                                    onSeek={onSeek}
+                                />
+                            )}
                         </div>
                         {isFocused && (
                             <FocusPane

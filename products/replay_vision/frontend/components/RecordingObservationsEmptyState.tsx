@@ -88,18 +88,31 @@ function ExampleScanRows({ className }: { className?: string }): JSX.Element {
     )
 }
 
+export type ObservationsSurface = 'watch' | 'tab'
+
+const SKIPPED_ATTR: Record<ObservationsSurface, string> = {
+    watch: 'vision-observations-skipped',
+    tab: 'vision-observations-tab-skipped',
+}
+const EMPTY_ATTR: Record<ObservationsSurface, string> = {
+    watch: 'vision-observations-empty',
+    tab: 'vision-observations-tab-empty',
+}
+
 export function RecordingObservationsEmptyState({
     sessionId,
     scanBlock,
+    surface,
 }: {
     sessionId: string
     scanBlock: ScanBlock | null
+    surface: ObservationsSurface
 }): JSX.Element {
     const { scanners, scannersLoading } = useValues(observationsDockLogic({ sessionId }))
 
     if (scanBlock) {
         return (
-            <div className="flex flex-wrap items-center gap-4 px-4 py-3" data-attr="vision-observations-tab-skipped">
+            <div className="flex flex-wrap items-center gap-4 px-4 py-3" data-attr={SKIPPED_ATTR[surface]}>
                 <HedgehogAsleep className="h-14 w-14 shrink-0" />
                 <div className="flex min-w-0 flex-1 basis-64 flex-col gap-0.5">
                     <span className="text-sm font-semibold">
@@ -121,14 +134,14 @@ export function RecordingObservationsEmptyState({
     const noScanners = !scannersLoading && scanners.length === 0
 
     return (
-        <div className="@container" data-attr="vision-observations-empty">
+        <div className="@container" data-attr={EMPTY_ATTR[surface]}>
             <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-3 px-4 py-4 @[760px]:grid-cols-[6rem_minmax(0,1fr)_minmax(14rem,36%)] @[760px]:gap-x-5 @[760px]:px-5">
                 <HedgehogMagnifyingGlass className="h-16 w-16 @[760px]:h-24 @[760px]:w-24" />
                 <div className="flex min-w-0 flex-col gap-2">
                     <span className="text-sm font-semibold">No observations yet</span>
                     <p className="m-0 max-w-[52ch] text-xs text-secondary">
-                        Summarize this recording for chapters and a short write-up, or run a scanner to check it for
-                        something specific.
+                        Summarize this recording above for chapters and a short write-up, or run a scanner to check it
+                        for something specific.
                     </p>
                     <div className="mt-1 flex flex-wrap gap-2">
                         {noScanners ? (

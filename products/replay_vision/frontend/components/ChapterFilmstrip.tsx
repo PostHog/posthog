@@ -36,6 +36,14 @@ export function ChapterFilmstrip(props: RecordingTimelineProps): JSX.Element {
 
     useEffect(updateEdges, [updateEdges, width, rows.length])
 
+    const setStrip = useCallback(
+        (element: HTMLDivElement | null): void => {
+            stripRef.current = element
+            observeStrip(element)
+        },
+        [observeStrip]
+    )
+
     const page = (direction: -1 | 1): void => {
         const strip = stripRef.current
         strip?.scrollBy({ left: direction * strip.clientWidth * 0.8, behavior: 'smooth' })
@@ -54,10 +62,7 @@ export function ChapterFilmstrip(props: RecordingTimelineProps): JSX.Element {
                         data-attr="vision-filmstrip-earlier"
                     />
                     <div
-                        ref={(element) => {
-                            stripRef.current = element
-                            observeStrip(element)
-                        }}
+                        ref={setStrip}
                         onScroll={updateEdges}
                         className="flex flex-1 min-w-0 gap-2 overflow-x-auto snap-x snap-proximity [scrollbar-width:thin]"
                     >
