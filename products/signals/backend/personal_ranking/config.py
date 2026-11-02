@@ -2,7 +2,8 @@
 
 A missing or unreadable payload gives the code defaults. An invalid field falls back to its default,
 a large one to its maximum, so no value is unbounded. `"enabled": false` in the payload is the kill
-switch: it stops every build.
+switch: it stops every build. `max_builds_per_day` limits the builds that call the model across every
+person in one region.
 
 The optional `pools` list replaces the default candidate pools, in order. An invalid entry is dropped
 and logged. When no entry is valid, the build uses the default pools.
@@ -118,6 +119,8 @@ class PersonalRankingConfig:
     build_burst: int = 2
     builds_per_hour: int = 12
     builds_per_day: int = 40
+    # Builds that call the model, across every person in one region. Each region has its own Redis, so each counts on its own.
+    max_builds_per_day: int = 500
     # Each build keeps this many of the person's newest rows and deletes the older ones.
     max_rows_per_person: int = 5
 
@@ -149,6 +152,7 @@ _MAXIMUMS: dict[str, int] = {
     "build_burst": 20,
     "builds_per_hour": 120,
     "builds_per_day": 500,
+    "max_builds_per_day": 10000,
     "max_rows_per_person": 100,
     "reason_max_chars": 500,
 }
