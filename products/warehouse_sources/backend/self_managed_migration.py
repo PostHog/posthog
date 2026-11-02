@@ -84,6 +84,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     StorageService,
     UnmappableTableError,
     needs_preserved_column_names,
+    nested_text_columns,
     parse_self_managed_url,
     refuse_columns_an_import_changes,
     table_definition_for,
@@ -138,6 +139,7 @@ class TableMigrationStatus:
     reason: str | None = None
     source_id: str | None = None
     schema_id: str | None = None
+    nested_text_column_types: dict[str, str] | None = None
 
 
 @frozen
@@ -497,6 +499,11 @@ def _evaluate(
             reason=reason,
             source_id=str(named.source_id) if named is not None else None,
             schema_id=str(named.id) if named is not None else None,
+            nested_text_column_types=(
+                nested_text_columns(table.columns)
+                if state in (TableMigrationState.PENDING, TableMigrationState.AWAITING_SYNC)
+                else None
+            ),
         )
 
     if table.external_data_source_id is not None:
@@ -799,4 +806,9 @@ def _abandon(evaluation: _Evaluation, reason: str) -> None:
 
 def describe_status(status: TableMigrationStatus) -> str:
     reason = f" ({status.reason})" if status.reason else ""
-    return f"table={status.table_id} team={status.team_id} name={status.name} state={status.state}{reason}"
+    columns = status.nested_text_column_types or {}
+    note = ""
+    if columns:
+        changed = ", ".join(f"{name} ({column_type})" for name, column_type in columns.items())
+        note = f" note=(after the first sync these columns are stored as JSON text: {changed})"
+    return f"table={status.table_id} team={status.team_id} name={status.name} state={status.state}{reason}{note}"

@@ -688,6 +688,7 @@ export namespace Schemas {
      * * `session_recording_playlist` - session_recording_playlist
      * * `sharing_configuration` - sharing_configuration
      * * `signal_scout` - signal_scout
+     * * `signal_usage` - signal_usage
      * * `stamphog` - stamphog
      * * `streamlit_app` - streamlit_app
      * * `subscription` - subscription
@@ -810,6 +811,7 @@ export namespace Schemas {
       SessionRecordingPlaylist: 'session_recording_playlist',
       SharingConfiguration: 'sharing_configuration',
       SignalScout: 'signal_scout',
+      SignalUsage: 'signal_usage',
       Stamphog: 'stamphog',
       StreamlitApp: 'streamlit_app',
       Subscription: 'subscription',
@@ -932,6 +934,7 @@ export namespace Schemas {
        * * `session_recording_playlist` - session_recording_playlist
        * * `sharing_configuration` - sharing_configuration
        * * `signal_scout` - signal_scout
+       * * `signal_usage` - signal_usage
        * * `stamphog` - stamphog
        * * `streamlit_app` - streamlit_app
        * * `subscription` - subscription
@@ -1177,6 +1180,7 @@ export namespace Schemas {
        * * `session_recording_playlist` - session_recording_playlist
        * * `sharing_configuration` - sharing_configuration
        * * `signal_scout` - signal_scout
+       * * `signal_usage` - signal_usage
        * * `stamphog` - stamphog
        * * `streamlit_app` - streamlit_app
        * * `subscription` - subscription
@@ -1585,6 +1589,7 @@ export namespace Schemas {
        * * `session_recording_playlist` - session_recording_playlist
        * * `sharing_configuration` - sharing_configuration
        * * `signal_scout` - signal_scout
+       * * `signal_usage` - signal_usage
        * * `stamphog` - stamphog
        * * `streamlit_app` - streamlit_app
        * * `subscription` - subscription
@@ -5694,6 +5699,94 @@ export namespace Schemas {
       stale: boolean;
     }
 
+    /**
+     * * `semantic` - Semantic
+     * * `headline` - Headline
+     * * `themes` - Themes
+     * * `owned` - Owned
+     * * `watched` - Watched
+     * * `profile` - Profile
+     */
+    export type MatchKindEnum = typeof MatchKindEnum[keyof typeof MatchKindEnum];
+
+
+    export const MatchKindEnum = {
+      Semantic: 'semantic',
+      Headline: 'headline',
+      Themes: 'themes',
+      Owned: 'owned',
+      Watched: 'watched',
+      Profile: 'profile',
+    } as const;
+
+    export interface ActivitySummarySearchMatch {
+      /** `semantic` for a vector match, else the summary field a keyword matched.
+       *
+       * * `semantic` - Semantic
+       * * `headline` - Headline
+       * * `themes` - Themes
+       * * `owned` - Owned
+       * * `watched` - Watched
+       * * `profile` - Profile */
+      kind: MatchKindEnum;
+      /**
+         * A short excerpt around the first keyword match. Null for a semantic match.
+         * @nullable
+         */
+      snippet: string | null;
+    }
+
+    export interface ActivitySummarySearchHit {
+      /** The member. Use it in `suggested_reviewers`. */
+      user_uuid: string;
+      /** The member's first name. */
+      first_name: string;
+      /** The member's last name. */
+      last_name: string;
+      /**
+         * The member's GitHub login, lowercase. Null when no GitHub identity is linked.
+         * @nullable
+         */
+      github_login: string | null;
+      /**
+         * The reciprocal rank fusion score. Higher is a better match. Null when the request had no query.
+         * @nullable
+         */
+      score: number | null;
+      /** Why this member matched. */
+      matched_on: ActivitySummarySearchMatch[];
+      /**
+         * One or two sentences about what the member works on in this project.
+         * @nullable
+         */
+      headline: string | null;
+      /** The main threads of the member's work. */
+      themes: ActivitySummaryTheme[];
+      /** How the member works in this project overall, the main mode first. */
+      modes: ActivitySummaryModeEnum[];
+      /**
+         * When this summary was written.
+         * @nullable
+         */
+      generated_at: string | null;
+      /** True when a newer version will replace this summary soon. */
+      stale: boolean;
+      /**
+         * The one-page markdown profile. Set only when the request sets `include_profile`.
+         * @nullable
+         */
+      profile: string | null;
+    }
+
+    export interface ActivitySummarySearchResult {
+      /** The matching members, best match first. */
+      results: ActivitySummarySearchHit[];
+      /** False when the search used keywords only: a `keyword` search, a request with no query, or a `hybrid` search whose vector search failed. */
+      semantic_used: boolean;
+      /** Members with access to the project and no summary yet. The search cannot find them. */
+      not_ready_count: number;
+    }
+
     export interface ActivitySummaryVersion {
       /** The number of this version. Higher numbers are newer. */
       version: number;
@@ -8227,7 +8320,6 @@ export namespace Schemas {
      * * `experiment_results` - Experiment Results
      * * `experiments_list` - Experiments List
      * * `logs_list` - Logs List
-     * * `metrics` - Metrics
      * * `metrics_table` - Metrics Table
      * * `notebook_widget` - Notebook Widget
      * * `session_replay_list` - Session Replay List
@@ -8244,7 +8336,6 @@ export namespace Schemas {
       ExperimentResults: 'experiment_results',
       ExperimentsList: 'experiments_list',
       LogsList: 'logs_list',
-      Metrics: 'metrics',
       MetricsTable: 'metrics_table',
       NotebookWidget: 'notebook_widget',
       SessionReplayList: 'session_replay_list',
@@ -8273,7 +8364,6 @@ export namespace Schemas {
        * * `experiment_results` - Experiment Results
        * * `experiments_list` - Experiments List
        * * `logs_list` - Logs List
-       * * `metrics` - Metrics
        * * `metrics_table` - Metrics Table
        * * `notebook_widget` - Notebook Widget
        * * `session_replay_list` - Session Replay List
@@ -8288,7 +8378,7 @@ export namespace Schemas {
      */
     export interface AddDashboardWidgetsBatchRequestOpenApi {
       /**
-         * Widget tiles to add atomically. Supported widget_type values: activity_events_list, canvas_app, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, metrics, metrics_table, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
+         * Widget tiles to add atomically. Supported widget_type values: activity_events_list, canvas_app, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, metrics_table, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
          * @minItems 1
          * @maxItems 10
          */
@@ -12014,193 +12104,7 @@ export namespace Schemas {
       limit?: number;
     }
 
-    export type MetricsAggregation = typeof MetricsAggregation[keyof typeof MetricsAggregation];
-
-
-    export const MetricsAggregation = {
-      Sum: 'sum',
-      Avg: 'avg',
-      Count: 'count',
-      Min: 'min',
-      Max: 'max',
-      Quantile: 'quantile',
-      Rate: 'rate',
-      Increase: 'increase',
-      HistogramQuantile: 'histogram_quantile',
-    } as const;
-
-    export interface MetricsQueryGroupBy {
-      key: string;
-      scope?: MetricsAttributeScope | null;
-    }
-
-    export type MetricsOtelType = typeof MetricsOtelType[keyof typeof MetricsOtelType];
-
-
-    export const MetricsOtelType = {
-      Gauge: 'gauge',
-      Sum: 'sum',
-      Histogram: 'histogram',
-      ExponentialHistogram: 'exponential_histogram',
-      Summary: 'summary',
-    } as const;
-
-    export type MetricsRangeFunction = typeof MetricsRangeFunction[keyof typeof MetricsRangeFunction];
-
-
-    export const MetricsRangeFunction = {
-      Rate: 'rate',
-      Increase: 'increase',
-    } as const;
-
-    export interface MetricsQueryClause {
-      /** Omit to get one line per series (at most 100), without combining them */
-      aggregation?: MetricsAggregation | null;
-      filters?: MetricsQueryFilter[] | null;
-      groupBy?: MetricsQueryGroupBy[] | null;
-      metricName: string;
-      /** Series identity includes the OTel type — one name can exist as e.g. both a counter and a gauge — so a clause pins it to avoid blending distinct series. */
-      metricType?: MetricsOtelType | null;
-      /** Alias a formula refers to (e.g. "a"); must be unique within the query */
-      name: string;
-      /** In (0, 1); required for `quantile` / `histogram_quantile` aggregations */
-      quantile?: number | null;
-      /** Applied to each series before `aggregation`, like `rate()` in PromQL */
-      rangeFunction?: MetricsRangeFunction | null;
-    }
-
-    export type MetricsReducer = typeof MetricsReducer[keyof typeof MetricsReducer];
-
-
-    export const MetricsReducer = {
-      Last: 'last',
-      Mean: 'mean',
-      Min: 'min',
-      Max: 'max',
-      Sum: 'sum',
-      Delta: 'delta',
-    } as const;
-
-    export type MetricsNullMode = typeof MetricsNullMode[keyof typeof MetricsNullMode];
-
-
-    export const MetricsNullMode = {
-      Gap: 'gap',
-      Zero: 'zero',
-      Connect: 'connect',
-    } as const;
-
-    export type MetricsStatSummary = typeof MetricsStatSummary[keyof typeof MetricsStatSummary];
-
-
-    export const MetricsStatSummary = {
-      Latest: 'latest',
-      Average: 'average',
-      Total: 'total',
-    } as const;
-
-    export interface MetricsThreshold {
-      /** A named color token (e.g. "green", "red"), never raw hex, so light and dark themes both work. */
-      color: string;
-      /** Lower bound of this band. The lowest step is the base color below every other step. */
-      value: number;
-    }
-
-    export type MetricsDisplayType = typeof MetricsDisplayType[keyof typeof MetricsDisplayType];
-
-
-    export const MetricsDisplayType = {
-      Line: 'line',
-      Area: 'area',
-      Bar: 'bar',
-      Stat: 'stat',
-      Gauge: 'gauge',
-      Bargauge: 'bargauge',
-      Table: 'table',
-      Heatmap: 'heatmap',
-    } as const;
-
-    export type MetricsAxisScale = typeof MetricsAxisScale[keyof typeof MetricsAxisScale];
-
-
-    export const MetricsAxisScale = {
-      Linear: 'linear',
-      Log: 'log',
-    } as const;
-
-    export interface MetricsYAxisSettings {
-      /** Pins the top of the axis; unset means automatic. Pinning both ends drops the automatic stretch that keeps an off-scale goal line on-plot. */
-      max?: number | null;
-      /** Pins the bottom of the axis; unset means automatic. Ignored while `startAtZero` is on. */
-      min?: number | null;
-      scale?: MetricsAxisScale | null;
-      /** When false the axis floats to the data range instead of starting at zero. Ignored on a logarithmic scale, and on the bar display, where a bar's length encodes magnitude from zero. */
-      startAtZero?: boolean | null;
-    }
-
-    export interface MetricsDisplaySettings {
-      goalLines?: GoalLine[] | null;
-      /** Time-series panels only: which reducers the legend table shows. Empty means no legend calcs. */
-      legendCalcs?: MetricsReducer[] | null;
-      /** How a null bucket renders on a time-series chart. */
-      nullMode?: MetricsNullMode | null;
-      /** How scalar panels and legend calcs collapse a series to one number. */
-      reduce?: MetricsReducer | null;
-      /** `stat` display only: which summary the headline value shows. */
-      statSummary?: MetricsStatSummary | null;
-      /** Color bands for the scalar panels. Sorted by `value` at read time, so entry order does not matter. */
-      thresholds?: MetricsThreshold[] | null;
-      type?: MetricsDisplayType | null;
-      /** UCUM unit string as OTel writes it, e.g. "By", "ms", "%". Defaults from the response unit. */
-      unit?: string | null;
-      yAxis?: MetricsYAxisSettings | null;
-    }
-
-    export type MetricsQueryLanguage = typeof MetricsQueryLanguage[keyof typeof MetricsQueryLanguage];
-
-
-    export const MetricsQueryLanguage = {
-      Builder: 'builder',
-      Promql: 'promql',
-      Sql: 'sql',
-    } as const;
-
-    /**
-     * A `MetricsQuery` as a metrics widget stores it.
-     *
-     * Response, modifier and tag fields are runtime state, so a stored config can't carry them.
-     */
-    export interface MetricsWidgetQuery {
-      /**
-         * Builder series. Empty when `language` is `promql` or `sql`, or until a metric is picked.
-         * @maxItems 10
-         */
-      clauses?: MetricsQueryClause[];
-      /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
-      dateRange?: DateRange | null;
-      /** Chart presentation. A node without it renders as a line chart. */
-      display?: MetricsDisplaySettings | null;
-      /** Arithmetic over clause aliases (e.g. "a / b"); when set, only the formula series are returned */
-      formula?: string | null;
-      /** Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week; auto-picked from the range when omitted. Fixed intervals are coarsened above 500 buckets. A dashboard variable reference such as `$window` pins the interval to its single duration value (15s, 30s, 1m, 5m, 15m, 30m, 1h, 6h, 1d, 1w). Variable intervals that exceed 500 buckets require a larger value or shorter date range, so the step stays consistent with PromQL lookbacks using that variable. */
-      interval?: string | null;
-      kind?: 'MetricsQuery';
-      /** How the query is written; the builder when unset. */
-      language?: MetricsQueryLanguage | null;
-      /** PromQL expression, run as a range query. Used when `language` is `promql`. */
-      promql?: string | null;
-      /** HogQL SELECT over the posthog.metric* tables. Used when `language` is `sql`. It must return a `time` and a `value` column; every other column is a series label. */
-      sql?: string | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export interface MetricsWidgetConfig {
-      /** Metrics query the tile runs and how it draws it (`display.type`: line, area, bar, stat, gauge, bargauge, table or heatmap). `dateRange` is the default window; the dashboard date filter overrides it. A config update replaces the whole query. */
-      query?: MetricsWidgetQuery;
-    }
-
-    export type DashboardWidgetConfig = NotebookWidgetConfig | ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig | ExperimentsListWidgetConfig | ExperimentResultsWidgetConfig | SurveyResultsWidgetConfig | LogsListWidgetConfig | ConversationsRecentTicketsWidgetConfig | CanvasAppWidgetConfig | MetricsTableWidgetConfig | MetricsWidgetConfig;
+    export type DashboardWidgetConfig = NotebookWidgetConfig | ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig | ExperimentsListWidgetConfig | ExperimentResultsWidgetConfig | SurveyResultsWidgetConfig | LogsListWidgetConfig | ConversationsRecentTicketsWidgetConfig | CanvasAppWidgetConfig | MetricsTableWidgetConfig;
 
     export interface DashboardWidget {
       readonly id: string;
@@ -23537,6 +23441,18 @@ export namespace Schemas {
     export interface CanvasStateResponse {
       /** The canvas's shared entries plus the caller's own user-scoped entries. */
       entries: CanvasStateEntry[];
+      /** Number of entries in the whole selection, across all pages. */
+      count: number;
+      /**
+         * URL of the next page, or null when complete. It pages the same way as this request: by cursor when the request used a cursor, otherwise by offset.
+         * @nullable
+         */
+      next: string | null;
+      /**
+         * URL of the previous page by offset, or null on the first page and for a cursor request.
+         * @nullable
+         */
+      previous: string | null;
       /**
          * Next entry offset, or null when complete. Null when the request used a cursor.
          * @nullable
@@ -24506,26 +24422,6 @@ export namespace Schemas {
       /** Star a new channel for the requester. This field does not change stars on an existing channel. */
       star?: boolean;
     }
-
-    /**
-     * * `outside_traffic` - Outside traffic
-     * * `usage` - Usage
-     * * `one_person` - One person
-     * * `tracking` - Tracking
-     * * `weekly_pattern` - Weekly pattern
-     * * `unclear` - Unclear
-     */
-    export type ChartCauseEnum = typeof ChartCauseEnum[keyof typeof ChartCauseEnum];
-
-
-    export const ChartCauseEnum = {
-      OutsideTraffic: 'outside_traffic',
-      Usage: 'usage',
-      OnePerson: 'one_person',
-      Tracking: 'tracking',
-      WeeklyPattern: 'weekly_pattern',
-      Unclear: 'unclear',
-    } as const;
 
     /**
      * * `author_scout` - author_scout
@@ -30224,6 +30120,30 @@ export namespace Schemas {
     }
 
     /**
+     * * `second` - second
+     * * `minute` - minute
+     * * `hour` - hour
+     * * `day` - day
+     * * `week` - week
+     * * `month` - month
+     * * `quarter` - quarter
+     * * `year` - year
+     */
+    export type IntervalTypeEnum = typeof IntervalTypeEnum[keyof typeof IntervalTypeEnum];
+
+
+    export const IntervalTypeEnum = {
+      Second: 'second',
+      Minute: 'minute',
+      Hour: 'hour',
+      Day: 'day',
+      Week: 'week',
+      Month: 'month',
+      Quarter: 'quarter',
+      Year: 'year',
+    } as const;
+
+    /**
      * OpenAPI-only shape for a dashboard's filters object (agents/MCP).
      *
      * Documents the dashboard-level filters that act as the single source of truth for the
@@ -30243,6 +30163,26 @@ export namespace Schemas {
       date_to?: string | null;
       /** Dashboard-level property filters applied to every tile (PostHog property filter group). */
       properties?: unknown;
+      /** Dashboard-level breakdown applied to every tile that supports one, replacing the tile's own breakdown. Example: {"breakdown_type": "event", "breakdown": "$browser"}. Null clears it. */
+      breakdown_filter?: BreakdownFilter | null;
+      /** Time granularity forced onto every tile that supports one. Null means each tile keeps its own.
+       *
+       * * `second` - second
+       * * `minute` - minute
+       * * `hour` - hour
+       * * `day` - day
+       * * `week` - week
+       * * `month` - month
+       * * `quarter` - quarter
+       * * `year` - year */
+      interval?: IntervalTypeEnum | null;
+      /** Period comparison forced onto every tile that supports one. Null means each tile keeps its own. */
+      compareFilter?: CompareFilter | null;
+      /**
+         * True forces test accounts out of every tile, false forces them in, null keeps each tile's setting.
+         * @nullable
+         */
+      filterTestAccounts?: boolean | null;
     }
 
     /**
@@ -30483,7 +30423,6 @@ export namespace Schemas {
        * * `experiment_results` - Experiment Results
        * * `experiments_list` - Experiments List
        * * `logs_list` - Logs List
-       * * `metrics` - Metrics
        * * `metrics_table` - Metrics Table
        * * `notebook_widget` - Notebook Widget
        * * `session_replay_list` - Session Replay List
@@ -30655,8 +30594,6 @@ export namespace Schemas {
          * @nullable
          */
       error: string | null;
-      /** True when `error` explains the failure to the viewer (for example, no access or an invalid query) and can be shown as is. Other errors are generic. */
-      error_is_user_facing?: boolean;
     }
 
     export interface DataCatalogCertification {
@@ -31042,30 +30979,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `second` - second
-     * * `minute` - minute
-     * * `hour` - hour
-     * * `day` - day
-     * * `week` - week
-     * * `month` - month
-     * * `quarter` - quarter
-     * * `year` - year
-     */
-    export type DataCatalogMetricRunRequestIntervalEnum = typeof DataCatalogMetricRunRequestIntervalEnum[keyof typeof DataCatalogMetricRunRequestIntervalEnum];
-
-
-    export const DataCatalogMetricRunRequestIntervalEnum = {
-      Second: 'second',
-      Minute: 'minute',
-      Hour: 'hour',
-      Day: 'day',
-      Week: 'week',
-      Month: 'month',
-      Quarter: 'quarter',
-      Year: 'year',
-    } as const;
-
-    /**
      * Optional run-time overrides. The whole body may be omitted; a metric runs by its URL name.
      */
     export interface DataCatalogMetricRunRequest {
@@ -31083,7 +30996,7 @@ export namespace Schemas {
        * * `month` - month
        * * `quarter` - quarter
        * * `year` - year */
-      interval?: DataCatalogMetricRunRequestIntervalEnum;
+      interval?: IntervalTypeEnum;
       /** Client-supplied id to correlate or cancel the run. */
       query_id?: string;
     }
@@ -48139,7 +48052,6 @@ export namespace Schemas {
      * * `metric_all_zero` - Metric All Zero
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `exposure_filter_on_dynamic_cohort` - Exposure Filter On Dynamic Cohort
-     * * `exposure_filter_excludes_events` - Exposure Filter Excludes Events
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
@@ -48169,7 +48081,6 @@ export namespace Schemas {
       MetricAllZero: 'metric_all_zero',
       ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
       ExposureFilterOnDynamicCohort: 'exposure_filter_on_dynamic_cohort',
-      ExposureFilterExcludesEvents: 'exposure_filter_excludes_events',
       Srm: 'srm',
       ZeroExposures: 'zero_exposures',
       TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
@@ -48242,7 +48153,6 @@ export namespace Schemas {
        * * `metric_all_zero` - Metric All Zero
        * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
        * * `exposure_filter_on_dynamic_cohort` - Exposure Filter On Dynamic Cohort
-       * * `exposure_filter_excludes_events` - Exposure Filter Excludes Events
        * * `srm` - Sample Ratio Mismatch
        * * `zero_exposures` - Zero Exposures
        * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
@@ -58178,7 +58088,20 @@ export namespace Schemas {
       personal_github_connected: boolean;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface GitHubBranchesResponse {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** List of branch names */
       branches: string[];
       /**
@@ -58333,7 +58256,20 @@ export namespace Schemas {
       installation_status: InstallationStatusEnum;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface GitHubReposResponse {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       repositories: GitHubRepo[];
       /** Whether more repositories are available beyond this page. */
       has_more: boolean;
@@ -58371,7 +58307,20 @@ export namespace Schemas {
       name: string;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface GitHubTeamsResponse {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** List of GitHub teams available to the installation organization. */
       teams: GitHubTeam[];
       /** Whether more teams are available beyond this page. */
@@ -62693,6 +62642,157 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type MetricsAggregation = typeof MetricsAggregation[keyof typeof MetricsAggregation];
+
+
+    export const MetricsAggregation = {
+      Sum: 'sum',
+      Avg: 'avg',
+      Count: 'count',
+      Min: 'min',
+      Max: 'max',
+      Quantile: 'quantile',
+      Rate: 'rate',
+      Increase: 'increase',
+      HistogramQuantile: 'histogram_quantile',
+    } as const;
+
+    export interface MetricsQueryGroupBy {
+      key: string;
+      scope?: MetricsAttributeScope | null;
+    }
+
+    export type MetricsOtelType = typeof MetricsOtelType[keyof typeof MetricsOtelType];
+
+
+    export const MetricsOtelType = {
+      Gauge: 'gauge',
+      Sum: 'sum',
+      Histogram: 'histogram',
+      ExponentialHistogram: 'exponential_histogram',
+      Summary: 'summary',
+    } as const;
+
+    export type MetricsRangeFunction = typeof MetricsRangeFunction[keyof typeof MetricsRangeFunction];
+
+
+    export const MetricsRangeFunction = {
+      Rate: 'rate',
+      Increase: 'increase',
+    } as const;
+
+    export interface MetricsQueryClause {
+      /** Omit to get one line per series (at most 100), without combining them */
+      aggregation?: MetricsAggregation | null;
+      filters?: MetricsQueryFilter[] | null;
+      groupBy?: MetricsQueryGroupBy[] | null;
+      metricName: string;
+      /** Series identity includes the OTel type — one name can exist as e.g. both a counter and a gauge — so a clause pins it to avoid blending distinct series. */
+      metricType?: MetricsOtelType | null;
+      /** Alias a formula refers to (e.g. "a"); must be unique within the query */
+      name: string;
+      /** In (0, 1); required for `quantile` / `histogram_quantile` aggregations */
+      quantile?: number | null;
+      /** Applied to each series before `aggregation`, like `rate()` in PromQL */
+      rangeFunction?: MetricsRangeFunction | null;
+    }
+
+    export type MetricsReducer = typeof MetricsReducer[keyof typeof MetricsReducer];
+
+
+    export const MetricsReducer = {
+      Last: 'last',
+      Mean: 'mean',
+      Min: 'min',
+      Max: 'max',
+      Sum: 'sum',
+      Delta: 'delta',
+    } as const;
+
+    export type MetricsNullMode = typeof MetricsNullMode[keyof typeof MetricsNullMode];
+
+
+    export const MetricsNullMode = {
+      Gap: 'gap',
+      Zero: 'zero',
+      Connect: 'connect',
+    } as const;
+
+    export type MetricsStatSummary = typeof MetricsStatSummary[keyof typeof MetricsStatSummary];
+
+
+    export const MetricsStatSummary = {
+      Latest: 'latest',
+      Average: 'average',
+      Total: 'total',
+    } as const;
+
+    export interface MetricsThreshold {
+      /** A named color token (e.g. "green", "red"), never raw hex, so light and dark themes both work. */
+      color: string;
+      /** Lower bound of this band. The lowest step is the base color below every other step. */
+      value: number;
+    }
+
+    export type MetricsDisplayType = typeof MetricsDisplayType[keyof typeof MetricsDisplayType];
+
+
+    export const MetricsDisplayType = {
+      Line: 'line',
+      Area: 'area',
+      Bar: 'bar',
+      Stat: 'stat',
+      Gauge: 'gauge',
+      Bargauge: 'bargauge',
+      Table: 'table',
+      Heatmap: 'heatmap',
+    } as const;
+
+    export type MetricsAxisScale = typeof MetricsAxisScale[keyof typeof MetricsAxisScale];
+
+
+    export const MetricsAxisScale = {
+      Linear: 'linear',
+      Log: 'log',
+    } as const;
+
+    export interface MetricsYAxisSettings {
+      /** Pins the top of the axis; unset means automatic. Pinning both ends drops the automatic stretch that keeps an off-scale goal line on-plot. */
+      max?: number | null;
+      /** Pins the bottom of the axis; unset means automatic. Ignored while `startAtZero` is on. */
+      min?: number | null;
+      scale?: MetricsAxisScale | null;
+      /** When false the axis floats to the data range instead of starting at zero. Ignored on a logarithmic scale, and on the bar display, where a bar's length encodes magnitude from zero. */
+      startAtZero?: boolean | null;
+    }
+
+    export interface MetricsDisplaySettings {
+      goalLines?: GoalLine[] | null;
+      /** Time-series panels only: which reducers the legend table shows. Empty means no legend calcs. */
+      legendCalcs?: MetricsReducer[] | null;
+      /** How a null bucket renders on a time-series chart. */
+      nullMode?: MetricsNullMode | null;
+      /** How scalar panels and legend calcs collapse a series to one number. */
+      reduce?: MetricsReducer | null;
+      /** `stat` display only: which summary the headline value shows. */
+      statSummary?: MetricsStatSummary | null;
+      /** Color bands for the scalar panels. Sorted by `value` at read time, so entry order does not matter. */
+      thresholds?: MetricsThreshold[] | null;
+      type?: MetricsDisplayType | null;
+      /** UCUM unit string as OTel writes it, e.g. "By", "ms", "%". Defaults from the response unit. */
+      unit?: string | null;
+      yAxis?: MetricsYAxisSettings | null;
+    }
+
+    export type MetricsQueryLanguage = typeof MetricsQueryLanguage[keyof typeof MetricsQueryLanguage];
+
+
+    export const MetricsQueryLanguage = {
+      Builder: 'builder',
+      Promql: 'promql',
+      Sql: 'sql',
+    } as const;
+
     export interface MetricsQueryPoint {
       /** Bucket start, ISO 8601 */
       time: string;
@@ -66004,74 +66104,6 @@ export namespace Schemas {
        * * `quick` - Read within a small budget, so the checks can run on every load
        * * `full` - Read with the same limits as the insight's own query */
       depth?: InsightDataChecksDepthEnum;
-    }
-
-    export interface InsightExplainChapter {
-      /** Identifier of the chapter, as it was sent. */
-      id: string;
-      /** What most likely caused the chapter: outside traffic, a real change in usage, one person or a test account, a tracking change, the usual weekly pattern, or unclear when no cause fits the facts.
-       *
-       * * `outside_traffic` - Outside traffic
-       * * `usage` - Usage
-       * * `one_person` - One person
-       * * `tracking` - Tracking
-       * * `weekly_pattern` - Weekly pattern
-       * * `unclear` - Unclear */
-      cause: ChartCauseEnum;
-      /** How sure the model is of the cause, from 0 to 1. */
-      confidence: number;
-    }
-
-    export interface InsightExplain {
-      /** The likely cause of each chapter the model answered, in the order they were sent. */
-      chapters: InsightExplainChapter[];
-    }
-
-    export interface InsightExplainChapterFacts {
-      /**
-         * Identifier of the chapter. The response returns the chapter under the same one.
-         * @maxLength 64
-         */
-      id: string;
-      /**
-         * What the chapter is about, for example 'A peak on October 2'.
-         * @maxLength 200
-         */
-      title: string;
-      /**
-         * The computed facts of the chapter in one or two sentences, with their numbers and dates.
-         * @maxLength 600
-         */
-      summary: string;
-      /**
-         * Findings about the cause of the chapter, one sentence each. Empty when nothing was found. At most 6.
-         * @maxItems 6
-         * @items.maxLength 600
-         */
-      evidence?: string[];
-    }
-
-    export interface InsightExplainRequest {
-      /**
-         * Name of the series that the explanation follows.
-         * @maxLength 200
-         */
-      series_label: string;
-      /**
-         * Name of the insight. Blank for an insight that has no name yet.
-         * @maxLength 400
-         */
-      insight_name?: string;
-      /**
-         * The computed facts of the whole chart, such as its typical level, its range and how it ends.
-         * @maxLength 600
-         */
-      overview?: string;
-      /**
-         * The chapters of the explanation in reading order. At most 8. Empty when nothing stands out on the chart.
-         * @maxItems 8
-         */
-      chapters: InsightExplainChapterFacts[];
     }
 
     /**
@@ -72962,6 +72994,7 @@ export namespace Schemas {
        * * `session_recording_playlist` - session_recording_playlist
        * * `sharing_configuration` - sharing_configuration
        * * `signal_scout` - signal_scout
+       * * `signal_usage` - signal_usage
        * * `stamphog` - stamphog
        * * `streamlit_app` - streamlit_app
        * * `subscription` - subscription
@@ -73866,37 +73899,6 @@ export namespace Schemas {
 
     export const MetricsTableWidgetTypeEnum = {
       MetricsTable: 'metrics_table',
-    } as const;
-
-    export type MetricsWidgetCatalogEntryOpenApiWidgetType = typeof MetricsWidgetCatalogEntryOpenApiWidgetType[keyof typeof MetricsWidgetCatalogEntryOpenApiWidgetType];
-
-
-    export const MetricsWidgetCatalogEntryOpenApiWidgetType = {
-      Metrics: 'metrics',
-    } as const;
-
-    export interface MetricsWidgetCatalogEntryOpenApi {
-      widget_type: MetricsWidgetCatalogEntryOpenApiWidgetType;
-      group_id: string;
-      group_label: string;
-      label: string;
-      description: string;
-      /** Config shape for this widget type. Build the config for the batch add and batch update tools from it, because their schemas do not list config keys. */
-      readonly config_schema: MetricsWidgetConfig;
-      /** @nullable */
-      required_product_access?: string | null;
-      /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
-      live: boolean;
-    }
-
-    /**
-     * * `metrics` - metrics
-     */
-    export type MetricsWidgetTypeEnum = typeof MetricsWidgetTypeEnum[keyof typeof MetricsWidgetTypeEnum];
-
-
-    export const MetricsWidgetTypeEnum = {
-      Metrics: 'metrics',
     } as const;
 
     export interface MicrosoftDefenderCloudAppsScannerFindingSignalExtra {
@@ -75876,7 +75878,20 @@ export namespace Schemas {
       prompt_version: string | null;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface OfflineExperimentPage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Total authorized rows matching the filters, independent of this page. */
       count: number;
       /**
@@ -76012,7 +76027,20 @@ export namespace Schemas {
       summary: OfflineScorerSummary;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface OfflineHistoryPage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Total authorized rows matching the filters, independent of this page. */
       count: number;
       /**
@@ -76141,7 +76169,20 @@ export namespace Schemas {
       results: OfflineResultCell[];
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface OfflineItemPage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Total authorized rows matching the filters, independent of this page. */
       count: number;
       /**
@@ -76228,7 +76269,20 @@ export namespace Schemas {
       scorer: OfflineScorerVersionRead;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface OfflineResultPage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Total authorized rows matching the filters, independent of this page. */
       count: number;
       /**
@@ -76260,7 +76314,20 @@ export namespace Schemas {
       data: OfflineEvaluationResultPayloadInput | null;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface OfflineSummaryPage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Total authorized rows matching the filters, independent of this page. */
       count: number;
       /**
@@ -76954,7 +77021,11 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly updated_at: string;
-      /** @nullable */
+      /**
+         * Optional personal message in the invite email.
+         * @maxLength 1000
+         * @nullable
+         */
       message?: string | null;
       /** List of team IDs and corresponding access levels to private projects. */
       private_project_access?: unknown;
@@ -77708,6 +77779,7 @@ export namespace Schemas {
     }
 
     export interface PaginatedBatchExportBackfillList {
+      count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
@@ -77725,6 +77797,7 @@ export namespace Schemas {
     }
 
     export interface PaginatedBatchExportRunList {
+      count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
@@ -77874,6 +77947,7 @@ export namespace Schemas {
     }
 
     export interface PaginatedCommentList {
+      count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
@@ -78820,12 +78894,32 @@ export namespace Schemas {
     }
 
     export interface PaginatedMCPSessionList {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      next: string | null;
+      /**
+         * URL of the previous page, or null on the first page.
+         * @nullable
+         */
+      previous: string | null;
       results: MCPSession[];
       /** Whether more results exist beyond this page; the client fetches the next page with a larger offset. */
       has_next: boolean;
     }
 
     export interface PaginatedMCPToolCallList {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      next: string | null;
+      /**
+         * URL of the previous page, or null on the first page.
+         * @nullable
+         */
+      previous: string | null;
       results: MCPToolCall[];
       /** Whether more results exist beyond this page; the client fetches the next page with a larger offset. */
       has_next: boolean;
@@ -79311,11 +79405,11 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `DEBUG` - DEBUG
-     * * `LOG` - LOG
-     * * `INFO` - INFO
-     * * `WARN` - WARN
-     * * `ERROR` - ERROR
+     * * `DEBUG` - Debug
+     * * `LOG` - Log
+     * * `INFO` - Info
+     * * `WARN` - Warn
+     * * `ERROR` - Error
      */
     export type PluginLogEntryTypeEnum = typeof PluginLogEntryTypeEnum[keyof typeof PluginLogEntryTypeEnum];
 
@@ -82175,6 +82269,7 @@ export namespace Schemas {
     }
 
     export interface PaginatedSubscriptionDeliveryList {
+      count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
@@ -82410,6 +82505,7 @@ export namespace Schemas {
     }
 
     export interface PaginatedSubscriptionSummaryList {
+      count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
@@ -83660,6 +83756,18 @@ export namespace Schemas {
       results: Ticket[];
     }
 
+    /**
+     * * `shared` - Everyone in the project
+     * * `personal` - Only the creator
+     */
+    export type TicketMacroVisibilityEnum = typeof TicketMacroVisibilityEnum[keyof typeof TicketMacroVisibilityEnum];
+
+
+    export const TicketMacroVisibilityEnum = {
+      Shared: 'shared',
+      Personal: 'personal',
+    } as const;
+
     export interface TicketMacro {
       /** UUID of the macro. */
       readonly id: string;
@@ -83669,7 +83777,7 @@ export namespace Schemas {
          */
       name: string;
       /**
-         * Slash command for this macro, without the leading slash. Lowercase letters, numbers, and hyphens. Unique within the project. Null when the macro has no shortcut.
+         * Slash command for this macro, without the leading slash. Lowercase letters, numbers, and hyphens. A shared shortcut is unique among the project's shared macros, and a personal one among the creator's personal macros. Null when the macro has no shortcut.
          * @maxLength 50
          * @nullable
          */
@@ -83679,6 +83787,11 @@ export namespace Schemas {
          * @maxLength 10000
          */
       body: string;
+      /** Who can see and use the macro. 'shared' is everyone in the project, the default. 'personal' is only the person who created it.
+       *
+       * * `shared` - Everyone in the project
+       * * `personal` - Only the creator */
+      visibility?: TicketMacroVisibilityEnum;
       /** How many times agents have inserted this macro. */
       readonly usage_count: number;
       /**
@@ -91159,7 +91272,7 @@ export namespace Schemas {
       name?: string | null;
       description?: string;
       pinned?: boolean;
-      /** Dashboard-level filters (date range and properties) applied across all tiles as the source of truth. */
+      /** Dashboard-level filters (date range, properties, breakdown, interval, comparison) applied across all tiles as the source of truth. */
       filters?: DashboardFiltersOpenApi;
       /**
          * Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them.
@@ -93639,8 +93752,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-         * @maxItems 14
+         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+         * @maxItems 15
          */
       write_scopes?: string[];
       /**
@@ -95205,7 +95318,7 @@ export namespace Schemas {
          */
       name?: string;
       /**
-         * Slash command for this macro, without the leading slash. Lowercase letters, numbers, and hyphens. Unique within the project. Null when the macro has no shortcut.
+         * Slash command for this macro, without the leading slash. Lowercase letters, numbers, and hyphens. A shared shortcut is unique among the project's shared macros, and a personal one among the creator's personal macros. Null when the macro has no shortcut.
          * @maxLength 50
          * @nullable
          */
@@ -95215,6 +95328,11 @@ export namespace Schemas {
          * @maxLength 10000
          */
       body?: string;
+      /** Who can see and use the macro. 'shared' is everyone in the project, the default. 'personal' is only the person who created it.
+       *
+       * * `shared` - Everyone in the project
+       * * `personal` - Only the creator */
+      visibility?: TicketMacroVisibilityEnum;
       /** How many times agents have inserted this macro. */
       readonly usage_count?: number;
       /**
@@ -95498,7 +95616,6 @@ export namespace Schemas {
        * * `experiment_results` - Experiment Results
        * * `experiments_list` - Experiments List
        * * `logs_list` - Logs List
-       * * `metrics` - Metrics
        * * `metrics_table` - Metrics Table
        * * `notebook_widget` - Notebook Widget
        * * `session_replay_list` - Session Replay List
@@ -96430,12 +96547,12 @@ export namespace Schemas {
       personalized: boolean;
       /** True when the list is a stored one. False when it is the inbox order fallback or the new list that `wait_seconds` waited for. */
       cached: boolean;
-      /** True when the list does not match your current inbox or focus. When `building` is true, a newer list is on the way. Otherwise you reached the build limit, so try again later. */
+      /** True when the list does not match your current inbox or focus. When `building` is true, a newer list is on the way. Otherwise a build limit was reached, so try again later. */
       stale: boolean;
       /** True when a new list is being built in the background. Call again in a few seconds, or pass `wait_seconds`, to get it. */
       building: boolean;
       /**
-         * Why the list is in inbox order and not ranked by the language model. building: no list is stored yet and one is being built. rate_limited: no list is stored yet and you reached the build limit. build_failed: no list is stored yet and the build could not start. llm_error, timeout, malformed_output, truncated_output, no_candidates or ai_not_approved: the stored build fell back. Null when the model ranked it.
+         * Why the list is in inbox order and not ranked by the language model. building: no list is stored yet and one is being built. rate_limited: no list is stored yet and a build limit was reached, either yours or the shared daily one. build_failed: no list is stored yet and the build could not start. no_activity_summary: you have no activity summary yet, so the model did not rank the list. llm_error, timeout, malformed_output, truncated_output, no_candidates or ai_not_approved: the stored build fell back. Null when the model ranked it.
          * @nullable
          */
       fallback_reason: string | null;
@@ -105927,6 +106044,25 @@ export namespace Schemas {
       signals: SignalNode[];
     }
 
+    export interface SpendAmount {
+      /**
+         * Recorded usage in USD cents, before billing exemptions; null when untracked.
+         * @nullable
+         */
+      total_spend: number | null;
+      /** Whether usage is still settling or accounting is incomplete. */
+      incomplete: boolean;
+    }
+
+    export interface ReportSpend {
+      /** Usage for the report's backing signals, research and repository selection. */
+      generation: SpendAmount;
+      /** Usage for implementation tasks owned by the report. */
+      implementation: SpendAmount;
+      /** Full usage of scout runs that authored this report. Shared with all other output of those runs. */
+      shared_scout_runs: SpendAmount;
+    }
+
     /**
      * * `get_it_merged` - Get it merged
      * * `make_it_green` - Make it green
@@ -106675,7 +106811,20 @@ export namespace Schemas {
       updated_at: string;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface ReusableWidgetPage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Reusable widgets in this page. */
       results: ReusableWidgetSummary[];
       /** Total reusable widgets matching the search. */
@@ -106720,7 +106869,20 @@ export namespace Schemas {
       expected_current_version_id: string;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface ReusableWidgetVersionPage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Published versions, newest first. */
       results: ReusableWidgetVersionDetail[];
       /** Total number of published versions. */
@@ -107853,7 +108015,20 @@ export namespace Schemas {
       body: string;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface ReviewReviewsTablePage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** How many reviews match the scope and every filter, across all pages. */
       count: number;
       /** How many reviews have a run in flight under the scope and filters, ignoring `status`. Labels the running quick filter without a second request. */
@@ -108816,8 +108991,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-         * @maxItems 14
+         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+         * @maxItems 15
          */
       write_scopes?: string[];
       /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -109132,8 +109307,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-         * @maxItems 14
+         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+         * @maxItems 15
          */
       readonly write_scopes: readonly string[];
       /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -109414,7 +109589,20 @@ export namespace Schemas {
       readonly created_by: UserBasic | null;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface ScoreDefinitionVersionPage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Total immutable versions for this scorer. */
       count: number;
       /**
@@ -110167,6 +110355,18 @@ export namespace Schemas {
       name: string;
       /** Every scope a token minted from this preset carries, including the internal ones. */
       scopes: string[];
+    }
+
+    export interface ScoutSpend {
+      /** Name of the scout skill. */
+      skill_name: string;
+      /** Accumulated usage for this scout's runs in the period. */
+      spend: SpendAmount;
+      /**
+         * Average recorded usage per tracked scout run in USD cents; null when no runs were tracked.
+         * @nullable
+         */
+      average_spend: number | null;
     }
 
     export interface ScoutSuggestionRefresh {
@@ -112819,8 +113019,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-         * @maxItems 14
+         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+         * @maxItems 15
          */
       write_scopes?: string[];
       /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -113427,7 +113627,20 @@ export namespace Schemas {
       is_private_without_access: boolean;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface SlackChannelsResponse {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Slack channels visible to the PostHog Slack app. */
       channels: SlackChannel[];
       /**
@@ -113620,7 +113833,20 @@ export namespace Schemas {
       display_name: string;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface SlackUsersResponse {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Human Slack workspace members the PostHog Slack app can DM. */
       users: SlackUser[];
       /**
@@ -118268,6 +118494,17 @@ export namespace Schemas {
       webhook?: SourceSetupWebhook;
     }
 
+    export interface SourceSpend {
+      /** Product that emitted the signals. */
+      source_product: string;
+      /** Type of signals emitted by the source. */
+      source_type: string;
+      /** Number of signals received in the last 30 days. */
+      signal_count: number;
+      /** Accumulated processing usage on these signals, including later processing. */
+      spend: SpendAmount;
+    }
+
     /**
      * Validation errors keyed by the source or mapped table ID. Valid sources are omitted.
      */
@@ -118322,6 +118559,17 @@ export namespace Schemas {
       Count: 'count',
       Bytes: 'bytes',
     } as const;
+
+    export interface SpendOverview {
+      /** Inclusive start of the rolling 30-day run window. */
+      period_start: string;
+      /** Exclusive end of the rolling 30-day run window. */
+      period_end: string;
+      /** Usage for each scout with runs in the period. */
+      scouts: ScoutSpend[];
+      /** Total scout run usage in the period. */
+      scout_spend: SpendAmount;
+    }
 
     /**
      * Raw cached payload as stored in Redis, or null on a miss.
@@ -119399,7 +119647,20 @@ export namespace Schemas {
       extra: SurveyResponseExtra;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface SurveyResponsesList {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Survey response rows for the requested page. */
       results: SurveyResponseRow[];
       /** True if more rows exist beyond the current page — fetch the next page with offset + limit. */
@@ -120027,6 +120288,16 @@ export namespace Schemas {
          * @nullable
          */
       next_before_id?: string | null;
+      /**
+         * URL of the next page, with before and before_id set, or null on the final page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * Always null: the feed pages forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
     }
 
     /**
@@ -125392,7 +125663,7 @@ export namespace Schemas {
       generation_id: string;
     }
 
-    export type WidgetCatalogEntry = NotebookWidgetCatalogEntryOpenApi | ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi | ExperimentsListWidgetCatalogEntryOpenApi | ExperimentResultsWidgetCatalogEntryOpenApi | SurveyResultsWidgetCatalogEntryOpenApi | LogsListWidgetCatalogEntryOpenApi | ConversationsRecentTicketsWidgetCatalogEntryOpenApi | CanvasAppWidgetCatalogEntryOpenApi | MetricsTableWidgetCatalogEntryOpenApi | MetricsWidgetCatalogEntryOpenApi;
+    export type WidgetCatalogEntry = NotebookWidgetCatalogEntryOpenApi | ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi | ExperimentsListWidgetCatalogEntryOpenApi | ExperimentResultsWidgetCatalogEntryOpenApi | SurveyResultsWidgetCatalogEntryOpenApi | LogsListWidgetCatalogEntryOpenApi | ConversationsRecentTicketsWidgetCatalogEntryOpenApi | CanvasAppWidgetCatalogEntryOpenApi | MetricsTableWidgetCatalogEntryOpenApi;
 
     export interface WidgetCatalogResponse {
       /** Registered dashboard widget types. */
@@ -125770,7 +126041,20 @@ export namespace Schemas {
       build_hash: string | null;
     }
 
+    /**
+     * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+     */
     export interface WidgetVersionPage {
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      readonly next: string | null;
+      /**
+         * URL of the previous page, or null on the first page and on lists that page forward only.
+         * @nullable
+         */
+      readonly previous: string | null;
       /** Versions ordered newest first. */
       results: WidgetVersion[];
       /**
@@ -130348,6 +130632,7 @@ export namespace Schemas {
     export type CrossProjectDashboardsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -130359,6 +130644,7 @@ export namespace Schemas {
     export type CrossProjectDashboardsTilesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -130738,6 +131024,7 @@ export namespace Schemas {
     created_by?: number[];
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -130753,6 +131040,7 @@ export namespace Schemas {
     export type AccountRelationshipDefinitionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -130775,6 +131063,7 @@ export namespace Schemas {
     export type AccountTrackRulesRunsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -130809,6 +131098,7 @@ export namespace Schemas {
     include_ignored?: boolean;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -130858,6 +131148,7 @@ export namespace Schemas {
     export type AccountsEmailThreadsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -130869,6 +131160,7 @@ export namespace Schemas {
     export type AccountsEmailThreadMessagesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 200
      */
     limit?: number;
     /**
@@ -130880,6 +131172,7 @@ export namespace Schemas {
     export type AccountsMeetingsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -130895,6 +131188,7 @@ export namespace Schemas {
     export type AccountsSummariesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -130906,6 +131200,7 @@ export namespace Schemas {
     export type AccountsSupportTicketMessagesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 200
      */
     limit?: number;
     /**
@@ -132160,6 +132455,7 @@ export namespace Schemas {
     export type AnnouncementsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -132239,6 +132535,7 @@ export namespace Schemas {
     export type AutoresearchListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -132250,6 +132547,7 @@ export namespace Schemas {
     export type AutoresearchModelsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -132261,6 +132559,7 @@ export namespace Schemas {
     export type AutoresearchRunsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -132272,6 +132571,7 @@ export namespace Schemas {
     export type AutoresearchSuggestionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -132283,6 +132583,7 @@ export namespace Schemas {
     export type AutoresearchTrainingRunsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -132312,6 +132613,7 @@ export namespace Schemas {
     export type BatchExportsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -132701,6 +133003,7 @@ export namespace Schemas {
     export type BusinessKnowledgeSourcesDocumentsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 5000
      */
     limit?: number;
     /**
@@ -132728,6 +133031,7 @@ export namespace Schemas {
     kind?: CanvasesListKind;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -132929,6 +133233,7 @@ export namespace Schemas {
     export type CanvasesVersionsRetrieveParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -133455,6 +133760,7 @@ export namespace Schemas {
     export type CustomPropertyDefinitionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -133488,6 +133794,7 @@ export namespace Schemas {
     export type CustomPropertySourcesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -133499,6 +133806,7 @@ export namespace Schemas {
     export type CustomPropertySourcesRunsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -133514,6 +133822,7 @@ export namespace Schemas {
     export type CustomerJourneysListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -133525,6 +133834,7 @@ export namespace Schemas {
     export type CustomerProfileConfigsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -133951,15 +134261,7 @@ export namespace Schemas {
     } as const;
 
     export type DashboardsRunWidgetsRetrieveParams = {
-    /**
-     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
-     */
-    filters_override?: string;
     format?: DashboardsRunWidgetsRetrieveFormat;
-    /**
-     * Recompute widgets that follow dashboard filters (such as metrics) instead of serving their query cache, as a manual refresh of an insight tile does.
-     */
-    refresh?: boolean;
     /**
      * Comma-separated dashboard tile IDs to run widgets for.
      */
@@ -134117,7 +134419,6 @@ export namespace Schemas {
       ExperimentResults: 'experiment_results',
       ExperimentsList: 'experiments_list',
       LogsList: 'logs_list',
-      Metrics: 'metrics',
       MetricsTable: 'metrics_table',
       NotebookWidget: 'notebook_widget',
       SessionReplayList: 'session_replay_list',
@@ -135134,11 +135435,6 @@ export namespace Schemas {
      * @maximum 500
      */
     limit?: number;
-    /**
-     * Number of log entries to skip before the first returned entry (default 0).
-     * @minimum 0
-     */
-    offset?: number;
     /**
      * Case-insensitive substring search across log messages.
      * @minLength 1
@@ -136280,6 +136576,7 @@ export namespace Schemas {
     issue_id?: string;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -136344,6 +136641,7 @@ export namespace Schemas {
     export type ErrorTrackingIssuesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -136416,6 +136714,7 @@ export namespace Schemas {
     export type ErrorTrackingReleasesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -136439,6 +136738,7 @@ export namespace Schemas {
     issue_ids?: string;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -136454,6 +136754,7 @@ export namespace Schemas {
     export type ErrorTrackingStackFramesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -136476,6 +136777,7 @@ export namespace Schemas {
     export type ErrorTrackingSymbolSetsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -137484,6 +137786,7 @@ export namespace Schemas {
     created_by_ids?: number[];
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -137607,6 +137910,7 @@ export namespace Schemas {
     export type FileDownloadBatchExportsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -137663,6 +137967,7 @@ export namespace Schemas {
     include_tags?: boolean;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -138124,6 +138429,7 @@ export namespace Schemas {
     latest_send_first?: boolean;
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number;
     /**
@@ -138539,6 +138845,7 @@ export namespace Schemas {
     export type HogFlowsProposalsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number;
     /**
@@ -138564,6 +138871,7 @@ export namespace Schemas {
     export type HogFlowsRevisionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number;
     /**
@@ -139349,18 +139657,6 @@ export namespace Schemas {
 
 
     export const InsightsDataChecksCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type InsightsExplainCreateParams = {
-    format?: InsightsExplainCreateFormat;
-    };
-
-    export type InsightsExplainCreateFormat = typeof InsightsExplainCreateFormat[keyof typeof InsightsExplainCreateFormat];
-
-
-    export const InsightsExplainCreateFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;
@@ -141735,14 +142031,50 @@ export namespace Schemas {
 
     export type PluginConfigsLogsListParams = {
     /**
-     * Number of results to return per page.
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Maximum number of log entries to return (1-1000, default 100).
+     * @minimum 1
+     * @maximum 1000
      */
     limit?: number;
     /**
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     */
+    search?: string;
+    /**
+     * Log types to include. Repeat the parameter to include more than one type.
+     */
+    type_filter?: PluginConfigsLogsListTypeFilterItem[];
     };
+
+    /**
+     * * `DEBUG` - Debug
+     * * `LOG` - Log
+     * * `INFO` - Info
+     * * `WARN` - Warn
+     * * `ERROR` - Error
+     */
+    export type PluginConfigsLogsListTypeFilterItem = typeof PluginConfigsLogsListTypeFilterItem[keyof typeof PluginConfigsLogsListTypeFilterItem];
+
+
+    export const PluginConfigsLogsListTypeFilterItem = {
+      Debug: 'DEBUG',
+      Log: 'LOG',
+      Info: 'INFO',
+      Warn: 'WARN',
+      Error: 'ERROR',
+    } as const;
 
     export type PrecomputeDebugStateParams = {
     /**
@@ -142412,6 +142744,7 @@ export namespace Schemas {
     created_by?: number;
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number;
     /**
@@ -142484,6 +142817,114 @@ export namespace Schemas {
      */
     version?: number;
     };
+
+    export type SignalsActivitySummaryMembersSearchParams = {
+    /**
+     * Members to leave out, such as people you already checked.
+     */
+    exclude_user_uuids?: string[];
+    /**
+     * Add the one-page markdown profile to each result. Set it only for the people you want to read.
+     */
+    include_profile?: boolean;
+    /**
+     * The most results to return, best match first.
+     * @minimum 1
+     * @maximum 25
+     */
+    limit?: number;
+    /**
+     * Only members who work in or visit this product.
+     *
+     * * `product_analytics` - Product Analytics
+     * * `dashboards` - Dashboards
+     * * `web_analytics` - Web Analytics
+     * * `session_replay` - Session Replay
+     * * `heatmaps` - Heatmaps
+     * * `error_tracking` - Error Tracking
+     * * `experiments` - Experiments
+     * * `feature_flags` - Feature Flags
+     * * `early_access_features` - Early Access Features
+     * * `surveys` - Surveys
+     * * `product_tours` - Product Tours
+     * * `notebooks` - Notebooks
+     * * `cohorts` - Cohorts
+     * * `persons` - Persons
+     * * `data_management` - Data Management
+     * * `data_warehouse` - Data Warehouse
+     * * `data_pipelines` - Data Pipelines
+     * * `workflows` - Workflows
+     * * `ai_observability` - Ai Observability
+     * * `mcp_analytics` - Mcp Analytics
+     * * `logs` - Logs
+     * * `tracing` - Tracing
+     * * `endpoints` - Endpoints
+     * * `revenue_analytics` - Revenue Analytics
+     * * `customer_analytics` - Customer Analytics
+     * * `inbox` - Inbox
+     * * `canvases` - Canvases
+     * * `support` - Support
+     * @minLength 1
+     */
+    product?: SignalsActivitySummaryMembersSearchProduct;
+    /**
+     * Natural language or keywords, such as an object name, a topic or a product area. Without a query, the search lists members with a summary, the newest summary first.
+     * @maxLength 500
+     */
+    query?: string;
+    /**
+     * `hybrid` merges the keyword and semantic rankings. `semantic` ranks by meaning only, and returns 503 when the vector search fails. `keyword` matches query terms in the profile, the headline, the theme labels and the names of owned and watched objects.
+     *
+     * * `hybrid` - Hybrid
+     * * `semantic` - Semantic
+     * * `keyword` - Keyword
+     * @minLength 1
+     */
+    search_mode?: SignalsActivitySummaryMembersSearchSearchMode;
+    };
+
+    export type SignalsActivitySummaryMembersSearchProduct = typeof SignalsActivitySummaryMembersSearchProduct[keyof typeof SignalsActivitySummaryMembersSearchProduct];
+
+
+    export const SignalsActivitySummaryMembersSearchProduct = {
+      ProductAnalytics: 'product_analytics',
+      Dashboards: 'dashboards',
+      WebAnalytics: 'web_analytics',
+      SessionReplay: 'session_replay',
+      Heatmaps: 'heatmaps',
+      ErrorTracking: 'error_tracking',
+      Experiments: 'experiments',
+      FeatureFlags: 'feature_flags',
+      EarlyAccessFeatures: 'early_access_features',
+      Surveys: 'surveys',
+      ProductTours: 'product_tours',
+      Notebooks: 'notebooks',
+      Cohorts: 'cohorts',
+      Persons: 'persons',
+      DataManagement: 'data_management',
+      DataWarehouse: 'data_warehouse',
+      DataPipelines: 'data_pipelines',
+      Workflows: 'workflows',
+      AiObservability: 'ai_observability',
+      McpAnalytics: 'mcp_analytics',
+      Logs: 'logs',
+      Tracing: 'tracing',
+      Endpoints: 'endpoints',
+      RevenueAnalytics: 'revenue_analytics',
+      CustomerAnalytics: 'customer_analytics',
+      Inbox: 'inbox',
+      Canvases: 'canvases',
+      Support: 'support',
+    } as const;
+
+    export type SignalsActivitySummaryMembersSearchSearchMode = typeof SignalsActivitySummaryMembersSearchSearchMode[keyof typeof SignalsActivitySummaryMembersSearchSearchMode];
+
+
+    export const SignalsActivitySummaryMembersSearchSearchMode = {
+      Hybrid: 'hybrid',
+      Semantic: 'semantic',
+      Keyword: 'keyword',
+    } as const;
 
     export type SignalsAnomaliesInsightRetrieveParams = {
     /**
@@ -145780,6 +146221,7 @@ export namespace Schemas {
     kind?: WarehouseSuggestionsListKind;
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -146029,6 +146471,7 @@ export namespace Schemas {
     created_after?: string;
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -146066,7 +146509,7 @@ export namespace Schemas {
     export type WizardSessionsListParams = {
     /**
      * Maximum number of sessions to return.
-     * @minimum 0
+     * @minimum 1
      * @maximum 200
      */
     limit?: number;
