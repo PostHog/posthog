@@ -338,6 +338,40 @@ describe('tileCanvasLogic', () => {
             expect(edgePairs()).toEqual(before)
             expect(logic.values.isMovingNode).toBe(false)
         })
+
+        it('offers no + after a step that two paths join into, and records no move for a drop there', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/hog_flows/:id/': {
+                        ...savedWorkflow,
+                        actions: [...savedWorkflow.actions.slice(0, -1), step('join'), savedWorkflow.actions.at(-1)],
+                        edges: [
+                            ...savedWorkflow.edges.filter((candidate) => candidate.to !== 'exit_node'),
+                            { from: 'a2', to: 'join', type: 'continue' },
+                            { from: 'b2', to: 'join', type: 'continue' },
+                            { from: 'join', to: 'exit_node', type: 'continue' },
+                        ],
+                    },
+                },
+            })
+            logic = await mountSavedCanvas()
+            await expectLogic(hogFlowEditorLogic({ id: WORKFLOW_ID }))
+                .toFinishAllListeners()
+                .toMatchValues({ nodes: expect.arrayContaining([expect.objectContaining({ id: 'join' })]) })
+            const before = edgePairs()
+            const capture = jest.spyOn(posthog, 'capture')
+
+            logic.actions.startDraggingStep('join')
+
+            expect(logic.values.placeableEdgeKeys).not.toContain(getEdgeId(edge('join', 'exit_node') as HogFlowEdge))
+            expect(logic.values.placeableEdgeKeys).toContain(getEdgeId(edge('a2', 'join') as HogFlowEdge))
+
+            logic.actions.dropAt(edge('join', 'exit_node') as HogFlowEdge)
+            logic.actions.endDraggingStep()
+
+            expect(edgePairs()).toEqual(before)
+            expect(capture).not.toHaveBeenCalledWith('workflows tile canvas step moved', expect.anything())
+        })
     })
 
     describe('paths', () => {

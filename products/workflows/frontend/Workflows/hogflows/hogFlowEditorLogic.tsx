@@ -2787,11 +2787,13 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 if (isMovingNode && movingNodeId) {
                     const incomingEdges = edges.filter((e) => e.target === movingNodeId)
                     const outgoingEdges = edges.filter((e) => e.source === movingNodeId)
-                    // Only skip in the simple linear case (1 incoming, 1 outgoing)
-                    // where placing on adjacent edges would result in the same position
+                    // A move drops the step's outgoing edge before it splits the target, so that edge can never take the step.
+                    if (outgoingEdges.length === 1) {
+                        skipEdgeIds.add(outgoingEdges[0].id)
+                    }
+                    // With one incoming edge, placing the step there leaves it where it is.
                     if (incomingEdges.length === 1 && outgoingEdges.length === 1) {
                         skipEdgeIds.add(incomingEdges[0].id)
-                        skipEdgeIds.add(outgoingEdges[0].id)
                     }
                 }
 

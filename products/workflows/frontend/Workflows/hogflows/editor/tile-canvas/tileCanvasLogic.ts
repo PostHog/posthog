@@ -800,8 +800,11 @@ export const tileCanvasLogic = kea<tileCanvasLogicType>([
             actions.setHighlightedDropzoneNodeId(dropzone.id)
             if (values.isMovingNode) {
                 const stepType = values.nodesById[values.movingNodeId ?? '']?.data.type
+                const edgesBefore = values.workflow.edges
                 actions.moveNodeToHighlightedDropzone()
-                posthog.capture('workflows tile canvas step moved', { source, step_type: stepType })
+                if (values.workflow.edges !== edgesBefore) {
+                    posthog.capture('workflows tile canvas step moved', { source, step_type: stepType })
+                }
             } else {
                 actions.copyNodeToHighlightedDropzone()
             }
