@@ -240,9 +240,7 @@ function getDrilldownProps(
     }
 }
 
-// A plain SQL table needs none of the chart, alert, or drilldown logics. Every mounted logic makes each later
-// dispatch on the page slower, so tables skip them. The branches are different component types, so React
-// remounts the content when a tile switches between a table and a chart, and no hook runs conditionally.
+// Plain tables skip the chart, alert and drilldown logics, because each mounted logic slows every later dispatch.
 function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX.Element {
     const { query, effectiveVisualizationType, dataVisualizationProps } = useValues(dataVisualizationLogic)
     const isPlainTable =
@@ -251,8 +249,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     if (isPlainTable && props.readOnly) {
         return <DataTableVisualizationContent {...props} chartLogics={null} />
     }
-    // BindLogic mounts displayLogic. Charts and the settings sidebar read it, and the sidebar only renders
-    // when the visualization is editable, so a read-only table does not bind it.
+    // Only charts and the editable settings sidebar read displayLogic, so a read-only table does not bind it.
     return (
         <BindLogic logic={displayLogic} props={{ key: dataVisualizationProps.key }}>
             {isPlainTable ? (

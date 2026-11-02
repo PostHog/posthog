@@ -765,14 +765,6 @@ export interface dataVisualizationLogicActions {
                   id: string
               }
     }
-    addSeries: (
-        columnName?: string,
-        settings?: AxisSeriesSettings
-    ) => {
-        allColumns: Column[]
-        columnName: string | undefined
-        settings: AxisSeriesSettings | undefined
-    }
     addYSeries: (
         columnName?: string,
         settings?: AxisSeriesSettings
@@ -1048,8 +1040,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         }
     }),
     propsChanged(({ actions, values, props }, oldProps) => {
-        // Without setQuery, the internal query keeps the axis settings that the parent never receives, so it never
-        // equals props.query. Comparing against it would dispatch _setQuery on every parent render.
+        // Without setQuery the internal query never equals props.query, so re-sync only when the prop changes.
         if (!props.setQuery && objectsEqual(props.query, oldProps.query)) {
             return
         }
@@ -1084,11 +1075,6 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             columnName,
             settings,
             allNumericalColumns: values.numericalColumns,
-        }),
-        addSeries: (columnName?: string, settings?: AxisSeriesSettings) => ({
-            columnName,
-            settings,
-            allColumns: values.columns,
         }),
         deleteYSeries: (seriesIndex: number) => ({ seriesIndex }),
         initializeAxes: (
@@ -1148,32 +1134,6 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 },
                 clearAxis: () => null,
                 initializeAxes: (state, { tabularColumns }) => tabularColumns ?? state,
-                addSeries: (state, { columnName, settings, allColumns }) => {
-                    if (!state && columnName !== undefined) {
-                        return [{ name: columnName, settings: settings ?? DefaultAxisSettings() }]
-                    }
-
-                    if (!state) {
-                        return [null]
-                    }
-
-                    if (!columnName) {
-                        const ungraphedColumns = allColumns.filter((n) => !state.map((m) => m?.name).includes(n.name))
-                        if (ungraphedColumns.length > 0) {
-                            return [
-                                ...state,
-                                { name: ungraphedColumns[0].name, settings: settings ?? DefaultAxisSettings() },
-                            ]
-                        }
-                    }
-
-                    return [
-                        ...state,
-                        columnName === undefined
-                            ? null
-                            : { name: columnName, settings: settings ?? DefaultAxisSettings() },
-                    ]
-                },
                 updateSeries: (state, { columnName, settings }) => {
                     if (!state) {
                         return null
@@ -2110,10 +2070,17 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
             applyAutoHeatmapSettings(actions, values.columns, values.chartSettings.heatmap ?? {})
         },
-        clearAxis: [sharedListeners.axesChanged],
+        // Plain tables do not mount seriesBreakdownLogic, so the breakdown resets here.
+        clearAxis: [
+            () =>
+                actions.setQuery((query) => ({
+                    ...query,
+                    chartSettings: { ...query.chartSettings, seriesBreakdownColumn: undefined },
+                })),
+            sharedListeners.axesChanged,
+        ],
         updateXSeries: [sharedListeners.axesChanged],
         addYSeries: [sharedListeners.axesChanged],
-        addSeries: [sharedListeners.axesChanged],
         initializeAxes: [sharedListeners.axesChanged],
         updateSeriesIndex: [sharedListeners.axesChanged],
         updateSeries: [sharedListeners.axesChanged],
@@ -2160,27 +2127,20 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 }
             }
 
-            // Set up the table columns and chart series in one action. Each dispatch runs the reducers of every
-            // mounted logic, so a dispatch per column makes each dashboard tile slower to mount than the last.
-            const lastSettings = (columnName: string): AxisSeriesSettings | undefined =>
-                oldTabularColumnSettings?.find((n) => n?.name === columnName)?.settings
+            // One action, not one per column, because each dispatch runs the reducers of every mounted logic.
+            const toAxis = (name: string): SelectedYAxis => ({
+                name,
+                settings: oldTabularColumnSettings?.find((n) => n?.name === name)?.settings ?? DefaultAxisSettings(),
+            })
             const tabularColumns =
                 values.response && values.tabularColumnSettings === null
-                    ? value.map((column) => ({
-                          name: column.name,
-                          settings: lastSettings(column.name) ?? DefaultAxisSettings(),
-                      }))
+                    ? value.map((column) => toAxis(column.name))
                     : null
             const defaultAxes =
                 values.response && values.selectedXAxis === null && values.selectedYAxis === null
                     ? deriveDefaultAxes(value)
                     : null
-            const yAxis = defaultAxes?.yAxis.length
-                ? defaultAxes.yAxis.map((columnName) => ({
-                      name: columnName,
-                      settings: lastSettings(columnName) ?? DefaultAxisSettings(),
-                  }))
-                : null
+            const yAxis = defaultAxes?.yAxis.length ? defaultAxes.yAxis.map(toAxis) : null
             const xAxis = defaultAxes?.xAxis ?? null
             if (tabularColumns?.length || yAxis || xAxis) {
                 actions.initializeAxes(tabularColumns?.length ? tabularColumns : null, yAxis, xAxis)

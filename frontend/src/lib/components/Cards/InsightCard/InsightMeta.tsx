@@ -139,9 +139,7 @@ interface InsightMetaProps extends Pick<
 
 const NO_DISPLAY_OPTION_TABS: DisplayOptionTab[] = []
 
-// Only product analytics insights have display option tabs, and useInsightDisplayOptions mounts three insight
-// logics. SQL tiles skip it because every mounted logic makes each later dispatch on the dashboard slower. The two
-// branches are different component types, so React remounts if the query kind changes, and no hook runs conditionally.
+// SQL tiles have no display option tabs, so they skip the hook and the insight logics it mounts.
 export function InsightMeta(props: InsightMetaProps): JSX.Element {
     return isDataVisualizationNode(props.insight.query) ? (
         <InsightMetaBody {...props} displayOptionTabs={NO_DISPLAY_OPTION_TABS} />

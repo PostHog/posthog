@@ -197,6 +197,7 @@ describe('DataTableVisualization', () => {
             <DataTableVisualization
                 uniqueKey="data-visualization-switch"
                 query={tileQuery}
+                setQuery={jest.fn()}
                 cachedResults={cachedResults}
                 readOnly
                 embedded
