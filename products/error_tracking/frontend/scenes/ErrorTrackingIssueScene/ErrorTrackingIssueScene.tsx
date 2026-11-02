@@ -56,6 +56,7 @@ import { SuppressSimilarIssuesDialog } from '../../components/SuppressSimilarIss
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { getIssueReplayDateRange, getIssueReplayFilterGroup, issueVisionScannerHandoff } from '../../utils'
 import { ErrorTrackingIssueSceneLogicProps, errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
+import { ErrorTrackingIssueSceneMenuBar } from './ErrorTrackingIssueSceneMenuBar'
 import { IssueEmailMenu } from './IssueEmailMenu'
 import { IssueEmailMenuItems } from './IssueEmailMenuItems'
 import { IssueEventsPanel } from './IssueEventsPanel'
@@ -84,6 +85,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const { isWindowLessThan } = useWindowSize()
     const isMobile = isWindowLessThan('md')
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
+    const hasSceneMenuBar = useFeatureFlag('SCENE_MENU_BAR')
     const inlineEmailMenuRef = useRef<HTMLDivElement>(null)
     // The overflow menu portals out of the scene container, so a container query cannot hide its email items.
     const [emailInOverflow, setEmailInOverflow] = useState(true)
@@ -154,6 +156,11 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                     <BindLogic logic={miniBreakdownsLogic} props={{ issueId }}>
                         {issue && (
                             <div className="flex flex-col h-[calc(var(--scene-layout-rect-height))]">
+                                <ErrorTrackingIssueSceneMenuBar
+                                    issue={issue}
+                                    onViewRecordings={openRecordings}
+                                    onSetUpVisionScanner={setUpVisionScanner}
+                                />
                                 <SceneTitleSection
                                     noPadding
                                     canEdit
@@ -169,7 +176,11 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                     )}
                                     actions={
                                         isMobile ? undefined : (
-                                            <div className="flex items-center gap-1">
+                                            <div
+                                                className={clsx('flex items-center gap-1', {
+                                                    'hidden @5xl/main-content:flex': hasSceneMenuBar,
+                                                })}
+                                            >
                                                 <ButtonGroup>
                                                     <IssueStatusSelect
                                                         status={issue.status}
