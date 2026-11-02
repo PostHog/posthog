@@ -32,7 +32,13 @@ Internalize that ordering; it's the whole game. An alert that's silently **Error
 
 ## Quick close-out: are there even alerts firing?
 
-Cheap read first: `alerts-list`. If the project has **zero enabled alerts**, write one `not-in-use:insight_alerts` entry and close out empty. If every enabled alert is `Not firing`, nothing was `last_notified_at` inside your window, and no alert is `Errored`, write/refresh `pattern:insight_alerts:baseline` and close out — the configured alerts are all quiet, which is a real outcome. (Re-using either key idempotently refreshes it.)
+Cheap read first: `alerts-list`. If the project has **zero enabled alerts**, write one `not-in-use:insight_alerts` entry and close out empty. (Re-using the key idempotently refreshes it.)
+
+Otherwise `alerts-list` alone cannot prove a quiet run.
+It carries no check history: `state` and `last_value` describe only the latest check, and `last_notified_at` moves only when someone was told.
+A silent firing that already recovered reads as `Not firing` with no recent `last_notified_at` — exactly the miss you exist to catch.
+Run the candidate funnel below, including the history sweep, before you declare the configured alerts quiet.
+Write/refresh `pattern:insight_alerts:baseline` and close out empty only when the sweep found no `Firing` or errored check in the window — that is a real outcome.
 
 ## How a run works
 
@@ -47,13 +53,27 @@ Cycle between these moves; skip what's not useful.
 
 ### Narrow to candidates (this matters on big projects)
 
-A busy project can have hundreds of alerts; you cannot deep-read them all every run. From `alerts-list`, keep only the alerts that are **enabled, not snoozed**, and match any of:
+A busy project can have hundreds of alerts; you cannot deep-read them all every run.
+From `alerts-list`, keep only the alerts that are **enabled, not snoozed**.
+Your lookback window defaults to ~last 24h, a bit wider on a daily run.
+Send an alert straight to the deep-read when any of these match:
 
 - `state` is `Firing` — currently breaching.
 - `state` is `Errored` — silently not evaluating (a coverage blind spot).
-- `last_notified_at` or `last_checked_at` falls inside your lookback window (default ~last 24h, a bit wider on a daily run) — fired and may have already resolved.
+- `last_notified_at` falls inside your lookback window — fired, notified, and may have already resolved.
 
-Everything else (`Not firing`, untouched in the window) is baseline — skip it. This typically takes a few hundred alerts down to a handful.
+**History sweep.**
+Every other enabled alert whose `last_checked_at` falls inside the window ran checks you have not seen, and one of them may have fired silently and recovered.
+Sweep each one with `alert-get` (`checks_date_from` = the window start; use `checks_limit` / `checks_offset` when `checks_total` exceeds one page).
+Look only for a check with `state=Firing` or an `error` set.
+Promote an alert with such a check to the deep-read.
+An alert whose window holds only `Not firing` checks is baseline.
+
+On a big roster, sweep in bounded batches (~50 alerts per run), oldest-swept first.
+Record which alerts you swept, and when, in `pattern:insight_alerts:sweep_cursor`, and on the next run start each alert's window at its last sweep (at most `-14d`, the check retention) so no firing falls between runs.
+If part of the roster stays unswept, say "{n} of {m} swept" in the close-out — never call the run quiet.
+
+Alerts with no check inside the window (a weekly interval, a skipped weekend) have nothing to read — skip them.
 
 ### Deep-read each candidate
 
@@ -125,7 +145,8 @@ Harness-level: `scout-project-profile-get`, `scout-scratchpad-search`, `scout-ru
 
 ## When to stop
 
-- No enabled alerts, or everything quiet → quick close-out.
+- No enabled alerts → quick close-out.
+- The history sweep covered every recently checked alert and found no `Firing` or errored check → quiet close-out.
 - You've triaged the candidates and surfaced the worst few → close out, even if minor firings remain; the per-run cap is deliberate.
 - A candidate matches a `noise:` / `addressed:` / `allowlist:` / `dedupe:` entry → skip.
 
