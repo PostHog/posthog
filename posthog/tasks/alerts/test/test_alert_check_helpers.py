@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 from posthog.schema import AlertConditionType, AlertState, InsightThresholdType
 
 from posthog.api.test.dashboards import DashboardAPI
-from posthog.tasks.alerts.test.alert_check_helpers import run_alert_check
+from posthog.tasks.alerts.test.alert_check_helpers import keep_team_alerts_on_insight, run_alert_check
 from posthog.tasks.alerts.utils import AlertEvaluationResult, add_alert_check, record_alert_delivery
 
 from products.alerts.backend.models import AlertCheck, AlertConfiguration
@@ -30,6 +30,7 @@ class TestRunAlertCheck(APIBaseTest):
 
     def setUp(self) -> None:
         super().setUp()
+        keep_team_alerts_on_insight(self.team)
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
         insight = self.dashboard_api.create_insight(
