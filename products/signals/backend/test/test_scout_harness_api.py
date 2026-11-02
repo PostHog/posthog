@@ -6104,13 +6104,18 @@ class TestScoutHarnessLighthouseAPI(APIBaseTest):
 class TestScoutSpendOverview(APIBaseTest):
     @parameterized.expand(
         [
-            (endpoint, scope)
+            (endpoint, scope, report_status)
             for endpoint in ("scouts", "sources", "report")
             for scope in ("signal_usage", "signal_scout", "task")
+            for report_status in (
+                [SignalReport.Status.POTENTIAL, SignalReport.Status.SUPPRESSED]
+                if endpoint == "report"
+                else [SignalReport.Status.POTENTIAL]
+            )
         ]
     )
-    def test_usage_requires_its_own_scope(self, endpoint: str, scope: str) -> None:
-        report = SignalReport.objects.create(team=self.team, title="Synthetic report")
+    def test_usage_requires_its_own_scope(self, endpoint: str, scope: str, report_status: str) -> None:
+        report = SignalReport.objects.create(team=self.team, title="Synthetic report", status=report_status)
         path = {
             "scouts": "signals/spend/",
             "sources": "signals/source_spend/",

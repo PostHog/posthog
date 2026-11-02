@@ -2004,6 +2004,7 @@ class SignalReportViewSet(
             "bulk_claim",
             "retrieve",
             "signals",
+            "spend",
             "refund",
             "feedback",
             "feedback_state",
