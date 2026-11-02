@@ -11,8 +11,8 @@ hide two storage conventions from the callers:
 The calculation key includes the start date, so no reader needs `query_from` to tell a relaunch apart.
 
 A row carries the key of one key version (`MetricCalculationConfig.key_for_version`). Readers find the rows of the
-current config under every key version and rank rows under the active key (`calculation_key`) first, so rows that
-another key version wrote stay visible. Calculation reuse requires the active key. Rows are never relabeled with
+current config under every key version, so rows that another key version wrote stay visible. The newest compatible
+row wins, and rows under the current settings win only a tie. Calculation reuse requires the active key. Rows are never relabeled with
 current settings: a version 1 key omits analytical inputs, so the settings of such a row are unknown.
 
 A write can also store its config's version 1 key in `display_key`, salted like the fingerprint on a run row.
@@ -115,20 +115,32 @@ def _keys_of(config: MetricCalculationConfig, *, salted: bool = False) -> list[s
     return [_recalc_fingerprint(key) for key in keys] if salted else keys
 
 
+def _current_settings_keys(config: MetricCalculationConfig) -> list[str]:
+    """The keys, bare and salted, of the rows that used the current settings of `config`. A version 2 key hashes every
+    setting. A version 1 key omits settings, so its rows count only while version 1 is active."""
+    versions = {CALCULATION_KEY_VERSION, config.settings.key_version}
+    keys = [config.key_for_version(version) for version in versions]
+    return [*keys, *(_recalc_fingerprint(key) for key in keys)]
+
+
+def _under_current_settings(config: MetricCalculationConfig) -> Q:
+    """The rows of `config` that used its current settings. The readers of the newest result order by the window
+    first and by this only to break a tie, so the newest compatible row wins. So after the active key version
+    changes, neither a newer row under the other version nor a newer row under earlier settings hides behind an older
+    row under current settings."""
+    return Q(fingerprint__in=_current_settings_keys(config))
+
+
 def result_configuration_status(fingerprint: str | None, config: MetricCalculationConfig) -> str:
     """The provenance of a row of `config` that a reader found, relative to the active key version.
 
-    A version 1 key omits settings, so a row under it uses current settings only while version 1 is active. A row
-    that only its display key matched comes from other settings: writers store the display key with the version 2
-    key, because under version 1 the display key equals the fingerprint.
+    A row that only its display key matched comes from other settings: writers store the display key with the
+    version 2 key, because under version 1 the display key equals the fingerprint.
     """
-    for version in KEY_VERSIONS:
-        key = config.key_for_version(version)
-        if fingerprint in (key, _recalc_fingerprint(key)):
-            current = version == CALCULATION_KEY_VERSION or config.settings.key_version == version
-            return (
-                ExperimentResultConfigurationStatus.CURRENT if current else ExperimentResultConfigurationStatus.UNKNOWN
-            )
+    if fingerprint in _current_settings_keys(config):
+        return ExperimentResultConfigurationStatus.CURRENT
+    if fingerprint in _keys_of(config) + _keys_of(config, salted=True):
+        return ExperimentResultConfigurationStatus.UNKNOWN
     return ExperimentResultConfigurationStatus.PREVIOUS
 
 
@@ -194,11 +206,13 @@ class MetricResultStore:
         if not run_configs:
             return []
         filed_under_run_keys = Q()
-        current_keys: set[str] = set()
+        under_current_settings = Q()
         for calculation_config in run_configs:
             run_keys = _keys_of(calculation_config, salted=True)
-            current_keys.add(run_keys[0])
             filed_under_run_keys |= Q(metric_uuid=calculation_config.metric_id, fingerprint__in=run_keys)
+            under_current_settings |= Q(metric_uuid=calculation_config.metric_id) & _under_current_settings(
+                calculation_config
+            )
             if run.experiment.is_stopped:
                 filed_under_run_keys |= Q(
                     metric_uuid=calculation_config.metric_id,
@@ -213,9 +227,7 @@ class MetricResultStore:
         if not with_result:
             rows = rows.defer("result")
         return list(
-            _newest_write_first(rows, "metric_uuid", _current_key_first(Q(fingerprint__in=current_keys))).distinct(
-                "metric_uuid"
-            )
+            _newest_write_first(rows, "metric_uuid", _current_key_first(under_current_settings)).distinct("metric_uuid")
         )
 
     def with_zero_baseline(self, rows: Iterable[ExperimentMetricResult]) -> list[ExperimentMetricResult]:
@@ -259,9 +271,8 @@ class MetricResultStore:
         until: datetime,
         preserve_history: bool = False,
     ) -> ExperimentMetricResult | None:
-        """The completed daily point of this calculation config with the latest query_to inside [since, until]. A
-        point under another key version stands in when no point under the active key falls inside the range."""
-        current_key = calculation_config.calculation_key()
+        """The completed daily point of this calculation config with the latest query_to inside [since, until], under
+        either key version. A point under current settings wins a tie on query_to."""
         keys = Q(fingerprint__in=_keys_of(calculation_config))
         if preserve_history:
             keys |= Q(display_key=calculation_config.legacy_key())
@@ -273,7 +284,9 @@ class MetricResultStore:
             query_to__gte=since,
             query_to__lte=until,
         )
-        return _newest_write_first(rows, _current_key_first(Q(fingerprint=current_key)), "-query_to").first()
+        return _newest_write_first(
+            rows, "-query_to", _current_key_first(_under_current_settings(calculation_config))
+        ).first()
 
     def timeseries(self, calculation_config: MetricCalculationConfig, *, timezone: ZoneInfo) -> DailyTimeseries:
         """The daily rows of one metric, whatever their status, one per day of `timezone`.
@@ -283,7 +296,7 @@ class MetricResultStore:
         config, or whose display key is the version 1 key, if it has one. So the history that another key version
         wrote, and the history from before a team setting changed, still render.
         """
-        current_key = calculation_config.calculation_key()
+        current_keys = _current_settings_keys(calculation_config)
         rows = list(
             _newest_write_first(
                 ExperimentMetricResult.objects.filter(
@@ -291,7 +304,7 @@ class MetricResultStore:
                     experiment_id=self.experiment_id,
                     metric_uuid=calculation_config.metric_id,
                 ),
-                _current_key_first(Q(fingerprint=current_key)),
+                _current_key_first(_under_current_settings(calculation_config)),
                 "-query_to",
             )
         )
@@ -302,9 +315,8 @@ class MetricResultStore:
             # A daily row's query_to is the exclusive end of its day, so the microsecond before it falls inside
             # the day the row covers.
             day = (row.query_to - timedelta(microseconds=1)).astimezone(timezone).date()
-            under_earlier_key = row.fingerprint != current_key
-            # Rows under the current key come first, so a row under an earlier key only fills a day that none of
-            # them covers.
+            under_earlier_key = row.fingerprint not in current_keys
+            # Rows under current settings come first, so another row only fills a day that none of them covers.
             if under_earlier_key and day in by_day and day not in filled_by_earlier_key:
                 continue
             by_day.setdefault(day, row)
@@ -610,11 +622,11 @@ class MetricResultStore:
     def _current_rows(config_by_experiment: Mapping[int, MetricCalculationConfig]) -> QuerySet[ExperimentMetricResult]:
         """For each experiment, the row that `current_outcomes` describes."""
         filed_under_config = Q()
-        under_current_key = Q()
+        under_current_settings = Q()
         for experiment_id, calculation_config in config_by_experiment.items():
-            key, legacy_key = calculation_config.calculation_key(), calculation_config.legacy_key()
+            legacy_key = calculation_config.legacy_key()
             display_keys = [legacy_key, _recalc_fingerprint(legacy_key)]
-            under_current_key |= Q(experiment_id=experiment_id, fingerprint__in=[key, _recalc_fingerprint(key)])
+            under_current_settings |= Q(experiment_id=experiment_id) & _under_current_settings(calculation_config)
             filed_under_config |= Q(experiment_id=experiment_id, metric_uuid=calculation_config.metric_id) & (
                 Q(fingerprint__in=[*_keys_of(calculation_config), *_keys_of(calculation_config, salted=True)])
                 | Q(display_key__in=display_keys)
@@ -623,12 +635,13 @@ class MetricResultStore:
             ExperimentMetricResult.objects.filter(filed_under_config, status=_COMPLETED)
             # Postgres LEAST skips a NULL, so a row without completed_at ranks by its query_to.
             .alias(
-                data_until=Least("query_to", "completed_at"), under_earlier_key=_current_key_first(under_current_key)
+                data_until=Least("query_to", "completed_at"),
+                under_other_settings=_current_key_first(under_current_settings),
             )
             .order_by(
                 "experiment_id",
-                "under_earlier_key",
                 F("data_until").desc(),
+                "under_other_settings",
                 F("completed_at").desc(nulls_last=True),
                 "-id",
             )
@@ -643,12 +656,13 @@ class MetricResultStore:
         calculation key, by a recalculation run or by the daily workflows. A row's data ends at its query_to, or at
         its completed_at when that comes first. A backfill stamps the current day with the end of that day, but the
         row holds data only up to the moment the backfill ran, so a later run of the same day must win over it. A row
-        under another key was computed from another configuration, for example from the start date before a
-        relaunch, so it does not count. The end of the data counts, not the newest write, because a backfill writes
+        whose key and display key both belong to another configuration, for example to the start date before a
+        relaunch, does not count. The end of the data counts, not the newest write, because a backfill writes
         past windows after the newer ones.
 
-        When no row carries the active key, the row under another key version, or whose display key is the version 1
-        key, whose data ends last stands in. Each experiment's rows rank by that experiment's own keys. A calculation key
+        Rows under the other key version, and rows whose display key is the version 1 key, count too. The row whose
+        data ends last wins, and a row under current settings wins a tie. Each experiment's rows rank by that
+        experiment's own keys. A calculation key
         hashes no experiment id, so the earlier key of one experiment can be the current key of another.
         """
         if not config_by_experiment:
