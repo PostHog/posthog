@@ -1138,6 +1138,9 @@ class SharedDashboardWidgetMetadataSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(DashboardWidgetConfigField(required=False))
     def get_config(self, widget: DashboardWidget) -> dict[str, Any]:
+        # Rows of a retired widget type can still exist, and nothing says which of their config keys are public.
+        if widget.widget_type not in EXPECTED_WIDGET_TYPES:
+            return {}
         config = dict(widget.config)
         if widget.widget_type == CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE:
             config.pop("search", None)
