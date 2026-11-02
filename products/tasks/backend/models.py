@@ -57,6 +57,7 @@ from products.tasks.backend.facade.profiles import (
     GithubAccess,
     GithubResolution,
     PrAuthorship,
+    SourceKind,
     TaskProfile,
     TaskProfileError,
     TaskRunOptions,
@@ -82,7 +83,7 @@ from products.tasks.backend.pr_urls import read_pr_urls
 from products.tasks.backend.redis import dedicated_stream_configured, run_uses_dedicated_stream
 from products.tasks.backend.run_options import RunSettings, apply_run_options, run_options_record, validate_run_options
 from products.tasks.backend.storage import append_jsonl_object
-from products.tasks.backend.task_sources import apply_task_source
+from products.tasks.backend.task_sources import apply_task_source, idempotency_key_startswith_q
 
 logger = structlog.get_logger(__name__)
 
@@ -723,6 +724,30 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             logger.warning("task_profile_not_registered", task_id=str(self.id), profile=self.profile)
             return None
 
+    @property
+    def stored_source(self) -> TaskSource | None:
+        if self.source_kind is not None and self.source_id is not None:
+            return TaskSource(kind=SourceKind(self.source_kind), id=self.source_id)
+        if self.signal_report_id is not None:
+            return TaskSource(kind=SourceKind.SIGNAL_REPORT, id=str(self.signal_report_id))
+        if self.hog_flow_id is not None:
+            return TaskSource(kind=SourceKind.HOG_FLOW, id=str(self.hog_flow_id))
+        return None
+
+    @property
+    def signal_report_source_id(self) -> uuid.UUID | None:
+        source = self.stored_source
+        return uuid.UUID(source.id) if source is not None and source.kind == SourceKind.SIGNAL_REPORT else None
+
+    @property
+    def hog_flow_source_id(self) -> uuid.UUID | None:
+        source = self.stored_source
+        return uuid.UUID(source.id) if source is not None and source.kind == SourceKind.HOG_FLOW else None
+
+    @property
+    def stored_idempotency_key(self) -> str | None:
+        return self.idempotency_key if self.idempotency_key is not None else self.origin_key
+
     def _resolves_pr_authorship_per_run(self) -> bool:
         profile = self.stored_profile
         if profile is None:
@@ -794,15 +819,15 @@ class Task(Taggable, DeletedMetaFields, models.Model):
     def scout_experiment_q(cls, *, relation: Literal["", "task"] = "") -> models.Q:
         prefix = {"": "", "task": "task__"}[relation]
         return models.Q(**{f"{prefix}origin_product": cls.OriginProduct.SIGNALS_SCOUT}) & (
-            models.Q(**{f"{prefix}origin_key__startswith": SCOUT_TRIAL_ORIGIN_KEY_PREFIX})
-            | models.Q(**{f"{prefix}origin_key__startswith": SCOUT_TRIAL_JUDGE_ORIGIN_KEY_PREFIX})
+            idempotency_key_startswith_q(SCOUT_TRIAL_ORIGIN_KEY_PREFIX, via=prefix)
+            | idempotency_key_startswith_q(SCOUT_TRIAL_JUDGE_ORIGIN_KEY_PREFIX, via=prefix)
         )
 
     @property
     def is_scout_experiment(self) -> bool:
-        return self.origin_product == self.OriginProduct.SIGNALS_SCOUT and (self.origin_key or "").startswith(
-            (SCOUT_TRIAL_ORIGIN_KEY_PREFIX, SCOUT_TRIAL_JUDGE_ORIGIN_KEY_PREFIX)
-        )
+        return self.origin_product == self.OriginProduct.SIGNALS_SCOUT and (
+            self.stored_idempotency_key or ""
+        ).startswith((SCOUT_TRIAL_ORIGIN_KEY_PREFIX, SCOUT_TRIAL_JUDGE_ORIGIN_KEY_PREFIX))
 
     def capture_event(
         self, event: str, properties: dict | None = None, capture_fn: Callable[..., None] | None = None
@@ -822,12 +847,12 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 "repository": self.repository,
                 "repositories": self.repositories or ([self.repository] if self.repository else []),
             }
-            if self.origin_key:
-                all_properties["origin_key"] = self.origin_key
+            if self.stored_idempotency_key:
+                all_properties["origin_key"] = self.stored_idempotency_key
             if self.channel_id:
                 all_properties["channel_id"] = str(self.channel_id)
-            if self.signal_report_id:
-                all_properties["signal_report_id"] = str(self.signal_report_id)
+            if self.signal_report_source_id:
+                all_properties["signal_report_id"] = str(self.signal_report_source_id)
             if properties:
                 all_properties.update(properties)
             (capture_fn or posthoganalytics.capture)(
@@ -1061,7 +1086,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             # and would otherwise land on the wider interactive cap.
             interactive_stage = INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN.get(task.origin_product)
             if interactive_stage and not state.get("ai_stage") and not task.internal:
-                if task.origin_product != Task.OriginProduct.SIGNAL_REPORT or task.signal_report_id:
+                if task.origin_product != Task.OriginProduct.SIGNAL_REPORT or task.signal_report_source_id:
                     state["ai_stage"] = interactive_stage
             internal_stage = INTERNAL_SIGNALS_AI_STAGE_BY_ORIGIN.get(task.origin_product)
             if internal_stage and not state.get("ai_stage") and task.internal:
@@ -1128,7 +1153,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             if effective_environment == TaskRun.Environment.CLOUD and scheduled_at is None:
                 task.observe_run_started_beside_live_runs(task_run)
 
-            if task.origin_product == Task.OriginProduct.SIGNAL_REPORT and task.signal_report_id:
+            if task.origin_product == Task.OriginProduct.SIGNAL_REPORT and task.signal_report_source_id:
                 from products.signals.backend.facade.spend import (  # noqa: PLC0415 — avoids the task-model import cycle
                     register_report_task_spend,
                 )
@@ -1136,7 +1161,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 register_report_task_spend(
                     team_id=task.team_id,
                     run_id=str(task_run.id),
-                    report_id=str(task.signal_report_id),
+                    report_id=str(task.signal_report_source_id),
                     stage=state.get("ai_stage"),
                     signal_id=spend_signal_id,
                     implementation_kind=implementation_spend_kind,
@@ -3323,7 +3348,7 @@ class TaskRun(models.Model):
             ),
             "origin_product": self.task.origin_product,
             "title": self.task.title,
-            "signal_report_id": str(self.task.signal_report_id) if self.task.signal_report_id else None,
+            "signal_report_id": str(self.task.signal_report_source_id) if self.task.signal_report_source_id else None,
             "environment": self.environment,
             # The bare `environment` property gets clobbered by the analytics
             # client's deployment-region super-property, so ship the run's

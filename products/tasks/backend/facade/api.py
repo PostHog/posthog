@@ -39,11 +39,12 @@ from django.db.models import (
     QuerySet,
     Subquery,
     TextChoices,
+    UUIDField,
     Value,
     When,
 )
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
-from django.db.models.functions import Coalesce
+from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone as django_timezone
 from django.utils.dateparse import parse_datetime
 from django.utils.http import content_disposition_header
@@ -212,7 +213,7 @@ from products.tasks.backend.repository_config_analytics import (
     capture_space_context_changed,
     repositories_differ,
 )
-from products.tasks.backend.task_sources import apply_task_source
+from products.tasks.backend.task_sources import apply_task_source, idempotency_key_q, source_q
 from products.tasks.backend.visibility import (
     PRODUCT_PRIVATE_ORIGIN_PRODUCTS,
     TEAM_READABLE_ORIGIN_PRODUCTS,
@@ -279,6 +280,7 @@ __all__ = [
     "create_imported_task_run",
     "get_imported_task_run",
     "get_task_by_origin_key",
+    "get_task_id_by_idempotency_key",
     "touch_imported_task",
     "apply_task_run_model_config",
     "task_run_model_outside_gateway_pin",
@@ -1084,7 +1086,7 @@ def _task_detail_to_dto(
         repositories=task.repositories or ([task.repository] if task.repository else []),
         github_integration=task.github_integration_id,
         github_user_integration=task.github_user_integration_id,
-        signal_report=task.signal_report_id,
+        signal_report=task.signal_report_source_id,
         json_schema=task.json_schema,
         internal=task.internal,
         archived=task.archived,
@@ -1098,7 +1100,7 @@ def _task_detail_to_dto(
         latest_run_id=latest_run_id,
         channel=task.channel_id,
         slack_thread_references=_task_slack_thread_references(task),
-        origin_key=None if task.is_scout_experiment else task.origin_key,
+        origin_key=None if task.is_scout_experiment else task.stored_idempotency_key,
         client_provenance=task.client_provenance,
     )
 
@@ -1240,13 +1242,14 @@ def find_signal_implementation_run(
     task = run.task
     # Belt and braces: only signals' auto_start stamps the branch key today, but the ai_stage and
     # signal-report checks keep a future writer of the key from silently widening the carve-out.
-    if task.signal_report_id is None or (run.state or {}).get("ai_stage") != "implementation":
+    signal_report_id = task.signal_report_source_id
+    if signal_report_id is None or (run.state or {}).get("ai_stage") != "implementation":
         return None
     return contracts.SignalImplementationRunDTO(
         run_id=run.id,
         task_id=task.id,
         team_id=run.team_id,
-        signal_report_id=task.signal_report_id,
+        signal_report_id=signal_report_id,
         task_created_by_id=task.created_by_id,
     )
 
@@ -1432,32 +1435,42 @@ def task_exempt_from_code_access(task_id: str | UUID, team_id: int) -> bool:
     bypass. The report's own team is re-checked here even though the write serializer
     already enforces it, so a future write path can't silently widen the exemption.
     """
-    return Task.objects.filter(
-        Q(
-            origin_product=Task.OriginProduct.SIGNAL_REPORT,
-            signal_report__team_id=team_id,
-            repository__isnull=True,
-            repositories=[],
-            github_integration__isnull=True,
-            github_user_integration__isnull=True,
+    linked_report_id = Case(
+        When(source_kind=SourceKind.SIGNAL_REPORT.value, then=Cast("source_id", UUIDField())),
+        When(source_kind__isnull=True, then=F("signal_report_id")),
+        output_field=UUIDField(),
+    )
+    report_in_team = Exists(signal_report_queryset().filter(id=OuterRef("_linked_report_id"), team_id=team_id))
+    return (
+        Task.objects.annotate(_linked_report_id=linked_report_id)
+        .filter(
+            Q(
+                report_in_team,
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                repository__isnull=True,
+                repositories=[],
+                github_integration__isnull=True,
+                github_user_integration__isnull=True,
+            )
+            | Q(
+                origin_product=Task.OriginProduct.SIGNALS_CHAT,
+                repository__isnull=True,
+                repositories=[],
+                github_integration__isnull=True,
+                github_user_integration__isnull=True,
+            )
+            | Q(
+                report_in_team,
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                signal_report_tasks__team_id=team_id,
+                signal_report_tasks__report_id=F("_linked_report_id"),
+                signal_report_tasks__relationship="implementation",
+            ),
+            id=task_id,
+            team_id=team_id,
         )
-        | Q(
-            origin_product=Task.OriginProduct.SIGNALS_CHAT,
-            repository__isnull=True,
-            repositories=[],
-            github_integration__isnull=True,
-            github_user_integration__isnull=True,
-        )
-        | Q(
-            origin_product=Task.OriginProduct.SIGNAL_REPORT,
-            signal_report__team_id=team_id,
-            signal_report_tasks__team_id=team_id,
-            signal_report_tasks__report_id=F("signal_report_id"),
-            signal_report_tasks__relationship="implementation",
-        ),
-        id=task_id,
-        team_id=team_id,
-    ).exists()
+        .exists()
+    )
 
 
 def get_in_progress_runs_for_github_integration(
@@ -1521,10 +1534,10 @@ def get_signal_report_implementation_runs(
     return [
         _task_run_to_dto(run)
         for run in TaskRun.objects.filter(
+            source_q(SourceKind.SIGNAL_REPORT, [report_id], via="task__"),
             team_id=team_id,
             task_id__in=task_ids,
             task__team_id=team_id,
-            task__signal_report_id=report_id,
             task__origin_product=Task.OriginProduct.SIGNAL_REPORT,
             task__deleted=False,
         )
@@ -2021,7 +2034,7 @@ def link_slack_task_to_report(*, team_id: int, task_id: str, report_id: str, use
         task = Task.objects.select_for_update().get(
             team_id=team_id, id=task_id, origin_product=Task.OriginProduct.SLACK, created_by_id=user_id
         )
-        if task.signal_report_id is not None:
+        if task.signal_report_source_id is not None:
             return
         record_slack_report_discussion(team_id=team_id, report_id=report_id, task_id=task_id, user_id=user_id)
         task.signal_report_id = UUID(report_id)
@@ -4088,12 +4101,16 @@ def attach_task_run_input_files(*, team_id: int, run_id: UUID, files: Sequence[c
     run.save(update_fields=["artifacts", "updated_at"])
 
 
+def get_task_id_by_idempotency_key(team_id: int, key: str) -> UUID | None:
+    return Task.objects.filter(idempotency_key_q(key), team_id=team_id).values_list("id", flat=True).first()
+
+
 def get_task_by_origin_key(
     team_id: int, origin_key: str, *, include_latest_run: bool = True
 ) -> contracts.TaskDetailDTO | None:
     """The live task carrying ``origin_key`` in ``team_id``, or None. Bypasses visibility: an
     origin key is an idempotency handle for a system writer, not a user-facing lookup."""
-    task = Task.objects.filter(team_id=team_id, origin_key=origin_key, deleted=False).first()
+    task = Task.objects.filter(idempotency_key_q(origin_key), team_id=team_id, deleted=False).first()
     return _task_detail_to_dto(task, include_latest_run=include_latest_run) if task is not None else None
 
 
@@ -7315,14 +7332,21 @@ def list_workflow_last_runs(
     latest_run = TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id).order_by("-created_at", "-id")
     rows = (
         _visible_task_qs(team_id, user_id, for_list=True)
-        .filter(hog_flow_id__in=ids, internal=False)
-        .order_by("hog_flow_id", "-created_at", "-id")
-        .distinct("hog_flow_id")
+        .filter(source_q(SourceKind.HOG_FLOW, ids), internal=False)
+        .annotate(
+            _workflow_id=Case(
+                When(source_kind=SourceKind.HOG_FLOW.value, then=Cast("source_id", UUIDField())),
+                default=F("hog_flow_id"),
+                output_field=UUIDField(),
+            ),
+        )
+        .order_by("_workflow_id", "-created_at", "-id")
+        .distinct("_workflow_id")
         .annotate(
             _run_status=Subquery(latest_run.values("status")[:1]),
             _run_created_at=Subquery(latest_run.values("created_at")[:1]),
         )
-        .values_list("hog_flow_id", "id", "created_at", "_run_status", "_run_created_at")
+        .values_list("_workflow_id", "id", "created_at", "_run_status", "_run_created_at")
     )
     return {
         hog_flow_id: contracts.WorkflowLastRunDTO(
@@ -7464,7 +7488,7 @@ def _list_tasks_queryset(
 
     hog_flow_id = filters.get("hog_flow_id")
     if hog_flow_id:
-        qs = qs.filter(hog_flow_id=hog_flow_id)
+        qs = qs.filter(source_q(SourceKind.HOG_FLOW, [hog_flow_id]))
 
     if search:
         search_term = search.strip()
@@ -8403,13 +8427,13 @@ def create_task(
                 created_by_id=user_id,
             )
         task = Task.objects.create(**validated_data)
-        if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
+        if task.signal_report_source_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
             # Record the task↔report association + work-log artefact for the asserted relationship
             # (defaults to implementation, which also writes the auto-start spend gate row) so a
             # manually-started task matches autostarted ones.
             record_report_task(
                 team_id=task.team_id,
-                report_id=str(task.signal_report_id),
+                report_id=str(task.signal_report_source_id),
                 task_id=str(task.id),
                 relationship=signal_report_task_relationship,
             )
@@ -8946,8 +8970,10 @@ def _find_idling_warm_run(
         return None
     normalized_repositories = [repo.lower() for repo in (repositories or ([repository] if repository else []))]
     repository_filter = {"task__repository__iexact": repository} if repository else {"task__repository__isnull": True}
+    report_filter = source_q(SourceKind.SIGNAL_REPORT, [signal_report_id], via="task__") if signal_report_id else Q()
     candidates = (
         TaskRun.objects.filter(  # nosemgrep: idor-lookup-without-team — team_id filter applied via the task FK below
+            report_filter,
             task__team_id=team_id,
             task__created_by_id=user_id,
             task__origin_product=origin_product,
@@ -8957,7 +8983,6 @@ def _find_idling_warm_run(
             **({"state__billing_product": "posthog_ai"} if origin_product == Task.OriginProduct.SIGNAL_REPORT else {}),
             branch=branch or None,
             **repository_filter,
-            **({"task__signal_report_id": signal_report_id} if signal_report_id else {}),
         )
         .exclude(status__in=_TERMINAL_TASK_RUN_STATUSES)
         .select_related("task")
@@ -9280,7 +9305,7 @@ def _reserve_report_warm_activation(
         record_report_task,
     )
 
-    report_id = str(task.signal_report_id)
+    report_id = str(task.signal_report_source_id)
     if is_pull_request_run_request(description):
         enforce_self_driving_free_trial(team, report_id=report_id)
     with transaction.atomic():
@@ -9297,7 +9322,7 @@ def _reserve_report_warm_activation(
 
 
 def _is_unlinked_report_warm_task(task: Task) -> bool:
-    if task.origin_product != Task.OriginProduct.SIGNAL_REPORT or not task.signal_report_id:
+    if task.origin_product != Task.OriginProduct.SIGNAL_REPORT or not task.signal_report_source_id:
         return False
     if not task.runs.filter(team_id=task.team_id, state__has_key="prewarmed").exists():
         return False
@@ -9305,7 +9330,7 @@ def _is_unlinked_report_warm_task(task: Task) -> bool:
         report_task_ids,
     )
 
-    return str(task.id) not in report_task_ids(team_id=task.team_id, report_id=str(task.signal_report_id))
+    return str(task.id) not in report_task_ids(team_id=task.team_id, report_id=str(task.signal_report_source_id))
 
 
 def task_run_awaits_report_activation(run_id: str | UUID, task_id: str | UUID, team_id: int) -> bool:
@@ -9763,8 +9788,8 @@ def run_task(
                 error=contracts.TaskValidationError(kind="detail", detail=cap_detail, code=ACTIVE_SESSION_CAP_CODE)
             )
     report_id_for_slot_check = (
-        str(task.signal_report_id)
-        if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT
+        str(task.signal_report_source_id)
+        if task.signal_report_source_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT
         else None
     )
     is_implementation = False

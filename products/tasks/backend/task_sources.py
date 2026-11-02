@@ -1,4 +1,7 @@
+from collections.abc import Iterable
 from uuid import UUID
+
+from django.db.models import Q
 
 from posthog.dataclasses import frozen
 
@@ -38,3 +41,29 @@ def source_from_columns(*, signal_report_id: str | None, hog_flow_id: UUID | Non
     if hog_flow_id:
         return TaskSource(kind=SourceKind.HOG_FLOW, id=str(hog_flow_id))
     return None
+
+
+def source_q(kind: SourceKind, source_ids: Iterable[str | UUID], *, via: str = "") -> Q:
+    ids = [str(source_id) for source_id in source_ids]
+    on_new_columns = Q(**{f"{via}source_kind": kind.value, f"{via}source_id__in": ids})
+    if kind == SourceKind.SIGNAL_REPORT:
+        legacy_column = f"{via}signal_report_id__in"
+    elif kind == SourceKind.HOG_FLOW:
+        legacy_column = f"{via}hog_flow_id__in"
+    else:
+        return on_new_columns
+    return on_new_columns | (Q(**{f"{via}source_kind__isnull": True}) & Q(**{legacy_column: ids}))
+
+
+def idempotency_key_q(key: str, *, via: str = "") -> Q:
+    return _idempotency_q("", key, via)
+
+
+def idempotency_key_startswith_q(key_prefix: str, *, via: str = "") -> Q:
+    return _idempotency_q("__startswith", key_prefix, via)
+
+
+def _idempotency_q(lookup: str, value: str, via: str) -> Q:
+    on_new_column = Q(**{f"{via}idempotency_key{lookup}": value})
+    legacy = Q(**{f"{via}idempotency_key__isnull": True, f"{via}origin_key{lookup}": value})
+    return on_new_column | legacy
