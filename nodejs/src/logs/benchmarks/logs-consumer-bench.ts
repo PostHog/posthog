@@ -130,15 +130,34 @@ async function run(implementation: string, workloadPath: string, passes: number,
     }
 }
 
+/** Each implementation's median round by records/s, so one noisy round does not decide a row. */
+function medianRounds(results: BenchResult[]): BenchResult[] {
+    const groups = new Map<string, BenchResult[]>()
+    for (const r of results) {
+        const key = `${r.workload}\u0000${r.implementation}`
+        groups.set(key, [...(groups.get(key) ?? []), r])
+    }
+    return [...groups.values()].map((rounds) => {
+        const sorted = [...rounds].sort((a, b) => a.records_per_s - b.records_per_s)
+        return sorted[Math.floor(sorted.length / 2)]
+    })
+}
+
 function compare(paths: string[]): string {
-    const results = paths.map((path) => parseJSON(readFileSync(path, 'utf8')) as BenchResult)
-    const workloads = [...new Set(results.map((r) => r.workload))]
+    const results = medianRounds(paths.map((path) => parseJSON(readFileSync(path, 'utf8')) as BenchResult))
+    const rounds = paths.length / Math.max(1, results.length)
+    const order = ['node-before', 'node-framework', 'rust']
+    const workloads = [...new Set(results.map((r) => r.workload))].sort()
     const lines = [
+        `Median of ${rounds} rounds per implementation.`,
+        '',
         '| workload | implementation | records/s | MB/s in | batch p50 ms | batch p99 ms | CPU ms / 1k records | peak RSS MB | vs before |',
         '|---|---|---:|---:|---:|---:|---:|---:|---:|',
     ]
     for (const workload of workloads) {
-        const rows = results.filter((r) => r.workload === workload)
+        const rows = results
+            .filter((r) => r.workload === workload)
+            .sort((a, b) => order.indexOf(a.implementation) - order.indexOf(b.implementation))
         const before = rows.find((r) => r.implementation === 'node-before')
         for (const r of rows) {
             const speedup = before ? `${(r.records_per_s / before.records_per_s).toFixed(2)}x` : ''

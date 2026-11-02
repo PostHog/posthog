@@ -14,6 +14,9 @@ REPO="$(git -C "$HERE" rev-parse --show-toplevel)"
 OUT="$(realpath -m "${1:-${TMPDIR:-/tmp}/logs-bench}")"
 PASSES="${2:-10}"
 WARMUP="${3:-2}"
+# Implementations alternate within each round, and compare reports each one's median round, so a
+# noisy neighbour skews one sample rather than one implementation.
+ROUNDS="${ROUNDS:-3}"
 mkdir -p "$OUT/workloads" "$OUT/results"
 
 baseline="$HERE/.baseline"
@@ -33,17 +36,23 @@ bench() {
 }
 
 bench generate "$OUT/workloads"
+if [ -z "${SKIP_RUST:-}" ]; then
+    (cd "$REPO/rust" && cargo build --release -q -p logs-ingestion --bin logs-ingestion-bench)
+fi
 results=()
-for workload in "$OUT"/workloads/*.json; do
-    name="$(basename "$workload" .json)"
-    for impl in before framework; do
-        bench run "$impl" "$workload" "$OUT/results/$name.node-$impl.json" "$PASSES" "$WARMUP"
-        results+=("$OUT/results/$name.node-$impl.json")
+for round in $(seq 1 "$ROUNDS"); do
+    for workload in "$OUT"/workloads/*.json; do
+        name="$(basename "$workload" .json)"
+        for impl in before framework; do
+            result="$OUT/results/$name.node-$impl.r$round.json"
+            bench run "$impl" "$workload" "$result" "$PASSES" "$WARMUP"
+            results+=("$result")
+        done
+        if [ -z "${SKIP_RUST:-}" ]; then
+            result="$OUT/results/$name.rust.r$round.json"
+            "$REPO/rust/target/release/logs-ingestion-bench" "$workload" "$PASSES" "$WARMUP" >"$result"
+            results+=("$result")
+        fi
     done
-    if [ -z "${SKIP_RUST:-}" ]; then
-        (cd "$REPO/rust" && cargo run --release -q -p logs-ingestion --bin logs-ingestion-bench -- "$workload" "$PASSES" "$WARMUP") \
-            >"$OUT/results/$name.rust.json"
-        results+=("$OUT/results/$name.rust.json")
-    fi
 done
 bench compare "${results[@]}" | tee "$OUT/results.md"
