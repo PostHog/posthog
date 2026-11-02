@@ -99,8 +99,6 @@ def _run_state_from(options: TaskRunOptions) -> dict[str, Any]:
 
 
 def apply_run_options(options: TaskRunOptions, given: RunSettings, *, creates_run: bool = True) -> RunSettings:
-    if options.github_access == GithubAccess.NONE:
-        raise TaskRunOptionsError("github_access=none is not supported yet")
     settings = _settings_from(options)
     run_state = _run_state_from(options)
     if not creates_run:
@@ -112,6 +110,10 @@ def apply_run_options(options: TaskRunOptions, given: RunSettings, *, creates_ru
     given_run_state = given.extra_run_state or {}
     defaults = RunSettings()
     conflicts = [name for name in settings if getattr(given, name) != getattr(defaults, name)]
+    if options.github_access == GithubAccess.NONE and (
+        given.github_read_access or "github_read_access" in given_run_state
+    ):
+        conflicts.append("github_read_access")
     if "repositories" in settings and given.repository is not None:
         conflicts.append("repository")
     conflicts.extend(name for name in settings if _SETTING_RUN_STATE_KEYS.get(name) in given_run_state)

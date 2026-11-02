@@ -106,6 +106,7 @@ from products.tasks.backend.constants import (
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
 from products.tasks.backend.facade.profiles import (
+    GithubAccess,
     NetworkAccess,
     TaskProfile,
     TaskRunOptions,
@@ -8471,11 +8472,15 @@ def update_task(
         changes_github_access = not validated_data.keys().isdisjoint(
             {"repository", "repositories", "github_integration", "github_user_integration"}
         )
+        github_access = task.github_access_limit
         if (
-            profile is not None
+            (profile is not None or github_access == GithubAccess.NONE)
             and changes_github_access
             and not Task.attaches_github(
-                task.origin_product, profile, has_repository=bool(validated_data.get("repository", task.repository))
+                task.origin_product,
+                profile,
+                has_repository=bool(validated_data.get("repository", task.repository)),
+                github_access=github_access,
             )
         ):
             validated_data.pop("github_integration", None)

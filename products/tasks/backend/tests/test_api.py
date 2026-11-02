@@ -17760,6 +17760,27 @@ class TestCloudUsageGate(BaseTaskAPITest):
         self.assertEqual(task.github_integration_id is not None, attached)
         self.assertEqual(task.github_user_integration_id is not None, attached and repository is not None)
 
+    @parameterized.expand(
+        [
+            ("none_refuses_a_later_attachment", {"github_access": "none"}, False),
+            ("read_takes_a_later_attachment", {"github_access": "read"}, True),
+            ("no_options_take_a_later_attachment", None, True),
+        ]
+    )
+    def test_update_follows_the_task_github_access_option(self, _name, options: dict | None, attached: bool):
+        integration = Integration.objects.create(team=self.team, kind="github", config={})
+        task = self.create_task()
+        task.options = options
+        task.save()
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/", {"github_integration": integration.id}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        task.refresh_from_db()
+        self.assertEqual(task.github_integration_id is not None, attached)
+
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
     def test_start_without_code_access_returns_403(self, mock_gate):
         self.set_tasks_feature_flag(False)
