@@ -70,7 +70,7 @@ describe('payGateMiniLogic', () => {
         expect(logic.values).toMatchObject({ gateVariant: 'add-card', ...expected })
     })
 
-    it('starts the payment entry flow for the gated product and the current page', async () => {
+    it('starts the payment entry flow for the gated product and the current page after the gate closes', async () => {
         useMocks({
             get: {
                 '/_preflight': [200, { ...preflightJson, cloud: true }],
@@ -81,16 +81,20 @@ describe('payGateMiniLogic', () => {
         await expectLogic(preflightLogic).toFinishAllListeners()
         billingLogic.mount()
         await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
-        paymentEntryLogic.mount()
         const logic = payGateMiniLogic({ feature: AvailableFeature.SUBSCRIPTIONS })
         logic.mount()
+        const product = logic.values.productWithFeature as BillingProductV2Type
         window.history.pushState({}, '', '/project/1/insights?tab=all')
 
-        await expectLogic(paymentEntryLogic, () => logic.actions.startPaymentEntryFlow()).toDispatchActions([
-            paymentEntryLogic.actionCreators.startPaymentEntryFlow(
-                logic.values.productWithFeature as BillingProductV2Type,
-                '/project/1/insights?tab=all'
-            ),
+        await expectLogic(paymentEntryLogic, () => {
+            logic.actions.startPaymentEntryFlow()
+            logic.unmount()
+        }).toDispatchActions([
+            (action) =>
+                paymentEntryLogic.isMounted() &&
+                action.type === paymentEntryLogic.actionTypes.startPaymentEntryFlow &&
+                action.payload.product === product &&
+                action.payload.redirectPath === '/project/1/insights?tab=all',
         ])
     })
 })
