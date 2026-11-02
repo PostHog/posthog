@@ -180,6 +180,7 @@ class TestRenameFlagCallScansToUnion(SimpleTestCase):
                 [UNION, "persons"],
                 [],
             ),
+            ("qualified_events_name", f"SELECT count() FROM posthog.events WHERE {MIXED}", [UNION], []),
             ("sample_one", f"SELECT count() FROM events SAMPLE 1 WHERE {MIXED}", [UNION], []),
             ("scan_in_a_subquery", f"SELECT count() FROM (SELECT event FROM events WHERE {MIXED})", [UNION], []),
             (
@@ -213,6 +214,13 @@ class TestRenameFlagCallScansToUnion(SimpleTestCase):
                 "WHERE e.event = '$feature_flag_called'",
                 ["persons", "events"],
                 ["it joins events after another table"],
+            ),
+            (
+                "cte_named_events_after_another_table",
+                "WITH events AS (SELECT 1 AS person_id, '$pageview' AS event) "
+                f"SELECT count() FROM persons AS p JOIN events AS e ON p.id = e.person_id WHERE {E_MIXED}",
+                ["persons", "events"],
+                [],
             ),
             (
                 "right_join_after_the_scan",
@@ -281,6 +289,7 @@ class TestReadFlagCallsWithUnion(BaseTest):
         union: bool = True,
         persons_on_events: PersonsOnEventsMode | None = None,
         new_events_schema: bool | None = None,
+        person_id_pushdown: bool | None = None,
     ) -> str:
         _set_mode(self.organization, mode)
         with _enabled_flags(union=union):
@@ -289,6 +298,7 @@ class TestReadFlagCallsWithUnion(BaseTest):
                 team=self.team,
                 modifiers=HogQLQueryModifiers(
                     personsOnEventsMode=persons_on_events,
+                    personIdPushdown=person_id_pushdown,
                     useNewEventsSchema=_events_schema_for(mode, new_events_schema),
                 ),
                 pretty=False,
@@ -362,6 +372,16 @@ class TestReadFlagCallsWithUnion(BaseTest):
                 f"SELECT probe_join.key FROM events WHERE {MIXED}",
                 "probe_join",
                 warehouse_join=True,
+            ),
+            (
+                "field_and_virtual_field_of_one_name",
+                f"SELECT created_at, person.created_at FROM events WHERE {MIXED}",
+                "created_at and poe.created_at",
+            ),
+            (
+                "properties_and_virtual_properties",
+                f"SELECT properties, person.properties FROM events WHERE {MIXED}",
+                "properties and poe.properties",
             ),
             param(
                 "string_parser_on_a_typed_event_property",
@@ -541,6 +561,17 @@ class TestReadFlagCallsWithUnion(BaseTest):
         assert (
             f"in(raw_sessions.session_id_v7, tuple(toUInt128(accurateCastOrNull('{SESSION_ID}', 'UUID'))))" in sessions
         )
+
+    def test_persons_join_keeps_the_person_id_pushdown(self):
+        sql = self._sql(
+            f"SELECT person.properties.email FROM events WHERE {MIXED} AND distinct_id = 'probe-distinct-id'",
+            persons_on_events=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+            person_id_pushdown=True,
+        )
+
+        persons = sql[sql.index("FROM person_distinct_id_overrides") :]
+        assert "GLOBAL IN" in sql or "globalIn" in sql
+        assert "probe-distinct-id" in persons
 
     def test_persons_join_runs_one_override_join(self):
         sql = self._sql(
@@ -806,8 +837,17 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
         } <= set(accepted)
         types: dict[bool, dict[str, str]] = {False: {}, True: {}}
         # One query per few fields keeps each union within the memory of a local ClickHouse.
-        for offset in range(0, len(accepted), 8):
-            names = accepted[offset : offset + 8]
+        # Two fields of one name, such as goe_0.key and goe_1.key, would return one column, so they go in different queries.
+        batches: list[list[str]] = []
+        for name in accepted:
+            batch = next(
+                (b for b in batches if len(b) < 8 and all(n.rsplit(".", 1)[-1] != name.rsplit(".", 1)[-1] for n in b)),
+                None,
+            )
+            if batch is None:
+                batches.append(batch := [])
+            batch.append(name)
+        for names in batches:
             types_query = f"SELECT {', '.join(f'toTypeName(any({name}))' for name in names)} FROM events WHERE {MIXED}"
             for union in (False, True):
                 with _enabled_flags(union=union):

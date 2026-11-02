@@ -70,6 +70,13 @@ class FieldChainReplacer(TraversingVisitor):
             if node.chain == constraint.chain_to_replace:
                 node.chain = [constraint.table_name, constraint.alias]
 
+    # A subquery has its own scope. Its `events` is the table it reads, not the outer scan with the override column.
+    def visit_select_query(self, node: ast.SelectQuery):
+        pass
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery):
+        pass
+
 
 class FieldFinder(TraversingVisitor):
     field_chains: list[list[str | int]] = []
