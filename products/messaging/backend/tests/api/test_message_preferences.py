@@ -349,6 +349,17 @@ class TestMessagePreferencesViews(BaseTest):
                     "$workflow_version": 3,
                 },
             ),
+            (
+                "a link that names its run but not its step or version",
+                {"app_source_id": "batch-run-1", "workflow_id": "flow-1", "invocation_id": "run-1"},
+                {"$workflow_id": "flow-1", "$workflow_invocation_id": "run-1"},
+            ),
+            ("a link whose run id is not a string", {**SEND_CLAIMS, "invocation_id": 42}, {}),
+            (
+                "a link whose version is not an integer",
+                {**SEND_CLAIMS, "workflow_version": True},
+                {"$workflow_id": "flow-1", "$workflow_action_id": "action-1", "$workflow_invocation_id": "run-1"},
+            ),
         ]
     )
     @patch("products.messaging.backend.presentation.views.recipient_preferences.capture_internal")
