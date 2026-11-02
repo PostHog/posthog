@@ -55,7 +55,7 @@ import {
 import type { AiEmailDraftStatusProps } from '../MessageAudience/AiEmailDraftStatus'
 import { loadEmailBrand } from '../MessageAudience/emailBrand'
 import { parseMessageDraftPrefill } from '../MessageAudience/messageDrafts'
-import { getRegisteredTriggerTypes } from './hogflows/registry/triggers/triggerTypeRegistry'
+import { getRegisteredTriggerTypes, getTriggerDisplayType } from './hogflows/registry/triggers/triggerTypeRegistry'
 import {
     DEFAULT_STATE,
     isOneTimeSchedule,
@@ -108,12 +108,15 @@ export const EXIT_NODE_ID = 'exit_node'
 export type TriggerAction = Extract<HogFlowAction, { type: 'trigger' }>
 
 function withTriggerConfig(workflow: HogFlow, config: TriggerAction['config']): HogFlow {
-    const triggerType = workflow.actions.find((action) => action.type === 'trigger')?.config.type
+    const templateTriggerConfig = workflow.actions.find((action) => action.type === 'trigger')?.config
+    const keepsTriggerType =
+        !!templateTriggerConfig && getTriggerDisplayType(templateTriggerConfig) === getTriggerDisplayType(config)
     return {
         ...workflow,
         // A frequency hash such as {person.id} fits only some trigger types. After a type change it can resolve
-        // empty, and an empty hash skips masking, so the workflow would run without its entry limit.
-        trigger_masking: triggerType === config.type ? workflow.trigger_masking : null,
+        // empty, and an empty hash skips masking, so the workflow would run without its entry limit. Compare the
+        // trigger tiles, as the editor does, because tiles such as "Account property changed" store an `event` config.
+        trigger_masking: keepsTriggerType ? workflow.trigger_masking : null,
         trigger: config,
         actions: workflow.actions.map((action) => (action.type === 'trigger' ? { ...action, config } : action)),
     }

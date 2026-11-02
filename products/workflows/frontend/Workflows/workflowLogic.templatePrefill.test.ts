@@ -1,3 +1,6 @@
+// Registers the product trigger tiles, as StepTrigger does in the editor.
+import './hogflows/registry/triggers'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
@@ -45,6 +48,11 @@ const linkedInternalEventTrigger: WorkflowTriggerConfig = {
     filters: { source: 'internal-events', events: [{ id: '$insight_alert_firing', type: 'internal_events' }] },
 }
 
+const linkedAccountPropertyTrigger: WorkflowTriggerConfig = {
+    type: 'event',
+    filters: { events: [{ id: '$account_custom_property_changed', type: 'events' }] },
+}
+
 describe('workflowLogic template links', () => {
     beforeEach(() => {
         initKeaTests()
@@ -58,6 +66,7 @@ describe('workflowLogic template links', () => {
     it.each([
         ['an event trigger keeps the template frequency limit', linkedEventTrigger, template.trigger_masking],
         ['a trigger of another type clears the template frequency limit', linkedInternalEventTrigger, null],
+        ['another event trigger tile clears the template frequency limit', linkedAccountPropertyTrigger, null],
     ])('opens a template on the trigger passed in the link: %s', async (_, linkedTrigger, expectedMasking) => {
         const logic = workflowLogic({
             id: 'new',
