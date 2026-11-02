@@ -122,6 +122,7 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "min_update_interval_hours": 0,
             "max_versions": -3,
             "emit_embeddings": "no",
+            "emit_profile_embeddings": 1,
             "rebuild_before": "not a time",
             "max_org_share": 2,
             "rebuild_budget_share": 2,
@@ -154,6 +155,7 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "min_update_interval_hours": 12,
             "max_versions": 5,
             "capture_events": False,
+            "emit_profile_embeddings": True,
             "rebuild_before": "2026-10-01T00:00:00",
             "enroll_all_approved": True,
             "count_views": True,
@@ -179,6 +181,7 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             min_update_interval_hours=12.0,
             max_versions=5,
             capture_events=False,
+            emit_profile_embeddings=True,
             rebuild_before=datetime.datetime(2026, 10, 1, tzinfo=datetime.UTC),
             enroll_all_approved=True,
             count_views=True,
@@ -265,13 +268,22 @@ class TestActivitySummaryQueue(BaseTest):
     def _user(self, email: str) -> User:
         return User.objects.create_and_join(self.organization, email, None)
 
-    def _changes(self, user: User, count: int, *, days_ago: float = 1, team: Team | None = None, **fields: Any):
+    def _changes(
+        self,
+        user: User,
+        count: int,
+        *,
+        days_ago: float = 1,
+        team: Team | None = None,
+        scope: str = "Insight",
+        **fields: Any,
+    ):
         for index in range(count):
             ActivityLog.objects.create(
                 team_id=(team or self.team).id,
                 organization_id=self.organization.id,
                 user=user,
-                scope="Insight",
+                scope=scope,
                 activity="created",
                 item_id=str(index),
                 detail={"name": f"Funnel {index}"},
@@ -397,13 +409,14 @@ class TestActivitySummaryQueue(BaseTest):
         ]
 
     def test_leaves_out_pairs_that_are_not_due_or_not_enrolled(self) -> None:
-        waiting, scout_only, impersonated, skipped_team = (
-            self._user(f"{name}@example.com") for name in ("waiting", "scout", "impersonated", "skipped")
+        waiting, scout_only, setup_only, impersonated, skipped_team = (
+            self._user(f"{name}@example.com") for name in ("waiting", "scout", "setup", "impersonated", "skipped")
         )
         due = self._user("due@example.com")
         self._summary(waiting, next_eligible_at=NOW + datetime.timedelta(hours=1))
         self._changes(waiting, 3)
         self._changes(scout_only, 3, client="scout:product-analytics")
+        self._changes(setup_only, 3, scope="Integration")
         self._changes(impersonated, 3, was_impersonated=True)
         other_team = Team.objects.create(organization=self.organization, name="Skipped")
         self._changes(skipped_team, 3, team=other_team)
@@ -976,6 +989,56 @@ class TestActivitySummaryQueue(BaseTest):
         assert event["event"] == "activity summary generated"
         assert event["properties"]["trigger"] == trigger
         assert "signup funnel" not in json.dumps(event["properties"]).lower()
+
+    @parameterized.expand(
+        [
+            ("both switches on", True, True, False, ["summary_text", "summary_profile"]),
+            ("profile switch off", True, False, False, ["summary_text"]),
+            ("embeddings off stops both", False, True, False, []),
+            ("a failed profile vector keeps the summary vector", True, True, True, ["summary_text"]),
+        ]
+    )
+    def test_the_profile_vector_follows_its_switch_and_never_affects_the_summary_vector(
+        self, _name: str, emit_embeddings: bool, emit_profile: bool, profile_fails: bool, expected: list[str]
+    ) -> None:
+        self._changes(self.user, 3)
+        emitted: list[dict[str, Any]] = []
+
+        def emit(**kwargs: Any) -> None:
+            if profile_fails and kwargs["rendering"] == "summary_profile":
+                raise RuntimeError("embedding producer down")
+            emitted.append(kwargs)
+
+        with (
+            patch("products.signals.backend.activity_summary.logic.gateway_client", return_value=FakeLLM([ANSWER])),
+            patch("posthog.api.embedding_worker.emit_embedding_request", side_effect=emit),
+        ):
+            result = run_pair(
+                ActivitySummaryPairInput(
+                    team_id=self.team.id,
+                    user_id=self.user.id,
+                    min_units=3,
+                    min_update_interval_hours=24,
+                    emit_embeddings=emit_embeddings,
+                    emit_profile_embeddings=emit_profile,
+                    capture_events=False,
+                )
+            )
+
+        headline_and_themes = "Builds the signup funnel.\nThemes: Signup funnel"
+        contents = {
+            "summary_text": headline_and_themes,
+            "summary_profile": f"{headline_and_themes}\n\n## Funnels\n- Builds the signup funnel.",
+        }
+        assert result.status == "ok"
+        assert [(call["rendering"], call["content"]) for call in emitted] == [
+            (rendering, contents[rendering]) for rendering in expected
+        ]
+        shared = [
+            {key: value for key, value in call.items() if key not in ("rendering", "content")} for call in emitted
+        ]
+        assert all(fields == shared[0] for fields in shared)
+        assert all(fields["document_id"] == f"{self.user.id}:2026-10-19" for fields in shared)
 
 
 @pytest.mark.asyncio

@@ -4,6 +4,7 @@ from typing import Any
 from uuid import UUID
 
 from posthog.models import User
+from posthog.paging import Page, PageRequest
 
 from ..logic import dashboards
 from ..logic.filters import validate_cross_project_filters as _validate_cross_project_filters
@@ -15,9 +16,11 @@ def validate_cross_project_filters(filters: Any) -> dict[str, Any]:
     return _validate_cross_project_filters(filters)
 
 
-def list_dashboards(*, organization_id: UUID | str, user: User, offset: int, limit: int) -> contracts.DashboardPage:
+def list_dashboards(
+    *, organization_id: UUID | str, user: User, page: PageRequest
+) -> Page[contracts.CrossProjectDashboardSummary]:
     """One page of the organization's dashboards. Each counts only the tiles from projects the user can open."""
-    return dashboards.list_dashboards(organization_id=organization_id, user=user, offset=offset, limit=limit)
+    return dashboards.list_dashboards(organization_id=organization_id, user=user, page=page)
 
 
 def get_dashboard(*, organization_id: UUID | str, dashboard_id: UUID, user: User) -> contracts.CrossProjectDashboard:
@@ -46,12 +49,10 @@ def delete_dashboard(*, organization_id: UUID | str, dashboard_id: UUID, user: U
 
 
 def list_tiles(
-    *, organization_id: UUID | str, dashboard_id: UUID, user: User, offset: int, limit: int
-) -> contracts.TilePage:
+    *, organization_id: UUID | str, dashboard_id: UUID, user: User, page: PageRequest
+) -> Page[contracts.CrossProjectTile]:
     """One page of the dashboard's tiles from projects the user can open. Empty for a deleted dashboard."""
-    return dashboards.list_tiles(
-        organization_id=organization_id, dashboard_id=dashboard_id, user=user, offset=offset, limit=limit
-    )
+    return dashboards.list_tiles(organization_id=organization_id, dashboard_id=dashboard_id, user=user, page=page)
 
 
 def get_tile(

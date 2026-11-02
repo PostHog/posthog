@@ -31,8 +31,9 @@ import { isSharedView } from '~/exporter/exporterViewLogic'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { extractValidationError, extractValidationErrorCode } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
+import { queryVizDefinitelyRendersToCanvas } from '~/queries/schema/node-accessors'
+import { isBIVisualizationNode } from '~/queries/schema/node-guards'
 import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
-import { isBIVisualizationNode, queryVizDefinitelyRendersToCanvas } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,

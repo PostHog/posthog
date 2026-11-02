@@ -1,8 +1,8 @@
 from typing import Any
 
 from rest_framework import mixins, serializers, viewsets
-from rest_framework.pagination import PageNumberPagination
 
+from posthog.api.pagination import BoundedPageNumberPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.data_modeling.backend.facade.api import delete_orphaned_table_nodes
@@ -57,7 +57,7 @@ class EdgeSummarySerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class EdgePagination(PageNumberPagination):
+class EdgePagination(BoundedPageNumberPagination):
     page_size = 5000
 
 

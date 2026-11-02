@@ -52,6 +52,12 @@ globs = [
 ]
 mark-changed = ["feature-flags", "hypercache-server", "common-hypercache"]
 
+# common-cohort-team-access tests its query against the table that these migrations build.
+# Must come BEFORE the catch-all rule below.
+[[path-rule]]
+globs = ["../products/cohorts/backend/migrations/**"]
+mark-changed = ["common-cohort-team-access"]
+
 # replay-core-v4's tests read the encryption vectors the Node writers pin.
 # Must come BEFORE the catch-all rule below.
 [[path-rule]]

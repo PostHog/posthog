@@ -5,9 +5,9 @@ import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
+import { isRetentionQuery } from '~/queries/schema/node-guards'
 import { InsightQueryNode } from '~/queries/schema/schema-general'
 import type { DataNode, DateRange, RetentionFilter, VizSpecificOptions } from '~/queries/schema/schema-general'
-import { isRetentionQuery } from '~/queries/utils'
 import { InsightLogicProps, InsightType } from '~/types'
 
 import { dateOptionPlurals } from '../constants'

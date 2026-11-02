@@ -592,6 +592,40 @@ const namedJobs = (file: string): Set<string> =>
     )
 
 describe('CI workflow run plans', () => {
+    it.each([
+        ['ready PR', pullRequest(), true, true],
+        ['merge queue', mergeQueue(), true, false],
+        ['master push', push(), true, false],
+        ['hourly schedule', schedule(), false, false],
+    ])('frontend size comparison runs only when consumed (%s)', (name, github, headBuild, baseBuild) => {
+        const wf = workflow('ci-frontend.yml')
+        const plan = planWorkflow(wf, {
+            name,
+            github,
+            steps: { ...allFiltersChanged(wf), ...frontendSelectors },
+        })
+        expect(plan.errors).toEqual([])
+        const steps = plan.jobs['frontend-bundle-size']?.steps ?? []
+        expect(steps.find((step) => step.name === 'Build base branch for size comparison')?.runs ?? false).toBe(
+            baseBuild
+        )
+        for (const step of [
+            'Build frontend (bundle-size + eager-graph report)',
+            'Measure PR dist size',
+            'Check toolbar bundle stays under the CloudFront gzip limit',
+            'Check toolbar graph stays inside its module boundary',
+            'Check toolbar for CSP eval violations',
+            'Calculate dist folder size',
+        ]) {
+            expect(steps.find((candidate) => candidate.name === step)?.runs ?? false, step).toBe(headBuild)
+        }
+        expect(
+            steps.find((step) => step.name === 'Check eager graph budgets and forbidden imports')?.runs ?? false
+        ).toBe(headBuild && github.event_name === 'pull_request')
+        expect(steps.find((step) => step.name === 'Post CI report — bundle size')?.runs ?? false).toBe(baseBuild)
+        expect(plan.jobs.frontend_tests?.result).toBe('success')
+    })
+
     it.each(['build', 'quality', 'typecheck', 'test'])('Desktop %s shares the fallback detector filters', (name) => {
         const filters = (file: string): Record<string, string[]> =>
             load(
@@ -1031,6 +1065,60 @@ describe('CI workflow run plans', () => {
         })
         expect(plan.errors).toEqual([])
         expect(plan.jobs['code-quality']?.steps.find((step) => step.name === 'Save mypy cache')?.runs).toBe(runs)
+    })
+
+    it.each([
+        ['PR', pullRequest(), false, true],
+        ['merge queue', mergeQueue(), false, true],
+        ['push', push(), false, true],
+        ['manual full rebuild', workflowDispatch(), false, false],
+        ['all-crate change', pullRequest(), true, false],
+    ] as const)('Rust change resolver on %s', (name, github, allCrates, runs) => {
+        const wf = workflow('ci-rust.yml')
+        const plan = planWorkflow(wf, {
+            name,
+            github,
+            steps: {
+                changes: { filter: pathsFilter({ rust: true, all_crates: allCrates }) },
+                affected: { shards: { outputs: { matrix: '{"include":[{"packages":"common-types"}]}' } } },
+            },
+        })
+        expect(plan.errors).toEqual([])
+        expect(plan.jobs.affected?.steps.find((step) => step.name === 'Resolve the changed files')?.runs).toBe(runs)
+    })
+
+    it.each([
+        ['PR', pullRequest(), true, true],
+        ['fork', pullRequest({ fork: true }), true, true],
+        ['merge queue', mergeQueue(), true, true],
+        ['unrelated PR', pullRequest(), false, false],
+        ['push', push(), true, false],
+        ['schedule', schedule(), true, false],
+    ] as const)('Node Rust resolver on %s', (name, github, rustChanged, runs) => {
+        const plan = planWorkflow(workflow('ci-nodejs.yml'), {
+            name,
+            github,
+            steps: { changes: { filter: pathsFilter({ rust: rustChanged }) } },
+        })
+        expect(plan.errors).toEqual([])
+        expect(plan.jobs.changes?.steps.find((step) => step.id === 'rust-changed-files')?.runs).toBe(runs)
+    })
+
+    it.each([
+        ['success', 'true', 'false'],
+        ['success', 'false', 'true'],
+        ['success', '', 'true'],
+        ['failure', 'true', 'true'],
+    ])('Node Rust fallback for resolver %s, resolved=%j', (outcome, resolved, rebuildAll) => {
+        const step = workflow('ci-nodejs.yml').jobs.changes?.steps?.find((step) => step.id === 'rust-affected')
+        const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
+        expect(
+            evaluateValue(
+                step?.with?.['rebuild-all'],
+                { steps: { 'rust-changed-files': { outcome, outputs: { resolved } } } },
+                functions
+            )
+        ).toBe(rebuildAll)
     })
 
     it.each(['success', 'failure'] as const)(

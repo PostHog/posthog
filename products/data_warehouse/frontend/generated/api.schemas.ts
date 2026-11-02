@@ -3854,6 +3854,7 @@ export interface CredentialApi {
  * * `Soniox` - Soniox
  * * `Nango` - Nango
  * * `Fathom` - Fathom
+ * * `Stamped` - Stamped
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -5273,6 +5274,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Soniox: 'Soniox',
     Nango: 'Nango',
     Fathom: 'Fathom',
+    Stamped: 'Stamped',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
@@ -5677,6 +5679,7 @@ export type DataModelingJobsListParams = {
     engine?: DataModelingJobsListEngine
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**
@@ -6052,6 +6055,7 @@ export type WarehouseSavedQueriesListParams = {
 export type WarehouseSavedQueryDraftsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

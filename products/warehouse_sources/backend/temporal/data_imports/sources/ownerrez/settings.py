@@ -143,6 +143,15 @@ OWNERREZ_ENDPOINTS: dict[str, OwnerRezEndpointConfig] = {
         primary_keys=["property_id", "date"],
         partition_key=None,
     ),
+    "SpotRates": OwnerRezEndpointConfig(
+        name="SpotRates",
+        path="/v2/spotrates",
+        # Sparse: one row per property night with a manual override. from/to are optional, and
+        # omitting them returns every override, past and future. Rows carry no modified timestamp,
+        # so this stays full refresh.
+        primary_keys=["property_id", "date"],
+        partition_key="date",
+    ),
 }
 
 ENDPOINTS = tuple(OWNERREZ_ENDPOINTS.keys())

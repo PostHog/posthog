@@ -1894,6 +1894,7 @@ export interface BatchExportBackfillApi {
 }
 
 export interface PaginatedBatchExportBackfillListApi {
+    count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
@@ -1902,6 +1903,7 @@ export interface PaginatedBatchExportBackfillListApi {
 }
 
 export interface PaginatedBatchExportRunListApi {
+    count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
@@ -2386,6 +2388,7 @@ export const RedshiftDestinationRequestTypeEnumApi = {
 export type BatchExportsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2490,6 +2493,11 @@ export type BatchExportsRunsLogsRetrieveParams = {
      */
     limit?: number
     /**
+     * Number of log entries to skip before the first returned entry (default 0).
+     * @minimum 0
+     */
+    offset?: number
+    /**
      * Case-insensitive substring search across log messages.
      * @minLength 1
      */
@@ -2522,6 +2530,11 @@ export type BatchExportsLogsRetrieveParams = {
      */
     limit?: number
     /**
+     * Number of log entries to skip before the first returned entry (default 0).
+     * @minimum 0
+     */
+    offset?: number
+    /**
      * Case-insensitive substring search across log messages.
      * @minLength 1
      */
@@ -2531,6 +2544,7 @@ export type BatchExportsLogsRetrieveParams = {
 export type FileDownloadBatchExportsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2564,6 +2578,11 @@ export type FileDownloadBatchExportsLogsRetrieveParams = {
      * @maximum 500
      */
     limit?: number
+    /**
+     * Number of log entries to skip before the first returned entry (default 0).
+     * @minimum 0
+     */
+    offset?: number
     /**
      * Case-insensitive substring search across log messages.
      * @minLength 1

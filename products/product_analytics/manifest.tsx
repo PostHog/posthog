@@ -5,6 +5,12 @@ import { urls } from 'scenes/urls'
 
 import { examples } from '~/queries/examples'
 import {
+    isBIVisualizationNode,
+    isDataTableNode,
+    isDataVisualizationNode,
+    isHogQLQuery,
+} from '~/queries/schema/node-guards'
+import {
     DashboardFilter,
     HogQLFilters,
     HogQLQuery,
@@ -15,7 +21,6 @@ import {
     ProductKey,
     TileFilters,
 } from '~/queries/schema/schema-general'
-import { isBIVisualizationNode, isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 
 import { AlertType } from 'products/alerts/frontend/types'
 
@@ -113,6 +118,7 @@ export const manifest: ProductManifest = {
             iconType: 'product_analytics',
             href: (ref: string) => urls.insightView(ref as InsightShortId),
             listHref: () => urls.savedInsights(),
+            listSearchParam: 'search',
             iconColor: ['var(--color-product-product-analytics-light)'],
             filterKey: 'insight',
         },

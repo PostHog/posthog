@@ -57,7 +57,11 @@ from posthog.utils import absolute_uri
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.access import DesktopAccessResolutionError
-from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, DEV_STACK_PREVIEW_PORT
+from products.tasks.backend.constants import (
+    DEFAULT_SANDBOX_WORKING_DIR,
+    DEV_STACK_PREVIEW_PORT,
+    FINAL_MESSAGE_MAX_CHARS,
+)
 from products.tasks.backend.exceptions import SandboxNotFoundError
 from products.tasks.backend.facade import (
     access as tasks_access,
@@ -252,6 +256,14 @@ class BaseTaskAPITest(TestCase):
             ),
         )
         self.desktop_access_patcher.start()
+        self._posthog_ai_access = tasks_access.PostHogAIAccessDecision.GRANDFATHERED
+        for module in ("logic.services.code_usage_gate", "logic.services.warm", "facade.access"):
+            posthog_ai_access_patcher = patch(
+                f"products.tasks.backend.{module}.get_posthog_ai_access_decision",
+                side_effect=lambda *_args, **_kwargs: self._posthog_ai_access,
+            )
+            posthog_ai_access_patcher.start()
+            self.addCleanup(posthog_ai_access_patcher.stop)
         self.set_tasks_feature_flag(True)
 
     def tearDown(self):
@@ -551,14 +563,22 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
         with patch.object(tasks_facade, "signal_workflow_completion") as signal_completion:
             response = client.patch(
                 base,
-                {"status": "failed", "error_message": "Synthetic failure", "state": {"agent_version": "test-agent"}},
+                {
+                    "status": "failed",
+                    "error_message": "Synthetic failure",
+                    "error_type": "agent_declined",
+                    "output": {"final_message": "Synthetic report"},
+                    "state": {"agent_version": "test-agent"},
+                },
                 format="json",
             )
         assert response.status_code == status.HTTP_200_OK, response.json()
-        signal_completion.assert_called_once_with(run.id, TaskRun.Status.FAILED, "Synthetic failure", None)
+        signal_completion.assert_called_once_with(run.id, TaskRun.Status.FAILED, "Synthetic failure", "agent_declined")
         run.refresh_from_db()
         assert run.status == TaskRun.Status.FAILED
         assert run.error_message == "Synthetic failure"
+        assert run.output is not None
+        assert run.output["final_message"] == "Synthetic report"
         assert run.completed_at is not None
         assert run.state is not None
         assert run.state["agent_version"] == "test-agent"
@@ -575,6 +595,13 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
             ("remove", {"state_remove_keys": ["model"]}),
             ("branch", {"branch": "other"}),
             ("output", {"output": {"url": "https://example.com"}}),
+            ("report_with_other_output", {"status": "completed", "output": {"final_message": "x", "url": "x"}}),
+            ("report_without_terminal_status", {"output": {"final_message": "x"}}),
+            (
+                "report_too_long",
+                {"status": "completed", "output": {"final_message": "x" * (FINAL_MESSAGE_MAX_CHARS + 1)}},
+            ),
+            ("error_type_without_failure", {"status": "completed", "error_type": "agent_declined"}),
             ("status_type", {"status": {"value": "failed"}}),
         ]
     )
@@ -2920,6 +2947,7 @@ class TestTaskAPI(BaseTaskAPITest):
             (Task.OriginProduct.SPACE_SETUP,),
             (Task.OriginProduct.BUSINESS_KNOWLEDGE,),
             (Task.OriginProduct.METRICS_IMPORT,),
+            (Task.OriginProduct.CONTEXT_LAYER,),
         ]
     )
     def test_create_task_rejects_server_created_origin(self, origin_product: Task.OriginProduct):
@@ -14550,13 +14578,23 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
                 Task.Runtime.ACP,
                 "permission_response",
                 {"requestId": "perm-1", "optionId": "allow"},
+                False,
                 status.HTTP_200_OK,
+            ),
+            (
+                "permission_response_posthog_ai_denied",
+                Task.Runtime.ACP,
+                "permission_response",
+                {"requestId": "perm-1", "optionId": "allow"},
+                True,
+                status.HTTP_403_FORBIDDEN,
             ),
             (
                 "pi_permission_response",
                 Task.Runtime.PI,
                 "pi/rpc",
                 {"command": {"id": "req-1", "type": "permission_response", "optionId": "allow"}},
+                False,
                 status.HTTP_200_OK,
             ),
             (
@@ -14568,6 +14606,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
                     "server": "playwright",
                     "payload": {"jsonrpc": "2.0", "id": 1, "result": {"content": []}},
                 },
+                False,
                 status.HTTP_503_SERVICE_UNAVAILABLE,
             ),
             (
@@ -14575,6 +14614,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
                 Task.Runtime.PI,
                 "pi/rpc",
                 {"command": {"id": "req-1", "type": "prompt", "message": "continue"}},
+                False,
                 status.HTTP_503_SERVICE_UNAVAILABLE,
             ),
         ]
@@ -14590,6 +14630,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         runtime: Task.Runtime,
         method: str,
         params: dict[str, Any],
+        posthog_ai_denied: bool,
         expected_status: int,
         mock_post: MagicMock,
         _mock_access: MagicMock,
@@ -14597,6 +14638,9 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         reset_sandbox_jwt_key_cache()
         self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "id": "req-1", "result": {"accepted": True}})
         task = self.create_task(runtime=runtime)
+        if posthog_ai_denied:
+            self._posthog_ai_access = tasks_access.PostHogAIAccessDecision.BETA_OFF
+            Task.objects.filter(id=task.id).update(origin_product=Task.OriginProduct.POSTHOG_AI)
         run = self._create_run_with_sandbox(task)
 
         response = self.client.post(
@@ -14609,7 +14653,8 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         if expected_status == status.HTTP_200_OK:
             mock_post.assert_called_once()
         else:
-            self.assertEqual(response.json()["code"], "desktop_access_unavailable")
+            expected_code = "task_unavailable" if posthog_ai_denied else "desktop_access_unavailable"
+            self.assertEqual(response.json()["code"], expected_code)
             mock_post.assert_not_called()
 
     @parameterized.expand(
@@ -14928,10 +14973,20 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(forwarded["method"], "side_question")
         self.assertEqual(forwarded["params"]["question"], "what does it do?")
 
+    @parameterized.expand(
+        [
+            ("desktop_denied", False, Task.OriginProduct.USER_CREATED, "code_access_required"),
+            ("posthog_ai_denied", True, Task.OriginProduct.POSTHOG_AI, "task_unavailable"),
+        ]
+    )
     @patch("products.tasks.backend.presentation.views.api.http_requests.post")
-    def test_command_side_question_requires_code_access(self, mock_post):
-        self.set_tasks_feature_flag(False)
+    def test_command_side_question_requires_access(
+        self, _name: str, desktop_access: bool, origin_product: str, expected_code: str, mock_post
+    ):
+        self.set_tasks_feature_flag(desktop_access)
+        self._posthog_ai_access = tasks_access.PostHogAIAccessDecision.BETA_OFF
         task = self.create_task()
+        Task.objects.filter(id=task.id).update(origin_product=origin_product)
         run = self._create_run_with_sandbox(task)
 
         response = self.client.post(
@@ -14941,7 +14996,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json()["code"], "code_access_required")
+        self.assertEqual(response.json()["code"], expected_code)
         mock_post.assert_not_called()
 
     @patch("products.tasks.backend.presentation.views.api.http_requests.post")
