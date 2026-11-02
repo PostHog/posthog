@@ -24,10 +24,7 @@ export function SourceSpendLabel({ sourceProduct }: { sourceProduct: string }): 
     const amount = spendByProduct.get(sourceProduct)
     return (
         <span className="shrink-0 whitespace-nowrap text-xs text-muted" data-attr="source-spend">
-            <RecordedSpend
-                amount={amount === undefined ? 0 : amount}
-                description="Accumulated processing usage for signals received in the last 30 days, including later research."
-            />
+            <RecordedSpend amount={amount === undefined ? 0 : amount} description="Last 30 days." />
         </span>
     )
 }
