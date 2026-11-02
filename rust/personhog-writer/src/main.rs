@@ -152,13 +152,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // collapse every lag excursion into +Inf.
         let metrics_router = setup_metrics_routes_with_overrides(
             health_router,
-            &[(
-                Matcher::Full("personhog_writer_e2e_latency_ms".into()),
-                &[
-                    250.0, 1000.0, 2500.0, 5000.0, 10000.0, 30000.0, 60000.0, 120000.0, 300000.0,
-                    600000.0,
-                ],
-            )],
+            &[
+                (
+                    Matcher::Full("personhog_writer_e2e_latency_ms".into()),
+                    &[
+                        250.0, 1000.0, 2500.0, 5000.0, 10000.0, 30000.0, 60000.0, 120000.0,
+                        300000.0, 600000.0,
+                    ],
+                ),
+                (
+                    Matcher::Full(personhog_property_store::OBJECT_STORE_REQUEST_DURATION.into()),
+                    personhog_property_store::OBJECT_STORE_REQUEST_BUCKETS_SECONDS,
+                ),
+            ],
         );
 
         let bind = format!("0.0.0.0:{metrics_port}");
