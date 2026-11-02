@@ -854,9 +854,7 @@ _MCP_EXCLUDE_TOOL_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 _MAX_MCP_EXCLUDE_TOOLS = 32
 
 
-def sanitize_mcp_exclude_tools(names: Sequence[str] | None) -> list[str]:
-    if not names:
-        return []
+def _unique_mcp_exclude_tools(names: Iterable[str]) -> list[str]:
     seen: set[str] = set()
     cleaned: list[str] = []
     for name in names:
@@ -865,24 +863,38 @@ def sanitize_mcp_exclude_tools(names: Sequence[str] | None) -> list[str]:
             continue
         seen.add(token)
         cleaned.append(token)
-        if len(cleaned) >= _MAX_MCP_EXCLUDE_TOOLS:
-            break
     return cleaned
 
 
-def mcp_exclude_tools_from_state(state: dict[str, Any] | None) -> list[str]:
+def sanitize_mcp_exclude_tools(names: Sequence[str] | None) -> list[str]:
+    if not names:
+        return []
+    return _unique_mcp_exclude_tools(names)[:_MAX_MCP_EXCLUDE_TOOLS]
+
+
+def _mcp_exclude_tool_names_in_state(state: dict[str, Any] | None) -> list[str]:
     raw = (state or {}).get("mcp_exclude_tools")
     if not isinstance(raw, list):
         return []
-    return sanitize_mcp_exclude_tools([name for name in raw if isinstance(name, str)])
+    return [name for name in raw if isinstance(name, str)]
+
+
+def mcp_exclude_tools_from_state(state: dict[str, Any] | None) -> list[str]:
+    return sanitize_mcp_exclude_tools(_mcp_exclude_tool_names_in_state(state))
 
 
 def mcp_exclude_tools_for_task(task: Task, state: dict[str, Any] | None) -> list[str]:
-    from_state = mcp_exclude_tools_from_state(state)
     profile = task.stored_profile
     if profile is None:
-        return from_state
-    return sanitize_mcp_exclude_tools([*profile.mcp_exclude_tools, *from_state])
+        return mcp_exclude_tools_from_state(state)
+    excluded = _unique_mcp_exclude_tools([*profile.mcp_exclude_tools, *_mcp_exclude_tool_names_in_state(state)])
+    if len(excluded) > _MAX_MCP_EXCLUDE_TOOLS:
+        raise ProcessTaskFatalError(
+            "The task hides more MCP tools than the sandbox can hide",
+            {"task_id": str(task.id), "excluded_tool_count": len(excluded)},
+            cause=ValueError(f"{len(excluded)} hidden MCP tools exceed the limit of {_MAX_MCP_EXCLUDE_TOOLS}"),
+        )
+    return excluded
 
 
 def get_sandbox_ph_mcp_configs(
