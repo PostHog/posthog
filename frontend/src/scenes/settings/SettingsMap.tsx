@@ -192,11 +192,11 @@ import { OrganizationVariables } from './organization/OrgVariables'
 import { SSFSetting } from './organization/SSFSetting'
 import { EnforceVerifiedDomains } from './organization/VerifiedDomains/EnforceVerifiedDomains'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
-import { CITrustPolicies } from './project/CITrustPolicies'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
 import { ProjectDetails } from './project/ProjectDetails'
 import { ProjectMove } from './project/ProjectMove'
 import { ProjectSecretAPIKeys } from './project/ProjectSecretAPIKeys'
+import { WorkloadTrustPolicies } from './project/WorkloadTrustPolicies'
 import { SettingSection } from './types'
 import { AllowImpersonation } from './user/AllowImpersonation'
 import { ChangePassword, ChangePasswordTitle } from './user/ChangePassword'
@@ -2226,17 +2226,28 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
-        id: 'environment-ci-trust-policies',
-        title: 'CI trust policies',
+        id: 'environment-trusted-workloads',
+        title: 'Trusted workloads',
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
         settings: [
             {
-                id: 'environment-ci-trust-policies',
-                title: 'CI trust policies',
+                id: 'environment-trusted-workloads',
+                title: 'Trusted workloads',
                 description:
-                    'Let CI jobs from a repository you trust get short-lived tokens for this project, without storing a secret in your CI provider.',
-                component: <CITrustPolicies />,
-                keywords: ['ci', 'oidc', 'github actions', 'gitlab', 'token', 'trust policy', 'deploy'],
+                    'Let workloads you trust, such as CI jobs from one repository, get short-lived tokens for this project without storing a secret.',
+                component: <WorkloadTrustPolicies />,
+                keywords: [
+                    'workload',
+                    'workload identity',
+                    'federation',
+                    'ci',
+                    'oidc',
+                    'github actions',
+                    'gitlab',
+                    'token',
+                    'trust policy',
+                    'deploy',
+                ],
             },
         ],
     },

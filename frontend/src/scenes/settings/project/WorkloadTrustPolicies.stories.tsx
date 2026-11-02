@@ -2,11 +2,11 @@ import { Meta, StoryObj } from '@storybook/react'
 
 import { useStorybookMocks } from '~/mocks/browser'
 
-import { CITrustPolicies } from './CITrustPolicies'
+import { WorkloadTrustPolicies } from './WorkloadTrustPolicies'
 
 const meta: Meta = {
-    title: 'Scenes-Other/Settings/Project/CI trust policies',
-    component: CITrustPolicies,
+    title: 'Scenes-Other/Settings/Project/Trusted workloads',
+    component: WorkloadTrustPolicies,
     parameters: {
         testOptions: { snapshotBrowsers: [] },
     },
@@ -48,8 +48,8 @@ export const WithPolicies: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/projects/:team_id/ci_trust_policies/providers/': providers,
-                '/api/projects/:team_id/ci_trust_policies/': {
+                '/api/projects/:team_id/workload_trust_policies/providers/': providers,
+                '/api/projects/:team_id/workload_trust_policies/': {
                     count: 2,
                     next: null,
                     previous: null,
@@ -88,6 +88,6 @@ export const WithPolicies: Story = {
                 },
             },
         })
-        return <CITrustPolicies />
+        return <WorkloadTrustPolicies />
     },
 }
