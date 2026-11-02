@@ -28,9 +28,9 @@ from products.messaging.backend.facade.transactional_email_log import (
     list_transactional_emails,
     transactional_email_results,
     transactional_email_stats,
-    viewable_workflow_ids,
 )
 from products.messaging.backend.presentation.views.message_templates import require_transactional_email_api
+from products.workflows.backend.facade.api import get_viewable_workflow_ids
 
 RETENTION_NOTE = f"The log keeps sends for {EMAIL_STATUS_RETENTION_DAYS} days."
 
@@ -196,7 +196,7 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     def _workflow_ids(self) -> set[str]:
         # Sends inherit the access of the workflow behind their email.
-        return viewable_workflow_ids(self.team_id, self.user_access_control)
+        return get_viewable_workflow_ids(team_id=self.team_id, user_access_control=self.user_access_control)
 
     @validated_request(
         query_serializer=TransactionalEmailLogListQuerySerializer,

@@ -20,7 +20,6 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.messaging.backend.facade.contracts import (
     EmailDeliveryStatus,
     EmailLogEventKind,
@@ -37,7 +36,6 @@ from products.messaging.backend.models.email_status_sql import (
     EMAIL_STATUS_RETENTION_DAYS,
 )
 from products.messaging.backend.models.message_template import MessageTemplate
-from products.workflows.backend.facade.api import get_viewable_workflow_ids
 from products.workflows.backend.facade.message_assets import (
     fetch_first_email_sends,
     fetch_message_assets_for_invocations,
@@ -68,11 +66,6 @@ _MESSAGE_COLUMNS = f"""
     countIf(status = 'opened') > 0 AS was_opened,
     countIf(status = 'clicked') > 0 AS was_clicked
 """.strip()
-
-
-def viewable_workflow_ids(team_id: int, user_access_control: UserAccessControl) -> set[str]:
-    """The workflows, and so the transactional emails, whose sends the reader may see."""
-    return get_viewable_workflow_ids(team_id=team_id, user_access_control=user_access_control)
 
 
 @frozen

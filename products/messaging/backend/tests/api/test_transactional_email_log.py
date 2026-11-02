@@ -13,10 +13,10 @@ from posthog.models import OrganizationMembership, Team
 from posthog.test.persons import create_person
 from posthog.uuidt import UUIDT
 
-from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.facade.testing import create_access_control
 from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_EVENTS_DATA_TABLE
 from products.messaging.backend.models.message_template import MessageTemplate
-from products.workflows.backend.models import HogFlow
+from products.workflows.backend.facade.testing import create_workflow_for_test
 
 # `run_failed` is the failure the whole run writes, which ranks below the email step's own failure.
 RANK = {
@@ -41,7 +41,7 @@ NOW = datetime(2026, 6, 15, 12, 0, 0, tzinfo=UTC)
 class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
-        self.workflow_id = str(HogFlow.objects.create(team=self.team, name="Password reset").id)
+        self.workflow_id = create_workflow_for_test(team_id=self.team.id, name="Password reset").id
         self.template = MessageTemplate.objects.create(
             team=self.team, name="Password reset", transactional_hog_flow_id=self.workflow_id
         )
@@ -235,7 +235,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert response.json() == {"recipients": 3, "converted": 1, "revenue": 30.0, "median_hours_to_convert": 5.0}
 
     def test_hides_the_sends_of_a_workflow_the_user_cannot_view(self, _flag):
-        restricted = str(HogFlow.objects.create(team=self.team, name="Payroll").id)
+        restricted = create_workflow_for_test(team_id=self.team.id, name="Payroll").id
         visible_id = self._send(20, "jane@example.com", [("sent", 1, "")])
         hidden_id = self._send(10, "boss@example.com", [("sent", 1, "")], workflow_id=restricted)
         self.organization.available_product_features = [
@@ -245,12 +245,12 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         self.organization.save()
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        AccessControl.objects.create(
-            team=self.team,
+        create_access_control(
+            team_id=self.team.id,
             resource="hog_flow",
             resource_id=restricted,
             access_level="none",
-            organization_member=self.organization_membership,
+            organization_member_id=self.organization_membership.id,
         )
 
         listed = self.client.get(self._url()).json()["results"]
