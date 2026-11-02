@@ -394,7 +394,7 @@ def complete_task_spend(*, team_id: int, run_id: str, report_id: str | None = No
                     spend.finalized_at = timezone.now()
                 spend.save()
                 _save_scout_total(spend)
-        if spend.accounting_failed:
+        if spend.accounting_failed and run.token_usage_pending:
             raise TaskTokenUsageUnavailable("Task usage is not settled yet")
     if spend.signal_id:
         async_to_sync(submit_signal_metadata_updates)(team_id=team_id, signal_ids=[str(spend.signal_id)])

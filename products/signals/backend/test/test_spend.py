@@ -1094,6 +1094,34 @@ class TestSignalSpend(BaseTest):
             assert summary.failed_stages == []
         assert self.temporal.start_workflow.await_count == (0 if is_scout else 1)
 
+    @parameterized.expand(
+        [
+            ("missing_gateway_state", TaskRun.Environment.CLOUD, {"ai_stage": "research"}),
+            ("gateway_not_used", TaskRun.Environment.CLOUD, {"ai_stage": "research", "token_cost_incomplete": True}),
+            (
+                "local_run",
+                TaskRun.Environment.LOCAL,
+                {"ai_stage": "research", "unprocessed_request_ids": [], "token_cost": {}},
+            ),
+        ]
+    )
+    def test_completion_does_not_retry_usage_that_cannot_settle(
+        self, _name: str, environment: str, state: dict[str, object]
+    ) -> None:
+        driver = str(uuid4())
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=driver)
+        run = self._run(report=report)
+        run.environment = environment
+        run.state = state
+        run.status = TaskRun.Status.COMPLETED
+        run.save(update_fields=["environment", "state", "status"])
+
+        self._complete_task_spend(team_id=self.team.id, run_id=str(run.id))
+
+        spend = SignalSpend.objects.for_team(self.team.id).get(signal_id=driver)
+        assert spend.accounting_failed
+        assert spend.finalized_at is None
+
     def test_one_shot_calls_preserve_known_spend_and_record_failed_stage(self) -> None:
         driver = str(uuid4())
         for cost in (None, 9, None):

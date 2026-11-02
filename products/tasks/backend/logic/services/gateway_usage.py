@@ -222,13 +222,14 @@ def get_task_run_token_cost_microusd(*, run_id: UUID, team_id: int) -> int | Non
 
 def _token_usage(run: TaskRun) -> TaskRunTokenUsage:
     state = run.state or {}
+    can_settle = gateway_usage_enabled(run) and not state.get("token_cost_incomplete", False)
+    pending = can_settle and bool(state.get("unprocessed_request_ids"))
     return TaskRunTokenUsage(
         cost_microusd=sum(bucket.get("cost_microusd", 0) for bucket in _cost_buckets(state))
         if isinstance(state.get("token_cost"), dict)
         else None,
-        complete=gateway_usage_enabled(run)
-        and not state.get("token_cost_incomplete", False)
-        and not bool(state.get("unprocessed_request_ids")),
+        complete=can_settle and not pending,
+        pending=pending,
     )
 
 
@@ -244,6 +245,7 @@ def _run_spend(run: TaskRun) -> TaskRunSpend:
         task_id=run.task_id,
         cost_microusd=usage.cost_microusd,
         complete=usage.complete,
+        token_usage_pending=usage.pending,
         is_terminal=run.is_terminal,
         stage=(run.state or {}).get("ai_stage") or "task",
     )

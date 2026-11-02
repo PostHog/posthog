@@ -166,10 +166,11 @@ class WizardCloudRunDTO:
 
 @dataclass(frozen=True)
 class TaskRunTokenUsage:
-    """Settled token subtotal in micro-USD and whether every request is accounted for."""
+    """Token subtotal in micro-USD and its settlement state."""
 
     cost_microusd: int | None
     complete: bool
+    pending: bool
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -179,6 +180,7 @@ class TaskRunSpend:
     task_id: UUID
     cost_microusd: int | None
     complete: bool
+    token_usage_pending: bool
     is_terminal: bool
     stage: str
 
