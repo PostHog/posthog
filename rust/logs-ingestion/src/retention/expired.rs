@@ -18,7 +18,6 @@ fn is_past_retention(timestamp_micros: f64, retention_days: f64, now_micros: f64
     timestamp_micros + retention_days * MICROS_PER_DAY <= now_micros
 }
 
-/// `canHoldExpiredRow`. A message without the `min_timestamp` header is never checked.
 pub fn can_hold_expired_row(
     min_timestamp_micros: Option<f64>,
     shortest_retention_days: f64,
@@ -79,7 +78,6 @@ impl FilterStage for RetentionExpiredStage {
     }
 }
 
-/// `makeRetentionExpiredStage`.
 pub fn make_retention_expired_stage(
     team_id: i64,
     default_retention_days: f64,

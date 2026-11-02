@@ -73,8 +73,6 @@ where
     }
 }
 
-/// Maps OK results (value and context) into a sub-pipeline and passes non-OK results
-/// through unchanged. Non-OK results come out first, without waiting for the sub-pipeline.
 pub struct FilterMapChunkPipeline<I, M, MM, O, CI, CM, CMM, CO> {
     inner: Inner<I, M, MM, O, CI, CM, CMM, CO>,
 }

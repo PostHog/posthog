@@ -27,7 +27,6 @@ pub fn json_parse(text: &str) -> Result<JsValue, JsonError> {
     Ok(value)
 }
 
-/// The parts of a `JSON.parse` result that pattern selection reads, found without building it.
 #[derive(Debug, Clone, PartialEq)]
 pub enum JsonShape {
     /// The top-level keys in source order, repeats included. A string value is kept for each
@@ -35,7 +34,6 @@ pub enum JsonShape {
     Object(Vec<(JsString, Option<JsString>)>),
     Array,
     String(JsString),
-    /// A number, a boolean or null.
     Primitive,
 }
 
@@ -171,7 +169,6 @@ impl Parser<'_> {
         }
     }
 
-    /// `object` for the top level of `json_parse_shape`.
     fn object_entries(
         &mut self,
         keep_value: impl Fn(&JsString) -> bool,
@@ -214,7 +211,6 @@ impl Parser<'_> {
         }
     }
 
-    /// `value` without building anything: the same grammar, the same errors.
     fn skip_value(&mut self) -> Result<(), JsonError> {
         match self.bytes.get(self.pos) {
             Some(b'{') => {
@@ -279,7 +275,6 @@ impl Parser<'_> {
         }
     }
 
-    /// `string` without building the string.
     fn skip_string(&mut self) -> Result<(), JsonError> {
         self.pos += 1;
         loop {
@@ -319,7 +314,6 @@ impl Parser<'_> {
         self.pos - start
     }
 
-    /// Moves past a number in JSON grammar and returns where it starts.
     fn scan_number(&mut self) -> Result<usize, JsonError> {
         let start = self.pos;
         if self.bytes[self.pos] == b'-' {
@@ -409,14 +403,12 @@ impl Parser<'_> {
                         _ => return self.err(),
                     }
                 }
-                // A raw control character or the end of input.
                 _ => return self.err(),
             }
         }
     }
 }
 
-/// `JSON.stringify(value)`.
 pub fn json_stringify(value: &JsValue) -> String {
     let mut out = String::new();
     json_stringify_into(value, &mut out);

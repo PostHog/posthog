@@ -51,7 +51,6 @@ struct RawEvent {
     name: &'static str,
 }
 
-/// it('filterMap enables team-aware processing with non-OK passthrough')
 #[tokio::test]
 async fn filter_map_enables_team_aware_processing_with_non_ok_passthrough() {
     let processed = shared(Vec::<(&'static str, i64)>::new());

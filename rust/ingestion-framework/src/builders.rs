@@ -44,10 +44,6 @@ use crate::steps::{ChunkProcessingStep, ProcessingStep};
 use crate::timeout_barrier::TimeoutBarrierPipeline;
 use crate::warning_handling::{IngestionWarningEmitter, IngestionWarningHandlingChunkPipeline};
 
-// ---------------------------------------------------------------------------------------
-// Single-item builders
-// ---------------------------------------------------------------------------------------
-
 pub struct StartPipelineBuilder<T, C> {
     _marker: std::marker::PhantomData<fn(T, C)>,
 }
@@ -60,7 +56,6 @@ impl<T, C> Default for StartPipelineBuilder<T, C> {
     }
 }
 
-/// Port of `newPipelineBuilder<T, C>()`.
 pub fn new_pipeline<T, C>() -> StartPipelineBuilder<T, C> {
     StartPipelineBuilder::default()
 }
@@ -141,7 +136,6 @@ impl<I: Send + 'static, O: Send + 'static, C: Send + 'static> PipelineBuilder<I,
         PipelineBuilder::new(callback(builder).build())
     }
 
-    /// Past this point the budget no longer stops an element.
     pub fn timeout_barrier(self) -> Self {
         PipelineBuilder::new(Arc::new(TimeoutBarrierPipeline::new(self.pipeline)))
     }
@@ -191,11 +185,6 @@ impl<I: Send + 'static, M: Send + 'static, O: Send + 'static, C: Send + 'static>
     }
 }
 
-// ---------------------------------------------------------------------------------------
-// Chunk builders
-// ---------------------------------------------------------------------------------------
-
-/// Port of `newChunkPipelineBuilder<T, C>()`.
 pub fn new_chunk_pipeline<T: Send + 'static, C: Send + 'static>() -> ChunkPipelineBuilder<T, T, C, C>
 {
     ChunkPipelineBuilder::new(Arc::new(BufferingChunkPipeline::<T, C>::new()))
@@ -234,9 +223,6 @@ where
         self.pipe_chunk(with_chunk_retry(step, retry))
     }
 
-    /// Processes each item concurrently and emits in input (FIFO) order. `max_concurrency`
-    /// caps how many items run at once; `None` means no cap.
-    ///
     /// # Panics
     ///
     /// Panics on `Some(0)`, as Node's `pLimit(0)` throws.
@@ -268,8 +254,6 @@ where
         ChunkPipelineBuilder::new(Arc::new(GatheringChunkPipeline::new(self.pipeline)))
     }
 
-    /// Maps OK results into a sub-pipeline; non-OK results pass through. The sub-pipeline's
-    /// output context must convert from this stage's context, for the passthroughs.
     pub fn filter_map<MM, U, CMM, CSO>(
         self,
         mapping: impl Fn(
@@ -297,7 +281,6 @@ where
         )))
     }
 
-    /// Opens `.fan_out(..).via(..).fan_in(..)`.
     pub fn fan_out<S: Send + 'static>(
         self,
         name: &str,
@@ -310,8 +293,6 @@ where
         }
     }
 
-    /// Groups items by key and processes groups concurrently, optionally capped.
-    ///
     /// # Panics
     ///
     /// Panics on `Some(0)`, as Node's `pLimit(0)` throws.
@@ -346,7 +327,6 @@ where
         )))
     }
 
-    /// Port of `messageAware`: the returned builder only allows `handle_results`.
     pub fn message_aware<U, CU>(
         self,
         callback: impl FnOnce(Self) -> ChunkPipelineBuilder<I, U, CI, CU>,
@@ -360,7 +340,6 @@ where
         }
     }
 
-    /// Port of `teamAware`: the returned builder adds `handle_ingestion_warnings`.
     pub fn team_aware<U, CU>(
         self,
         callback: impl FnOnce(Self) -> ChunkPipelineBuilder<I, U, CI, CU>,
@@ -379,8 +358,6 @@ where
     }
 }
 
-/// Composes how one group's queued chunk is processed, from chunk steps and sequential
-/// per-item stages, in declaration order.
 pub struct GroupProcessingBuilder<T, U, C> {
     processor: GroupChunkProcessor<T, U, C>,
 }
@@ -558,17 +535,11 @@ where
         )))
     }
 
-    /// The Node `TeamAwareChunkPipelineBuilder` extends the chunk builder; this returns to it.
     pub fn into_builder(self) -> ChunkPipelineBuilder<I, O, CI, CO> {
         ChunkPipelineBuilder::new(self.pipeline)
     }
 }
 
-// ---------------------------------------------------------------------------------------
-// Batching builder
-// ---------------------------------------------------------------------------------------
-
-/// Port of `newBatchingPipeline(beforeBatch, callback, afterBatch, options)`.
 #[allow(clippy::type_complexity)]
 pub fn new_batching_pipeline<T, O, CI, CO, CB, CF>(
     before: impl FnOnce(
@@ -598,8 +569,6 @@ where
     BatchingPipeline::new(sub, before, after, options)
 }
 
-/// A beforeBatch step that builds the batch context from a function of the batch id, and
-/// keeps the elements. Covers the common `createXBeforeBatchStep` shape.
 pub fn before_batch_step<T, CI, CB>(
     name: &str,
     make_context: impl Fn(u64) -> CB + Send + Sync + 'static,
@@ -618,7 +587,6 @@ where
     })
 }
 
-/// An afterBatch step that returns its input.
 pub fn passthrough_after_batch_step<O, CO, CB>(
     name: &str,
 ) -> ProcessingStep<AfterBatchInput<O, CO, CB>, AfterBatchOutput<O, CO, CB>>

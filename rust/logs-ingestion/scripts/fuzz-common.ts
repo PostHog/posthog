@@ -219,7 +219,6 @@ export function randKey(rng: Rng): string {
     return rng.bool(0.8) ? rng.pick(KEY_POOL) : randString(rng, 2);
 }
 
-/** A random JS value for JSON bodies. */
 export function randValue(
     rng: Rng,
     depth: number,

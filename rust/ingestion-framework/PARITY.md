@@ -47,7 +47,7 @@ The two implementations are kept in step: a change to one lands with the same ch
 ## Mirrored tests
 
 Each living-docs chapter `docs/NN-*.test.ts` has a Rust twin `tests/docs_NN_*.rs`, with one `#[tokio::test]` per Node `it(...)`.
-The Node test name is the doc comment above each Rust test.
+The Rust test name is the snake_case form of the Node test name.
 Jest fake timers map to `#[tokio::test(start_paused = true)]`: tokio advances the paused clock by itself when every task waits, and `tokio::time::advance` replaces a synchronous `jest.advanceTimersByTime`.
 
 `per-element-step.test.ts` has the twin `tests/per_element_step.rs`.

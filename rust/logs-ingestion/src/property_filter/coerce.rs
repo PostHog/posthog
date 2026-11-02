@@ -20,8 +20,6 @@ impl std::fmt::Display for JsTypeError {
 
 impl std::error::Error for JsTypeError {}
 
-/// `String(value)` for a value from `JSON.parse`.
-///
 /// An object with an own `toString` property throws: JSON cannot make that property callable, so
 /// `OrdinaryToPrimitive` falls through to `valueOf`, which returns the object itself.
 pub fn js_to_string(value: &JsValue) -> Result<JsString, JsTypeError> {
@@ -53,7 +51,6 @@ pub fn js_to_string(value: &JsValue) -> Result<JsString, JsTypeError> {
     }
 }
 
-/// `String(value)` where `None` is `undefined`.
 pub fn js_to_string_opt(value: Option<&JsValue>) -> Result<JsString, JsTypeError> {
     match value {
         None => Ok(JsString::from("undefined")),
@@ -84,7 +81,6 @@ pub fn is_js_whitespace(c: char) -> bool {
     )
 }
 
-/// `String.prototype.trim`.
 pub fn js_trim(s: &str) -> &str {
     s.trim_matches(is_js_whitespace)
 }
@@ -100,7 +96,6 @@ pub fn js_parse_float(s: &JsString) -> f64 {
     parse_float_str(&trim_start_js(s))
 }
 
-/// `parseFloat` on text that has no leading whitespace.
 fn parse_float_str(t: &str) -> f64 {
     let b = t.as_bytes();
     let mut i = 0;
@@ -236,7 +231,6 @@ pub fn js_to_lower(s: &JsString) -> JsString {
     out
 }
 
-/// The UTF-16 code units of a string.
 pub fn utf16_units(s: &JsString) -> Vec<u16> {
     let mut out = Vec::new();
     for unit in s.chars_or_surrogates() {
@@ -274,7 +268,6 @@ pub fn js_includes(haystack: &JsString, needle: &JsString) -> bool {
     }
 }
 
-/// `haystack.startsWith(needle)`.
 pub fn js_starts_with(haystack: &JsString, needle: &JsString) -> bool {
     match (haystack.as_str(), needle.as_str()) {
         (Some(h), Some(n)) => h.starts_with(n),
@@ -282,7 +275,6 @@ pub fn js_starts_with(haystack: &JsString, needle: &JsString) -> bool {
     }
 }
 
-/// `haystack.endsWith(needle)`.
 pub fn js_ends_with(haystack: &JsString, needle: &JsString) -> bool {
     match (haystack.as_str(), needle.as_str()) {
         (Some(h), Some(n)) => h.ends_with(n),

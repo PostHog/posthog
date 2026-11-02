@@ -36,7 +36,6 @@ async fn handle(
     }
 }
 
-/// Schedules (or awaits) the side effects of each result, then clears them.
 pub struct SideEffectHandlingPipeline<I, O, CI, CO> {
     sub: DynChunkPipeline<I, O, CI, CO>,
     scheduler: Arc<dyn SideEffectScheduler>,
@@ -82,7 +81,6 @@ where
     }
 }
 
-/// Single-item counterpart, used by the batching hooks.
 pub struct SideEffectHandlingProcessor<I, O, C> {
     sub: DynPipeline<I, O, C>,
     scheduler: Arc<dyn SideEffectScheduler>,

@@ -5,20 +5,10 @@ use crate::js::{json_parse, JsString, JsValue};
 #[derive(Debug, Clone, PartialEq)]
 pub enum LogBodyParseResult {
     Empty,
-    InvalidJson {
-        raw: String,
-    },
-    /// An object or an array.
-    JsonObjectOrArray {
-        value: JsValue,
-    },
-    JsonString {
-        value: JsString,
-    },
-    /// A number, a boolean or null.
-    JsonPrimitive {
-        parsed: JsValue,
-    },
+    InvalidJson { raw: String },
+    JsonObjectOrArray { value: JsValue },
+    JsonString { value: JsString },
+    JsonPrimitive { parsed: JsValue },
 }
 
 pub fn parse_log_body_for_ingestion(body: Option<&str>) -> LogBodyParseResult {

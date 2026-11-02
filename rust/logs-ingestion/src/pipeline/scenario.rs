@@ -64,7 +64,6 @@ fn entries(v: Option<&JsValue>) -> Vec<(String, &JsValue)> {
     }
 }
 
-/// `toError(spec)` in the harness.
 fn to_error(spec: &JsValue) -> anyhow::Error {
     let name = s(get(spec, "name")).unwrap_or_default();
     let message = s(get(spec, "message")).unwrap_or_default();
@@ -127,7 +126,6 @@ pub fn kafka_message(m: &JsValue) -> KafkaMessage {
     }
 }
 
-/// A clock the harness moves per batch.
 #[derive(Clone)]
 pub struct PinnedClock(Arc<AtomicU64>);
 
@@ -151,7 +149,6 @@ pub struct CapturedMessage {
     pub message: OutputMessage,
 }
 
-/// Records every produced message and fails the ones the scenario names.
 pub struct CapturingOutputs {
     faults: Vec<(String, Option<String>, JsValue)>,
     remaining: Mutex<Vec<u64>>,
@@ -217,7 +214,6 @@ pub struct UsageRow {
     pub record_id: String,
 }
 
-/// Everything the harness records besides produced messages.
 #[derive(Default)]
 pub struct Recorded {
     pub teams_ingested: Mutex<Vec<Vec<i64>>>,

@@ -19,14 +19,11 @@ use crate::results::{NonOk, Outcome};
 /// sub-pipeline.
 pub type FanOutFunction<T, S> = Arc<dyn Fn(&T) -> Vec<S> + Send + Sync>;
 
-/// Folds the OK sub-results back into the original element.
 pub type FanInFunction<T, SO, U> = Arc<dyn Fn(T, Vec<SO>) -> U + Send + Sync>;
 
-/// The opaque token that ties a sub-element to its parent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FanOutParentRef(u64);
 
-/// The context type of sub-elements: only the parent token.
 #[derive(Debug, Clone)]
 pub struct FanOutSubContext {
     parent: FanOutParentRef,
@@ -49,7 +46,6 @@ struct PendingParent<T, SO, C> {
     timed_out: Option<(String, Option<Arc<str>>)>,
 }
 
-/// A parent whose last sub-result arrived.
 enum Settled<T, SO, U, C> {
     Done(ResultWithContext<U, C>),
     FanIn {
@@ -108,8 +104,6 @@ impl<I, T, S, SO, U, CI, C> FanCallbacks<I, T, S, SO, U, CI, C> {
         }
     }
 
-    /// Attributes one sub-result to its parent. When it was the parent's last one, pushes
-    /// the parent to `out`; the fan-in for an OK parent runs later, outside the lock.
     fn settle(
         &self,
         state: &mut FanState<T, SO, U, C>,
@@ -320,10 +314,6 @@ where
     }
 }
 
-/// Fans each OK element out into sub-elements, runs them through a sub-pipeline, and folds
-/// the results back. N parents in, N results out; parents come out as they complete.
-/// A DLQ sub-result fails its parent, a timeout times the parent out, a drop excludes the
-/// sub-element, and a redirect is excluded with a warning.
 pub struct FanOutFanInChunkPipeline<I, T, S, SO, U, CI, C> {
     inner: Inner<I, T, S, SO, U, CI, C>,
 }

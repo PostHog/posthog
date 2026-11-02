@@ -17,7 +17,6 @@ fn variable_delay_numbers() -> ProcessingStep<i64, i64> {
     })
 }
 
-/// it('gather() after concurrently() collects items into one chunk')
 #[tokio::test(start_paused = true)]
 async fn gather_after_concurrently_collects_items_into_one_chunk() {
     let streaming = new_chunk_pipeline::<i64, ()>()
@@ -49,7 +48,6 @@ fn variable_delay_events() -> ProcessingStep<Event, Event> {
     })
 }
 
-/// it('gather() after concurrentlyPerGroup() collects groups into one chunk')
 #[tokio::test(start_paused = true)]
 async fn gather_after_concurrently_per_group_collects_groups_into_one_chunk() {
     let events = [("alice", 1), ("bob", 2), ("alice", 3), ("bob", 4)];

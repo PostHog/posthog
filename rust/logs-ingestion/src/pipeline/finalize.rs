@@ -81,8 +81,6 @@ pub async fn emit_metric_rule_tallies(
     }
 }
 
-/// Queues the batch's usage rows and flushes every queued app metric and usage record. Both
-/// flushes are best effort and independent.
 pub async fn emit_usage_metrics(context: &LogsPipelineContext, usage: &UsageStatsByTeam) {
     let metrics = &context.usage_metrics;
     for (team_id, stats) in &usage.0 {

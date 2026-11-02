@@ -22,7 +22,6 @@ fn passthrough_before<CB: Send + 'static>(
     ingestion_framework::before_batch_step(name, make)
 }
 
-/// it('each feed() forms one batch with sequential batchId and messageId tagging')
 #[tokio::test]
 async fn each_feed_forms_one_batch_with_sequential_batch_id_and_message_id_tagging() {
     let before_ids = shared(Vec::<u64>::new());
@@ -69,7 +68,6 @@ async fn each_feed_forms_one_batch_with_sequential_batch_id_and_message_id_taggi
     assert_eq!(message_ids, vec![0, 1, 2]);
 }
 
-/// it('batch context flows from beforeBatch to afterBatch')
 #[tokio::test]
 async fn batch_context_flows_from_before_batch_to_after_batch() {
     let seen = shared(None::<String>);
@@ -136,7 +134,6 @@ fn simple_pipeline(
     )
 }
 
-/// it('feed() reports at_capacity backpressure when concurrentBatches is exceeded')
 #[tokio::test]
 async fn feed_reports_at_capacity_backpressure_when_concurrent_batches_is_exceeded() {
     let pipeline = simple_pipeline(1, None);
@@ -156,7 +153,6 @@ async fn feed_reports_at_capacity_backpressure_when_concurrent_batches_is_exceed
     );
 }
 
-/// it('an empty feed() is a no-op that runs no hooks and consumes no capacity')
 #[tokio::test]
 async fn an_empty_feed_is_a_no_op_that_runs_no_hooks_and_consumes_no_capacity() {
     let ran = shared(false);
@@ -174,7 +170,6 @@ async fn an_empty_feed_is_a_no_op_that_runs_no_hooks_and_consumes_no_capacity() 
     assert!(pipeline.next().await.unwrap().is_some());
 }
 
-/// it('a beforeBatch that changes the element count throws')
 #[tokio::test]
 async fn a_before_batch_that_changes_the_element_count_throws() {
     let pipeline = new_batching_pipeline::<i64, _, (), (), (), ()>(

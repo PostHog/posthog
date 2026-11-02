@@ -27,7 +27,6 @@ impl JsString {
         }
     }
 
-    /// The text when it holds no lone surrogate, which is the common case.
     pub fn as_str(&self) -> Option<&str> {
         if self.has_surrogates {
             None
@@ -130,7 +129,6 @@ impl JsString {
         matches!(self.bytes.as_slice(), [0xED, 0xB0..=0xBF, ..])
     }
 
-    /// Cuts back to an earlier length, given the surrogate flag the string had at that length.
     pub(crate) fn truncate_to(&mut self, len: usize, has_surrogates: bool) {
         self.bytes.truncate(len);
         self.has_surrogates = has_surrogates;
@@ -144,7 +142,6 @@ impl JsString {
         self.bytes.windows(2).any(|w| w[0] == 0xED && w[1] >= 0xA0)
     }
 
-    /// `str.length`: the number of UTF-16 code units.
     pub fn utf16_len(&self) -> usize {
         match self.as_str() {
             Some(s) => utf16_len(s),
@@ -158,7 +155,6 @@ impl JsString {
         }
     }
 
-    /// `str.slice(start, end)` for non-negative indexes, in UTF-16 code units.
     pub fn utf16_slice(&self, start: usize, end: usize) -> JsString {
         let mut out = JsString::new();
         let mut pos = 0usize;
@@ -311,7 +307,6 @@ impl PartialEq<&str> for JsString {
     }
 }
 
-/// `str.length` for a Rust string.
 pub fn utf16_len(s: &str) -> usize {
     if s.is_ascii() {
         return s.len();

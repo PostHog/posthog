@@ -16,7 +16,6 @@ use logs_ingestion::rate_limiter::{system_clock, RedisTokenBucket, TokenBucketRe
 
 common_alloc::used!();
 
-/// User plus system CPU time of this process, from `/proc/self/stat`, in milliseconds.
 fn cpu_ms() -> f64 {
     let stat = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
     let after_comm = stat.rsplit_once(')').map(|(_, rest)| rest).unwrap_or("");
@@ -31,7 +30,6 @@ fn cpu_ms() -> f64 {
     (ticks(11) + ticks(12)) * 10.0
 }
 
-/// Peak resident set size, from `/proc/self/status`, in MiB.
 fn peak_rss_mb() -> f64 {
     std::fs::read_to_string("/proc/self/status")
         .unwrap_or_default()

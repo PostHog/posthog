@@ -5,7 +5,6 @@ mod common;
 use common::{collect_chunks, items, shared};
 use ingestion_framework::{chunk_step, dlq, new_chunk_pipeline, ok, step};
 
-/// it('chunk pipelines process multiple items at once')
 #[tokio::test]
 async fn chunk_pipelines_process_multiple_items_at_once() {
     let calls = shared(0);
@@ -23,7 +22,6 @@ async fn chunk_pipelines_process_multiple_items_at_once() {
     assert_eq!(v, [2, 4, 6, 8, 10]);
 }
 
-/// it('feed() accepts items and next() returns results then null')
 #[tokio::test]
 async fn feed_accepts_items_and_next_returns_results_then_null() {
     let pipeline = new_chunk_pipeline::<String, ()>()
@@ -47,7 +45,6 @@ async fn feed_accepts_items_and_next_returns_results_then_null() {
     assert!(pipeline.next().await.unwrap().is_none());
 }
 
-/// it('chunk steps must return same number of results as inputs')
 #[tokio::test]
 async fn chunk_steps_must_return_same_number_of_results_as_inputs() {
     let pipeline = new_chunk_pipeline::<i64, ()>()
@@ -59,7 +56,6 @@ async fn chunk_steps_must_return_same_number_of_results_as_inputs() {
     assert_eq!(pipeline.next().await.unwrap().unwrap().len(), 3);
 }
 
-/// it('mismatched result count throws an error')
 #[tokio::test]
 async fn mismatched_result_count_throws_an_error() {
     let pipeline = new_chunk_pipeline::<i64, ()>()
@@ -76,7 +72,6 @@ async fn mismatched_result_count_throws_an_error() {
     );
 }
 
-/// it('chunk steps receive only OK items from previous steps')
 #[tokio::test]
 async fn chunk_steps_receive_only_ok_items_from_previous_steps() {
     let received = shared(Vec::<i64>::new());
@@ -104,7 +99,6 @@ async fn chunk_steps_receive_only_ok_items_from_previous_steps() {
     assert_eq!(*received.lock().unwrap(), vec![1, 2, 3]);
 }
 
-/// it('two batches emerge as a single chunk')
 #[tokio::test]
 async fn two_batches_emerge_as_a_single_chunk() {
     let lengths = shared(Vec::<usize>::new());
@@ -121,7 +115,6 @@ async fn two_batches_emerge_as_a_single_chunk() {
     assert_eq!(*lengths.lock().unwrap(), vec![5]);
 }
 
-/// it('one batch spreads across multiple chunks')
 #[tokio::test]
 async fn one_batch_spreads_across_multiple_chunks() {
     let pipeline = new_chunk_pipeline::<(&'static str, i64), ()>()

@@ -12,7 +12,6 @@ use ingestion_framework::{
     PromiseScheduler, SideEffect, SideEffectHandlingConfig, StartPipelineBuilder,
 };
 
-/// it('steps are created via factory functions')
 #[tokio::test]
 async fn steps_are_created_via_factory_functions() {
     fn create_process_step() -> ProcessingStep<String, (String, bool)> {
@@ -30,7 +29,6 @@ async fn steps_are_created_via_factory_functions() {
     assert_eq!(r.value(), Some(&("HELLO".to_string(), true)));
 }
 
-/// it('pipelines are created via factory functions to ensure single caller')
 #[tokio::test]
 async fn pipelines_are_created_via_factory_functions_to_ensure_single_caller() {
     fn create_my_pipeline() -> ingestion_framework::DynPipeline<i64, (i64, bool), ()> {
@@ -64,7 +62,6 @@ async fn pipelines_are_created_via_factory_functions_to_ensure_single_caller() {
     );
 }
 
-/// it('factory functions accept configuration parameters')
 #[tokio::test]
 async fn factory_functions_accept_configuration_parameters() {
     fn create_multiply_step(multiplier: i64) -> ProcessingStep<i64, (i64, i64)> {
@@ -79,7 +76,6 @@ async fn factory_functions_accept_configuration_parameters() {
     assert_eq!(r.value().unwrap().1, 30);
 }
 
-/// it('factory functions can inject multiple dependencies')
 #[tokio::test]
 async fn factory_functions_can_inject_multiple_dependencies() {
     struct UserService;
@@ -122,7 +118,6 @@ async fn factory_functions_can_inject_multiple_dependencies() {
     assert_eq!(r.value().unwrap().1, "User 123");
 }
 
-/// it('steps extend input types with new properties')
 #[tokio::test]
 async fn steps_extend_input_types_with_new_properties() {
     // Node extends with intersection types (`T & ValidateOutput`). Rust wraps the input.
@@ -159,7 +154,6 @@ async fn steps_extend_input_types_with_new_properties() {
     assert!(v.enriched_at > 0);
 }
 
-/// it('terminal transforms produce different output shapes')
 #[tokio::test]
 async fn terminal_transforms_produce_different_output_shapes() {
     let pipeline = new_pipeline::<(&'static str, bool, i64), ()>()
@@ -177,7 +171,6 @@ async fn terminal_transforms_produce_different_output_shapes() {
     assert_eq!(r.value().unwrap(), "Event evt-1: valid=true at 1000");
 }
 
-/// it('terminal steps return void with side effects')
 #[tokio::test]
 async fn terminal_steps_return_void_with_side_effects() {
     let emitted = shared(Vec::<&'static str>::new());
@@ -204,7 +197,6 @@ async fn terminal_steps_return_void_with_side_effects() {
     assert!(emitted.lock().unwrap().contains(&"evt-1"));
 }
 
-/// it('simple terminal steps return ok(undefined)')
 #[tokio::test]
 async fn simple_terminal_steps_return_ok_unit() {
     let pipeline = new_pipeline::<bool, ()>()
@@ -256,7 +248,6 @@ struct PreTeam {
     event_name: String,
 }
 
-/// it('pipelines are organized into preprocessing and processing phases')
 #[tokio::test]
 async fn pipelines_are_organized_into_preprocessing_and_processing_phases() {
     let phase_log = shared(Vec::<&'static str>::new());

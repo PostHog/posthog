@@ -19,14 +19,12 @@ use crate::sync::{FifoLimiter, ResettableSignal};
 
 pub type GroupingFunction<T, K> = Arc<dyn Fn(&T) -> K + Send + Sync>;
 
-/// Processes one group's queued chunk and returns one result per item.
 pub type GroupChunkProcessor<T, U, C> = Arc<
     dyn Fn(ChunkResults<T, C>) -> BoxFuture<'static, anyhow::Result<ChunkResults<U, C>>>
         + Send
         + Sync,
 >;
 
-/// The group chunk stage behind `sequentially`.
 pub fn process_group_chunk_sequentially<T, U, C>(
     processor: DynPipeline<T, U, C>,
 ) -> GroupChunkProcessor<T, U, C>
@@ -123,7 +121,6 @@ where
                 Ok(Ok(results)) => {
                     state.completed.push_back(results);
                     state.active.remove(&key);
-                    // The key is free again: start items queued for it while it was busy.
                     shared.start_group_if_queued(&mut state, &key);
                 }
                 Ok(Err(error)) => {
@@ -199,7 +196,6 @@ where
         Ok(PullOutcome::Drain)
     }
 
-    /// Emits the next completed group's results, parking until one finishes.
     async fn on_process_pull(&self) -> anyhow::Result<Option<ChunkResults<O, CO>>> {
         loop {
             let wait = {
@@ -222,9 +218,6 @@ where
     }
 }
 
-/// Groups items by key and processes the groups concurrently. Items of one group always run
-/// in order, also across `next()` calls. Results between groups are unordered: each group's
-/// results come out as it completes.
 pub struct ConcurrentlyGroupingChunkPipeline<I, K, M, O, CI, CO> {
     inner: Inner<I, K, M, O, CI, CO>,
 }

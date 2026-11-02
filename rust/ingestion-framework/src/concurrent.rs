@@ -38,7 +38,6 @@ where
         self.previous.feed(elements);
     }
 
-    /// Pulls one upstream chunk and starts every OK item at once (or as the cap allows).
     async fn on_source_pull(&self) -> anyhow::Result<PullOutcome<O, CO>> {
         let Some(previous) = self.previous.next().await? else {
             return Ok(PullOutcome::Drained);
@@ -67,7 +66,6 @@ where
         Ok(PullOutcome::Drain)
     }
 
-    /// Emits the next processed item in FIFO order, or `None` when the queue is empty.
     async fn on_process_pull(&self) -> anyhow::Result<Option<ChunkResults<O, CO>>> {
         let head = self.queue.lock().unwrap().pop_front();
         match head {
@@ -78,9 +76,6 @@ where
     }
 }
 
-/// Processes each item of a chunk concurrently and emits the results in input (FIFO) order,
-/// one item per `next()`. If the upstream or a processor fails, the items already running
-/// still drain in order, then `next()` fails for good.
 pub struct ConcurrentChunkProcessingPipeline<I, M, O, CI, CO> {
     inner: Inner<I, M, O, CI, CO>,
 }

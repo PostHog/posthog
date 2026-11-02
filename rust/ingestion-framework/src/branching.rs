@@ -11,8 +11,6 @@ use crate::results::{NonOk, Outcome};
 
 pub type BranchDecisionFn<T> = Arc<dyn Fn(&T) -> String + Send + Sync>;
 
-/// Runs the previous pipeline, asks the decision function for a branch name, and runs that
-/// branch. An unknown branch becomes a DLQ, as in Node.
 pub struct BranchingPipeline<I, M, O, C> {
     decision: BranchDecisionFn<M>,
     branches: HashMap<String, DynPipeline<M, O, C>>,

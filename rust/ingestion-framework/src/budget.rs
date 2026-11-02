@@ -6,9 +6,6 @@ use std::time::Duration;
 
 use tokio::time::Instant;
 
-/// A fed batch's soft deadline. Past it the framework stops starting steps, but it never
-/// interrupts a running one.
-///
 /// Uses `tokio::time::Instant`, so a paused test clock controls it, as Jest fake timers
 /// control `Date.now()` in Node.
 #[derive(Clone, Debug)]

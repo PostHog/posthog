@@ -5,7 +5,6 @@ mod common;
 use common::{collect_chunks, consume_all, items, shared, sleep_ms};
 use ingestion_framework::{new_chunk_pipeline, ok, step};
 
-/// it('sequentially() processes items one at a time')
 #[tokio::test(start_paused = true)]
 async fn sequentially_processes_items_one_at_a_time() {
     let order = shared(Vec::<i64>::new());
@@ -30,7 +29,6 @@ async fn sequentially_processes_items_one_at_a_time() {
     assert!(started.elapsed().as_millis() >= 30);
 }
 
-/// it('all items are returned together after sequential processing')
 #[tokio::test(start_paused = true)]
 async fn all_items_are_returned_together_after_sequential_processing() {
     let pipeline = new_chunk_pipeline::<i64, ()>()
@@ -48,7 +46,6 @@ async fn all_items_are_returned_together_after_sequential_processing() {
     );
 }
 
-/// it('result ordering matches input order')
 #[tokio::test(start_paused = true)]
 async fn result_ordering_matches_input_order() {
     let order = shared(Vec::<i64>::new());

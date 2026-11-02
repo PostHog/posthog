@@ -16,13 +16,9 @@ use crate::context::{ChunkResults, OkResultWithContext};
 use crate::errors::shared_error;
 use crate::sync::ResettableSignal;
 
-/// What `on_source_pull` reports after it pulls one upstream chunk.
 pub enum PullOutcome<O, C> {
-    /// Return this chunk to the caller now (for example non-OK passthroughs).
     Emit(ChunkResults<O, C>),
-    /// Input went into the sub-pipeline; drain it.
     Drain,
-    /// The upstream pipeline is empty.
     Drained,
 }
 
@@ -67,7 +63,6 @@ where
 
     pub fn feed(&self, elements: Vec<OkResultWithContext<I, CI>>) {
         self.callbacks.on_feed(elements);
-        // Wake a next() parked on the sub-pipeline so it pulls the new input.
         self.new_input.resolve();
     }
 
@@ -85,7 +80,6 @@ where
     }
 
     pub async fn next(&self) -> anyhow::Result<Option<ChunkResults<O, CO>>> {
-        // Once poisoned, stop pulling new input: drain the sub, then reject for good.
         if self.failure.lock().unwrap().is_some() {
             return self.drain_then_reject().await;
         }
@@ -121,7 +115,6 @@ where
 
             match sub_result {
                 Err(error) => {
-                    // Surface the sub failure now; later calls drain what is left, then reject.
                     let shared = self.latch(error);
                     return Err(shared_error(shared));
                 }
@@ -135,8 +128,6 @@ where
         }
     }
 
-    /// Poisoned drain: pull the sub for work still in flight and emit it, but start no new
-    /// source pulls. When the sub is empty or fails, reject with the latched failure.
     async fn drain_then_reject(&self) -> anyhow::Result<Option<ChunkResults<O, CO>>> {
         let pending = self.take_or_start_sub_pull();
         if let Ok(Some(chunk)) = pending.await {

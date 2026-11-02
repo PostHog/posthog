@@ -37,7 +37,6 @@ impl ResettableSignal {
         *self.baseline.lock().unwrap() = *self.tx.borrow();
     }
 
-    /// Parks until the next `resolve()` after the last `reset()`.
     pub fn wait(&self) -> impl Future<Output = ()> + Send + 'static {
         let baseline = *self.baseline.lock().unwrap();
         let mut rx = self.tx.subscribe();
@@ -106,7 +105,6 @@ impl FifoLimiter {
 
     fn release(&self) {
         let mut state = self.state.lock().unwrap();
-        // Hand the slot to the oldest waiter that is still waiting.
         while let Some(waiter) = state.waiters.pop_front() {
             if waiter.send(()).is_ok() {
                 return;

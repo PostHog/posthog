@@ -135,8 +135,6 @@ function recordToLossyJson(record: Record<string, unknown>): {
     return { json: out, gap };
 }
 
-// ---------------------------------------------------------------- json / numbers / dates
-
 function randomJsonText(rng: Rng): string {
     const r = rng.int(10);
     if (r < 5) {
@@ -147,7 +145,6 @@ function randomJsonText(rng: Rng): string {
         return t;
     }
     if (r < 7) {
-        // Number literal forms.
         const sign = rng.pick(["", "-", "+", "--"]);
         const int = rng.pick([
             "0",
@@ -192,7 +189,6 @@ function randomJsonText(rng: Rng): string {
         );
     }
     if (r < 8) {
-        // Mutations of a valid text.
         let t = JSON.stringify(randValue(rng, 0, { nodes: 15 }));
         const ops = rng.int(3) + 1;
         for (let i = 0; i < ops; i++) {
@@ -227,7 +223,6 @@ function randomJsonText(rng: Rng): string {
     if (r < 9) {
         return deepJson(rng);
     }
-    // Duplicate keys and string escapes.
     const k = rng.pick([
         '"a"',
         '"0"',
@@ -410,8 +405,6 @@ function sectionDate(rng: Rng): void {
     write("date", cases);
 }
 
-// ---------------------------------------------------------------- records
-
 const ATTR_KEYS = [
     "url.path",
     "http.path",
@@ -569,8 +562,6 @@ function randSpanRecord(rng: Rng, i: number): Record<string, unknown> {
         attributes: randAttrs(rng),
     };
 }
-
-// ---------------------------------------------------------------- normalize
 
 function bigBody(rng: Rng): string {
     const r = rng.int(8);
@@ -746,8 +737,6 @@ async function sectionNormalize(rng: Rng): Promise<void> {
     }
     write("normalize", cases);
 }
-
-// ---------------------------------------------------------------- pii / pattern / attribute value
 
 const LOGLIKE = [
     "user alice.smith+tag@example.co.uk logged in",
@@ -944,8 +933,6 @@ function sectionText(rng: Rng): void {
     }
     write("attribute_value", attr);
 }
-
-// ---------------------------------------------------------------- filter groups and rules
 
 const LEAF_KEYS = [
     "service_name",
@@ -1303,8 +1290,6 @@ function sectionRules(rng: Rng): void {
     write("retention", retention);
 }
 
-// ---------------------------------------------------------------- metric rules
-
 const GROUP_KEYS = [
     "service_name",
     "severity_text",
@@ -1486,8 +1471,6 @@ function sectionMetrics(rng: Rng): void {
     write("metrics", cases);
 }
 
-// ---------------------------------------------------------------- internal logs
-
 function sectionInternal(rng: Rng): void {
     const cases = [];
     const policies = {
@@ -1594,8 +1577,6 @@ function sectionInternal(rng: Rng): void {
     }
     write("internal", cases);
 }
-
-// ---------------------------------------------------------------- avro
 
 function canonical(value: unknown): unknown {
     if (Buffer.isBuffer(value)) return { $bytes: value.toString("hex") };

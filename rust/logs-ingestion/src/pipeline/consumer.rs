@@ -31,8 +31,6 @@ use super::types::{describe_batch_position, LogsIngestionMessage, UsageStatsByTe
 
 pub type BackgroundTask = BoxFuture<'static, anyhow::Result<()>>;
 
-/// The messages a batch admitted (billed first, then unbilled internal), and the task that
-/// processes them. The task rejects when the batch must be replayed.
 pub struct ProcessedBatch {
     pub messages: Vec<LogsIngestionMessage>,
     pub background_task: Option<BackgroundTask>,
@@ -137,7 +135,6 @@ impl LogsIngestionConsumer {
         .await
     }
 
-    /// Runs the gates over parsed messages, and returns the background task that processes them.
     pub async fn process_batch(
         &self,
         messages: Vec<LogsIngestionMessage>,

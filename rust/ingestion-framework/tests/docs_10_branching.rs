@@ -8,7 +8,6 @@ use ingestion_framework::{create_ok_context, new_pipeline, ok, step, PipelineRes
 
 type Event = (&'static str, &'static str);
 
-/// it('branching() routes items to different sub-pipelines')
 #[tokio::test]
 async fn branching_routes_items_to_different_sub_pipelines() {
     let calls = shared(Vec::<&'static str>::new());
@@ -51,7 +50,6 @@ async fn branching_routes_items_to_different_sub_pipelines() {
     assert_eq!(*calls.lock().unwrap(), vec!["pageview", "click"]);
 }
 
-/// it('unknown branch routes to DLQ')
 #[tokio::test]
 async fn unknown_branch_routes_to_dlq() {
     let pipeline = new_pipeline::<Event, ()>()
@@ -72,7 +70,6 @@ async fn unknown_branch_routes_to_dlq() {
     assert_eq!(r.result.reason(), Some("Unknown branch: unknown"));
 }
 
-/// it('branches must converge to the same output type')
 #[tokio::test]
 async fn branches_must_converge_to_the_same_output_type() {
     #[derive(Debug, PartialEq)]

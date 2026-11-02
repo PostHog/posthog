@@ -23,7 +23,6 @@ const AWAIT: SideEffectHandlingConfig = SideEffectHandlingConfig {
     await_side_effects: true,
 };
 
-/// it('DLQ sends failed items to dead-letter topic with error details')
 #[tokio::test]
 async fn dlq_sends_failed_items_to_dead_letter_topic_with_error_details() {
     let outputs = MockOutputs::default();
@@ -75,7 +74,6 @@ async fn dlq_sends_failed_items_to_dead_letter_topic_with_error_details() {
     assert!(produced.headers.get("dlq_timestamp").is_some());
 }
 
-/// it('DROP discards items without sending to Kafka')
 #[tokio::test]
 async fn drop_discards_items_without_sending_to_kafka() {
     let outputs = MockOutputs::default();
@@ -112,7 +110,6 @@ async fn drop_discards_items_without_sending_to_kafka() {
     assert!(outputs.calls().is_empty());
 }
 
-/// it('REDIRECT sends items to a named output with optional key preservation')
 #[tokio::test]
 async fn redirect_sends_items_to_a_named_output_with_optional_key_preservation() {
     let outputs = MockOutputs::default();
@@ -176,7 +173,6 @@ async fn redirect_sends_items_to_a_named_output_with_optional_key_preservation()
     assert!(broadcast.headers.get("redirect-timestamp").is_some());
 }
 
-/// it('REDIRECT with awaitAck=true blocks on the produce ack (default)')
 #[tokio::test]
 async fn redirect_with_await_ack_true_blocks_on_the_produce_ack() {
     let outputs = MockOutputs::default();
@@ -214,7 +210,6 @@ async fn redirect_with_await_ack_true_blocks_on_the_produce_ack() {
     );
 }
 
-/// it('REDIRECT with awaitAck=false does not block on the produce ack')
 #[tokio::test]
 async fn redirect_with_await_ack_false_does_not_block_on_the_produce_ack() {
     let outputs = MockOutputs::default();

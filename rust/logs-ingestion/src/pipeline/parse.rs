@@ -12,7 +12,6 @@ use super::deps::Team;
 use super::errors::NamedError;
 use super::types::{parse_min_timestamp_header, parse_size_header, LogsIngestionMessage};
 
-/// What a parse leaves for the next step: a message, or the failure of a quarantine.
 pub struct ParseOutcome {
     pub parsed: Option<LogsIngestionMessage>,
     pub failure: Option<anyhow::Error>,

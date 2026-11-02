@@ -1,5 +1,3 @@
-//! Side effects: work that outlives a step and drains with the batch.
-//!
 //! A Node side effect is a `Promise`. An async function runs its body up to the first
 //! `await` when it is called, and the rest runs on the event loop. `SideEffect::spawn`
 //! keeps that: it polls the future once on the caller's thread, and only moves the
@@ -30,8 +28,6 @@ fn panic_error() -> anyhow::Error {
 }
 
 impl SideEffect {
-    /// Starts the work now. The part of the future before its first pending point runs on
-    /// the caller's thread; a tokio task runs the rest. The runtime must be a tokio runtime.
     pub fn spawn<F>(fut: F) -> Self
     where
         F: Future<Output = anyhow::Result<()>> + Send + 'static,
@@ -56,12 +52,10 @@ impl SideEffect {
         }
     }
 
-    /// A side effect that already succeeded.
     pub fn resolved() -> Self {
         Self::settled(Ok(()))
     }
 
-    /// A side effect that already failed.
     pub fn rejected(error: anyhow::Error) -> Self {
         Self::settled(Err(error))
     }
@@ -94,7 +88,6 @@ impl SideEffect {
         }
     }
 
-    /// Waits for the work. A panic in the task becomes an error.
     pub async fn wait(self) -> anyhow::Result<()> {
         match self.state {
             State::Settled(result) => result.unwrap_or(Ok(())),
@@ -122,13 +115,10 @@ impl std::fmt::Debug for SideEffect {
     }
 }
 
-/// Port of `PromiseSchedulerInterface`.
 pub trait SideEffectScheduler: Send + Sync {
     fn schedule(&self, side_effect: SideEffect);
 }
 
-/// Port of `PromiseScheduler`: tracks scheduled work so a caller can wait for all of it.
-///
 /// Node removes a promise from its set when it settles. Here a settled side effect is
 /// removed at the next `schedule()` that finds the set grown, or at `pending_count()`, so
 /// the set stays proportional to the work that still runs.
@@ -191,7 +181,6 @@ impl PromiseScheduler {
         Self::default()
     }
 
-    /// The number of scheduled side effects that have not settled.
     pub fn pending_count(&self) -> usize {
         let mut state = self.inner.lock().unwrap();
         state.prune();
@@ -213,7 +202,6 @@ impl PromiseScheduler {
         }
     }
 
-    /// Waits for all scheduled work and ignores failures.
     pub async fn wait_for_all_settled(&self) {
         let _ = self.wait_for_all().await;
     }

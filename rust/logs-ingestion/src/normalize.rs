@@ -126,7 +126,6 @@ fn looks_like_json(value: &str) -> bool {
     }
 }
 
-/// `sniffJsonLogAttributes`: counts each record by whether the attribute looks like JSON.
 pub fn sniff_json_log_attributes<'a>(
     records: impl IntoIterator<Item = &'a LogRecord>,
     attribute_key: &str,
@@ -150,7 +149,6 @@ pub fn sniff_json_log_attributes<'a>(
     }
 }
 
-/// `countJsonNodesWithinBudget`.
 fn count_json_nodes_within_budget(value: &JsValue, depth: usize, budget: usize) -> Option<usize> {
     let mut stack = vec![(value, depth)];
     let mut nodes = 1usize;
@@ -174,7 +172,6 @@ fn count_json_nodes_within_budget(value: &JsValue, depth: usize, budget: usize) 
     Some(nodes)
 }
 
-/// Flattened attributes in JavaScript object key order, with values already `JSON.stringify`d.
 pub type FlatAttributes = Vec<(JsString, String)>;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -197,12 +194,10 @@ enum FlatPos {
     Named(Option<usize>),
 }
 
-/// A key is an array index or named, as in a JavaScript object.
 #[derive(Default)]
 struct FlatObject {
     indexed: BTreeMap<u32, FlatEntry>,
     named: Vec<FlatEntry>,
-    /// Positions in `named`.
     named_position: HashTable<usize>,
 }
 
@@ -263,7 +258,6 @@ impl FlatObject {
         }
     }
 
-    /// `Object.keys(result)[result.length - 1]`.
     fn last_key(&self) -> Option<&JsString> {
         match self.named.last() {
             Some(entry) => Some(&entry.key),
@@ -278,9 +272,7 @@ impl FlatObject {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArrayMode {
-    /// Body arrays become indexed paths.
     Indexed,
-    /// Selected-attribute arrays are stored as JSON strings.
     String,
 }
 
@@ -290,7 +282,6 @@ fn is_index_key(key: &JsString) -> Option<u32> {
 
 enum Leaf<'a> {
     Value(&'a JsValue),
-    /// A selected-attribute array, already `JSON.stringify`d.
     Stringified(String),
 }
 
@@ -414,7 +405,6 @@ impl Flattener {
             self.attribute_count -= 1;
         }
         let (serialized, value) = match leaf {
-            // `null` is stored as the string "null".
             Leaf::Value(JsValue::Null) => (
                 "\"null\"".to_string(),
                 self.keep_values.then(|| JsValue::string("null")),
@@ -486,7 +476,6 @@ fn flatten_entries(
     Some(flattener.result)
 }
 
-/// `flattenJsonWithBudget`: flattens JSON into dot-notation keys. `None` means a budget ran out.
 pub fn flatten_json_with_budget(
     obj: &JsValue,
     prefix: &JsString,
@@ -504,7 +493,6 @@ pub fn flatten_json_with_budget(
     Some(FlattenResult { values, attributes })
 }
 
-/// The `attributes` half of `flattenJsonWithBudget`.
 fn flatten_attributes(
     obj: &JsValue,
     prefix: &JsString,
@@ -526,7 +514,6 @@ fn flatten_attributes(
     )
 }
 
-/// `flattenJson` with the default arguments.
 pub fn flatten_json(obj: &JsValue) -> Option<JsObject> {
     flatten_json_with_budget(
         obj,
@@ -551,7 +538,6 @@ fn json_attributes_from_body_parse(body_parse: &LogBodyParseResult) -> FlatAttri
     }
 }
 
-/// `extractJsonAttributesFromBody`.
 pub fn extract_json_attributes_from_body(body: Option<&str>) -> FlatAttributes {
     if let Some(body) = body {
         if body.len() > MAX_LOG_RECORD_BYTES {
@@ -562,9 +548,6 @@ pub fn extract_json_attributes_from_body(body: Option<&str>) -> FlatAttributes {
     json_attributes_from_body_parse(&parse_log_body_for_ingestion(body))
 }
 
-/// `addJsonAttributes`: `{ ...jsonAttributes, ...record.attributes }` unless the record would
-/// pass the size limit.
-///
 /// A key with a lone surrogate is a distinct key in JavaScript, and avsc writes it as U+FFFD. An
 /// `AvroMap` key is a Rust string, so such a key merges with a U+FFFD key here. See PORTING.md.
 fn add_json_attributes(
@@ -594,7 +577,6 @@ fn add_json_attributes(
     for (key, value) in json_attributes {
         merged.define(key.into_string_lossy(), AvroValue::String(value));
     }
-    // The old map is replaced below, so its entries move instead of being copied.
     if let Some(AvroValue::Map(attributes)) = record.get_mut("attributes") {
         for (key, value) in std::mem::take(attributes).into_entries() {
             merged.define(key, value);
@@ -669,8 +651,6 @@ fn json_parse_js(text: &JsString) -> Option<JsValue> {
     json_parse(&rewritten).ok()
 }
 
-/// `enrichLogRecordFromJsonAttribute`: flattens the JSON object in `attributes[key]` (or in a
-/// JSON string that holds it) under the prefix `key`.
 pub fn enrich_log_record_from_json_attribute(record: &mut LogRecord, key: &str) {
     let Some(raw) = record.attributes().and_then(|a| a.get(key)) else {
         return;
@@ -748,7 +728,6 @@ pub enum BufferProcessingMode {
     DecodeAndReencode,
 }
 
-/// `bufferProcessingMode`. Pass the current stage count of the buffer.
 pub fn buffer_processing_mode(
     settings: &LogsSettings,
     stage_count: usize,

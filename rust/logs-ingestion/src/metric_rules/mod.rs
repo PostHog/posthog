@@ -1,16 +1,4 @@
 //! Port of `nodejs/src/logs/metrics-rules/`: log-generated metrics.
-//!
-//! - `compile`: `compile-metric-rules.ts` (`compileMetricRules`, row validation).
-//! - `defaults`: `default-metric-rules.ts` (`withDefaultMetricRules`).
-//! - `tally`: `tally.ts` (`tallyRecords`, `createBatchTallies`, `idToHex`).
-//! - `admission`: `MetricSeriesAdmission` from `tally.ts`.
-//! - `otlp_payload`: `otlp-payload.ts` (`buildMetricRulesOtlpPayload`).
-//! - `emitter`: `metrics-emitter.ts` (`LogsMetricsEmitter`), over a transport trait.
-//! - `source`: the interface of `metric-rules-cache.ts`. The Postgres cache is not ported.
-//!
-//! The filter-group parser and matcher belong to `crate::sampling` and `crate::filter_group`.
-//! This module reaches them only through `FilterGroupMatcher` and `FilterGroupParser`.
-//! A JavaScript throw is `crate::property_filter::coerce::JsTypeError`.
 
 mod admission;
 mod compile;

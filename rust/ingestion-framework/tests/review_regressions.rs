@@ -1,5 +1,3 @@
-//! Regressions for divergences from the Node framework that a review found. Each test
-//! asserts the Node behavior.
 mod common;
 
 use std::sync::atomic::{AtomicU32, Ordering};

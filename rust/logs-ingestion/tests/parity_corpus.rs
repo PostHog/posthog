@@ -129,7 +129,6 @@ fn sorted_texts(values: impl IntoIterator<Item = JsValue>) -> Vec<String> {
     texts
 }
 
-/// Prints what only one side has, so a mismatch names the output and the field.
 fn diff(scenario: &str, what: &str, expected: &[String], actual: &[String]) -> Option<String> {
     if expected == actual {
         return None;

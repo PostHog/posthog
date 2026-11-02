@@ -9,7 +9,6 @@ use ingestion_framework::{
     chunk_step, drop, new_chunk_pipeline, ok, ChunkPipelineUnwrapper, SideEffect,
 };
 
-/// it('feed() then next() drives the pipeline until it returns null')
 #[tokio::test]
 async fn feed_then_next_drives_the_pipeline_until_it_returns_null() {
     let pipeline = new_chunk_pipeline::<i64, ()>()
@@ -26,7 +25,6 @@ async fn feed_then_next_drives_the_pipeline_until_it_returns_null() {
     assert!(pipeline.next().await.unwrap().is_none());
 }
 
-/// it('ChunkPipelineUnwrapper returns plain values and drops non-OK results')
 #[tokio::test]
 async fn chunk_pipeline_unwrapper_returns_plain_values_and_drops_non_ok_results() {
     let pipeline = new_chunk_pipeline::<i64, ()>()
@@ -73,7 +71,6 @@ impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for Capture {
     }
 }
 
-/// it('ChunkPipelineUnwrapper warns about unhandled side effects')
 #[tokio::test]
 async fn chunk_pipeline_unwrapper_warns_about_unhandled_side_effects() {
     use tracing_subscriber::layer::SubscriberExt;

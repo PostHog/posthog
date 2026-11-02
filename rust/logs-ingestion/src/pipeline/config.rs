@@ -49,7 +49,6 @@ fn boolean(config: &JsObject, key: &str) -> bool {
 }
 
 impl LogsIngestionConsumerConfig {
-    /// Reads the `LOGS_*` keys of a resolved config object.
     pub fn from_logs_config(c: &JsObject) -> Self {
         Self {
             limiter_enabled_teams: string(c, "LOGS_LIMITER_ENABLED_TEAMS"),
@@ -90,7 +89,6 @@ impl LogsIngestionConsumerConfig {
         }
     }
 
-    /// The overrides `TracesIngestionConsumer` passes to the logs consumer.
     pub fn from_traces_config(c: &JsObject) -> Self {
         Self {
             limiter_enabled_teams: string(c, "TRACES_LIMITER_ENABLED_TEAMS"),

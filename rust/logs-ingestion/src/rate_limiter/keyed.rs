@@ -20,7 +20,6 @@ pub enum KeyRoot {
 }
 
 impl KeyRoot {
-    /// Reads `NODE_ENV`, as the TypeScript does.
     pub fn from_env() -> KeyRoot {
         if std::env::var("NODE_ENV").as_deref() == Ok("test") {
             KeyRoot::Test
@@ -43,7 +42,6 @@ pub enum ScriptVersion {
     V3,
 }
 
-/// `KeyedRateLimiterConfig`.
 #[derive(Debug, Clone)]
 pub struct KeyedRateLimiterConfig {
     /// Produces `<root>/<name>/tokens/<id>` keys.
@@ -72,7 +70,6 @@ impl KeyedRateLimiterConfig {
     }
 }
 
-/// `KeyedRateLimitRequest`.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct KeyedRateLimitRequest {
     pub id: String,
@@ -84,7 +81,6 @@ pub struct KeyedRateLimitRequest {
     pub now: Option<f64>,
 }
 
-/// `KeyedRateLimit`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct KeyedRateLimit {
     /// The token count before the deduction, uncapped.
@@ -97,9 +93,13 @@ pub struct KeyedRateLimit {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RateLimiterError {
     /// A request had no bucket size. Node throws this before it calls Redis.
-    MissingBucketSize { limiter: String, id: String },
-    /// The pipeline failed and the limiter is not fail-open.
-    PipelineFailed { limiter: String },
+    MissingBucketSize {
+        limiter: String,
+        id: String,
+    },
+    PipelineFailed {
+        limiter: String,
+    },
 }
 
 impl std::fmt::Display for RateLimiterError {
@@ -123,7 +123,6 @@ impl std::fmt::Display for RateLimiterError {
 
 impl std::error::Error for RateLimiterError {}
 
-/// Epoch milliseconds, as `Date.now()` gives them.
 pub type Clock = Arc<dyn Fn() -> f64 + Send + Sync>;
 
 pub fn system_clock() -> Clock {
@@ -135,7 +134,6 @@ pub fn system_clock() -> Clock {
     })
 }
 
-/// `KeyedRateLimiterService`.
 pub struct KeyedRateLimiter {
     config: KeyedRateLimiterConfig,
     key_prefix: String,
@@ -227,7 +225,6 @@ impl KeyedRateLimiter {
         }
     }
 
-    /// `rateLimitMany`: one script call per request, results in request order.
     pub async fn rate_limit_many(
         &self,
         requests: &[KeyedRateLimitRequest],

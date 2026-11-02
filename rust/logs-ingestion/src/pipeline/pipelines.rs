@@ -19,7 +19,6 @@ use super::types::LogsIngestionMessage;
 
 pub const MAX_CONCURRENT_MESSAGE_PROCESSES: usize = 50;
 
-/// Fails the batch with the first failure in input order, once every message has settled.
 fn create_fail_parse_on_error_step() -> ChunkProcessingStep<ParseOutcome, LogsIngestionMessage> {
     ChunkProcessingStep::sync("failParseOnErrorStep", |values: Vec<ParseOutcome>| {
         let mut parsed = Vec::with_capacity(values.len());
@@ -35,7 +34,6 @@ fn create_fail_parse_on_error_step() -> ChunkProcessingStep<ParseOutcome, LogsIn
     })
 }
 
-/// Header parse and team lookup, in input order, with no concurrency cap.
 pub fn create_logs_parse_pipeline(
     context: Arc<LogsPipelineContext>,
 ) -> DynChunkPipeline<Arc<KafkaMessage>, LogsIngestionMessage, (), ()> {
@@ -58,7 +56,6 @@ pub fn create_logs_admission_pipeline(
         .build()
 }
 
-/// Fails the pass with the first carried failure once every message has settled.
 fn create_fail_pass_on_error_step(
 ) -> ChunkProcessingStep<LogsProcessingOutcome, LogsProcessingOutcome> {
     ChunkProcessingStep::sync(
@@ -82,7 +79,6 @@ fn create_fail_pass_on_error_step(
     )
 }
 
-/// Decode, transform and produce, at most 50 messages at once.
 pub fn create_logs_processing_pipeline(
     context: Arc<LogsPipelineContext>,
 ) -> DynChunkPipeline<LogsProcessingInput, LogsProcessingOutcome, (), ()> {
@@ -95,7 +91,6 @@ pub fn create_logs_processing_pipeline(
         .build()
 }
 
-/// Feeds every element as one batch and returns the values that came out OK, in output order.
 pub async fn run_chunk_pipeline<I: Send + 'static, O: Send + 'static>(
     pipeline: DynChunkPipeline<I, O, (), ()>,
     values: Vec<I>,

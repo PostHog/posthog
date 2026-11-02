@@ -14,7 +14,6 @@ use crate::side_effects::SideEffect;
 /// `insert` of a present key keeps its place.
 pub type WarningDetails = IndexMap<String, serde_json::Value>;
 
-/// Port of `IngestionWarning`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PipelineWarning {
     #[serde(rename = "type")]
@@ -48,7 +47,6 @@ impl PipelineWarning {
         }
     }
 
-    /// Appends a detail, or replaces the value of a present key in its place.
     pub fn with_detail(
         mut self,
         key: impl Into<String>,
@@ -68,10 +66,8 @@ pub struct PipelineContext<C> {
     pub data: C,
     pub last_step: Option<Arc<str>>,
     pub debug_context: Option<serde_json::Value>,
-    /// Absent outside a fed batch.
     pub budget: Option<BatchBudget>,
     pub message_id: Option<u64>,
-    /// Work that outlives the step, drained with the batch. A side effect should not fail.
     pub side_effects: Vec<SideEffect>,
     pub warnings: Vec<PipelineWarning>,
 }
@@ -93,7 +89,6 @@ impl<C> PipelineContext<C> {
         self.last_step.as_deref()
     }
 
-    /// Replaces the user context and keeps the framework fields.
     pub fn map_data<D>(self, f: impl FnOnce(C) -> D) -> PipelineContext<D> {
         PipelineContext {
             data: f(self.data),
@@ -106,7 +101,6 @@ impl<C> PipelineContext<C> {
         }
     }
 
-    /// Records a finished step: sets `last_step` and moves in the step's side effects and warnings.
     pub(crate) fn absorb_step<T>(
         &mut self,
         step_name: &Arc<str>,
@@ -150,7 +144,6 @@ impl<C: std::fmt::Debug> std::fmt::Debug for PipelineContext<C> {
     }
 }
 
-/// Port of `PipelineResultWithContext<T, C>`.
 #[derive(Debug)]
 pub struct ResultWithContext<T, C> {
     pub result: Outcome<T>,
@@ -166,7 +159,6 @@ impl<T, C> ResultWithContext<T, C> {
         self.result.value()
     }
 
-    /// Splits an OK result into its feedable form, or returns the non-OK outcome.
     // The split moves the context by value on every step; boxing the error side would
     // allocate for each non-OK result.
     #[allow(clippy::result_large_err)]
@@ -188,7 +180,6 @@ impl<T, C> ResultWithContext<T, C> {
     }
 }
 
-/// Port of `OkResultWithContext<T, C>`: the only shape that can be fed into a pipeline.
 #[derive(Debug)]
 pub struct OkResultWithContext<T, C> {
     pub value: T,
@@ -204,7 +195,6 @@ impl<T, C> OkResultWithContext<T, C> {
     }
 }
 
-/// Port of `createOkContext(value, partialContext)`.
 pub fn create_ok_context<T, C>(value: T, data: C) -> OkResultWithContext<T, C> {
     OkResultWithContext {
         value,
@@ -212,5 +202,4 @@ pub fn create_ok_context<T, C>(value: T, data: C) -> OkResultWithContext<T, C> {
     }
 }
 
-/// A chunk of results, as `next()` returns it.
 pub type ChunkResults<T, C> = Vec<ResultWithContext<T, C>>;

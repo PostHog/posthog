@@ -15,10 +15,8 @@ pub const EXPORT_FAILED_COUNTER: &str = "logs_metrics_rules_export_failed_total"
 
 const EXPORT_ATTEMPTS: u32 = 2;
 
-/// Sends a log-generated metrics payload to the capture-logs OTLP metrics endpoint.
 #[async_trait]
 pub trait MetricsEmitter: Send + Sync {
-    /// `true` when the endpoint accepted the payload.
     async fn emit(&self, token: &str, team_id: i64, payload: &JsValue) -> bool;
 }
 
@@ -26,7 +24,6 @@ pub trait MetricsEmitter: Send + Sync {
 /// as `response.dump()` does in Node.
 #[async_trait]
 pub trait OtlpTransport: Send + Sync {
-    /// The response status, or an error when the request did not complete.
     async fn post(&self, url: &str, headers: &[(&str, String)], body: &str) -> anyhow::Result<u16>;
 }
 

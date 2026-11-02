@@ -90,7 +90,6 @@ pub fn measure_content_weights(records: &[LogRecord]) -> Vec<f64> {
         .collect()
 }
 
-/// A record in the stage pipeline, with the identity that its content weight is keyed by.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StagedRecord {
     pub record: LogRecord,
@@ -130,7 +129,6 @@ impl OrderedCounts {
     }
 }
 
-/// What one `filter` stage dropped.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct StageDropStats {
     pub records_dropped: f64,
@@ -140,18 +138,15 @@ pub struct StageDropStats {
     pub content_bytes_dropped: f64,
 }
 
-/// The stages' reports summed, plus what the pipeline measures itself.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct DropStats {
     pub stage: StageDropStats,
     /// The billing pro-rate denominator, over the whole decoded batch.
     pub content_bytes_total: f64,
     pub records_dropped_by_stage: OrderedCounts,
-    /// The last stage that removed records.
     pub dropped_by: Option<String>,
 }
 
-/// Content weights fixed before any stage runs.
 #[derive(Debug, Clone, Default)]
 pub struct BatchContext {
     pub content_bytes_total: f64,
@@ -166,7 +161,6 @@ impl BatchContext {
         }
     }
 
-    /// `contentBytesOf(record)`: 0 for a record that was not in the decoded batch.
     pub fn content_bytes_of(&self, record: &StagedRecord) -> f64 {
         record
             .origin
@@ -175,21 +169,18 @@ impl BatchContext {
     }
 }
 
-/// The surviving records of a `filter` stage and what it dropped.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct FilterResult {
     pub kept: Vec<StagedRecord>,
     pub stats: StageDropStats,
 }
 
-/// A stage that edits records in place.
 #[async_trait]
 pub trait MutateStage: Send + Sync {
     fn name(&self) -> &str;
     async fn run(&self, records: &mut Vec<StagedRecord>) -> anyhow::Result<()>;
 }
 
-/// A stage that removes records and reports what it dropped.
 #[async_trait]
 pub trait FilterStage: Send + Sync {
     fn name(&self) -> &str;
@@ -205,7 +196,6 @@ pub enum PipelineStage {
     Filter(Box<dyn FilterStage>),
 }
 
-/// `runPipelineStages`: runs the stages in order and stops once every record is dropped.
 pub async fn run_pipeline_stages(
     records: Vec<LogRecord>,
     stages: &[PipelineStage],

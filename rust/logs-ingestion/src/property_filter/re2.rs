@@ -25,13 +25,11 @@ use std::sync::OnceLock;
 
 use regex::bytes::{Regex, RegexBuilder};
 
-/// A compiled pattern with node-re2 semantics for `test`.
 #[derive(Debug, Clone)]
 pub struct Re2 {
     regex: Regex,
 }
 
-/// RE2 rejected the pattern, or the Rust engine could not build the equivalent.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Re2Error(pub String);
 
@@ -302,7 +300,6 @@ fn is_surrogate(r: u32) -> bool {
     (0xD800..=0xDFFF).contains(&r)
 }
 
-/// A rune as a Rust regex literal.
 fn literal(r: u32) -> String {
     if is_surrogate(r) {
         return NEVER.to_string();

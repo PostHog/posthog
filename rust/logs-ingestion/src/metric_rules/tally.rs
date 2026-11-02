@@ -10,7 +10,6 @@ use crate::js::{number_to_string, quote_js_string, JsObject, JsString, JsValue};
 use crate::property_filter::coerce::JsTypeError;
 use crate::record::LogRecord;
 
-/// Cap on distinct group-by label sets per rule per batch.
 pub const MAX_LABEL_SETS_PER_RULE: usize = 1000;
 
 /// Not valid JSON, so no real label set (always a JSON array) can collide with it.
@@ -89,7 +88,6 @@ impl LabelValue {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MetricTallyEntry {
-    /// Group-by values in the rule's `group_by` order.
     pub label_values: Vec<LabelValue>,
     pub count: u64,
     pub sum: f64,
@@ -101,18 +99,14 @@ pub struct MetricTallyEntry {
 
 #[derive(Debug, Clone, Default)]
 pub struct BatchTallies {
-    /// Rule id, then label key (`JSON.stringify(labelValues)`), in insertion order.
     pub by_rule: InsertionMap<InsertionMap<MetricTallyEntry>>,
-    /// Records that matched after the rule hit its label-set cap.
     pub series_overflow: InsertionMap<u64>,
-    /// Records that matched a value-attribute rule but had a missing or non-numeric value.
     pub value_skipped: u64,
     /// Filter evaluations that failed. The record is skipped for that rule only.
     pub eval_errors: u64,
 }
 
 impl BatchTallies {
-    /// `createBatchTallies()`.
     pub fn new() -> Self {
         Self::default()
     }
@@ -132,7 +126,6 @@ fn enum_label(value: i64, label: Option<&str>) -> LabelValue {
     ))
 }
 
-/// `lookupKey`: `Ok(None)` is JavaScript `null` or `undefined`.
 fn lookup_key(key: &JsString, record: &LogRecord) -> Result<Option<LabelValue>, JsTypeError> {
     // Every literal key, map key and prototype member is valid UTF-8, so a lone surrogate matches none.
     let Some(key) = key.as_str() else {
@@ -189,7 +182,6 @@ pub fn resolve_label_value(key: &JsString, record: &LogRecord) -> Result<LabelVa
     })
 }
 
-/// `JSON.stringify(labelValues)`, written directly.
 fn label_key(label_values: &[LabelValue]) -> String {
     let mut out = String::from("[");
     for (i, value) in label_values.iter().enumerate() {
@@ -310,13 +302,10 @@ pub fn id_to_hex(buffer: Option<&[u8]>, expected_bytes: usize) -> Option<String>
     Some(hex::encode(bytes))
 }
 
-/// Decides whether a rule may start a new label set: `(rule_id, label_key) -> admitted`.
 pub type AdmitLabelSet<'a> = &'a mut dyn FnMut(&str, &str) -> bool;
 
-/// `tallyRecords`: evaluates every rule against every record and adds to `tallies`.
 /// `Err` is a throw that Node does not catch: a label or value read of a prototype member such as
 /// `attributes.__defineGetter__`. The tallies keep what the earlier records added, as in Node.
-/// `admit_label_set` is called with `(rule_id, label_key)` for each new label set.
 pub fn tally_records(
     rules: &[CompiledMetricRule],
     records: &[LogRecord],

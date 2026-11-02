@@ -1,5 +1,3 @@
-//! The output and message abstractions the result handling needs.
-//!
 //! `IngestionOutputs` stands in for the Node `IngestionOutputs` registry: steps produce by
 //! output name and never see a producer or a topic.
 
@@ -12,14 +10,12 @@ pub use bytes::Bytes;
 pub const DLQ_OUTPUT: &str = "dlq";
 pub const INGESTION_WARNINGS_OUTPUT: &str = "ingestion_warnings";
 
-/// A consumed Kafka message, as `node-rdkafka`'s `Message` gives it to Node.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct KafkaMessage {
     pub topic: String,
     pub partition: i32,
     pub offset: i64,
     pub key: Option<Vec<u8>>,
-    /// Shared, so passing the payload on to an output or a DLQ does not copy it.
     pub value: Option<Bytes>,
     /// In wire order. A header can repeat, as in Kafka.
     pub headers: Vec<(String, Option<Vec<u8>>)>,
@@ -100,7 +96,6 @@ impl<K: Into<String>, V: Into<String>> FromIterator<(K, V)> for Headers {
     }
 }
 
-/// Port of `IngestionOutputMessage`.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct OutputMessage {
     pub value: Option<Bytes>,
@@ -110,7 +105,6 @@ pub struct OutputMessage {
 
 #[async_trait]
 pub trait IngestionOutputs: Send + Sync {
-    /// Produces one message and waits for the ack.
     async fn produce(&self, output: &str, message: OutputMessage) -> anyhow::Result<()>;
     /// Queues messages. Node's `queueMessages` also resolves on the ack.
     async fn queue_messages(
@@ -120,8 +114,6 @@ pub trait IngestionOutputs: Send + Sync {
     ) -> anyhow::Result<()>;
 }
 
-/// An in-memory `IngestionOutputs` for tests and benchmarks. It records every message and
-/// can fail the next produce to an output.
 #[derive(Default, Clone)]
 pub struct MemoryOutputs {
     inner: Arc<Mutex<MemoryOutputsState>>,
@@ -153,7 +145,6 @@ impl MemoryOutputs {
             .collect()
     }
 
-    /// Every produce to `output` fails until `clear_failures`.
     pub fn fail_output(&self, output: &str) {
         self.inner
             .lock()
@@ -193,12 +184,10 @@ impl IngestionOutputs for MemoryOutputs {
     }
 }
 
-/// The context access the result handling needs. Node reads `context.message` structurally.
 pub trait HasMessage {
     fn message(&self) -> &KafkaMessage;
 }
 
-/// The context access the warning handling needs. Node reads `context.team.id`.
 pub trait HasTeamId {
     fn team_id(&self) -> i64;
 }

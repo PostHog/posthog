@@ -48,7 +48,6 @@ pub async fn within_ms<T>(advance_ms: u64, fut: impl std::future::Future<Output 
         .unwrap_or_else(|_| panic!("did not finish within {advance_ms} ms of virtual time"))
 }
 
-/// Port of `collectChunks`: OK values per emitted chunk.
 pub async fn collect_chunks<I, O, CI, CO>(
     pipeline: &dyn ChunkPipeline<I, O, CI, CO>,
 ) -> Vec<Vec<O>> {
@@ -75,8 +74,6 @@ pub fn shared<T>(value: T) -> Arc<Mutex<T>> {
 use async_trait::async_trait;
 use ingestion_framework::{IngestionOutputs, KafkaMessage, OutputMessage};
 
-/// Port of `createMockIngestionOutputs`: records every call when it is made. While the gate
-/// is closed, a produce waits for `open_gate()`; `never_ack()` makes it wait forever.
 #[derive(Clone)]
 pub struct MockOutputs {
     pub calls: Arc<Mutex<Vec<(String, OutputMessage)>>>,
@@ -128,7 +125,6 @@ impl IngestionOutputs for MockOutputs {
     }
 }
 
-/// Port of `createTestMessage`.
 pub fn test_message(key: Option<&[u8]>) -> KafkaMessage {
     KafkaMessage {
         topic: "test-topic".into(),

@@ -58,7 +58,6 @@ fn one() -> BatchingPipelineOptions {
     }
 }
 
-/// it('stops each element at its next step once the budget is exhausted')
 #[tokio::test(start_paused = true)]
 async fn stops_each_element_at_its_next_step_once_the_budget_is_exhausted() {
     let ran = shared(Vec::<String>::new());
@@ -108,7 +107,6 @@ async fn stops_each_element_at_its_next_step_once_the_budget_is_exhausted() {
     );
 }
 
-/// it('runs a chunk step on the elements whose batch still has time')
 #[tokio::test(start_paused = true)]
 async fn runs_a_chunk_step_on_the_elements_whose_batch_still_has_time() {
     let chunked = shared(Vec::<Vec<i64>>::new());
@@ -159,7 +157,6 @@ async fn runs_a_chunk_step_on_the_elements_whose_batch_still_has_time() {
     assert_eq!(kinds(&fresh.elements), ["ok"]);
 }
 
-/// it('runs an element past the barrier to completion after the budget expires')
 #[tokio::test(start_paused = true)]
 async fn runs_an_element_past_the_barrier_to_completion_after_the_budget_expires() {
     let ran = shared(Vec::<String>::new());
@@ -208,7 +205,6 @@ async fn runs_an_element_past_the_barrier_to_completion_after_the_budget_expires
     );
 }
 
-/// it('returns one result per message and still runs afterBatch when everything times out')
 #[tokio::test(start_paused = true)]
 async fn returns_one_result_per_message_and_still_runs_after_batch_when_everything_times_out() {
     let flushed = shared(0usize);
@@ -245,7 +241,6 @@ async fn returns_one_result_per_message_and_still_runs_after_batch_when_everythi
     assert_eq!(*flushed.lock().unwrap(), 3);
 }
 
-/// it('completes a prefix of each group's feed order')
 #[tokio::test(start_paused = true)]
 async fn completes_a_prefix_of_each_groups_feed_order() {
     let processed = shared(Vec::<i64>::new());
@@ -293,7 +288,6 @@ async fn completes_a_prefix_of_each_groups_feed_order() {
     assert_eq!(kinds(&batch.elements), ["ok", "ok", "timeout", "timeout"]);
 }
 
-/// it('never cancels anything under the default unlimited budget')
 #[tokio::test(start_paused = true)]
 async fn never_cancels_anything_under_the_default_unlimited_budget() {
     let pipeline = new_batching_pipeline::<Event, V, (), (), (), ()>(

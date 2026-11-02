@@ -14,19 +14,12 @@ use crate::steps::{ChunkProcessingStep, ProcessingStep};
 /// Port of `RetrySchedule` plus `RetryOptions.name`. Defaults match `defaultRetryConfig`.
 #[derive(Debug, Clone, Default)]
 pub struct RetryOptions {
-    /// Total attempts including the first. Default 3.
     pub tries: Option<u32>,
-    /// Sleep before the first retry. Default 100 ms.
     pub sleep_ms: Option<u64>,
-    /// Default 2.
     pub backoff_factor: Option<f64>,
-    /// Default 10 s.
     pub max_sleep_ms: Option<u64>,
-    /// Fraction of each sleep to jitter down by. Default 0.05. Pass 0 to opt out.
     pub jitter: Option<f64>,
-    /// No attempt starts after this much time since the first.
     pub soft_deadline_ms: Option<u64>,
-    /// Identifies the retry site in the attempts metric. Defaults to the step name.
     pub name: Option<String>,
 }
 
@@ -36,7 +29,6 @@ pub const DEFAULT_BACKOFF_FACTOR: f64 = 2.0;
 pub const DEFAULT_MAX_SLEEP_MS: u64 = 10_000;
 pub const DEFAULT_JITTER: f64 = 0.05;
 
-/// Retries `f` while the error is not marked non-retriable. Returns the attempt count too.
 pub async fn retry_if_retriable<T, F, Fut>(
     mut f: F,
     options: &RetryOptions,
@@ -106,8 +98,6 @@ where
 
 const NON_RETRIABLE_REASON: &str = "Processing error - non-retriable";
 
-/// Wraps a step with retries. A retriable error retries with backoff. A non-retriable error
-/// becomes a DLQ. An error with no retriable flag fails the batch after the last try.
 pub fn with_step_retry<T, U>(
     step: ProcessingStep<T, U>,
     options: RetryOptions,
@@ -152,7 +142,6 @@ where
     })
 }
 
-/// Chunk counterpart of `with_step_retry`. A non-retriable error becomes one DLQ per input.
 pub fn with_chunk_retry<T, U>(
     step: ChunkProcessingStep<T, U>,
     options: RetryOptions,

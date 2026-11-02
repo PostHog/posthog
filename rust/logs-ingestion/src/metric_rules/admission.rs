@@ -47,7 +47,6 @@ impl MetricSeriesAdmission {
         Self::with_hash_key(max_per_rule, max_per_team, max_total, hash_key)
     }
 
-    /// A fixed HMAC key, for tests that compare hashes.
     pub fn with_hash_key(
         max_per_rule: usize,
         max_per_team: usize,
@@ -66,7 +65,6 @@ impl MetricSeriesAdmission {
         }
     }
 
-    /// `hashLabelKey`: HMAC-SHA256 of the label key, first 6 bytes read big-endian.
     pub fn hash_label_key(&self, label_key: &str) -> u64 {
         let mut mac =
             Hmac::<Sha256>::new_from_slice(&self.hash_key).expect("HMAC takes any key length");

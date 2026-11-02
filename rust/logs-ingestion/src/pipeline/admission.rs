@@ -77,7 +77,6 @@ pub fn create_track_incoming_traffic_step() -> AdmissionStep {
     )
 }
 
-/// A team not enabled for backfill loses the whole backfilled message.
 pub fn create_backfill_gate_step(context: Arc<LogsPipelineContext>) -> AdmissionStep {
     ChunkProcessingStep::sync(
         "backfillGateStep",
@@ -125,7 +124,6 @@ pub fn create_backfill_gate_step(context: Arc<LogsPipelineContext>) -> Admission
     )
 }
 
-/// Looks each distinct token up once. Unbilled internal messages skip the quota.
 pub fn create_quota_limit_step(context: Arc<LogsPipelineContext>) -> AdmissionStep {
     ChunkProcessingStep::new("quotaLimitStep", move |values: Vec<LogsAdmissionInput>| {
         let context = context.clone();
@@ -182,7 +180,6 @@ impl RateLimitedMessage for Indexed<'_> {
     }
 }
 
-/// Per-team token buckets in Redis. Unbilled internal messages skip the limiter.
 pub fn create_rate_limit_step(context: Arc<LogsPipelineContext>) -> AdmissionStep {
     ChunkProcessingStep::new("rateLimitStep", move |values: Vec<LogsAdmissionInput>| {
         let context = context.clone();

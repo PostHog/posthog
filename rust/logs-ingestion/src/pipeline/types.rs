@@ -15,7 +15,6 @@ pub const DEFAULT_TRACES_RETENTION_DAYS: f64 = 14.0;
 /// A producer can stamp internal rows with less retention than the team default.
 pub const INTERNAL_LOGS_MIN_RETENTION_DAYS: f64 = 1.0;
 
-/// `LogsIngestionMessage`.
 #[derive(Debug, Clone)]
 pub struct LogsIngestionMessage {
     pub token: String,
@@ -98,7 +97,6 @@ pub fn retention_bytes_metric_name(retention_days: f64) -> Option<String> {
         .then(|| format!("bytes_ingested_retention_{}d", retention_days as i64))
 }
 
-/// `describeBatchPosition`.
 pub fn describe_batch_position(messages: &[KafkaMessage]) -> BTreeMap<String, String> {
     let mut spans: BTreeMap<i32, (i64, i64)> = BTreeMap::new();
     for m in messages {
@@ -203,7 +201,6 @@ pub fn js_string_to_number(raw: &str) -> f64 {
     s.parse::<f64>().unwrap_or(f64::NAN)
 }
 
-/// `billingByteReductionForDrops`: the header scaled by the dropped content fraction.
 pub fn billing_byte_reduction_for_drops(
     header_bytes: f64,
     bytes_dropped: f64,

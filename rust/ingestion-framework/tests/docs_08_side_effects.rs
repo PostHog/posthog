@@ -16,7 +16,6 @@ async fn wait_all(side_effects: Vec<SideEffect>) {
     }
 }
 
-/// it('steps can add side effects to context')
 #[tokio::test]
 async fn steps_can_add_side_effects_to_context() {
     let log = shared(Vec::<String>::new());
@@ -53,7 +52,6 @@ async fn steps_can_add_side_effects_to_context() {
         .contains(&"Processed: hello -> HELLO".to_string()));
 }
 
-/// it('side effects accumulate through the pipeline')
 #[tokio::test]
 async fn side_effects_accumulate_through_the_pipeline() {
     let audit = shared(Vec::<&'static str>::new());
@@ -89,7 +87,6 @@ async fn side_effects_accumulate_through_the_pipeline() {
     }
 }
 
-/// it('a step can add multiple side effects')
 #[tokio::test]
 async fn a_step_can_add_multiple_side_effects() {
     let sinks = shared((0, 0, 0));
@@ -143,7 +140,6 @@ fn delayed_effect_step(
     }))
 }
 
-/// it('handleSideEffects with await: true blocks until completion')
 #[tokio::test(start_paused = true)]
 async fn handle_side_effects_with_await_true_blocks_until_completion() {
     let completed = shared(Vec::new());
@@ -164,7 +160,6 @@ async fn handle_side_effects_with_await_true_blocks_until_completion() {
     assert_eq!(done, ["a", "b", "c"]);
 }
 
-/// it('handleSideEffects with await: false schedules for background execution')
 #[tokio::test(start_paused = true)]
 async fn handle_side_effects_with_await_false_schedules_for_background_execution() {
     let completed = shared(Vec::new());

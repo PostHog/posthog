@@ -8,8 +8,6 @@ use std::fmt::Write;
 
 use serde_json::Value;
 
-/// Appends `value` as `JSON.stringify` writes it. An object writes its keys in the
-/// iteration order of its map, after the array-index keys that JavaScript puts first.
 pub fn write_value(out: &mut String, value: &Value) {
     match value {
         Value::Null => out.push_str("null"),
@@ -33,8 +31,6 @@ pub fn write_value(out: &mut String, value: &Value) {
     }
 }
 
-/// Appends an object with entries in JavaScript property order: array-index keys in
-/// ascending numeric order, then the other keys in the given order.
 pub fn write_object<'a>(out: &mut String, entries: impl Iterator<Item = (&'a String, &'a Value)>) {
     let mut index_keys: Vec<(u32, &String, &Value)> = Vec::new();
     let mut other_keys: Vec<(&String, &Value)> = Vec::new();

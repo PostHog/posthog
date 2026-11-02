@@ -29,7 +29,6 @@ const MAX_BURST_KB: f64 = 10_000_000.0;
 /// Decimal KB, the unit of the drop-rule form and the API validator.
 const BYTES_PER_KB: f64 = 1000.0;
 
-/// A row of the sampling rules table.
 #[derive(Debug, Clone)]
 pub struct SamplingRuleRow {
     pub id: String,
@@ -37,9 +36,7 @@ pub struct SamplingRuleRow {
     pub scope_service: Option<String>,
     pub scope_path_pattern: Option<String>,
     pub scope_attribute_filters: JsValue,
-    /// `JsValue::Null` for a SQL null.
     pub config: JsValue,
-    /// Used by the cache watermark only.
     pub version: Option<i64>,
 }
 
@@ -253,7 +250,6 @@ fn parse_always_keep(config: &JsValue) -> Result<Option<AlwaysKeep>, JsTypeError
     }))
 }
 
-/// `compileRuleSet`.
 pub fn compile_rule_set(rows: &[SamplingRuleRow]) -> Result<CompiledRuleSet, JsTypeError> {
     let mut rules = Vec::with_capacity(rows.len());
     let mut has_rate_limit_rules = false;

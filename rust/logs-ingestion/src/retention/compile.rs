@@ -12,9 +12,7 @@ pub const MAX_ENABLED_RETENTION_RULES: usize = 100;
 #[derive(Debug, Clone)]
 pub struct RetentionRuleRow {
     pub id: String,
-    /// `JsValue::Null` for a SQL null.
     pub config: JsValue,
-    /// Used by the cache watermark only.
     pub version: Option<i64>,
 }
 

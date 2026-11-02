@@ -31,7 +31,6 @@ pub struct RecordSchema {
     pub fields: Vec<Field>,
     pub aliases: Vec<String>,
     pub doc: Option<String>,
-    /// Field index by name, for lookups by the record helpers.
     pub field_index: HashMap<Arc<str>, usize>,
     pub(crate) avsc_json: AvscJsonMemo,
 }

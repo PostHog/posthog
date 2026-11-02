@@ -27,11 +27,6 @@ async fn join_all_presized<F: Future>(runs: Vec<F>) -> Vec<F::Output> {
 /// `FuturesOrdered`.
 const JOIN_ALL_SMALL: usize = 30;
 
-/// Runs a single-item step over every value of a chunk, as one chunk step. The framework
-/// instruments a chunk step once per chunk, and an element step once per element. For a
-/// cheap step, such as a header parse or a passthrough produce, the per-element cost is
-/// most of the work.
-///
 /// Results keep input order. With `max_concurrency`, values start in input order (FIFO),
 /// like `concurrently`. The steps run as futures of the one chunk-step future, not as
 /// tasks, as Node runs them on one event loop.

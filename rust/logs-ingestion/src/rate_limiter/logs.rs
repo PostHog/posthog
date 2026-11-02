@@ -16,12 +16,10 @@ use super::redis::TokenBucketRedis;
 
 pub const DEFAULT_LIMITER_NAME: &str = "logs-rate-limiter";
 
-/// `buildBaseRedisKey`.
 pub fn build_base_redis_key(key_root: KeyRoot, limiter_name: &str) -> String {
     format!("{}/{limiter_name}", key_root.as_str())
 }
 
-/// The `LOGS_LIMITER_*` settings.
 #[derive(Debug, Clone)]
 pub struct LogsRateLimiterConfig {
     pub team_bucket_size_kb: String,
@@ -33,7 +31,6 @@ pub struct LogsRateLimiterConfig {
     pub ttl_seconds: f64,
 }
 
-/// What the limiter reads from a `LogsIngestionMessage`.
 pub trait RateLimitedMessage {
     fn team_id(&self) -> i64;
     fn bytes_uncompressed(&self) -> f64;
@@ -60,7 +57,6 @@ enum TeamList {
     Teams(Vec<f64>),
 }
 
-/// `parseTeamIdList`: `'*'`, a list, or `None` for an empty setting.
 fn parse_team_id_list(config: &str) -> Option<TeamList> {
     if config == "*" {
         return Some(TeamList::All);
@@ -102,12 +98,10 @@ fn lookup(pairs: &[(f64, f64)], team: f64) -> Option<f64> {
     pairs.iter().find(|(t, _)| *t == team).map(|(_, v)| *v)
 }
 
-/// `Math.ceil(bytes / 1000)`.
 fn bytes_to_kb(bytes: f64) -> f64 {
     (bytes / 1000.0).ceil()
 }
 
-/// `LogsRateLimiterService`.
 pub struct LogsRateLimiter {
     config: LogsRateLimiterConfig,
     team_bucket_sizes: Vec<(f64, f64)>,
@@ -212,7 +206,6 @@ impl LogsRateLimiter {
         }
     }
 
-    /// `filterMessages`: drops the messages past each enabled team's available KB.
     pub async fn filter_messages<M: RateLimitedMessage>(
         &self,
         messages: Vec<M>,

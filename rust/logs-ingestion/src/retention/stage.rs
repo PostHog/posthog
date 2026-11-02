@@ -49,7 +49,6 @@ impl MutateStage for RetentionStage {
     }
 }
 
-/// `makeRetentionStage`.
 pub fn make_retention_stage(
     rule_set: Arc<CompiledRetentionRuleSet>,
     team_id: i64,

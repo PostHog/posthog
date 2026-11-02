@@ -41,7 +41,6 @@ struct BufferedAppMetric {
     timestamp: Option<String>,
 }
 
-/// `AppMetricInput`.
 #[derive(Debug, Clone)]
 pub struct AppMetricInput {
     pub team_id: i64,
@@ -54,7 +53,6 @@ pub struct AppMetricInput {
     pub timestamp: Option<DateTime<Utc>>,
 }
 
-/// Dedupes app metrics on `queue` and produces them on `flush`, in first-queued order.
 pub struct AppMetricsAggregator {
     buffer: Mutex<Vec<(String, BufferedAppMetric)>>,
     outputs: Arc<dyn IngestionOutputs>,

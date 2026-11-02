@@ -8,7 +8,6 @@ use std::sync::Arc;
 use common::{consume_all_within, items, shared, sleep_ms};
 use ingestion_framework::{new_chunk_pipeline, ok, step};
 
-/// it('concurrently() processes items in parallel')
 #[tokio::test(start_paused = true)]
 async fn concurrently_processes_items_in_parallel() {
     let processed = shared(Vec::<i64>::new());
@@ -37,7 +36,6 @@ async fn concurrently_processes_items_in_parallel() {
     assert!(started.elapsed().as_millis() < 200);
 }
 
-/// it('items are returned one by one as they complete')
 #[tokio::test(start_paused = true)]
 async fn items_are_returned_one_by_one_as_they_complete() {
     let pipeline = new_chunk_pipeline::<i64, ()>()
@@ -56,7 +54,6 @@ async fn items_are_returned_one_by_one_as_they_complete() {
     assert_eq!(chunks, vec![vec![10], vec![20], vec![30]]);
 }
 
-/// it('result ordering matches input order')
 #[tokio::test(start_paused = true)]
 async fn result_ordering_matches_input_order() {
     let order = shared(Vec::<i64>::new());
@@ -82,7 +79,6 @@ async fn result_ordering_matches_input_order() {
     assert_eq!(values, [10, 20, 30]);
 }
 
-/// it('maxConcurrency caps how many items run at once')
 #[tokio::test(start_paused = true)]
 async fn max_concurrency_caps_how_many_items_run_at_once() {
     let running = Arc::new(AtomicUsize::new(0));

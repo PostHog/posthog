@@ -43,10 +43,8 @@ pub enum AvroError {
     InvalidSyncMarker,
     #[error("{0} codec decompression error")]
     Decompression(String),
-    /// A record that does not decode, with avsc's message.
     #[error("{0}")]
     Decode(String),
-    /// A value that does not match the writer schema, with avsc's message.
     #[error("{0}")]
     Encode(String),
     /// A writer schema that does not parse. avsc's text here comes from `JSON.parse` or

@@ -89,8 +89,6 @@ pub struct PropertyFilterLeaf {
 }
 
 impl PropertyFilterLeaf {
-    /// A leaf from a JSON node. A non-object node (a string, a number, an array) has none of the
-    /// properties, as in JavaScript.
     pub fn from_json(node: &JsValue) -> PropertyFilterLeaf {
         let field = |name: &str| match node {
             JsValue::Object(o) => o.get(name).cloned(),
@@ -118,17 +116,14 @@ impl PropertyFilterLeaf {
         }
     }
 
-    /// `filter.type === name`.
     pub fn type_is(&self, name: &str) -> bool {
         matches!(&self.filter_type, Some(JsValue::String(s)) if s == name)
     }
 
-    /// `filter.key === name`.
     pub fn key_is(&self, name: &str) -> bool {
         matches!(&self.key, Some(JsValue::String(s)) if s == name)
     }
 
-    /// The number of filter values this leaf carries, for `MAX_FILTER_GROUP_LEAF_VALUES`.
     pub fn value_count(&self) -> usize {
         match &self.value {
             None | Some(JsValue::Null) => 0,

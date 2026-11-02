@@ -16,7 +16,6 @@ fn team() -> TeamCtx {
     TeamCtx { team_id: 2 }
 }
 
-/// it('steps can add warnings to results')
 #[tokio::test]
 async fn steps_can_add_warnings_to_results() {
     let pipeline = new_chunk_pipeline::<(&'static str, Option<()>), TeamCtx>()
@@ -52,7 +51,6 @@ async fn steps_can_add_warnings_to_results() {
     );
 }
 
-/// it('warnings accumulate through the pipeline')
 #[tokio::test]
 async fn warnings_accumulate_through_the_pipeline() {
     let pipeline = new_chunk_pipeline::<&'static str, TeamCtx>()
@@ -99,7 +97,6 @@ async fn warnings_accumulate_through_the_pipeline() {
     );
 }
 
-/// it('a step can add multiple warnings')
 #[tokio::test]
 async fn a_step_can_add_multiple_warnings() {
     struct Event {
@@ -164,7 +161,6 @@ async fn a_step_can_add_multiple_warnings() {
     }
 }
 
-/// it('handleIngestionWarnings converts warnings to side effects')
 #[tokio::test]
 async fn handle_ingestion_warnings_converts_warnings_to_side_effects() {
     let outputs = MockOutputs::default();
@@ -207,7 +203,6 @@ async fn handle_ingestion_warnings_converts_warnings_to_side_effects() {
     assert_eq!(body["type"], "client_ingestion_warning");
 }
 
-/// it('handleIngestionWarnings preserves existing side effects')
 #[tokio::test]
 async fn handle_ingestion_warnings_preserves_existing_side_effects() {
     let outputs = MockOutputs::default();
@@ -257,7 +252,6 @@ async fn handle_ingestion_warnings_preserves_existing_side_effects() {
     assert_eq!(outputs.calls().len(), 1);
 }
 
-/// it('warnings can include a key for debouncing')
 #[tokio::test]
 async fn warnings_can_include_a_key_for_debouncing() {
     let pipeline = new_chunk_pipeline::<&'static str, TeamCtx>()
@@ -288,7 +282,6 @@ async fn warnings_can_include_a_key_for_debouncing() {
     assert_eq!(results[0].context.warnings, vec![expected]);
 }
 
-/// it('alwaysSend bypasses debouncing for critical warnings')
 #[tokio::test]
 async fn always_send_bypasses_debouncing_for_critical_warnings() {
     let pipeline = new_chunk_pipeline::<&'static str, TeamCtx>()

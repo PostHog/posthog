@@ -15,7 +15,6 @@ use crate::outputs::{
 use crate::results::{NonOk, Outcome};
 use crate::side_effects::{SideEffect, SideEffectScheduler};
 
-/// Port of `PipelineConfig`.
 #[derive(Clone)]
 pub struct PipelineConfig {
     pub outputs: Arc<dyn IngestionOutputs>,
@@ -46,7 +45,6 @@ pub fn copy_and_extend_headers(message: &KafkaMessage, additional: Headers) -> H
     headers
 }
 
-/// The DLQ copy of `message`: its value and key, its headers, and the `dlq_*` headers.
 pub fn dlq_output_message(message: &KafkaMessage, error: &str, step: &str) -> OutputMessage {
     let headers = copy_and_extend_headers(
         message,
@@ -84,7 +82,6 @@ async fn produce_dlq_message(
     Ok(())
 }
 
-/// Port of `produceMessageToDLQ`.
 pub async fn produce_message_to_dlq(
     outputs: &dyn IngestionOutputs,
     message: &KafkaMessage,
@@ -98,7 +95,6 @@ pub async fn produce_message_to_dlq(
     produce_dlq_message(outputs, out, team_id, step, rethrow_on_failure).await
 }
 
-/// The redirected copy of `message`, with the `redirect-*` headers.
 pub fn redirect_output_message(
     message: &KafkaMessage,
     step: &str,
@@ -151,8 +147,6 @@ async fn produce_redirect(
     Ok(())
 }
 
-/// Port of `redirectMessageToOutput`. The produce is scheduled so the batch drains it. With
-/// `await_ack` the returned future also waits for it.
 pub async fn redirect_message_to_output(
     outputs: Arc<dyn IngestionOutputs>,
     output: &str,

@@ -18,10 +18,8 @@ pub type RecordsVisitor<'a> = Box<dyn FnMut(&[LogRecord]) -> anyhow::Result<()> 
 
 #[derive(Debug)]
 pub enum BufferValue {
-    /// The input buffer, untouched.
     Original,
     Encoded(Vec<u8>),
-    /// Every record was dropped, or the batch decoded to none: do not produce.
     Dropped,
 }
 
@@ -31,7 +29,6 @@ pub struct ProcessedBuffer {
     pub drops: DropStats,
 }
 
-/// The single decode, transform and encode path for a log message buffer.
 pub async fn process_log_message_buffer(
     buffer: &[u8],
     settings: &LogsSettings,

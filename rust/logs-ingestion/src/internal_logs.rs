@@ -34,7 +34,6 @@ pub struct InternalLogs {
     pub team_rules: bool,
 }
 
-/// `INTERNAL_SOURCE_POLICIES`.
 pub fn default_internal_source_policies() -> HashMap<String, InternalSourcePolicy> {
     HashMap::from([(
         "hog_flow".to_string(),
@@ -76,7 +75,6 @@ fn compute_signature(key: &str, source: &str, team_id: i64, signed_at: &str) -> 
     format!("{SIGNATURE_VERSION}.{source}.{signed_at}.{digest}")
 }
 
-/// `timingSafeEqual` after the length check.
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
@@ -123,7 +121,6 @@ pub fn sign_internal_logs(
     Ok(compute_signature(newest, source, team_id, &signed_at))
 }
 
-/// `withoutInternalLogsHeaders`: an incoming copy of either header is removed, others keep order.
 pub fn without_internal_logs_headers<I, K, V>(headers: I) -> Vec<(K, V)>
 where
     I: IntoIterator<Item = (K, V)>,
@@ -156,7 +153,6 @@ impl NotInternalReason {
     }
 }
 
-/// `buildIntegerMatcher(config, true)`.
 #[derive(Debug, Clone)]
 enum TeamMatcher {
     None,
@@ -191,7 +187,6 @@ impl TeamMatcher {
     }
 }
 
-/// `InternalLogsVerifier`.
 #[derive(Debug, Clone)]
 pub struct InternalLogsVerifier {
     keys: Vec<String>,

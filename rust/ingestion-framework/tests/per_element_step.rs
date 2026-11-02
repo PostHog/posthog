@@ -11,7 +11,6 @@ struct Track {
     started: Vec<i64>,
 }
 
-/// it('keeps input order and never runs more than maxConcurrency steps at once')
 #[tokio::test]
 async fn keeps_input_order_and_never_runs_more_than_max_concurrency_steps_at_once() {
     let track = Arc::new(Mutex::new(Track::default()));

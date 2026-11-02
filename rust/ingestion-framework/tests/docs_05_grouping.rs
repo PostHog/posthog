@@ -13,7 +13,6 @@ fn events(list: &[Event]) -> Vec<ingestion_framework::OkResultWithContext<Event,
     items(list.iter().copied())
 }
 
-/// it('concurrentlyPerGroup() partitions items by a key function')
 #[tokio::test(start_paused = true)]
 async fn concurrently_per_group_partitions_items_by_a_key_function() {
     let groups = shared(HashMap::<&'static str, Vec<i64>>::new());
@@ -48,7 +47,6 @@ async fn concurrently_per_group_partitions_items_by_a_key_function() {
     assert_eq!(groups["bob"], vec![2, 4]);
 }
 
-/// it('items in the same group are processed sequentially')
 #[tokio::test(start_paused = true)]
 async fn items_in_the_same_group_are_processed_sequentially() {
     let order = shared(Vec::<i64>::new());
@@ -85,7 +83,6 @@ fn delay_for(user: &str) -> u64 {
     }
 }
 
-/// it('items in different groups can process concurrently')
 #[tokio::test(start_paused = true)]
 async fn items_in_different_groups_can_process_concurrently() {
     let pipeline = new_chunk_pipeline::<Event, ()>()
@@ -125,7 +122,6 @@ async fn items_in_different_groups_can_process_concurrently() {
     );
 }
 
-/// it('complex group keys with token + distinct_id')
 #[tokio::test(start_paused = true)]
 async fn complex_group_keys_with_token_and_distinct_id() {
     type IngestionEvent = (&'static str, &'static str, &'static str);

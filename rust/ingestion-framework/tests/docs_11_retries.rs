@@ -20,7 +20,6 @@ fn opts(tries: u32, sleep_ms: u64) -> RetryOptions {
     }
 }
 
-/// it('retriable errors are retried until the step succeeds')
 #[tokio::test(start_paused = true)]
 async fn retriable_errors_are_retried_until_the_step_succeeds() {
     let attempts = Arc::new(AtomicU32::new(0));
@@ -46,7 +45,6 @@ async fn retriable_errors_are_retried_until_the_step_succeeds() {
     assert_eq!(r.value().unwrap(), "HELLO");
 }
 
-/// it('non-retriable errors go directly to DLQ')
 #[tokio::test(start_paused = true)]
 async fn non_retriable_errors_go_directly_to_dlq() {
     let attempts = Arc::new(AtomicU32::new(0));
@@ -75,7 +73,6 @@ async fn non_retriable_errors_go_directly_to_dlq() {
     assert!(r.result.reason().unwrap().contains("non-retriable"));
 }
 
-/// it('after max retries, the error is rethrown')
 #[tokio::test(start_paused = true)]
 async fn after_max_retries_the_error_is_rethrown() {
     let attempts = Arc::new(AtomicU32::new(0));
@@ -100,7 +97,6 @@ async fn after_max_retries_the_error_is_rethrown() {
     assert_eq!(err.to_string(), "Attempt 3 failed");
 }
 
-/// it('errors without isRetriable are retried then rethrown')
 #[tokio::test(start_paused = true)]
 async fn errors_without_is_retriable_are_retried_then_rethrown() {
     let attempts = Arc::new(AtomicU32::new(0));
@@ -125,7 +121,6 @@ async fn errors_without_is_retriable_are_retried_then_rethrown() {
     assert_eq!(err.to_string(), "Unexpected internal error");
 }
 
-/// it('tries and sleepMs control attempts and backoff')
 #[tokio::test(start_paused = true)]
 async fn tries_and_sleep_ms_control_attempts_and_backoff() {
     let attempts = Arc::new(AtomicU32::new(0));
@@ -164,7 +159,6 @@ async fn tries_and_sleep_ms_control_attempts_and_backoff() {
     assert!(handle.await.unwrap().unwrap().is_ok());
 }
 
-/// it('defaults to 3 tries and 100ms sleep')
 #[tokio::test(start_paused = true)]
 async fn defaults_to_3_tries_and_100ms_sleep() {
     let attempts = Arc::new(AtomicU32::new(0));
@@ -194,7 +188,6 @@ async fn defaults_to_3_tries_and_100ms_sleep() {
     assert!((285..=300).contains(&elapsed), "{elapsed}");
 }
 
-/// it('pipeChunk retries the chunk step until it succeeds')
 #[tokio::test(start_paused = true)]
 async fn pipe_chunk_retries_the_chunk_step_until_it_succeeds() {
     let attempts = Arc::new(AtomicU32::new(0));
@@ -220,7 +213,6 @@ async fn pipe_chunk_retries_the_chunk_step_until_it_succeeds() {
     assert!(results.iter().all(|r| r.is_ok()));
 }
 
-/// it('pipeChunk sends one DLQ per input on a non-retriable error')
 #[tokio::test(start_paused = true)]
 async fn pipe_chunk_sends_one_dlq_per_input_on_a_non_retriable_error() {
     let pipeline = new_chunk_pipeline::<i64, ()>()

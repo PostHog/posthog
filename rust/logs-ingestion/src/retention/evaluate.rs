@@ -12,7 +12,6 @@ pub const DEFAULT_RETENTION_DAYS: i64 = 14;
 pub const RETENTION_MONTH_DAYS: i64 = 30;
 pub const MAX_RETENTION_DAYS: i64 = RETENTION_MONTH_DAYS * 86;
 
-/// `isValidRetentionDays`: the team default, or a whole number of 30-day months up to the cap.
 pub fn is_valid_retention_days(days: f64) -> bool {
     if !days.is_finite() || days.fract() != 0.0 {
         return false;
@@ -26,7 +25,6 @@ pub fn is_valid_retention_days(days: f64) -> bool {
 #[derive(Debug, Clone)]
 pub struct CompiledRetentionRule {
     pub id: String,
-    /// A rule with no group matches nothing.
     pub filter_group: Option<FilterGroupNode>,
     pub retention_days: i64,
 }
@@ -36,7 +34,6 @@ pub struct CompiledRetentionRuleSet {
     pub rules: Vec<CompiledRetentionRule>,
 }
 
-/// `evaluateRetentionDays`: the first matching rule's days, or `None` for the team default.
 pub fn evaluate_retention_days(
     rule_set: Option<&CompiledRetentionRuleSet>,
     record: &LogRecord,
@@ -54,7 +51,6 @@ pub fn evaluate_retention_days(
     Ok(None)
 }
 
-/// `safeEvaluateRetentionDays`: an evaluation error falls back to the team default.
 pub fn safe_evaluate_retention_days(
     rule_set: Option<&CompiledRetentionRuleSet>,
     record: &LogRecord,

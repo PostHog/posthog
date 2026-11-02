@@ -31,7 +31,6 @@ impl SamplingDecision {
         }
     }
 
-    /// Whether the record leaves the batch.
     pub fn drops(&self) -> bool {
         matches!(
             self,
@@ -61,7 +60,6 @@ pub enum CostUnit {
     Bytes,
 }
 
-/// A token bucket in the rule's cost unit.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RateLimit {
     pub refill_per_second: f64,
@@ -101,14 +99,12 @@ pub struct CompiledSamplingRule {
 #[derive(Debug, Clone, Default)]
 pub struct CompiledRuleSet {
     pub rules: Vec<CompiledSamplingRule>,
-    /// True when any rule applies Redis rate limiting.
     pub has_rate_limit_rules: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EvaluateResult {
     pub decision: SamplingDecision,
-    /// The id of the first matching rule.
     pub rule_id: Option<String>,
 }
 
@@ -128,7 +124,6 @@ const SEV_ORD_INFO: usize = 1;
 const SEV_ORD_WARN: usize = 2;
 const SEV_ORD_ERROR: usize = 3;
 
-/// `severityOrdinalFromRecord`.
 pub fn severity_ordinal_from_record(record: &LogRecord) -> usize {
     let text = record.severity_text().unwrap_or("").to_lowercase();
     match text.as_str() {
@@ -162,7 +157,6 @@ pub fn hash01_from_trace_id(trace_id: Option<&[u8]>) -> f64 {
     }
 }
 
-/// `getAttribute`: the raw attribute value.
 fn get_attribute<'a>(record: &'a LogRecord, key: &str) -> Option<AttrLookup<'a>> {
     lookup_attribute(record.attributes()?, key)
 }
@@ -332,7 +326,6 @@ pub fn classify_sampling_record(
     })
 }
 
-/// `evaluateLogRecord`: the walk without rate limiting.
 pub fn evaluate_log_record(
     rule_set: Option<&CompiledRuleSet>,
     record: &LogRecord,

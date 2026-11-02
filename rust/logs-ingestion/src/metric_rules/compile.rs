@@ -10,10 +10,8 @@ use crate::property_filter::coerce::JsTypeError;
 /// Mirrors `MAX_METRIC_RULE_GROUP_BY_KEYS` in `products/logs/backend/models.py`.
 pub const MAX_GROUP_BY_KEYS: usize = 5;
 
-/// Top-level keys usable as span group-by dimensions.
 pub const SPAN_GROUP_BY_TOP_LEVEL_KEYS: [&str; 4] = ["service_name", "name", "status_code", "kind"];
 
-/// Top-level keys usable as log group-by dimensions.
 pub const LOG_GROUP_BY_TOP_LEVEL_KEYS: [&str; 3] = ["service_name", "severity_text", "event_name"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -45,7 +43,6 @@ pub struct MetricRuleRow {
 }
 
 impl MetricRuleRow {
-    /// Reads a row object as the Postgres driver or a fixture gives it.
     pub fn from_js(row: &JsObject) -> Self {
         let field = |name: &str| row.get(name).cloned().unwrap_or(JsValue::Null);
         let id = match row.get("id") {
@@ -95,7 +92,6 @@ pub fn compile_metric_rules(
     compile_metric_rules_with(rows, parse_filter_group)
 }
 
-/// `compileMetricRules` with an explicit filter-group parser.
 pub fn compile_metric_rules_with(
     rows: &[MetricRuleRow],
     parse: FilterGroupParser,

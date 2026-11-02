@@ -8,7 +8,6 @@ use std::sync::Arc;
 use common::items;
 use ingestion_framework::{drop, new_chunk_pipeline, ok, step, PipelineError, RetryOptions};
 
-/// it('uploads an element's attachments concurrently and folds the results back in')
 #[tokio::test]
 async fn uploads_attachments_concurrently_and_folds_the_results_back_in() {
     let in_flight = Arc::new(AtomicUsize::new(0));
@@ -73,7 +72,6 @@ async fn uploads_attachments_concurrently_and_folds_the_results_back_in() {
     assert!(high_water.load(Ordering::SeqCst) <= 2);
 }
 
-/// it('retries a transient sub-step failure without disturbing the parent')
 #[tokio::test]
 async fn retries_a_transient_sub_step_failure_without_disturbing_the_parent() {
     let attempts = Arc::new(AtomicUsize::new(0));
@@ -118,7 +116,6 @@ async fn retries_a_transient_sub_step_failure_without_disturbing_the_parent() {
     assert_eq!(attempts.load(Ordering::SeqCst), 2);
 }
 
-/// it('drops a sub-element without failing its parent')
 #[tokio::test]
 async fn drops_a_sub_element_without_failing_its_parent() {
     let pipeline = new_chunk_pipeline::<(&'static str, Vec<i64>), ()>()

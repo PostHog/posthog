@@ -23,7 +23,6 @@ pub struct Team {
     pub logs_settings: Option<LogsSettings>,
 }
 
-/// The parts of `TeamManager` the consumer uses.
 #[async_trait]
 pub trait TeamManager: Send + Sync {
     async fn get_team(&self, team_id: i64) -> anyhow::Result<Option<Team>>;
@@ -40,7 +39,6 @@ pub trait QuotaLimiting: Send + Sync {
     ) -> anyhow::Result<bool>;
 }
 
-/// `UsageRecordBatch`.
 #[async_trait]
 pub trait UsageRecordBatch: Send + Sync {
     fn add(&self, team_id: i64, usage_key: &str, record_id: &str, quantity: f64, unit: &str);
@@ -53,7 +51,6 @@ pub trait SamplingRulesSource: Send + Sync {
     async fn get_compiled_rule_set(&self, team_id: i64) -> anyhow::Result<Arc<CompiledRuleSet>>;
 }
 
-/// `RetentionRulesCache`. `source` is `logs` or `spans`.
 #[async_trait]
 pub trait RetentionRulesSource: Send + Sync {
     async fn get_compiled_rule_set(
@@ -63,13 +60,11 @@ pub trait RetentionRulesSource: Send + Sync {
     ) -> anyhow::Result<Arc<CompiledRetentionRuleSet>>;
 }
 
-/// `PatternMessageKeysCache`.
 #[async_trait]
 pub trait PatternMessageKeysSource: Send + Sync {
     async fn get_message_keys(&self, team_id: i64) -> anyhow::Result<Vec<String>>;
 }
 
-/// `TracingConfigCache`: the per-team default span retention.
 #[async_trait]
 pub trait TracingConfigSource: Send + Sync {
     async fn get_retention_days(&self, team_id: i64) -> anyhow::Result<f64>;
@@ -80,7 +75,6 @@ pub trait TracingConfigSource: Send + Sync {
 #[async_trait]
 pub trait LogsTransformer: Send + Sync {
     async fn team_has_transformations(&self, team_id: i64) -> anyhow::Result<bool>;
-    /// Mutates the records in place and removes the ones a transformation dropped.
     async fn transform_records(
         &self,
         team_id: i64,
@@ -103,7 +97,6 @@ pub struct LogsIngestionConsumerDeps {
     pub logs_transformer: Option<Arc<dyn LogsTransformer>>,
     pub retention_rules: Option<Arc<dyn RetentionRulesSource>>,
     pub pattern_message_keys: Option<Arc<dyn PatternMessageKeysSource>>,
-    /// Traces only.
     pub tracing_config: Option<Arc<dyn TracingConfigSource>>,
     pub dependency_retry: DependencyRetry,
     pub internal_source_policies: Option<HashMap<String, InternalSourcePolicy>>,

@@ -12,7 +12,6 @@ use crate::js::{JsObject, JsString, JsValue};
 
 const SCOPE_NAME: &str = "posthog/logs-metric-rules";
 
-/// Data points are stamped on 10-second boundaries.
 const TIME_BUCKET_MS: f64 = 10_000.0;
 
 const OTLP_TEMPORALITY_DELTA: f64 = 1.0;
@@ -65,7 +64,6 @@ fn bucket_layout_attribute() -> JsValue {
     )
 }
 
-/// Map keys lose their prefix on the emitted series.
 fn label_name(group_by_key: &JsString) -> JsString {
     for prefix in ATTRIBUTE_PREFIXES {
         if starts_with(group_by_key, prefix) {
@@ -85,13 +83,11 @@ struct RulePoints<'a> {
     entries: Vec<&'a MetricTallyEntry>,
 }
 
-/// `buildMetricRulesOtlpPayload`. `None` when no rule has a data point.
 pub fn build_metric_rules_otlp_payload(
     rules: &[CompiledMetricRule],
     tallies: &BatchTallies,
     now_ms: f64,
 ) -> Option<JsValue> {
-    // A `service_name` group-by becomes the resource `service.name`: one resource per service.
     let mut by_service: Vec<(JsString, InsertionMap<RulePoints<'_>>)> = Vec::new();
     for rule in rules {
         let Some(rule_tallies) = tallies.by_rule.get(&rule.id) else {

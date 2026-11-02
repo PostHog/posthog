@@ -41,7 +41,6 @@ fn check(label: &str, bytes: &[u8], expected: &JsValue) {
                 string(get(expected, "sha256")),
                 "{label}: canonical records differ"
             );
-            // Decode, encode, decode again gives the same records.
             let encoded =
                 encode_container(&container.schema, "zstandard", &container.records).unwrap();
             let again = decode_container(&encoded).unwrap();
@@ -134,7 +133,6 @@ fn schema_export_matches_avsc_for_the_production_schemas() {
             expected_by_name.get(&record_name),
             "{name}: exported schema differs from what avsc wrote"
         );
-        // The export is stable when read back, as avsc's is.
         let again = Schema::parse_json(&schema.to_avsc_json())
             .unwrap()
             .to_avsc_json();

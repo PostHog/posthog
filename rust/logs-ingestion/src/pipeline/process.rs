@@ -32,7 +32,6 @@ pub struct MetricRuleBatchState {
 /// A `Map` keyed by team, in insertion order.
 pub type MetricTalliesByTeam = Arc<Mutex<Vec<(i64, Arc<Mutex<MetricRuleBatchState>>)>>>;
 
-/// State one processing pass shares across its messages.
 #[derive(Clone)]
 pub struct LogsProcessingPass {
     pub usage: Arc<Mutex<UsageStatsByTeam>>,
@@ -328,8 +327,6 @@ async fn process_log_message(
         .await
 }
 
-/// Decodes, transforms and produces one message. A message-scoped failure quarantines it; a
-/// dependency outage is carried as a failure that fails the pass.
 pub fn create_process_log_message_step(
     context: Arc<LogsPipelineContext>,
 ) -> ProcessingStep<LogsProcessingInput, LogsProcessingOutcome> {

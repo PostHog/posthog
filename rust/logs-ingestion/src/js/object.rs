@@ -17,12 +17,10 @@ pub(crate) fn hash_key(key: &JsString) -> u64 {
     KEY_HASHER.hash_one(key.bytes_wtf8())
 }
 
-/// The same hash for a Rust string key.
 pub(crate) fn hash_str(key: &str) -> u64 {
     KEY_HASHER.hash_one(key.as_bytes())
 }
 
-/// An own-property key without allocation: an array index, or any other key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JsKey<'a> {
     Index(u32),
@@ -72,7 +70,6 @@ pub fn is_array_index(key: &str) -> Option<u32> {
 pub struct JsObject {
     /// Array-index keys, kept sorted.
     indexed: Vec<(u32, JsValue)>,
-    /// Other keys, in insertion order.
     named: Vec<(JsString, JsValue)>,
     /// Positions in `named`, built only for large objects, where a linear key search would
     /// be quadratic.
@@ -154,12 +151,10 @@ impl JsObject {
         self.named_position(&key).map(|i| &self.named[i].1)
     }
 
-    /// `Object.hasOwn(obj, key)`.
     pub fn contains_key(&self, key: &str) -> bool {
         self.get(key).is_some()
     }
 
-    /// `delete obj[key]`.
     pub fn remove(&mut self, key: &str) -> Option<JsValue> {
         if let Some(n) = is_array_index(key) {
             return self
@@ -177,7 +172,6 @@ impl JsObject {
         Some(value)
     }
 
-    /// Entries in own-property order. Index keys are rendered in decimal.
     pub fn iter(&self) -> impl Iterator<Item = (JsString, &JsValue)> + '_ {
         self.indexed
             .iter()
@@ -185,7 +179,6 @@ impl JsObject {
             .chain(self.named.iter().map(|(k, v)| (k.clone(), v)))
     }
 
-    /// Entries in own-property order, without allocating keys.
     pub fn entries(&self) -> impl Iterator<Item = (JsKey<'_>, &JsValue)> + '_ {
         self.indexed
             .iter()
@@ -199,7 +192,6 @@ impl JsObject {
 }
 
 impl PartialEq for JsObject {
-    /// Same entries in the same order, as two JS objects that print the same.
     fn eq(&self, other: &Self) -> bool {
         self.indexed == other.indexed && self.named == other.named
     }

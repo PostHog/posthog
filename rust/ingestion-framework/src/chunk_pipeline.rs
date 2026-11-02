@@ -13,10 +13,6 @@ use crate::pipeline::DynPipeline;
 use crate::results::{NonOk, Outcome};
 use crate::steps::ChunkProcessingStep;
 
-/// A chunk-processing stage. `feed()` accepts one batch of OK results. `next()` pulls the
-/// processed chunk, which can combine elements from more than one fed batch, or `None` when
-/// the stage is empty.
-///
 /// Both methods take `&self`: a stage must accept a `feed()` while a `next()` is parked,
 /// as in Node. A stage must not get two overlapping `next()` calls.
 #[async_trait]
@@ -27,7 +23,6 @@ pub trait ChunkPipeline<I, O, CI, CO>: Send + Sync {
 
 pub type DynChunkPipeline<I, O, CI, CO> = Arc<dyn ChunkPipeline<I, O, CI, CO>>;
 
-/// Port of `BufferingChunkPipeline`: the start of every chunk pipeline.
 pub struct BufferingChunkPipeline<T, C> {
     buffer: Mutex<Vec<ResultWithContext<T, C>>>,
 }
@@ -67,9 +62,6 @@ impl<T: Send + 'static, C: Send + 'static> ChunkPipeline<T, T, C, C>
     }
 }
 
-/// Port of `applyChunkStepToResults`: the one implementation of chunk-step semantics,
-/// shared by `BaseChunkPipeline` and the group-level `pipe_chunk`.
-///
 /// Runs the step over the OK values, checks the one-result-per-value contract, and zips the
 /// results back onto their contexts. Non-OK results pass through. The budget check runs per
 /// element, because one chunk can hold elements from batches with different budgets.
@@ -82,10 +74,8 @@ where
     U: Send + 'static,
 {
     let step_name = step.name();
-    // Slots keep each item's position. `Some(context)` marks an item the step will run on.
     enum Slot<U, C> {
         Done(ResultWithContext<U, C>),
-        // An OK item that the budget cut off before the step.
         CutOff(crate::context::PipelineContext<C>),
         Pending(crate::context::PipelineContext<C>),
     }
@@ -182,7 +172,6 @@ where
         .collect())
 }
 
-/// Port of `BaseChunkPipeline`: one `pipe_chunk` stage.
 pub struct BaseChunkPipeline<I, M, O, CI, CO> {
     step: ChunkProcessingStep<M, O>,
     previous: DynChunkPipeline<I, M, CI, CO>,
@@ -217,8 +206,6 @@ where
     }
 }
 
-/// Port of `SequentialChunkPipeline`: each OK item runs through the per-item pipeline one at
-/// a time, in input order.
 pub struct SequentialChunkPipeline<I, M, O, CI, CO> {
     processor: DynPipeline<M, O, CO>,
     previous: DynChunkPipeline<I, M, CI, CO>,
@@ -233,7 +220,6 @@ impl<I, M, O, CI, CO> SequentialChunkPipeline<I, M, O, CI, CO> {
     }
 }
 
-/// The per-item loop behind `sequentially`, shared with the grouping stage.
 pub(crate) async fn process_sequentially<M, O, C>(
     processor: &DynPipeline<M, O, C>,
     items: ChunkResults<M, C>,
@@ -276,7 +262,6 @@ where
     }
 }
 
-/// Port of `GatheringChunkPipeline`: drains the sub-pipeline into one chunk.
 pub struct GatheringChunkPipeline<I, O, CI, CO> {
     sub: DynChunkPipeline<I, O, CI, CO>,
 }
@@ -308,8 +293,6 @@ where
     }
 }
 
-/// Port of `ChunkPipelineUnwrapper`: returns only the OK values and logs side effects that
-/// nobody handled.
 pub struct ChunkPipelineUnwrapper<I, O, C> {
     pipeline: DynChunkPipeline<I, O, C, C>,
 }

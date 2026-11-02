@@ -32,7 +32,6 @@ fn invalid(schema: &Schema, value: &AvroValue) -> AvroError {
     AvroError::Encode(format!("invalid {}: {:?}", schema.short_name(), value))
 }
 
-/// avsc's `isSafeLong`.
 fn is_safe_long(n: i64) -> bool {
     (-9_007_199_254_740_990..=9_007_199_254_740_990).contains(&n)
 }

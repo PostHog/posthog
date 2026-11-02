@@ -23,7 +23,6 @@ pub enum GroupType {
     Or,
 }
 
-/// A group node: `{ type: 'AND' | 'OR', values: [...] }`.
 #[derive(Debug, Clone)]
 pub struct FilterGroupNode {
     pub group_type: GroupType,
@@ -45,7 +44,6 @@ pub struct InheritedMember {
     pub length: Option<u32>,
 }
 
-/// The value of `map[key]`: an own string, an inherited member, or `undefined`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AttrLookup<'a> {
     Own(&'a str),
@@ -53,7 +51,6 @@ pub enum AttrLookup<'a> {
 }
 
 impl AttrLookup<'_> {
-    /// `String(value)`.
     pub fn text(&self) -> &str {
         match self {
             AttrLookup::Own(s) => s,
@@ -82,7 +79,6 @@ pub fn inherited_member(key: &str) -> Option<InheritedMember> {
     Some(InheritedMember { text, length })
 }
 
-/// `map[key]` on a plain object built from an Avro map.
 pub fn lookup_attribute<'a>(map: &'a AvroMap, key: &str) -> Option<AttrLookup<'a>> {
     if let Some(v) = map.get(key) {
         // The log schemas hold string maps. A non-string value cannot come from a decode.
@@ -91,7 +87,6 @@ pub fn lookup_attribute<'a>(map: &'a AvroMap, key: &str) -> Option<AttrLookup<'a
     inherited_member(key).map(AttrLookup::Inherited)
 }
 
-/// `decodedAttr(map, key)`: `None` is `undefined`.
 fn decoded_attr(map: Option<&AvroMap>, key: &JsKey) -> Result<Option<JsString>, JsTypeError> {
     let Some(map) = map else {
         return Ok(None);
@@ -130,7 +125,6 @@ fn str_key<'a>(s: &'a JsValue) -> JsKey<'a> {
     JsKey(Some(s))
 }
 
-/// `matchFilterGroup`.
 pub fn match_filter_group(
     group: &FilterGroupNode,
     record: &LogRecord,
@@ -176,8 +170,6 @@ fn match_one(node: &FilterNode, record: &LogRecord, depth: usize) -> Result<bool
     }
 }
 
-/// `lookupRecordValue`: the value a leaf compares against, as `String()` of it. `None` is
-/// `undefined` or `null`.
 fn lookup_record_value(
     filter: &PropertyFilterLeaf,
     record: &LogRecord,

@@ -21,7 +21,6 @@ use super::deps::LogsTransformer;
 use super::types::{LogsIngestionMessage, INTERNAL_LOGS_MIN_RETENTION_DAYS};
 
 pub struct ResolvedLogBuffer {
-    /// `None` is `all_dropped`, with its reason in `dropped_reason`.
     pub value: Option<BufferValue>,
     pub dropped_reason: Option<String>,
     pub pii: PiiScrubStats,
@@ -129,8 +128,6 @@ async fn build_transform_stage(
     }))))
 }
 
-/// Decodes the message when a feature needs the records, runs the stages in order, and encodes
-/// the survivors. With no feature active the buffer passes through undecoded.
 pub async fn resolve_log_buffer(
     context: &LogsPipelineContext,
     message: &LogsIngestionMessage,

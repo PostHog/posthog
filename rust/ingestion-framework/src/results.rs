@@ -29,7 +29,6 @@ impl PipelineResultType {
     }
 }
 
-/// A non-OK outcome. It carries no value, so it moves between value types unchanged.
 #[derive(Debug, Clone)]
 pub enum NonOk {
     Dlq {
@@ -71,8 +70,6 @@ impl NonOk {
     }
 }
 
-/// The outcome of a step, without the side effects and warnings. After a step runs, the
-/// pipeline moves those into the context, so a `ResultWithContext` holds only this.
 #[derive(Debug, Clone)]
 pub enum Outcome<T> {
     Ok(T),
@@ -124,8 +121,6 @@ impl<T> Outcome<T> {
     }
 }
 
-/// What a step returns: an outcome plus the side effects and warnings the step produced.
-///
 /// In Node the result keeps its own copy of the side effects after the pipeline merges
 /// them into the context. A `SideEffect` here is a task handle and cannot be copied, so
 /// the pipeline moves them into the context instead.

@@ -49,7 +49,6 @@ fn safe_classify(
     })
 }
 
-/// `safeEvaluateLogRecord`.
 fn safe_evaluate(rule_set: &CompiledRuleSet, record: &LogRecord, team_id: i64) -> EvaluateResult {
     evaluate_log_record(Some(rule_set), record).unwrap_or_else(|e| {
         count_eval_error(team_id, "evaluate", &e);
@@ -60,7 +59,6 @@ fn safe_evaluate(rule_set: &CompiledRuleSet, record: &LogRecord, team_id: i64) -
     })
 }
 
-/// `LogsSamplingService`.
 pub struct LogsSamplingService {
     rate_limiter: KeyedRateLimiter,
 }
@@ -80,7 +78,6 @@ impl LogsSamplingService {
         }
     }
 
-    /// `sampleRecords`: drop rules and rate limits over decoded records.
     pub async fn sample_records(
         &self,
         records: Vec<StagedRecord>,
@@ -241,7 +238,6 @@ impl LogsSamplingService {
         Ok(keep)
     }
 
-    /// `makeSamplingStage`.
     pub fn make_sampling_stage(
         self: &Arc<Self>,
         rule_set: Arc<CompiledRuleSet>,

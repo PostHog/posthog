@@ -19,7 +19,6 @@ pub use number::{number_to_string, write_number};
 pub use object::{is_array_index, JsKey, JsObject};
 pub use string::{utf16_len, utf16_slice_lossy, CharOrSurrogate, JsString};
 
-/// A value as `JSON.parse` returns it. Numbers are f64, as in JavaScript.
 #[derive(Debug, Clone, PartialEq)]
 pub enum JsValue {
     Null,

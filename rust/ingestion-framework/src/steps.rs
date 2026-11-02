@@ -42,7 +42,6 @@ impl<T: 'static, U: 'static> ProcessingStep<T, U> {
         }
     }
 
-    /// A step whose body is synchronous.
     pub fn sync<F>(name: &str, f: F) -> Self
     where
         F: Fn(T) -> anyhow::Result<PipelineResult<U>> + Send + Sync + 'static,
@@ -68,7 +67,6 @@ impl<T: 'static, U: 'static> ProcessingStep<T, U> {
     }
 }
 
-/// A step that takes all values of a chunk and returns exactly one result per value.
 pub struct ChunkProcessingStep<T, U> {
     name: Arc<str>,
     f: Arc<dyn Fn(Vec<T>) -> ChunkStepFuture<U> + Send + Sync>,
@@ -123,7 +121,6 @@ impl<T: Send + 'static, U: Send + 'static> ChunkProcessingStep<T, U> {
     }
 }
 
-/// Shorthand for `ProcessingStep::new`.
 pub fn step<T, U, F, Fut>(name: &str, f: F) -> ProcessingStep<T, U>
 where
     T: 'static,
@@ -134,7 +131,6 @@ where
     ProcessingStep::new(name, f)
 }
 
-/// Shorthand for `ChunkProcessingStep::new`.
 pub fn chunk_step<T, U, F, Fut>(name: &str, f: F) -> ChunkProcessingStep<T, U>
 where
     T: 'static,

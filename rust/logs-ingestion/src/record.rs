@@ -10,14 +10,11 @@ use crate::avro::{AvroMap, AvroValue};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LogRecord {
-    /// Writer schema fields, in schema order.
     pub fields: Vec<(Arc<str>, AvroValue)>,
-    /// Properties set on the object that the writer schema does not have.
     pub extra: Vec<(Arc<str>, AvroValue)>,
 }
 
 impl LogRecord {
-    /// Wraps a decoded record. A value that is not a record gives an empty record.
     pub fn from_value(value: AvroValue) -> Self {
         let fields = match value {
             AvroValue::Record(fields) => fields,
@@ -57,12 +54,10 @@ impl LogRecord {
             .map(|(_, v)| v)
     }
 
-    /// Whether the writer schema has the field, so a written value reaches the output.
     pub fn has_field(&self, name: &str) -> bool {
         self.fields.iter().any(|(k, _)| &**k == name)
     }
 
-    /// `record[name] = value`.
     pub fn set(&mut self, name: &str, value: AvroValue) {
         match self.get_mut(name) {
             Some(slot) => *slot = value,
@@ -70,12 +65,10 @@ impl LogRecord {
         }
     }
 
-    /// A string property, or `None` when it is null or missing.
     pub fn get_str(&self, name: &str) -> Option<&str> {
         self.get(name).and_then(AvroValue::as_str)
     }
 
-    /// An integer property, or `None` when it is null or missing.
     pub fn get_i64(&self, name: &str) -> Option<i64> {
         self.get(name).and_then(AvroValue::as_i64)
     }
@@ -149,11 +142,9 @@ impl LogRecord {
     pub fn pattern_version(&self) -> Option<i64> {
         self.get_i64("pattern_version")
     }
-    /// Span name.
     pub fn name(&self) -> Option<&str> {
         self.get_str("name")
     }
-    /// Span kind.
     pub fn kind(&self) -> Option<i64> {
         self.get_i64("kind")
     }

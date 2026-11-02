@@ -172,10 +172,8 @@ pub const MASK_RULES: [MaskRule; 22] = [
 static MASK_RULE_RE: LazyLock<RuleRegex> =
     LazyLock::new(|| RuleRegex::new(MASK_RULES.iter().map(|r| r.pattern)));
 
-/// `zeroRuleFires`: one counter per entry of `MASK_RULES`.
 pub type RuleFires = [u64; MASK_RULES.len()];
 
-/// Masks `input` and adds its rule hits into `rule_fires`.
 fn mask_into(input: &str, rule_fires: &mut RuleFires) -> String {
     let mut out = String::with_capacity(input.len());
     let mut copied_up_to = 0;
@@ -195,7 +193,6 @@ pub struct MaskResult {
     pub rule_fires: RuleFires,
 }
 
-/// `maskString`.
 pub fn mask_string(input: &str) -> MaskResult {
     let mut rule_fires = [0; MASK_RULES.len()];
     let masked = mask_into(input, &mut rule_fires);
@@ -289,7 +286,6 @@ fn json_key_set_pattern(raw_keys: impl Iterator<Item = String>) -> (String, Rule
     (pattern, rule_fires)
 }
 
-/// `selectPatternInput`.
 pub fn select_pattern_input(body: Option<&str>, message_keys: &[&str]) -> PatternInputSelection {
     let body = match body {
         None | Some("") => {
@@ -367,7 +363,6 @@ pub struct MaskedPattern {
     pub rule_fires: RuleFires,
 }
 
-/// `computeLogPattern`.
 pub fn compute_log_pattern(input: &str) -> MaskedPattern {
     let MaskResult { masked, rule_fires } = mask_string(input);
     MaskedPattern {
@@ -377,7 +372,6 @@ pub fn compute_log_pattern(input: &str) -> MaskedPattern {
     }
 }
 
-/// `buildLogPattern`.
 pub fn build_log_pattern(body: Option<&str>, message_keys: &[&str]) -> LogPatternResult {
     match select_pattern_input(body, message_keys) {
         PatternInputSelection::Empty {
@@ -423,9 +417,6 @@ pub fn build_log_pattern(body: Option<&str>, message_keys: &[&str]) -> LogPatter
     }
 }
 
-/// The body of `makePatternMaskingStage` (`stampBatch`): stamps `pattern` and
-/// `pattern_version` on every record, and records the stage metrics.
-///
 /// The TypeScript catches a throw and counts `logs_ingestion_pattern_stage_error_total`. Nothing
 /// here can fail, so this port has no such path.
 pub fn stamp_pattern_batch(records: &mut [LogRecord], message_keys: &[&str]) {

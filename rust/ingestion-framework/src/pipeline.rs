@@ -21,7 +21,6 @@ pub trait Pipeline<I, O, C>: Send + Sync {
 
 pub type DynPipeline<I, O, C> = Arc<dyn Pipeline<I, O, C>>;
 
-/// Port of `StartPipeline`: returns its input.
 pub struct StartPipeline;
 
 #[async_trait]
@@ -34,7 +33,6 @@ impl<T: Send + 'static, C: Send + 'static> Pipeline<T, T, C> for StartPipeline {
     }
 }
 
-/// Port of `StepPipeline`: runs the previous pipeline, then one step on an OK result.
 pub struct StepPipeline<I, M, O, C> {
     step: ProcessingStep<M, O>,
     previous: DynPipeline<I, M, C>,

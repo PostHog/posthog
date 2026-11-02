@@ -11,7 +11,6 @@ use crate::outputs::{HasMessage, KafkaMessage};
 // distinct_id and session_id are customer-controlled and stay out.
 const LOGGED_HEADERS: [&str; 3] = ["token", "event", "uuid"];
 
-/// Port of `KafkaDebugContext` and `createKafkaDebugContext`.
 pub fn create_kafka_debug_context(message: &KafkaMessage) -> serde_json::Value {
     let headers: serde_json::Map<String, serde_json::Value> = message
         .headers
@@ -31,7 +30,6 @@ pub fn create_kafka_debug_context(message: &KafkaMessage) -> serde_json::Value {
     })
 }
 
-/// Port of `compactOffsetRanges`: `[1, 2, 3, 7, 10, 9]` becomes `"1-3,7,9-10"`.
 pub fn compact_offset_ranges(offsets: &[i64]) -> String {
     let mut sorted: Vec<i64> = offsets.to_vec();
     sorted.sort_unstable();
@@ -62,7 +60,6 @@ pub fn compact_offset_ranges(offsets: &[i64]) -> String {
     ranges.join(",")
 }
 
-/// Port of `aggregateKafkaDebugContexts`: one offset-range string per topic-partition.
 pub fn aggregate_kafka_debug_contexts(debug_contexts: &[serde_json::Value]) -> serde_json::Value {
     let mut by_partition: BTreeMap<String, Vec<i64>> = BTreeMap::new();
     let mut order: Vec<String> = Vec::new();
@@ -89,7 +86,6 @@ pub fn aggregate_kafka_debug_contexts(debug_contexts: &[serde_json::Value]) -> s
     })
 }
 
-/// The default context of a Kafka-fed pipeline: `{ message }`.
 #[derive(Debug, Clone)]
 pub struct MessageContext {
     pub message: KafkaMessage,

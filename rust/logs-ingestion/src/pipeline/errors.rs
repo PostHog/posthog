@@ -7,7 +7,6 @@ use std::time::Duration;
 use crate::avro::AvroError;
 use crate::property_filter::coerce::JsTypeError;
 
-/// An error with a JavaScript `name`, such as a producer's `MessageSizeTooLarge`.
 #[derive(Debug, Clone, thiserror::Error)]
 #[error("{message}")]
 pub struct NamedError {
@@ -54,7 +53,6 @@ pub fn error_name(error: &anyhow::Error) -> String {
     "Error".to_string()
 }
 
-/// `error.message`.
 pub fn error_message(error: &anyhow::Error) -> String {
     if let Some(e) = error.downcast_ref::<JsTypeError>() {
         return e.0.to_string();
@@ -77,7 +75,6 @@ impl Default for DependencyRetry {
     }
 }
 
-/// `retryOnDependencyUnavailableError`: `retry_count` tries in all, with a doubling delay.
 pub async fn retry_on_dependency_unavailable<T, F, Fut>(
     policy: DependencyRetry,
     mut f: F,

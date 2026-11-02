@@ -23,7 +23,6 @@ pub const EMPTY_PII: PiiScrubStats = PiiScrubStats {
     pii_replacements: 0,
 };
 
-/// `encodeAttributeCell`: `JSON.stringify(semantic)`.
 pub fn encode_attribute_cell(semantic: &str) -> String {
     json_stringify(&JsValue::string(semantic))
 }
@@ -160,7 +159,6 @@ impl RuleRegex {
 static PII_RULE_RE: LazyLock<RuleRegex> =
     LazyLock::new(|| RuleRegex::new(PII_RULES.iter().map(|r| r.pattern)));
 
-/// Scrubs `input`. `None` means no rule matched, so the input stands.
 fn scrub_str(input: &str) -> (Option<String>, u64) {
     let mut replacements = 0u64;
     let mut out: Option<String> = None;
@@ -190,13 +188,10 @@ pub fn scrub_plain_string_with_stats(input: &str) -> (String, u64) {
     (out.unwrap_or_else(|| input.to_string()), replacements)
 }
 
-/// `scrubPlainString`.
 pub fn scrub_plain_string(input: &str) -> String {
     scrub_plain_string_with_stats(input).0
 }
 
-/// `scrubLogRecord`: scrubs `body` and each `attributes` value in place.
-///
 /// Decoded record strings are valid UTF-8, because the Avro decoder writes U+FFFD for invalid
 /// bytes. So this port does not need the lone-surrogate handling of `JsString`.
 pub fn scrub_log_record(record: &mut LogRecord) -> PiiScrubStats {

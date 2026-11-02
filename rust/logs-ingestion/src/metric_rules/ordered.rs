@@ -59,7 +59,6 @@ impl<V> InsertionMap<V> {
         &mut self.entries[i].1
     }
 
-    /// The value at `key`, inserted from `make` when absent.
     pub fn get_or_insert_with(&mut self, key: &str, make: impl FnOnce() -> V) -> &mut V {
         if !self.index.contains_key(key) {
             self.insert(key, make());

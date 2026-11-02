@@ -1,5 +1,3 @@
-//! Error helpers.
-//!
 //! Node steps signal retriability with an `isRetriable` property on the thrown error.
 //! Here a step returns an `anyhow::Error` that wraps a `PipelineError`, and
 //! `is_retriable` reads it from the top-level error only, as Node reads the property of
@@ -75,7 +73,6 @@ pub fn shared_error(error: Arc<anyhow::Error>) -> anyhow::Error {
     anyhow::Error::new(SharedError(error))
 }
 
-/// Converts a task join failure (a panic or a cancel) into an error.
 pub fn join_error(error: tokio::task::JoinError) -> anyhow::Error {
     anyhow::anyhow!("pipeline task failed: {error}")
 }
@@ -105,7 +102,6 @@ impl fmt::Debug for AggregateError {
 
 impl std::error::Error for AggregateError {}
 
-/// The message of a panic payload, for the error that replaces the panic.
 pub fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
     if let Some(message) = payload.downcast_ref::<&str>() {
         (*message).to_string()

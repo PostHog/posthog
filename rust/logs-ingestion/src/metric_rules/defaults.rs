@@ -35,7 +35,6 @@ fn default_rows() -> Vec<MetricRuleRow> {
     ]
 }
 
-/// `DEFAULT_METRIC_RULES[source]`.
 pub fn default_metric_rules(source: MetricRuleSource) -> &'static [CompiledMetricRule] {
     static COMPILED: OnceLock<(Vec<CompiledMetricRule>, Vec<CompiledMetricRule>)> = OnceLock::new();
     let (logs, spans) = COMPILED.get_or_init(|| {
@@ -52,7 +51,6 @@ pub fn default_metric_rules(source: MetricRuleSource) -> &'static [CompiledMetri
     }
 }
 
-/// `withDefaultMetricRules`: a team rule with the same metric name replaces the default.
 pub fn with_default_metric_rules(
     team_rules: Vec<CompiledMetricRule>,
     source: MetricRuleSource,

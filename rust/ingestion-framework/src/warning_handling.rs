@@ -26,12 +26,10 @@ pub trait IngestionWarningEmitter: Send + Sync {
     async fn emit(&self, team_id: i64, warning: PipelineWarning) -> anyhow::Result<bool>;
 }
 
-/// Serializes as Node's `serializeIngestionWarning` does, with no rate limit.
 pub struct OutputsWarningEmitter {
     pub outputs: Arc<dyn IngestionOutputs>,
 }
 
-/// The `category` and `severity` of one entry of Node's `INGESTION_WARNING_TYPES`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WarningClassification {
     pub category: &'static str,
@@ -42,7 +40,6 @@ pub struct WarningClassification {
 const WARNING_TYPES_JSON: &str =
     include_str!("../../common/ingestion_warnings/warning_types.generated.json");
 
-/// Port of the `INGESTION_WARNING_TYPES[type]` lookup.
 pub fn warning_classification(warning_type: &str) -> Option<WarningClassification> {
     #[derive(serde::Deserialize)]
     struct Entry<'a> {

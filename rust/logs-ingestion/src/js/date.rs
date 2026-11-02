@@ -746,7 +746,6 @@ fn make_day(year: f64, month: f64, date: f64) -> f64 {
     days_from_civil(ym as i64, mn + 1, 1) as f64 + date - 1.0
 }
 
-/// Days since 1970-01-01 of a proleptic Gregorian date.
 fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
     let y = if m <= 2 { y - 1 } else { y };
     let era = if y >= 0 { y } else { y - 399 } / 400;

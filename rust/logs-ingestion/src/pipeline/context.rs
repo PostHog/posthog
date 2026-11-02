@@ -23,7 +23,6 @@ use super::types::{
 pub const LOGS_OUTPUT: &str = "logs";
 pub const LOGS_DLQ_OUTPUT: &str = "logs_dlq";
 
-/// `teamIdMatchesCsv`: a comma-separated team id list, `*` for all teams, or empty for none.
 pub fn team_id_matches_csv(raw: &str, team_id: i64) -> bool {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
@@ -57,7 +56,6 @@ pub fn kafka_header<'a>(message: &'a KafkaMessage, name: &str) -> Option<Cow<'a,
         .map(|(_, value)| utf8_lossy(value.as_deref().unwrap_or_default()))
 }
 
-/// `String::from_utf8_lossy` with a fast check for the valid case.
 pub fn utf8_lossy(bytes: &[u8]) -> Cow<'_, str> {
     match std::str::from_utf8(bytes) {
         Ok(text) => Cow::Borrowed(text),
@@ -65,7 +63,6 @@ pub fn utf8_lossy(bytes: &[u8]) -> Cow<'_, str> {
     }
 }
 
-/// `parseKafkaHeaders` without the keys in `skip`, with room for `extra` more headers.
 pub fn parse_kafka_headers_except(message: &KafkaMessage, skip: &[&str], extra: usize) -> Headers {
     let mut headers = Headers(Vec::with_capacity(message.headers.len() + extra));
     for (key, value) in &message.headers {
@@ -143,7 +140,6 @@ pub struct LogsFeatureGates {
     pub json_attribute_extraction_enabled_teams: String,
 }
 
-/// Long-lived services and settings that the logs pipeline steps share.
 pub struct LogsPipelineContext {
     pub identity: LogsConsumerIdentity,
     pub gates: LogsFeatureGates,
@@ -172,7 +168,6 @@ impl LogsPipelineContext {
         retry_on_dependency_unavailable(self.deps.dependency_retry, f).await
     }
 
-    /// The team's default retention period. Traces read their own setting.
     pub async fn default_retention_days(
         &self,
         team_id: i64,

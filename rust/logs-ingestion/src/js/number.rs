@@ -15,7 +15,6 @@ pub fn number_to_string(value: f64) -> String {
 /// Below 2^53 every integer is exact, and ECMAScript prints an integer under 1e21 in full.
 const EXACT_INTEGER_LIMIT: f64 = 9_007_199_254_740_992.0;
 
-/// `String(value)` appended to `out`.
 pub fn write_number(value: f64, out: &mut String) {
     if value.is_nan() {
         out.push_str("NaN");

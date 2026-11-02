@@ -42,7 +42,6 @@ impl FeedResult {
     }
 }
 
-/// A sub-pipeline value: the fed value plus the batch context of its batch.
 #[derive(Debug)]
 pub struct WithBatch<T, CB> {
     pub value: T,
@@ -144,11 +143,6 @@ struct BatchingState<O, CO, CB, CF> {
     completed: VecDeque<BatchResult<O, CO, CB, CF>>,
 }
 
-/// Tracks which messages belong to which `feed()` call. When every message of a batch has
-/// left the sub-pipeline, it runs afterBatch with the results in feed order.
-///
-/// Batches come back in completion order, not feed order. `next()` returns `None` when no
-/// batch is in flight and nothing is buffered.
 pub struct BatchingPipeline<T, O, CI, CO, CB, CF> {
     sub: DynChunkPipeline<WithBatch<T, CB>, O, CI, CO>,
     before: DynPipeline<BeforeBatchInput<T, CI>, BeforeBatchOutput<T, CI, CB>, ()>,
@@ -184,7 +178,6 @@ struct RunningAfter<O, CO, CB, CF> {
 
 struct PumpState<O, CO, CB, CF> {
     pull: Option<PendingPull<O, CO>>,
-    // Results of the last pull that are not yet routed to their batch.
     unrouted: VecDeque<ResultWithContext<O, CO>>,
     after: Option<RunningAfter<O, CO, CB, CF>>,
 }
@@ -350,8 +343,6 @@ where
                 self.complete_batch(running, after)?;
             }
 
-            // Route the rest of the last pulled chunk. A finished batch starts its
-            // afterBatch run, which the top of the loop then awaits.
             while let Some(result) = pump.unrouted.pop_front() {
                 if let Some(running) = self.route(result)? {
                     pump.after = Some(running);
@@ -396,7 +387,6 @@ where
         }
     }
 
-    /// Records one result. When it completes its batch, returns the started afterBatch run.
     fn route(
         &self,
         result: ResultWithContext<O, CO>,

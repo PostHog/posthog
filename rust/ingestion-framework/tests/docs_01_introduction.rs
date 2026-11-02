@@ -10,9 +10,6 @@ use ingestion_framework::{
     PipelineResultType, ProcessingStep,
 };
 
-// describe('Defining Steps')
-
-/// it('steps use the factory pattern for dependency injection and naming')
 #[tokio::test]
 async fn steps_use_the_factory_pattern_for_dependency_injection_and_naming() {
     fn create_uppercase_step() -> ProcessingStep<String, String> {
@@ -48,7 +45,6 @@ async fn steps_use_the_factory_pattern_for_dependency_injection_and_naming() {
     assert_eq!(r.value(), Some(&15));
 }
 
-/// it('steps accumulate data through the pipeline')
 #[tokio::test]
 async fn steps_accumulate_data_through_the_pipeline() {
     #[derive(Clone)]
@@ -100,9 +96,6 @@ async fn steps_accumulate_data_through_the_pipeline() {
     assert!(summary.contains("valid=true"));
 }
 
-// describe('Pipeline Fundamentals')
-
-/// it('a step can return OK to pass data forward')
 #[tokio::test]
 async fn a_step_can_return_ok_to_pass_data_forward() {
     let pipeline = new_pipeline::<String, ()>()
@@ -117,7 +110,6 @@ async fn a_step_can_return_ok_to_pass_data_forward() {
     assert_eq!(r.value().unwrap(), "HELLO");
 }
 
-/// it('a pipeline transforms input through a sequence of steps')
 #[tokio::test]
 async fn a_pipeline_transforms_input_through_a_sequence_of_steps() {
     let pipeline = new_pipeline::<String, ()>()
@@ -135,7 +127,6 @@ async fn a_pipeline_transforms_input_through_a_sequence_of_steps() {
     assert_eq!(r.value().unwrap(), "HELLO!");
 }
 
-/// it('a step can return DLQ to signal an error')
 #[tokio::test]
 async fn a_step_can_return_dlq_to_signal_an_error() {
     let pipeline = new_pipeline::<i64, ()>()
@@ -154,7 +145,6 @@ async fn a_step_can_return_dlq_to_signal_an_error() {
     assert_eq!(r.result.result_type() as i32, 1);
 }
 
-/// it('a step can return DROP to silently discard an item')
 #[tokio::test]
 async fn a_step_can_return_drop_to_silently_discard_an_item() {
     let pipeline = new_pipeline::<&'static str, ()>()
@@ -172,7 +162,6 @@ async fn a_step_can_return_drop_to_silently_discard_an_item() {
     assert_eq!(r.result.result_type() as i32, 2);
 }
 
-/// it('a step can return REDIRECT to send an item elsewhere')
 #[tokio::test]
 async fn a_step_can_return_redirect_to_send_an_item_elsewhere() {
     let pipeline = new_pipeline::<&'static str, ()>()
@@ -190,7 +179,6 @@ async fn a_step_can_return_redirect_to_send_an_item_elsewhere() {
     assert_eq!(r.result.result_type() as i32, 3);
 }
 
-/// it('non-OK results short-circuit the pipeline, OK results propagate')
 #[tokio::test]
 async fn non_ok_results_short_circuit_the_pipeline_ok_results_propagate() {
     let pipeline = new_pipeline::<&'static str, ()>()
@@ -223,9 +211,6 @@ async fn non_ok_results_short_circuit_the_pipeline_ok_results_propagate() {
     }
 }
 
-// describe('Chunk Pipelines')
-
-/// it('chunk pipelines are created using newChunkPipelineBuilder()')
 #[tokio::test]
 async fn chunk_pipelines_are_created_using_new_chunk_pipeline_builder() {
     let pipeline = new_chunk_pipeline::<String, ()>()
@@ -242,7 +227,6 @@ async fn chunk_pipelines_are_created_using_new_chunk_pipeline_builder() {
     assert_eq!(values, ["A", "B", "C"]);
 }
 
-/// it('pipeChunk processes all items in a single call')
 #[tokio::test]
 async fn pipe_chunk_processes_all_items_in_a_single_call() {
     let call_counts = shared(Vec::<usize>::new());
@@ -258,7 +242,6 @@ async fn pipe_chunk_processes_all_items_in_a_single_call() {
     assert_eq!(*call_counts.lock().unwrap(), vec![5]);
 }
 
-/// it('feed() accepts a batch of items and next() returns processed chunks')
 #[tokio::test]
 async fn feed_accepts_a_batch_and_next_returns_processed_chunks() {
     let pipeline = new_chunk_pipeline::<&'static str, ()>()

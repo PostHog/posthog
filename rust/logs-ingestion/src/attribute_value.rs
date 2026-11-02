@@ -5,7 +5,6 @@
 
 use crate::js::{json_parse, json_stringify, JsString, JsValue};
 
-/// `decodeLogAttributeValue`: the string inside a JSON string literal, else the value as is.
 pub fn decode_log_attribute_value(value: &str) -> JsString {
     // `value.length >= 2` in UTF-16 units; both quotes are single units, so the byte check agrees.
     if value.len() >= 2 && value.starts_with('"') && value.ends_with('"') {
@@ -20,7 +19,6 @@ pub fn decode_log_attribute_value(value: &str) -> JsString {
     JsString::from(value)
 }
 
-/// `encodeLogAttributeValue`: valid JSON passes through, anything else becomes a JSON string.
 pub fn encode_log_attribute_value(value: &str) -> String {
     if json_parse(value).is_ok() {
         value.to_string()

@@ -11,7 +11,6 @@ use async_trait::async_trait;
 use redis::aio::ConnectionLike;
 use redis::Value;
 
-/// A Lua script and its SHA-1, as ioredis `defineCommand` computes it.
 #[derive(Debug)]
 pub struct LuaScript {
     pub name: &'static str,
@@ -19,13 +18,11 @@ pub struct LuaScript {
     pub sha: String,
 }
 
-/// `checkRateLimitV2`.
 pub fn token_bucket_v2() -> &'static LuaScript {
     static SCRIPT: OnceLock<LuaScript> = OnceLock::new();
     SCRIPT.get_or_init(|| script("checkRateLimitV2", include_str!("token_bucket_v2.lua")))
 }
 
-/// `checkRateLimitV3`.
 pub fn token_bucket_v3() -> &'static LuaScript {
     static SCRIPT: OnceLock<LuaScript> = OnceLock::new();
     SCRIPT.get_or_init(|| script("checkRateLimitV3", include_str!("token_bucket_v3.lua")))
@@ -61,10 +58,8 @@ pub struct ScriptCall {
     pub args: Vec<String>,
 }
 
-/// The reply to one call: the integers of the returned table, or the command's error.
 pub type ScriptReply = Result<Vec<i64>, String>;
 
-/// `RedisV2.usePipeline` for token-bucket calls. The trait lets tests swap the transport.
 #[async_trait]
 pub trait TokenBucketRedis: Send + Sync {
     /// Runs one `EVALSHA` per call in one pipeline. `Err` means the pipeline failed as a whole,
@@ -76,8 +71,6 @@ pub trait TokenBucketRedis: Send + Sync {
     ) -> Result<Vec<ScriptReply>, String>;
 }
 
-/// A `TokenBucketRedis` on a redis-rs async connection.
-///
 /// Like ioredis, it runs `SCRIPT EXISTS` and `SCRIPT LOAD` once per script, then sends bare
 /// `EVALSHA`. If Redis later loses the script, each call replies `NOSCRIPT`, which the limiter
 /// treats as a missing reply, as Node does.

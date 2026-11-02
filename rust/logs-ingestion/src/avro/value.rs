@@ -18,7 +18,6 @@ pub enum AvroValue {
     Double(f64),
     Bytes(Vec<u8>),
     String(String),
-    /// Fields in schema order. Names are shared with the schema.
     Record(Vec<(Arc<str>, AvroValue)>),
     Enum(String),
     Fixed(Vec<u8>),
@@ -85,7 +84,6 @@ impl AvroMap {
         Self::default()
     }
 
-    /// `obj[key] = value` on a plain object.
     pub fn assign(&mut self, key: String, value: AvroValue) {
         if key == "__proto__" {
             // Assignment sets the prototype instead of adding an own key.
@@ -171,7 +169,6 @@ impl AvroMap {
         self.len() == 0
     }
 
-    /// Entries in own-property order.
     pub fn iter(&self) -> impl Iterator<Item = (&str, &AvroValue)> + '_ {
         self.indexed
             .iter()
@@ -179,7 +176,6 @@ impl AvroMap {
             .chain(self.named.iter().map(|(k, v)| (k.as_str(), v)))
     }
 
-    /// Owned entries in own-property order.
     pub fn into_entries(self) -> impl Iterator<Item = (String, AvroValue)> {
         self.indexed
             .into_iter()
@@ -187,7 +183,6 @@ impl AvroMap {
             .chain(self.named)
     }
 
-    /// Values in own-property order, for edits that keep every key.
     pub fn values_mut(&mut self) -> impl Iterator<Item = &mut AvroValue> + '_ {
         self.indexed
             .iter_mut()
@@ -195,7 +190,6 @@ impl AvroMap {
             .chain(self.named.iter_mut().map(|(_, v)| v))
     }
 
-    /// String values, which is what the log schemas' maps hold.
     pub fn iter_strings(&self) -> impl Iterator<Item = (&str, &str)> + '_ {
         self.iter().filter_map(|(k, v)| v.as_str().map(|s| (k, s)))
     }
