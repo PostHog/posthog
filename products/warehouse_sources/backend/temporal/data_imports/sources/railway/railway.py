@@ -57,6 +57,15 @@ class RailwayResumeConfig:
     parent_id: str | None = None
     # Cursor of the parent's own connection, such as the deployment's events.
     child_cursor: str | None = None
+    # The child to resume at inside the parent's current page, such as a volume instance for
+    # `volume_instance_backups`.
+    child_id: str | None = None
+    # Listing positions of project_id, parent_id and child_id, for a retry that finds the item deleted.
+    project_index: int | None = None
+    parent_index: int | None = None
+    child_index: int | None = None
+    # The run read every row, so a retry of the same run reads nothing.
+    completed: bool = False
 
 
 def _get_headers(api_token: str) -> dict[str, str]:
@@ -413,6 +422,200 @@ def _get_deployment_event_rows(
             page_cursor, seek_id, seek_events_cursor = None, None, None
 
 
+def _stage_and_emit(
+    resumable_source_manager: ResumableSourceManager[RailwayResumeConfig],
+    position: RailwayResumeConfig,
+    rows: list[dict[str, Any]],
+) -> Iterator[list[dict[str, Any]]]:
+    resumable_source_manager.save_state(position)
+    if rows:
+        yield rows
+    else:
+        resumable_source_manager.safe_point()
+
+
+def _resume_index(ids: list[str], saved_id: str | None, saved_index: int | None) -> int | None:
+    """Where a retry continues in `ids`: at the saved item, or at its saved position when it is gone.
+
+    The walk relies on a stable listing order, so the item that now holds a deleted item's position
+    is the first one the earlier attempt did not read.
+    """
+    if saved_id is None:
+        return None
+    if saved_id in ids:
+        return ids.index(saved_id)
+    if saved_index is not None:
+        return min(saved_index, len(ids))
+    return None
+
+
+# Gets the project id, the environment id, the position of the environment, the saved position when
+# the run resumes inside the environment, and the position after the environment.
+ReadEnvironment = Callable[
+    [str, str, RailwayResumeConfig, RailwayResumeConfig | None, RailwayResumeConfig],
+    Iterator[list[dict[str, Any]]],
+]
+
+
+def _get_environment_fan_out_rows(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[RailwayResumeConfig],
+    read_environment: ReadEnvironment,
+) -> Iterator[list[dict[str, Any]]]:
+    """Walk every environment of every project and read it with `read_environment`.
+
+    Before each batch, the resume state moves to the position after it, and before the last batch
+    to a completed position. A resumed full refresh appends, so it must read no batch twice.
+    """
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume is not None and resume.completed:
+        return
+
+    environments_config = RAILWAY_ENDPOINTS["environments"]
+    project_ids = _iter_project_ids(session, headers, logger)
+
+    project_start = None
+    if resume is not None:
+        project_start = _resume_index(project_ids, resume.project_id, resume.project_index)
+        if (
+            project_start is None
+            or project_start >= len(project_ids)
+            or project_ids[project_start] != resume.project_id
+        ):
+            # The saved project is gone, so its environment bookmark points nowhere.
+            resume = None
+
+    for project_index in range(project_start or 0, len(project_ids)):
+        project_id = project_ids[project_index]
+        next_project = (
+            RailwayResumeConfig(project_id=project_ids[project_index + 1], project_index=project_index + 1)
+            if project_index + 1 < len(project_ids)
+            else RailwayResumeConfig(completed=True)
+        )
+        environment_ids = [
+            environment["id"]
+            for environments, _ in _iter_connection_pages(
+                session, headers, logger, environments_config, {"projectId": project_id}, None
+            )
+            for environment in environments
+        ]
+        resumable_source_manager.safe_point()
+
+        environment_start = _resume_index(environment_ids, resume.parent_id, resume.parent_index) if resume else None
+        environment_resume = (
+            resume
+            if resume is not None
+            and environment_start is not None
+            and environment_start < len(environment_ids)
+            and environment_ids[environment_start] == resume.parent_id
+            else None
+        )
+        resume = None
+
+        for environment_index in range(environment_start or 0, len(environment_ids)):
+            environment_id = environment_ids[environment_index]
+            here = RailwayResumeConfig(
+                project_id=project_id,
+                project_index=project_index,
+                parent_id=environment_id,
+                parent_index=environment_index,
+            )
+            after = (
+                dataclasses.replace(
+                    here, parent_id=environment_ids[environment_index + 1], parent_index=environment_index + 1
+                )
+                if environment_index + 1 < len(environment_ids)
+                else next_project
+            )
+            yield from read_environment(project_id, environment_id, here, environment_resume, after)
+            environment_resume = None
+
+
+def _environment_connection_rows(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    endpoint_config: RailwayEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[RailwayResumeConfig],
+    project_id: str,
+    environment_id: str,
+    here: RailwayResumeConfig,
+    resume: RailwayResumeConfig | None,
+    after: RailwayResumeConfig,
+) -> Iterator[list[dict[str, Any]]]:
+    start_cursor = resume.cursor if resume is not None else None
+    for rows, next_cursor in _iter_connection_pages(
+        session, headers, logger, endpoint_config, {"environmentId": environment_id}, start_cursor
+    ):
+        position = dataclasses.replace(here, cursor=next_cursor) if next_cursor is not None else after
+        # Service and volume instances carry no project id of their own.
+        rows = [row if "projectId" in row else {"project_id": project_id, **row} for row in rows]
+        yield from _stage_and_emit(resumable_source_manager, position, rows)
+
+
+def _volume_instance_backup_rows(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    endpoint_config: RailwayEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[RailwayResumeConfig],
+    project_id: str,
+    environment_id: str,
+    here: RailwayResumeConfig,
+    resume: RailwayResumeConfig | None,
+    after: RailwayResumeConfig,
+) -> Iterator[list[dict[str, Any]]]:
+    volume_instances_config = RAILWAY_ENDPOINTS["volume_instances"]
+    page_cursor = resume.cursor if resume is not None else None
+    for instances, next_page_cursor in _iter_connection_pages(
+        session, headers, logger, volume_instances_config, {"environmentId": environment_id}, page_cursor
+    ):
+        if not instances:
+            resumable_source_manager.safe_point()
+        instance_ids = [instance["id"] for instance in instances]
+        start_index = (_resume_index(instance_ids, resume.child_id, resume.child_index) if resume else None) or 0
+        resume = None
+        for index in range(start_index, len(instances)):
+            instance = instances[index]
+            data = _execute(session, headers, endpoint_config.query, {"volumeInstanceId": instance["id"]}, logger)
+            if index + 1 < len(instances):
+                position = dataclasses.replace(
+                    here, cursor=page_cursor, child_id=instance_ids[index + 1], child_index=index + 1
+                )
+            elif next_page_cursor is not None:
+                position = dataclasses.replace(here, cursor=next_page_cursor)
+            else:
+                position = after
+            context = {
+                "project_id": project_id,
+                "environment_id": environment_id,
+                "volume_instance_id": instance["id"],
+                "volume_id": instance.get("volumeId"),
+                "service_id": instance.get("serviceId"),
+            }
+            backups = [{**context, **backup} for backup in _dig(data, endpoint_config.data_path) or []]
+            yield from _stage_and_emit(resumable_source_manager, position, backups)
+        page_cursor = next_page_cursor
+
+
+def _get_workspace_rows(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    endpoint_config: RailwayEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[RailwayResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    for workspace_id in _iter_workspace_ids(session, headers, logger):
+        data = _execute(session, headers, endpoint_config.query, {"workspaceId": workspace_id}, logger)
+        workspace = _dig(data, endpoint_config.data_path)
+        if workspace:
+            yield [workspace]
+        else:
+            resumable_source_manager.safe_point()
+
+
 @frozen
 class _Window:
     start: datetime
@@ -643,6 +846,46 @@ def get_rows(
             )
         elif endpoint == "estimated_usage":
             yield from _get_estimated_usage_rows(session, headers, logger, endpoint_config, resumable_source_manager)
+        elif endpoint == "workspaces":
+            yield from _get_workspace_rows(session, headers, logger, endpoint_config, resumable_source_manager)
+        elif endpoint == "volume_instance_backups":
+            yield from _get_environment_fan_out_rows(
+                session,
+                headers,
+                logger,
+                resumable_source_manager,
+                lambda project_id, environment_id, here, resume, after: _volume_instance_backup_rows(
+                    session,
+                    headers,
+                    logger,
+                    endpoint_config,
+                    resumable_source_manager,
+                    project_id,
+                    environment_id,
+                    here,
+                    resume,
+                    after,
+                ),
+            )
+        elif endpoint_config.fan_out_over_environments:
+            yield from _get_environment_fan_out_rows(
+                session,
+                headers,
+                logger,
+                resumable_source_manager,
+                lambda project_id, environment_id, here, resume, after: _environment_connection_rows(
+                    session,
+                    headers,
+                    logger,
+                    endpoint_config,
+                    resumable_source_manager,
+                    project_id,
+                    environment_id,
+                    here,
+                    resume,
+                    after,
+                ),
+            )
         elif endpoint == "usage":
             now = datetime.now(UTC)
             day = timedelta(days=1)
