@@ -35,12 +35,14 @@ class TestLoopReturnsSource:
         with scripted_network([ScriptedResponse(status=200)]):
             assert self.source.validate_credentials(config, self.team_id) == (True, None)
 
-    def test_source_for_pipeline_builds_the_requested_table(self) -> None:
+    @pytest.mark.parametrize("api_version", LoopReturnsSource.supported_versions)
+    def test_source_for_pipeline_builds_the_requested_table_on_the_pinned_version(self, api_version: str) -> None:
         result = SourceDriver(self.source, self.config).run(
-            "advanced_shipping_notices", always(ScriptedResponse(json=[]))
+            "advanced_shipping_notices", always(ScriptedResponse(json=[])), api_version=api_version
         )
 
         assert result.raised is None
         assert result.response is not None
         assert result.response.name == "advanced_shipping_notices"
         assert result.response.primary_keys == ["id", "return_line_item_id"]
+        assert result.paths and all(path == f"/api/{api_version}/warehouse/reporting/asn" for path in result.paths)
