@@ -2350,7 +2350,7 @@ Diffed against: <https://raw.githubusercontent.com/chargebee/openapi/main/spec/c
 - [x] `GET /payment_schedules` — installment schedules that split an invoice's amount due (medium)
 - [x] `GET /einvoices` — e-invoice records and provider status for each invoice or credit note (low)
 
-Note: `metered_features` has only write endpoints (create, archive, reactivate, delete) and no list endpoint; the same configuration is readable through `GET /meters`, whose `id` equals the feature id. `ledger_entries` is a documented resource with no list endpoint. `GET /ledger_operations` lists the credit ledger, but every request needs a `subscription_id[is]` filter, so it is not a site-wide list endpoint and would need one request series per subscription.
+Note: `metered_features` has only write endpoints (create, archive, reactivate, delete) and no list endpoint; the same configuration is readable through `GET /meters`, whose `id` equals the feature id. `ledger_entries` is a documented resource with no list endpoint. `GET /ledger_operations` lists the credit ledger, but every request needs a `subscription_id[is]` filter, so it is not a site-wide list endpoint and would need one request series per subscription. `email_logs` has no site-wide list endpoint either: `GET /customers/{customer-id}/email_logs` needs one request series per customer, and its `sent_on` filter accepts only the last 7 days in windows of 24 hours at most, so it cannot backfill history into a table.
 
 ## Chargedesk — gaps
 
@@ -10021,12 +10021,12 @@ Diffed against: <https://backboard.railway.com/graphql/v2>
 - [x] `events` — Project event/activity stream - the audit-style timeline of what changed and when (high)
 - [x] `metrics` — CPU/memory/network/disk metrics per project, environment and service - core observability data (high)
 - [x] `deploymentEvents` — State-transition history for each deployment we already sync, enabling deploy-duration and failure analysis (high)
-- [ ] `serviceInstance` — Lookup resolving the service x environment pair that deployments already carry IDs for (high)
+- [x] `serviceInstance` — Lookup resolving the service x environment pair that deployments already carry IDs for (high)
 - [ ] `auditLogs` — Workspace-level audit trail of who did what, for compliance and change analysis (medium)
 - [ ] `httpMetrics / httpMetricsGroupedByStatus / httpDurationMetrics` — Request volume, status-code breakdown and latency percentiles per service (medium)
-- [ ] `volumeInstance / volumeInstanceBackupList` — Per-environment volume instances and backups that resolve the volume IDs already synced (medium)
-- [ ] `workspace` — Lookup table resolving the workspace/team that every project belongs to (medium)
-- [ ] `deploymentTriggers` — Explains what caused each deployment (branch, PR, check suite) (medium)
+- [x] `volumeInstance / volumeInstanceBackupList` — Per-environment volume instances and backups that resolve the volume IDs already synced (medium)
+- [x] `workspace` — Lookup table resolving the workspace/team that every project belongs to (medium)
+- [x] `deploymentTriggers` — Explains what caused each deployment (branch, PR, check suite) (medium)
 - [ ] `httpLogs / deploymentLogs` — Request and deployment log streams for error and traffic analysis (low)
 - [ ] `regions` — Small lookup resolving region codes on services and volumes (low)
 
@@ -10147,10 +10147,10 @@ Today (4): `candidates`, `departments`, `offers`, `placements`
 Diffed against: <https://docs.recruitee.com/reference>
 
 - [x] `GET /locations` — Lookup table resolving the location IDs carried on offers we already sync (high)
-- [ ] `GET /timeline` — Hiring activity/event stream - the state-transition history behind candidates and placements (high)
+- ~~`GET /timeline` — Hiring activity/event stream - the state-transition history behind candidates and placements (high)~~ — skipped: it is a Job Campaign Analytics partner endpoint at `/i/p/{partner}/timeline` that takes a secret Recruitee issues to job-board partners, not the company API token, and returns a CSV of the last 7 days only
 - [x] `GET /candidates/{id}/notes` — Recruiter notes per candidate, the qualitative record attached to candidates already synced (medium)
-- [ ] `POST /analytics (job campaign analytics)` — Sourcing and job-campaign performance breakdowns - the vendor's own reporting dimensions (medium)
-- [ ] `GET /candidates/{id}/reports` — Assessment and screening report results attached to candidates (low)
+- ~~`POST /analytics (job campaign analytics)` — Sourcing and job-campaign performance breakdowns - the vendor's own reporting dimensions (medium)~~ — skipped: the same partner-only API at `/i/p/{partner}/analytics`, which needs the partner secret and a list of UTM campaign IDs, so a company token cannot call it
+- ~~`GET /candidates/{id}/reports` — Assessment and screening report results attached to candidates (low)~~ — skipped: the reference documents no such read call on the company ATS API. Reports exist only in the Partners API, where an assessment partner updates its own report with `PATCH /api/p/{codename}/reports/{report_id}` and a partner secret
 
 Note: The two URLs recorded in the source config (docs.recruitee.com/reference/candidates-index, /departments-index) both 404 - the docs were re-slugged. I enumerated the live ReadMe sidebar tree from the /reference page payload: the public ATS API documents candidates (+notes, +search), offers, locations, departments, attachments, timeline and analytics. PostHog also syncs /placements, which is not in the public reference at all, so the vendor's published surface is narrower than what the source actually reaches - treat the doc as a lower bound.
 
@@ -10192,10 +10192,10 @@ Diffed against: <https://api-docs.render.com/reference/introduction>
 - [x] `/services/{id}/instances (list-instances)` — per-instance rows behind each service - the unit that scaling and cost analysis is done on (high)
 - [x] `/owners/{ownerId}/members (retrieve-owner-members)` — membership table linking users to the owners/workspaces already synced (high)
 - [x] `/owners/{ownerId}/audit-logs and /organizations/{id}/audit-logs` — who changed what and when - the change history for services, env groups and members (high)
-- [ ] `/metrics/* (http-requests, http-latency, cpu, memory, instance-count, bandwidth)` — the headline observability time series per service; nothing in the current tables carries runtime metrics (high)
-- [ ] `/blueprints and /blueprints/{id}/syncs` — IaC definitions plus their sync history, the deploy path for most multi-service accounts (medium)
-- [ ] `/snapshots (list-snapshots)` — backup/restore point history for Postgres instances already synced (medium)
-- [ ] `/postgres/{id}/top-queries, /table-scans, /processes` — database performance insight rows - the reason most people query Render data at all (medium)
+- [x] `/metrics/* (http-requests, http-latency, cpu, memory, instance-count, bandwidth)` — the headline observability time series per service; nothing in the current tables carries runtime metrics (high)
+- [x] `/blueprints and /blueprints/{id}/syncs` — IaC definitions plus their sync history, the deploy path for most multi-service accounts (medium)
+- [x] `/snapshots (list-snapshots)` — backup/restore point history for Postgres instances already synced (medium) — the operation is `/disks/{diskId}/snapshots`, so this is persistent disk snapshots, synced as `disk_snapshots`
+- [x] `/postgres/{id}/top-queries, /table-scans, /processes` — database performance insight rows - the reason most people query Render data at all (medium) — top queries and table scans added; processes skipped, as it is a live `pg_stat_activity` view with no history
 - [ ] `/tasks and /task-runs (listtasks, listtaskruns)` — Render Tasks execution history, analogous to the jobs table already exposed (medium)
 - [ ] `/workflows and /workflows/{id}/versions` — workflow definitions and version history for the newer Workflows product (medium)
 - [ ] `/redis (list-redis)` — legacy Redis instances are a separate resource from key_value and are invisible today (medium)
@@ -10260,11 +10260,11 @@ Today (5): `agents`, `calls`, `chats`, `phone_numbers`, `voices`
 
 Diffed against: <https://docs.retellai.com/llms.txt>
 
-- [ ] `Agent versions (GET /list-agent-versions/{agent_id})` — resolve agent_version values on calls and compare outcomes between published versions (high)
+- [x] `Agent versions (GET /list-agent-versions/{agent_id})` — resolve agent_version values on calls and compare outcomes between published versions (high)
 - [ ] `Contacts (POST /list-contacts)` — connect call and chat outcomes to customer profiles, external CRM IDs, and contact history (medium)
 - [ ] `Batch tests (GET /v2/list-batch-tests)` — track evaluation jobs and compare agent quality across test batches (medium)
 - [ ] `Test runs (GET /v2/list-test-runs/{test_case_batch_job_id})` — analyze individual evaluation results, failure explanations, and transcript snapshots (medium)
-- [ ] `Test case definitions (GET /v2/list-test-case-definitions)` — interpret evaluation results using scenario definitions and configured scoring criteria (medium)
+- [x] `Test case definitions (GET /v2/list-test-case-definitions)` — interpret evaluation results using scenario definitions and configured scoring criteria (medium)
 
 Note: The official index and embedded OpenAPI definitions were fetched with curl for collection reads and nested version lists. Contacts use POST for a read-only list operation, as do existing call and agent imports. The existing agents endpoint lists both voice and chat agents without a channel filter, so chat agents are covered. Version and test-run tables require requests for each agent or batch; write operations and agent configuration resources are excluded.
 
@@ -10300,10 +10300,10 @@ Today (5): `customers`, `orders`, `payments`, `subscription_plans`, `subscriptio
 
 Diffed against: <https://developer.revolut.com/docs/api/merchant.yaml>
 
-- [ ] `Payouts (GET /api/payouts)` — reconcile merchant receipts with transferred funds, currencies, and payout status (high)
-- [ ] `Disputes (GET /api/disputes)` — measure chargebacks, disputed amounts, and dispute outcomes linked to payments (high)
-- [ ] `Subscription cycles (GET /api/subscriptions/{subscription_id}/cycles)` — analyze recurring billing periods and connect subscription activity with collected revenue (high)
-- [ ] `Subscription usages (GET /api/subscription-usages)` — measure consumption recorded for usage-based subscriptions and their billing cycles (high)
+- [x] `Payouts (GET /api/payouts)` — reconcile merchant receipts with transferred funds, currencies, and payout status (high) → `payouts` (full refresh)
+- [x] `Disputes (GET /api/disputes)` — measure chargebacks, disputed amounts, and dispute outcomes linked to payments (high) → `disputes` (full refresh, Production only)
+- [x] `Subscription cycles (GET /api/subscriptions/{subscription_id}/cycles)` — analyze recurring billing periods and connect subscription activity with collected revenue (high) → `subscription_cycles` (full refresh, fan-out over `subscriptions`)
+- [x] `Subscription usages (GET /api/subscription-usages)` — measure consumption recorded for usage-based subscriptions and their billing cycles (high) → `subscription_usages` (full refresh)
 - [ ] `Customer payment methods (GET /api/customers/{customer_id}/payment-methods)` — analyze stored payment method coverage across customers with recurring subscriptions (medium)
 
 Note: The current official Merchant OpenAPI YAML and Legacy YAML were fetched with curl and parsed to enumerate GET operations. The source imports legacy order lists and requests payments for each order; billing cycles and saved methods need similar parent requests. Disputes are available only in production, and saved methods differ from payment transaction snapshots. Refund writes, webhooks, payment intents, and terminal discovery are excluded.
@@ -10318,10 +10318,10 @@ Diffed against: <https://developer.rippling.com/sitemap.xml>
 - [x] `list-leave-requests` — time-off requests with status and dates, the core absence dataset (high)
 - [x] `list-worker-payroll-records` — per-worker payroll line items - actual pay, taxes and deductions, not just contracted compensation (high)
 - [x] `list-payroll-runs` — the payroll period header that payroll records roll up to (high)
-- [ ] `list-worker-changes (and list-worker-change-fields)` — the transition history for workers - promotions, transfers, terminations; today only current state is synced (high)
-- [ ] `list-leave-balances (and list-leave-accruals)` — accrued and remaining balance per worker per policy, the standard PTO liability metric (high)
-- [ ] `list-titles` — lookup resolving the job title ID carried on workers (high)
-- [ ] `list-tracks` — lookup grouping the levels table already synced into career tracks (high)
+- [x] `list-worker-changes (and list-worker-change-fields)` — the transition history for workers - promotions, transfers, terminations; today only current state is synced (high)
+- [x] `list-leave-balances (and list-leave-accruals)` — accrued and remaining balance per worker per policy, the standard PTO liability metric (high)
+- [x] `list-titles` — lookup resolving the job title ID carried on workers (high)
+- [x] `list-tracks` — lookup grouping the levels table already synced into career tracks (high)
 - [ ] `list-leave-types` — lookup naming the leave policy IDs on leave requests and balances (medium)
 - [ ] `list-legal-entities and list-company-legal-entities` — lookup resolving the legal entity on workers and payroll, required for multi-entity reporting (medium)
 - [ ] `list-job-codes and list-job-assignments` — lookup resolving the job code stamped on time entries and shift assignments (medium)
@@ -11823,6 +11823,19 @@ Diffed against: <https://dev.streamelements.com/api/v1/projects/cHJqOjM1MTI2/tab
 
 Note: The Stoplight docs render entirely client-side, so the resource list had to be pulled from the vendor's own table-of-contents API (project cHJqOjM1MTI2, found via a web.archive.org CDX listing of dev.streamelements.com). The legacy developers.streamelements.com host no longer resolves. Existence of the sessions, songrequest, contests, stats and themes routes was independently confirmed by unauthenticated probes of api.streamelements.com/kappa/v2 returning 401/200 rather than 404. Config surfaces (overlays, themes, filters, modules, loyalty settings) were excluded.
 
+## Stripe — gaps
+
+The API v1 coverage is tracked in [COVERAGE_GAPS.md](COVERAGE_GAPS.md).
+The lines below cover the API v2 money-management lists that Stripe published in `2026-10-28.endive`.
+These tables sync only on sources pinned to that version.
+
+Diffed against: <https://docs.stripe.com/api/v2/money-management/outbound-payments/list?api-version=2026-10-28.endive>
+
+- [x] `GET /v2/money_management/outbound_payments` — money sent from a financial account to a recipient's payout method (medium)
+- [x] `GET /v2/money_management/payout_intents` — multi-step payouts with fees, FX quotes and recipient checks (medium)
+- [x] `GET /v2/money_management/received_credits` — funds received into a financial account (medium)
+- [x] `GET /v2/money_management/inbound_transfers` — funds pulled from an external bank account into a financial account (medium)
+
 ## Stytch — gaps
 
 Today (4): `members`, `organizations`, `sessions`, `users`
@@ -13219,6 +13232,7 @@ Diffed against: <https://raw.githubusercontent.com/whopio/whopsdk-python/main/re
 - [ ] `Courses (GET /api/v1/courses)` — identify course content associated with synced experiences and products (medium)
 - [ ] `Course students (GET /api/v1/course_students)` — measure enrollment and student participation by course (medium)
 - [ ] `Course lesson interactions (GET /api/v1/course_lesson_interactions)` — measure lesson engagement and learning progress (medium)
+- [x] `External accounts (GET /api/v1/external_accounts)` — identify the social, ads, and marketing accounts connected to the company (low)
 
 Note: Read the official SDK reference and resource modules, including raw request paths and the production base URL. Individual reference pages supplied embedded OpenAPI schemas for legacy memberships, fees, reviews, and courses. Current documentation renames plans to variants and company filters to account filters, so some additions need version handling. Fees and member logs require parent loops; excluded credentials, uploads, and webhook delivery records.
 

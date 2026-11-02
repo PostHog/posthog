@@ -15,6 +15,11 @@ from products.ai_observability.backend.llm.attachments import (
 from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaBlock, parse_media_block
 
 OBJECT_STORAGE = "products.ai_observability.backend.ai_blobs.object_storage"
+OPENROUTER_CATALOGUE = {
+    "openai/gpt-5-mini": frozenset({"text", "image", "file"}),
+    "google/gemini-2.5-flash": frozenset({"text", "image", "file", "audio", "video"}),
+    "example/image-only": frozenset({"text", "image"}),
+}
 
 
 def _pointer(digit: str, mime: str = "image%2Fjpeg") -> MediaBlock:
@@ -59,6 +64,14 @@ class TestJudgeAttachmentsMarkers:
 
 
 class TestJudgeAttachmentsContent:
+    @pytest.fixture(autouse=True)
+    def openrouter_catalogue(self):
+        with patch(
+            "products.ai_observability.backend.llm.providers.openrouter.model_input_modalities",
+            side_effect=OPENROUTER_CATALOGUE.get,
+        ) as lookup:
+            yield lookup
+
     def test_an_image_referenced_again_at_the_end_stays_attached(self):
         images = JudgeAttachments(team_id=7)
         markers = [images.marker(_inline(f"{i:02}")) for i in range(MAX_ATTACHMENTS + 1)]
@@ -191,11 +204,43 @@ class TestJudgeAttachmentsContent:
             ),
             pytest.param(
                 "openrouter",
-                "any",
+                "openai/gpt-5-mini",
+                "application%2Fpdf",
+                "File 1:",
+                AttachmentPart(mime_type="application/pdf", data=b"hi"),
+                id="pdf_on_an_openrouter_model_that_reads_files",
+            ),
+            pytest.param(
+                "openrouter",
+                "google/gemini-2.5-flash",
+                "video%2Fmp4",
+                "Video 1:",
+                AttachmentPart(mime_type="video/mp4", data=b"hi"),
+                id="video_on_an_openrouter_model_that_reads_video",
+            ),
+            pytest.param(
+                "openrouter",
+                "openai/gpt-5-mini",
+                "video%2Fmp4",
+                "Not attached, this judge can't read their file type: 1.",
+                None,
+                id="video_on_an_openrouter_model_without_video_input",
+            ),
+            pytest.param(
+                "openrouter",
+                "example/unlisted",
                 "application%2Fpdf",
                 "Not attached, this judge can't read their file type: 1.",
                 None,
-                id="pdf_unsupported_provider",
+                id="pdf_on_a_model_the_openrouter_catalogue_does_not_list",
+            ),
+            pytest.param(
+                "openrouter",
+                "example/unlisted",
+                "image%2Fpng",
+                "Image 1:",
+                AttachmentPart(mime_type="image/png", url="https://signed"),
+                id="image_on_a_model_the_openrouter_catalogue_does_not_list",
             ),
         ],
     )
@@ -349,7 +394,7 @@ class TestJudgeAttachmentsContent:
         assert f"Video {11 - attached}:" not in labels
         assert f"Not attached, over the judge's attachment limit: {11 - attached}." in labels
 
-    def test_attachments_the_judge_cannot_read_take_no_slot(self):
+    def test_attachments_the_judge_cannot_read_take_no_slot(self, openrouter_catalogue):
         images = JudgeAttachments(team_id=7)
         image = images.marker(_inline("aa"))
         pdfs = " ".join(
@@ -357,13 +402,15 @@ class TestJudgeAttachmentsContent:
             for i in range(MAX_ATTACHMENTS)
         )
 
-        content = images.content(f"user: {image} {pdfs}", "openrouter", "openai/gpt-5-mini")
+        content = images.content(f"user: {image} {pdfs}", "openrouter", "example/image-only")
 
         assert content[1:4] == [
             {"type": "text", "text": "Image 1:"},
             AttachmentPart(mime_type="image/png", data=base64.b64decode("aa" * 4)),
             {"type": "text", "text": f"Not attached, this judge can't read their file type: {MAX_ATTACHMENTS}."},
         ]
+        # Each lookup reads the whole OpenRouter catalogue, so it runs once per file type, not per attachment.
+        assert openrouter_catalogue.call_count == 2
 
     def test_an_inline_image_exactly_at_the_provider_limit_is_attached(self):
         images = JudgeAttachments(team_id=7)

@@ -41,6 +41,7 @@ import {
     SchemaEditorAction,
     useSchemaEditorAccess,
 } from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
+import { confirmPendingSelfManagedSync } from 'products/data_warehouse/frontend/shared/confirmPendingSelfManagedSync'
 import { isFileUploadSource } from 'products/data_warehouse/frontend/shared/fileUploadSources'
 import {
     IncrementalSyncBlockedMessageMap,
@@ -503,6 +504,11 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
                 primaryButton: { children: 'Resync now', onClick: () => void applyUpdate() },
                 secondaryButton: { children: 'Cancel', type: 'tertiary' },
             })
+            return
+        }
+
+        if (!schema.should_sync && schema.pending_self_managed_table) {
+            confirmPendingSelfManagedSync(1, () => void applyUpdate())
             return
         }
 
