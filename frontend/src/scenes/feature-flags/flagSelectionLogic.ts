@@ -798,9 +798,9 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
             const failed: BulkRestoreFailure[] = []
 
             actions.setBulkRestoreProgress(0, flags.length)
-            // One request per flag, like the flag page's restore but without its row version: DeletedFlagInfo
-            // has none, and the API refuses version 2 restores for now. It undoes a delete the person just
-            // made, so it covers every deleted flag rather than stopping at a cap.
+            // One request per flag, like the flag page's restore but with no row version. Only a v2 flag sends a
+            // row version there, and the API won't restore a v2 flag, so leaving it out here is safe. It undoes
+            // a delete the person just made, so it covers every deleted flag rather than stopping at a cap.
             for (const [index, flag] of flags.entries()) {
                 const url = `api/projects/${projectId}/feature_flags/${flag.id}`
                 try {
