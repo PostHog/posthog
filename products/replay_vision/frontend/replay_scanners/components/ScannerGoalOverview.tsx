@@ -63,9 +63,7 @@ function activityFilterLabel(mode: string): string {
 const HedgehogResearch = pngHoggie(researchPng)
 
 /** Says the overview is a draft to check, with the agent's reasoning one click away. */
-function DraftReviewHeader({ rationale }: { rationale?: string }): JSX.Element {
-    // Closed by default: the reasoning mostly restates the goal, and the sections to review come first.
-    const [showRationale, setShowRationale] = useState(false)
+function DraftReviewHeader(): JSX.Element {
     return (
         <div className="flex items-start gap-3 pb-1">
             <HedgehogResearch className="h-16 w-auto shrink-0" />
@@ -78,31 +76,32 @@ function DraftReviewHeader({ rationale }: { rationale?: string }): JSX.Element {
                     The agent drafted this from your goal. Check each section and edit anything that is not right.
                     Nothing runs until you click Create scanner.
                 </div>
-                {rationale ? (
-                    <>
-                        <LemonButton
-                            type="tertiary"
-                            size="xsmall"
-                            noPadding
-                            icon={showRationale ? <IconChevronDown /> : <IconChevronRight />}
-                            onClick={() => setShowRationale(!showRationale)}
-                            aria-expanded={showRationale}
-                            aria-controls="vision-goal-overview-rationale-text"
-                            data-attr="vision-goal-overview-rationale"
-                        >
-                            Why the agent chose this setup
-                        </LemonButton>
-                        {showRationale ? (
-                            <div
-                                id="vision-goal-overview-rationale-text"
-                                className="text-sm text-secondary border-l-2 pl-3 ml-1.5"
-                            >
-                                {rationale}
-                            </div>
-                        ) : null}
-                    </>
-                ) : null}
             </div>
+        </div>
+    )
+}
+
+/** The agent's reasoning as a card like the others, closed because it mostly restates the goal. */
+function RationaleSection({ rationale }: { rationale: string }): JSX.Element {
+    const [isOpen, setIsOpen] = useState(false)
+    return (
+        <div className="bg-bg-light border rounded-lg p-4 space-y-2">
+            <button
+                type="button"
+                className="flex items-center gap-1 text-xs text-tertiary uppercase tracking-wide cursor-pointer hover:text-primary"
+                onClick={() => setIsOpen(!isOpen)}
+                aria-expanded={isOpen}
+                aria-controls="vision-goal-overview-rationale-text"
+                data-attr="vision-goal-overview-rationale"
+            >
+                {isOpen ? <IconChevronDown className="text-sm" /> : <IconChevronRight className="text-sm" />}
+                <span>Why the agent chose this setup</span>
+            </button>
+            {isOpen ? (
+                <div id="vision-goal-overview-rationale-text" className="text-sm">
+                    {rationale}
+                </div>
+            ) : null}
         </div>
     )
 }
@@ -413,7 +412,9 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
 
     return (
         <div className="flex flex-col gap-3">
-            <DraftReviewHeader rationale={rationale} />
+            <DraftReviewHeader />
+
+            {rationale ? <RationaleSection rationale={rationale} /> : null}
 
             <OverviewSection label="Name" editStep="details" scannerId={scannerId}>
                 <div className="text-sm font-medium">{scanner.name}</div>
