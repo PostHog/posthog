@@ -47,18 +47,17 @@ fn named_as(
         RemoteKind::Image => UrlAsset::Image,
         RemoteKind::Font | RemoteKind::BundledFont(_) => UrlAsset::Font,
     };
-    match kind {
-        // The marker names no URL, so a URL that the policy would decline leaves the block too.
-        RemoteKind::BundledFont(slug) => (bundled_font_ref(slug), None),
-        RemoteKind::Image | RemoteKind::Font => {
-            match url_reference(url, asset, team_id, key_month, url_key) {
-                Ok((_, reference)) => (reference, None),
-                Err(decline) => (
-                    declined_url_ref(asset, decline.label()),
-                    Some(decline.label()),
-                ),
-            }
-        }
+    match (kind, url_reference(url, asset, team_id, key_month, url_key)) {
+        // The marker names no URL, but a declined URL keeps its reason, so that a copy inside a longer token is replaced too.
+        (RemoteKind::BundledFont(slug), named) => (
+            bundled_font_ref(slug),
+            named.err().map(|decline| decline.label()),
+        ),
+        (_, Ok((_, reference))) => (reference, None),
+        (_, Err(decline)) => (
+            declined_url_ref(asset, decline.label()),
+            Some(decline.label()),
+        ),
     }
 }
 

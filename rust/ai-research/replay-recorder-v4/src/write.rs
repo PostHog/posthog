@@ -923,15 +923,29 @@ mod tests {
             "{lines}"
         );
         assert!(!stored_lines(&event, &[public]).is_empty());
-        // A declined URL that a longer URL also holds is overwritten there too, and the block is kept.
-        let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
-            "attributes": [{"id": 99, "attributes": {"src": signed, "alt": format!("{signed}&size=2")}}]}}])
-        .to_string();
-        let lines = stored_lines(&events, &[]);
-        assert!(
-            !lines.is_empty() && !lines.contains("X-Amz-Signature"),
-            "{lines}"
-        );
+        // A declined URL that a longer URL also holds is overwritten there too, and the block is kept. A bundled font
+        // names no URL, but its declined URL is overwritten too.
+        let bundled_font = json!({"parentId": 1, "node": {"type": 2, "tagName": "style",
+            "attributes": {"_cssText": format!("@font-face{{font-family:Roboto;src:url({signed})}}")}, "childNodes": [], "id": 5}});
+        for (adds, attributes) in [
+            (
+                json!([]),
+                json!({"src": signed, "alt": format!("{signed}&size=2")}),
+            ),
+            (
+                json!([bundled_font]),
+                json!({"alt": format!("{signed}&size=2")}),
+            ),
+        ] {
+            let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": adds, "removes": [], "texts": [],
+                "attributes": [{"id": 99, "attributes": attributes}]}}])
+            .to_string();
+            let lines = stored_lines(&events, &[]);
+            assert!(
+                !lines.is_empty() && !lines.contains("X-Amz-Signature"),
+                "{lines}"
+            );
+        }
     }
 
     #[test]
