@@ -42,16 +42,15 @@ function runDescription(
     run: SignalScoutRunSummary,
     now: Date,
     costUsd: number | undefined,
-    expensive: boolean,
-    startedAtLabel: string | null
+    expensive: boolean
 ): string {
     const parts = [scoutRunOutcomeLabel(run, now)]
     const duration = formatRunDuration(runDurationSeconds(run, now))
     if (duration) {
         parts.push(duration)
     }
-    if (startedAtLabel) {
-        parts.push(startedAtLabel)
+    if (run.started_at) {
+        parts.push(humanFriendlyDetailedTime(run.started_at))
     }
     // Only staff are given costs, and only for runs with model spend attributed to them, so the
     // rest of the tooltip reads the same as before.
@@ -122,10 +121,9 @@ export const ScoutRunBoxes = memo(function ScoutRunBoxes({
             const expensive = costUsd !== undefined && costThreshold != null && costUsd >= costThreshold
             return {
                 run,
-                costUsd,
                 outcome: deriveRunOutcome(run, now),
                 expensive,
-                label: `Run ${runDescription(run, now, costUsd, expensive, null)}`,
+                description: runDescription(run, now, costUsd, expensive),
             }
         })
     }, [runs, costs, costThreshold])
@@ -189,14 +187,14 @@ export const ScoutRunBoxes = memo(function ScoutRunBoxes({
             onBlur={close}
             onClick={close}
         >
-            {newestFirst.map(({ run, outcome, expensive, label }) => {
+            {newestFirst.map(({ run, outcome, expensive, description }) => {
                 const boxClass = `${BOX_CLASS} ${OUTCOME_BOX_CLASS[outcome]}`
                 // The label is an attribute, not an `sr-only` child: the roster renders a strip per
                 // scout, so one more node per box adds thousands of nodes to a large fleet.
                 const column = (
                     <>
                         {expensive ? <span className={MARKER_CLASS} /> : null}
-                        <span className={boxClass} role="img" aria-label={label} />
+                        <span className={boxClass} role="img" aria-label={`Run ${description}`} />
                     </>
                 )
                 // The whole column links, not only the box, because the tooltip spans the column
@@ -216,18 +214,7 @@ export const ScoutRunBoxes = memo(function ScoutRunBoxes({
             })}
             {hidden > 0 ? <span className="shrink-0 text-[10px] text-muted">+{hidden}</span> : null}
             {activeBox && activeEntry ? (
-                <Tooltip
-                    visible
-                    title={() =>
-                        runDescription(
-                            activeEntry.run,
-                            new Date(),
-                            activeEntry.costUsd,
-                            activeEntry.expensive,
-                            activeEntry.run.started_at ? humanFriendlyDetailedTime(activeEntry.run.started_at) : null
-                        )
-                    }
-                >
+                <Tooltip visible title={activeEntry.description}>
                     <span
                         aria-hidden
                         className="pointer-events-none absolute"
