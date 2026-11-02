@@ -313,6 +313,25 @@ describe('metricsSamplesLogic', () => {
         ])
     })
 
+    // Regression: with the tab open, each auto-refresh restarted a slow batch, so it never finished.
+    it('lets a running samples batch finish when the chart refreshes', async () => {
+        let release: () => void = () => undefined
+        mockSamplesCreate.mockImplementationOnce(
+            () => new Promise((resolve) => (release = () => resolve({ results: [SAMPLE] })))
+        )
+        metricsViewerLogic.actions.setMetricName('demo_checkout_duration_ms')
+        logic.actions.setActiveTab('samples')
+        await expectLogic(logic).delay(400)
+
+        metricsViewerLogic.actions.fetchQueryResultsSuccess([])
+        await expectLogic(logic).delay(400)
+        release()
+        await expectLogic(logic).toDispatchActions(['loadSamplesSuccess'])
+
+        expect(mockSamplesCreate).toHaveBeenCalledTimes(1)
+        expect(logic.values.samples).toEqual([{ ...SAMPLE, clauses: ['a'] }])
+    })
+
     it('does not fetch error spikes until the toggle is enabled', async () => {
         metricsViewerLogic.actions.setMetricName('demo_checkout_duration_ms')
 

@@ -221,24 +221,31 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
                         return []
                     }
                     const requestKey = samplesRequestKey(values.namedClauses, values.dateFrom, values.dateTo)
-                    await breakpoint(300)
-                    const dateTo = resolveDate(values.dateTo, values.timezone) ?? undefined
-                    const requests = buildSampleRequests(values.namedClauses)
-                    const responses = await Promise.allSettled(
-                        requests.map(({ query }) =>
-                            metricsSamplesCreate(String(values.currentTeamId), {
-                                query: { ...query, dateFrom, ...(dateTo ? { dateTo } : {}), limit: SAMPLES_LIMIT },
-                            })
+                    cache.runningSamplesKey = requestKey
+                    try {
+                        await breakpoint(300)
+                        const dateTo = resolveDate(values.dateTo, values.timezone) ?? undefined
+                        const requests = buildSampleRequests(values.namedClauses)
+                        const responses = await Promise.allSettled(
+                            requests.map(({ query }) =>
+                                metricsSamplesCreate(String(values.currentTeamId), {
+                                    query: { ...query, dateFrom, ...(dateTo ? { dateTo } : {}), limit: SAMPLES_LIMIT },
+                                })
+                            )
                         )
-                    )
-                    breakpoint()
-                    const { loaded, failedClauses, failure } = settleSampleRequests(requests, responses)
-                    actions.setFailedSampleClauses(failedClauses)
-                    if (!loaded.length) {
-                        throw failure
+                        breakpoint()
+                        const { loaded, failedClauses, failure } = settleSampleRequests(requests, responses)
+                        actions.setFailedSampleClauses(failedClauses)
+                        if (!loaded.length) {
+                            throw failure
+                        }
+                        cache.loadedSamplesKey = requestKey
+                        return mergeSamples(loaded, SAMPLES_LIMIT)
+                    } finally {
+                        if (cache.runningSamplesKey === requestKey) {
+                            cache.runningSamplesKey = undefined
+                        }
                     }
-                    cache.loadedSamplesKey = requestKey
-                    return mergeSamples(loaded, SAMPLES_LIMIT)
                 },
             },
         ],
@@ -313,29 +320,32 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => {
+        // One gate for every trigger: a request that is already running, or already
+        // loaded while nobody looks at the table, is not started again.
+        const loadSamplesUnlessCurrent = (): void => {
+            const key = samplesRequestKey(values.namedClauses, values.dateFrom, values.dateTo)
+            const loadedAndHidden = values.activeTab !== 'samples' && key === cache.loadedSamplesKey
+            if (key !== cache.runningSamplesKey && !loadedAndHidden) {
+                actions.loadSamples({})
+            }
+        }
         // The viewer's filters are the samples' filters: any change that redraws
         // the chart refreshes the visible samples too, but only when they're shown.
         const reloadWhenShown = (): void => {
             if (values.activeTab === 'samples') {
-                actions.loadSamples({})
+                loadSamplesUnlessCurrent()
             }
         }
         return {
             setActiveTab: ({ activeTab }) => {
                 if (activeTab === 'samples') {
-                    actions.loadSamples({})
+                    loadSamplesUnlessCurrent()
                 }
             },
-            // The chart's exemplar overlay renders from these samples, so every chart
-            // redraw refreshes them. Error spikes ride the same trigger, so both
-            // overlays stay in sync with the chart's own window. Both dispatches are
-            // unconditional — the loaders' own guards are the single gate.
+            // The chart's trace dots render from these samples, so a chart redraw refreshes them.
+            // Error spikes ride the same trigger, so both overlays follow the chart's window.
             fetchQueryResultsSuccess: () => {
-                // The trace dots need samples while the tab is hidden, but not again on an auto-refresh tick.
-                const key = samplesRequestKey(values.namedClauses, values.dateFrom, values.dateTo)
-                if (values.activeTab === 'samples' || key !== cache.loadedSamplesKey) {
-                    actions.loadSamples({})
-                }
+                loadSamplesUnlessCurrent()
                 actions.loadErrorSpikes({})
             },
             toggleShowErrorSpikes: () => {
@@ -349,9 +359,7 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
             // this a metric switch can load samples pinned to the previous type.
             setSelectedMetricType: reloadWhenShown,
             // Removing a clause without a metric leaves the chart query, and so its refetch, unchanged.
-            removeClause: () => {
-                actions.loadSamples({})
-            },
+            removeClause: loadSamplesUnlessCurrent,
         }
     }),
 ])

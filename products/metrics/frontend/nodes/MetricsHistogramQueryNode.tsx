@@ -7,13 +7,29 @@ import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { cn } from 'lib/utils/css-classes'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { dataNodeLogic, type dataNodeLogicType } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { AnyResponseType, MetricsHistogramQuery, MetricsHistogramQueryResponse } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { HeatmapPanel } from '../panels/HeatmapPanel'
 
 let uniqueNode = 0
+
+/** Reloads the heatmap, bypassing the cache, each time `refreshCount` changes after the first render. */
+function useReloadOnRefresh(logic: BuiltLogic<dataNodeLogicType>, refreshCount: number | undefined): void {
+    const { loadData } = useActions(logic)
+    const loadedRefreshCount = useRef(refreshCount)
+    useEffect(() => {
+        if (refreshCount === loadedRefreshCount.current) {
+            return
+        }
+        loadedRefreshCount.current = refreshCount
+        // A new load aborts the running one, so a slow heatmap would never finish under auto-refresh.
+        if (!logic.values.responseLoading) {
+            loadData('force_blocking')
+        }
+    }, [refreshCount, loadData, logic])
+}
 
 /** Renders a `MetricsHistogramQuery` (a latency-over-time heatmap) wherever the generic `Query`
  * component is used — saved insights, dashboard tiles, notebooks. */
@@ -46,17 +62,7 @@ export function MetricsHistogramQueryNode(props: {
     useAttachedLogic(logic, props.attachTo)
 
     const { response, responseLoading, responseError } = useValues(logic)
-    const { loadData } = useActions(logic)
-    const loadedRefreshCount = useRef(props.refreshCount)
-    useEffect(() => {
-        if (props.refreshCount !== loadedRefreshCount.current) {
-            loadedRefreshCount.current = props.refreshCount
-            // A new load aborts the running one, so a slow heatmap would never finish under auto-refresh.
-            if (!logic.values.responseLoading) {
-                loadData('force_blocking')
-            }
-        }
-    }, [props.refreshCount, loadData, logic])
+    useReloadOnRefresh(logic, props.refreshCount)
     const histogram = response as MetricsHistogramQueryResponse | undefined
     const unit = props.query.unit
 
