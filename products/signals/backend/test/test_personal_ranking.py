@@ -15,10 +15,10 @@ from django.test import SimpleTestCase
 from django.utils import timezone
 
 import httpx
-from openai import APITimeoutError
+from openai import APITimeoutError, BadRequestError, omit
 from parameterized import parameterized
 
-from posthog.models import User
+from posthog.models import Team, User
 from posthog.redis import TEST_clear_clients
 from posthog.token_bucket import TEST_reset_scripts
 
@@ -42,7 +42,7 @@ from products.signals.backend.personal_ranking.config import (
     parse_config,
 )
 from products.signals.backend.personal_ranking.logic import BUILT_EVENT, build_personal_ranking
-from products.signals.backend.personal_ranking.prompt import render_person, user_message
+from products.signals.backend.personal_ranking.prompt import render_person, system_prompt, user_message
 from products.signals.backend.personal_ranking.validation import MalformedRankingError, validate_ranking
 from products.signals.backend.personal_ranking_tasks import build_lock_key, build_personal_inbox_ranking
 from products.signals.backend.ranking.report_predictions import OutcomePrediction, ReportPredictions
@@ -60,9 +60,17 @@ def _answer(ranked: list[dict], folded: list[dict] | None = None) -> str:
     return json.dumps({"ranked": ranked, "folded": folded or []})
 
 
-def _validate(content: str | None, limit: int = 2):
+def _validate(content: str | None, limit: int = 2, rank_top: int = 10, top_max: int = 5, worth_a_look_max: int = 10):
     return validate_ranking(
-        content, refs=REFS, model_reasons=MODEL_REASONS, limit=limit, reason_limits=LIMITS, next_step_max_chars=12
+        content,
+        refs=REFS,
+        model_reasons=MODEL_REASONS,
+        limit=limit,
+        rank_top=rank_top,
+        top_max=top_max,
+        worth_a_look_max=worth_a_look_max,
+        reason_limits=LIMITS,
+        next_step_max_chars=12,
     )
 
 
@@ -116,12 +124,34 @@ class TestValidateRanking(SimpleTestCase):
                 ["c1", "c3", "c4"],
                 {"invalid_folds": 3, "renumbered": 2},
             ),
+            (
+                "entries_past_rank_top_follow_in_model_order",
+                [_entry("c4", 1), _entry("c3", 2), _entry("c2", 3), _entry("c1", 4)],
+                [],
+                ["c4", "c3", "c1", "c2"],
+                {"beyond_rank_top": 2},
+                2,
+            ),
+            (
+                "folds_apply_past_rank_top",
+                [_entry("c4", 1), _entry("c3", 2)],
+                [{"ref": "c1", "into": "c4", "reason": "same digest"}],
+                ["c4", "c2", "c3"],
+                {"beyond_rank_top": 1, "missing_refs": 1},
+                1,
+            ),
         ]
     )
     def test_order_covers_every_unfolded_candidate(
-        self, _name: str, ranked: list[dict], folded: list[dict], expected_refs: list[str], expected_counts: dict
+        self,
+        _name: str,
+        ranked: list[dict],
+        folded: list[dict],
+        expected_refs: list[str],
+        expected_counts: dict,
+        rank_top: int = 10,
     ) -> None:
-        result = _validate(_answer(ranked, folded))
+        result = _validate(_answer(ranked, folded), rank_top=rank_top)
 
         assert [entry.ref for entry in result.entries] == expected_refs
         assert [entry.rank for entry in result.entries] == list(range(1, len(expected_refs) + 1))
@@ -149,6 +179,45 @@ class TestValidateRanking(SimpleTestCase):
         assert result.entries[0].reason == "r" * 19 + "…"
         assert [entry.next_step for entry in result.entries] == ["open the PR…", "look", None, None]
         assert result.entries[3].reason == "model c4"
+
+    @parameterized.expand(
+        [
+            (
+                "full_top_spills_into_worth_a_look",
+                ["top"] * 4,
+                1,
+                2,
+                ["top", "worth_a_look", "worth_a_look", "later"],
+                3,
+            ),
+            (
+                "full_worth_a_look_spills_into_later",
+                ["top", "top", "top", "worth_a_look"],
+                2,
+                1,
+                ["top", "top", "worth_a_look", "later"],
+                2,
+            ),
+        ]
+    )
+    def test_entries_past_a_tier_cap_move_down_and_keep_their_rank(
+        self,
+        _name: str,
+        tiers: list[str],
+        top_max: int,
+        worth_a_look_max: int,
+        expected_tiers: list[str],
+        expected_demotions: int,
+    ) -> None:
+        ranked = [_entry(ref, rank, tier=tier) for rank, (ref, tier) in enumerate(zip(REFS, tiers), start=1)]
+
+        result = _validate(_answer(ranked), top_max=top_max, worth_a_look_max=worth_a_look_max)
+
+        assert [(entry.ref, entry.rank, entry.tier) for entry in result.entries] == [
+            (ref, rank, tier) for rank, (ref, tier) in enumerate(zip(REFS, expected_tiers), start=1)
+        ]
+        assert result.counts.tier_demotions == expected_demotions
+        assert result.counts.tier_corrections == 0
 
     @parameterized.expand(
         [
@@ -207,7 +276,9 @@ class TestPrompt(SimpleTestCase):
         )
         config = PersonalRankingConfig(profile_max_chars=100)
 
-        message = user_message(render_person(summary, config), candidates, focus=None, now=timezone.now(), limit=25)
+        message = user_message(
+            render_person(summary, config), candidates, focus=None, now=timezone.now(), limit=25, rank_top=10
+        )
 
         assert not any(report_id in message for report_id in ids)
         assert "\nc1 | P2 | ready | PR open" in message
@@ -216,6 +287,12 @@ class TestPrompt(SimpleTestCase):
         assert message.count("model:") == 1
         assert "p" * 100 in message and "p" * 101 not in message
         assert "- Checkout (mode build, strength strong, last seen 2026-10-29)" in message
+
+    def test_system_prompt_states_the_tier_caps(self) -> None:
+        prompt = system_prompt(PersonalRankingConfig(top_max=3, worth_a_look_max=7), limit=25)
+
+        assert '"top" for at most 3 reports' in prompt
+        assert '"worth_a_look" for at most 7 other' in prompt
 
 
 class TestConfig(SimpleTestCase):
@@ -229,9 +306,9 @@ class TestConfig(SimpleTestCase):
                 PersonalRankingConfig(max_candidates=100),
             ),
             (
-                "default_limit_within_max_limit",
-                {"default_limit": 40, "max_limit": 30},
-                PersonalRankingConfig(default_limit=30, max_limit=30),
+                "default_limit_and_rank_top_within_max_limit",
+                {"default_limit": 40, "rank_top": 40, "max_limit": 30},
+                PersonalRankingConfig(default_limit=30, rank_top=30, max_limit=30),
             ),
             (
                 "pools_in_order_with_default_names_and_large_values_capped",
@@ -284,6 +361,8 @@ class TestConfig(SimpleTestCase):
                     pools=tuple(CandidatePool(name=f"p{index}", source="assigned", size=1) for index in range(10))
                 ),
             ),
+            ("reasoning_effort", {"reasoning_effort": "high"}, PersonalRankingConfig(reasoning_effort="high")),
+            ("invalid_reasoning_effort", {"reasoning_effort": "max"}, PersonalRankingConfig()),
         ]
     )
     def test_parse_config(self, _name: str, payload: Any, expected: PersonalRankingConfig) -> None:
@@ -432,12 +511,14 @@ class TestBuildPersonalRanking(BaseTest):
             str(reports["claimed"].id): ("claimed",),
         }
         assert "# Focus\ncheckout bugs" in self.create.call_args.kwargs["messages"][1]["content"]
+        assert self.create.call_args.kwargs["reasoning_effort"] == "low"
 
         self.capture.assert_called_once()
         event = self.capture.call_args.kwargs
         assert event["event"] == BUILT_EVENT
         assert event["properties"]["ranking_id"] == str(row.id)
         assert event["properties"]["personalized"] is with_summary
+        assert event["properties"]["tier_counts"] == {"top": 0, "worth_a_look": 2, "later": 1}
         serialized = json.dumps(event["properties"])
         assert "Waiting" not in serialized and "reason c" not in serialized and "checkout" not in serialized
 
@@ -472,6 +553,23 @@ class TestBuildPersonalRanking(BaseTest):
         assert len(row.result["ranked"]) == 3
         if outcome is None:
             self.create.assert_not_called()
+
+    def test_a_model_that_rejects_reasoning_effort_gets_calls_without_it(self) -> None:
+        self._setup_reports()
+        rejection = BadRequestError(
+            "Unsupported parameter: 'reasoning_effort'",
+            response=httpx.Response(400, request=httpx.Request("POST", "https://example.com")),
+            body=None,
+        )
+        answer = _response(_answer([_entry("c1", 1)]))
+        self.create.side_effect = [rejection, answer, answer]
+
+        with patch("products.signals.backend.personal_ranking.logic._REJECTED_REASONING_EFFORTS", set()):
+            first = self._build(dry_run=True)
+            second = self._build(dry_run=True)
+
+        assert (first.status, second.status) == ("ok", "ok")
+        assert [call.kwargs["reasoning_effort"] for call in self.create.call_args_list] == ["low", omit, omit]
 
     @parameterized.expand(
         [
@@ -536,7 +634,10 @@ class TestBuildPersonalRanking(BaseTest):
         self.create.return_value = _response(_answer([_entry("c1", 1, tier="top", next_step="Review the PR")]))
         out = StringIO()
 
-        with patch("products.signals.backend.personal_ranking.logic.read_config", return_value=PersonalRankingConfig()):
+        with patch(
+            "products.signals.backend.management.commands.run_personal_inbox_ranking.read_config",
+            return_value=PersonalRankingConfig(),
+        ):
             call_command(
                 "run_personal_inbox_ranking",
                 "--team-id",
@@ -551,8 +652,27 @@ class TestBuildPersonalRanking(BaseTest):
         assert self.capture.call_count == expected_rows
         output = out.getvalue()
         assert "status: ok" in output
+        assert "model: gpt-6.1-terra, reasoning_effort: low, rank_top: 10" in output
         assert "next: Review the PR" in output
         assert all(f"] {report.title} (" in output for report in reports.values())
+
+    def test_a_build_keeps_only_the_newest_rows_of_that_person(self) -> None:
+        config = PersonalRankingConfig(max_rows_per_person=2)
+        other_user = User.objects.create_and_join(self.organization, "other@example.com", None)
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        start = timezone.now()
+        with time_machine.travel(start, tick=False):
+            build_personal_ranking(self.team, other_user, config=config)
+            build_personal_ranking(other_team, self.user, config=config)
+        ranking_ids = []
+        for minute in range(1, 5):
+            with time_machine.travel(start + datetime.timedelta(minutes=minute), tick=False):
+                ranking_ids.append(build_personal_ranking(self.team, self.user, config=config).ranking_id)
+
+        mine = PersonalInboxRanking.objects.for_team(self.team.id).filter(user_id=self.user.id)
+        assert {str(row_id) for row_id in mine.values_list("id", flat=True)} == set(ranking_ids[-2:])
+        assert PersonalInboxRanking.objects.for_team(self.team.id).filter(user_id=other_user.id).count() == 1
+        assert PersonalInboxRanking.objects.for_team(other_team.id).filter(user_id=self.user.id).count() == 1
 
 
 class TestForMeEndpoint(APIBaseTest):
@@ -655,7 +775,7 @@ class TestForMeEndpoint(APIBaseTest):
 
         self.delay.side_effect = build_personal_inbox_ranking
         body = self._get(refresh="true", wait_seconds=5)
-        assert (self._state(body), self._rows()) == ((False, False, False), 7)
+        assert (self._state(body), self._rows()) == ((False, False, False), 5)
 
     def test_throttled_build_serves_the_stored_list_or_the_inbox_order(self) -> None:
         self.payload = {"build_burst": 1, "builds_per_hour": 1}

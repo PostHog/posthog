@@ -9,7 +9,7 @@ import {
   EFFORT_LEVEL_LABELS,
 } from "@posthog/agent-contracts/domain-types";
 import { reasoningEffortsForModel } from "@posthog/agent-contracts/model-catalog";
-import type { EffortLevel } from "../types";
+import type { EffortLevel, NewSessionMeta } from "../types";
 
 export const DEFAULT_MODEL = "opus";
 
@@ -46,8 +46,11 @@ export function rerootedModelOptions(
 
 export { supports1MContext, supportsFastMode };
 
-export const CONTEXT_WINDOW_1M_BETA = "context-1m-2025-08-07";
+export type ContextWindowChoice = NonNullable<NewSessionMeta["contextWindow"]>;
+
 export const CONTEXT_WINDOW_200K_TOKENS = 200_000;
+
+const DISABLE_1M_CONTEXT_ENV = "CLAUDE_CODE_DISABLE_1M_CONTEXT";
 
 interface ContextWindowOption {
   value: string;
@@ -63,6 +66,18 @@ export function getContextWindowOptions(
     { value: "200k", name: "200k" },
     { value: "1m", name: "1M", _meta: { [DEFAULT_OPTION_META_KEY]: true } },
   ];
+}
+
+export function contextWindowEnv(
+  choice: ContextWindowChoice,
+): Record<string, string> {
+  return { [DISABLE_1M_CONTEXT_ENV]: choice === "200k" ? "1" : "0" };
+}
+
+export function contextWindowChoice(
+  env: Record<string, string | undefined> | undefined,
+): ContextWindowChoice {
+  return env?.[DISABLE_1M_CONTEXT_ENV] === "1" ? "200k" : "1m";
 }
 
 function effortLevelsFor(modelId: string): readonly EffortLevel[] {

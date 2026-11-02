@@ -1,5 +1,6 @@
+import { isDataVisualizationNode, isInsightVizNode, isTrendsQuery } from '~/queries/schema/node-guards'
 import { DataVisualizationNode, InsightVizNode, Node } from '~/queries/schema/schema-general'
-import { isDataVisualizationNode, isInsightVizNode, isSavedInsightNode, isTrendsQuery } from '~/queries/utils'
+import { isSavedInsightNode } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 import type { ReportChartApi } from 'products/signals/frontend/generated/api.schemas'

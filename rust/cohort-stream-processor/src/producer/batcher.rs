@@ -20,12 +20,12 @@ impl OutputBuffer {
         self.changes.extend(changes);
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.changes.is_empty()
-    }
-
-    pub fn take(&mut self) -> Vec<CohortMembershipChange> {
-        std::mem::take(&mut self.changes)
+    /// `None` when nothing is buffered, so a caller never produces an empty batch.
+    pub fn take(&mut self) -> Option<Vec<CohortMembershipChange>> {
+        if self.changes.is_empty() {
+            return None;
+        }
+        Some(std::mem::take(&mut self.changes))
     }
 }
 
@@ -47,19 +47,18 @@ mod tests {
     }
 
     #[test]
-    fn push_extend_take_round_trip() {
+    fn take_drains_in_order_and_yields_nothing_when_empty() {
         let mut buffer = OutputBuffer::new();
-        assert!(buffer.is_empty());
+        assert!(buffer.take().is_none(), "an empty buffer has no batch");
 
         buffer.push(change(1));
         buffer.extend([change(2), change(3)]);
-        assert!(!buffer.is_empty());
 
-        let taken = buffer.take();
+        let taken = buffer.take().expect("three changes buffered");
         assert_eq!(
             taken.iter().map(|c| c.cohort_id).collect::<Vec<_>>(),
             vec![1, 2, 3]
         );
-        assert!(buffer.is_empty(), "take leaves the buffer empty");
+        assert!(buffer.take().is_none(), "take left the buffer empty");
     }
 }

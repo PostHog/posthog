@@ -428,6 +428,7 @@ rules:
                               |LegacySignalSpend
 
                               |AnomalyScoringState
+                              |AnomalyScoringDueInsight
                               |SignalScratchpad
                               |SignalProjectProfile
                               |SingleSessionSummary
@@ -923,6 +924,7 @@ rules:
                         |LegacySignalSpend
 
                         |AnomalyScoringState
+                        |AnomalyScoringDueInsight
                         |SignalScratchpad
                         |SignalProjectProfile
                         |SingleSessionSummary
