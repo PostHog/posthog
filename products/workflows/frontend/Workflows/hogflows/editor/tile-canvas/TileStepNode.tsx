@@ -4,6 +4,7 @@ import { useRef } from 'react'
 import { cn } from 'lib/utils/css-classes'
 
 import { StepImportNotesBadge } from '../../../import/StepImportNotesBadge'
+import { StepImportNotesList } from '../../../import/StepImportNotesList'
 import { workflowLogic } from '../../../workflowLogic'
 import type { HogFlow, HogFlowAction } from '../../types'
 import { TileAttentionMarker } from './TileAttentionMarker'
@@ -56,7 +57,9 @@ export function TileStepNode({
                     count={count}
                     marker={marker}
                     hint="Click to open the step"
-                    workflowId={workflow.id}
+                    notes={
+                        workflow.id ? <StepImportNotesList workflowId={workflow.id} stepId={action.id} /> : undefined
+                    }
                 />
             )}
         </div>
