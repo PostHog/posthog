@@ -151,8 +151,9 @@ describe('retryImport', () => {
             expect(factory).toHaveBeenCalledTimes(2)
         })
 
-        it('loads again when a render-time load fails', async () => {
+        it('reports a render-time failure to the boundary, then loads again on a later remount', async () => {
             jest.spyOn(console, 'error').mockImplementation(() => {})
+            const now = jest.spyOn(Date, 'now').mockReturnValue(1_000_000)
             const factory = jest.fn().mockRejectedValueOnce(new Error('boom')).mockResolvedValue({ default: Greeting })
             const { Component } = lazyWithPreload(factory)
 
@@ -163,9 +164,16 @@ describe('retryImport', () => {
                     createElement(Suspense, { fallback: null }, createElement(Component, { name: 'max' }))
                 )
             )
+            expect(await screen.findByText('failed')).toBeInTheDocument()
+            expect(factory).toHaveBeenCalledTimes(1)
+            cleanup()
+
+            now.mockReturnValue(1_002_000)
+            renderInSuspense(Component)
 
             expect(await screen.findByText('hello max')).toBeInTheDocument()
             expect(factory).toHaveBeenCalledTimes(2)
+            now.mockRestore()
         })
     })
 })
