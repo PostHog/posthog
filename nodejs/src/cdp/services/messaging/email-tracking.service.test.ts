@@ -7,7 +7,7 @@ import supertest from 'supertest'
 import express from 'ultimate-express'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
-import { insertHogFunction } from '~/cdp/_tests/fixtures'
+import { createExampleInvocation, insertHogFunction, insertIntegration } from '~/cdp/_tests/fixtures'
 import { insertHogFlow } from '~/cdp/_tests/fixtures-hogflows'
 import { CdpApi } from '~/cdp/cdp-api'
 import { CyclotronJobInvocationHogFunction, HogFunctionType } from '~/cdp/types'
@@ -461,6 +461,7 @@ describe('EmailTrackingService', () => {
                 transactionalMessageId,
                 distinctId,
                 captureEngagement,
+                headerCode,
             }: {
                 functionId: string
                 parentRunId?: string
@@ -469,6 +470,8 @@ describe('EmailTrackingService', () => {
                 transactionalMessageId?: string
                 distinctId?: string
                 captureEngagement?: boolean
+                // A code a real send put in its header, used as is instead of minting one here.
+                headerCode?: string
             }): Promise<supertest.Response> => {
                 const trackingCode = signer.generate(
                     {
@@ -491,7 +494,7 @@ describe('EmailTrackingService', () => {
                         source: 'sender@posthog.com',
                         messageId: 'ses-message-id',
                         destination: ['user@example.com'],
-                        headers: [{ name: TRACKING_CODE_HEADER_NAME, value: trackingCode }],
+                        headers: [{ name: TRACKING_CODE_HEADER_NAME, value: headerCode ?? trackingCode }],
                         ...(transactionalMessageId
                             ? {
                                   commonHeaders: { to: ['user@example.com'] },
@@ -644,6 +647,74 @@ describe('EmailTrackingService', () => {
                     )
 
                     const res = await postBounce({ functionId: hogFlow.id, distinctId: 'user-1', captureEngagement })
+                    expect(res.status).toBe(200)
+
+                    const capturedEvents = mockInternalFetch.mock.calls.map(
+                        ([, options]) => parseJSON(String(options?.body)).event
+                    )
+                    expect(capturedEvents.filter((event) => event === '$workflows_email_bounced')).toHaveLength(
+                        captured
+                    )
+                }
+            )
+
+            // The header code comes from a real send, so it has the layout production mints, not one
+            // this file picks for the reader under test.
+            it.each([
+                { captureEngagement: true, captured: 1 },
+                { captureEngagement: false, captured: 0 },
+            ])(
+                "captures the bounce of a sent email by the send's choice $captureEngagement",
+                async ({ captureEngagement, captured }) => {
+                    await hub.postgres.query(
+                        PostgresUse.COMMON_WRITE,
+                        `INSERT INTO workflows_teamworkflowsconfig
+                            (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                             email_sending_suspension_reason, ses_tenant_sending_status, email_sending_tier)
+                         VALUES ($1, true, 'off', '', '', 0)`,
+                        [team.id],
+                        'test-set-engagement-capture'
+                    )
+                    const hogFlow = await insertHogFlow(
+                        hub.postgres,
+                        new FixtureHogFlowBuilder().withTeamId(team.id).build()
+                    )
+                    const integration = await insertIntegration(hub.postgres, team.id, {
+                        kind: 'email',
+                        config: {
+                            email: 'sender@posthog-test.com',
+                            name: 'Sender',
+                            domain: 'posthog-test.com',
+                            verified: true,
+                            provider: 'ses',
+                        },
+                    })
+                    const emailService = api['hogExecutorAsync']['deps'].emailService
+                    const sesSend = jest
+                        .spyOn(emailService.sesV2Client!, 'send')
+                        .mockResolvedValue({ MessageId: 'ses-message-id' } as never)
+                    const invocation = createExampleInvocation({
+                        id: hogFlow.id,
+                        team_id: team.id,
+                        metadata: { capture_engagement: captureEngagement },
+                    })
+                    invocation.state.globals.event.distinct_id = 'user-1'
+                    invocation.queueParameters = {
+                        type: 'email',
+                        to: { email: 'user@example.com', name: 'User' },
+                        from: { integrationId: integration.id },
+                        subject: 'Reset your password',
+                        text: 'Hi',
+                        html: '<p>Hi</p>',
+                    }
+
+                    expect((await emailService.executeSendEmail(invocation)).error).toBeUndefined()
+                    const headers: { Name: string; Value: string }[] = (sesSend.mock.calls[0][0] as any).input.Content
+                        .Simple.Headers
+                    const headerCode = headers.find((header) => header.Name === TRACKING_CODE_HEADER_NAME)!.Value
+                    mockInternalFetch.mockClear()
+
+                    const res = await postBounce({ functionId: hogFlow.id, headerCode })
                     expect(res.status).toBe(200)
 
                     const capturedEvents = mockInternalFetch.mock.calls.map(

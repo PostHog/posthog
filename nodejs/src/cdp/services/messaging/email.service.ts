@@ -30,6 +30,7 @@ import {
     resolveEmailCaptureChoice,
     resolveEmailEngagementDistinctId,
     resolveEmailSendingVersion,
+    resolveEmailTrackingDistinctId,
 } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
@@ -1185,7 +1186,7 @@ export class EmailService {
         if (!this.sesV2Client) {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
         }
-        const distinctId = resolveEmailEngagementDistinctId(result.invocation)
+        const distinctId = resolveEmailTrackingDistinctId(result.invocation)
         // Full signed code (with distinct_id + isTest) rides in the header; the short unsigned
         // carrier (no distinct_id/isTest) goes in the SES EmailTag, guaranteed under the 256-char
         // tag-value limit. The webhook reads the header first and only falls back to the tag.

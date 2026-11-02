@@ -134,6 +134,14 @@ export const resolveEmailCaptureChoice = (
     return typeof choice === 'boolean' ? choice : undefined
 }
 
+// The distinct_id to put in a tracking code. Every reader skips engagement capture for a code
+// without one, so leaving it out honors an opt-out on readers that cannot parse the capture choice.
+export const resolveEmailTrackingDistinctId = (
+    invocation: Pick<CyclotronJobInvocationHogFunction, 'state' | 'hogFunction'>
+): string | undefined => {
+    return resolveEmailCaptureChoice(invocation) === false ? undefined : resolveEmailEngagementDistinctId(invocation)
+}
+
 // HTML attribute values arrive entity-encoded (e.g. `&amp;`, `&#38;`). Decode before
 // percent-encoding for the tracking redirect, otherwise `?a=1&amp;b=2` round-trips
 // through `target=` as a literal `&amp;` and breaks the destination page's query string.
@@ -163,7 +171,7 @@ export const addTrackingToEmail = (
     // record metrics. In production they don't (SES webhooks own open/click attribution via the
     // signed header), so embedding distinct_id in the public `ph_id` would be unused — and worse,
     // a tracked-link click could leak the recipient identifier to the destination via the Referer.
-    const distinctId = isDevEnv() || isTestEnv() ? resolveEmailEngagementDistinctId(invocation) : undefined
+    const distinctId = isDevEnv() || isTestEnv() ? resolveEmailTrackingDistinctId(invocation) : undefined
     // The pixel and redirect codes carry the sending version too. SES-attributed opens and clicks
     // read the version off the signed header instead, but a provider we track ourselves has these
     // URLs as its only carrier, and without the version its engagement cannot split by version.
