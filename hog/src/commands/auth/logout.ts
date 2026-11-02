@@ -1,7 +1,7 @@
 import { clearPending } from '@/core/approval'
 import { defineCommand } from '@/core/command'
 import { escapeControls } from '@/core/output'
-import { PERSONAL_API_KEY_ENV_VAR, legacyCredentialsPath } from '@/posthog/credentials'
+import { PERSONAL_API_KEY_ENV_VAR } from '@/posthog/credentials'
 import { LOGIN_COMMAND } from '@/posthog/login'
 import { readLogin, removeLogin } from '@/posthog/logins'
 import { readSettings } from '@/posthog/settings'
@@ -12,17 +12,12 @@ interface LogoutResult {
     revokeUrl: string | null
     // Variables that still give hog a key after logout.
     stillSet: string[]
-    // The legacy credentials file, which hog still reads and never changes.
-    legacyCredentialsFile: string | null
 }
 
 export default defineCommand({
     description: 'Remove the personal API key hog stored on this machine',
     writes: true,
-    notes: [
-        'The key itself stays valid until you delete it in PostHog under Settings > Personal API keys.',
-        'hog never changes the legacy credentials file in ~/.posthog, so it still reads a key from there after logout.',
-    ].join('\n'),
+    notes: ['The key itself stays valid until you delete it in PostHog under Settings > Personal API keys.'].join('\n'),
     examples: ['hog auth logout', 'hog auth logout --host https://eu.posthog.com'],
 
     async run({ ctx }): Promise<LogoutResult> {
@@ -33,16 +28,16 @@ export default defineCommand({
         const configHost = (await ctx.config().catch(() => undefined))?.config.host
         const host = ctx.globals.host ?? configHost ?? settings.host
         const login = host ? await readLogin(runtime, settings, host) : undefined
-        const removed = login ? await removeLogin(runtime, login) : false
+        const [outcome, removed] = await Promise.all([
+            login?.credential.logout(runtime),
+            login ? removeLogin(runtime, login) : false,
+        ])
         await clearPending(runtime, LOGIN_COMMAND)
-        const legacyFile = legacyCredentialsPath(runtime)
         return {
             status: removed ? 'logged_out' : 'not_logged_in',
             host: host ?? null,
-            revokeUrl:
-                removed && host ? new URL('settings/user-api-keys', `${host.replace(/\/+$/, '')}/`).toString() : null,
+            revokeUrl: removed ? (outcome?.revokeUrl ?? null) : null,
             stillSet: runtime.env[PERSONAL_API_KEY_ENV_VAR] ? [PERSONAL_API_KEY_ENV_VAR] : [],
-            legacyCredentialsFile: (await runtime.exists(legacyFile)) ? legacyFile : null,
         }
     },
 
@@ -58,11 +53,6 @@ export default defineCommand({
         if (result.stillSet.length > 0) {
             out.line(
                 `${out.style('Still logged in', 'yellow', 'bold')} through ${result.stillSet.join(' and ')}. Unset it to log out fully.`
-            )
-        }
-        if (result.legacyCredentialsFile) {
-            out.line(
-                `${out.style('Still logged in', 'yellow', 'bold')} through the legacy credentials file, ${result.legacyCredentialsFile}. hog never changes that file.`
             )
         }
     },
