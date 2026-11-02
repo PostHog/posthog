@@ -7,8 +7,8 @@ from posthog.models.channel_type.sql import (
 )
 from posthog.run_mode import RunMode, run_mode
 
-# Loads the "th" (Threads) source row from channel_definitions.json into ClickHouse. Queries read
-# channel_definition_dict, not the JSON file, so a new row has no effect until a migration inserts it.
+# Loads the "th" and "threads" (Threads) source rows from channel_definitions.json into ClickHouse.
+# Queries read channel_definition_dict, not the JSON file, so a new row has no effect until a migration inserts it.
 # The steps are the same as 0291, which explains the truncate + reinsert and the sessions-node handling.
 operations = [
     run_sql_with_exceptions(
