@@ -414,9 +414,9 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('function_push'),
         config: z.object({
-            message_category_id: z.string().uuid().optional(),
+            message_category_id: z.string().optional(),
             message_category_type: z.enum(['marketing', 'transactional']).optional(),
-            template_uuid: z.string().uuid().optional(),
+            template_uuid: z.string().optional(),
             template_id: z.literal('template-native-push'),
             // When true, PostHog keeps no copy of the notification's content. Keep in sync with nodejs/src/cdp/schema/hogflow.ts.
             sensitive: z.boolean().optional(),
