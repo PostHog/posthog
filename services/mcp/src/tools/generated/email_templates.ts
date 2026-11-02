@@ -356,6 +356,9 @@ const workflowsUploadEmailTemplate = (): ToolBase<
         if (params.if_not_superseded !== undefined) {
             body['if_not_superseded'] = params.if_not_superseded
         }
+        if (params.if_code_managed !== undefined) {
+            body['if_code_managed'] = params.if_code_managed
+        }
         if (params.source !== undefined) {
             body['source'] = params.source
         }
