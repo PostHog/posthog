@@ -42,6 +42,54 @@ function htmlBody(document: DefaultTreeAdapterMap['document']): DefaultTreeAdapt
     )
 }
 
+const BRACKET_CLOSERS: Record<string, string> = { '(': ')', '[': ']', '{': '}' }
+
+// Keeps only the template's complete declarations, so nothing it leaves open (a comment, string or
+// bracket) can swallow the overrides appended after them. Scanning stops at an escape or at a line
+// break inside a string, where a browser could tokenize the rest differently.
+function completeDeclarations(style: string): string[] {
+    return scanDeclarations(style).filter((declaration) => declaration.includes(':') && !/[{}]/.test(declaration))
+}
+
+function scanDeclarations(style: string): string[] {
+    const declarations: string[] = []
+    const closers: string[] = []
+    let quote: string | null = null
+    let current = ''
+    for (let index = 0; index < style.length; index++) {
+        const char = style[index]
+        if (char === '\\' || (quote && /[\n\r\f]/.test(char))) {
+            return declarations
+        }
+        if (quote) {
+            current += char
+            quote = char === quote ? null : quote
+        } else if (char === '/' && style[index + 1] === '*') {
+            const end = style.indexOf('*/', index + 2)
+            if (end === -1) {
+                return declarations
+            }
+            index = end + 1
+        } else if (char === ';' && !closers.length) {
+            declarations.push(current)
+            current = ''
+        } else {
+            if (char === '"' || char === "'") {
+                quote = char
+            } else if (BRACKET_CLOSERS[char]) {
+                closers.push(BRACKET_CLOSERS[char])
+            } else if (char === closers.at(-1)) {
+                closers.pop()
+            }
+            current += char
+        }
+    }
+    if (!quote && !closers.length) {
+        declarations.push(current)
+    }
+    return declarations
+}
+
 function protectFooterAncestors(
     document: DefaultTreeAdapterMap['document'],
     body: DefaultTreeAdapterMap['element']
@@ -52,7 +100,7 @@ function protectFooterAncestors(
     for (const ancestor of [root, body]) {
         const style = ancestor.attrs.find((attribute) => attribute.name === 'style')
         if (style) {
-            style.value = `${style.value};${visibleLayout}`
+            style.value = [...completeDeclarations(style.value), visibleLayout].join(';')
         } else {
             ancestor.attrs.push({ name: 'style', value: visibleLayout })
         }

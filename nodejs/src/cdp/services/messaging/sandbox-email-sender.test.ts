@@ -95,6 +95,36 @@ describe('sandbox email content', () => {
         expect(result.html).not.toContain('&amp;amp;')
     })
     it.each([
+        [
+            'an unclosed comment',
+            'height:30px!important;overflow:hidden!important;/*',
+            'height:30px!important;overflow:hidden!important',
+        ],
+        ['an unclosed string', 'height:30px!important;font-family:"Arial', 'height:30px!important'],
+        ['an unclosed bracket', 'overflow:hidden!important;background:url(x.png', 'overflow:hidden!important'],
+        [
+            'an escaped quote',
+            'height:30px!important;content:"a\\";overflow:hidden!important;"',
+            'height:30px!important',
+        ],
+        [
+            'a line break in a string',
+            'height:30px!important;content:"a\nb";overflow:hidden!important',
+            'height:30px!important',
+        ],
+        ['a closed comment', 'margin:0/* note */;height:30px!important', 'margin:0;height:30px!important'],
+    ])('keeps the visibility overrides in effect after %s in the template style', async (_case, style, kept) => {
+        const html = `<html style='${style}'><body style='${style}'><p>Visible message</p></body></html>`
+        const result = await sender.withIdentificationFooter(params(html), 'Example organization via PostHog', 1)
+        const root = parse(result.html!).childNodes.find(defaultTreeAdapter.isElementNode)!
+        const body = root.childNodes.filter(defaultTreeAdapter.isElementNode).find((node) => node.tagName === 'body')!
+        for (const ancestor of [root, body]) {
+            const value = ancestor.attrs.find((attribute) => attribute.name === 'style')!.value
+            expect(value.startsWith(`${kept};display:block!important;`)).toBe(true)
+            expect(value.endsWith(';zoom:1!important')).toBe(true)
+        }
+    })
+    it.each([
         '<html style="overflow:hidden"><body style="margin:0;height:20px;overflow:hidden"><p>Visible message</p></body></html>',
         '<html style="height:20px;clip-path:inset(0)"><body style="height:20px;clip-path:inset(0)"><p>Visible message</p></body></html>',
     ])('keeps document ancestors outside the template layout: %s', async (html) => {
