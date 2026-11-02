@@ -3,18 +3,28 @@ import { useValues } from 'kea'
 import { Link } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+function templateReference(templateId: string, templateKey: string | null | undefined): string {
+    return templateKey ? `{ "key": "${templateKey}" }` : `{ "id": "${templateId}" }`
+}
+
 export function TransactionalEmailApiExample({
     templateId,
+    templateKey,
     variables,
 }: {
     templateId: string
+    templateKey?: string | null
     /** The email's `{{ variables.* }}` names. The snippet shows a sample when the email uses none. */
     variables?: string[]
 }): JSX.Element {
     const { currentTeamIdStrict } = useValues(teamLogic)
+    const sendsByTemplateKey = useFeatureFlag('WORKFLOWS_EMAIL_FROM_CODE')
+    const sentKey = sendsByTemplateKey ? templateKey : null
+    const template = templateReference(templateId, sentKey)
     const messageData = variables?.length
         ? `{ ${variables.map((name) => `"${name}": "..."`).join(', ')} }`
         : '{ "first_name": "Jane", "reset_link": "https://example.com/reset" }'
@@ -23,7 +33,7 @@ export function TransactionalEmailApiExample({
   -H "Content-Type: application/json" \\
   -H "Idempotency-Key: password-reset-123" \\
   -d '{
-    "template": { "id": "${templateId}" },
+    "template": ${template},
     "to": "jane@example.com",
     "identifiers": { "distinct_id": "jane-distinct-id" },
     "message_data": ${messageData}
@@ -40,6 +50,18 @@ export function TransactionalEmailApiExample({
                     Authenticate with a{' '}
                     <Link to={urls.settings('environment-secret-api-keys')}>project secret API key</Link> that has the{' '}
                     <code>hog_flow:write</code> scope.
+                </li>
+                <li>
+                    {sentKey ? (
+                        <>
+                            <code>template.key</code> names this template. The key is the same in every project that has
+                            the template.
+                        </>
+                    ) : (
+                        <>
+                            <code>template.id</code> names this template in this project.
+                        </>
+                    )}
                 </li>
                 <li>
                     <code>message_data</code> fills the template's <code>{'{{ variables.* }}'}</code> placeholders. The
