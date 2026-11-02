@@ -6179,6 +6179,13 @@ const api = {
         ): Promise<PersonalAPIKeyType> {
             return await new ApiRequest().personalApiKey(id).withAction('roll').create({ data })
         },
+        async riskyScopes(): Promise<Record<string, string>> {
+            const response: { risky_scopes: Record<string, string> } = await new ApiRequest()
+                .personalApiKeys()
+                .withAction('risky_scopes')
+                .get()
+            return response.risky_scopes
+        },
     },
 
     projectSecretApiKeys: {

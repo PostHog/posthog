@@ -20,6 +20,7 @@ import {
     type ScopePickerGroup,
     type ScopeAccessLevel,
     type ScopePickerRow,
+    riskyScopeWarning,
     clampScopeLevel,
     groupScopeRows,
     scopeMatchesSearch,
@@ -129,6 +130,8 @@ export interface personalAPIKeysLogicValues {
     isPersonalApiKeyIdDisabled: (keyId: string) => boolean
     keys: PersonalAPIKeyType[]
     keysLoading: boolean
+    riskyScopes: Record<string, string>
+    riskyScopesLoading: boolean
     scopeRows: PersonalAPIKeyScopeRow[]
     searchTerm: string
     showEditingKeyErrors: boolean
@@ -201,6 +204,21 @@ export interface personalAPIKeysLogicActions {
         payload?: {
             value: true
         }
+    }
+    loadRiskyScopes: () => any
+    loadRiskyScopesFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadRiskyScopesSuccess: (
+        riskyScopes: Record<string, string>,
+        payload?: any
+    ) => {
+        riskyScopes: Record<string, string>
+        payload?: any
     }
     resetEditingKey: (values?: EditingKeyFormValues) => {
         values?: EditingKeyFormValues
@@ -307,13 +325,14 @@ export interface personalAPIKeysLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         allowedScopes: (
             featureFlags: FeatureFlagsSet,
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
         ) => APIScope[]
         allowedScopeKeys: (allowedScopes: APIScope[]) => Set<string>
         scopeRows: (
             allowedScopes: APIScope[],
             formScopeRadioValues: Record<string, string>,
-            editingKey: EditingKeyFormValues
+            editingKey: EditingKeyFormValues,
+            riskyScopes: any
         ) => PersonalAPIKeyScopeRow[]
         filteredScopeGroups: (searchTerm: string, scopeRows: PersonalAPIKeyScopeRow[]) => PersonalAPIKeyScopeGroup[]
         formScopeRadioValues: (editingKey: EditingKeyFormValues) => Record<string, string>
@@ -395,6 +414,12 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         ],
     }),
     loaders(({ values, actions }) => ({
+        riskyScopes: [
+            {} as Record<string, string>,
+            {
+                loadRiskyScopes: async () => await api.personalApiKeys.riskyScopes(),
+            },
+        ],
         keys: [
             [] as PersonalAPIKeyType[],
             {
@@ -532,11 +557,12 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
             (allowedScopes: APIScope[]): Set<string> => new Set(allowedScopes.map((scope) => scope.key)),
         ],
         scopeRows: [
-            (s) => [s.allowedScopes, s.formScopeRadioValues, s.editingKey],
+            (s) => [s.allowedScopes, s.formScopeRadioValues, s.editingKey, s.riskyScopes],
             (
                 allowedScopes: APIScope[],
                 formScopeRadioValues: Record<string, string>,
-                editingKey: EditingKeyFormValues
+                editingKey: EditingKeyFormValues,
+                riskyScopes: Record<string, string>
             ): PersonalAPIKeyScopeRow[] =>
                 allowedScopes.map((scope) => {
                     const projectScoped = scope.disabledWhenProjectScoped && editingKey.access_type === 'teams'
@@ -553,7 +579,13 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                         label: scope.objectName,
                         info: scope.info,
                         value,
-                        warning: value === 'none' ? undefined : scope.warnings?.[value],
+                        warning:
+                            [
+                                value === 'none' ? undefined : scope.warnings?.[value],
+                                riskyScopeWarning(scope.key, value, riskyScopes),
+                            ]
+                                .filter(Boolean)
+                                .join(' ') || undefined,
                         muted: Boolean(projectScoped),
                         disabledReasons: { read: disabledReason('read'), write: disabledReason('write') },
                     }
@@ -937,5 +969,6 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadAllTeams()
+        actions.loadRiskyScopes()
     }),
 ])
