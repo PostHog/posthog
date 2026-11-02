@@ -67,9 +67,8 @@ MCP_INTENT_CHARS = 200
 MIN_MCP_INTENT_CHARS = 60
 # An agent can keep one MCP session open all day. A longer pause between two calls starts a new line.
 MCP_SESSION_IDLE_GAP = datetime.timedelta(minutes=30)
-# The selection weight of an MCP session grows with the log of its distinct intents and of its calls, so a
-# long investigation wins a slot over a one-call lookup, but not every slot. Calls can repeat one step, so
-# they count for less, and their share stops at a cap below one more distinct intent.
+# A log scale lets a long investigation win a slot over a one-call lookup, but not every slot. Calls can
+# repeat one step, so their share is smaller and stops below the share of one more distinct intent.
 MCP_WEIGHT_PER_INTENT_DOUBLING = 1.0
 MCP_WEIGHT_PER_CALL_DOUBLING = 0.25
 MCP_MAX_CALL_WEIGHT = 0.5
@@ -408,7 +407,6 @@ class Unit:
     # Characters of agent intent on the line.
     intent_chars: int = 0
     intent_keys: frozenset[str] = frozenset()
-    # How much the line says, relative to other lines of its source. The caps and the sample prefer heavier lines.
     weight: float = 1.0
 
 
