@@ -14,7 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.retell_ai.
 
 
 @pytest.mark.parametrize("status", [200, 401, 403])
-@pytest.mark.parametrize("name", [None, "agents", "chats", "phone_numbers", "voices"])
+@pytest.mark.parametrize(
+    "name", [None, "agents", "chats", "phone_numbers", "voices", "agent_versions", "test_case_definitions"]
+)
 def test_scoped_credential_probes(status: int, name: str | None, http: MagicMock) -> None:
     http.return_value = response(
         [] if name == "voices" else {"items": [], "has_more": True, "pagination_key": "unused"}, status

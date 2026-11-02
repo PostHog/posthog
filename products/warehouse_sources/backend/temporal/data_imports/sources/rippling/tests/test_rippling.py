@@ -63,6 +63,10 @@ class TestBuildParams:
             # The payouts list rejects OData filters and accepts no order_by.
             ("variable_compensation_payouts", True, "updated_at", None, None),
             ("variable_compensation_payouts", False, None, None, None),
+            # Worker changes filter on applied_on but document no sortable fields.
+            ("worker_changes", True, "applied_on", "applied_on ge 2024-10-01T00:00:00", None),
+            ("worker_changes", False, None, None, None),
+            ("leave_accruals", True, "accrual_date", None, "created_at"),
         ],
     )
     def test_request_params(
@@ -125,6 +129,25 @@ class TestGetRows:
         )
 
         assert result.urls[0] == resume_url
+
+    @pytest.mark.parametrize(
+        "endpoint, incremental_field, expected_sort_mode",
+        [
+            ("workers", "updated_at", "asc"),
+            ("worker_changes", "applied_on", None),
+        ],
+    )
+    def test_sort_mode_follows_request_order(self, endpoint, incremental_field, expected_sort_mode):
+        result = _driver().run(
+            endpoint,
+            [_response([{"id": "1"}])],
+            incremental_field=incremental_field,
+            db_incremental_field_last_value=datetime(2024, 10, 1, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.sort_mode == expected_sort_mode
 
     def test_off_domain_next_link_raises(self):
         result = _driver().run("workers", [_response([{"id": "1"}], next_link="https://attacker.example/workers")])
