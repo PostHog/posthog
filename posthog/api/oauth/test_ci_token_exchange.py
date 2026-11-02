@@ -14,6 +14,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.oauth.ci_token_exchange import TOKEN_EXCHANGE_GRANT_TYPE
+from posthog.api.oauth.cimd import CIMDFetchError
 from posthog.auth import CIAccessTokenAuthentication
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -122,6 +123,7 @@ class TestCITokenExchange(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK, body
+        assert (response["Cache-Control"], response["Pragma"]) == ("no-store", "no-cache")
         assert body["token_type"] == "Bearer"
         assert body["issued_token_type"] == "urn:ietf:params:oauth:token-type:access_token"
         assert body["scope"] == "annotation:write"
@@ -164,6 +166,18 @@ class TestCITokenExchange(APIBaseTest):
         assert response.status_code >= 400
         assert response.json()["error_code"] == error_code, response.json()
         assert response.json()["error_uri"].endswith(f"#{error_code}")
+
+    def test_exchange_asks_for_a_retry_when_the_provider_keys_cannot_be_fetched(self) -> None:
+        cache.clear()
+        with patch(
+            "posthog.api.oauth.client_assertion.fetch_client_json_document",
+            side_effect=CIMDFetchError("connection timed out"),
+        ):
+            response = self._exchange()
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.json()
+        assert response.json()["error"] == "temporarily_unavailable"
+        assert response.json()["error_code"] == "ci_provider_unavailable"
 
     def test_exchange_refuses_a_token_signed_by_another_key(self) -> None:
         response = self._exchange(_oidc_token(signing_key=_OTHER_KEY_PEM))
@@ -241,10 +255,19 @@ class TestCITokenExchange(APIBaseTest):
         same_org = self._call("get", f"/api/projects/{other_team.id}/annotations/", token)
         other_org_response = self._call("get", f"/api/projects/{foreign_team.id}/annotations/", token)
         organization_level = self._call("get", f"/api/organizations/{self.organization.id}/members/", token)
+        self.user.is_staff = True
+        self.user.save()
+        with override_settings(CLOUD_DEPLOYMENT="US"):
+            staff_bypass = self._call(
+                "get",
+                f"/api/organizations/{other_org.id}/legal_documents/00000000-0000-0000-0000-000000000000/download/",
+                token,
+            )
 
         assert same_org.status_code == status.HTTP_403_FORBIDDEN
         assert other_org_response.status_code == status.HTTP_403_FORBIDDEN
         assert organization_level.status_code == status.HTTP_403_FORBIDDEN
+        assert staff_bypass.status_code == status.HTTP_403_FORBIDDEN
 
     def test_missing_scope_gets_the_insufficient_scope_challenge(self) -> None:
         token = self._access_token()

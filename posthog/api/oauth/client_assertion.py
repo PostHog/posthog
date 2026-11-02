@@ -82,6 +82,10 @@ class UnknownSigningKeyError(ClientAssertionError):
     """The assertion names a ``kid`` that the client's cached key set does not contain."""
 
 
+class JWKSUnavailableError(ClientAssertionError):
+    """The key set could not be fetched, so the assertion was never checked and a retry may succeed."""
+
+
 def _request_field(request: Any, name: str) -> str:
     """Read a field from the request body, where RFC 7523 section 2.2 sends it as a form parameter."""
     from_body = request.data.get(name) if hasattr(request, "data") else None
@@ -187,7 +191,7 @@ def load_jwks(jwks_uri: str, *, force_refresh: bool = False) -> PyJWKSet:
     cached = None if force_refresh else cache.get(cache_key)
     if cached is not None:
         if cached == "error":
-            raise ClientAssertionError("Client keys could not be retrieved")
+            raise JWKSUnavailableError("Client keys could not be retrieved")
         return PyJWKSet.from_dict(cached)
 
     try:
@@ -213,7 +217,7 @@ def _fetch_jwks_document(jwks_uri: str) -> dict:
         )
     except (CIMDFetchError, CIMDValidationError) as e:
         logger.warning("client_assertion_jwks_fetch_failed", jwks_uri=jwks_uri, error=str(e))
-        raise ClientAssertionError("Client keys could not be retrieved") from e
+        raise JWKSUnavailableError("Client keys could not be retrieved") from e
 
     # Capping the key count keeps a hostile JWKS from making each verification walk a huge
     # set. Everything else about the document's shape is PyJWKSet's own validation.
