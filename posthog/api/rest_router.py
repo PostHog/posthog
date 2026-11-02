@@ -19,6 +19,7 @@ from posthog.api.query_performance_proxy import QueryPerformanceProxyViewSet
 from posthog.api.routing import DefaultRouterPlusPlus, RouterRegistry
 from posthog.api.sdk_health import SdkHealthViewSet
 from posthog.api.wizard import http as wizard
+from posthog.oidc.ci_trust_policy import CITrustPolicyViewSet
 from posthog.products import load_product_modules
 from posthog.settings import EE_AVAILABLE
 
@@ -85,7 +86,6 @@ from .event_filter_config import EventFilterConfigViewSet
 from .file_system import file_system, file_system_shortcut
 from .llm_prompt import LLMPromptViewSet
 from .oauth import OrganizationOAuthApplicationViewSet
-from .oauth.ci_trust_policy import CITrustPolicyViewSet
 from .organization_notification_locks import OrganizationNotificationLockViewSet
 from .session import SessionViewSet
 from .taxonomic_search_intent import SearchIntentViewSet
