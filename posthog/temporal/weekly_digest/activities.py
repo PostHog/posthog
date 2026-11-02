@@ -9,6 +9,7 @@ from typing import Any, ParamSpec, Protocol, TypeVar
 from uuid import UUID
 
 from django.conf import settings
+from django.core.serializers.json import DjangoJSONEncoder
 from django.db.models import F, QuerySet, Window
 from django.db.models.functions import RowNumber
 from django.utils import timezone
@@ -1114,11 +1115,12 @@ def _record_workflows_send_failure(reason: str) -> None:
     ).add(1)
 
 
-def _post_to_workflows(session: requests.Session, body: dict[str, Any], idempotency_key: str) -> None:
+def _post_to_workflows(session: requests.Session, body: bytes, idempotency_key: str) -> None:
     # The secret authenticates the post, so only the digest send can start the workflow. The idempotency key
     # makes a retried post, in this attempt or the next one, start no second run.
     headers = {
         "Authorization": f"Bearer {settings.WEEKLY_DIGEST_WORKFLOW_WEBHOOK_SECRET}",
+        "Content-Type": "application/json",
         "Idempotency-Key": idempotency_key,
     }
     reason = "connection_error"
@@ -1129,7 +1131,7 @@ def _post_to_workflows(session: requests.Session, body: dict[str, Any], idempote
         try:
             response = session.post(
                 settings.WEEKLY_DIGEST_WORKFLOW_WEBHOOK_URL,
-                json=body,
+                data=body,
                 headers=headers,
                 timeout=WORKFLOWS_WEBHOOK_TIMEOUT_SECONDS,
             )
@@ -1277,20 +1279,28 @@ def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                                 "distinct_id": _workflows_distinct_id(user),
                                 "properties": {**workflows_payload, "to": user.email},
                             }
-                            if len(json.dumps(body, default=str).encode()) > WORKFLOWS_WEBHOOK_BODY_LIMIT:
-                                logger.error(
-                                    "Digest exceeds the Workflows webhook size limit, leaving the organization unsent",
-                                    organization_id=organization.id,
-                                    user_id=user.id,
-                                )
-                                _record_workflows_send_failure("oversized")
-                                failed_organization_ids.add(str(organization.id))
-                                continue
-                            _wait_for_workflows_post(r, input.digest.key)
-                            partial = True
                             try:
-                                _post_to_workflows(workflows_session, body, f"{input.digest.key}:{user.id}")
+                                # The payload holds UUIDs and datetimes, which plain json cannot encode.
+                                encoded_body = json.dumps(body, cls=DjangoJSONEncoder).encode()
+                                if len(encoded_body) > WORKFLOWS_WEBHOOK_BODY_LIMIT:
+                                    logger.error(
+                                        "Digest exceeds the Workflows webhook size limit, leaving the organization unsent",
+                                        organization_id=organization.id,
+                                        user_id=user.id,
+                                    )
+                                    _record_workflows_send_failure("oversized")
+                                    failed_organization_ids.add(str(organization.id))
+                                    continue
+                                _wait_for_workflows_post(r, input.digest.key)
+                                partial = True
+                                # Both regions post to one workflow and user ids repeat across regions, so the key uses the UUID.
+                                _post_to_workflows(workflows_session, encoded_body, f"{input.digest.key}:{user.uuid}")
                             except WorkflowsWebhookError:
+                                failed_organization_ids.add(str(organization.id))
+                                raise
+                            except Exception:
+                                # Any other error still leaves the organization unsent, so the next attempt resends it.
+                                _record_workflows_send_failure("unexpected_error")
                                 failed_organization_ids.add(str(organization.id))
                                 raise
                         elif len(json.dumps(payload, default=str).encode()) > DIGEST_PAYLOAD_SIZE_LIMIT:
