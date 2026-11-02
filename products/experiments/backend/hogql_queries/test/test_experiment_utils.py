@@ -1157,7 +1157,6 @@ class TestMetricVariantToStatistic:
         stat = metric_variant_to_statistic(P90_OF_APP_READY, _validated_quantile_variant())
 
         assert isinstance(stat, QuantileStatistic)
-        # n = 1000 events picks n* = 800, the largest grid size at or below n.
         assert (stat.n, stat.n_clusters, stat.n_star, stat.quantile) == (1000, 500, 800, 5)
         assert stat.variance == pytest.approx(150.55653084479633, rel=1e-12)
 

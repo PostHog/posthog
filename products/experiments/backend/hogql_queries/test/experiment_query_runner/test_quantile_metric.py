@@ -185,8 +185,8 @@ class TestExperimentQuantileMetric(ExperimentQueryRunnerBaseTest):
 
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
-        assert result.baseline is not None and result.baseline.quantile_grid is not None
         control = result.baseline
+        assert control is not None and control.quantile_grid is not None
         # Per user S_i: a 3, b 2 (1 and 5), c 0. A strict comparison gives a 0 and b 1.
         assert (control.quantile_grid[0], control.sum, control.denominator_sum) == (5, 5, 8)
 
