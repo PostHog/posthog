@@ -4,9 +4,9 @@ const MARKERS = ['metricVariables', 'bi_filter']
 // The host and path stop at every character that can start a match, so a long string of repeated links is scanned in linear time.
 const URL_START = String.raw`(?:^|[\s"'(])`
 const URL_HOST = String.raw`(?:(?:https?:)?\/\/[^/?#\s"'<>(]+)?`
-const LOGIN_URL_WITH_PARAMS = new RegExp(URL_START + URL_HOST + String.raw`\/login(?:\/[^?#\s"'<>(]*)?[?#]`, 'i')
+const LOGIN_URL_WITH_PARAMS = new RegExp(String.raw`${URL_START}${URL_HOST}\/login(?:\/[^?#\s"'<>(]*)?[?#]`, 'i')
 const TOKEN_URL = new RegExp(
-    URL_START + `(${URL_HOST}` + String.raw`\/(?:reset|reset_2fa|verify_email))\/[^/?#\s"'<>(]+\/[^?#\s"'<>(]+`,
+    String.raw`${URL_START}(${URL_HOST}\/(?:reset|reset_2fa|verify_email))\/[^/?#\s"'<>(]+\/[^?#\s"'<>(]+`,
     'i'
 )
 // The options requests of dashboard variables carry queries and selected values, and return query results.
