@@ -16,15 +16,9 @@ import { useDeviceRecent } from './recentStore'
 import { viewsQueue } from './refreshQueue'
 import { useInsightScreen } from './viewHooks'
 
-const mockScope = { host: 'https://example.com', projectId: 1 }
-const scope = mockScope
+const scope = { host: 'https://example.com', projectId: 1 }
 jest.mock('expo-router', () => ({ useFocusEffect: () => {}, useIsFocused: () => false }))
 jest.mock('@/demo/demoMode', () => ({ ...jest.requireActual('@/demo/demoMode'), useDataMode: () => 'live' }))
-jest.mock('@/auth/useProjectScope', () => ({ useProjectScope: () => mockScope }))
-jest.mock('./useViewsAccess', () => ({
-    ...jest.requireActual('./useViewsAccess'),
-    useViewsAccess: () => ({ state: 'ok', missingScope: null }),
-}))
 
 let client: QueryClient
 function wrapper({ children }: { children: ReactNode }): ReactElement {

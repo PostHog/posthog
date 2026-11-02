@@ -1,7 +1,9 @@
 import { QueryClient } from '@tanstack/react-query'
 
 import type { StringStorage } from '@/lib/secureStorage'
+import { insightSnapshot } from '@/model/adapters/insightSnapshot'
 import { cacheable } from '@/model/adapters/readCache'
+import { webOverviewSnapshot } from '@/model/adapters/webOverview'
 import { ApiError } from './client'
 import { persistReadCache } from './readCache'
 import { inboxCacheKey } from './readCacheKeys'
@@ -181,6 +183,16 @@ describe('bounded offline read cache', () => {
         const now = Date.now()
         const entries = Array.from({ length: 30 }, (_, index) => ({ key, updatedAt: now - index, data: aggregate }))
         expect(boundedEntries(entries)).toHaveLength(24)
+        const beyondLimit = {
+            key,
+            updatedAt: now - 31,
+            data: {
+                toJSON: () => {
+                    throw new Error('Outside the entry budget')
+                },
+            },
+        }
+        expect(() => boundedEntries([...entries, beyondLimit])).not.toThrow()
         expect(boundedEntries([{ key, updatedAt: now - READ_CACHE_TTL_MS, data: aggregate }])).toEqual([])
         expect(boundedEntries([{ key, updatedAt: now, data: '界'.repeat(20_000) }])).toEqual([])
         const storage = memoryStorage()
@@ -287,6 +299,88 @@ describe('bounded offline read cache', () => {
         session.stop()
     })
 
+    it('keeps a retained result age when a metadata-only insight or web read misses the server cache', async () => {
+        const store = new ReadCacheStore(memoryStorage())
+        const active = client()
+        const session = persistReadCache(active, store, scope, () => true)
+        await session.ready
+        const savedAt = Date.now()
+        const response = {
+            id: 1,
+            short_id: 'view-1',
+            name: 'Count',
+            derived_name: null,
+            query: {
+                kind: 'InsightVizNode',
+                source: { kind: 'TrendsQuery', series: [{ kind: 'EventsNode', event: 'example' }] },
+            },
+            result: [{ action: { order: 0 }, days: ['2026-10-01'], data: [42] }],
+            last_refresh: new Date(savedAt).toISOString(),
+            cache_target_age: null,
+            next_allowed_client_refresh: null,
+        }
+        const original = insightSnapshot(response, undefined, { readAt: savedAt, serverNow: savedAt })
+        const originalWeb = webOverviewSnapshot(
+            { results: [{ key: 'visitors', kind: 'unit', value: 42 }] },
+            undefined,
+            savedAt
+        )
+        const webKey = ['views', scope.host, 1, 'web', '-']
+        active.setQueryData(key, original)
+        active.setQueryData(webKey, originalWeb)
+        await session.flush()
+        jest.setSystemTime(savedAt + READ_CACHE_TTL_MS - 1000)
+        const miss = insightSnapshot({ ...response, result: null }, original, {
+            readAt: Date.now(),
+            serverNow: Date.now(),
+        })
+        active.setQueryData(key, miss)
+        active.setQueryData(webKey, webOverviewSnapshot({}, originalWeb, Date.now()))
+        await session.flush()
+        expect((await store.load(scope)).map((entry) => entry.updatedAt)).toEqual([savedAt, savedAt])
+        jest.setSystemTime(savedAt + READ_CACHE_TTL_MS + 1000)
+        active.setQueryData(
+            key,
+            insightSnapshot({ ...response, result: null }, miss, { readAt: Date.now(), serverNow: Date.now() })
+        )
+        active.setQueryData(webKey, webOverviewSnapshot({}, originalWeb, Date.now()))
+        await session.flush()
+        expect(await store.load(scope)).toEqual([])
+        session.stop()
+    })
+
+    it('keeps disk copies after query garbage collection and still purges denied resource variants', async () => {
+        const store = new ReadCacheStore(memoryStorage())
+        const otherRange = [...key.slice(0, -1), 'other-range']
+        await store.save(
+            scope,
+            () => [key, otherRange].map((variant) => ({ key: variant, data: aggregate, updatedAt: Date.now() })),
+            () => true
+        )
+        const active = client()
+        const session = persistReadCache(active, store, scope, () => true)
+        await session.ready
+        active.removeQueries()
+        await session.flush()
+        expect(await store.load(scope)).toHaveLength(2)
+        await active
+            .fetchQuery({
+                queryKey: key,
+                queryFn: async () => {
+                    throw new ApiError(403, {})
+                },
+            })
+            .catch(() => undefined)
+        await store.settled()
+        session.stop()
+        const next = client()
+        const restored = persistReadCache(next, store, scope, () => true)
+        await restored.ready
+        expect(next.getQueryData(key)).toBeUndefined()
+        expect(next.getQueryData(otherRange)).toBeUndefined()
+        restored.stop()
+    })
+
     it('keeps at most eight recently saved projects without touching the draft namespace', async () => {
         const storage = memoryStorage()
         const store = new ReadCacheStore(storage)
@@ -306,6 +400,117 @@ describe('bounded offline read cache', () => {
         expect(JSON.parse((await storage.getItem(`${scope.account}.scopes`)) ?? '[]')).toHaveLength(8)
         expect(await storage.getItem('mobile-drafts-example')).toBe('Keep draft')
     })
+    test.each([
+        { name: 'offline', error: new TypeError('Offline') },
+        { name: 'server error', error: new ApiError(500, {}) },
+    ])('keeps a saved value after transient refetch failure: $name', async ({ error }) => {
+        const store = new ReadCacheStore(memoryStorage())
+        const updatedAt = Date.now() - 60_000
+        await store.save(
+            scope,
+            () => [{ key, data: aggregate, updatedAt }],
+            () => true
+        )
+        const active = client()
+        const session = persistReadCache(active, store, scope, () => true)
+        await session.ready
+        await active
+            .fetchQuery({
+                queryKey: key,
+                queryFn: async () => {
+                    throw error
+                },
+            })
+            .catch(() => undefined)
+        expect(active.getQueryData(key)).toMatchObject({ value: 42 })
+        await session.flush()
+        session.stop()
+        const next = client()
+        const restored = persistReadCache(next, store, scope, () => true)
+        await restored.ready
+        expect(next.getQueryData(key)).toMatchObject({ value: 42 })
+        expect(next.getQueryState(key)?.dataUpdatedAt).toBe(updatedAt)
+        restored.stop()
+    })
+
+    it('respects a permission denial that arrived before the cache lifecycle started', async () => {
+        const store = new ReadCacheStore(memoryStorage())
+        const otherRange = [...key.slice(0, -1), 'other-range']
+        await store.save(
+            scope,
+            () => [key, otherRange].map((variant) => ({ key: variant, data: aggregate, updatedAt: Date.now() })),
+            () => true
+        )
+        const active = client()
+        active.setQueryData(key, aggregate)
+        await active
+            .fetchQuery({
+                queryKey: key,
+                queryFn: async () => {
+                    throw new ApiError(403, {})
+                },
+            })
+            .catch(() => undefined)
+        const session = persistReadCache(active, store, scope, () => true)
+        await session.ready
+        expect(active.getQueryData(otherRange)).toBeUndefined()
+        await session.flush()
+        session.stop()
+        const next = client()
+        const restored = persistReadCache(next, store, scope, () => true)
+        await restored.ready
+        expect(next.getQueryData(otherRange)).toBeUndefined()
+        restored.stop()
+    })
+
+    it('finishes denying an old project even when the active project changes during disk access', async () => {
+        const storage = memoryStorage()
+        const store = new ReadCacheStore(storage)
+        await store.save(
+            scope,
+            () => [{ key, data: aggregate, updatedAt: Date.now() }],
+            () => true
+        )
+        let current = true
+        const active = client()
+        const session = persistReadCache(active, store, scope, () => current)
+        await session.ready
+        let started!: () => void
+        let finish!: () => void
+        const reading = new Promise<void>((resolve) => {
+            started = resolve
+        })
+        const gate = new Promise<void>((resolve) => {
+            finish = resolve
+        })
+        const read = storage.getItem
+        storage.getItem = async (name) => {
+            if (name === `${scope.account}.scopes` || name === cacheKey(scope)) {
+                started()
+                await gate
+            }
+            return read(name)
+        }
+        await active
+            .fetchQuery({
+                queryKey: key,
+                queryFn: async () => {
+                    throw new ApiError(403, {})
+                },
+            })
+            .catch(() => undefined)
+        await reading
+        current = false
+        finish()
+        await store.settled()
+        session.stop()
+        const next = client()
+        const restored = persistReadCache(next, store, scope, () => true)
+        await restored.ready
+        expect(next.getQueryData(key)).toBeUndefined()
+        restored.stop()
+    })
+
     it('does not resurrect denied data after an older device write finishes late', async () => {
         const storage = memoryStorage()
         const store = new ReadCacheStore(storage)

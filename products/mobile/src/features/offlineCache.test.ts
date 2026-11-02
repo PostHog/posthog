@@ -61,6 +61,7 @@ jest.mock('@/lib/secureStorage', () => ({
     },
 }))
 
+import { ApiError } from '@/api/client'
 import { queryClient } from '@/api/queryClient'
 import { useAuthStore } from '@/auth/authStore'
 import { useScopeErrorStore } from '@/features/views/useViewsAccess'
@@ -175,11 +176,42 @@ describe('authenticated offline-cache lifecycle', () => {
         await waitFor(() => expect(queryClient.getQueryData(key)).toMatchObject({ metrics: [{ key: 'user-2' }] }))
         stop()
     })
+    it('does not restore an inbox refused before the account digest finishes', async () => {
+        const key = ['read-inbox', 'https://example.com', 1]
+        mockValues.set(
+            `${account()}.1`,
+            JSON.stringify([
+                { key, updatedAt: Date.now() - 1000, data: { items: [], sourceUpdatedAt: Date.now() - 1000 } },
+            ])
+        )
+        let finish!: () => void
+        mockDigestGates.set(
+            JSON.stringify(['https://example.com', 'user-1']),
+            new Promise<void>((resolve) => {
+                finish = resolve
+            })
+        )
+        const stop = installOfflineCache()
+        await queryClient
+            .fetchQuery({
+                queryKey: ['signals', 'https://example.com', 1, 'inbox'],
+                queryFn: async () => {
+                    throw new ApiError(403, {})
+                },
+                retry: false,
+            })
+            .catch(() => undefined)
+        finish()
+        await waitFor(() => expect(JSON.parse(mockValues.get(`${account()}.1`) ?? '[]')).toEqual([]))
+        expect(queryClient.getQueryData(key)).toBeUndefined()
+        stop()
+    })
+
     it('does not rehydrate views when the existing access gate reports a missing scope', async () => {
         const key = seed(1)
         useScopeErrorStore.setState({ reported: { views: 'insights:read', errors: null, replay: null } })
         const stop = installOfflineCache()
-        await waitFor(() => expect(mockValues.get(`${account()}.1`)).toBe('[]'))
+        await waitFor(() => expect(JSON.parse(mockValues.get(`${account()}.1`) ?? '[]')).toEqual([]))
         expect(queryClient.getQueryData(key)).toBeUndefined()
         stop()
     })

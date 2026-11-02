@@ -1,9 +1,9 @@
-import type { QueryClient, QueryKey } from '@tanstack/react-query'
+import type { Query, QueryClient, QueryKey } from '@tanstack/react-query'
 import { asRecord } from '@/lib/records'
 import { cacheable, isReadCacheKey, projectedData } from '@/model/adapters/readCache'
 import { ApiError } from './client'
 import { inboxCacheKey } from './readCacheKeys'
-import type { ReadCacheEntry, ReadCacheScope, ReadCacheStore } from './readCacheStore'
+import { boundedEntries, type ReadCacheEntry, type ReadCacheScope, type ReadCacheStore } from './readCacheStore'
 
 export function deniedRead(error: unknown): boolean {
     return error instanceof ApiError && [401, 403, 404].includes(error.status)
@@ -31,31 +31,38 @@ export function persistReadCache(
     const deniedResources = new Set<string>()
     const good = new Map<string, ReadCacheEntry>()
     const valid = (): boolean => !stopped && current()
+    const keep = (entry: ReadCacheEntry): void => {
+        const entries = boundedEntries(
+            [...good.values()].filter((saved) => keyId(saved.key) !== keyId(entry.key)).concat(entry)
+        )
+        good.clear()
+        for (const saved of entries) good.set(keyId(saved.key), saved)
+    }
     const remember = (key: QueryKey, data: unknown, updatedAt: number): void => {
-        if (cacheable(key, data, scope) && asRecord(data)?.refreshFailed !== true) {
-            good.set(keyId(key), { key, data: projectedData(key, data), updatedAt })
+        if (!cacheable(key, data, scope)) {
+            good.delete(keyId(key))
+            return
         }
+        const value = asRecord(data)
+        if (!value || value.refreshFailed === true) return
+        let capture = updatedAt
+        if (typeof value.dataReadAt === 'number') capture = value.dataReadAt
+        else if (value.restoredFromDevice === true) capture = good.get(keyId(key))?.updatedAt ?? updatedAt
+        if (capture <= 0) return
+        keep({ key, data: projectedData(key, data), updatedAt: capture })
     }
     for (const query of client.getQueryCache().getAll()) {
         remember(query.queryKey, query.state.data, query.state.dataUpdatedAt)
     }
     const collect = (): ReadCacheEntry[] =>
-        client
-            .getQueryCache()
-            .getAll()
-            .flatMap((query) => {
-                const { queryKey: key, state } = query
-                remember(key, state.data, state.dataUpdatedAt)
-                const entry = good.get(keyId(key))
-                return entry &&
-                    state.status === 'success' &&
-                    !denied.has(keyId(key)) &&
-                    !deniedResources.has(resourceKey(key)) &&
-                    !deniedView(key) &&
-                    cacheable(key, state.data, scope)
-                    ? [entry]
-                    : []
-            })
+        boundedEntries([...good.values()]).filter(
+            ({ key, data }) =>
+                !deniedRead(client.getQueryState(key)?.error) &&
+                !denied.has(keyId(key)) &&
+                !deniedResources.has(resourceKey(key)) &&
+                !deniedView(key) &&
+                cacheable(key, data, scope)
+        )
     let timer: ReturnType<typeof setTimeout> | undefined
     const flush = async (): Promise<void> => {
         if (timer) clearTimeout(timer)
@@ -77,55 +84,83 @@ export function persistReadCache(
     }
     const clearResource = (key: QueryKey): void => {
         deniedResources.add(resourceKey(key))
+        for (const saved of good.values()) {
+            if (resourceKey(saved.key) === resourceKey(key)) good.delete(keyId(saved.key))
+        }
         for (const query of client.getQueryCache().getAll()) {
             if (resourceKey(query.queryKey) === resourceKey(key)) clear(query.queryKey)
         }
     }
+    const isInboxSource = (key: QueryKey): boolean =>
+        key[0] === 'signals' && key[3] === 'inbox' && key[1] === scope.host && key[2] === scope.projectId
+    const denyQuery = (key: QueryKey): void => {
+        clearResource(key)
+        if (isInboxSource(key)) clear(inboxCacheKey(scope))
+    }
+    const evictDenied = (): Promise<void> => {
+        const resources = new Set(deniedResources)
+        const keys = new Set(denied)
+        return store
+            .evict(
+                scope,
+                (entry) => resources.has(resourceKey(entry.key)) || keys.has(keyId(entry.key)) || deniedView(entry.key)
+            )
+            .catch(() => undefined)
+    }
+    const onError = (query: Query): void => {
+        if (!deniedRead(query.state.error)) return
+        if (!isReadCacheKey(query.queryKey, scope) && !isInboxSource(query.queryKey)) return
+        denyQuery(query.queryKey)
+        // Leaving a project cancels saves, but its known-denied copies must still be removed.
+        void evictDenied()
+    }
+    const onSuccess = (query: Query): void => {
+        if (!isReadCacheKey(query.queryKey, scope)) return
+        denied.delete(keyId(query.queryKey))
+        remember(query.queryKey, query.state.data, query.state.dataUpdatedAt)
+        deniedResources.delete(resourceKey(query.queryKey))
+        save()
+    }
     const unsubscribe = client.getQueryCache().subscribe((event) => {
-        if (
-            !valid() ||
-            restoring ||
-            event.type === 'observerResultsUpdated' ||
-            event.type === 'observerAdded' ||
-            event.type === 'observerRemoved' ||
-            event.type === 'observerOptionsUpdated'
-        )
-            return
-        if (
-            event.type === 'updated' &&
-            event.action.type === 'error' &&
-            deniedRead(event.query.state.error) &&
-            (isReadCacheKey(event.query.queryKey, scope) ||
-                (event.query.queryKey[0] === 'signals' && event.query.queryKey[3] === 'inbox'))
-        ) {
-            clearResource(event.query.queryKey)
-            const key = event.query.queryKey
-            if (key[0] === 'signals' && key[3] === 'inbox' && key[1] === scope.host && key[2] === scope.projectId)
-                clear(inboxCacheKey(scope))
-            void flush()
-        } else if (
-            event.type === 'updated' &&
-            event.action.type === 'success' &&
-            isReadCacheKey(event.query.queryKey, scope)
-        ) {
-            denied.delete(keyId(event.query.queryKey))
-            remember(event.query.queryKey, event.query.state.data, event.query.state.dataUpdatedAt)
-            deniedResources.delete(resourceKey(event.query.queryKey))
-            save()
-        } else if (event.type === 'removed' && isReadCacheKey(event.query.queryKey, scope)) {
-            good.delete(keyId(event.query.queryKey))
-            save()
+        if (!valid() || restoring) return
+        if (event.type === 'updated') {
+            if (event.action.type === 'error') onError(event.query)
+            if (event.action.type === 'success') onSuccess(event.query)
         }
     })
+    for (const query of client.getQueryCache().getAll()) onError(query)
     const purgeDeniedViews = (): void => {
         let purged = false
-        for (const query of client.getQueryCache().getAll()) {
-            if (deniedView(query.queryKey)) {
-                clearResource(query.queryKey)
+        const keys = [...good.values()]
+            .map((entry) => entry.key)
+            .concat(
+                client
+                    .getQueryCache()
+                    .getAll()
+                    .map((query) => query.queryKey)
+            )
+        for (const key of keys) {
+            if (deniedView(key)) {
+                clearResource(key)
                 purged = true
             }
         }
-        if (purged) void flush()
+        if (purged) void evictDenied()
+    }
+    const mayRestore = (entry: ReadCacheEntry): boolean =>
+        cacheable(entry.key, entry.data, scope) &&
+        !denied.has(keyId(entry.key)) &&
+        !deniedResources.has(resourceKey(entry.key)) &&
+        !deniedView(entry.key)
+    const restore = (entry: ReadCacheEntry): void => {
+        if (!mayRestore(entry)) return
+        const known = good.get(keyId(entry.key))
+        if (!known || known.updatedAt < entry.updatedAt) keep(entry)
+        const state = client.getQueryState(entry.key)
+        if (deniedRead(state?.error) || (state?.dataUpdatedAt ?? 0) >= entry.updatedAt) return
+        const projected = projectedData(entry.key, entry.data)
+        const data = entry.key[0] === 'views' ? { ...asRecord(projected), restoredFromDevice: true } : projected
+        client.setQueryData(entry.key, data, { updatedAt: entry.updatedAt })
     }
     const ready = (async (): Promise<void> => {
         try {
@@ -135,28 +170,11 @@ export function persistReadCache(
             for (const entry of entries) {
                 if (deniedView(entry.key)) deniedResources.add(resourceKey(entry.key))
             }
-            for (const entry of entries) {
-                if (
-                    !cacheable(entry.key, entry.data, scope) ||
-                    denied.has(keyId(entry.key)) ||
-                    deniedResources.has(resourceKey(entry.key)) ||
-                    deniedView(entry.key)
-                )
-                    continue
-                const known = good.get(keyId(entry.key))
-                if (!known || known.updatedAt < entry.updatedAt) good.set(keyId(entry.key), entry)
-                const state = client.getQueryState(entry.key)
-                if (deniedRead(state?.error) || (state?.dataUpdatedAt ?? 0) >= entry.updatedAt) continue
-                const data =
-                    entry.key[0] === 'views'
-                        ? { ...asRecord(projectedData(entry.key, entry.data)), restoredFromDevice: true }
-                        : projectedData(entry.key, entry.data)
-                client.setQueryData(entry.key, data, { updatedAt: entry.updatedAt })
-            }
+            for (const entry of entries) restore(entry)
         } finally {
             restoring = false
             loading = false
-            if (denied.size || deniedResources.size) await flush()
+            if (valid() && (denied.size || deniedResources.size)) await evictDenied()
             else save()
         }
     })().catch(() => undefined)

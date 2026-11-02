@@ -28,6 +28,7 @@ export function boundedEntries(entries: readonly ReadCacheEntry[], now = Date.no
     let bytes = 2
     const saved: ReadCacheEntry[] = []
     for (const entry of [...entries].sort((a, b) => b.updatedAt - a.updatedAt)) {
+        if (saved.length >= READ_CACHE_ENTRY_LIMIT) break
         if (!Number.isFinite(entry.updatedAt) || entry.updatedAt > now || now - entry.updatedAt >= READ_CACHE_TTL_MS)
             continue
         const size = Array.from(JSON.stringify(entry)).reduce(
@@ -37,8 +38,7 @@ export function boundedEntries(entries: readonly ReadCacheEntry[], now = Date.no
             },
             saved.length ? 1 : 0
         )
-        if (size > READ_CACHE_ENTRY_BYTES || bytes + size > READ_CACHE_BYTES || saved.length >= READ_CACHE_ENTRY_LIMIT)
-            continue
+        if (size > READ_CACHE_ENTRY_BYTES || bytes + size > READ_CACHE_BYTES) continue
         bytes += size
         saved.push(entry)
     }
@@ -57,27 +57,40 @@ export class ReadCacheStore {
         return result
     }
 
-    load(scope: ReadCacheScope): Promise<ReadCacheEntry[]> {
-        return this.enqueue(async () => {
-            const raw = await this.storage.getItem(cacheKey(scope))
-            if (!raw) return []
-            try {
-                const value: unknown = JSON.parse(raw)
-                if (!Array.isArray(value)) return []
-                return boundedEntries(
-                    value.filter(
-                        (entry): entry is ReadCacheEntry =>
-                            !!entry &&
-                            typeof entry === 'object' &&
-                            Array.isArray(entry.key) &&
-                            typeof entry.updatedAt === 'number' &&
-                            entry.key[1] === scope.host &&
-                            entry.key[2] === scope.projectId
-                    )
+    private async read(scope: ReadCacheScope): Promise<ReadCacheEntry[]> {
+        const raw = await this.storage.getItem(cacheKey(scope))
+        if (!raw) return []
+        try {
+            const value: unknown = JSON.parse(raw)
+            if (!Array.isArray(value)) return []
+            return boundedEntries(
+                value.filter(
+                    (entry): entry is ReadCacheEntry =>
+                        !!entry &&
+                        typeof entry === 'object' &&
+                        Array.isArray(entry.key) &&
+                        typeof entry.updatedAt === 'number' &&
+                        entry.key[1] === scope.host &&
+                        entry.key[2] === scope.projectId
                 )
-            } catch {
-                return []
-            }
+            )
+        } catch {
+            return []
+        }
+    }
+
+    load(scope: ReadCacheScope): Promise<ReadCacheEntry[]> {
+        return this.enqueue(() => this.read(scope))
+    }
+
+    evict(scope: ReadCacheScope, rejected: (entry: ReadCacheEntry) => boolean): Promise<void> {
+        const generation = this.generation
+        return this.enqueue(async () => {
+            if (generation !== this.generation) return
+            const remaining = (await this.read(scope)).filter((entry) => !rejected(entry))
+            if (generation !== this.generation) return
+            if (remaining.length) await this.storage.setItem(cacheKey(scope), JSON.stringify(remaining))
+            else await this.storage.removeItem(cacheKey(scope))
         })
     }
 
