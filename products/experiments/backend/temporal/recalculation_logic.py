@@ -175,23 +175,34 @@ def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentM
         recalculation = ExperimentMetricsRecalculation.objects.select_related("experiment").get(id=recalculation_id)
         experiment = recalculation.experiment
 
-        team_experiments_config = get_or_create_team_extension(experiment.team, TeamExperimentsConfig)
+        # Deferred: recalculation.py imports temporal.models, whose package __init__ imports this module.
+        from products.experiments.backend.recalculation import _activity_task_queue  # noqa: PLC0415
+
+        # The same flag check as the start step, so an organization off the flag (or a failed check) keeps the
+        # AUTO mode on the run's queue and pays for no routing.
+        team_experiments_config = (
+            get_or_create_team_extension(experiment.team, TeamExperimentsConfig)
+            if _activity_task_queue(str(experiment.team.organization_id)) is not None
+            else None
+        )
         routes: dict[str, _CalcRoute] = {}
         metrics_to_recalculate = []
         # request_recalculation sets total_metrics from the same resolver, so the run's progress count
         # matches the metrics this activity schedules.
         for metric in get_metrics_for_calculation(experiment):
-            # Metrics that share a uuid share one definition, so they share one route.
-            route = routes.get(metric.uuid)
-            if route is None:
-                route = routes[metric.uuid] = _calc_route(experiment, team_experiments_config, metric.definition)
+            route: _CalcRoute | None = None
+            if team_experiments_config is not None:
+                # Metrics that share a uuid share one definition, so they share one route.
+                route = routes.get(metric.uuid)
+                if route is None:
+                    route = routes[metric.uuid] = _calc_route(experiment, team_experiments_config, metric.definition)
             metrics_to_recalculate.append(
                 ExperimentMetricToRecalculate(
                     experiment_id=experiment.id,
                     metric_uuid=metric.uuid,
                     role=metric.role,
-                    task_queue=route.task_queue,
-                    precomputation_mode=route.precomputation_mode,
+                    task_queue=route.task_queue if route is not None else None,
+                    precomputation_mode=route.precomputation_mode if route is not None else None,
                 )
             )
 

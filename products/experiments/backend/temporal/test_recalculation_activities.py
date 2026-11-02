@@ -218,12 +218,14 @@ class TestRecalculationActivities(BaseTest):
 
     @parameterized.expand(
         [
-            # name, team_enabled, runtime_hours, funnel_order_type, route_check_fails, expected route
-            ("eligible", True, 36, "ordered", False, "precompute-q", None),
-            ("team_disabled", False, 36, "ordered", False, "activity-q", PrecomputationMode.DIRECT),
-            ("below_min_runtime", True, 6, "ordered", False, "activity-q", PrecomputationMode.DIRECT),
-            ("metric_not_eligible", True, 36, "unordered", False, "activity-q", PrecomputationMode.DIRECT),
-            ("route_check_fails", False, 36, "ordered", True, "precompute-q", None),
+            # name, activity queue flag, team_enabled, runtime_hours, funnel_order_type, route_check_fails, expected route
+            ("eligible", "on", True, 36, "ordered", False, "precompute-q", None),
+            ("team_disabled", "on", False, 36, "ordered", False, "activity-q", PrecomputationMode.DIRECT),
+            ("below_min_runtime", "on", True, 6, "ordered", False, "activity-q", PrecomputationMode.DIRECT),
+            ("metric_not_eligible", "on", True, 36, "unordered", False, "activity-q", PrecomputationMode.DIRECT),
+            ("route_check_fails", "on", False, 36, "ordered", True, "precompute-q", None),
+            ("flag_off", "off", True, 36, "ordered", False, None, None),
+            ("flag_check_fails", "error", True, 36, "ordered", False, None, None),
         ]
     )
     @override_settings(
@@ -234,11 +236,12 @@ class TestRecalculationActivities(BaseTest):
     def test_discover_routes_each_metric(
         self,
         name: str,
+        flag: str,
         team_enabled: bool,
         runtime_hours: int,
         funnel_order_type: str,
         route_check_fails: bool,
-        expected_task_queue: str,
+        expected_task_queue: str | None,
         expected_mode: PrecomputationMode | None,
     ):
         exp = self._experiment(flag_key=f"route-{name}")
@@ -258,13 +261,26 @@ class TestRecalculationActivities(BaseTest):
         config.save()
         recalc = self._recalc(exp)
 
-        with patch(
-            "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner",
-            side_effect=Exception("boom") if route_check_fails else ExperimentQueryRunner,
+        with (
+            patch(
+                "products.experiments.backend.recalculation._organization_flag_enabled",
+                return_value=flag == "on",
+                side_effect=Exception("flags down") if flag == "error" else None,
+            ),
+            patch(
+                "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner",
+                side_effect=Exception("boom") if route_check_fails else ExperimentQueryRunner,
+            ) as runner,
+            patch(
+                "products.experiments.backend.temporal.recalculation_logic.get_or_create_team_extension",
+                wraps=get_or_create_team_extension,
+            ) as config_read,
         ):
             metrics = _discover(str(recalc.id))
 
         assert [(m.task_queue, m.precomputation_mode) for m in metrics] == [(expected_task_queue, expected_mode)]
+        assert runner.called is (flag == "on")
+        assert config_read.called is (flag == "on")
 
     @parameterized.expand(
         [
