@@ -75,6 +75,7 @@ Done when every number you report has its unit, denominator and window, and ever
 List the versions with `posthog:workflows-list-versions` and note when each went live. A workflow that was never republished has one version: the live `version` from `posthog:workflows-get`.
 Read each version with `posthog:workflows-version-stats` (`version=<n>`, `instance_id=<step id>`, `breakdown_by=name`, `interval=day`) to the end of the closed window.
 Start each version's read at 00:00 UTC on the day it went live, or on the start date of the metrics you report, whichever is later.
+When the workflow is older than version history, its oldest listed version has no author (`created_by` is empty). Version history stored that version at the first edit, so its time is when the next version replaced it, not when it went live. Start that version's read on the start date of the metrics you report.
 A run that started on the older version and sends after the newer one went live counts its email under the newer version. When the workflow has delay steps, say that the newer version's first days include people who entered on the older one.
 Opens and clicks keep the version that sent the email, so a replaced version still collects its late callbacks.
 Compare versions with each other only. The unversioned `posthog:workflows-stats` read keys batch and broadcast runs on the run, so it is not the sum of the versions.

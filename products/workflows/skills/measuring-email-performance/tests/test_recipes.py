@@ -92,6 +92,7 @@ class TestEmailPerformanceRecipes(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(sorted(_recipes()))
     def test_recipe_runs_as_written(self, recipe: str) -> None:
+        assert _recipes()[recipe].rstrip().endswith("LIMIT 500")
         self._run(recipe)
 
     def test_step_engagement_separates_tracked_sends_and_counts_people_once(self) -> None:

@@ -1,7 +1,7 @@
 # Email performance SQL recipes
 
 Run each recipe with `posthog:execute-sql`.
-The tool returns at most 500 rows, and 100 when a query sets no `LIMIT`, and it does not say when it cut rows. So a recipe that can return many rows sets `LIMIT 500`. When one returns exactly 500 rows, narrow the window, the runs or the versions, and run it again.
+The tool returns at most 500 rows, and 100 when a query sets no `LIMIT`, and it does not say when it cut rows. So every recipe sets `LIMIT 500`. When one returns exactly 500 rows, narrow the window, the runs or the versions, and run it again.
 **Step engagement**, **Engagement by version**, **Product outcome after the first send** and **One person's email history** read the captured `$workflows_email_*` events. They return nothing when no engagement events were captured for the workflow and window (see "Check the data exists" in the skill).
 The events carry the workflow id for every kind of workflow, broadcasts and batch runs included.
 
@@ -35,6 +35,7 @@ FROM (
     WHERE id = {workflow_id}
 )
 WHERE JSONExtractString(node, 'type') = 'function_email'
+LIMIT 500
 ```
 
 ### Step engagement
@@ -66,6 +67,7 @@ WHERE timestamp >= {window_start}
     AND properties.$workflow_id = {workflow_id}
 GROUP BY step
 ORDER BY sent DESC
+LIMIT 500
 ```
 
 The sent event carries `$email_tracking_enabled` from 2026-07-29. For a window that starts earlier, `tracked_sent` undercounts, so divide opens and clicks by the counters instead.
@@ -142,6 +144,7 @@ WHERE timestamp >= {window_start}
     AND properties.$workflow_action_id = {step_id}
 GROUP BY version
 ORDER BY toInt(version)
+LIMIT 500
 ```
 
 A row with no `version` holds callbacks whose message carried no version: sends from before versions were recorded, and messages whose version did not survive the provider's callback. Report it as unattributed, never as a version.
@@ -173,7 +176,7 @@ LIMIT 500
 
 `clicks` are occurrences. Link positions number the links in the email's HTML in order, from 0. An empty `link_index` holds clicks on links the email did not number. Report them as unnumbered links.
 The recipe returns no URLs, because the counter keeps short path segments and `mailto:` links unchanged, so a URL can hold a name or an address.
-Name the positions of the live version from its email content in `posthog:workflows-get`. A version can add, move or change a link, and no tool returns the content of an older version, so report the positions of older versions by number.
+A version can add, move or change a link, so name the positions of each version from its own email content: `posthog:workflows-get` for the live version, and `posthog:workflows-get-revision` for an older one. A version from before version history began has no stored content, so report its positions by number.
 The recipe reads the versioned series, so clicks whose message carried no version are missing. Start the window on or after the engagement start date in "Versioned counters have start dates" in the skill. For one broadcast or batch run, read the run's window, and say that the read also counts clicks of other runs in that window.
 For people per link position, count distinct `person_id` on `$workflows_email_link_clicked` grouped by `$workflow_version` and `$link_index`. Clickers overlap across positions, so never add them up into a count of people who clicked.
 
@@ -219,6 +222,7 @@ FROM (
         GROUP BY person_id
     )
 )
+LIMIT 500
 ```
 
 The outcome only counts when the email and the product events land on the same person.
