@@ -64,6 +64,9 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     # encrypted at rest.
     api_version = models.CharField(max_length=128, null=True, blank=True)
     job_inputs = EncryptedJSONField(null=True, blank=True)
+    # The integration row with the source's credentials: a legacy int id or a UUID, in the string form of
+    # `IntegrationReference`. No foreign key, because the rows move to a separate credentials service.
+    credentials_integration_id = models.CharField(max_length=64, null=True, blank=True)
     connection_metadata = models.JSONField(default=dict, blank=True, null=True)
     are_tables_created = models.BooleanField(default=False)
     prefix = models.CharField(max_length=100, null=True, blank=True)
@@ -92,6 +95,13 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     class Meta:
         db_table = "posthog_externaldatasource"
+        indexes = [
+            models.Index(
+                fields=["team", "credentials_integration_id"],
+                name="eds_team_credentials_int_idx",
+                condition=models.Q(credentials_integration_id__isnull=False),
+            ),
+        ]
 
     def merge_connection_metadata(self, metadata: dict[str, Any]) -> None:
         """Merge ``metadata`` into ``connection_metadata`` under a lock on this row.

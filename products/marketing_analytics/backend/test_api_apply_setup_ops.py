@@ -441,10 +441,10 @@ class TestApplySetupOpsFeatureFlag(APIBaseTest):
 
 
 class TestApplySetupOpsRequiresProjectAdmin(APIBaseTest):
-    """`marketing_analytics:write` resolves to `editor` (web_analytics' default level via
-    RESOURCE_INHERITANCE_MAP), which every project member has. Without an explicit admin
-    check this endpoint is a way around both the team PATCH gate on
-    marketing_analytics_config and the admin check the sibling goal endpoints carry."""
+    """`marketing_analytics:write` resolves to `editor` (the resource's default level),
+    which every project member has. Without an explicit admin check this endpoint is a
+    way around both the team PATCH gate on marketing_analytics_config and the admin
+    check the sibling goal endpoints carry."""
 
     def setUp(self):
         super().setUp()

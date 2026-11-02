@@ -3,10 +3,7 @@ import { Tooltip } from '@posthog/lemon-ui'
 
 import { visionDocsUrl } from './DocsLink'
 
-/**
- * The bar sits on every standard replay player, so it reaches people who have never heard of Replay
- * vision and meet the summarize button with no idea what it is or what it will spend.
- */
+/** The bar sits on every standard player, so it reaches people who have never heard of Replay vision. */
 export function SummarizeExplainer(): JSX.Element {
     return (
         <Tooltip

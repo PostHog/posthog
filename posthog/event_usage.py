@@ -433,6 +433,7 @@ AnalyticsProps = TypedDict(
         "$session_id": NotRequired[str | None],
         "was_impersonated": NotRequired[bool],
         "access_method": NotRequired[str | None],
+        "http_request_id": NotRequired[str],
         "user_agent": NotRequired[str | None],
         "mcp_user_agent": NotRequired[str | None],
         "mcp_client_name": NotRequired[str | None],

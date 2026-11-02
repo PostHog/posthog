@@ -65,11 +65,6 @@ jobs:
                       exit 1
                   fi
                   sh "$installer"
-            - name: Cache dist
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              with:
-                  name: cargo-dist-cache
-                  path: ~/.cargo/bin/dist
             # sure would be cool if github gave us proper conditionals...
             # so here's a doubly-nested ternary-via-truthiness to try to provide the best possible
             # functionality based on whether this is a pull_request, and whether it's from a fork.
@@ -84,6 +79,13 @@ jobs:
                   echo "dist ran successfully"
                   cat plan-dist-manifest.json
                   echo "manifest=$(jq -c "." plan-dist-manifest.json)" >> "$GITHUB_OUTPUT"
+            - name: Cache dist
+              id: cache-dist
+              if: ${{ fromJson(steps.plan.outputs.manifest).ci.github.artifacts_matrix.include[0] != null && fromJson(steps.plan.outputs.manifest).ci.github.pr_run_mode == 'upload' && (!github.event.pull_request || github.event.pull_request.head.repo.full_name == github.repository) }}
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: cargo-dist-cache
+                  path: ~/.cargo/bin/dist
             - name: 'Upload dist-manifest.json'
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:

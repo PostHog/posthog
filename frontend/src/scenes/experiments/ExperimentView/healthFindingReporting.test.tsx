@@ -35,6 +35,7 @@ const NO_EXPOSURES = {
 const exposureFinding = (code: string, title: string, actions: string[]): Record<string, unknown> => ({
     code,
     subcode: null,
+    reason: null,
     severity: 'warning',
     title,
     detail: title,
@@ -108,6 +109,7 @@ describe('health finding reporting', () => {
                 {
                     code: 'flag_off_while_running',
                     subcode: 'running_but_flag_disabled',
+                    reason: null,
                     severity: 'warning',
                     title: 'The experiment is paused',
                     detail: 'The linked feature flag is disabled while the experiment has not been ended.',
@@ -195,7 +197,7 @@ describe('health finding reporting', () => {
 
         const shown = captureSpy.mock.calls
             .filter(([event]) => event === 'experiment health finding shown')
-            .map(([, properties]) => [properties.finding_code, properties.finding_variant, properties.finding_severity])
+            .map(([, properties]) => [properties.finding_code, properties.finding_subcode, properties.finding_severity])
         expect(shown).toEqual([
             ['flag_off_while_running', 'running_but_flag_disabled', 'warning'],
             ['srm', null, 'warning'],

@@ -8250,15 +8250,16 @@ class TestWarehouseSourceIntegrationKind(APIBaseTest):
         )
 
     def _source_pointing_at(
-        self, integration: IntegrationRecord, team=None, deleted: bool = False, key: str = "linear_integration_id"
+        self, integration: IntegrationRecord, team=None, deleted: bool = False, by_column: bool = False
     ) -> ExternalDataSource:
         return ExternalDataSource.objects.create(
             team=team or self.team,
             source_id=str(uuid4()),
             connection_id=str(uuid4()),
             status="Completed",
-            source_type=ExternalDataSourceType.LINEAR,
-            job_inputs={key: integration.id},
+            source_type=ExternalDataSourceType.POSTGRES if by_column else ExternalDataSourceType.LINEAR,
+            job_inputs={} if by_column else {"linear_integration_id": integration.id},
+            credentials_integration_id=str(integration.id) if by_column else None,
             deleted=deleted,
         )
 
@@ -8315,7 +8316,7 @@ class TestWarehouseSourceIntegrationKind(APIBaseTest):
         self.organization_membership.save()
         row = self._credentials_row(kind, auth_type)
         if referenced:
-            source = self._source_pointing_at(row, key="credentials_integration_id")
+            source = self._source_pointing_at(row, by_column=True)
             source.prefix = "private_source_prefix"
             source.save(update_fields=["prefix"])
 

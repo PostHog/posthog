@@ -140,6 +140,9 @@ So every event in the tile that live will ever count is already counted, and `ma
 Without the fence, a tile could apply while an event it already counted is still waiting in the live topic.
 When that event arrived, live would add 1 on top of the tile and double count it.
 A shuffler stall longer than the margin can still cause that.
+This applies to both shufflers.
+When a run reads flag calls from `flag_evaluations`, a tile counts flag calls that reach the live path through `cohort-event-shuffler-realtime-only`.
+A stall of that shuffler alone opens the fence early in the same way.
 
 One residue remains.
 A late event that reaches ClickHouse after `S_chunk` is not in the tile.
@@ -303,5 +306,6 @@ A backlog, a failure or a slow catalog refresh makes it longer.
   So reconcile is dispatched long before most seeds apply, and the ordering on each partition is what keeps a reconcile behind its run's held seeds.
 - Reconcile requests are not fenced.
   A request that reaches a partition before the processor has loaded the cohort's current definition waits for the next catalog refresh, up to one refresh interval, and is withheld only if that refresh still disagrees.
-- Behavioral chunks are claimed newest day first across every run, so the older days of a long-window run wait behind the newer days of every other run.
-  They are claimed only once no newer day waits, so under sustained load the wait has no bound.
+- Behavioral claims share a replica's slots between teams first, then between a team's runs, and only then take the newest day.
+  A claim never takes a slot back, so a run that arrives while a heavy run holds every slot waits at least until one of that run's chunks ends.
+  When more teams wait than slots free, the newest day decides between them, so the older days of a long-window run can still wait behind the newer days of other runs.
