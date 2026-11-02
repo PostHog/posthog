@@ -212,7 +212,7 @@ MIDDLEWARE = [
     "posthog.middleware.EnvironmentsRewriteMiddleware",
     "posthog.middleware.CsrfOrKeyViewMiddleware",
     "posthog.middleware.QueryTimeCountingMiddleware",
-    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "posthog.middleware.AuthenticationMiddleware",
     # Must run immediately after AuthenticationMiddleware so downstream middleware
     # (activity logging, structlog binding, etc.) sees the swapped staff user on /admin/* paths.
     "posthog.middleware.AdminImpersonationMiddleware",
@@ -872,6 +872,7 @@ SPECTACULAR_SETTINGS = {
             "ConversationsRecentTicketsWidgetTypeEnum": ["conversations_recent_tickets"],
             "CanvasAppWidgetTypeEnum": ["canvas_app"],
             "MetricsTableWidgetTypeEnum": ["metrics_table"],
+            "MetricsWidgetTypeEnum": ["metrics"],
         }
     ),
 }

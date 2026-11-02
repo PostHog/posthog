@@ -636,6 +636,30 @@ const inboxReportsFeedbackCreate = (): ToolBase<
     },
 })
 
+const InboxReportsForMeSchema = () => {
+    const SignalsReportsForMeRetrieveQueryParams = orvalSchemas.SignalsReportsForMeRetrieveQueryParams()
+    return SignalsReportsForMeRetrieveQueryParams
+}
+
+const inboxReportsForMe = (): ToolBase<ReturnType<typeof InboxReportsForMeSchema>, Schemas.PersonalRanking> => ({
+    name: 'inbox-reports-for-me',
+    schema: InboxReportsForMeSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportsForMeSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PersonalRanking>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/for_me/`,
+            query: {
+                focus: params.focus,
+                limit: params.limit,
+                refresh: params.refresh,
+                wait_seconds: params.wait_seconds,
+            },
+        })
+        return result
+    },
+})
+
 const InboxReportsLeaveReviewersSchema = () => {
     const SignalsReportsReviewersMeCreateBody = orvalSchemas.SignalsReportsReviewersMeCreateBody()
     const SignalsReportsReviewersMeCreateParams = orvalSchemas.SignalsReportsReviewersMeCreateParams()
@@ -3635,6 +3659,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-reports-bulk-set-state': inboxReportsBulkSetState,
     'inbox-reports-claim': inboxReportsClaim,
     'inbox-reports-feedback-create': inboxReportsFeedbackCreate,
+    'inbox-reports-for-me': inboxReportsForMe,
     'inbox-reports-leave-reviewers': inboxReportsLeaveReviewers,
     'inbox-reports-list': inboxReportsList,
     'inbox-reports-merge': inboxReportsMerge,

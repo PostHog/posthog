@@ -26,9 +26,9 @@ import {
     warnSupportWidgetUnavailable,
 } from 'lib/components/Support/supportLogic'
 import { EMAIL_SUPPORT_BUTTON, lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
