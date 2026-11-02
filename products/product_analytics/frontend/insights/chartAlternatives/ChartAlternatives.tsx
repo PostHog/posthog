@@ -4,11 +4,11 @@ import { useRef } from 'react'
 import { LemonButton, Popover } from '@posthog/lemon-ui'
 
 import { ChartFilter } from 'lib/components/ChartFilter'
+import { ChartDisplayIcon } from 'lib/components/ChartFilter/ChartDisplayIcon'
 
 import type { InsightLogicProps } from '~/types'
 
 import { chartAlternativesLogic } from './chartAlternativesLogic'
-import { ChartDisplayIcon } from './ChartDisplayIcon'
 import { ChartGallery } from './ChartGallery'
 import { chartPreviewsLogic } from './chartPreviewsLogic'
 

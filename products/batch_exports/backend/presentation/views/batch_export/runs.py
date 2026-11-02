@@ -12,6 +12,12 @@ from rest_framework.exceptions import NotFound, ValidationError
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.models.integer_field_bounds import (
+    BIG_INTEGER_FIELD_MAX,
+    BIG_INTEGER_FIELD_MIN,
+    INTEGER_FIELD_MAX,
+    INTEGER_FIELD_MIN,
+)
 from posthog.utils import relative_date_parse
 
 from products.batch_exports.backend.facade import (
@@ -20,12 +26,6 @@ from products.batch_exports.backend.facade import (
 )
 from products.batch_exports.backend.facade.enums import BatchExportRunStatus
 from products.batch_exports.backend.presentation.views.batch_export.pagination import FacadeCursorPagination
-from products.batch_exports.backend.presentation.views.utils import (
-    BIG_INTEGER_MAX,
-    BIG_INTEGER_MIN,
-    INTEGER_MAX,
-    INTEGER_MIN,
-)
 
 
 class BatchExportRunSerializer(serializers.Serializer):
@@ -45,15 +45,15 @@ class BatchExportRunSerializer(serializers.Serializer):
     records_completed = serializers.IntegerField(
         required=False,
         allow_null=True,
-        min_value=INTEGER_MIN,
-        max_value=INTEGER_MAX,
+        min_value=INTEGER_FIELD_MIN,
+        max_value=INTEGER_FIELD_MAX,
         help_text="The number of records that have been exported.",
     )
     records_failed = serializers.IntegerField(
         required=False,
         allow_null=True,
-        min_value=INTEGER_MIN,
-        max_value=INTEGER_MAX,
+        min_value=INTEGER_FIELD_MIN,
+        max_value=INTEGER_FIELD_MAX,
         help_text="The number of records that failed downstream processing (e.g. hog function execution errors).",
     )
     latest_error = serializers.CharField(
@@ -79,15 +79,15 @@ class BatchExportRunSerializer(serializers.Serializer):
     records_total_count = serializers.IntegerField(
         required=False,
         allow_null=True,
-        min_value=INTEGER_MIN,
-        max_value=INTEGER_MAX,
+        min_value=INTEGER_FIELD_MIN,
+        max_value=INTEGER_FIELD_MAX,
         help_text="The total count of records that should be exported in this BatchExportRun.",
     )
     bytes_exported = serializers.IntegerField(
         required=False,
         allow_null=True,
-        min_value=BIG_INTEGER_MIN,
-        max_value=BIG_INTEGER_MAX,
+        min_value=BIG_INTEGER_FIELD_MIN,
+        max_value=BIG_INTEGER_FIELD_MAX,
         help_text="The number of bytes that have been exported in this BatchExportRun.",
     )
     batch_export = serializers.UUIDField(

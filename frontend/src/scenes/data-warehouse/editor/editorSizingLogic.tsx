@@ -1,6 +1,6 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
-import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
+import { ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
 
 export interface EditorSizingLogicProps {
     /** Scopes the pane sizes. Notebook cells pass their tab id so each cell resizes on its own. */

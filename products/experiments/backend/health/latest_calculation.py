@@ -3,6 +3,7 @@ from typing import Any
 
 from posthog.exceptions_capture import capture_exception
 
+from products.experiments.backend.facade.enums import ExposuresPath
 from products.experiments.backend.health.context import LatestCalculation, MetricCalculationFailure
 from products.experiments.backend.health.metric_compiles import can_hold_evaluation_rules, without_available_fields
 from products.experiments.backend.metric_calculation.config import (
@@ -43,19 +44,38 @@ def _load_latest_calculation(experiment: Experiment) -> LatestCalculation:
     # failures, or else the run in progress, whose errors can still change, so the check waits for a finished run.
     run = get_latest_recalculation(experiment)
     if run is None:
-        return LatestCalculation(metric_count=len(configs), finished_at=None, failures=())
+        return LatestCalculation(
+            metric_count=len(configs),
+            finished_at=None,
+            failures=(),
+            completed_count=0,
+            completed_exposures_paths=frozenset(),
+        )
     metric_errors = run.metric_errors if isinstance(run.metric_errors, dict) else {}
-    rows = {
-        row.metric_uuid: row for row in MetricResultStore(experiment_id=experiment.id).for_run(run, with_result=False)
-    }
-    failures = (
-        _shown_failure(experiment, calculation_config, metric_errors.get(metric_id), rows.get(metric_id))
+    results = MetricResultStore(experiment_id=experiment.id)
+    rows = {row.metric_uuid: row for row in results.for_run(run, with_result=False)}
+    failures = tuple(
+        failure
         for metric_id, calculation_config in configs.items()
+        if (
+            failure := _shown_failure(experiment, calculation_config, metric_errors.get(metric_id), rows.get(metric_id))
+        )
+        is not None
     )
+    failed = {failure.metric_id for failure in failures}
+    completed = [
+        row
+        for metric_id in configs
+        if metric_id not in failed
+        and (row := rows.get(metric_id)) is not None
+        and row.status == ExperimentMetricResult.Status.COMPLETED
+    ]
     return LatestCalculation(
         metric_count=len(configs),
         finished_at=run.completed_at,
-        failures=tuple(failure for failure in failures if failure is not None),
+        failures=failures,
+        completed_count=len(completed),
+        completed_exposures_paths=results.exposures_paths(completed) if failures else frozenset(),
     )
 
 
@@ -81,6 +101,7 @@ def _shown_failure(
         return None
     error_type = error.get("error_type")
     step = error.get("step")
+    exposures_path = error.get("exposures_path")
     return MetricCalculationFailure(
         metric_id=calculation_config.metric_id,
         name=calculation_metric_name(experiment, calculation_config),
@@ -91,4 +112,7 @@ def _shown_failure(
         can_quote_evaluation_rules=can_hold_evaluation_rules(calculation_config.definition),
         retriable=error.get("retriable") is True,
         definition=calculation_config.definition,
+        exposures_path=ExposuresPath(exposures_path)
+        if isinstance(exposures_path, str) and exposures_path in ExposuresPath
+        else None,
     )

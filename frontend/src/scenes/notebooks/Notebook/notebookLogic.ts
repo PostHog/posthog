@@ -55,9 +55,9 @@ import {
     openNotebook,
 } from '~/models/notebooksModel'
 import { RESPONSE_CACHE_TTL } from '~/queries/nodes/DataNode/responseCache'
+import { isHogQLQuery } from '~/queries/schema/node-guards'
 import type { NotebookArtifactContent } from '~/queries/schema/schema-assistant-messages'
 import { AnyResponseType } from '~/queries/schema/schema-general'
-import { isHogQLQuery } from '~/queries/utils'
 import {
     AccessControlLevel,
     InsightModel,
