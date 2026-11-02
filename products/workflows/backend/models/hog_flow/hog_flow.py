@@ -10,15 +10,12 @@ from django.utils.functional import Promise
 
 import structlog
 
-from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.tagged_items_relation import Taggable
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel
-from posthog.ph_client import ph_scoped_capture
 from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers
-from posthog.utils import get_instance_region
 
 from products.actions.backend.models.action import Action
 from products.workflows.backend.facade.enums import (
@@ -356,21 +353,15 @@ def _reload_batch_on_workers(team_id: int, hog_flow_ids: list[str]) -> None:
                 capture_exception(e)
 
 
-def report_workflow_created(team_id: int, workflow_id: str, origin_product: str | None, actions_count: int) -> None:
+def _enqueue_workflow_created_report(
+    team_id: int, workflow_id: str, origin_product: str | None, actions_count: int
+) -> None:
+    from products.workflows.backend.tasks.hog_flows import report_workflow_created  # noqa: PLC0415
+
     try:
-        team = Team.objects.only("uuid", "organization_id").get(id=team_id)
-        # raise_on_error surfaces SDK upload failures at exit, so the handler below logs them with the workflow.
-        with ph_scoped_capture(event_region=get_instance_region(), raise_on_error=True) as capture:
-            capture(
-                distinct_id=str(team.uuid),
-                event="workflows workflow created",
-                properties={
-                    "workflow_id": workflow_id,
-                    "origin_product": origin_product,
-                    "actions_count": actions_count,
-                },
-                groups=groups(team=team),
-            )
+        report_workflow_created.delay(
+            team_id=team_id, hog_flow_id=workflow_id, origin_product=origin_product, actions_count=actions_count
+        )
     except Exception:
         logger.exception("Failed to report workflow creation", team_id=team_id, workflow_id=workflow_id)
 
@@ -383,7 +374,7 @@ def hog_flow_saved(sender, instance: HogFlow, created, update_fields=None, using
         origin_product = instance.origin_product
         actions_count = len(instance.actions or [])
         transaction.on_commit(
-            lambda: report_workflow_created(team_id, workflow_id, origin_product, actions_count), using=using
+            lambda: _enqueue_workflow_created_report(team_id, workflow_id, origin_product, actions_count), using=using
         )
     # Draft columns don't affect live execution, so workers don't need a config reload for them.
     if update_fields and set(update_fields) <= {"draft", "draft_updated_at"}:
