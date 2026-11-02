@@ -30,7 +30,7 @@ Node writes lone surrogates as `\udXXX`, and serde_json rejects them.
 | `internal-logs.ts`                                                                            | `internal_logs`   | Done                                        |
 | `pipeline/log-processing-pipeline.ts`                                                         | `content_weights` | Done                                        |
 | `services/logs-rate-limiter.service.ts`, `common/services/keyed-rate-limiter.service.ts`     | `rate_limiter`    | Done (Redis behind `TokenBucketRedis`)      |
-| `pipeline/*.ts`, `logs-ingestion-consumer.ts`, `traces-ingestion-consumer.ts`                 | `pipeline`        | Stub (needs `rust/ingestion-framework`)     |
+| `pipeline/*.ts`, `logs-ingestion-consumer.ts`, `traces-ingestion-consumer.ts`, `processLogMessageBuffer`, `app-metrics-aggregator.ts` | `pipeline` | Done (hog transformations: trait slot only) |
 
 ## API
 
@@ -207,6 +207,15 @@ Each rule has evidence in Node, and a test that pins it.
 A parsed `FilterGroupNode` implements `metric_rules::FilterGroupMatcher` with `filter_group::match_filter_group`.
 `compile_metric_rules_with` takes another `FilterGroupParser`.
 
+### `pipeline`
+
+- `LogsIngestionConsumer::new(identity, config, deps)` with `LogsConsumerIdentity::logs()` or `::traces()`, and `LogsIngestionConsumerConfig::from_logs_config` or `::from_traces_config` (the overrides `TracesIngestionConsumer` applies).
+- `process_kafka_batch(messages) -> ProcessedBatch { messages, background_task }` is `processKafkaBatch`: parse and admission run before it returns, processing and finalize run in the background task.
+- The pipelines match the Node shapes: parse is `per_element(settled parse)` then a fail-on-parse-error chunk step; admission is five chunk steps; processing is `per_element(process, 50)` then a fail-pass chunk step. Each is built per batch.
+- Dependencies are traits in `pipeline::deps`. The caller passes the token-bucket transport, the Redis key root and the clock, so a test can pin all three.
+- `pipeline::scenario` builds a consumer from a parity scenario with the in-memory dependencies of `parity-harness.ts`. `tests/parity_corpus.rs` replays all scenarios with it; `PARITY_SCENARIO=<name>` runs one.
+- `src/bin/logs-ingestion-bench.rs` runs a workload in the same format and prints the Node benchmark's result JSON.
+
 ## Not reproduced
 
 - **Writer schemas that fail to parse.** avsc's error text comes from `JSON.parse` or `Type.forSchema`. Capture always writes a valid schema.
@@ -221,6 +230,9 @@ A parsed `FilterGroupNode` implements `metric_rules::FilterGroupMatcher` with `f
 
 - **`hash01FromTraceId` with no trace id.** Node uses `Math.random()`; the port uses `rand`. No vector can pin it.
 - **RE2 program size limits.** RE2 rejects a program over `max_mem` (8 MiB) and the `regex` crate has its own size and nesting limits (nesting set to 1000; RE2 has none), so a very large pattern can compile in one engine only. The Unicode table versions of the vendored RE2 and the `regex` crate can also differ.
+- **Hog log transformations.** `LogsTransformer` is the stage slot; no implementation runs hog yet, and no scenario covers transformations.
+- **A Kafka header with a null value.** `parseKafkaHeaders` would throw on it in Node; this port reads it as an empty string.
+- **The OpenTelemetry usage counters** (`recordLogsReceived` and the others in `ingestion-otel-metrics.ts`). The Prometheus counters are ported.
 - **`re2_objects_created_total`.** The tracked-RE2 allocation counter and its LRU cache are not ported; they do not change a result.
 - **The sampling and retention rules caches** (`sampling-rules-cache.ts`, `retention-rules-cache.ts`, `tracing-config-cache.ts`). The compilers take rows.
 
