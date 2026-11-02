@@ -464,12 +464,19 @@ def _union_refusal(node: ast.SelectQuery, scan: EventsScan, position: int) -> st
     return None
 
 
+@frozen
+class _FlagCallScan:
+    position: int
+    scan: EventsScan
+    literals: list[ast.Constant]
+
+
 def _flag_call_scans(
     node: ast.SelectQuery, flag_key_compares_as_string: Callable[[], bool], ctes: frozenset[str]
-) -> list[tuple[int, EventsScan, list[ast.Constant]]]:
+) -> list[_FlagCallScan]:
     """Each `events` scan in the FROM chain of `node` whose query names `$feature_flag_called`, with its position and
     the literals that name it."""
-    scans: list[tuple[int, EventsScan, list[ast.Constant]]] = []
+    scans: list[_FlagCallScan] = []
     join = node.select_from
     position = 0
     while join is not None:
@@ -492,7 +499,7 @@ def _flag_call_scans(
             )
             literals = _flag_call_literals(node, scan) if scan is not None else []
             if scan is not None and literals:
-                scans.append((position, scan, literals))
+                scans.append(_FlagCallScan(position=position, scan=scan, literals=literals))
         join = join.next_join
         position += 1
     return scans
@@ -715,7 +722,8 @@ class _UnionRenamer(ScanVisitor):
 
     def visit_scan_query(self, node: ast.SelectQuery) -> None:
         # Only the first scan can be renamed, and it comes first, so each refusal reads the query as written.
-        for position, scan, literals in _flag_call_scans(node, self.flag_key_compares_as_string, self.ctes):
+        for found in _flag_call_scans(node, self.flag_key_compares_as_string, self.ctes):
+            position, scan, literals = found.position, found.scan, found.literals
             if position == 0 and self._reads_only_flag_calls(node, scan):
                 continue
             refusal = _union_refusal(node, scan, position)
