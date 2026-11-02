@@ -1,6 +1,9 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -29,6 +32,14 @@ class CompanycamEndpointConfig:
     # False for endpoints the docs show no page/per_page params for (ChecklistTemplates returns
     # a company's full template list in one response).
     paginated: bool = True
+    # Set for child resources CompanyCam only exposes per parent (e.g. labels under a project).
+    fanout: Optional[DependentEndpointConfig] = None
+    # Off by default for fan-outs that cost one request per parent row on every sync.
+    should_sync_default: bool = True
+    page_size: int = PER_PAGE
+    # Read by the fan-out helper's FanoutEndpointLike protocol. Every fan-out child here is full
+    # refresh, so it is never used to build an incremental request.
+    default_incremental_field: Optional[str] = None
 
 
 def _incremental_field(field_name: str) -> list[IncrementalField]:
@@ -40,6 +51,16 @@ def _incremental_field(field_name: str) -> list[IncrementalField]:
             "field_type": IncrementalFieldType.Integer,
         },
     ]
+
+
+def _project_fanout() -> DependentEndpointConfig:
+    return DependentEndpointConfig(
+        parent_name="Projects",
+        resolve_param="project_id",
+        resolve_field="id",
+        include_from_parent=["id"],
+        parent_field_renames={"id": "project_id"},
+    )
 
 
 COMPANYCAM_ENDPOINTS: dict[str, CompanycamEndpointConfig] = {
@@ -85,10 +106,47 @@ COMPANYCAM_ENDPOINTS: dict[str, CompanycamEndpointConfig] = {
         path="/templates/checklists",
         paginated=False,
     ),
+    # Fan-out children. The child rows carry no parent reference, so the parent id is injected and
+    # kept in the primary key: the same user, label, or tag appears under many parents.
+    "ProjectAssignedUsers": CompanycamEndpointConfig(
+        name="ProjectAssignedUsers",
+        path="/projects/{project_id}/assigned_users",
+        primary_keys=["project_id", "id"],
+        fanout=_project_fanout(),
+    ),
+    "ProjectLabels": CompanycamEndpointConfig(
+        name="ProjectLabels",
+        path="/projects/{project_id}/labels",
+        primary_keys=["project_id", "id"],
+        fanout=_project_fanout(),
+    ),
+    "ProjectDocuments": CompanycamEndpointConfig(
+        name="ProjectDocuments",
+        path="/projects/{project_id}/documents",
+        primary_keys=["project_id", "id"],
+        fanout=_project_fanout(),
+    ),
+    "PhotoTags": CompanycamEndpointConfig(
+        name="PhotoTags",
+        path="/photos/{photo_id}/tags",
+        primary_keys=["photo_id", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="Photos",
+            resolve_param="photo_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "photo_id"},
+        ),
+        should_sync_default=False,
+    ),
 }
 
 ENDPOINTS = tuple(COMPANYCAM_ENDPOINTS.keys())
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in COMPANYCAM_ENDPOINTS.items()
+}
+
+SHOULD_SYNC_DEFAULT: dict[str, bool] = {
+    name: config.should_sync_default for name, config in COMPANYCAM_ENDPOINTS.items()
 }

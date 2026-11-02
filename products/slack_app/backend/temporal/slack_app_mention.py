@@ -15,7 +15,6 @@ from products.slack_app.backend.temporal import (
     mark_slack_app_message_queued_activity,
     post_posthog_code_internal_error_activity,
 )
-from products.slack_app.backend.temporal.activities.task_creation import MENTION_WORKFLOW_ID_PREFIX
 from products.slack_app.backend.temporal.slack_app_mention_processing import SlackAppMentionProcessingWorkflow
 from products.slack_app.backend.temporal.types import (
     PostHogCodeSlackMentionWorkflowInputs,
@@ -24,11 +23,6 @@ from products.slack_app.backend.temporal.types import (
 )
 
 SLACK_APP_MENTION_IDLE_TIMEOUT_SECONDS = 30
-# deprecate_patch keeps runs that recorded the rename marker replayable.
-_PATCH_ID_MENTION_PROCESSING_RENAME = "slack-app-mention-processing-rename-2026-10"
-# Runs that started a child before this patch replay the child under its legacy workflow ID.
-_PATCH_ID_MENTION_PROCESSING_ID_RENAME = "slack-app-mention-processing-id-rename-2026-10"
-_LEGACY_MENTION_WORKFLOW_ID_PREFIX = "posthog-code-mention-"
 # Dedup keys carried across continue_as_new. Bounded so the carry-over payload
 # stays small; old keys only matter for Slack retries, which arrive within
 # minutes of the original event.
@@ -97,10 +91,6 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
 
     def _seed(self, inputs: SlackAppMentionWorkflowInputs) -> None:
         for key in inputs.processed_event_keys:
-            # Keys carried over by continue_as_new before the ID rename use the legacy prefix.
-            # Map them to the current prefix so that a Slack retry of a carried message stays deduped.
-            if key.startswith(_LEGACY_MENTION_WORKFLOW_ID_PREFIX):
-                key = MENTION_WORKFLOW_ID_PREFIX + key.removeprefix(_LEGACY_MENTION_WORKFLOW_ID_PREFIX)
             self._seen_keys[key] = None
         for message in inputs.pending_messages:
             self._seen_keys.setdefault(derive_mention_workflow_id(message), None)
@@ -130,12 +120,12 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
 
     async def _react(self, message: PostHogCodeSlackMentionWorkflowInputs, reaction_activity: Any) -> None:
         """Run one of the reaction activities for a mention or DM. Untagged
-        thread followups get no reactions — they were never addressed to the
-        bot, and most are dropped by the chitchat classifier.
+        thread followups and untagged questions get no reactions,
+        because nobody addressed them to the bot and a classifier drops most of them.
         """
         channel = message.event.get("channel")
         message_ts = message.event.get("ts")
-        if message.untagged_followup or not channel or not message_ts:
+        if message.untagged_followup or message.untagged_question or not channel or not message_ts:
             return
         try:
             await workflow.execute_activity(
@@ -165,7 +155,7 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
         """
         channel = message.event.get("channel")
         thread_ts = message.event.get("thread_ts") or message.event.get("ts")
-        if message.untagged_followup or not channel or not thread_ts:
+        if message.untagged_followup or message.untagged_question or not channel or not thread_ts:
             return
         try:
             await workflow.execute_activity(
@@ -186,10 +176,7 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
         ALLOW_DUPLICATE mirrors the standalone dispatch's reuse policy for
         retries that outlive this instance's dedup keys.
         """
-        workflow.deprecate_patch(_PATCH_ID_MENTION_PROCESSING_RENAME)
         child_id = derive_mention_workflow_id(message)
-        if not workflow.patched(_PATCH_ID_MENTION_PROCESSING_ID_RENAME):
-            child_id = _LEGACY_MENTION_WORKFLOW_ID_PREFIX + child_id.removeprefix(MENTION_WORKFLOW_ID_PREFIX)
         try:
             # The default parent close policy (terminate) is deliberate: an
             # operator killing this queue means "stop this conversation", so

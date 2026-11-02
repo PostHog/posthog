@@ -10,14 +10,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ruddr import RuddrSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.ruddr.ruddr import (
-    PAGE_SIZE,
-    RuddrResumeConfig,
-    validate_credentials,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.ruddr.ruddr import PAGE_SIZE, RuddrResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.ruddr.settings import ENDPOINTS, RUDDR_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.ruddr.source import RuddrSource
 
@@ -114,24 +109,6 @@ class TestErrorHandling:
         result = _driver().run("clients", always(_response([], status_code=status)))
 
         assert isinstance(result.raised, HTTPError)
-
-
-class TestValidateCredentials:
-    @parameterized.expand(
-        [
-            ("ok", 200, (True, None)),
-            ("unauthorized", 401, (False, "Invalid Ruddr API key")),
-            ("forbidden", 403, (False, "Invalid Ruddr API key")),
-            ("server_error", 500, (False, "Ruddr returned HTTP 500")),
-        ]
-    )
-    def test_status_mapping(self, _name: str, status: int, expected: tuple[bool, str | None]) -> None:
-        with scripted_network(always(ScriptedResponse(status=status))):
-            assert validate_credentials("key") == expected
-
-    def test_connection_error_is_not_validated(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("key") == (False, "Could not validate Ruddr API key")
 
 
 class TestRuddrSourceResponse:

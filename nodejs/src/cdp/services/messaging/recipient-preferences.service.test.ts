@@ -168,6 +168,22 @@ describe('RecipientPreferencesService', () => {
                 )
             })
 
+            it.each([
+                ['the same category', '123e4567-e89b-12d3-a456-426614174000', 'opted_out'],
+                ['all marketing', '$all', 'opted_out'],
+                ['another category', '00000000-0000-4000-8000-000000000000', null],
+            ])('uses an opt-out this run made for %s before the cache', async (_name, categoryId, expected) => {
+                const action = createEmailAction('test@example.com', '123e4567-e89b-12d3-a456-426614174000')
+                const invocation = createFunctionStepInvocation(action)
+                mockRecipientsManagerGet.mockResolvedValue(null)
+
+                const result = await service.shouldSkipAction(invocation, action, [
+                    { identifier: 'test@example.com', categoryId },
+                ])
+
+                expect(result).toBe(expected)
+            })
+
             it('should return false if recipient is opted in', async () => {
                 const action = createEmailAction('test@example.com', '123e4567-e89b-12d3-a456-426614174000')
                 const invocation = createFunctionStepInvocation(action)
@@ -232,17 +248,20 @@ describe('RecipientPreferencesService', () => {
                 loggerSpy.mockRestore()
             })
 
-            it('should throw error if no email identifier is found', async () => {
+            it('should not skip when no email identifier is found, so the send records the missing recipient', async () => {
                 const action = createEmailAction('', '123e4567-e89b-12d3-a456-426614174000')
                 const invocation = createFunctionStepInvocation(action)
 
-                await expect(service.shouldSkipAction(invocation, action)).rejects.toThrow(
-                    `No recipient identifier found for message action [Action:${action.id}]. Check that the message 'to' field is set correctly for this person.`
-                )
+                await expect(service.shouldSkipAction(invocation, action)).resolves.toBeNull()
+                expect(mockRecipientsManagerGet).not.toHaveBeenCalled()
             })
 
-            it('should return true if recipient is opted out of all marketing messaging', async () => {
-                const action = createEmailAction('test@example.com', '123e4567-e89b-12d3-a456-426614174000')
+            it.each([
+                ['an existing category', '123e4567-e89b-12d3-a456-426614174000'],
+                ['no category', ''],
+                ['a category created after the opt-out', '123e4567-e89b-12d3-a456-426614174001'],
+            ])('should block globally opted-out recipients for %s', async (_name, categoryId) => {
+                const action = createEmailAction('test@example.com', categoryId)
                 const invocation = createFunctionStepInvocation(action)
                 const recipient = createRecipient('test@example.com', {
                     '123e4567-e89b-12d3-a456-426614174000': 'OPTED_IN', // Opted in for this category
@@ -250,8 +269,6 @@ describe('RecipientPreferencesService', () => {
                 })
 
                 mockRecipientsManagerGet.mockResolvedValue(recipient)
-                mockRecipientsManagerGetPreference.mockReturnValue('OPTED_IN')
-                mockRecipientsManagerGetAllMarketingMessagingPreference.mockReturnValue('OPTED_OUT')
 
                 const result = await service.shouldSkipAction(invocation, action)
 
@@ -351,100 +368,67 @@ describe('RecipientPreferencesService', () => {
             })
 
             describe('when the recipient is on the suppression list', () => {
-                // Suppression is a deliverability signal that must apply even to transactional
-                // messages — the parameterized case guards that ordering.
-                const insertSuppressionRow = async (email: string): Promise<void> => {
+                // A hard bounce must block even transactional messages, ahead of the transactional
+                // opt-out bypass. Soft bounces alone must not.
+                const insertSuppressionRow = async (email: string, hardBounced = false): Promise<void> => {
                     await hub.postgres.query(
                         PostgresUse.COMMON_WRITE,
                         `INSERT INTO posthog_messagesuppression
                             (id, team_id, identifier, source, reason, transient_bounce_count,
-                             suppressed, suppressed_at, deleted, created_at, updated_at)
+                             suppressed, suppressed_at, deleted, created_at, updated_at, hard_bounced_at)
                          VALUES (gen_random_uuid(), $1, $2, 'BOUNCE', 'test row', 5,
-                             true, NOW(), false, NOW(), NOW())`,
-                        [team.id, email],
+                             true, NOW(), false, NOW(), NOW(), CASE WHEN $3 THEN NOW() END)`,
+                        [team.id, email, hardBounced],
                         'test-insert-suppression'
                     )
                 }
 
                 it.each([
-                    ['marketing', 'marketing' as const],
-                    ['transactional', 'transactional' as const],
-                ])('skips a %s email to a suppressed recipient', async (_label, categoryType) => {
-                    const email = `suppressed-${categoryType}@example.com`
-                    await insertSuppressionRow(email)
+                    ['skips a marketing email after soft bounces', 'marketing' as const, false, 'suppressed'],
+                    ['sends a transactional email after soft bounces', 'transactional' as const, false, null],
+                    ['skips a transactional email after a hard bounce', 'transactional' as const, true, 'suppressed'],
+                ])('%s', async (_label, categoryType, hardBounced, expected) => {
+                    const email = `suppressed-${categoryType}-${hardBounced}@example.com`
+                    await insertSuppressionRow(email, hardBounced)
                     const action = createEmailAction(email, '123e4567-e89b-12d3-a456-426614174000', categoryType)
                     const invocation = createFunctionStepInvocation(action)
 
                     const result = await service.shouldSkipAction(invocation, action)
 
-                    expect(result).toBe('suppressed')
+                    expect(result).toBe(expected)
                 })
 
-                // A suppressed address placed in cc or bcc must still block the send, because SES
-                // delivers to every recipient list, not just `to`.
+                // Suppressed cc and bcc addresses are removed at send time, and a deliverable cc address
+                // replaces a suppressed `to`. The step is skipped only when no cc address is left.
                 it.each([
-                    ['cc', 'suppressed-cc@example.com', 'suppressed-cc@example.com'],
-                    ['bcc', 'suppressed-bcc@example.com', 'suppressed-bcc@example.com'],
+                    ['a suppressed cc', 'legit-to@example.com', { cc: 'suppressed-cc@example.com' }, null],
+                    ['a suppressed bcc', 'legit-to@example.com', { bcc: 'suppressed-bcc@example.com' }, null],
                     [
-                        'cc RFC-822 bracketed',
-                        'suppressed-name@example.com',
-                        '"Blocked User" <suppressed-name@example.com>',
+                        'a suppressed to with a deliverable cc',
+                        'suppressed-to@example.com',
+                        { cc: 'ok@example.com' },
+                        null,
                     ],
                     [
-                        'bcc mixed comma-separated list',
-                        'suppressed-mixed@example.com',
-                        'ok@example.com, suppressed-mixed@example.com, other@example.com',
+                        'a suppressed to with only bcc left',
+                        'suppressed-to@example.com',
+                        { bcc: 'ok@example.com' },
+                        'suppressed',
                     ],
-                ] as const)(
-                    'skips when a suppressed address appears in %s',
-                    async (field, suppressedEmail, headerValue) => {
-                        await insertSuppressionRow(suppressedEmail)
-                        const action = createEmailAction(
-                            'legit-to@example.com',
-                            '123e4567-e89b-12d3-a456-426614174000',
-                            'marketing'
-                        )
-                        const invocation = createFunctionStepInvocation(action)
-                        // Inject the cc/bcc into the resolved invocation inputs (this is what the
-                        // executor sees at send time after template resolution).
-                        const emailInputs = invocation.state.globals!.inputs!.email as {
-                            to: { email: string }
-                            cc?: string
-                            bcc?: string
-                        }
-                        if (field.startsWith('cc')) {
-                            emailInputs.cc = headerValue
-                        } else {
-                            emailInputs.bcc = headerValue
-                        }
-
-                        const result = await service.shouldSkipAction(invocation, action)
-
-                        expect(result).toBe('suppressed')
-                    }
-                )
-
-                it('does not skip when cc/bcc contain only non-suppressed addresses', async () => {
-                    // Sanity check: the CC/BCC scan must not over-suppress. `to` is not suppressed
-                    // and cc/bcc contain unrelated addresses → fall through to the opt-out path.
-                    const action = createEmailAction(
-                        'legit-to@example.com',
-                        '123e4567-e89b-12d3-a456-426614174000',
-                        'marketing'
-                    )
+                ] as const)('handles %s', async (_label, to, extraInputs, expected) => {
+                    await insertSuppressionRow('suppressed-cc@example.com')
+                    await insertSuppressionRow('suppressed-bcc@example.com')
+                    await insertSuppressionRow('suppressed-to@example.com')
+                    const action = createEmailAction(to, '123e4567-e89b-12d3-a456-426614174000', 'marketing')
                     const invocation = createFunctionStepInvocation(action)
-                    const emailInputs = invocation.state.globals!.inputs!.email as {
-                        to: { email: string }
-                        cc?: string
-                        bcc?: string
-                    }
-                    emailInputs.cc = 'ok1@example.com, ok2@example.com'
-                    emailInputs.bcc = 'ok3@example.com'
+                    // Inject the cc/bcc into the resolved invocation inputs (this is what the
+                    // executor sees at send time after template resolution).
+                    Object.assign(invocation.state.globals!.inputs!.email as object, extraInputs)
                     mockRecipientsManagerGet.mockResolvedValue(null)
 
                     const result = await service.shouldSkipAction(invocation, action)
 
-                    expect(result).toBeNull()
+                    expect(result).toBe(expected)
                 })
             })
         })
@@ -610,30 +594,43 @@ describe('RecipientPreferencesService', () => {
                 expect(mockRecipientsManagerGet).not.toHaveBeenCalled()
             })
 
-            it('keys the opt-out on the delivered-to person, not the triggering event', async () => {
-                // Delivery reads the device token from globals.person, so the opt-out must check that same
-                // person even when the triggering event distinct_id differs (e.g. a configured inputs.distinctId).
-                const action = createPushAction('123e4567-e89b-12d3-a456-426614174000', 'marketing')
-                const invocation = createFunctionStepInvocation(action)
-                invocation.state.globals.person!.distinct_id = 'delivered-person'
-                invocation.state.globals.event!.distinct_id = 'trigger-person'
+            it.each([
+                ['no Distinct ID input', undefined, 'delivered-person', 'function_push'],
+                ['the run event distinct_id', 'trigger-person', 'delivered-person', 'function_push'],
+                ['another person', ' named-user ', 'named-user', 'function_push'],
+                [
+                    'another person, from a generic function step on the push template',
+                    'named-user',
+                    'named-user',
+                    'function',
+                ],
+            ] as const)(
+                'keys the opt-out on the person the push is delivered to, for %s',
+                async (_, distinctIdInput, expected, stepType) => {
+                    const pushAction = createPushAction('123e4567-e89b-12d3-a456-426614174000', 'marketing')
+                    const action = (stepType === 'function' ? { ...pushAction, type: 'function' } : pushAction) as any
+                    const invocation = createFunctionStepInvocation(action)
+                    invocation.state.globals.person!.distinct_id = 'delivered-person'
+                    invocation.state.globals.event!.distinct_id = 'trigger-person'
+                    invocation.state.globals.inputs.distinctId = distinctIdInput
 
-                mockRecipientsManagerGet.mockResolvedValue(
-                    createRecipient('delivered-person', {
-                        '123e4567-e89b-12d3-a456-426614174000': 'OPTED_OUT',
+                    mockRecipientsManagerGet.mockResolvedValue(
+                        createRecipient(expected, {
+                            '123e4567-e89b-12d3-a456-426614174000': 'OPTED_OUT',
+                        })
+                    )
+                    mockRecipientsManagerGetPreference.mockReturnValue('OPTED_OUT')
+                    mockRecipientsManagerGetAllMarketingMessagingPreference.mockReturnValue('NO_PREFERENCE')
+
+                    const result = await service.shouldSkipAction(invocation, action)
+
+                    expect(result).toBe('opted_out')
+                    expect(mockRecipientsManagerGet).toHaveBeenCalledWith({
+                        teamId: team.id,
+                        identifier: expected,
                     })
-                )
-                mockRecipientsManagerGetPreference.mockReturnValue('OPTED_OUT')
-                mockRecipientsManagerGetAllMarketingMessagingPreference.mockReturnValue('NO_PREFERENCE')
-
-                const result = await service.shouldSkipAction(invocation, action)
-
-                expect(result).toBe('opted_out')
-                expect(mockRecipientsManagerGet).toHaveBeenCalledWith({
-                    teamId: team.id,
-                    identifier: 'delivered-person',
-                })
-            })
+                }
+            )
         })
 
         describe('for other action types', () => {
@@ -666,9 +663,11 @@ describe('RecipientPreferencesService', () => {
         let frequencyCap: { max_messages: number | null; window_days: number | null }
         let teamWorkflowsConfig: TeamWorkflowsConfigService
         let cappedService: RecipientPreferencesService
+        let persons: { getCyclotronPerson: jest.Mock }
 
         const emailAction = (
-            categoryType?: 'marketing' | 'transactional'
+            categoryType?: 'marketing' | 'transactional',
+            skipFrequencyCap?: boolean
         ): Extract<HogFlowAction, { type: 'function_email' }> => ({
             id: 'email',
             name: 'Send email',
@@ -678,6 +677,7 @@ describe('RecipientPreferencesService', () => {
             config: {
                 template_id: 'template-email',
                 message_category_type: categoryType,
+                skip_frequency_cap: skipFrequencyCap,
                 inputs: { email: { value: { to: { email: 'capped@example.com' } } } },
             },
             created_at: Date.now(),
@@ -694,9 +694,11 @@ describe('RecipientPreferencesService', () => {
             frequencyCap = { max_messages: 2, window_days: 7 }
             teamWorkflowsConfig = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
             jest.spyOn(teamWorkflowsConfig, 'getFrequencyCap').mockImplementation(() => Promise.resolve(frequencyCap))
+            persons = { getCyclotronPerson: jest.fn().mockResolvedValue(null) }
             cappedService = new RecipientPreferencesService(mockRecipientsManager, mockEmailSuppressionService, {
                 teamWorkflowsConfig,
                 valkey,
+                persons,
             })
         })
 
@@ -736,6 +738,26 @@ describe('RecipientPreferencesService', () => {
             expect(await checkAt(start + 25 * hour)).toBe(true)
         })
 
+        it('counts a push to a named person against that person, not the run person', async () => {
+            frequencyCap = { max_messages: 1, window_days: 7 }
+            persons.getCyclotronPerson.mockResolvedValue({ id: 'named-person-id' })
+            const pushToNamed: Extract<HogFlowAction, { type: 'function_push' }> = {
+                id: 'push',
+                name: 'Send push',
+                description: '',
+                type: 'function_push',
+                filters: null,
+                config: { template_id: 'template-native-push', inputs: { distinctId: { value: 'named-user' } } },
+                created_at: Date.now(),
+                updated_at: Date.now(),
+            }
+
+            expect(await sendAt(pushToNamed, 1_800_000_000_000)).toBe(false)
+            expect(await sendAt(pushToNamed, 1_800_000_000_001)).toBe(true)
+            expect(persons.getCyclotronPerson).toHaveBeenCalledWith(team.id, 'named-user', 'distinct_id')
+            expect(await sendAt(emailAction(), 1_800_000_000_002)).toBe(false)
+        })
+
         it.each([
             [
                 'the config lookup',
@@ -749,6 +771,7 @@ describe('RecipientPreferencesService', () => {
 
         it.each([
             ['transactional sends', emailAction('transactional'), { max_messages: 0, window_days: 7 }],
+            ['marketing sends that skip the cap', emailAction('marketing', true), { max_messages: 1, window_days: 7 }],
             ['teams with no cap', emailAction(), { max_messages: null, window_days: null }],
         ])('never caps %s', async (_, action, cap) => {
             frequencyCap = cap

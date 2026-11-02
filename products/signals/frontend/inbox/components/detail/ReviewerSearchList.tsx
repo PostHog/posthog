@@ -5,10 +5,11 @@ import { IconCheck } from '@posthog/icons'
 import { LemonInput, Spinner } from '@posthog/lemon-ui'
 
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
+import type { ReviewerEditActionEnumApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { captureInboxReportAction, InboxReportActionSurface } from '../../inboxAnalytics'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
-import { EnrichedReviewer, SignalReport } from '../../types'
+import { EnrichedReviewer, ReviewerRemoval, SignalReport } from '../../types'
 import {
     AvailableReviewerOption,
     getReviewerOptionDisplayName,
@@ -32,7 +33,12 @@ export function removeSuggestedReviewer({
     surface: InboxReportActionSurface
     target: EnrichedReviewer
     reviewers: EnrichedReviewer[]
-    updateReviewers: (content: Record<string, string>[], optimistic: EnrichedReviewer[]) => void
+    updateReviewers: (
+        content: Record<string, string>[],
+        optimistic: EnrichedReviewer[],
+        action: Extract<ReviewerEditActionEnumApi, 'add' | 'remove'>,
+        removal?: ReviewerRemoval
+    ) => void
 }): void {
     removeSuggestedReviewers({ report, surface, targets: [target], reviewers, updateReviewers })
 }
@@ -43,27 +49,37 @@ export function removeSuggestedReviewers({
     targets,
     reviewers,
     updateReviewers,
+    removal,
 }: {
     report: SignalReport
     surface: InboxReportActionSurface
     targets: EnrichedReviewer[]
     reviewers: EnrichedReviewer[]
-    updateReviewers: (content: Record<string, string>[], optimistic: EnrichedReviewer[]) => void
+    removal?: ReviewerRemoval
+    updateReviewers: (
+        content: Record<string, string>[],
+        optimistic: EnrichedReviewer[],
+        action: Extract<ReviewerEditActionEnumApi, 'add' | 'remove'>,
+        removal?: ReviewerRemoval
+    ) => void
 }): void {
     for (const target of targets) {
         captureInboxReportAction({
             report,
             actionType: 'remove_suggested_reviewer',
             surface,
+            // pinned: analytics property names — renaming breaks dashboards
             extra: {
                 suggested_reviewer_login: target.github_login || undefined,
                 suggested_reviewer_uuid: target.user?.uuid,
+                removal_reason: removal?.reason ?? undefined,
+                has_removal_note: removal ? !!removal.note?.trim() : undefined,
             },
         })
     }
     const removed = new Set(targets)
     const next = reviewers.filter((reviewer) => !removed.has(reviewer))
-    updateReviewers(reviewersToWriteContent(next), next)
+    updateReviewers(reviewersToWriteContent(targets), next, 'remove', removal)
 }
 
 /**
@@ -84,12 +100,6 @@ export function ReviewerSearchList({
     const { displayReviewers, addReviewerOptions, availableReviewersLoading, isUpdatingReviewers, reportArtefacts } =
         useValues(logic)
     const { updateReviewers, searchAvailableReviewers } = useActions(logic)
-    // A write is a full replacement, and `displayReviewers` is null until the artefact log lands. The
-    // context menu mounts this logic fresh, so the member search can resolve before the artefacts; a
-    // click in that window would build the write from an empty base and silently wipe every existing
-    // reviewer. Wait for the artefacts (as the detail pane's `SuggestedReviewersSection` already does)
-    // before the rows become clickable. `reportArtefacts !== null` with no reviewer artefact is a real
-    // empty list, so this doesn't block adding the first reviewer.
     const reviewersLoaded = reportArtefacts !== null
     const [query, setQuery] = useState('')
 
@@ -132,7 +142,7 @@ export function ReviewerSearchList({
             // under suggested_reviewer_uuid to match the shared cross-client event contract.
             extra: { suggested_reviewer_uuid: option.user_uuid },
         })
-        updateReviewers([...reviewersToWriteContent(baseReviewers), { user_uuid: option.user_uuid }], next)
+        updateReviewers([{ user_uuid: option.user_uuid }], next, 'add')
     }
 
     return (

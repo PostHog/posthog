@@ -91,7 +91,7 @@ def test_cdc_on_the_psbouncer_port_fails_without_connecting(port):
     # logical replication silently could not run over it.
     with mock.patch.object(PostgresSource, "check_cdc_prerequisites") as super_check:
         errors = PlanetScalePostgresSource().check_cdc_prerequisites(
-            _config(port=port), management_mode="managed", tables=["users"]
+            _config(port=port), management_mode="managed", tables=["users"], setup={}
         )
 
     super_check.assert_not_called()
@@ -110,7 +110,7 @@ def test_a_port_that_is_not_a_number_is_not_treated_as_psbouncer(port):
 def test_cdc_on_the_direct_port_defers_to_postgres():
     with mock.patch.object(PostgresSource, "check_cdc_prerequisites", return_value=[]) as super_check:
         errors = PlanetScalePostgresSource().check_cdc_prerequisites(
-            _config(), management_mode="managed", tables=["users"], team_id=7
+            _config(), management_mode="managed", tables=["users"], setup={}, team_id=7
         )
 
     super_check.assert_called_once()

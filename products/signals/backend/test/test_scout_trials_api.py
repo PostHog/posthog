@@ -102,6 +102,16 @@ class TestScoutTrialAPI(APIBaseTest):
         assert self.client.get(self.memory_url).json() == []
         assert SignalScratchpad.objects.filter(pk=original.pk).exists()
 
+    def test_memory_search_filters_private_entries_by_creating_skill(self) -> None:
+        self._as_trial()
+        response = self.client.post(self.memory_url, {"key": "finding:private", "content": "Private value"})
+        assert response.status_code == 200, response.data
+
+        for skill_name, expected in ((self.trial_run.skill_name, ["finding:private"]), ("signals-scout-other", [])):
+            response = self.client.get(self.memory_url, {"skill_name": skill_name})
+            assert response.status_code == 200, response.data
+            assert [row["key"] for row in response.json()] == expected
+
     def test_note_search_filters_saved_content_before_preview_and_limit(self) -> None:
         saved_id = str(uuid4())
         self.context.notes = [

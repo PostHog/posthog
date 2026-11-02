@@ -103,7 +103,7 @@ def test_run_detector_simulation_never_rescores_an_ai_alert(
     alert.evaluation_delay_intervals = 0
     alert.insight = insight
     alert.config = {"type": "TrendsAlertConfig", "series_index": 0}
-    alert.detector_config = {"type": "llm", "threshold": 0.7, "window": 10}
+    alert.detector_config = {"type": "llm"}
     alert.created_by = None
 
     result = _run_detector_simulation(alert=alert, team=MagicMock(), date_from=None)

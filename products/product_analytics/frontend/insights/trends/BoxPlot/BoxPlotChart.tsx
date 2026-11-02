@@ -7,7 +7,7 @@ import type { BoxPlotClickData, BoxPlotConfig, BoxPlotSeries } from '@posthog/qu
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { getSeriesColor } from 'lib/colors'
 import { DateDisplay } from 'lib/components/DateDisplay'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { formatAggregationAxisValue } from 'lib/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
@@ -32,15 +32,16 @@ export function BoxPlotChart({ showPersonsModal = true, context }: ChartParams):
                 label: group.seriesLabel,
                 // Explicit color keeps boxes in sync with BoxPlotLegend / BoxPlotResultsTable.
                 color: getSeriesColor(group.seriesIndex),
-                // Feed whisker bounds as min/max — quill draws whiskers at min/max, so this
-                // preserves the exclude-outliers (±1.5·IQR) behaviour computed in the logic.
+                // min/max stay the true extremes; the whiskers are clipped to ±1.5·IQR when outliers are excluded.
                 data: group.rawData.map((raw, i) => ({
-                    min: group.data[i].whiskerMin,
+                    min: raw.min,
                     p25: raw.p25,
                     median: raw.median,
                     mean: raw.mean,
                     p75: raw.p75,
-                    max: group.data[i].whiskerMax,
+                    max: raw.max,
+                    whiskerMin: group.data[i].whiskerMin,
+                    whiskerMax: group.data[i].whiskerMax,
                     day: raw.day,
                 })),
             })),

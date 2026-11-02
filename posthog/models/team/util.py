@@ -89,7 +89,9 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
 
     from products.data_modeling.backend.facade.models import Edge, Node
     from products.early_access_features.backend.models import EarlyAccessFeature
+    from products.growth.backend.facade import api as growth_facade
     from products.today.backend.facade import api as today_facade
+    from products.web_analytics.backend.facade import health_rollups as web_analytics_health_rollups
 
     error_tracking_fingerprint = apps.get_model("error_tracking", "ErrorTrackingIssueFingerprintV2")
 
@@ -105,6 +107,8 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
     _raw_delete_batch(error_tracking_fingerprint.objects.filter(team_id__in=team_ids))
     # Highlights carry team_id as a plain integer, so nothing cascades to them.
     today_facade.delete_highlights_for_teams(team_ids)
+    growth_facade.delete_sdk_version_rollups_for_teams(team_ids)
+    web_analytics_health_rollups.delete_health_rollups_for_teams(team_ids)
     # FeatureFlagHashKeyOverride references Person, so it must go before persons are deleted.
     _delete_hash_key_overrides_for_teams(team_ids)
     _delete_llm_evaluations_for_teams(team_ids)
@@ -358,11 +362,15 @@ def delete_team_records(team_ids: list[int]) -> None:
 
     from posthog.models.team import Team
 
+    from products.workflows.backend.facade.batch_jobs import delete_batch_jobs_for_teams
+
     with transaction.atomic():
         # nosemgrep: hot-parent-row-select-for-update -- Team deletion must block concurrent child inserts.
         teams = list(Team.objects.select_for_update().filter(id__in=team_ids))
         for team in teams:
             queue_training_deletion(team.pk, "team")
+        # The cascade skips batch jobs (DO_NOTHING), so delete them here, in the step a stuck deletion retries.
+        delete_batch_jobs_for_teams(team_ids)
         Team.objects.filter(id__in=team_ids).delete()
 
 

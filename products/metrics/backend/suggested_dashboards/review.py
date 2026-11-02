@@ -3,21 +3,37 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
+from typing import Any
 
 from django.db import transaction
 from django.utils import timezone
+
+from pydantic import ValidationError
+
+from posthog.schema import MetricsDashboardVariable, MetricsDashboardVariableSelection, MetricsDashboardVariableSource
 
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
 
 from products.dashboards.backend.facade.api import unknown_dashboard_ids
-from products.dashboards.backend.facade.dashboard_creation import delete_unlisted_dashboard, read_dashboard_tiles
+from products.dashboards.backend.facade.dashboard_creation import (
+    delete_unlisted_dashboard,
+    read_dashboard_metric_variables,
+    read_dashboard_tiles,
+)
 from products.metrics.backend.dashboard_import.catalog import MetricCatalog
 from products.metrics.backend.dashboard_import.spec import GridLayout
 from products.metrics.backend.models import MetricsDashboardSuggestion, MetricsDashboardTemplate
-from products.metrics.backend.suggested_dashboards.dashboards import create_dashboard, drop_preview, panels_from_tiles
+from products.metrics.backend.suggested_dashboards.dashboards import (
+    create_dashboard,
+    drop_preview,
+    panels_from_tiles,
+    referenced_variables,
+)
+from products.metrics.backend.suggested_dashboards.llm import MODEL
 from products.metrics.backend.suggested_dashboards.matching import template_metric_names
-from products.metrics.backend.suggested_dashboards.spec import TemplatePanel, template_panels
+from products.metrics.backend.suggested_dashboards.spec import GenerationRecord, TemplatePanel, template_panels
 
 
 class TemplateNotReviewable(Exception):
@@ -66,6 +82,7 @@ def open_preview(*, template: MetricsDashboardTemplate, team: Team, user: User) 
         catalog=catalog,
         idempotency_key=f"metrics-template-review:{template.id}:{uuid.uuid4()}",
         unlisted=True,
+        variables=template.variables or [],
         # The panels keep their boxes, so the ones that the preview leaves out can go back in place on approve.
         refill=False,
     )
@@ -114,6 +131,29 @@ def _restore_unbuilt(
     return [panel.model_copy(update={"key": f"p{index + 1}"}) for index, panel in enumerate([*edited, *missing])]
 
 
+def _shared_variables(edited: Sequence[Any], original: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The variables of the preview, safe to give to every project, then the template's variables that it lacks.
+
+    A definition that does not parse is left out, so the template keeps its own. So is a custom list, because its
+    values come from the preview's project, not from the project that opens the dashboard. A selection can name a
+    host or a service of the preview's project, so every variable selects All.
+    """
+    shared: list[dict[str, Any]] = []
+    for item in edited:
+        try:
+            variable = MetricsDashboardVariable.model_validate(item)
+        except ValidationError:
+            continue
+        if variable.source == MetricsDashboardVariableSource.CUSTOM or variable.customValues:
+            continue
+        variable = variable.model_copy(
+            update={"includeAll": True, "current": MetricsDashboardVariableSelection(values=[], all=True)}
+        )
+        shared.append(variable.model_dump(mode="json", exclude_none=True))
+    names = {variable["name"] for variable in shared}
+    return [*shared, *(variable for variable in original if variable.get("name") not in names)]
+
+
 def approve(*, template: MetricsDashboardTemplate, user: User) -> MetricsDashboardTemplate:
     """Approve the template. Changes made on its preview dashboard, by hand or with PostHog AI, become the template."""
     with transaction.atomic():
@@ -133,6 +173,16 @@ def approve(*, template: MetricsDashboardTemplate, user: User) -> MetricsDashboa
                 panels = _restore_unbuilt(panels, template_panels(locked.panels), set(locked.preview_unbuilt_keys))
                 locked.panels = [panel.model_dump(mode="json") for panel in panels]
                 locked.metric_names = template_metric_names(panels)
+                # The preview has only the variables of the panels that it shows. The panels it left out keep theirs.
+                shared = _shared_variables(
+                    read_dashboard_metric_variables(
+                        team_id=locked.preview_team_id, dashboard_id=locked.preview_dashboard_id
+                    ),
+                    locked.variables or [],
+                )
+                locked.variables = referenced_variables(
+                    (panel.query for panel in panels if panel.query is not None), shared
+                )
         drop_preview(locked)
         locked.status = MetricsDashboardTemplate.Status.APPROVED
         locked.reviewed_by = user
@@ -157,6 +207,53 @@ def reject(*, template: MetricsDashboardTemplate, user: User) -> MetricsDashboar
         # Suggestions that a team has not acted on go away with the template.
         MetricsDashboardSuggestion.objects.unscoped().filter(template_id=locked.id, dashboard_id__isnull=True).delete()
     _capture_reviewed(user, locked)
+    return locked
+
+
+_REGENERABLE = frozenset(
+    {
+        MetricsDashboardTemplate.Status.PENDING_REVIEW,
+        MetricsDashboardTemplate.Status.REJECTED,
+        MetricsDashboardTemplate.Status.FAILED,
+    }
+)
+
+
+def regenerate(*, template: MetricsDashboardTemplate, user: User) -> MetricsDashboardTemplate:
+    """Discard the panels and the preview of a generated template, and set it to generate again.
+
+    The caller starts the generation. The template keeps its key, so the same metrics never make a second one.
+    """
+    with transaction.atomic():
+        locked = MetricsDashboardTemplate.objects.select_for_update().get(id=template.id)
+        if locked.source != MetricsDashboardTemplate.Source.GENERATED:
+            raise TemplateNotReviewable("Only a generated dashboard can be generated again.")
+        if locked.status not in _REGENERABLE:
+            raise TemplateNotReviewable(
+                "This dashboard is still being generated."
+                if locked.status == MetricsDashboardTemplate.Status.GENERATING
+                else "Reject this dashboard before you generate it again."
+            )
+        source_team = Team.objects.select_related("organization").filter(id=locked.source_team_id).first()
+        if source_team is None:
+            raise TemplateNotReviewable("The project that this dashboard came from no longer exists.")
+        if not source_team.organization.is_ai_data_processing_approved:
+            raise TemplateNotReviewable("The organization of the source project does not allow AI data processing.")
+        record = GenerationRecord.model_validate(locked.generation or {})
+        drop_preview(locked)
+        locked.name = record.requested_name or locked.name
+        locked.metric_names = record.requested_metric_names or locked.metric_names
+        locked.panels = []
+        locked.variables = []
+        locked.generation = GenerationRecord(
+            model=MODEL, requested_name=locked.name, requested_metric_names=locked.metric_names
+        ).model_dump(mode="json")
+        locked.status = MetricsDashboardTemplate.Status.GENERATING
+        locked.reviewed_by = None
+        locked.reviewed_at = None
+        locked.save()
+        MetricsDashboardSuggestion.objects.unscoped().filter(template_id=locked.id, dashboard_id__isnull=True).delete()
+    report_user_action(user, "metrics dashboard template regenerated", {"template_id": str(locked.id)})
     return locked
 
 
@@ -191,6 +288,7 @@ def create_from_suggestion(*, suggestion: MetricsDashboardSuggestion, team: Team
             catalog=catalog,
             # A deleted dashboard keeps its insights' ids, so a new one needs a new key.
             idempotency_key=f"metrics-suggestion:{suggestion.id}" + (f":after-{previous}" if previous else ""),
+            variables=template.variables or [],
         )
         if created is None:
             raise NoPanelsWithData("This project no longer sends the metrics of this dashboard.")
@@ -205,6 +303,7 @@ def create_from_suggestion(*, suggestion: MetricsDashboardSuggestion, team: Team
             "dashboard_id": created.id,
             "coverage": suggestion.coverage,
             "dropped_panel_count": len(built.dropped),
+            "variable_count": len(built.variable_names),
         },
         team=team,
     )

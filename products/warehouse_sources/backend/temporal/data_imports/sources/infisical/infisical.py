@@ -17,6 +17,9 @@ from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import (
+    unreachable_vendor_message,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.infisical.settings import (
     INFISICAL_ENDPOINTS,
@@ -443,6 +446,8 @@ def validate_credentials(
         return False, str(exc)
     except InfisicalHostNotAllowedError:
         return False, HOST_NOT_ALLOWED_ERROR
+    except InfisicalRetryableError:
+        return False, unreachable_vendor_message("Infisical")
     except requests.RequestException as exc:
         return False, str(exc)
 
@@ -473,6 +478,8 @@ def validate_credentials(
         return False, str(exc)
     except InfisicalHostNotAllowedError:
         return False, HOST_NOT_ALLOWED_ERROR
+    except InfisicalRetryableError:
+        return False, unreachable_vendor_message("Infisical")
     except requests.RequestException as exc:
         return False, str(exc)
 

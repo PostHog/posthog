@@ -51,6 +51,7 @@ const PARTITION_ID: u16 = 0;
 const BEHAVIORAL_HASH: [u8; 16] = *b"0123456789abcdef";
 const PERSON_HASH: [u8; 16] = *b"fedcba9876543210";
 const BASE_TS: &str = "2026-05-26 12:34:56.789000";
+const SECOND_TOPIC_PARTITION_10: i32 = 1_000_010;
 /// A window over 180 days routes `performed_event_multiple` to the compressed history variant.
 const COMPRESSED_WINDOW_DAYS: i64 = 365;
 
@@ -789,8 +790,14 @@ fn cross_partition_low_offset_is_not_masked_by_a_high_offset_elsewhere() {
     let out = process_event(PARTITION_ID, &store, &filters, &enter).unwrap();
     assert_eq!(out.transitions[0].kind, TransitionKind::Entered);
 
-    // Leave from source partition 20 at a low offset, with a newer event time so argMax applies it.
-    let leave = person_event(p, "nope@x.com", "2026-05-26 13:00:00.000000", 20, 3);
+    // Leave from the second topic at a low offset, with a newer event time so argMax applies it.
+    let leave = person_event(
+        p,
+        "nope@x.com",
+        "2026-05-26 13:00:00.000000",
+        SECOND_TOPIC_PARTITION_10,
+        3,
+    );
     let out = process_event(PARTITION_ID, &store, &filters, &leave).unwrap();
     assert_eq!(
         out.transitions.len(),
@@ -801,7 +808,7 @@ fn cross_partition_low_offset_is_not_masked_by_a_high_offset_elsewhere() {
 
     let applied = person_record_at(&store, p).unwrap().applied_offsets;
     assert_high_water(&applied, 10, 100);
-    assert_high_water(&applied, 20, 3);
+    assert_high_water(&applied, SECOND_TOPIC_PARTITION_10, 3);
 }
 
 #[test]
@@ -1478,7 +1485,7 @@ async fn worker_advances_offset_on_empty_transition_subbatch() {
 }
 
 #[tokio::test]
-async fn worker_holds_offset_when_the_only_flush_fails() {
+async fn worker_marks_past_its_only_failed_produce() {
     let (_dir, store) = temp_store();
     let sink = CaptureSink::failing_first(1);
     let tracker = Arc::new(OffsetTracker::new());
@@ -1502,10 +1509,10 @@ async fn worker_holds_offset_when_the_only_flush_fails() {
 
     assert_eq!(
         tracker.committable_offsets().get(&(PARTITION_ID as i32)),
-        None,
-        "a failed produce holds the offset back for replay",
+        Some(&11),
+        "live output is at most once: the state is committed, so the mark does not wait on the produce",
     );
-    assert!(sink.changes().is_empty(), "a failed flush emits nothing");
+    assert!(sink.changes().is_empty(), "a failed produce emits nothing");
 }
 
 #[tokio::test]
@@ -3222,69 +3229,5 @@ async fn seed_produce_failure_holds_only_the_seed_tracker_and_the_redelivery_re_
         replay_deps.live_watermarks.get(PARTITION_ID as i32),
         None,
         "a seed-only batch never advances the live watermark",
-    );
-}
-
-/// A held batch must not advance the watermark; the successful redelivery does.
-#[tokio::test]
-async fn watermark_advances_only_after_a_successful_mark() {
-    let (_dir, store) = temp_store();
-    let filters = build_team_filters(vec![(CohortId(1), cohort(vec![behavioral_leaf(7)]))]);
-    let alice = person(1);
-
-    let catalog = catalog_of(filters);
-    let sink = CaptureSink::failing_first(1);
-    let tracker = Arc::new(OffsetTracker::new());
-    let deps = MergeWorkerDeps::capture();
-
-    let broker_ts = 1_750_000_000_000_i64;
-    let run = |batch: Vec<ShuffleMessage>| {
-        let catalog = catalog.clone();
-        let sink = sink.clone();
-        let tracker = tracker.clone();
-        let deps = deps.clone();
-        let store = store.clone();
-        async move {
-            let (tx, rx) = mpsc::channel(16);
-            let rx = WorkerInbox::live_only(rx);
-            let worker = Stage1Worker::spawn(
-                PARTITION_ID,
-                rx,
-                test_handle(&store),
-                catalog,
-                Arc::new(sink),
-                tracker.clone(),
-                deps,
-                EvictionRestore::Skip,
-            );
-            tracker.mark_dispatched(PARTITION_ID as i32, 1);
-            tx.send(batch).await.unwrap();
-            drop(tx);
-            worker.join().await.unwrap();
-        }
-    };
-
-    run(vec![ShuffleMessage::Event {
-        event: Box::new(event(alice, 5, 0)),
-        cse_offset: 0,
-        broker_ts_ms: Some(broker_ts),
-    }])
-    .await;
-    assert_eq!(
-        deps.live_watermarks.get(PARTITION_ID as i32),
-        None,
-        "a held (unmarked) batch never advances the watermark",
-    );
-
-    run(vec![ShuffleMessage::Event {
-        event: Box::new(event(alice, 5, 0)),
-        cse_offset: 0,
-        broker_ts_ms: Some(broker_ts),
-    }])
-    .await;
-    assert_eq!(
-        deps.live_watermarks.get(PARTITION_ID as i32),
-        Some(cohort_stream_processor::partitions::WatermarkMs(broker_ts)),
-        "the successful redelivery advances it",
     );
 }

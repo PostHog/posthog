@@ -8,7 +8,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.ca
     CANONICAL_DESCRIPTIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.source import SemgrepSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.source import (
+    INVALID_TOKEN_MESSAGE,
+    MISSING_SCOPE_MESSAGE,
+    UNREACHABLE_MESSAGE,
+    SemgrepSource,
+)
 
 
 def _config(api_token: str = "token") -> Any:
@@ -17,66 +22,33 @@ def _config(api_token: str = "token") -> Any:
     return config
 
 
-class TestGetSchemas:
-    def test_names_filter(self) -> None:
-        schemas = SemgrepSource().get_schemas(_config(), team_id=1, names=["deployments", "secrets"])
-        assert {s.name for s in schemas} == {"deployments", "secrets"}
-
-
 class TestValidateCredentials:
     def test_success(self) -> None:
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.source.validate_semgrep_credentials",
-            return_value=True,
+            return_value=(True, 200),
         ) as mocked:
             ok, error = SemgrepSource().validate_credentials(_config(), team_id=1)
         assert ok is True
         assert error is None
         mocked.assert_called_once_with("token")
 
-    def test_failure(self) -> None:
+    @parameterized.expand(
+        [
+            ("unauthorized", 401, INVALID_TOKEN_MESSAGE),
+            ("forbidden", 403, MISSING_SCOPE_MESSAGE),
+            ("server_error", 503, UNREACHABLE_MESSAGE),
+            ("unreachable", None, UNREACHABLE_MESSAGE),
+        ]
+    )
+    def test_failure(self, _name: str, status: int | None, expected_error: str) -> None:
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.source.validate_semgrep_credentials",
-            return_value=False,
+            return_value=(False, status),
         ):
             ok, error = SemgrepSource().validate_credentials(_config(), team_id=1, schema_name="sast_findings")
         assert ok is False
-        assert error is not None
-
-
-class TestNonRetryableErrors:
-    @parameterized.expand(
-        [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://semgrep.dev/api/v1/deployments/my-org/findings?issue_type=sast",
-            ),
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://semgrep.dev/api/v1/deployments/123/secrets",
-            ),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable = SemgrepSource().get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("read_timeout", "HTTPSConnectionPool(host='semgrep.dev', port=443): Read timed out."),
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://semgrep.dev/api/v1/deployments",
-            ),
-            (
-                "rate_limited",
-                "429 Client Error: Too Many Requests for url: https://semgrep.dev/api/v1/deployments",
-            ),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable = SemgrepSource().get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable)
+        assert error == expected_error
 
 
 class TestCanonicalDescriptions:

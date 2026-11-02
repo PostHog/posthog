@@ -11,6 +11,7 @@ from jwt import PyJWTError
 
 from posthog.dataclasses import frozen
 
+from products.tasks.backend.awaiting_input import dispatch_awaiting_input
 from products.tasks.backend.facade.api import signal_workflow_completion
 from products.tasks.backend.logic.services.process_killed import (
     PROCESS_KILLED_EVENT,
@@ -158,6 +159,8 @@ class AgentProxyCallbackDispatcher:
                 return self._boot_milestone("agent_activity_observed")
             case "awaiting_input":
                 return self._awaiting_input()
+            case "permission_requested":
+                return self._permission_requested()
             case "turn_failed":
                 return self._turn_failed()
             case "budget_steer":
@@ -197,6 +200,14 @@ class AgentProxyCallbackDispatcher:
         task_run.signal_agent_turn_completed(succeeded=self.callback.data["turn_succeeded"])
         dispatched = dispatch_turn_completed(task_run, turn_completed=self.callback.data["turn_completed"])
         return CallbackOutcome(dispatched=dispatched)
+
+    def _permission_requested(self) -> CallbackOutcome:
+        task_run = self._load_run("task__created_by")
+        if task_run is None:
+            return CallbackOutcome()
+        return CallbackOutcome(
+            dispatched=dispatch_awaiting_input(task_run, request_id=self.callback.data.get("request_id", ""))
+        )
 
     def _turn_failed(self) -> CallbackOutcome:
         if self._load_run() is None:
@@ -258,7 +269,8 @@ class AgentProxyCallbackDispatcher:
     description=(
         "Internal endpoint called by the standalone Node agent-proxy after accepting an ingest event "
         "that requires a Django-side side effect. Dispatches a Temporal heartbeat, a boot milestone, "
-        "an awaiting-input mobile push notification, a failed-run completion, budget-steer analytics, "
+        "a turn-completed mobile push notification, an awaiting-input mobile push notification for a "
+        "pending permission request, a failed-run completion, budget-steer analytics, "
         "or a sandbox memory watchdog kill "
         "depending on `kind`. "
         "Authenticated with the forwarded sandbox event ingest JWT plus the X-Agent-Proxy-Secret "

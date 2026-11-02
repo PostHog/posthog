@@ -29,6 +29,7 @@ BASE_PLATFORM_ALERT_EVENTS_COLUMNS = f"""
     labels Map(String, String),
     condition_snapshot String,
     source_config_snapshot String,
+    source_detail String,
     query_duration_ms Nullable(UInt32),
     error_message String,
     consecutive_failures UInt32,

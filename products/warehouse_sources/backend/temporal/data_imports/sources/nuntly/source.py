@@ -100,7 +100,7 @@ class NuntlySource(ResumableSource[NuntlySourceConfig, NuntlyResumeConfig]):
         return SourceConfig(
             name=ExternalDataSourceType.NUNTLY,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             label="Nuntly",
             caption="Enter your Nuntly API key. You can create one in the "
             "[Nuntly dashboard](https://nuntly.com/docs/guides/api-keys).",

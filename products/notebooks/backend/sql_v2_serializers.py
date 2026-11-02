@@ -706,7 +706,7 @@ class NotebookRunStartRequestSerializer(serializers.Serializer):
     include_prepared_insights = serializers.BooleanField(
         required=False,
         default=False,
-        help_text="Include prepared embedded insights when refreshing a dashboard widget. Requires notebook widgets to be enabled.",
+        help_text="Include prepared embedded insights when refreshing a dashboard widget.",
     )
     variables = NotebookVariableSerializer(
         many=True,

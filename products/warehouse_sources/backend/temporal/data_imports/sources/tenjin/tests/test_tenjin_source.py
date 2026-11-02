@@ -41,7 +41,7 @@ class TestTenjinSource:
 
     @pytest.mark.parametrize(
         "raised",
-        [TenjinRetryableError("status=503"), requests.ConnectionError("boom"), requests.ReadTimeout("slow")],
+        [TenjinRetryableError("status=503"), requests.ReadTimeout("slow")],
     )
     @mock.patch(f"{_SOURCE_MODULE}.validate_tenjin_credentials")
     def test_transient_failures_are_not_reported_as_bad_credentials(

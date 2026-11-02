@@ -48,7 +48,11 @@ class TestChargebeeSourceResumeBehavior:
 
     @staticmethod
     def _page(endpoint: str, row_id: str, next_offset: str | None = None) -> ScriptedResponse:
-        wrapper = {"CreditUnits": "credit_unit", "ItemPrices": "item_price"}.get(endpoint, endpoint[:-1].lower())
+        wrapper = {
+            "CreditUnits": "credit_unit",
+            "ItemPrices": "item_price",
+            "PaymentSchedules": "payment_schedule",
+        }.get(endpoint, endpoint[:-1].lower())
         body: dict[str, Any] = {"list": [{wrapper: {"id": row_id}}]}
         if next_offset is not None:
             body["next_offset"] = next_offset
@@ -149,7 +153,8 @@ class TestChargebeeSiteNameValidation:
 
 class TestChargebeeCatalogEndpoints:
     """`Items` and `ItemPrices` carry the product catalog that `subscription_items` points at.
-    `CreditUnits` and `Meters` carry the usage-based billing catalog.
+    `CreditUnits` and `Meters` carry the usage-based billing catalog. `Disputes`, `PaymentSchedules`
+    and `Einvoices` follow the same nested shape.
 
     Their rows sit one level deeper than the response list, so a wrong `data_selector` or
     path yields an empty table rather than an error.
@@ -177,6 +182,24 @@ class TestChargebeeCatalogEndpoints:
                 "meter",
                 {"id": "api-calls", "type": "simple", "query": "SELECT SUM(api_calls) FROM events"},
             ),
+            (
+                "Disputes",
+                "/v2/disputes",
+                "dispute",
+                {"id": "dp_1", "transaction_id": "txn_1", "status": "in_review", "type": "chargeback"},
+            ),
+            (
+                "PaymentSchedules",
+                "/v2/payment_schedules",
+                "payment_schedule",
+                {"id": "ps_1", "entity_id": "inv_1", "schedule_entries": [{"id": "pse_1", "amount": 500}]},
+            ),
+            (
+                "Einvoices",
+                "/v2/einvoices",
+                "einvoice",
+                {"id": "einv_1", "entity_type": "credit_note", "entity_id": "cn_1", "status": "accepted"},
+            ),
         ],
     )
     def test_yields_the_nested_catalog_object(
@@ -203,11 +226,13 @@ class TestChargebeeIncrementalFilter:
 
     CURSOR_PARAMS = {
         "Customers": "updated_at[after]",
+        "Einvoices": "updated_at[after]",
         "Events": "occurred_at[after]",
         "Invoices": "updated_at[after]",
         "ItemPrices": "updated_at[after]",
         "Items": "updated_at[after]",
         "Orders": "updated_at[after]",
+        "PaymentSchedules": "updated_at[after]",
         "Subscriptions": "updated_at[after]",
         "Transactions": "updated_at[after]",
     }
@@ -242,7 +267,7 @@ class TestChargebeeIncrementalFilter:
         assert result.requests[0].param(self.CURSOR_PARAMS[endpoint]) is None
         assert result.raised is None
 
-    @pytest.mark.parametrize("endpoint", ["CreditUnits", "Meters"])
+    @pytest.mark.parametrize("endpoint", ["CreditUnits", "Disputes", "Meters"])
     def test_full_refresh_only_endpoints_ignore_incremental_watermark(self, endpoint: str) -> None:
         result = self._drive(endpoint, incremental=True, last_value=1750000000)
 

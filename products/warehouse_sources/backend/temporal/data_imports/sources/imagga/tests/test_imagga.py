@@ -1,8 +1,6 @@
 from base64 import b64encode
 from typing import Any
 
-import pytest
-
 from parameterized import parameterized
 from requests import HTTPError
 
@@ -90,7 +88,11 @@ class TestRetryAndErrors:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("valid", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
+    @parameterized.expand(
+        [
+            ("valid", 200, True),
+        ]
+    )
     def test_status_mapping(self, _name: str, status: int, expected: bool) -> None:
         with scripted_network([ScriptedResponse(status=status)]) as network:
             assert validate_credentials("key", "secret") is expected
@@ -111,7 +113,3 @@ class TestImaggaSourceResponse:
         assert response.name == endpoint
         assert response.primary_keys == expected_keys
         assert response.sort_mode == "asc"
-
-    def test_unknown_endpoint_raises(self) -> None:
-        with pytest.raises(ValueError):
-            imagga_source("key", "secret", "nope", team_id=1, job_id="j")

@@ -63,6 +63,10 @@ class CostExplorerEndpointConfig:
     # GetCostAndUsageWithResources requires a filter, so each window is filtered to the services
     # GetDimensionValues reports for it, which keeps every service in scope.
     filter_by_window_services: bool = False
+    # AWS reports reservation coverage in normalized usage units only for services with
+    # instance-size-flexible reservations; asking for "Unit" against any other service in
+    # `services` raises a ValidationException. Empty means no service needs filtering out.
+    unit_metric_services: tuple[str, ...] = ()
 
 
 AWS_COST_EXPLORER_ENDPOINTS: dict[str, CostExplorerEndpointConfig] = {
@@ -162,6 +166,7 @@ AWS_COST_EXPLORER_ENDPOINTS: dict[str, CostExplorerEndpointConfig] = {
         window_days=92,
         restatement_lookback_days=7,
         nested_keys=(("Total", ""),),
+        unit_metric_services=("Amazon Elastic Compute Cloud - Compute",),
     ),
     "savings_plans_coverage_daily": CostExplorerEndpointConfig(
         name="savings_plans_coverage_daily",

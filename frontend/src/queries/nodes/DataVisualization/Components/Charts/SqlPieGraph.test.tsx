@@ -3,7 +3,7 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
+import { getChart, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
 import { BIField } from '~/queries/schema/schema-business-intelligence'
 import { ChartSettings, NodeKind } from '~/queries/schema/schema-general'
@@ -61,9 +61,9 @@ const baseProps = (
 // quill PieChart's flaky hover/click interaction tests. Each slice renders one <div> per line
 // (label and/or value), so we read the lines per slice rather than the concatenated text.
 function sliceLabelLines(): string[][] {
-    return Array.from(document.querySelectorAll('[data-attr="hog-chart-pie-slice-label"]')).map((el) =>
-        Array.from(el.querySelectorAll('div')).map((line) => line.textContent!)
-    )
+    return getChart()
+        .pie.sliceLabels()
+        .map((label) => label.lines)
 }
 
 async function waitForSlices(): Promise<void> {
@@ -259,7 +259,7 @@ describe('SqlPieGraph', () => {
         // The legend is plain DOM outside the canvas, so it needs no canvas paint.
         render(<SqlPieGraph {...baseProps({ showLegend: true }, [60, 40, 0, 0])} />)
 
-        expect(document.querySelector('[data-attr="hog-chart-pie-legend"]')).toBeInTheDocument()
+        expect(getChart().legend()).toBeInTheDocument()
         expect(screen.getByText('alpha')).toBeInTheDocument()
         expect(screen.getByText('beta')).toBeInTheDocument()
     })
@@ -270,7 +270,7 @@ describe('SqlPieGraph', () => {
         const user = userEvent.setup()
 
         await waitForSlices()
-        await user.click(within(document.querySelector('[data-attr="hog-chart-pie-legend"]')!).getByText('alpha'))
+        await user.click(within(getChart().legend()!).getByText('alpha'))
 
         await waitFor(() => {
             expect(sliceLabelLines()).toEqual([['alpha']])
@@ -280,7 +280,7 @@ describe('SqlPieGraph', () => {
         rerender(<SqlPieGraph {...baseProps({ ...chartSettings, showLegend: false }, [60, 40, 0, 0])} />)
 
         await waitFor(() => {
-            expect(document.querySelector('[data-attr="hog-chart-pie-legend"]')).not.toBeInTheDocument()
+            expect(getChart().legend()).toBeNull()
             expect(sliceLabelLines()).toEqual([['alpha'], ['beta']])
             expect(screen.getByText('100')).toBeInTheDocument()
         })
@@ -309,7 +309,7 @@ describe('SqlPieGraph', () => {
         )
 
         const swatchColors = Array.from(
-            document.querySelectorAll<HTMLElement>('[data-attr="hog-chart-pie-legend"] span[aria-hidden="true"]')
+            getChart().legend()!.querySelectorAll<HTMLElement>('span[aria-hidden="true"]')
         ).map((el) => el.style.backgroundColor)
         expect(screen.getByText('first')).toBeInTheDocument()
         expect(swatchColors).toContain('rgb(170, 0, 0)')

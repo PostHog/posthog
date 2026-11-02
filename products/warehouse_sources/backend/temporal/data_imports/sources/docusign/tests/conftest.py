@@ -35,6 +35,7 @@ class FakeResponse:
         self.status_code = status_code
         self._payload = payload
         self.url = url
+        self.headers: dict[str, str] = {}
 
     @property
     def ok(self) -> bool:

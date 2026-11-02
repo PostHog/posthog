@@ -150,5 +150,5 @@ class Rapid7InsightvmSource(ResumableSource[Rapid7InsightvmSourceConfig, Rapid7I
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

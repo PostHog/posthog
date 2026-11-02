@@ -1,5 +1,6 @@
 import dataclasses
-from collections.abc import Iterable, Sequence
+from collections import defaultdict
+from collections.abc import Collection, Iterable, Sequence
 from typing import TYPE_CHECKING, Any, Optional, cast
 from uuid import UUID
 
@@ -27,9 +28,24 @@ def set_tags_on_object(tags: list[str], obj: Any) -> list[TaggedItem]:
     """Set tags on a taggable object, creating/deleting TaggedItems as needed.
 
     This is the core tag-setting logic extracted for reuse across serializers
-    and bulk operations.
+    and bulk operations. It leaves orphaned tags in place; use ``replace_tags_on_object``
+    to also remove them.
     """
-    deduped_tags = list({tagify(t) for t in tags})
+    tagged_item_objects, _ = _set_tags_on_object(tags, obj)
+    return tagged_item_objects
+
+
+def replace_tags_on_object(tags: list[str], obj: Any) -> list[TaggedItem]:
+    """Set tags on an object, then delete the removed tags that no other object uses."""
+    tagged_item_objects, removed_tag_ids = _set_tags_on_object(tags, obj)
+    cleanup_orphan_tags(obj.team_id, removed_tag_ids)
+    return tagged_item_objects
+
+
+def _set_tags_on_object(tags: list[str], obj: Any) -> tuple[list[TaggedItem], set[int]]:
+    """Set tags on an object and return its tagged items and the ids of the tags it lost."""
+    # Concurrent transactions must insert shared tags in the same order to avoid deadlocks.
+    deduped_tags = sorted({tagify(t) for t in tags})
     tagged_item_objects = []
 
     for tag in deduped_tags:
@@ -39,16 +55,24 @@ def set_tags_on_object(tags: list[str], obj: Any) -> list[TaggedItem]:
         tagged_item_objects.append(tagged_item_instance)
 
     # Delete tags that are missing (use individual deletes to trigger activity logging)
+    removed_tag_ids: set[int] = set()
     tagged_items_to_delete = obj.tagged_items.exclude(tag__name__in=deduped_tags)
     for tagged_item in tagged_items_to_delete:
+        removed_tag_ids.add(tagged_item.tag_id)
         tagged_item.delete()
 
-    return tagged_item_objects
+    return tagged_item_objects, removed_tag_ids
 
 
-def cleanup_orphan_tags(team_id: int) -> None:
-    """Remove tags that are no longer referenced by any TaggedItem."""
-    Tag.objects.filter(Q(team_id=team_id) & Q(tagged_items__isnull=True)).delete()
+def cleanup_orphan_tags(team_id: int, tag_ids: Collection[int]) -> None:
+    """Delete the given tags if no TaggedItem references them any more.
+
+    Only a removed TaggedItem can orphan a tag, so callers pass the ids of the tags they detached.
+    A scan of every tag of the team is slow on teams with many tags.
+    """
+    if not tag_ids:
+        return
+    Tag.objects.filter(Q(team_id=team_id) & Q(id__in=tag_ids) & Q(tagged_items__isnull=True)).delete()
 
 
 def normalize_tag_names(tags: Iterable[str]) -> set[str]:
@@ -112,15 +136,15 @@ def apply_bulk_tag_changes(
     """
     normalized_tags = normalize_tag_names(tags)
     updated: list[dict[str, Any]] = []
-    team_ids: set[int] = set()
+    removed_tag_ids_by_team: defaultdict[int, set[int]] = defaultdict(set)
     activity_entries: list[LogActivityEntry] = []
 
     for obj in objects:
-        team_ids.add(obj.team_id)
         current_tags = current_tag_names(obj)
         new_tags = resolve_bulk_tags(current_tags, tag_action, normalized_tags)
 
-        set_tags_on_object(list(new_tags), obj)
+        _, removed_tag_ids = _set_tags_on_object(list(new_tags), obj)
+        removed_tag_ids_by_team[obj.team_id] |= removed_tag_ids
         updated.append({"id": obj.id, "tags": sorted(new_tags)})
 
         if activity_context is not None and current_tags != new_tags:
@@ -128,8 +152,8 @@ def apply_bulk_tag_changes(
                 _bulk_tag_activity_entry(obj, sorted(current_tags), sorted(new_tags), activity_context)
             )
 
-    for team_id in team_ids:
-        cleanup_orphan_tags(team_id)
+    for team_id, removed_tag_ids in removed_tag_ids_by_team.items():
+        cleanup_orphan_tags(team_id, removed_tag_ids)
 
     if activity_entries:
         bulk_log_activity(activity_entries)
@@ -174,8 +198,7 @@ class TaggedItemSerializerMixin(serializers.Serializer):
             # If the object hasn't been created yet, this method will be called again on the create method.
             return
 
-        obj.prefetched_tags = set_tags_on_object(tags, obj)
-        cleanup_orphan_tags(obj.team_id)
+        obj.prefetched_tags = replace_tags_on_object(tags, obj)
 
     def to_representation(self, obj):
         ret = super().to_representation(obj)

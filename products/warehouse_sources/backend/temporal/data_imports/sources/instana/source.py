@@ -81,7 +81,7 @@ class InstanaSource(ResumableSource[InstanaSourceConfig, InstanaResumeConfig]):
             name=ExternalDataSourceType.INSTANA,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="IBM Instana Observability",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["ibm", "apm", "observability", "monitoring"],
             caption="""Enter your Instana tenant URL and API token to pull your Instana data into the PostHog Data warehouse.
 

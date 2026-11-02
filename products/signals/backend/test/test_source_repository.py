@@ -52,9 +52,9 @@ def test_source_repository_from_signals(signals: list[SignalData], expected: str
     assert source_repository_from_signals(signals) == expected
 
 
-class TestSelectRepositoryPinsTheSourceRepository(BaseTest):
-    def test_report_selection_pins_the_repository_its_issue_was_filed_against(self):
-        select = AsyncMock(return_value=RepoSelectionResult(repository="posthog/posthog", reason="pinned"))
+class TestSelectRepositoryDefaultsToTheSourceRepository(BaseTest):
+    def test_report_selection_passes_the_repository_its_issue_was_filed_against(self):
+        select = AsyncMock(return_value=RepoSelectionResult(repository="posthog/posthog", reason="selected"))
         with (
             patch.object(select_repo, "select_repository", new=select),
             patch.object(select_repo, "resolve_agent_runtime", return_value=DEFAULT_RUNTIME),
@@ -63,4 +63,4 @@ class TestSelectRepositoryPinsTheSourceRepository(BaseTest):
             async_to_sync(select_repo.select_repository_for_report)(self.team.id, self.user.id, [_signal()])
 
         assert select.await_args is not None
-        assert select.await_args.kwargs["pinned_repository"] == "posthog/posthog"
+        assert select.await_args.kwargs["source_repository"] == "posthog/posthog"

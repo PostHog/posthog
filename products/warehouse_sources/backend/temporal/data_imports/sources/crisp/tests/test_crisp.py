@@ -145,6 +145,63 @@ def test_incremental_messages_read_small_windows_oldest_first_and_stop_after_the
     assert result.response is not None and result.response.sort_mode == "desc"
 
 
+@pytest.mark.parametrize(
+    ("finished", "loaded", "expected"),
+    [
+        (["c0", "c1"], 2, ["c2", "c3"]),
+        (["c0", "c1", "c2"], 3, ["c3"]),
+    ],
+)
+def test_resumed_incremental_messages_keep_the_run_budget_of_earlier_attempts(
+    config: CrispSourceConfig,
+    monkeypatch: pytest.MonkeyPatch,
+    finished: list[str],
+    loaded: int,
+    expected: list[str],
+) -> None:
+    monkeypatch.setattr(crisp_module, "WINDOW_PAGE_SIZE", 2)
+    monkeypatch.setattr(crisp_module, "CONVERSATIONS_PER_RUN", 3)
+    hour_ms = 3_600_000
+    first = int(datetime(2026, 1, 1, tzinfo=UTC).timestamp() * 1000)
+    conversations: list[dict[str, Any]] = [
+        {"session_id": "c0", "updated_at": first},
+        {"session_id": "c1", "updated_at": first + hour_ms},
+        {"session_id": "c2", "updated_at": first + 2 * hour_ms},
+        {"session_id": "c3", "updated_at": first + 2 * hour_ms},
+        {"session_id": "c4", "updated_at": first + 3 * hour_ms},
+    ]
+
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path.endswith("/messages"):
+            if request.param("timestamp_before") is not None:
+                return page([])
+            return page([{"fingerprint": 1, "timestamp": 1000}])
+        low = datetime.fromisoformat(request.param("filter_date_start") or "").timestamp() * 1000
+        high = datetime.fromisoformat(request.param("filter_date_end") or "").timestamp() * 1000
+        matching = [row for row in conversations if low <= row["updated_at"] <= high]
+        number = int(request.path.rsplit("/", 1)[1])
+        return page(matching[(number - 1) * 2 : number * 2])
+
+    root = f"website/{config.website_id}/conversation"
+    result = SourceDriver(CrispSource(), config).run(
+        "messages",
+        respond,
+        incremental_field="conversation_updated_at",
+        resume_state=CrispResumeConfig(
+            paginator_state={
+                "completed": [f"{root}/{session_id}/messages" for session_id in finished],
+                "current": None,
+                "child_state": None,
+            },
+            started_at=datetime(2026, 2, 1, tzinfo=UTC).isoformat(),
+            conversations_loaded=loaded,
+        ),
+    )
+    assert result.raised is None
+    assert [row["session_id"] for row in result.rows] == expected
+    assert not any("/c4/" in path for path in result.paths)
+
+
 def test_incremental_messages_page_through_a_window_that_no_split_can_shrink(config: CrispSourceConfig) -> None:
     updated_at = int(datetime(2026, 1, 1, tzinfo=UTC).timestamp() * 1000)
     conversations: list[dict[str, Any]] = [

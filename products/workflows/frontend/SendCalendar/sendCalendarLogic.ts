@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -13,16 +14,14 @@ import { cohortsModel } from '~/models/cohortsModel'
 import type { CohortType } from '~/types'
 
 import {
-    hogFlowsBatchJobsList,
-    hogFlowsList,
     hogFlowsSchedulesList,
     hogFlowsSchedulesPartialUpdate,
+    hogFlowsSendCalendarRetrieve,
 } from 'products/workflows/frontend/generated/api'
-import type { HogFlowScheduleApi } from 'products/workflows/frontend/generated/api.schemas'
+import type { HogFlowScheduleApi, SendCalendarFlowApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import { newBroadcastAgentLogic } from '../Broadcasts/newBroadcastAgentLogic'
 import { MessageCategory, optOutCategoriesLogic } from '../OptOuts/optOutCategoriesLogic'
-import { SCHEDULED_TRIGGER_TYPES } from '../Workflows/hogflows/steps/types'
 import { newWorkflowLogic } from '../Workflows/newWorkflowLogic'
 import {
     CalendarRange,
@@ -30,14 +29,12 @@ import {
     CalendarSendKind,
     CalendarTypeFilter,
     CalendarView,
-    ScheduledEmailFlow,
     calendarDays,
     calendarRange,
     calendarSendsForFlow,
     describeRepeat,
     dropTarget,
     groupSendsByDay,
-    isScheduledEmailFlow,
     matchesTypeFilter,
     moveBlockedReason,
     movedScheduleFields,
@@ -46,10 +43,6 @@ import {
     shiftAnchor,
 } from './sendCalendarUtils'
 
-/** The list endpoint's page limit. A project with more scheduled flows shows the first page. */
-const FLOWS_LIMIT = 500
-/** Each flow needs its own schedule and run requests, so flows load in small groups. */
-const FLOWS_PER_GROUP = 8
 const SCHEDULE_CHANGED = 'Its schedule changed after the calendar loaded. Check the reloaded calendar and try again.'
 
 /** False when the schedule changed after the calendar loaded it. A move saves the whole rule, so it would undo that change. */
@@ -79,7 +72,7 @@ export interface sendCalendarLogicValues {
     periodLabel: string
     range: CalendarRange
     savingScheduleIds: Record<string, boolean>
-    scheduledFlows: ScheduledEmailFlow[] | null
+    scheduledFlows: SendCalendarFlowApi[] | null
     scheduledFlowsLoading: boolean
     sends: CalendarSend[]
     sendsByDay: Record<string, CalendarSend[]>
@@ -117,7 +110,7 @@ export interface sendCalendarLogicActions {
     goToToday: () => {
         value: true
     }
-    loadScheduledFlows: () => any
+    loadScheduledFlows: (_: void) => void
     loadScheduledFlowsFailure: (
         error: string,
         errorObject?: any
@@ -126,11 +119,11 @@ export interface sendCalendarLogicActions {
         errorObject?: any
     }
     loadScheduledFlowsSuccess: (
-        scheduledFlows: ScheduledEmailFlow[],
-        payload?: any
+        scheduledFlows: SendCalendarFlowApi[],
+        payload?: void
     ) => {
-        scheduledFlows: ScheduledEmailFlow[]
-        payload?: any
+        scheduledFlows: SendCalendarFlowApi[]
+        payload?: void
     }
     moveSend: (
         send: CalendarSend,
@@ -192,7 +185,7 @@ export interface sendCalendarLogicMeta {
         range: (days: string[], timezone: string) => CalendarRange
         periodLabel: (view: CalendarView, anchorDate: string, days: string[]) => string
         sends: (
-            scheduledFlows: ScheduledEmailFlow[] | null,
+            scheduledFlows: SendCalendarFlowApi[] | null,
             range: CalendarRange,
             typeFilter: CalendarTypeFilter
         ) => CalendarSend[]
@@ -253,36 +246,23 @@ export const sendCalendarLogic = kea<sendCalendarLogicType>([
     }),
     loaders(({ values }) => ({
         scheduledFlows: [
-            null as ScheduledEmailFlow[] | null,
+            null as SendCalendarFlowApi[] | null,
             {
-                loadScheduledFlows: async () => {
-                    const projectId = String(values.currentProjectId)
-                    const pages = await Promise.all(
-                        SCHEDULED_TRIGGER_TYPES.map((type) =>
-                            hogFlowsList(projectId, {
-                                status: 'active',
-                                trigger: JSON.stringify({ type }),
-                                limit: FLOWS_LIMIT,
-                            })
-                        )
-                    )
-                    const flows = pages.flatMap((page) => page.results).filter(isScheduledEmailFlow)
-                    const loaded: ScheduledEmailFlow[] = []
-                    for (let index = 0; index < flows.length; index += FLOWS_PER_GROUP) {
-                        const group = await Promise.all(
-                            flows.slice(index, index + FLOWS_PER_GROUP).map(async (flow) => {
-                                // A schedule trigger runs without a batch job, so only batch triggers have runs to show.
-                                const isBatch = (flow.trigger as { type?: string } | null)?.type === 'batch'
-                                const [schedules, batchJobs] = await Promise.all([
-                                    hogFlowsSchedulesList(projectId, flow.id),
-                                    isBatch ? hogFlowsBatchJobsList(projectId, flow.id) : Promise.resolve([]),
-                                ])
-                                return { flow, schedules, batchJobs }
-                            })
-                        )
-                        loaded.push(...group)
+                loadScheduledFlows: async (_: void, breakpoint) => {
+                    // The server returns only the runs inside the shown range, so each new range loads again.
+                    let flows: SendCalendarFlowApi[]
+                    try {
+                        flows = await hogFlowsSendCalendarRetrieve(String(values.currentProjectId), {
+                            start: values.range.start.toISOString(),
+                            end: values.range.end.toISOString(),
+                        })
+                    } catch (error) {
+                        // A failed request for a period the person already left must not show the error.
+                        breakpoint()
+                        throw error
                     }
-                    return loaded
+                    breakpoint()
+                    return flows
                 },
             },
         ],
@@ -307,10 +287,10 @@ export const sendCalendarLogic = kea<sendCalendarLogicType>([
         ],
         scheduledFlows: {
             scheduleChanged: (state, { flowId, schedule }) =>
-                state?.map((item) =>
-                    item.flow.id === flowId
-                        ? { ...item, schedules: item.schedules.map((s) => (s.id === schedule.id ? schedule : s)) }
-                        : item
+                state?.map((flow) =>
+                    flow.id === flowId
+                        ? { ...flow, schedules: flow.schedules.map((s) => (s.id === schedule.id ? schedule : s)) }
+                        : flow
                 ) ?? state,
         },
         savingScheduleIds: [
@@ -337,14 +317,14 @@ export const sendCalendarLogic = kea<sendCalendarLogicType>([
         sends: [
             (s) => [s.scheduledFlows, s.range, s.typeFilter],
             (
-                scheduledFlows: ScheduledEmailFlow[] | null,
+                scheduledFlows: SendCalendarFlowApi[] | null,
                 range: CalendarRange,
                 typeFilter: CalendarTypeFilter
             ): CalendarSend[] => {
                 const now = dayjs()
                 return (scheduledFlows ?? [])
-                    .filter((item) => matchesTypeFilter(item.flow, typeFilter))
-                    .flatMap((item) => calendarSendsForFlow(item, range, now))
+                    .filter((flow) => matchesTypeFilter(flow, typeFilter))
+                    .flatMap((flow) => calendarSendsForFlow(flow, range, now))
             },
         ],
         sendsByDay: [
@@ -358,7 +338,7 @@ export const sendCalendarLogic = kea<sendCalendarLogicType>([
                 Object.fromEntries(categories.map((category) => [category.id, category.name])),
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         moveSend: ({ send, day }) => {
             const target = dropTarget(send, day, values.timezone, dayjs())
             if (!target) {
@@ -464,24 +444,25 @@ export const sendCalendarLogic = kea<sendCalendarLogicType>([
         goBackward: () => actions.setAnchor(shiftAnchor(values.view, values.anchorDate, -1)),
         loadScheduledFlowsSuccess: ({ scheduledFlows }) => {
             // The shared cohort list can miss a cohort that an audience uses, so ask for the missing ones by id.
-            const cohortIds = [...new Set(scheduledFlows.flatMap(({ flow }) => sendAudience(flow).cohortIds))]
+            const cohortIds = [...new Set(scheduledFlows.flatMap((flow) => sendAudience(flow).cohortIds))].filter(
+                (id) => !values.cohortsById[id]
+            )
             if (cohortIds.length) {
                 actions.loadCohortsByIds({ ids: cohortIds })
             }
-            // pinned: analytics event name
-            posthog.capture('send calendar viewed', {
-                view: values.view,
-                scheduled_flows: scheduledFlows?.length ?? 0,
-                sends_in_range: values.sends.length,
-            })
+            // Report the first load and each change of view, after the sends of that view loaded.
+            if (cache.reportView) {
+                // pinned: analytics event name
+                posthog.capture('send calendar viewed', {
+                    view: values.view,
+                    scheduled_flows: scheduledFlows.length,
+                    sends_in_range: values.sends.length,
+                })
+                cache.reportView = false
+            }
         },
-        setView: ({ view }) => {
-            // pinned: analytics event name
-            posthog.capture('send calendar viewed', {
-                view,
-                scheduled_flows: values.scheduledFlows?.length ?? 0,
-                sends_in_range: values.sends.length,
-            })
+        setView: () => {
+            cache.reportView = true
         },
         startNewSend: ({ kind, day }) => {
             // pinned: analytics event name
@@ -504,7 +485,15 @@ export const sendCalendarLogic = kea<sendCalendarLogicType>([
             })
         },
     })),
-    afterMount(({ actions }) => {
+    subscriptions(({ actions }) => ({
+        range: (range: CalendarRange, previous: CalendarRange | undefined) => {
+            if (previous && !(range.start.isSame(previous.start) && range.end.isSame(previous.end))) {
+                actions.loadScheduledFlows()
+            }
+        },
+    })),
+    afterMount(({ actions, cache }) => {
+        cache.reportView = true
         actions.loadScheduledFlows()
     }),
 ])

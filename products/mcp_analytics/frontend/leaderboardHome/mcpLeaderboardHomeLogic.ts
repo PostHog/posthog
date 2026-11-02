@@ -42,6 +42,10 @@ const TOOL_CALL_WHERE = `event = '$mcp_tool_call'
 const BUCKETED_ROW_LIMIT = 10000
 const WINDOW_ROW_LIMIT = 1000
 
+// The users counts below use distinct_id, not person_id, for the same reason as USERS_QUERY in
+// mcpDashboardOverviewLogic.ts: the person_id join over every person override runs out of memory
+// on large projects.
+
 const labelOf = (valueSql: string): string => `coalesce(nullIf(trim(${valueSql}), ''), 'Unknown')`
 
 const propertyLabel = (property: string): string => labelOf(`toString(properties.${property})`)
@@ -71,7 +75,7 @@ const windowFacetQuery = (label: string, onlyErrors = false): string => `
 SELECT
     ${label} AS label,
     count() AS calls,
-    uniq(person_id) AS users,
+    uniq(distinct_id) AS users,
     countIf(toBool(properties.$mcp_is_error)) AS errors
 FROM events
 WHERE ${TOOL_CALL_WHERE}
@@ -84,14 +88,14 @@ LIMIT ${WINDOW_ROW_LIMIT}
 const MODEL_LABEL = propertyLabel('$mcp_llm_model')
 
 const labUsersQuery = `
-SELECT ${labSqlExpression(MODEL_LABEL)} AS lab, uniq(person_id) AS users
+SELECT ${labSqlExpression(MODEL_LABEL)} AS lab, uniq(distinct_id) AS users
 FROM events
 WHERE ${TOOL_CALL_WHERE}
 GROUP BY lab
 `
 
 const namedModelUsersQuery = `
-SELECT uniqIf(person_id, ${MODEL_LABEL} != 'Unknown') AS users
+SELECT uniqIf(distinct_id, ${MODEL_LABEL} != 'Unknown') AS users
 FROM events
 WHERE ${TOOL_CALL_WHERE}
 `

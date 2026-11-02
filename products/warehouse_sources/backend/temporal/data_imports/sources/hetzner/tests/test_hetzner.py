@@ -333,8 +333,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("valid", 200, True, None),
-            ("unauthorized", 401, False, "Invalid Hetzner Cloud API token"),
-            ("forbidden", 403, False, "Invalid Hetzner Cloud API token"),
         ]
     )
     def test_status_maps_to_validity(

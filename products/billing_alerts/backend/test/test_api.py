@@ -45,9 +45,6 @@ class TestBillingAlertAPI(APIBaseTest):
             "metric": "spend",
             "threshold_type": "absolute_value",
             "threshold_value": "100.00",
-            "minimum_value": "0",
-            "evaluation_delay_hours": 6,
-            "cooldown_hours": 24,
         }
         payload.update(overrides)
         return payload
@@ -234,7 +231,7 @@ class TestBillingAlertAPI(APIBaseTest):
     def test_evaluation_rule_edits_reset_firing_state_and_failures(self) -> None:
         updates = [
             ("baseline_window_days", 14),
-            ("evaluation_delay_hours", 12),
+            ("threshold_value", Decimal("150.000000")),
         ]
 
         for field, value in updates:
@@ -262,13 +259,13 @@ class TestBillingAlertAPI(APIBaseTest):
 
         response = self.client.patch(
             f"{self.url}{alert.id}/",
-            {"minimum_value": "10.00"},
+            {"threshold_value": "150.00"},
             format="json",
         )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         alert.refresh_from_db()
-        assert alert.minimum_value == Decimal("10.00")
+        assert alert.threshold_value == Decimal("150.00")
         assert alert.state == BillingAlertConfiguration.State.SNOOZED
         assert alert.snoozed_until == snoozed_until
         assert alert.consecutive_failures == 3
@@ -411,11 +408,17 @@ class TestBillingAlertAPI(APIBaseTest):
         assert "webhook_url" in invalid.errors
         assert valid.is_valid(), valid.errors
 
-    def test_rejects_negative_minimum(self) -> None:
-        negative_minimum = self.client.post(self.url, self._payload(minimum_value="-1"), format="json")
+    def test_fields_the_platform_ignores_are_not_writable(self) -> None:
+        response = self.client.post(
+            self.url,
+            self._payload(minimum_value="200", evaluation_delay_hours=24, cooldown_hours=48),
+            format="json",
+        )
 
-        assert negative_minimum.status_code == status.HTTP_400_BAD_REQUEST
-        assert negative_minimum.json()["attr"] == "minimum_value"
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert not {"minimum_value", "evaluation_delay_hours", "cooldown_hours"} & response.json().keys()
+        alert = BillingAlertConfiguration.objects.get(id=response.json()["id"])
+        assert (alert.minimum_value, alert.evaluation_delay_hours, alert.cooldown_hours) == (Decimal("0"), 6, 24)
 
     def test_check_now_uses_shared_organization_object_permissions(self) -> None:
         alert = BillingAlertConfiguration.objects.create(

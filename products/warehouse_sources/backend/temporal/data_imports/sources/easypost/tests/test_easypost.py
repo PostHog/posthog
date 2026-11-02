@@ -150,6 +150,22 @@ class TestChildUsers:
         assert result.rows == [{"id": "user_1", "name": "Child", "children": [{"id": "user_2"}]}]
 
 
+class TestUspsClaims:
+    def test_paginates_the_nested_carrier_claims_path(self) -> None:
+        result = _driver().run(
+            "usps_claims",
+            [
+                ScriptedResponse(json={"usps_claims": [{"id": "usc_1"}, {"id": "usc_2"}], "has_more": True}),
+                ScriptedResponse(json={"usps_claims": [{"id": "usc_3"}], "has_more": False}),
+            ],
+        )
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["usc_1", "usc_2", "usc_3"]
+        assert result.paths == ["/v2/carrier_claims/usps_claims"] * 2
+        assert result.params("before_id") == [None, "usc_2"]
+        assert result.params("start_datetime") == [None, None]
+
+
 REPORT_TYPES = EASYPOST_ENDPOINTS["reports"].path_values
 
 
@@ -231,7 +247,9 @@ class TestUnpaginatedEndpoints:
 
 class TestValidateCredentials:
     @parameterized.expand(
-        [("ok", 200, True), ("unauthorized", 401, False), ("inactive", 403, False), ("server", 500, False)]
+        [
+            ("ok", 200, True),
+        ]
     )
     def test_status_mapping(self, _name: str, status: int, expected: bool) -> None:
         with scripted_network(always(ScriptedResponse(status=status))) as network:

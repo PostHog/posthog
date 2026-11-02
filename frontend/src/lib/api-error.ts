@@ -34,6 +34,13 @@ export function isApprovalRequiredError(error: { status?: number; data?: any } |
     return error?.status === 409 && Boolean(error?.data?.change_request_id)
 }
 
+/** The flag API refuses an edit that lowers exposure when the request asks for a reason and sends none. */
+export function isRollbackReasonRequiredError(
+    error: { status?: number; code?: string | null } | null | undefined
+): boolean {
+    return error?.status === 409 && error?.code === 'rollback_reason_required'
+}
+
 /** Potentially transient failures; a gateway error does not prove that the backend did no work. */
 const TRANSIENT_GATEWAY_STATUSES: ReadonlySet<number> = new Set([502, 503, 504])
 
@@ -93,8 +100,16 @@ export function isScopeNotFoundError(error: unknown): boolean {
     if (failure?.status !== 404) {
         return false
     }
-    const detail = failure.detail ?? failure.data?.detail
-    return typeof detail === 'string' && SCOPE_NOT_FOUND_DETAILS.has(detail)
+    return isScopeNotFoundMessage(failure.detail ?? failure.data?.detail)
+}
+
+/**
+ * Whether a message is the `detail` of a dead scope. An `ApiError` takes its message from that
+ * `detail`, and the automatic unhandled-rejection capture keeps the message but not the status, so
+ * `before_send` can only match on this.
+ */
+export function isScopeNotFoundMessage(message: unknown): boolean {
+    return typeof message === 'string' && SCOPE_NOT_FOUND_DETAILS.has(message)
 }
 
 /** DRF code of a security access rule refusal (products/security). Keep in sync with the backend. */
@@ -224,6 +239,9 @@ export function shouldReportApiFailure(error: unknown): boolean {
         return false
     }
     if (status === 409 && failure.data?.current_version !== undefined) {
+        return false
+    }
+    if (isRollbackReasonRequiredError(failure)) {
         return false
     }
     return !isApprovalRequiredError(failure)

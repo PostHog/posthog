@@ -1453,6 +1453,19 @@ h3.MarkdownNotebook__text-block--heading {
     transform: translateY(-50%);
 }
 
+// Sits inside the top-left corner, because the scroll container clips anything outside the grid
+.MarkdownNotebook__table-delete-zone {
+    top: var(--table-control-top);
+    left: var(--table-control-left);
+    width: 1.5rem;
+    height: 1.5rem;
+}
+
+// Keep header text out from under the delete zone, so a click meant for the caret never deletes the table
+.MarkdownNotebook__table-block--editable th:first-child .MarkdownNotebook__table-cell-content {
+    padding-left: 1.75rem;
+}
+
 .MarkdownNotebook__table-structure-control {
     --lemon-button-height: 1.25rem;
     --lemon-button-icon-size: 0.875rem;
@@ -1478,6 +1491,12 @@ h3.MarkdownNotebook__text-block--heading {
 .MarkdownNotebook__table-add-zone:focus-within .MarkdownNotebook__table-structure-control,
 .MarkdownNotebook__table-remove-zone:hover .MarkdownNotebook__table-structure-control,
 .MarkdownNotebook__table-remove-zone:focus-within .MarkdownNotebook__table-structure-control,
+.MarkdownNotebook__table-block--editable:hover
+    .MarkdownNotebook__table-delete-zone
+    .MarkdownNotebook__table-structure-control,
+.MarkdownNotebook__table-block--editable:focus-within
+    .MarkdownNotebook__table-delete-zone
+    .MarkdownNotebook__table-structure-control,
 .MarkdownNotebook__table-structure-control:focus-visible {
     opacity: 1;
     transform: scale(1);
@@ -1733,7 +1752,7 @@ h3.MarkdownNotebook__text-block--heading {
 }
 
 .MarkdownNotebook__component-shell--selected,
-.MarkdownNotebook__component-shell--selected * {
+.MarkdownNotebook__component-shell.MarkdownNotebook__component-shell--selected * {
     user-select: none;
 }
 
@@ -2461,6 +2480,8 @@ button.MarkdownNotebook__component-title:focus-visible {
 }
 
 .MarkdownNotebook__jupyter-prompt {
+    position: relative;
+    z-index: 2;
     flex: 0 0 var(--jupyter-prompt-width);
     padding: 0.5rem 0.5rem 0 0;
     font-family: var(--font-mono);
@@ -2468,6 +2489,7 @@ button.MarkdownNotebook__component-title:focus-visible {
     line-height: 1.3;
     text-align: right;
     white-space: nowrap;
+    pointer-events: none;
     user-select: none;
     opacity: 0.8;
 }
@@ -2569,21 +2591,49 @@ button.MarkdownNotebook__component-title:focus-visible {
     color: var(--color-text-error);
 }
 
-.MarkdownNotebook__jupyter-output-collapsed {
-    display: block;
-    width: calc(100% - var(--jupyter-prompt-width));
-    height: 0.75rem;
-    margin: 0.25rem 0 0 var(--jupyter-prompt-width);
-    font-size: 0.75rem;
-    line-height: 0.5rem;
-    color: var(--color-text-secondary);
-    cursor: pointer;
-    background: var(--jupyter-editor-background);
-    border: none;
-    border-radius: 2px;
+.MarkdownNotebook__jupyter-prompt-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    align-items: flex-end;
+    pointer-events: auto;
 
-    &:hover {
-        background: var(--jupyter-table-hover);
+    .LemonButton {
+        --lemon-button-font-size: var(--jupyter-prompt-font-size);
+
+        font-family: var(--font-mono);
+        color: var(--lemon-button-color);
+        cursor: pointer;
+
+        &.LemonButton--tertiary,
+        &.LemonButton--tertiary:hover,
+        &.LemonButton--tertiary[aria-expanded='true'] {
+            background: none;
+        }
+
+        &[aria-disabled='true']:not(.LemonButton--loading) {
+            opacity: 1;
+        }
+
+        &.MarkdownNotebook__jupyter-prompt-button--input {
+            --lemon-button-color: var(--jupyter-input-prompt-color);
+        }
+
+        &.MarkdownNotebook__jupyter-prompt-button--output {
+            --lemon-button-color: var(--jupyter-output-prompt-color);
+        }
+
+        &.line-through {
+            --lemon-button-color: var(--color-text-secondary);
+        }
+
+        .LemonButton__chrome {
+            line-height: 1.3;
+        }
+
+        .LemonButton__content {
+            font-weight: 400;
+        }
     }
 }
 

@@ -7,7 +7,7 @@ import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { SetupFactsTable } from '../../setupInspector/SetupFactsTable'
 import { formatCount, formatYesNo } from '../../setupInspector/setupInspectorUtils'
 import { experimentHealthDebugLogic } from './experimentHealthDebugLogic'
-import type { HealthDebugReleaseCondition, HealthDebugSplitChange } from './healthDebugInputs'
+import type { HealthDebugFlagChange, HealthDebugReleaseCondition } from './healthDebugInputs'
 import { HealthDebugSection } from './HealthDebugSection'
 
 export function HealthDebugFlagTab(): JSX.Element {
@@ -15,15 +15,15 @@ export function HealthDebugFlagTab(): JSX.Element {
     const {
         flagFacts,
         releaseConditions,
-        splitHistoryFacts,
-        splitChanges,
+        flagHistoryFacts,
+        flagChanges,
         trafficFacts,
         healthInputs,
         healthInputsLoading,
         healthInputsError,
     } = useValues(experimentHealthDebugLogic({ experimentId }))
     const trafficRead = !!healthInputs?.condition_set_traffic
-    const splitHistoryChecked = !!healthInputs?.split_history?.checked
+    const flagHistoryChecked = !!healthInputs?.flag_history?.checked
 
     return (
         <div className="flex flex-col gap-4">
@@ -84,25 +84,26 @@ export function HealthDebugFlagTab(): JSX.Element {
                 />
             </HealthDebugSection>
             <HealthDebugSection
-                title="Split changes since launch"
-                description="What the split-change check read from the flag's history."
+                title="Changes since launch"
+                description="What the split, bucketing and release-condition checks read from the flag's history."
             >
-                <SetupFactsTable facts={splitHistoryFacts} />
-                {splitChanges.length > 0 && (
-                    <LemonTable<HealthDebugSplitChange>
+                <SetupFactsTable facts={flagHistoryFacts} />
+                {flagChanges.length > 0 && (
+                    <LemonTable<HealthDebugFlagChange>
                         size="small"
-                        dataSource={splitChanges}
+                        dataSource={flagChanges}
                         rowKey={(change, index) => `${change.changedAt}-${index}`}
                         columns={[
                             { title: 'Changed at', dataIndex: 'changedAt' },
+                            { title: 'Changed', dataIndex: 'changed' },
                             { title: 'Before', dataIndex: 'before' },
                             { title: 'After', dataIndex: 'after' },
-                            ...(splitHistoryChecked
+                            ...(flagHistoryChecked
                                 ? [
                                       {
                                           title: 'Counts',
                                           key: 'counted',
-                                          render: (_: unknown, change: HealthDebugSplitChange) =>
+                                          render: (_: unknown, change: HealthDebugFlagChange) =>
                                               formatYesNo(change.counted),
                                       },
                                   ]
@@ -113,7 +114,7 @@ export function HealthDebugFlagTab(): JSX.Element {
             </HealthDebugSection>
             <HealthDebugSection
                 title="Calls by release condition"
-                description="The flag's recent calls that the forced-variant check grades pinned conditions by."
+                description="The flag's recent calls that the forced-variant and release-condition checks grade overrides by."
             >
                 <SetupFactsTable facts={trafficFacts} />
             </HealthDebugSection>

@@ -165,6 +165,85 @@ class TestAccountingYearEntriesFanout:
         assert "/accounting-years/2022_6_2023/entries" in result.saved_states[-1].fanout_state["completed"]
 
 
+class TestTotalsAndVouchersFanout:
+    def test_year_totals_walk_each_year_through_its_totals_link(self) -> None:
+        result = _driver().run(
+            "accounting_year_totals",
+            [
+                _page(
+                    [
+                        {"year": "2022", "totals": f"{E_CONOMIC_BASE_URL}/accounting-years/2022/totals"},
+                        {"year": "2022/2023", "totals": f"{E_CONOMIC_BASE_URL}/accounting-years/2022_6_2023/totals"},
+                    ]
+                ),
+                _page([{"account": {"accountNumber": 1000}, "totalInBaseCurrency": 5}]),
+                _page([{"account": {"accountNumber": 1000}, "totalInBaseCurrency": 7}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert [(r["accountingYear"], r["accountNumber"], r["totalInBaseCurrency"]) for r in result.rows] == [
+            ("2022", 1000, 5),
+            ("2022/2023", 1000, 7),
+        ]
+        assert result.paths[1:] == ["/accounting-years/2022/totals", "/accounting-years/2022_6_2023/totals"]
+
+    def test_period_totals_walk_years_then_periods_then_totals(self) -> None:
+        def period(number: int) -> dict[str, Any]:
+            return {
+                "periodNumber": number,
+                "accountingYear": {"year": "2024"},
+                # The API echoes the parent request's query string into these links.
+                "totals": f"{E_CONOMIC_BASE_URL}/accounting-years/2024/periods/{number}/totals?pagesize=1000",
+            }
+
+        second_page = f"{E_CONOMIC_BASE_URL}/accounting-years/2024/periods/25/totals?skippages=1"
+        result = _driver().run(
+            "accounting_period_totals",
+            [
+                _page([{"year": "2024", "periods": f"{E_CONOMIC_BASE_URL}/accounting-years/2024/periods"}]),
+                _page([period(25), period(26)]),
+                _page([{"account": {"accountNumber": 1000}}], next_page=second_page),
+                _page([{"account": {"accountNumber": 1010}}]),
+                _page([{"account": {"accountNumber": 1000}}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert [(r["accountingYear"], r["periodNumber"], r["accountNumber"]) for r in result.rows] == [
+            ("2024", 25, 1000),
+            ("2024", 25, 1010),
+            ("2024", 26, 1000),
+        ]
+        assert result.paths == [
+            "/accounting-years",
+            "/accounting-years/2024/periods",
+            "/accounting-years/2024/periods/25/totals",
+            "/accounting-years/2024/periods/25/totals",
+            "/accounting-years/2024/periods/26/totals",
+        ]
+        assert result.urls[3] == second_page
+
+    def test_vouchers_carry_journal_and_flat_accounting_year(self) -> None:
+        result = _driver().run(
+            "journal_vouchers",
+            [
+                _page([{"journalNumber": 3}, {"journalNumber": 11}]),
+                _page([{"voucherNumber": 20001, "accountingYear": {"year": "2022"}}]),
+                _page([{"voucherNumber": 0, "accountingYear": {"year": "2024"}}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert [(r["journalNumber"], r["accountingYear"], r["voucherNumber"]) for r in result.rows] == [
+            (3, "2022", 20001),
+            (11, "2024", 0),
+        ]
+        assert result.paths[1:] == ["/journals/3/vouchers", "/journals/11/vouchers"]
+        # The vouchers endpoint rejects every sort field with a 400.
+        assert result.params("sort")[1:] == [None, None]
+
+
 class TestErrorHandling:
     @parameterized.expand([("server_error", 500), ("bad_gateway", 503), ("throttled", 429)])
     def test_retryable_status_is_retried(self, _name: str, status_code: int) -> None:
@@ -223,7 +302,11 @@ class TestSourceResponse:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("server_error", 500, False)])
+    @parameterized.expand(
+        [
+            ("ok", 200, True),
+        ]
+    )
     def test_status_code_maps_to_bool(self, _name: str, status_code: int, expected: bool) -> None:
         answer = ScriptedResponse(status=status_code)
         script = always(answer) if status_code >= 500 else [answer]

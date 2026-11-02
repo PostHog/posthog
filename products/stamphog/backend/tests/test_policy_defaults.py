@@ -20,9 +20,11 @@ import policy  # noqa: E402
 from products.stamphog.backend.logic.engine_pregate import run_engine_pregate  # noqa: E402
 from products.stamphog.backend.temporal import activities  # noqa: E402
 from products.stamphog.backend.temporal.activities import (  # noqa: E402
+    PullRequestHeadMovedError,
     _clone_pr,
     _effective_policy_files,
     _prefetch_review_blobs,
+    _review_payload_archive,
     _review_payload_command,
 )
 from products.stamphog.backend.temporal.constants import (  # noqa: E402
@@ -157,6 +159,27 @@ def test_review_payload_command_wipes_optional_paths_from_pr_head() -> None:
     assert extract
 
 
+@pytest.mark.parametrize("tools_is_symlink", [False, True])
+def test_review_payload_lands_only_in_a_real_tools_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tools_is_symlink: bool
+) -> None:
+    checkout = tmp_path / "checkout"
+    planted_dir = checkout / "a" / "b" / "c"
+    planted_dir.mkdir(parents=True)
+    if tools_is_symlink:
+        (checkout / "tools").symlink_to("a/b/c")
+    payload = tmp_path / "payload.tar.gz"
+    payload.write_bytes(_review_payload_archive({}, "{}"))
+    monkeypatch.setattr(activities, "STAMPHOG_SANDBOX_REPO_DIR", str(checkout))
+    monkeypatch.setattr(activities, "STAMPHOG_SANDBOX_PAYLOAD_PATH", str(payload))
+
+    result = subprocess.run(["bash", "-c", _review_payload_command()], capture_output=True, text=True)
+
+    assert (result.returncode == 0) is not tools_is_symlink
+    assert not (planted_dir / "pr-approval-agent").exists()
+    assert (checkout / "tools" / "pr-approval-agent" / "review_local.py").is_file() is not tools_is_symlink
+
+
 def test_clone_and_prefetch_carry_the_credential_on_every_github_fetch() -> None:
     executed: list[str] = []
 
@@ -252,7 +275,7 @@ def test_shallow_clone_holds_every_object_the_pr_diff_reads(
 
     if head_moved:
         # The pull ref now names a newer commit than the one this run was queued for.
-        with pytest.raises(RuntimeError, match="the PR head is now"):
+        with pytest.raises(PullRequestHeadMovedError, match="the PR head is now"):
             _clone_pr(sandbox, "acme/widgets", "", base_tip, 7, "tok", deadline, step="head")  # type: ignore[arg-type]
         return
 

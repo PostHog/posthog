@@ -53,7 +53,7 @@ class CoinMarketCapSource(ResumableSource[CoinMarketCapSourceConfig, CoinMarketC
             name=ExternalDataSourceType.COINMARKETCAP,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="CoinMarketCap",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your CoinMarketCap Pro API key to sync cryptocurrency and market data into the PostHog Data warehouse.
 
 Create a key from your [CoinMarketCap developer dashboard](https://pro.coinmarketcap.com/account). The key grants read access to every endpoint listed below; some (e.g. exchanges and historical data) require a higher plan tier.""",

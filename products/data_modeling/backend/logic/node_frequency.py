@@ -9,7 +9,7 @@ typed column.
 
 import uuid
 import dataclasses
-from collections.abc import Collection, Iterable
+from collections.abc import Iterable
 from datetime import timedelta
 
 from django.db.models import Q, QuerySet
@@ -356,13 +356,11 @@ def schedulable_nodes(dag: DAG) -> QuerySet[Node]:
     return Node.objects.filter(dag=dag, type__in=SAVED_QUERY_NODE_TYPES).exclude(saved_query__deleted=True)
 
 
-def persist_seed_targets(
-    dag: DAG, default: timedelta | None = None, only_node_ids: Collection[str] | None = None
-) -> int:
+def persist_seed_targets(dag: DAG, default: timedelta | None = None) -> int:
     """Persist a seed target on every schedulable node lacking one; never overwrites. Each seed is
     normalized (see `normalize_seed_target`) so the persisted target equals what the scheduler will
     run. `default` is the operator escape hatch for scheduled DAGs with no interval metadata
-    anywhere. `only_node_ids` limits the seeding to those nodes. Returns how many targets were written.
+    anywhere. Returns how many targets were written.
     """
     graph = build_frequency_graph(dag)
     floors = all_source_floors(graph.edges, graph.source_intervals)
@@ -370,8 +368,6 @@ def persist_seed_targets(
     written = 0
     for node in schedulable_nodes(dag):
         node_id = str(node.id)
-        if only_node_ids is not None and node_id not in only_node_ids:
-            continue
         if get_declared_target(node) is not None:
             continue
         raw = seeds.get(node_id, default)

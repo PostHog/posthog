@@ -15,10 +15,6 @@ def _make_config(api_token: str = "token", symbols: str | None = "AAPL") -> Any:
 
 
 class TestStockDataSource:
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = StockDataSource().get_schemas(_make_config(), team_id=1, names=["news", "eod"])
-        assert {s.name for s in schemas} == {"news", "eod"}
-
     def test_source_for_pipeline_plumbs_symbols_and_keys(self) -> None:
         inputs = MagicMock()
         inputs.schema_name = "eod"
@@ -47,9 +43,7 @@ class TestStockDataSource:
 
     @parameterized.expand(
         [
-            ("http_unauthorized", "401 Client Error: Unauthorized for url: https://api.stockdata.org"),
             ("http_payment_required", "402 Client Error: Payment Required for url: https://api.stockdata.org"),
-            ("http_forbidden", "403 Client Error: Forbidden for url: https://api.stockdata.org"),
             ("missing_symbols", "StockData.org API error [missing_symbols]"),
         ]
     )

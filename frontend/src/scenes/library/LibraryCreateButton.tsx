@@ -3,7 +3,10 @@ import { useValues } from 'kea'
 import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { libraryLogic } from './libraryLogic'
+import { QuillLibraryCreateButton } from './QuillLibraryCreateButton'
 
 interface LibraryCreateButtonProps {
     objectType: string
@@ -14,6 +17,10 @@ interface LibraryCreateButtonProps {
 /** Creates an object of one Library type. Types with several kinds (insights) open a menu of kinds. */
 export function LibraryCreateButton({ objectType, label }: LibraryCreateButtonProps): JSX.Element | null {
     const { createItemsByType, objectTypeByValue } = useValues(libraryLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    if (todayRailNav) {
+        return <QuillLibraryCreateButton objectType={objectType} label={label} />
+    }
     const items = createItemsByType[objectType] ?? []
     const typeLabel = objectTypeByValue[objectType]?.label.toLowerCase() ?? 'object'
     if (!items.length) {

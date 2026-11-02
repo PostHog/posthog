@@ -69,6 +69,18 @@ class TestAchievementQueryConcurrency(SimpleTestCase):
             self.assertEqual(evaluators.evaluate_cumulative_pageviews(self.ctx, self.prior).value, 10)
             use.assert_called_once()
 
+    def test_traffic_bootstrap_saves_progress_once_its_time_budget_runs_out(self) -> None:
+        with (
+            patch.object(evaluators, "TRAFFIC_BOOTSTRAP_TIME_BUDGET_SECONDS", 0),
+            patch.object(evaluators, "_project_environment_teams", return_value=[self.team]),
+            patch.object(evaluators, "execute_hogql_query", return_value=HogQLQueryResponse(results=[[0]])) as execute,
+        ):
+            evaluation = evaluators.evaluate_cumulative_pageviews(self.ctx, self.prior)
+        execute.assert_called_once()
+        self.assertFalse(evaluation.complete)
+        assert evaluation.checkpoint is not None
+        self.assertIn("bootstrap", evaluation.checkpoint)
+
     def test_query_exception_releases_its_slot_for_the_next_project(self) -> None:
         with (
             patch.object(evaluators, "_project_environment_teams", return_value=[self.team]),
@@ -111,6 +123,8 @@ class TestAchievementQueryConcurrency(SimpleTestCase):
         progress = Mock(current_stage=0, last_computed_at=None, progress_value=0, state={})
         with (
             patch.object(tasks, "get_or_create_progress", return_value=progress),
+            patch.object(tasks, "_claim_attempt", return_value=True),
+            patch.object(tasks, "_release_attempt"),
             patch.dict(tasks.INCREMENTAL_EVALUATORS, {"cumulative_pageviews": evaluator}),
             patch.object(tasks, "_apply_progress") as apply_progress,
         ):

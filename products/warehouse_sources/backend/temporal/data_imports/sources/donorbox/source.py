@@ -106,7 +106,7 @@ class DonorboxSource(ResumableSource[DonorboxSourceConfig, DonorboxResumeConfig]
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Donorbox",
             iconPath="/static/services/donorbox.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "In Donorbox, open Account > API & Zapier Integration. Enable API access, then select Set new API Key. "
                 "API access requires a paid subscription. Use your organization login email. "

@@ -59,7 +59,7 @@ class BaserowSource(ResumableSource[BaserowSourceConfig, BaserowResumeConfig], V
 Create a database token in Baserow under **Settings > Database tokens** and make sure **read** permission is enabled for the tables you want to sync. Leave the instance URL blank to use Baserow's hosted service; self-hosted instances must be reachable over https.""",
             iconPath="/static/services/baserow.png",
             docsUrl="https://posthog.com/docs/cdp/sources/baserow",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["airtable alternative", "no-code database"],
             fields=cast(
                 list[FieldType],

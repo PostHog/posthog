@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
+import type { ReactNode } from 'react'
 
-import { IconRefresh, IconSearch } from '@posthog/icons'
+import { IconChevronRight, IconRefresh, IconSearch } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -13,10 +14,17 @@ import {
 } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { TZLabel } from 'lib/components/TZLabel'
 import type { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { urls } from 'scenes/urls'
 
+import type { UserBasicType } from '~/types'
+
+import { ResourceTagFilter } from '../components/ResourceTagFilter'
+import { cleanTagFilters } from '../components/resourceTagFilters'
+import { ResourceTags } from '../components/ResourceTags'
 import type { OfflineExperimentReadApi } from '../generated/api.schemas'
 import { OfflineExperimentsEmptyState } from './OfflineExperimentsEmptyState'
 import { offlineExperimentsLogic, type OfflineExperimentsLogicProps } from './offlineExperimentsLogic'
@@ -25,7 +33,10 @@ import { offlineRunSourceLabel } from './offlineOverviewState'
 import { OfflineOverviewTrend } from './OfflineOverviewTrend'
 import { OfflineScoreChooser } from './OfflineScoreChooser'
 
-export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps): JSX.Element {
+export function OfflineExperimentsOverview({
+    navigation,
+    ...props
+}: OfflineExperimentsLogicProps & { navigation?: ReactNode }): JSX.Element {
     const logic = offlineExperimentsLogic(props)
     const {
         experiments,
@@ -41,18 +52,22 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
         dateRange,
         cursorStack,
         refreshKey,
+        scoreTrendsExpanded,
+        scoreTrendsInitialized,
     } = useValues(logic)
-    const { setFilters, openChooser, nextPage, previousPage, refresh, loadOfflineSuggestedScorers } = useActions(logic)
+    const { setFilters, openChooser, nextPage, previousPage, refresh, loadOfflineSuggestedScorers, toggleScoreTrends } =
+        useActions(logic)
     const columns: LemonTableColumns<OfflineExperimentReadApi> = [
         {
             title: 'Experiment',
             key: 'name',
-            width: '26%',
+            className: '@max-[50rem]:w-1/3',
+            width: '19%',
             render: (_, experiment) => (
                 <Tooltip title={`${experiment.name} · ${experiment.id}`}>
                     <Link
                         to={urls.aiObservabilityOfflineEvaluationExperiment(experiment.id)}
-                        className="block font-semibold truncate"
+                        className="block font-semibold truncate @max-[50rem]:max-w-40"
                         data-attr="offline-experiment-open"
                     >
                         {experiment.name}
@@ -61,9 +76,38 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
             ),
         },
         {
+            title: 'Tags',
+            key: 'tags',
+            width: '19%',
+            render: (_, experiment) => (
+                <ResourceTags
+                    compact
+                    entity="experiments"
+                    resourceId={experiment.id}
+                    tags={experiment.tags}
+                    onSaved={refresh}
+                    onTagClick={(tag) => setFilters({ tags: [tag] })}
+                />
+            ),
+        },
+        {
+            title: 'Author',
+            key: 'created_by',
+            width: '18%',
+            className:
+                '[&_.profile-package]:max-w-full @max-[50rem]:[&_.profile-package]:max-w-24 [&_.profile-name]:truncate',
+            render: (_, experiment) =>
+                experiment.created_by ? (
+                    <ProfilePicture user={experiment.created_by as UserBasicType} size="md" showName />
+                ) : (
+                    <span className="text-muted whitespace-nowrap">No author</span>
+                ),
+        },
+        {
             title: 'Execution',
             key: 'execution',
-            width: '18%',
+            className: '@max-[50rem]:hidden',
+            width: '14%',
             render: (_, experiment) => (
                 <div className="truncate">
                     <TZLabel time={experiment.started_at} />
@@ -73,7 +117,8 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
         {
             title: 'Source',
             key: 'source',
-            width: '12%',
+            className: '@max-[50rem]:hidden',
+            width: '10%',
             render: (_, experiment) => (
                 <Tooltip title={offlineRunSourceLabel(experiment.run_source)}>
                     <span className="block truncate">{offlineRunSourceLabel(experiment.run_source)}</span>
@@ -83,13 +128,14 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
         {
             title: 'Upload',
             key: 'status',
-            width: '16%',
+            width: '10%',
             render: (_, experiment) => <OfflineExperimentStatus status={experiment.status} />,
         },
         {
             title: <Tooltip title="Result and scorer counts include only results you can access.">Coverage</Tooltip>,
             key: 'coverage',
-            width: '28%',
+            className: '@max-[40rem]:hidden',
+            width: '10%',
             render: (_, experiment) => (
                 <Tooltip
                     title={[
@@ -118,16 +164,28 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
     ]
 
     if (hasExperiments === null && !experimentsError) {
-        return <LemonSkeleton className="h-80" />
+        return (
+            <div className="space-y-4">
+                {navigation}
+                <LemonSkeleton className="h-80" />
+            </div>
+        )
     }
     if (hasExperiments === false && !experimentsLoading && !experimentsError) {
-        return <OfflineExperimentsEmptyState />
+        return (
+            <div className="space-y-4">
+                {navigation}
+                <OfflineExperimentsEmptyState />
+            </div>
+        )
     }
 
     return (
         <div className="@container space-y-6 min-w-0">
             <div aria-label="Experiment filters" className="flex flex-wrap items-center gap-2">
+                {navigation}
                 <DateFilter
+                    size="small"
                     dateFrom={filters.date_from || '-30d'}
                     dateTo={filters.date_to || null}
                     onChange={(dateFrom, dateTo) =>
@@ -137,6 +195,7 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
                     showCustomRelativeRange
                 />
                 <LemonSelect
+                    size="small"
                     value={filters.run_source || ''}
                     onChange={(run_source) => setFilters({ run_source })}
                     data-attr="offline-experiments-source-filter"
@@ -149,6 +208,7 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
                     ]}
                 />
                 <LemonSelect
+                    size="small"
                     value={filters.statuses || ''}
                     onChange={(statuses) => setFilters({ statuses })}
                     data-attr="offline-experiments-status-filter"
@@ -159,8 +219,32 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
                         { value: 'failed', label: 'Failed' },
                     ]}
                 />
+                <ResourceTagFilter size="small" filters={cleanTagFilters(filters)} onChange={setFilters} />
+                <div data-attr="offline-experiments-author-filter">
+                    <MemberSelect
+                        value={filters.created_by ?? null}
+                        size="small"
+                        defaultLabel="Any author"
+                        extraOptions={[
+                            {
+                                label: 'No author',
+                                onClick: () => setFilters({ created_by: undefined, created_by_is_null: true }),
+                            },
+                        ]}
+                        onChange={(user) => setFilters({ created_by: user?.id, created_by_is_null: undefined })}
+                    >
+                        {filters.created_by_is_null
+                            ? () => (
+                                  <LemonButton type="secondary" size="small">
+                                      No author
+                                  </LemonButton>
+                              )
+                            : undefined}
+                    </MemberSelect>
+                </div>
                 <LemonButton
                     type="secondary"
+                    size="small"
                     icon={<IconRefresh />}
                     onClick={refresh}
                     loading={experimentsLoading}
@@ -173,52 +257,81 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
             <section aria-label="Score trends" className="space-y-3">
                 <div className="flex flex-wrap justify-between items-center gap-2">
                     <div>
-                        <h2 className="mb-0">Score trends</h2>
-                        <p className="text-muted text-xs mb-0">
-                            Scores across the selected experiments. Uploading and failed runs may have partial results.
-                        </p>
-                    </div>
-                    <LemonButton type="secondary" size="small" onClick={openChooser} data-attr="offline-choose-scores">
-                        Choose scores
-                    </LemonButton>
-                </div>
-                {!dateRange ? (
-                    <LemonBanner type="error">Choose a valid date range.</LemonBanner>
-                ) : scorerIds === null || (!scorerIds.length && suggestedScorersLoading) ? (
-                    <LemonSkeleton className="h-40" />
-                ) : scorerIds.length > 0 ? (
-                    <div className="grid grid-cols-1 @min-[56rem]:grid-cols-3 gap-3">
-                        {scorerIds.map((scorerId, index) => (
-                            <OfflineOverviewTrend
-                                key={scorerId}
-                                overviewLogic={logic}
-                                overviewId={logic.key}
-                                xDomain={trendXDomain}
-                                colorOffset={index}
-                                teamId={props.teamId}
-                                timezone={props.timezone}
-                                scorerId={scorerId}
-                                dateFrom={dateRange.dateFrom}
-                                dateTo={dateRange.dateTo}
-                                refreshKey={refreshKey}
-                                filters={trendFilters}
+                        <div className="flex items-center gap-1">
+                            <h2 className="mb-0">Score trends</h2>
+                            <LemonButton
+                                icon={<IconChevronRight className={scoreTrendsExpanded ? 'rotate-90' : undefined} />}
+                                size="xsmall"
+                                className="!bg-transparent"
+                                onClick={toggleScoreTrends}
+                                aria-label={scoreTrendsExpanded ? 'Collapse score trends' : 'Expand score trends'}
+                                aria-expanded={scoreTrendsExpanded}
+                                aria-controls="offline-score-trends"
                             />
-                        ))}
+                        </div>
+                        {scoreTrendsExpanded && (
+                            <p className="text-muted text-xs mb-0">
+                                Scores across the selected experiments. Uploading and failed runs may have partial
+                                results.
+                            </p>
+                        )}
                     </div>
-                ) : suggestedScorersError ? (
-                    <LemonBanner type="error" action={{ children: 'Try again', onClick: loadOfflineSuggestedScorers }}>
-                        Could not load suggested scores. Try again or choose scores yourself.
-                    </LemonBanner>
-                ) : (
-                    <LemonBanner type="info" action={{ children: 'Choose scores', onClick: openChooser }}>
-                        Choose recurring scores to follow their results over time.
-                    </LemonBanner>
+                    {scoreTrendsExpanded && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={openChooser}
+                            data-attr="offline-choose-scores"
+                        >
+                            Choose scores
+                        </LemonButton>
+                    )}
+                </div>
+                {scoreTrendsInitialized && (
+                    <div id="offline-score-trends" hidden={!scoreTrendsExpanded}>
+                        {!dateRange ? (
+                            <LemonBanner type="error">Choose a valid date range.</LemonBanner>
+                        ) : scorerIds === null || (!scorerIds.length && suggestedScorersLoading) ? (
+                            <LemonSkeleton className="h-40" />
+                        ) : scorerIds.length > 0 ? (
+                            <div className="grid grid-cols-1 @min-[56rem]:grid-cols-3 gap-3">
+                                {scorerIds.map((scorerId, index) => (
+                                    <OfflineOverviewTrend
+                                        key={scorerId}
+                                        overviewLogic={logic}
+                                        overviewId={logic.key}
+                                        xDomain={trendXDomain}
+                                        colorOffset={index}
+                                        teamId={props.teamId}
+                                        timezone={props.timezone}
+                                        scorerId={scorerId}
+                                        dateFrom={dateRange.dateFrom}
+                                        dateTo={dateRange.dateTo}
+                                        refreshKey={refreshKey}
+                                        filters={trendFilters}
+                                    />
+                                ))}
+                            </div>
+                        ) : suggestedScorersError ? (
+                            <LemonBanner
+                                type="error"
+                                action={{ children: 'Try again', onClick: loadOfflineSuggestedScorers }}
+                            >
+                                Could not load suggested scores. Try again or choose scores yourself.
+                            </LemonBanner>
+                        ) : (
+                            <LemonBanner type="info" action={{ children: 'Choose scores', onClick: openChooser }}>
+                                Choose recurring scores to follow their results over time.
+                            </LemonBanner>
+                        )}
+                    </div>
                 )}
             </section>
             <section aria-label="Recent experiments" className="space-y-3">
                 <div className="flex flex-wrap justify-between items-center gap-2">
                     <h2 className="mb-0">Recent experiments</h2>
                     <LemonInput
+                        size="small"
                         type="search"
                         prefix={<IconSearch />}
                         value={filters.search || ''}
@@ -232,6 +345,7 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
                     </LemonBanner>
                 ) : (
                     <LemonTable
+                        className="@max-[50rem]:[&_colgroup]:hidden @max-[50rem]:[&_table]:table-auto"
                         dataSource={experiments?.results || []}
                         columns={columns}
                         rowKey="id"

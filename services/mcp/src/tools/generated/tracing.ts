@@ -4,6 +4,7 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/tracing/api'
 import { withUiApp } from '@/resources/ui-apps'
+import { castObjectToJsonString } from '@/tools/cast-helpers'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -49,6 +50,9 @@ const apmAttributeValuesList = (): ToolBase<ReturnType<typeof ApmAttributeValues
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/values/`,
             query: {
                 attribute_type: params.attribute_type,
+                dateRange: params.dateRange,
+                date_from: params.date_from,
+                date_to: params.date_to,
                 key: params.key,
                 limit: params.limit,
                 offset: params.offset,
@@ -78,6 +82,9 @@ const apmAttributesList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/attributes/`,
             query: {
                 attribute_type: params.attribute_type,
+                dateRange: params.dateRange,
+                date_from: params.date_from,
+                date_to: params.date_to,
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,
@@ -89,9 +96,39 @@ const apmAttributesList = (): ToolBase<
     },
 })
 
+const ApmServiceHealthSchema = () => {
+    const TracingSpansServiceHealthCreateBody = orvalSchemas.TracingSpansServiceHealthCreateBody()
+    return TracingSpansServiceHealthCreateBody
+}
+
+const apmServiceHealth = (): ToolBase<ReturnType<typeof ApmServiceHealthSchema>, Schemas.ServiceHealthResponse> => ({
+    name: 'apm-service-health',
+    schema: ApmServiceHealthSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ApmServiceHealthSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        if (params.baselineDateRange !== undefined) {
+            body['baselineDateRange'] = params.baselineDateRange
+        }
+        const result = await context.api.request<Schemas.ServiceHealthResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/service_health/`,
+            body,
+        })
+        return result
+    },
+})
+
 const ApmServicesListSchema = () => {
     const TracingSpansServiceNamesRetrieveQueryParams = orvalSchemas.TracingSpansServiceNamesRetrieveQueryParams()
-    return TracingSpansServiceNamesRetrieveQueryParams
+    return TracingSpansServiceNamesRetrieveQueryParams.extend({
+        dateRange: z
+            .preprocess(castObjectToJsonString, TracingSpansServiceNamesRetrieveQueryParams.shape['dateRange'])
+            .optional(),
+    })
 }
 
 const apmServicesList = (): ToolBase<
@@ -107,6 +144,8 @@ const apmServicesList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/service-names/`,
             query: {
                 dateRange: params.dateRange,
+                date_from: params.date_from,
+                date_to: params.date_to,
                 search: params.search,
             },
         })
@@ -161,7 +200,7 @@ const apmSpansCount = (): ToolBase<ReturnType<typeof ApmSpansCountSchema>, Schem
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/count/`,
             body,
         })
-        const filtered = pickResponseFields(result, ['count']) as typeof result
+        const filtered = pickResponseFields(result, ['count', 'traceCount']) as typeof result
         return filtered
     },
 })
@@ -332,6 +371,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'apm-attribute-breakdown': apmAttributeBreakdown,
     'apm-attribute-values-list': apmAttributeValuesList,
     'apm-attributes-list': apmAttributesList,
+    'apm-service-health': apmServiceHealth,
     'apm-services-list': apmServicesList,
     'apm-spans-aggregate': apmSpansAggregate,
     'apm-spans-count': apmSpansCount,

@@ -1,7 +1,7 @@
 import { isObject } from 'lib/utils/guards'
 
 import { parseAiBlobPointer, resolveAiBlobUrl, resolveDataUri } from '../../../aiBlob'
-import { isRenderableMediaSource } from '../../../mediaSource'
+import { isRenderableMediaSource, redactedMediaKind } from '../../../mediaSource'
 import { AttachmentMediaType, MessagePart } from '../types'
 
 export type AttachmentPart = Extract<MessagePart, { kind: 'attachment' }>
@@ -22,7 +22,7 @@ const MEDIA_TYPE_BY_ITEM_TYPE: Record<string, AttachmentMediaType> = {
 
 // Providers nest the payload under one of these keys, each with its own field names.
 const NESTED_PAYLOAD_KEYS = ['source', 'file', 'input_audio', 'image_url', 'inline_data', 'inlineData']
-const SOURCE_KEYS = ['url', 'file_url', 'image_url', 'file_data', 'image', 'data', 'file']
+const SOURCE_KEYS = ['url', 'file_url', 'image_url', 'file_data', 'image', 'data', 'file', 'uri']
 const MIME_KEYS = ['mediaType', 'mimeType', 'mime_type', 'media_type']
 const NAME_KEYS = ['filename', 'name']
 
@@ -60,8 +60,8 @@ function mediaTypeOf(itemType: string, mimeType: string | null): AttachmentMedia
     return topLevel === 'image' || topLevel === 'audio' || topLevel === 'video' ? topLevel : 'file'
 }
 
-// Raw base64 payloads become data: URIs. The app's CSP allows media only from its own origin, data: and blob:,
-// so stored blob pointers must resolve to the same-origin blob endpoint.
+// Raw base64 payloads become data: URIs. Image CSP also permits HTTPS sources, while stored blob
+// pointers must resolve to the same-origin blob endpoint.
 function resolveUrl(source: string | null, mimeType: string | null, teamId: TeamId): string | null {
     if (source === null) {
         return null
@@ -99,6 +99,6 @@ export function toAttachment(item: Record<string, unknown> & { type: string }, t
         mediaType,
         name: readString(containers, NAME_KEYS) ?? (isKnownMedia ? null : item.type),
         mimeType,
-        url: isKnownMedia ? resolveUrl(source, payloadMime, teamId) : null,
+        url: isKnownMedia && redactedMediaKind(item) === null ? resolveUrl(source, payloadMime, teamId) : null,
     }
 }

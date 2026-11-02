@@ -178,7 +178,7 @@ class NewRelicSource(ResumableSource[NewRelicSourceConfig, NewRelicResumeConfig]
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             keywords=["new relic", "apm", "observability"],
             label="New Relic",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your New Relic User API key and account ID to pull your New Relic data into the PostHog Data warehouse.
 
 You can create a User API key on the [API keys page](https://one.newrelic.com/admin-portal/api-keys/home) of your New Relic account. Your account ID is shown in the URL when viewing your account, or under **Administration** → **Access management** → **Accounts**.
@@ -246,6 +246,9 @@ If your account is hosted in New Relic's EU data center, select the EU region.
             "401 Client Error: Unauthorized for url: https://api.eu.newrelic.com": invalid_key,
             "403 Client Error: Forbidden for url: https://api.newrelic.com": missing_permissions,
             "403 Client Error: Forbidden for url: https://api.eu.newrelic.com": missing_permissions,
+            # NerdGraph reports an authorization failure inside its `errors` array on an HTTP 200
+            # rather than a 401/403, so it never matches the status-based keys above.
+            "New Relic GraphQL error: Access denied": missing_permissions,
         }
 
     def get_schemas(

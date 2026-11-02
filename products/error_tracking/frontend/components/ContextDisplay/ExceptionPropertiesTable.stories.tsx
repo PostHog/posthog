@@ -43,6 +43,7 @@ export const Default: Story = {
                     ['Account plan', 'business'],
                     ['Attempt count', 3],
                     ['Feature enabled', true],
+                    ['billing_summary.current_amount_usd.logs_retention_custom', '0.00'],
                 ],
             },
         ],

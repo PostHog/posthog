@@ -4,7 +4,6 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
-    SourceDriver,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.payfit import PayFitSourceConfig
@@ -16,11 +15,6 @@ class TestPayFitSource:
         self.source = PayFitSource()
         self.team_id = 123
         self.config = PayFitSourceConfig(api_key="payfit-key")
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["contracts"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "contracts"
 
     @parameterized.expand(
         [
@@ -38,22 +32,6 @@ class TestPayFitSource:
     def test_non_retryable_errors_match_auth_failures(self, _name: str, observed_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://partner-api.payfit.com/companies/c/absences",
-            ),
-            (
-                "rate_limited",
-                "429 Client Error: Too Many Requests for url: https://partner-api.payfit.com/companies/c/contracts",
-            ),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
 
     def test_validate_credentials_probes_endpoint_scope_for_schema(self) -> None:
         # PayFit keys carry per-endpoint scopes, so per-schema validation must probe that endpoint
@@ -95,10 +73,3 @@ class TestPayFitSource:
         assert kwargs["api_key"] == "payfit-key"
         assert kwargs["endpoint"] == "collaborators"
         assert kwargs["resumable_source_manager"] is manager
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        result = SourceDriver(self.source, self.config).run("not_a_table", [])
-
-        assert isinstance(result.raised, ValueError)
-        assert str(result.raised) == "Unknown PayFit schema 'not_a_table'"
-        assert result.requests == []

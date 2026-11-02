@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock
 
+import pyarrow as pa
 from requests import Response
 from requests.exceptions import HTTPError, RequestException
 from structlog.testing import capture_logs
@@ -14,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.cler
     ClerkResumeConfig,
     _convert_timestamps,
     _strip_sensitive_fields,
+    _webhook_table_transformer,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.settings import (
@@ -276,6 +278,7 @@ class TestClerkFilteredEndpoints:
             "completed": [f"{config.path}?{config.fan_out.query_param}={parent_id}"],
             "current": None,
             "child_state": None,
+            "parent": None,
         }
         assert result.raised is None
 
@@ -311,6 +314,15 @@ class TestClerkFeatureGatedEndpoints:
             ("machines", 404, {"errors": [{"code": "resource_not_found"}]}),
             # m2m_tokens fans out over /machines, so it meets the same 404 on its parent fetch.
             ("m2m_tokens", 404, {"errors": [{"code": "resource_not_found"}]}),
+            # Organizations off: the lists answer 403 with a feature code instead of a 404.
+            ("organizations", 403, {"errors": [{"code": "organization_not_enabled_in_instance"}]}),
+            ("organization_domains", 403, {"errors": [{"code": "organization_not_enabled_in_instance"}]}),
+            ("organization_roles", 403, {"errors": [{"code": "organization_not_enabled_in_instance"}]}),
+            ("organization_permissions", 403, {"errors": [{"code": "organization_not_enabled_in_instance"}]}),
+            ("api_keys", 403, {"errors": [{"code": "feature_not_enabled"}]}),
+            # Instances without email address sign-in answer 422 for the SSO connection lists.
+            ("saml_connections", 422, {"errors": [{"code": "feature_requires_email_address_enabled"}]}),
+            ("enterprise_connections", 422, {"errors": [{"code": "feature_requires_email_address_enabled"}]}),
         ],
     )
     def test_feature_not_enabled_syncs_no_rows_instead_of_failing(
@@ -332,6 +344,13 @@ class TestClerkFeatureGatedEndpoints:
             ("allowlist_identifiers", 404, {"errors": [{"code": "invalid_request"}]}),
             # A table with no feature gate never swallows an error.
             ("users", 402, {"errors": [{"code": "payment_required"}]}),
+            ("users", 403, {"errors": [{"code": "organization_not_enabled_in_instance"}]}),
+            # A 422 without the feature code is a bad request, not a feature-off signal.
+            ("saml_connections", 422, {"errors": [{"code": "form_param_invalid"}]}),
+            # API keys with the feature on still reject an unfiltered list, which the curated copy covers.
+            ("api_keys", 400, {"errors": [{"code": "bad_request"}]}),
+            # A permission denial on a gated table stays a failure.
+            ("organizations", 403, {"errors": [{"code": "authorization_invalid"}]}),
         ],
     )
     def test_other_errors_still_fail_the_sync(self, endpoint: str, status_code: int, body: dict[str, Any]) -> None:
@@ -379,7 +398,23 @@ class TestClerkValidateCredentials:
         assert network.requests_log[0].path == "/v1/users"
         assert network.requests_log[0].param("limit") == "1"
 
-    @pytest.mark.parametrize("secret_key", ["sk_live_\u200bkey", "sk_live_\u3042key"])
+    @pytest.mark.parametrize(
+        "secret_key",
+        ["\u200bsk_live_key", "sk_live_\u200bkey", "sk_live_key\ufeff", "\u00a0sk_live_key", "sk_live_key\n"],
+    )
+    def test_invisible_paste_debris_is_removed_before_the_request(self, secret_key: str) -> None:
+        with scripted_network([ScriptedResponse(json=[])]) as network:
+            is_valid, message = validate_credentials(secret_key)
+        assert (is_valid, message) == (True, None)
+        assert network.requests_log[0].headers["authorization"] == "Bearer sk_live_key"
+
+    def test_sync_sends_the_cleaned_key(self) -> None:
+        driver = SourceDriver(ClerkSource(), ClerkSourceConfig(secret_key="\u200bsk_live_key\n"))
+        result = driver.run(_DIRECT_ARRAY_ENDPOINT, [ScriptedResponse(json=[])])
+        assert result.raised is None
+        assert result.requests[0].headers["authorization"] == "Bearer sk_live_key"
+
+    @pytest.mark.parametrize("secret_key", ["sk_live_\u3042key", "sk_live_\u00a0key"])
     def test_non_ascii_key_is_rejected_before_any_request(self, secret_key: str) -> None:
         # Such a key can't be encoded into the Authorization header, so dispatching the request
         # raises UnicodeEncodeError; the guard must catch it first and explain what to do.
@@ -413,3 +448,26 @@ class TestClerkValidateCredentials:
         assert "Couldn't reach Clerk" in (message or "")
         assert "connection reset by peer" not in (message or "")
         assert network.requests_log[0].path == "/v1/users"
+
+
+class TestClerkWebhookTransformer:
+    def test_keeps_latest_event_and_skips_deletes(self) -> None:
+        table = pa.Table.from_pylist(
+            [
+                {
+                    "type": "user.updated",
+                    "timestamp": 1767312000000,
+                    "data": '{"id":"user_1","email":"new@example.com","created_at":1767225600000}',
+                },
+                {
+                    "type": "user.created",
+                    "timestamp": 1767225600000,
+                    "data": '{"id":"user_1","email":"old@example.com","created_at":1767225600000}',
+                },
+                {"type": "user.deleted", "timestamp": 1767398400000, "data": '{"id":"user_1","deleted":true}'},
+            ]
+        )
+
+        assert _webhook_table_transformer(table).to_pylist() == [
+            {"id": "user_1", "email": "new@example.com", "created_at": 1767225600}
+        ]

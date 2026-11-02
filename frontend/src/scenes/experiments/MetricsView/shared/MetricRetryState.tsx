@@ -67,11 +67,11 @@ export function MetricRetryDetails({ retry, className }: { retry: MetricRetryInf
                     {retry.message}
                 </div>
             )}
-            <div className="text-muted text-xs">
+            <div className="text-muted text-xs whitespace-nowrap">
                 {/* `countdown` is rewritten every second. Left bare it is a text node React tracks,
                     so once a page-translation extension replaces it with a <font> element the
                     countdown freezes at the translated value (react#11538). */}
-                Retry {retry.attempt} of {retry.max_attempts} · next attempt <span translate="no">{countdown}</span> ·{' '}
+                Retry {retry.attempt} of {retry.max_attempts} · next attempt <span translate="no">{countdown}</span>
                 {/* <Link to={RECALCULATION_RETRY_DOCS_URL} target="_blank">
                     Why do we retry?
                 </Link> */}
@@ -82,7 +82,7 @@ export function MetricRetryDetails({ retry, className }: { retry: MetricRetryInf
 
 export function MetricRetryState({ retry }: { retry: MetricRetryInfo }): JSX.Element {
     return (
-        <div className="flex h-full items-center justify-center px-3">
+        <div className="flex h-full min-w-72 items-center justify-center px-3">
             <MetricRetryDetails retry={retry} className="items-center text-center" />
         </div>
     )

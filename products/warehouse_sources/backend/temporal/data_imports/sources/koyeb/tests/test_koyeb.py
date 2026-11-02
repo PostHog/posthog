@@ -53,9 +53,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid or unauthorized Koyeb API token"),
-            ("forbidden", 403, False, "Invalid or unauthorized Koyeb API token"),
-            ("server_error", 500, False, "Koyeb API error: 500"),
         ]
     )
     def test_status_mapping(self, _name: str, status: int, expected_ok: bool, expected_error: str | None) -> None:

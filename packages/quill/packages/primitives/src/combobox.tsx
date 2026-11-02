@@ -9,7 +9,9 @@ import { Chip, ChipClose } from './chip'
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from './input-group'
 import { cn } from './lib/utils'
 import { MenuEmpty } from './menu-empty'
+import { MenuItemBody } from './menu-item-body'
 import { MenuLabel } from './menu-label'
+import { hasTooltipContent, withTooltip } from './with-tooltip'
 
 const ComboboxAnchorContext = React.createContext<React.RefObject<HTMLDivElement> | null>(null)
 
@@ -98,10 +100,24 @@ const ComboboxInput = React.forwardRef<
 
 const ComboboxContent = React.forwardRef<
     React.ComponentRef<typeof ComboboxPrimitive.Popup>,
-    ComboboxPrimitive.Popup.Props &
-        Pick<ComboboxPrimitive.Positioner.Props, 'side' | 'align' | 'sideOffset' | 'alignOffset' | 'anchor'>
+    ComboboxPrimitive.Popup.Props & {
+        /**
+         * Rendered in the positioner as the popup's sibling, escaping the popup's overflow. Use position: absolute —
+         * in-flow content here resizes the box the positioner measures.
+         */
+        popupSibling?: React.ReactNode
+    } & Pick<ComboboxPrimitive.Positioner.Props, 'side' | 'align' | 'sideOffset' | 'alignOffset' | 'anchor'>
 >(function ComboboxContent(
-    { className, side = 'bottom', sideOffset = 6, align = 'start', alignOffset = 0, anchor: anchorProp, ...props },
+    {
+        className,
+        popupSibling,
+        side = 'bottom',
+        sideOffset = 6,
+        align = 'start',
+        alignOffset = 0,
+        anchor: anchorProp,
+        ...props
+    },
     ref
 ) {
     const contextAnchor = React.useContext(ComboboxAnchorContext)
@@ -118,6 +134,7 @@ const ComboboxContent = React.forwardRef<
                 anchor={anchor}
                 className="isolate"
             >
+                {popupSibling}
                 <ComboboxPrimitive.Popup
                     ref={ref}
                     data-slot="combobox-content"
@@ -155,13 +172,31 @@ const ComboboxList = React.forwardRef<React.ComponentRef<typeof ComboboxPrimitiv
 
 const ComboboxItem = React.forwardRef<
     React.ComponentRef<typeof ComboboxPrimitive.Item>,
-    ComboboxPrimitive.Item.Props & { title?: string }
->(function ComboboxItem({ className, children, title, ...props }, ref) {
-    return (
+    ComboboxPrimitive.Item.Props & {
+        title?: string
+        /** Text shown in a tooltip beside the item. */
+        tooltip?: React.ReactNode
+        /** Disables the item and says why in a tooltip beside it. Takes the place of `tooltip` while set. */
+        disabledReason?: React.ReactNode
+        /** An action row, such as "New project". It is never selected, so it leaves out the check mark's gutter. */
+        action?: boolean
+        /** A muted second line under the label. The row grows to fit it, and its text lines up past a leading icon. */
+        description?: React.ReactNode
+    }
+>(function ComboboxItem(
+    { className, children, title, tooltip, disabledReason, disabled, action, description, ...props },
+    ref
+) {
+    const hasReason = hasTooltipContent(disabledReason)
+    const described = hasTooltipContent(description)
+    // A disabled item ignores the pointer, so the tooltip listens on a wrapper and opens beside the row.
+    return withTooltip(
         <ComboboxPrimitive.Item
             ref={ref}
             data-slot="combobox-item"
-            className={cn('quill-combobox__item', className)}
+            data-action={action ? '' : undefined}
+            disabled={disabled || hasReason}
+            className={cn('quill-combobox__item', described && 'quill-menu-item--described', className)}
             title={title ?? (typeof children === 'string' ? children : undefined)}
             // The default render is a real <button>; only declare nativeButton when the
             // caller hasn't overridden render (their element may not be a button).
@@ -169,13 +204,17 @@ const ComboboxItem = React.forwardRef<
             render={<Button size="row" left className="min-w-0 aria-selected:bg-fill-selected" />}
             {...props}
         >
-            <span className="flex items-center gap-1.5 min-w-0 truncate">{children}</span>
+            <span className="quill-combobox__item-content flex items-center min-w-0 truncate">
+                {described ? <MenuItemBody description={description}>{children}</MenuItemBody> : children}
+            </span>
             <ComboboxPrimitive.ItemIndicator
                 render={<span className="pointer-events-none absolute start-2 flex items-center justify-center" />}
             >
-                <CheckIcon className="pointer-events-none" />
+                <CheckIcon className="quill-combobox__indicator-icon pointer-events-none size-3.5" />
             </ComboboxPrimitive.ItemIndicator>
-        </ComboboxPrimitive.Item>
+        </ComboboxPrimitive.Item>,
+        hasReason ? disabledReason : tooltip,
+        { target: 'block', side: 'inline-end' }
     )
 })
 

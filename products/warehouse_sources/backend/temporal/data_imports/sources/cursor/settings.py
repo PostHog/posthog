@@ -11,6 +11,15 @@ MAX_WINDOW_DAYS = 30
 # truncated to a date. 29 is the largest window that always fits.
 ANALYTICS_MAX_WINDOW_DAYS = 29
 
+# Conversation Insights slice name -> the key that holds the slice value in each time-series point.
+CONVERSATION_INSIGHT_SLICES: dict[str, str] = {
+    "intents": "intent",
+    "complexity": "complexity",
+    "categories": "category",
+    "guidanceLevels": "guidanceLevel",
+    "workTypes": "workType",
+}
+
 
 def _datetime_field(name: str) -> IncrementalField:
     return {
@@ -37,6 +46,9 @@ class CursorEndpointConfig:
     # the Admin API takes a JSON body with epoch-ms dates.
     query_params: bool = False
     date_param_format: Literal["epoch_ms", "iso_date"] = "epoch_ms"
+    date_param_names: tuple[str, str] = ("startDate", "endDate")
+    # Fixed query params the endpoint requires on every request.
+    extra_params: dict[str, str] = field(default_factory=dict)
     # Response `data` is an object keyed by user email instead of a list of rows.
     by_user: bool = False
     paginated: bool = True
@@ -274,6 +286,76 @@ CURSOR_ENDPOINTS: dict[str, CursorEndpointConfig] = {
         incremental_fields=[_datetime_field("createdAt")],
         should_sync_default=False,
         description="Individual accepted AI changes with the lines added and deleted, the model, and the files each change touched. Needs a Cursor Enterprise plan with AI code tracking enabled. Only syncs the last 365 days on initial sync",
+    ),
+    "audit_logs": CursorEndpointConfig(
+        name="audit_logs",
+        path="/teams/audit-logs",
+        method="GET",
+        query_params=True,
+        date_param_names=("startTime", "endTime"),
+        data_key="events",
+        primary_keys=["event_id"],
+        windowed=True,
+        page_size=500,
+        partition_key="timestamp",
+        incremental_fields=[_datetime_field("timestamp")],
+        should_sync_default=False,
+        description="Audit log events for your team, such as logins, member changes, and settings changes. Only syncs the last 365 days on initial sync",
+    ),
+    "billing_groups": CursorEndpointConfig(
+        name="billing_groups",
+        path="/teams/groups",
+        method="GET",
+        data_key="groups",
+        primary_keys=["id"],
+        paginated=False,
+        should_sync_default=False,
+        description="Billing groups with their spend for the current billing cycle, including the reserved Unassigned group. Needs a Cursor Enterprise plan. Full refresh only",
+    ),
+    "billing_group_members": CursorEndpointConfig(
+        name="billing_group_members",
+        path="/teams/groups",
+        method="GET",
+        data_key="groups",
+        # A member can leave a group and join it again, so the join time is in the key.
+        primary_keys=["groupId", "userId", "joinedAt"],
+        paginated=False,
+        should_sync_default=False,
+        description="Current and former members of each billing group, with their spend for the current billing cycle. Needs a Cursor Enterprise plan. Full refresh only",
+    ),
+    "bugbot_reviews": CursorEndpointConfig(
+        name="bugbot_reviews",
+        path="/analytics/team/bugbot-reviews",
+        method="GET",
+        query_params=True,
+        date_param_format="iso_date",
+        data_key="data",
+        primary_keys=["request_id"],
+        windowed=True,
+        window_days=ANALYTICS_MAX_WINDOW_DAYS,
+        page_size=250,
+        partition_key="timestamp",
+        incremental_fields=[_datetime_field("timestamp")],
+        should_sync_default=False,
+        description="One row per completed Bugbot review, with the reviewed commit, the findings, and the billed cost. Needs a Cursor Enterprise plan and an API key with read access. Only syncs the last 365 days on initial sync",
+    ),
+    "conversation_insights": CursorEndpointConfig(
+        name="conversation_insights",
+        path="/analytics/team/conversation-insights",
+        method="GET",
+        query_params=True,
+        date_param_format="iso_date",
+        data_key="data",
+        extra_params={"include": ",".join(CONVERSATION_INSIGHT_SLICES)},
+        # One row per day per slice value, expanded from each slice's time series.
+        primary_keys=["date", "slice", "value"],
+        windowed=True,
+        window_days=ANALYTICS_MAX_WINDOW_DAYS,
+        paginated=False,
+        partition_key="date",
+        incremental_fields=[_datetime_field("date")],
+        should_sync_default=False,
+        description="Daily team conversation counts by intent, complexity, category, guidance level, and work type. Needs a Cursor Enterprise plan with Conversation Insights turned on. Only syncs the last 365 days on initial sync",
     ),
 }
 

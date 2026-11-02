@@ -8,7 +8,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from django.conf import settings
 from django.core.cache import cache
 
 import requests
@@ -17,10 +16,12 @@ import structlog
 from posthog.egress.github.transport import GitHubRateLimitError, github_request
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.transport.transport import EgressBudgetExhausted
+from posthog.integrations.contracts import IntegrationRecord
 from posthog.models.github_integration_base import (
     GitHubIntegrationBase,
     GitHubIntegrationError,
     _is_safe_github_repo_path,
+    github_app_oauth_credentials,
 )
 from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.user import User
@@ -267,8 +268,9 @@ class GitHubIntegration(GitHubIntegrationBase):
         user-to-server access/refresh tokens and their expirations, or ``None`` if
         the exchange fails or the response lacks an id/login.
         """
-        client_id = settings.GITHUB_APP_CLIENT_ID
-        client_secret = settings.GITHUB_APP_CLIENT_SECRET
+        credentials = github_app_oauth_credentials()
+        client_id = credentials.client_id
+        client_secret = credentials.client_secret
         if not client_id or not client_secret:
             logger.warning("GitHubIntegration: GITHUB_APP_CLIENT_ID/SECRET not configured, cannot exchange code")
             return None
@@ -367,10 +369,10 @@ class GitHubIntegration(GitHubIntegrationBase):
             raise exhausted
         return None
 
-    def __init__(self, integration: model.Integration, *, source: str, priority: Priority) -> None:
+    def __init__(self, integration: IntegrationRecord, *, source: str, priority: Priority) -> None:
         if integration.kind != "github":
             raise Exception("GitHubIntegration init called with Integration with wrong 'kind'")
-        self.integration = integration
+        self.integration = model.integration_model(integration)
         self.source = source
         self.priority = priority
 

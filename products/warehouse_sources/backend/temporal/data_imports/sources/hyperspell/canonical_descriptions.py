@@ -124,4 +124,31 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "selected": "Whether the channel is currently selected for indexing on the connection.",
         },
     },
+    "connection_folders": {
+        "description": "Folders on each connection whose integration supports folder selection (for example Google Drive or Dropbox), with the explicit folder policy that controls what Hyperspell indexes.",
+        "docs_url": "https://docs.hyperspell.com/api-reference/folders/list-folders-for-a-connection",
+        "columns": {
+            "user_id": "The Hyperspell user the connection belongs to (empty when synced app-wide without a user).",
+            "connection_id": "The connection the folder was listed through.",
+            "integration_id": "The connection's integration id.",
+            "provider_folder_id": "The folder's id at the source provider.",
+            "name": "Display name of the folder.",
+            "parent_folder_id": "The provider id of the parent folder (null for root-level folders).",
+            "has_children": "Whether the folder may have subfolders.",
+            "policy": "The explicit policy set on the folder (its id and sync_mode of sync, skip, or manual), or null when the folder inherits its policy or uses the default.",
+        },
+    },
+    "emotional_states": {
+        "description": "The most recent emotional states stored for each user, extracted from conversation transcripts. The API returns at most the 20 newest states per user, so older states drop out of the table.",
+        "docs_url": "https://docs.hyperspell.com/api-reference/emotional-state/get-recent-emotional-states",
+        "columns": {
+            "user_id": "The Hyperspell user the emotional state belongs to (empty when synced app-wide without a user).",
+            "resource_id": "Identifier of the stored emotional state.",
+            "summary": "Summary of the emotional state.",
+            "extracted_at": "When the emotional state was extracted.",
+            "session_id": "The conversation session the state was extracted from, if any.",
+            "relationship_id": "The relationship the state is scoped to, if any.",
+            "summary_source": "Where the summary came from.",
+        },
+    },
 }

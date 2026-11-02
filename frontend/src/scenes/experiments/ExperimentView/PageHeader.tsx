@@ -3,9 +3,11 @@ import { Fragment } from 'react'
 
 import { IconFlask } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
@@ -41,6 +43,7 @@ export function PageHeaderCustom(): JSX.Element {
         useActions(modalsLogic)
     const actionSections = useExperimentActions()
     const { trigger, HogfettiComponent } = useHogfetti()
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     useOnMountEffect(() => {
         setHogfettiTrigger(trigger)
@@ -68,37 +71,66 @@ export function PageHeaderCustom(): JSX.Element {
                 renameDebounceMs={0}
                 saveOnBlur
                 actions={
-                    <>
-                        {experiment && isExperimentDraft && (
-                            <div className="flex items-center">
-                                <LemonButton
-                                    type="primary"
+                    todayRailNav ? (
+                        <>
+                            {experiment && isExperimentDraft && (
+                                <Button
+                                    variant="primary"
                                     data-attr="launch-experiment"
                                     onClick={() => launchExperiment()}
                                     loading={launchExperimentLoading}
-                                    size="small"
                                 >
                                     Launch
-                                </LemonButton>
-                            </div>
-                        )}
-                        {experiment && isExperimentRunning && !isExperimentStopped && (
-                            <>
-                                <Tooltip title="Conclude this experiment and decide which variant to keep">
+                                </Button>
+                            )}
+                            {experiment && isExperimentRunning && !isExperimentStopped && (
+                                <>
+                                    <Button
+                                        variant="primary"
+                                        tooltip="Conclude this experiment and decide which variant to keep"
+                                        onClick={() => openFinishExperimentModal()}
+                                    >
+                                        <IconFlask />
+                                        <b>End experiment</b>
+                                    </Button>
+                                    <FinishExperimentModal />
+                                </>
+                            )}
+                            <ExperimentActionsMenu />
+                        </>
+                    ) : (
+                        <>
+                            {experiment && isExperimentDraft && (
+                                <div className="flex items-center">
                                     <LemonButton
                                         type="primary"
-                                        icon={<IconFlask />}
-                                        onClick={() => openFinishExperimentModal()}
+                                        data-attr="launch-experiment"
+                                        onClick={() => launchExperiment()}
+                                        loading={launchExperimentLoading}
                                         size="small"
                                     >
-                                        <b>End experiment</b>
+                                        Launch
                                     </LemonButton>
-                                </Tooltip>
-                                <FinishExperimentModal />
-                            </>
-                        )}
-                        <ExperimentActionsMenu />
-                    </>
+                                </div>
+                            )}
+                            {experiment && isExperimentRunning && !isExperimentStopped && (
+                                <>
+                                    <Tooltip title="Conclude this experiment and decide which variant to keep">
+                                        <LemonButton
+                                            type="primary"
+                                            icon={<IconFlask />}
+                                            onClick={() => openFinishExperimentModal()}
+                                            size="small"
+                                        >
+                                            <b>End experiment</b>
+                                        </LemonButton>
+                                    </Tooltip>
+                                    <FinishExperimentModal />
+                                </>
+                            )}
+                            <ExperimentActionsMenu />
+                        </>
+                    )
                 }
             />
             <HogfettiComponent />

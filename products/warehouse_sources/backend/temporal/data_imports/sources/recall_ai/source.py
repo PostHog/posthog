@@ -156,5 +156,5 @@ class RecallAISource(ResumableSource[RecallAISourceConfig, RecallAIResumeConfig]
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
         )

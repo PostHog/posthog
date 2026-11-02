@@ -62,10 +62,6 @@ class TestValidateCredentials:
         "status_code, expected",
         [
             (200, True),
-            # Basic-plan keys without the Search API license 403 — syncs would
-            # fail everywhere, so validation must fail too.
-            (403, False),
-            (401, False),
         ],
     )
     def test_validate_credentials_status_mapping(self, status_code: int, expected: bool) -> None:

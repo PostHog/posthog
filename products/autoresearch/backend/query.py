@@ -1,6 +1,9 @@
+import random
 from collections.abc import Callable
-from time import perf_counter
+from time import perf_counter, sleep
 from typing import Any, TypeVar
+
+import structlog
 
 from posthog.schema import CacheMissResponse, HogQLQuery, QueryStatusResponse
 
@@ -9,10 +12,13 @@ from posthog.hogql.query_stats import query_stats_scope
 
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
+from posthog.errors import QueryErrorCategory, classify_query_error
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.team.team import Team
 from posthog.models.user import User
+
+logger = structlog.get_logger(__name__)
 
 T = TypeVar("T")
 
@@ -27,6 +33,8 @@ class QueryContext:
 
     limit_context: LimitContext
     workload: Workload
+    # The seconds to wait before each retry of a query that ClickHouse refuses for capacity. Empty means no retry.
+    capacity_backoff_s: tuple[float, ...] = ()
 
 
 # A query inside a web request keeps the 60 s interactive limit, because a longer query
@@ -35,6 +43,14 @@ INTERACTIVE_QUERY = QueryContext(limit_context=LimitContext.QUERY, workload=Work
 # Scoring and online validation run in a Temporal activity that nobody waits on, so they
 # get the increased batch limit and run on the offline workload.
 BATCH_QUERY = QueryContext(limit_context=LimitContext.QUERY_ASYNC, workload=Workload.OFFLINE)
+# Scheduled scoring is batch work that also retries a capacity refusal, because the daily sweep starts
+# many pipelines together and an immediate retry lands in the same burst. The activity heartbeats
+# from a background thread, so a wait does not look like a lost worker.
+SCORING_QUERY = QueryContext(
+    limit_context=LimitContext.QUERY_ASYNC, workload=Workload.OFFLINE, capacity_backoff_s=(30, 60, 120)
+)
+# Each wait is the backoff step times a random factor in this range, so concurrent retries do not stay in step.
+_BACKOFF_JITTER = (0.8, 1.2)
 
 
 @frozen
@@ -93,7 +109,52 @@ def run_hogql(
     a blocking mode never produces. Raising on those keeps every caller off the union,
     and keeps "the query returned nothing" distinct from "the query did not run",
     which callers here read as a real zero.
+
+    A query that ClickHouse refuses for capacity (``RATE_LIMITED``) runs again after each wait in
+    ``query_context.capacity_backoff_s``, and then raises as before.
     """
+    backoff = list(query_context.capacity_backoff_s)
+    while True:
+        try:
+            return _run_hogql_once(
+                team=team, query=query, user=user, execution_mode=execution_mode, query_context=query_context
+            )
+        except Exception as exc:
+            capacity_error = _capacity_error(exc)
+            if not backoff or capacity_error is None:
+                raise
+            # ClickHouseAtCapacity carries the shortest wait it expects to recover in.
+            wait = max(backoff.pop(0) * random.uniform(*_BACKOFF_JITTER), getattr(capacity_error, "wait", 0))
+            logger.warning(
+                "autoresearch_query_capacity_backoff",
+                team_id=team.pk,
+                error=type(capacity_error).__name__,
+                wait_s=round(wait, 1),
+                retries_left=len(backoff),
+            )
+            sleep(wait)
+
+
+def _capacity_error(exc: BaseException) -> Exception | None:
+    """The error in the cause chain that ClickHouse raised for capacity, or None."""
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, Exception) and classify_query_error(current) == QueryErrorCategory.RATE_LIMITED:
+            return current
+        current = current.__cause__
+    return None
+
+
+def _run_hogql_once(
+    *,
+    team: Team,
+    query: HogQLQuery,
+    user: User | None,
+    execution_mode: ExecutionMode,
+    query_context: QueryContext,
+) -> HogQLResult:
     response = HogQLQueryRunner(
         query=query,
         team=team,

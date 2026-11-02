@@ -19,7 +19,9 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
@@ -146,7 +148,12 @@ class ReportSignalMeta:
     scout_name: str | None
 
 
-def fetch_source_products_for_reports(team: Team, report_ids: list[str]) -> dict[str, ReportSignalMeta]:
+def fetch_source_products_for_reports(
+    team: Team,
+    report_ids: list[str],
+    *,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+) -> dict[str, ReportSignalMeta]:
     """Return a mapping of report_id -> `ReportSignalMeta` (distinct source_products + authoring scout).
 
     Only includes non-deleted signals. Source products are returned in sorted order. `scout_name` is
@@ -202,6 +209,7 @@ def fetch_source_products_for_reports(team: Team, report_ids: list[str]) -> dict
 
     tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
     result = execute_hogql_query(
+        ch_user=ch_user,
         query_type="SignalsFetchSourceProductsForReports",
         query=ch_query,
         team=team,
@@ -299,7 +307,12 @@ _LABEL_RE = re.compile(r"^[A-Za-z0-9#/_.-]{1,64}$")
 _URL_RE = re.compile(r"^https?://[^\s()<>\[\]]{1,500}$")
 
 
-def fetch_source_references_for_report(team: Team, report_id: str) -> list[SignalSourceReference]:
+def fetch_source_references_for_report(
+    team: Team,
+    report_id: str,
+    *,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+) -> list[SignalSourceReference]:
     """Return issue references (label + URL) for the report's non-deleted Linear/GitHub signals.
 
     Sources whose signals don't carry a stable human-facing URL (e.g. Zendesk's `url` extra is the
@@ -345,6 +358,7 @@ def fetch_source_references_for_report(team: Team, report_id: str) -> list[Signa
 
     tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
     result = execute_hogql_query(
+        ch_user=ch_user,
         query_type="SignalsFetchSourceReferencesForReport",
         query=ch_query,
         team=team,
@@ -476,13 +490,22 @@ def _report_placeholders(report_id: str) -> dict:
     }
 
 
-def fetch_signals_for_report_sync(team: Team, report_id: str, newest: int | None = None) -> list[dict]:
+def fetch_signals_for_report_sync(
+    team: Team,
+    report_id: str,
+    newest: int | None = None,
+    *,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+    workload: Workload = Workload.DEFAULT,
+) -> list[dict]:
     """Fetch the signals of a report from ClickHouse, including full metadata. Synchronous.
 
     With `newest`, fetch only that many of the newest signals.
     """
     tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
     result = execute_hogql_query(
+        ch_user=ch_user,
+        workload=workload,
         query_type="SignalsDebugFetchForReport",
         query=_signals_for_report_query(limit=newest, newest_first=newest is not None),
         team=team,

@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
     source_inputs,
 )
@@ -135,6 +134,24 @@ class TestExtractRows:
         # still merge instead of seeding null-keyed duplicates.
         assert extract_rows(GUSTO_ENDPOINTS["payrolls"], [row])[0]["payroll_uuid"] == expected
 
+    @parameterized.expand(
+        [
+            (
+                "default_and_custom",
+                {"default": [{"uuid": "et-1", "name": "Bonus"}], "custom": [{"uuid": "et-2", "name": "Stipend"}]},
+                [("et-1", True), ("et-2", False)],
+            ),
+            ("no_custom_list", {"default": [{"uuid": "et-1"}]}, [("et-1", True)]),
+            ("null_lists", {"default": None, "custom": None}, []),
+            ("non_mapping_entries_dropped", {"default": ["Bonus", {"uuid": "et-1"}], "custom": [7]}, [("et-1", True)]),
+        ]
+    )
+    def test_earning_types_flatten_both_lists(
+        self, _name: str, body: dict[str, Any], expected: list[tuple[str, bool]]
+    ) -> None:
+        rows = extract_rows(GUSTO_ENDPOINTS["earning_types"], body)
+        assert [(row["uuid"], row["is_default"]) for row in rows] == expected
+
     def test_non_mapping_body_yields_nothing(self) -> None:
         assert extract_rows(GUSTO_ENDPOINTS["employees"], "oops") == []
 
@@ -235,6 +252,21 @@ class TestGetRowsPaginated:
         assert [row["uuid"] for row in result.rows] == ["e-1"]
         assert result.params("page") == [None, None, "1", "2"]
 
+    def test_static_params_are_sent_on_every_page(self) -> None:
+        result = _driver().run(
+            "time_off_requests",
+            [
+                _token(),
+                ScriptedResponse(json=_me_body(["c-1"])),
+                ScriptedResponse(json=[{"uuid": "t-1"}], headers={"X-Total-Pages": "2"}),
+                ScriptedResponse(json=[{"uuid": "t-2"}], headers={"X-Total-Pages": "2"}),
+            ],
+        )
+        assert result.raised is None
+        assert [row["uuid"] for row in result.rows] == ["t-1", "t-2"]
+        assert result.params("page")[2:] == ["1", "2"]
+        assert result.params("sort_order")[2:] == ["asc", "asc"]
+
 
 class TestGetRowsCompanies:
     def test_yields_the_full_company_detail_per_company(self) -> None:
@@ -249,6 +281,21 @@ class TestGetRowsCompanies:
         )
         assert result.raised is None
         assert [row["name"] for row in result.rows] == ["Acme", "Globex"]
+
+
+class TestGetRowsUnpaginated:
+    def test_full_list_is_read_in_one_request(self) -> None:
+        # A page-size response must not trigger a page 2 that would re-read the same list.
+        departments = [{"uuid": f"d-{index}"} for index in range(100)]
+        result = _driver().run(
+            "departments",
+            [_token(), ScriptedResponse(json=_me_body(["c-1"])), ScriptedResponse(json=departments)],
+        )
+        assert result.raised is None
+        assert len(result.rows) == 100
+        assert {row["_company_uuid"] for row in result.rows} == {"c-1"}
+        assert result.paths == ["/oauth/token", "/v1/me", "/v1/companies/c-1/departments"]
+        assert result.params("page")[-1] is None
 
 
 class TestGetRowsFanOut:
@@ -266,6 +313,66 @@ class TestGetRowsFanOut:
         assert result.raised is None
         assert [row["_employee_uuid"] for row in result.rows] == ["e-2"]
         assert result.paths[-1] == "/v1/employees/e-2/jobs"
+
+    @parameterized.expand(
+        [
+            (
+                "full_walk",
+                None,
+                [
+                    "/v1/company_benefits/cb-1/employee_benefits",
+                    "/v1/company_benefits/cb-1/employee_benefits",
+                    "/v1/company_benefits/cb-2/employee_benefits",
+                ],
+                [("cb-1", "eb-1"), ("cb-1", "eb-2"), ("cb-2", "eb-3")],
+            ),
+            (
+                "resume_after_first_benefit",
+                GustoResumeConfig(company_index=0, employee_index=1),
+                ["/v1/company_benefits/cb-2/employee_benefits"],
+                [("cb-2", "eb-3")],
+            ),
+            (
+                "resume_partway_through_a_benefit",
+                GustoResumeConfig(company_index=0, employee_index=0, next_page=2),
+                [
+                    "/v1/company_benefits/cb-1/employee_benefits",
+                    "/v1/company_benefits/cb-2/employee_benefits",
+                ],
+                [("cb-1", "eb-2"), ("cb-2", "eb-3")],
+            ),
+        ]
+    )
+    def test_walks_every_page_of_each_company_benefit(
+        self,
+        _name: str,
+        resume_state: Optional[GustoResumeConfig],
+        expected_child_paths: list[str],
+        expected_rows: list[tuple[str, str]],
+    ) -> None:
+        pages = {
+            ("cb-1", "1"): ScriptedResponse(json=[{"uuid": "eb-1"}], headers={"X-Total-Pages": "2"}),
+            ("cb-1", "2"): ScriptedResponse(json=[{"uuid": "eb-2"}], headers={"X-Total-Pages": "2"}),
+            ("cb-2", "1"): ScriptedResponse(json=[{"uuid": "eb-3"}], headers={"X-Total-Pages": "1"}),
+        }
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/oauth/token":
+                return _token()
+            if request.path == "/v1/me":
+                return ScriptedResponse(json=_me_body(["c-1"]))
+            if request.path == "/v1/companies/c-1/company_benefits":
+                # Out of order on purpose: resume indexes into the uuid-sorted list.
+                return ScriptedResponse(json=[{"uuid": "cb-2"}, {"uuid": "cb-1"}])
+            benefit_uuid = request.path.split("/")[3]
+            return pages[(benefit_uuid, request.param("page") or "")]
+
+        result = _driver().run("employee_benefits", respond, resume_state=resume_state)
+        assert result.raised is None
+        assert result.paths[3:] == expected_child_paths
+        assert [(row["_company_benefit_uuid"], row["uuid"]) for row in result.rows] == expected_rows
+        assert {row["_company_uuid"] for row in result.rows} == {"c-1"}
+        assert set(result.params("include")[3:]) == {"all_benefits"}
 
 
 class TestGetRowsWindowed:
@@ -324,7 +431,17 @@ class TestGustoSourceResponse:
         assert result.response.primary_keys == GUSTO_ENDPOINTS[endpoint].primary_keys
         assert result.response.sort_mode == "asc"
 
-    @parameterized.expand([("jobs",), ("contractor_payments",), ("pay_periods",)])
+    @parameterized.expand(
+        [
+            ("jobs",),
+            ("recurring_reimbursements",),
+            ("contractor_payments",),
+            ("pay_periods",),
+            ("earning_types",),
+            ("employee_benefits",),
+            ("employment_history",),
+        ]
+    )
     def test_fan_out_and_keyless_tables_include_their_parent_in_the_key(self, endpoint: str) -> None:
         # Child rows from every parent land in one table, so a per-parent identifier alone would
         # collide and make each merge multi-match.
@@ -355,11 +472,6 @@ class TestValidateCredentials:
         ok, message = self._validate([ScriptedResponse(status=status)])
         assert ok is False
         assert message is not None and "rotates refresh tokens" in message
-
-    def test_other_token_errors_report_the_status(self) -> None:
-        with scripted_network(always(ScriptedResponse(status=500))):
-            ok, message = validate_credentials("production", "cid", "secret", "refresh", GUSTO_API_VERSION_2026_06_15)
-        assert (ok, message) == (False, "Gusto returned HTTP 500 when requesting an access token")
 
     def test_forbidden_company_read_asks_for_a_payroll_admin(self) -> None:
         ok, message = self._validate([_token(), ScriptedResponse(status=403)])

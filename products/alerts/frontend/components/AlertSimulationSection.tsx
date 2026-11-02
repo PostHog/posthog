@@ -1,5 +1,7 @@
 import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
+import { DetectorType } from '~/queries/schema/schema-general'
+
 import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
 import { getDefaultSimulationRange } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 import { AlertSimulationResult } from 'products/alerts/frontend/types'
@@ -41,7 +43,11 @@ export function AlertSimulationSection({
                     data-attr="alertForm-simulate"
                     onClick={onSimulateAlert}
                     loading={simulationResultLoading}
-                    tooltip="Run the detector on historical data to preview which points would be flagged as anomalies"
+                    tooltip={
+                        alertForm.detector_config?.type === DetectorType.LLM
+                            ? 'Ask the AI detector about the latest point, the same way a scheduled check does'
+                            : 'Run the detector on historical data to preview which points would be flagged as anomalies'
+                    }
                 >
                     Simulate
                 </LemonButton>

@@ -71,7 +71,7 @@ class PlaneSource(ResumableSource[PlaneSourceConfig, PlaneResumeConfig], Validat
 Create a personal access token in Plane under **Profile settings > Personal access tokens**. The token reads everything its owner can see. The workspace slug is the part after the domain in your Plane URL, for example `my-team` in `app.plane.so/my-team`. Leave the instance URL blank for Plane Cloud. A self-hosted instance must be reachable over https and run a release with the v2 API.""",
             iconPath="/static/services/plane.png",
             docsUrl="https://posthog.com/docs/cdp/sources/plane",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

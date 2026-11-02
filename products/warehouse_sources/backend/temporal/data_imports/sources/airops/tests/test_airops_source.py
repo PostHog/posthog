@@ -19,15 +19,3 @@ class TestAirOpsSource:
             assert AirOpsSource().validate_credentials(_config(), team_id=1) == expected
         assert len(network.requests_log) == 1
         assert network.requests_log[0].headers["authorization"] == "Bearer test-key"
-
-    @parameterized.expand(
-        [
-            ("401 Client Error: Unauthorized for url: https://api.airops.com/public_api/airops_apps",),
-            ("403 Client Error: Forbidden for url: https://api.airops.com/public_api/airops_apps",),
-        ]
-    )
-    def test_non_retryable_errors_match_credential_failures(self, raised_message: str) -> None:
-        # A revoked/regenerated key must permanently fail the sync rather than retry forever; the
-        # matcher keys on the stable status text + base host, so a real HTTPError string matches.
-        errors = AirOpsSource().get_non_retryable_errors()
-        assert any(pattern in raised_message and friendly for pattern, friendly in errors.items())

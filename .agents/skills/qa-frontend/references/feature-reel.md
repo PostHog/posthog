@@ -16,7 +16,7 @@ Run every command below from the root of the PostHog checkout.
 ## 1. Pick the source
 
 Use a Storybook story when one shows the start of the flow, or when a scratch story can.
-Reuse a Storybook that runs. Otherwise, start one with `pnpm storybook` (port 6006).
+Reuse a Storybook that runs. Otherwise, start one with `STORYBOOK_STORIES=<dir or story file> pnpm storybook` (port 6006).
 Story ids are in `http://localhost:6006/index.json`.
 On a cold dev server the first load of a story can take minutes, because Vite compiles each lazy chunk on its first request.
 `reel-capture.mjs` waits up to five minutes for it.

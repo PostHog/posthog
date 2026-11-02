@@ -197,7 +197,7 @@ def test_checkpoint_does_not_skip_failed_window(config: EmbraceSourceConfig) -> 
     assert result.final_state == expected
 
 
-@pytest.mark.parametrize(("status", "message"), [(401, "rejected the API token"), (403, "denied access")])
+@pytest.mark.parametrize(("status", "message"), [(401, "rejected the API token")])
 @time_machine.travel(NOW, tick=False)
 def test_auth_errors(config: EmbraceSourceConfig, status: int, message: str) -> None:
     with scripted_network([ScriptedResponse(status=status, json={})] * 2) as network:

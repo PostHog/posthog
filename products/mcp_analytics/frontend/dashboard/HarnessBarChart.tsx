@@ -119,13 +119,7 @@ export function HarnessBarChart({
                             </Tooltip>
                         )}
                     </div>
-                    <ShareBarChart
-                        rows={chartRows}
-                        totalCalls={totalCalls}
-                        theme={theme}
-                        tooltip={renderTooltip}
-                        label="Calls by harness"
-                    />
+                    <ShareBarChart rows={chartRows} totalCalls={totalCalls} theme={theme} tooltip={renderTooltip} />
                 </CardState>
             </div>
             <LemonModal title="All harnesses" isOpen={expanded} onClose={() => setExpanded(false)} width={640}>

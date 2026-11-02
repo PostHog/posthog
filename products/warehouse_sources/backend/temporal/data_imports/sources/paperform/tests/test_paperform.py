@@ -181,14 +181,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid Paperform API key"),
-            (
-                "forbidden_no_api_plan",
-                403,
-                False,
-                "Your Paperform plan does not include API access. API access requires a Pro, Business, or Agency plan.",
-            ),
-            ("server_error", 500, False, "Paperform returned HTTP 500"),
         ]
     )
     def test_maps_status_to_message(

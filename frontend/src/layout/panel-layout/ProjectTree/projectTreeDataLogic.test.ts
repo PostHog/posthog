@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { sceneFileLogic } from 'lib/components/Scenes/sceneFileLogic'
@@ -54,6 +55,53 @@ describe('projectTreeDataLogic', () => {
             0
         )
         expect(logic.values.currentHomeFolder?.path).toBe('Research/My work')
+    })
+
+    it.each([
+        { name: 'nothing when both lists show it', shortcut: true, rootFolder: true, reloads: [] },
+        {
+            name: 'the shortcuts when its shortcut is missing',
+            shortcut: false,
+            rootFolder: true,
+            reloads: ['shortcuts'],
+        },
+        { name: 'the root folder when its parent is missing', shortcut: true, rootFolder: false, reloads: ['root'] },
+        {
+            name: 'both lists for a new home folder',
+            shortcut: false,
+            rootFolder: false,
+            reloads: ['shortcuts', 'root'],
+        },
+    ])('after the home folder loads, reloads $name', async ({ shortcut, rootFolder, reloads }) => {
+        useMocks({ post: { '/api/projects/:team_id/file_system/home_folder/': { id: 'home', path: 'Users/Alex' } } })
+        logic.actions.loadShortcutsSuccess(
+            shortcut ? [{ id: 'star-home', path: 'Alex', type: 'folder', ref: 'Users/Alex' }] : []
+        )
+        logic.actions.loadFolderSuccess(
+            '',
+            rootFolder ? [{ id: 'users', path: 'Users', type: 'folder' }] : [],
+            false,
+            rootFolder ? 1 : 0
+        )
+
+        await expectLogic(logic, () => logic.actions.loadHomeFolder()).toDispatchActions(['loadHomeFolderSuccess'])
+
+        expect(api.fileSystemShortcuts.list).toHaveBeenCalledTimes(reloads.includes('shortcuts') ? 1 : 0)
+        expect(api.fileSystem.list).toHaveBeenCalledTimes(reloads.includes('root') ? 1 : 0)
+    })
+
+    it('checks each list once its own boot load ends', async () => {
+        useMocks({ post: { '/api/projects/:team_id/file_system/home_folder/': { id: 'home', path: 'Users/Alex' } } })
+        logic.actions.loadFolderStart('')
+
+        await expectLogic(logic, () => logic.actions.loadHomeFolder()).toDispatchActions(['loadHomeFolderSuccess'])
+        expect(api.fileSystem.list).not.toHaveBeenCalled()
+        expect(api.fileSystemShortcuts.list).toHaveBeenCalledTimes(1)
+
+        logic.actions.loadFolderSuccess('', [{ id: 'users', path: 'Users', type: 'folder' }], false, 1)
+
+        expect(api.fileSystem.list).not.toHaveBeenCalled()
+        expect(api.fileSystemShortcuts.list).toHaveBeenCalledTimes(1)
     })
 
     it.each(['loaded', 'loading', 'has-more', 'populated'] as const)(
@@ -123,17 +171,43 @@ describe('projectTreeDataLogic', () => {
         expect(logic.values.shortcutData).toEqual(updatedShortcuts)
     })
 
-    it('does not list a shortcut twice when starring returns one that already exists', async () => {
+    it('loads shortcuts past the first page', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const firstPage = [
+            { id: 'star-1', path: 'Notes', type: 'notebook', ref: 'notes' },
+            { id: 'star-2', path: 'Revenue', type: 'insight', ref: 'revenue' },
+        ]
+        const secondPage = [{ id: 'star-3', path: 'Stripe (stripe_)', type: 'data_source', ref: 'source-1' }]
+        jest.mocked(api.fileSystemShortcuts.list).mockImplementation(async (params) =>
+            params?.offset === firstPage.length
+                ? { count: 3, next: null, results: secondPage }
+                : { count: 3, next: 'next-page', results: firstPage }
+        )
+
+        await expectLogic(logic, () => logic.actions.loadShortcuts()).toFinishAllListeners()
+
+        expect(logic.values.shortcutData.map((shortcut) => shortcut.id)).toEqual(['star-1', 'star-2', 'star-3'])
+    })
+
+    it.each([
+        { listedLocally: true, created: false },
+        { listedLocally: false, created: false },
+        { listedLocally: false, created: true },
+    ])('lists a star once and counts it as added only when created (%o)', async ({ listedLocally, created }) => {
         await expectLogic(logic).toFinishAllListeners()
         const existing = { id: 'star-dash', path: 'Dashboards', type: 'dashboard', ref: '42' }
-        logic.actions.loadShortcutsSuccess([existing])
-        jest.spyOn(api.fileSystemShortcuts, 'create').mockResolvedValue(existing)
+        logic.actions.loadShortcutsSuccess(listedLocally ? [existing] : [])
+        jest.spyOn(api.fileSystemShortcuts, 'create').mockResolvedValue({ shortcut: existing, created })
+        const capture = jest.spyOn(posthog, 'capture')
 
         await expectLogic(logic, () => {
             logic.actions.addShortcutItem({ id: 'dash', path: 'Dashboards', type: 'dashboard', ref: '42' })
         }).toFinishAllListeners()
 
         expect(logic.values.shortcutData.map((shortcut) => shortcut.id)).toEqual(['star-dash'])
+        expect(capture.mock.calls.filter(([event]) => event === 'navbar starred item added')).toHaveLength(
+            created ? 1 : 0
+        )
     })
 
     it.each([false, true])('keeps starred navigation in place unless explicitly revealed (%s)', async (explicit) => {

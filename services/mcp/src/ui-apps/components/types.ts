@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+
 import type { YAxisFormat } from '@posthog/quill-charts'
 
 // ============================================================================
@@ -39,6 +41,7 @@ export interface TrendsFilter {
 
 export interface TrendsQuery {
     kind: 'TrendsQuery'
+    interval?: string
     trendsFilter?: TrendsFilter
     series?: Array<{
         event?: string
@@ -101,12 +104,10 @@ export interface TrendsResultItem {
     count?: number
     aggregated_value?: number
     compare_label?: string
+    breakdown_value?: string | number | (string | number)[]
     /** Slope graph only: the last bucket is the current, still-accumulating period (set by the
      * backend SlopeGraphTrendsQueryRunner) so the slope dashes the provisional end like the insight. */
     incomplete_end?: boolean
-    action?: {
-        name?: string
-    }
 }
 
 export type TrendsResult = TrendsResultItem[]
@@ -220,6 +221,15 @@ export type PathsResult = PathsResultItem[]
 export interface TrendsVisualizerProps {
     query: TrendsQuery | undefined
     results: TrendsResult
+    title?: string
+    /** Drawn as a child of a line or bar chart, so it can read the chart's scales. */
+    overlay?: ReactNode
+    showControls?: boolean
+    chartClassName?: string
+    showTitle?: boolean | 'axis'
+    showLegend?: boolean
+    /** Indexes of the series a line or bar chart draws in full colour, fading the rest. */
+    highlightedSeries?: number[]
 }
 
 export interface FunnelVisualizerProps {

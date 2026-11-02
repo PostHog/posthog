@@ -75,7 +75,7 @@ class DbtSource(ResumableSource[DbtSourceConfig, DbtResumeConfig]):
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="dbt",
             keywords=["dbt cloud", "dbt labs", "dbt platform"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your dbt platform (dbt Cloud) account ID and API token to pull your dbt projects, jobs, environments, and run history into the PostHog Data warehouse.
 
 You can create a service account token under **Account settings** → **API tokens** → **Service tokens** in dbt (Team and Enterprise plans), or use a personal access token. Read-only access to the resources you want to sync is enough.

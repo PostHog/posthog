@@ -122,5 +122,5 @@ class SystemeSource(ResumableSource[SystemeSourceConfig, SystemeResumeConfig]):
                     )
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

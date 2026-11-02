@@ -20,6 +20,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.better_sta
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.better_stack.settings import (
     BETTER_STACK_ENDPOINTS,
+    BETTER_STACK_V2,
+    BETTER_STACK_V3,
     ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
@@ -73,8 +75,8 @@ class BetterStackSource(ResumableSource[BetterStackSourceConfig, BetterStackResu
         alternative_to=(ProductKey.LOGS,),
     )
 
-    supported_versions = ("v2",)
-    default_version = "v2"
+    supported_versions = (BETTER_STACK_V2, BETTER_STACK_V3)
+    default_version = BETTER_STACK_V3
     api_docs_url = "https://betterstack.com/docs/uptime/api/getting-started-with-uptime-api/"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -88,7 +90,7 @@ class BetterStackSource(ResumableSource[BetterStackSourceConfig, BetterStackResu
             name=ExternalDataSourceType.BETTERSTACK,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Better Stack",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Better Stack API token to automatically pull your uptime monitoring and incident data into the PostHog Data warehouse.
 
 You can create an Uptime API token in your [Better Stack dashboard](https://uptime.betterstack.com) under Integrations → API tokens. A team-scoped token syncs that team's data; a global token spans all teams.""",
@@ -162,7 +164,7 @@ You can create an Uptime API token in your [Better Stack dashboard](https://upti
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        status = probe_credentials(config.api_token, schema_name)
+        status = probe_credentials(config.api_token, self.resolve_api_version(api_version), schema_name)
 
         if status == 200:
             return True, None
@@ -191,6 +193,7 @@ You can create an Uptime API token in your [Better Stack dashboard](https://upti
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

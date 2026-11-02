@@ -6,18 +6,24 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { loadAppMetricsTotals } from 'lib/components/AppMetrics/appMetricsLogic'
 import { dayjs } from 'lib/dayjs'
+import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
 import { objectsEqual } from 'lib/utils/objects'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { tagsModel } from '~/models/tagsModel'
 import { TeamPublicType, TeamType } from '~/types'
 
-import { hogFlowsBatchJobsList, hogFlowsList, hogFlowsSchedulesList } from 'products/workflows/frontend/generated/api'
+import {
+    hogFlowsBatchJobsList,
+    hogFlowsBulkUpdateTagsCreate,
+    hogFlowsList,
+    hogFlowsSchedulesList,
+} from 'products/workflows/frontend/generated/api'
 import type {
     HogFlowApi,
     HogFlowBatchJobApi,
-    HogFlowMinimalApi,
     HogFlowScheduleApi,
     PaginatedHogFlowMinimalListApi,
 } from 'products/workflows/frontend/generated/api.schemas'
@@ -59,15 +65,20 @@ export interface BroadcastsFilters {
     search: string
     status: BroadcastsStatusFilter
     createdBy: string | null
+    tags: string[]
     page: number
 }
 
-const DEFAULT_FILTERS: BroadcastsFilters = { search: '', status: 'all', createdBy: null, page: 1 }
+const DEFAULT_FILTERS: BroadcastsFilters = { search: '', status: 'all', createdBy: null, tags: [], page: 1 }
+
+// The search params actionToUrl writes below. A URL that carries none of them states no filters at all,
+// which is different from stating that every filter is off.
+const FILTER_URL_PARAMS = ['search', 'status', 'created_by', 'tags', 'page']
+
+type FlowStep = { id?: string; type?: string; config?: Record<string, any> }
 
 /** Mirrors the list API's broadcast_eligible filter: a batch trigger, one email step, nothing else. */
-export function isBroadcastShaped(
-    actions: { type?: string; config?: { type?: string } }[] | null | undefined
-): boolean {
+export function isBroadcastShaped(actions: FlowStep[] | null | undefined): boolean {
     const steps = actions ?? []
     return (
         steps.some((step) => step.type === 'trigger' && step.config?.type === 'batch') &&
@@ -76,32 +87,45 @@ export function isBroadcastShaped(
     )
 }
 
-type FlowStep = { id?: string; type?: string; config?: Record<string, any> }
 type FlowEdge = { from?: string; to?: string }
+
+export type BroadcastChannel = 'email' | 'push'
+
+export const BROADCAST_MESSAGE_ACTION_TYPES: Record<BroadcastChannel, string> = {
+    email: 'function_email',
+    push: 'function_push',
+}
+
+const MESSAGE_TYPES = Object.values(BROADCAST_MESSAGE_ACTION_TYPES)
+
+/** The channel a broadcast sends on, read from its one message step. */
+export function getBroadcastChannel(actions: FlowStep[] | null | undefined): BroadcastChannel {
+    return (actions ?? []).some((step) => step.type === BROADCAST_MESSAGE_ACTION_TYPES.push) ? 'push' : 'email'
+}
 
 /**
  * Whether the broadcast wizard can edit a broadcast-shaped workflow without misdescribing it. The
- * wizard only models a person audience along trigger, email, exit. Its Content step edits the email's
- * "To" like any other field, so a custom recipient is fine;
- * anything else opens as the read-only summary instead.
+ * wizard only models a person audience along trigger, message, exit, where the message is one email
+ * or one push step. Its Content step edits the email's "To" like any other field, so a custom
+ * recipient is fine; anything else opens as the read-only summary instead.
  */
 export function canEditInWizard(actions: FlowStep[] | null | undefined, edges: FlowEdge[] | null | undefined): boolean {
     const steps = actions ?? []
-    const [trigger, email, exit] = ['trigger', 'function_email', 'exit'].map((type) =>
-        steps.filter((step) => step.type === type)
-    )
+    const trigger = steps.filter((step) => step.type === 'trigger')
+    const message = steps.filter((step) => MESSAGE_TYPES.includes(step.type ?? ''))
+    const exit = steps.filter((step) => step.type === 'exit')
     // One of each and nothing else, so the steps the wizard edits are the only ones there are.
-    if (steps.length !== 3 || trigger.length !== 1 || email.length !== 1 || exit.length !== 1) {
+    if (steps.length !== 3 || trigger.length !== 1 || message.length !== 1 || exit.length !== 1) {
         return false
     }
-    // Exactly trigger -> email -> exit: any other edge is a path the wizard cannot show, such as one
-    // that skips the email.
+    // Exactly trigger -> message -> exit: any other edge is a path the wizard cannot show, such as one
+    // that skips the message.
     const paths = new Set((edges ?? []).map((edge) => `${edge.from}->${edge.to}`))
     return (
         trigger[0].config?.filters?.audience_type !== 'accounts' &&
         paths.size === 2 &&
-        paths.has(`${trigger[0].id}->${email[0].id}`) &&
-        paths.has(`${email[0].id}->${exit[0].id}`)
+        paths.has(`${trigger[0].id}->${message[0].id}`) &&
+        paths.has(`${message[0].id}->${exit[0].id}`)
     )
 }
 
@@ -131,10 +155,6 @@ export function canMoveToDraft(
         // Even a broadcast's own graph can be edited elsewhere, and the wizard would save over it.
         canEditInWizard(broadcast.actions, broadcast.edges)
     )
-}
-
-export function isEligibleWorkflow(flow: Pick<HogFlowMinimalApi, 'origin_product'>): boolean {
-    return flow.origin_product !== 'broadcasts'
 }
 
 export function getBroadcastStatus(
@@ -177,7 +197,7 @@ export function getBroadcastStatus(
 
 // A batch send's email metrics are recorded against the batch job, not the flow, so the row counts
 // come from the latest run rather than the flow-scoped totals endpoint.
-async function loadRunMetricTotals(job: HogFlowBatchJobApi, timezone: string): Promise<Record<string, number>> {
+export async function loadRunMetricTotals(job: HogFlowBatchJobApi, timezone: string): Promise<Record<string, number>> {
     const created = dayjs(job.created_at)
     const response = await loadAppMetricsTotals(
         {
@@ -195,6 +215,7 @@ async function loadRunMetricTotals(job: HogFlowBatchJobApi, timezone: string): P
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface broadcastsLogicValues {
     currentProjectId: number | null // projectLogic
+    tags: string[] // tagsModel
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     broadcasts: PaginatedHogFlowMinimalListApi
     broadcastsLoading: boolean
@@ -205,18 +226,42 @@ export interface broadcastsLogicValues {
     loadFailed: boolean
     loadedFilters: BroadcastsFilters | null
     rowDetailsById: Record<string, BroadcastRowDetails>
+    savingTagsFor: string | null
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface broadcastsLogicActions {
+    loadTags: () => {
+        value: true
+    } // tagsModel
+    loadTagsIfNeeded: () => {
+        value: true
+    } // tagsModel
     archiveBroadcast: (broadcast: ManagedBroadcast) => {
         broadcast: ManagedBroadcast
+    }
+    broadcastTagsChanged: (
+        id: string,
+        tags: string[]
+    ) => {
+        id: string
+        tags: string[]
+    }
+    broadcastTagsSaved: (
+        id: string,
+        tags: string[] | null
+    ) => {
+        id: string
+        tags: string[] | null
     }
     clearRowDetails: (id: string) => {
         id: string
     }
     deleteBroadcast: (broadcast: ManagedBroadcast) => {
         broadcast: ManagedBroadcast
+    }
+    fillMissingFilters: () => {
+        value: true
     }
     loadBroadcasts: () => {
         value: true
@@ -241,6 +286,13 @@ export interface broadcastsLogicActions {
     }
     restoreBroadcast: (broadcast: ManagedBroadcast) => {
         broadcast: ManagedBroadcast
+    }
+    saveBroadcastTags: (
+        id: string,
+        tags: string[]
+    ) => {
+        id: string
+        tags: string[]
     }
     setFilters: (filters: Partial<BroadcastsFilters>) => {
         filters: Partial<BroadcastsFilters>
@@ -277,15 +329,20 @@ export type broadcastsLogicType = MakeLogicType<
 export const broadcastsLogic = kea<broadcastsLogicType>([
     path(['products', 'workflows', 'frontend', 'Broadcasts', 'broadcastsLogic']),
     connect(() => ({
-        values: [projectLogic, ['currentProjectId'], teamLogic, ['currentTeam']],
+        values: [projectLogic, ['currentProjectId'], teamLogic, ['currentTeam'], tagsModel, ['tags']],
+        actions: [tagsModel, ['loadTags', 'loadTagsIfNeeded']],
     })),
     actions({
         loadBroadcasts: true,
         setFilters: (filters: Partial<BroadcastsFilters>) => ({ filters }),
         setFiltersFromUrl: (filters: BroadcastsFilters) => ({ filters }),
+        fillMissingFilters: true,
         setRowDetails: (id: string, details: BroadcastRowDetails) => ({ id, details }),
         clearRowDetails: (id: string) => ({ id }),
         setLoadedFilters: (filters: BroadcastsFilters) => ({ filters }),
+        saveBroadcastTags: (id: string, tags: string[]) => ({ id, tags }),
+        broadcastTagsChanged: (id: string, tags: string[]) => ({ id, tags }),
+        broadcastTagsSaved: (id: string, tags: string[] | null) => ({ id, tags }),
         archiveBroadcast: (broadcast: ManagedBroadcast) => ({ broadcast }),
         restoreBroadcast: (broadcast: ManagedBroadcast) => ({ broadcast }),
         deleteBroadcast: (broadcast: ManagedBroadcast) => ({ broadcast }),
@@ -300,12 +357,12 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                     }
                     const requested = values.filters
                     const response = await hogFlowsList(String(values.currentProjectId), {
-                        // Broadcasts plus the ordinary workflows already shaped like one (a batch
-                        // trigger and a single email), so existing sends show up here too.
-                        broadcast_eligible: true,
+                        // Only broadcasts. A workflow shaped like one stays under workflows until someone moves it.
+                        type: 'broadcast',
                         search: values.filters.search || undefined,
                         broadcast_status: values.filters.status !== 'all' ? values.filters.status : undefined,
                         created_by: values.filters.createdBy || undefined,
+                        tags: values.filters.tags.length ? JSON.stringify(values.filters.tags) : undefined,
                         limit: BROADCASTS_PAGE_SIZE,
                         offset: (values.filters.page - 1) * BROADCASTS_PAGE_SIZE,
                     })
@@ -316,7 +373,36 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
             },
         ],
     })),
-    reducers({
+    reducers(() => ({
+        broadcasts: [
+            { results: [], count: 0 } as PaginatedHogFlowMinimalListApi,
+            {
+                broadcastTagsChanged: (state, { id, tags }) => ({
+                    ...state,
+                    results: (state.results ?? []).map((broadcast) =>
+                        broadcast.id === id ? { ...broadcast, tags } : broadcast
+                    ),
+                }),
+                // A failed save passes null, which leaves the row as it is until the reload lands.
+                broadcastTagsSaved: (state, { id, tags }) =>
+                    tags === null
+                        ? state
+                        : {
+                              ...state,
+                              results: (state.results ?? []).map((broadcast) =>
+                                  broadcast.id === id ? { ...broadcast, tags } : broadcast
+                              ),
+                          },
+            },
+        ],
+        // Which row's tags are in flight, so only that row's editor shows a spinner.
+        savingTagsFor: [
+            null as string | null,
+            {
+                saveBroadcastTags: (_, { id }) => id,
+                broadcastTagsSaved: () => null,
+            },
+        ],
         rowDetailsById: [
             {} as Record<string, BroadcastRowDetails>,
             {
@@ -362,12 +448,21 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
         ],
         filters: [
             DEFAULT_FILTERS,
+            // The list unmounts when a broadcast opens, so the filters are persisted to survive that and
+            // be restored when the user comes back to the list. The key carries the user and the team, so
+            // another account or another project never reads these filters.
+            buildUserScopedPersistenceConfig('broadcasts_list_filters__'),
             {
                 // Any change other than the page itself starts the list over from the first page.
                 setFilters: (state, { filters }) => ({ ...state, page: 1, ...filters }),
                 setFiltersFromUrl: (_, { filters }) => filters,
+                fillMissingFilters: (state) => ({ ...DEFAULT_FILTERS, ...state }),
             },
         ],
+    })),
+    // Filters saved before a field existed come back without it. This runs before urlToAction reads them.
+    afterMount(({ actions }) => {
+        actions.fillMissingFilters()
     }),
     selectors({
         filtersPending: [
@@ -473,15 +568,52 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
         loadBroadcastsFailure: () => {
             lemonToast.error("Couldn't load broadcasts. Refresh the page to try again.")
         },
+        saveBroadcastTags: async ({ id, tags }, breakpoint) => {
+            const projectId = values.currentProjectId
+            if (!projectId) {
+                return
+            }
+            // The editor builds each payload from the row's tags, so a second edit made while the first
+            // is in flight would be built from the stored list and drop the first one. Showing the new
+            // tags at once gives that second edit the right starting point.
+            actions.broadcastTagsChanged(id, tags)
+            // One save per tag added or removed, so a burst of clicks is collapsed into a single write.
+            await breakpoint(300)
+            try {
+                const response = await hogFlowsBulkUpdateTagsCreate(String(projectId), {
+                    ids: [id],
+                    action: 'set',
+                    tags,
+                })
+                const updated = response.updated[0]
+                if (!updated) {
+                    throw new Error(response.skipped[0]?.reason ?? "You don't have access to edit this broadcast.")
+                }
+                actions.broadcastTagsSaved(id, updated.tags)
+                // A new tag has to reach the project's tag list before the filter can offer it.
+                tagsModel.findMounted()?.actions.loadTags()
+                // The edit can move the row out of a tag filter, and the count with it, so the page is
+                // reloaded rather than left showing a broadcast that no longer matches.
+                if (values.filters.tags.length) {
+                    actions.loadBroadcasts()
+                }
+            } catch (error: any) {
+                actions.broadcastTagsSaved(id, null)
+                lemonToast.error(`Couldn't save tags: ${error?.detail || error?.message || 'unknown error'}`)
+                // The row is showing tags that were never stored, so the stored ones are read back.
+                actions.loadBroadcasts()
+            }
+        },
     })),
     actionToUrl(({ values }) => ({
         setFilters: () => {
-            const { search, status, createdBy, page } = values.filters
+            const { search, status, createdBy, tags, page } = values.filters
             const searchParams = {
                 ...router.values.searchParams,
                 search: search || undefined,
                 status: status !== 'all' ? status : undefined,
                 created_by: createdBy || undefined,
+                tags: tags.length ? tags : undefined,
                 page: page > 1 ? page : undefined,
             }
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
@@ -489,12 +621,28 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
     })),
     urlToAction(({ actions, values }) => ({
         [urls.broadcasts()]: (_, searchParams) => {
+            // An in-app link back to the list, such as the breadcrumb out of a broadcast, carries no filter
+            // params. Parsing that URL would clear every filter, so the filters held in state are restored
+            // and written back into the URL instead.
+            if (!FILTER_URL_PARAMS.some((param) => param in searchParams)) {
+                if (!objectsEqual(values.filters, DEFAULT_FILTERS)) {
+                    actions.setFilters(values.filters)
+                }
+                return
+            }
             const status = searchParams['status']
+            const rawTags = searchParams['tags']
             const parsed: BroadcastsFilters = {
                 // The API rejects longer search terms.
                 search: searchParams['search'] ? String(searchParams['search']).slice(0, 200) : '',
                 status: BROADCASTS_STATUS_FILTERS.includes(status) ? status : 'all',
                 createdBy: searchParams['created_by'] ? String(searchParams['created_by']) : null,
+                // kea-router parses a JSON array in the URL back into an array.
+                tags: Array.isArray(rawTags)
+                    ? rawTags.map(String)
+                    : typeof rawTags === 'string' && rawTags
+                      ? [rawTags]
+                      : [],
                 page: Math.max(1, parseInt(String(searchParams['page'])) || 1),
             }
             if (!objectsEqual(parsed, values.filters)) {
@@ -504,5 +652,6 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadBroadcasts()
+        actions.loadTagsIfNeeded()
     }),
 ])

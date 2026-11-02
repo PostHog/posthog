@@ -127,7 +127,7 @@ class SmartlookSource(ResumableSource[SmartlookSourceConfig, SmartlookResumeConf
             label="Smartlook (Smartlook.com s.r.o. / Cisco)",
             docsUrl="https://posthog.com/docs/cdp/sources/smartlook",
             iconPath="/static/services/smartlook.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Import visitors, sessions, event definitions, funnels, and visitor events with full refresh. "
                 "Smartlook limits API requests by plan. Large imports can require the REST API add-on. "

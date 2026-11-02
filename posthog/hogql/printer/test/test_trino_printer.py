@@ -19,11 +19,13 @@ from posthog.hogql.database.models import (
     ExpressionField,
     IntegerDatabaseField,
     SavedQuery,
+    StringArrayDatabaseField,
     StringDatabaseField,
     StringJSONDatabaseField,
     TableNode,
     UUIDDatabaseField,
 )
+from posthog.hogql.database.s3_table import DataWarehouseTable
 from posthog.hogql.errors import QueryError
 from posthog.hogql.escape_sql import escape_trino_identifier
 from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS, HOGQL_CLICKHOUSE_FUNCTIONS, HOGQL_POSTHOG_FUNCTIONS
@@ -226,6 +228,26 @@ def test_prepared_trino_transpiler_does_not_rebuild_the_schema_database(
     assert (transpiled.sql, transpiled.values) == snapshot
 
 
+@pytest.mark.parametrize(
+    "week_start_day, expected",
+    [
+        (0, "date_add('day', -1, date_trunc('week', date_add('day', 1, "),
+        (1, "CAST(date_trunc('week', "),
+    ],
+)
+def test_to_start_of_week_accepts_the_week_start_day_stored_on_the_team(week_start_day: int, expected: str) -> None:
+    context = _context_with_trino_table()
+    assert context.database is not None
+    users = context.database.tables.children["users"]
+    # The team row stores the week start day as a plain integer, not as the enum.
+    context.database = Database(week_start_day=week_start_day, include_posthog_tables=False)  # type: ignore[arg-type]
+    context.database.tables.add_child(users)
+
+    sql, _ = prepare_and_print_ast(parse_select("SELECT toStartOfWeek(created_at) FROM users"), context, "trino")
+
+    assert expected in sql
+
+
 def test_prints_trino_lambda_syntax() -> None:
     context = HogQLContext()
     node = ast.Lambda(args=["value"], expr=ast.Field(chain=["value"], type=ast.LambdaArgumentType(name="value")))
@@ -373,6 +395,7 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("domain(user_id)", "coalesce(TRY(url_extract_host(CAST("),
         ("multiplyDecimal(1, 2)", "CAST((1 * 2) AS DECIMAL(38, 0))"),
         ("quantileExact(0.9)(length(user_id))", "filter(coalesce(array_agg(length("),
+        ("quantileExact(0.5)(log10(1 + length(user_id)))", "filter(coalesce(array_agg(log10("),
         ("ngramDistance(user_id, 'abc')", "MAP(VARBINARY, BIGINT)"),
         ("formatReadableTimeDelta(3661)", "'hour', 'hours'"),
         (
@@ -493,12 +516,48 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("L2Norm([3, 4])", "sqrt(dot_product(ARRAY[3, 4], ARRAY[3, 4]))"),
         ("toModifiedJulianDay(created_at)", "date_diff('day', DATE '1858-11-17'"),
         ("fromModifiedJulianDay(60000)", "date_add('day', CAST(60000 AS BIGINT), DATE '1858-11-17')"),
+        ("arrayFilter(x -> 0, [1, 2])", 'filter(ARRAY[1, 2], "x" -> CAST(0 AS BOOLEAN))'),
+        (
+            "arrayFilter((v, d) -> d >= 2, [10, 20], [1, 2])",
+            'transform(filter(zip_with(ARRAY[10, 20], ARRAY[1, 2], ("v", "d") -> ROW("v", ("d" >= 2)))',
+        ),
+        (
+            "arrayExists((v, d) -> d, [10, 20], [0, 1])",
+            'any_match(zip_with(ARRAY[10, 20], ARRAY[0, 1], ("v", "d") -> CAST("d" AS BOOLEAN))',
+        ),
     ],
 )
 def test_prints_core_trino_expression_mappings(expression: str, expected: str) -> None:
     context = _context_with_trino_table()
 
     sql, _ = prepare_and_print_ast(parse_select(f"SELECT {expression} FROM users"), context, "trino")
+
+    assert expected in sql
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        (
+            "WITH a AS (SELECT arraySort([3, 1, 2]) AS xs) SELECT intDiv(length(xs) + 1, 2) FROM a",
+            '(CAST((cardinality("a"."xs") + 1) AS BIGINT) / CAST(2 AS BIGINT))',
+        ),
+        (
+            "SELECT d + 1 FROM (SELECT toDate('2024-01-01') AS d UNION ALL SELECT toDateTime('2024-01-01 00:00:00') AS d)",
+            "date_add('second'",
+        ),
+        (
+            "WITH a AS (SELECT [toDate('2024-01-01')] AS days) SELECT days[1] + 1 FROM a",
+            'date_add(\'day\', CAST(1 AS BIGINT), element_at("a"."days", 1))',
+        ),
+        (
+            "WITH a AS (SELECT [toDate('2024-01-01')] AS days) SELECT arrayJoin(days) + 1 FROM a",
+            'date_add(\'day\', CAST(1 AS BIGINT), "__trino_array_function_0"."value_0")',
+        ),
+    ],
+)
+def test_derived_column_types_reach_type_dependent_lowerings(query: str, expected: str) -> None:
+    sql, _ = prepare_and_print_ast(parse_select(query), _context_with_trino_table(), "trino")
 
     assert expected in sql
 
@@ -581,6 +640,7 @@ def test_tracks_every_registered_function_without_a_trino_mapping(snapshot: Snap
         ("cityHash64(user_id)", "TRINO_FUNCTION_UNSUPPORTED"),
         ("toTypeName(user_id)", "TRINO_FUNCTION_UNSUPPORTED"),
         ("bitNot(id)", "TRINO_FUNCTION_UNSUPPORTED"),
+        ("range(1, 10, id)", "TRINO_RANGE_STEP_UNSUPPORTED"),
     ],
 )
 def test_rejects_unsupported_printer_function_variants(expression: str, feature_code: str) -> None:
@@ -600,6 +660,164 @@ def test_first_regex_replacement_preserves_capture_indices_and_literal_dollars()
     assert "$" in context.values.values()
     assert "coalesce(__hogql_match[4], '') || %(hogql_val_0)s || coalesce(__hogql_match[3], '')" in sql
     assert "__hogql_match[5]" in sql
+
+
+@pytest.mark.parametrize(
+    "pattern, expected",
+    [
+        ("a[[]1m[]]$", r"a[\[]1m[\]]$"),
+        ("[^]x]", r"[^\]x]"),
+        (r"[a-z]\\[", r"[a-z]\["),
+        ("[[:alpha:]]+", "[[:alpha:]]+"),
+        (r"\\Q[\\E[a-z]", r"\Q[\E[a-z]"),
+        ("[[:a[[:a", r"[\[:a\[\[:a"),
+    ],
+)
+def test_regex_character_classes_keep_clickhouse_meaning(pattern: str, expected: str) -> None:
+    context = _context_with_trino_table()
+    prepare_and_print_ast(parse_select(f"SELECT match(user_id, '{pattern}') FROM users"), context, "trino")
+
+    assert list(context.values.values()) == [expected]
+
+
+@pytest.mark.parametrize(
+    "query, required, forbidden",
+    [
+        (
+            "SELECT m['a'] FROM (SELECT JSONExtract(properties, 'Map(String, Float64)') AS m FROM users)",
+            'element_at("m"',
+            'json_extract_scalar("m"',
+        ),
+        (
+            "WITH b AS (SELECT toDate(now()) - 1 AS latest) "
+            "SELECT count() FROM users CROSS JOIN b WHERE toDate(created_at) > b.latest - 14",
+            'date_add(\'day\', CAST(-(14) AS BIGINT), "b"."latest")',
+            '"b"."latest" - 14',
+        ),
+        (
+            "SELECT toDate(created_at) + late FROM users ARRAY JOIN range(1, 8) AS late",
+            'date_add(\'day\', CAST("__trino_unnest_0"."late" AS BIGINT)',
+            '+ "__trino_unnest_0"."late"',
+        ),
+        ("SELECT user_id AS owner FROM users HAVING owner != ''", "WHERE", "HAVING"),
+        (
+            "SELECT toFloat(user_id) FROM users",
+            'TRY_CAST("users"."user_id" AS DOUBLE)',
+            'CAST("users"."user_id" AS DOUBLE)',
+        ),
+        ("SELECT toDate(user_id) FROM users", "TRY", 'CAST("users"."user_id" AS DATE)'),
+        # Fractional seconds just before midnight must not round up into the next day.
+        ("SELECT toDate(user_id) FROM users", "AS TIMESTAMP(12)", "AS TIMESTAMP)"),
+        (
+            "SELECT parseDateTimeBestEffort(user_id) FROM users",
+            "'(Z|[+-][0-9]{2}:?[0-9]{2})$'",
+            "'(Z|[+-][0-9]{2}:[0-9]{2})$'",
+        ),
+        # A direct Trino table declares its physical types, so a native UUID column keeps pushdown.
+        (
+            "SELECT 1 FROM users WHERE uuid = toUUID(user_id)",
+            '("users"."uuid" = CAST("users"."user_id" AS UUID))',
+            "AS VARCHAR",
+        ),
+        ("SELECT id, NULL AS missing FROM users", 'CAST(NULL AS VARCHAR) AS "missing"', ' NULL AS "missing"'),
+        (
+            "SELECT NULL AS missing FROM users UNION ALL SELECT NULL AS missing FROM users",
+            'CAST(NULL AS VARCHAR) AS "missing"',
+            ' NULL AS "missing"',
+        ),
+        (
+            "SELECT toUnixTimestamp(created_at) + 1 AS created_at, fromUnixTimestamp(created_at) AS later FROM users",
+            'from_unixtime((CAST(to_unixtime("users"."created_at") AS BIGINT) + 1))',
+            'CAST("created_at" AS BIGINT)',
+        ),
+        (
+            "WITH t AS (SELECT created_at AS period_start FROM users) "
+            "SELECT toUnixTimestamp(period_start) + 1 AS period_start, fromUnixTimestamp(period_start) AS later FROM t",
+            'from_unixtime((CAST(to_unixtime("t"."period_start") AS BIGINT) + 1))',
+            'CAST("period_start" AS BIGINT)',
+        ),
+        # A NaN or fractional float from a rounding function becomes NULL, not a failed Trino cast.
+        (
+            "SELECT toInt(ceil(divide(a - n, n - a) * n + a)) FROM (SELECT sum(id) AS a, count() AS n FROM users)",
+            "__hogql_accurate_cast_value",
+            "CAST(ceil(",
+        ),
+        # Trino reads ORDER BY names as output columns first, so the qualifier `t` would read the `0 AS t` column.
+        (
+            "WITH t AS (SELECT 1 AS x) SELECT x AS x, 0 AS t FROM t ORDER BY x + 0",
+            'ORDER BY ("x" + 0)',
+            'ORDER BY ("t"."x"',
+        ),
+        # Float arithmetic over non-null operands stays non-null, so sumOrDefault keeps its 0 default.
+        ("SELECT sumOrDefault(1.5 + 1) FROM users WHERE false", "DOUBLE '0'", "NULL)"),
+        # nullIf can always return NULL, so sumOrDefault must not invent a 0.
+        ("SELECT sumOrDefault(nullIf(true, 1)) FROM users", "NULL)", ", 0)"),
+        # A window's OVER (ORDER BY ...) can't see output aliases, so the alias still expands there.
+        (
+            "SELECT toStartOfMonth(users.created_at) AS month, count() AS users, sum(count()) OVER (ORDER BY month) AS running FROM users GROUP BY month ORDER BY month",
+            'OVER (ORDER BY CAST(date_trunc(\'month\', "users"."created_at") AS DATE) ASC)',
+            'OVER (ORDER BY "month"',
+        ),
+        (
+            "SELECT u.created_at AS user_id, u.user_id AS u, row_number() OVER (ORDER BY user_id) AS rn FROM users AS u ORDER BY rn",
+            'OVER (ORDER BY "u"."created_at" ASC)',
+            'OVER (ORDER BY "user_id"',
+        ),
+        ("SELECT arrayCumSum(x -> x * 1.0, [1, 2])", "reduce(transform(", "CASE WHEN"),
+        # A boolean coalesced with a float stays a float, so toInt maps the fractional result to NULL.
+        (
+            "SELECT toInt(coalesce(nullIf(true, true), 1.5))",
+            "__hogql_accurate_cast_value",
+            "CAST(coalesce(CAST(nullif(true, true) AS INTEGER), 1.5) AS BIGINT)",
+        ),
+        # toInt of a NULL boolean stays NULL instead of becoming 0.
+        (
+            "SELECT toInt(multiSearchAnyCaseInsensitive(nullIf(user_id, user_id), ['a'])) FROM users",
+            "CAST(any_match(",
+            "THEN 1 ELSE 0 END",
+        ),
+        # Adding a float to a datetime keeps it a datetime, so toInt still reads the Unix timestamp.
+        (
+            "SELECT toInt(created_at + 1.0) FROM users",
+            "CAST(to_unixtime(date_add(",
+            "__hogql_accurate_cast_value",
+        ),
+        (
+            "SELECT range(1, length(user_id) + 1, 3) FROM users",
+            "greatest(__hogql_range[2] - 1, __hogql_range[1]), 3)",
+            "greatest(__hogql_range[2] - 1, __hogql_range[1]))",
+        ),
+        (
+            "SELECT toFloat(tupleElement(kv, 2)) FROM users ARRAY JOIN JSONExtractKeysAndValuesRaw(user_id) AS kv",
+            'TRY_CAST(("__trino_unnest_0"."kv")[2] AS DOUBLE)',
+            'CAST(("__trino_unnest_0"."kv")[2] AS DOUBLE)',
+        ),
+        # ClickHouse returns NULL for a fractional float but truncates a decimal.
+        (
+            "SELECT toInt(id / 3) FROM users",
+            "= truncate(TRY_CAST(__hogql_accurate_cast_value AS DECIMAL(38, 18)))",
+            "TRY_CAST(truncate(",
+        ),
+        ("SELECT toInt(toDecimal(id, 2)) FROM users", "TRY_CAST(truncate(CAST(", "__hogql_accurate_cast_value"),
+    ],
+)
+def test_lowers_clickhouse_semantics_trino_rejects(query: str, required: str, forbidden: str) -> None:
+    sql, _ = prepare_and_print_ast(parse_select(query), _context_with_trino_table(), "trino")
+
+    assert required in sql
+    assert forbidden not in sql.replace(required, "")
+
+
+def test_deeply_nested_arithmetic_prints_without_repeated_type_lookups() -> None:
+    expression = "id"
+    for _ in range(22):
+        expression = f"coalesce({expression} + 1, 0)"
+
+    sql, _ = prepare_and_print_ast(
+        parse_select(f"SELECT {expression} FROM users"), _context_with_trino_table(), "trino"
+    )
+
+    assert sql.count("coalesce(") == 22
 
 
 def test_first_regex_replacement_preserves_inline_flags() -> None:
@@ -635,10 +853,10 @@ def test_coerces_strict_trino_types_after_property_lowering() -> None:
         "trino",
     )
 
-    assert 'CAST(json_extract_scalar("users"."properties", %(hogql_val_0)s) AS DOUBLE) / CAST(1000 AS DOUBLE)' in sql
-    assert 'sum(CAST(json_extract_scalar("users"."properties", %(hogql_val_1)s) AS DOUBLE))' in sql
-    assert 'CAST(json_extract_scalar("users"."properties", %(hogql_val_2)s) AS BOOLEAN) = true' in sql
-    assert '"users"."created_at" >= CAST(%(hogql_val_3)s AS TIMESTAMP)' in sql
+    assert 'CAST(json_extract_scalar("users"."properties", \'$["duration"]\') AS DOUBLE) / CAST(1000 AS DOUBLE)' in sql
+    assert 'sum(CAST(json_extract_scalar("users"."properties", \'$["amount"]\') AS DOUBLE))' in sql
+    assert 'CAST(json_extract_scalar("users"."properties", \'$["failed"]\') AS BOOLEAN) = true' in sql
+    assert '"users"."created_at" >= CAST(%(hogql_val_0)s AS TIMESTAMP)' in sql
 
 
 def test_prints_iso_datetime_and_heterogeneous_concat_for_trino() -> None:
@@ -703,9 +921,10 @@ def test_preserves_clickhouse_json_array_indexing() -> None:
     assert "AS ARRAY(JSON)), 2)" in sql
     assert 'AS ARRAY(JSON)), CAST(length("users"."user_id") AS INTEGER))' in sql
     assert sql.count("element_at(") == 9
-    assert 'CAST(json_extract("users"."properties", %(hogql_val_1)s) AS ARRAY(JSON))' in sql
+    assert 'CAST(json_extract("users"."properties", \'$["items"]\') AS ARRAY(JSON))' in sql
+    assert 'json_extract("users"."user_id", \'$["key.with.dot"]\')' in sql
     assert "CAST(TRY(element_at(" in sql
-    assert context.values == {"hogql_val_0": '$["key.with.dot"]', "hogql_val_1": '$["items"]'}
+    assert context.values == {}
 
 
 @pytest.mark.parametrize("operator", ["+", "-", "*", "/", "%"])
@@ -715,10 +934,10 @@ def test_chained_arithmetic_keeps_only_used_parameters(operator: str) -> None:
 
     sql, _ = prepare_and_print_ast(parse_select(f"SELECT {f' {operator} '.join(terms)} FROM users"), context, "trino")
 
-    assert context.values == {f"hogql_val_{index}": f'$["metric_{index}"]' for index in range(6)}
+    assert context.values == {}
     rendered_terms = [
         'coalesce(TRY(CAST(json_extract_scalar("users"."user_id", '
-        f"%(hogql_val_{index})s) AS DOUBLE)), CAST(0 AS DOUBLE))"
+        f"'$[\"metric_{index}\"]') AS DOUBLE)), CAST(0 AS DOUBLE))"
         for index in range(6)
     ]
     expected = rendered_terms[0]
@@ -810,14 +1029,9 @@ def test_lowers_event_property_backed_fields_to_the_physical_json_column() -> No
         "trino",
     )
 
-    assert 'json_extract_scalar("tenant"."posthog"."events"."properties", %(hogql_val_0)s)' in sql
-    assert 'json_extract_scalar("tenant"."posthog"."events"."properties", %(hogql_val_1)s)' in sql
-    assert 'json_extract_scalar("tenant"."posthog"."events"."properties", %(hogql_val_2)s)' in sql
-    assert context.values == {
-        "hogql_val_0": '$["$session_id"]',
-        "hogql_val_1": '$["$window_id"]',
-        "hogql_val_2": '$["$group_0"]',
-    }
+    for key in ("$session_id", "$window_id", "$group_0"):
+        assert f'json_extract_scalar("tenant"."posthog"."events"."properties", \'$["{key}"]\')' in sql
+    assert context.values == {}
 
 
 def test_lowers_event_element_materializations_to_the_physical_chain() -> None:
@@ -838,6 +1052,51 @@ def test_lowers_event_element_materializations_to_the_physical_chain() -> None:
     assert 'array_distinct(regexp_extract_all("tenant"."posthog"."events"."elements_chain"' in sql
 
 
+def test_uuid_comparison_on_exported_table_compares_as_varchar() -> None:
+    context = HogQLContext(
+        database=Database(include_posthog_tables=True),
+        modifiers=_trino_modifiers(),
+        enable_select_queries=True,
+        trino_table_locators={"events": ("tenant", "posthog", "events")},
+    )
+
+    sql, _ = prepare_and_print_ast(parse_select("SELECT 1 FROM events WHERE uuid = toUUID(event)"), context, "trino")
+
+    assert (
+        '(CAST("tenant"."posthog"."events"."uuid" AS VARCHAR) = '
+        'CAST(CAST("tenant"."posthog"."events"."event" AS UUID) AS VARCHAR))'
+    ) in sql
+
+
+@pytest.mark.parametrize(
+    "key, expected_path",
+    [
+        ("plan", "'$[\"plan\"]'"),
+        ("it's", "'$[\"it''s\"]'"),
+        ("%(hogql_val_0)s", "'$[\"%(hogql_val_0)s\"]'"),
+        ('a"b\\c', '\'$["a\\"b\\\\c"]\''),
+    ],
+)
+def test_grouped_json_property_prints_the_same_path_in_projection_and_group_by(key: str, expected_path: str) -> None:
+    context = _context_with_trino_table()
+    escaped_key = key.replace("\\", "\\\\").replace("'", "\\'")
+
+    sql, _ = prepare_and_print_ast(
+        parse_select(
+            f"SELECT JSONExtractString(properties, '{escaped_key}') = '' AS missing, count() FROM users "
+            f"GROUP BY JSONExtractString(properties, '{escaped_key}')"
+        ),
+        context,
+        "trino",
+    )
+    sql, values = convert_pyformat_placeholders(sql, context.values)
+
+    grouped = f'json_extract_scalar("users"."properties", {expected_path})'
+    assert sql.count(grouped) == 2
+    assert sql.split(" GROUP BY ")[1].count(grouped) == 1
+    assert values == [""]
+
+
 @pytest.mark.parametrize(
     "expression, group_by, order_by, expected_order, expected_values",
     [
@@ -849,7 +1108,7 @@ def test_lowers_event_element_materializations_to_the_physical_chain() -> None:
             "1 DESC",
             ["suffix"],
         ),
-        ("properties.color", "account_id", "account_id", "1 ASC", ['$["color"]']),
+        ("properties.color", "account_id", "account_id", "1 ASC", []),
         ("0", "account_id", "account_id", "1 ASC", []),
         ("user_id", "account_id", "2", "2 ASC", []),
         (
@@ -892,10 +1151,23 @@ def test_scalar_cte_chains_preserve_results(depth: int) -> None:
         assert connection.execute(sql).fetchall() == [(2**depth,)]
 
 
+def test_wide_subquery_scalar_cte_references_stay_within_budget() -> None:
+    columns = ", ".join(f"user_id AS c{i}" for i in range(100))
+    references = ", ".join("total" for _ in range(100))
+    sql, _ = prepare_and_print_ast(
+        parse_select(
+            f"WITH wide AS (SELECT {columns} FROM users), (SELECT count() FROM wide) AS total SELECT {references}"
+        ),
+        _context_with_trino_table(),
+        "trino",
+    )
+    assert sql.count('(SELECT count(*) FROM "wide")') == 100
+
+
 def test_rejects_excessive_scalar_cte_expansion() -> None:
-    ctes = ["1 AS c0", *[f"c{i - 1} + c{i - 1} AS c{i}" for i in range(1, 15)]]
+    ctes = ["1 AS c0", *[f"c{i - 1} + c{i - 1} AS c{i}" for i in range(1, 18)]]
     with pytest.raises(TrinoLoweringError, match="TRINO_AST_EXPANSION_LIMIT"):
-        prepare_and_print_ast(parse_select(f"WITH {', '.join(ctes)} SELECT c14"), _context_with_trino_table(), "trino")
+        prepare_and_print_ast(parse_select(f"WITH {', '.join(ctes)} SELECT c17"), _context_with_trino_table(), "trino")
 
 
 @pytest.mark.parametrize("length", ["", ", -1"])
@@ -916,8 +1188,16 @@ def test_scalar_ctes_do_not_replace_real_columns(projection: str) -> None:
     assert sql.startswith('SELECT "users"."id" FROM ')
 
 
+def test_accepts_large_queries_without_expansion() -> None:
+    projections = ", ".join(f"id + {i} AS c{i}" for i in range(1_500))
+    sql, _ = prepare_and_print_ast(
+        parse_select(f"SELECT {projections} FROM users"), _context_with_trino_table(), "trino"
+    )
+    assert '"c1499"' in sql
+
+
 def test_rejects_excessive_select_alias_expansion() -> None:
-    projections = ["1 AS a0", *[f"a{i - 1} + a{i - 1} AS a{i}" for i in range(1, 15)]]
+    projections = ["1 AS a0", *[f"a{i - 1} + a{i - 1} AS a{i}" for i in range(1, 18)]]
     with pytest.raises(TrinoLoweringError, match="TRINO_AST_EXPANSION_LIMIT"):
         prepare_and_print_ast(parse_select(f"SELECT {', '.join(projections)}"), _context_with_trino_table(), "trino")
 
@@ -1050,8 +1330,8 @@ def test_prints_empty_for_lowered_json_property_after_second_resolution() -> Non
         "trino",
     )
 
-    assert 'json_extract_scalar("users"."properties", %(hogql_val_0)s) <> \'\'' in sql
-    assert context.values == {"hogql_val_0": '$["task_run_id"]'}
+    assert 'json_extract_scalar("users"."properties", \'$["task_run_id"]\') <> \'\'' in sql
+    assert context.values == {}
 
 
 def test_lowers_nested_json_keys_and_values_raw() -> None:
@@ -1059,7 +1339,8 @@ def test_lowers_nested_json_keys_and_values_raw() -> None:
     sql, _ = prepare_and_print_ast(parse_select("SELECT JSONExtractKeysAndValuesRaw('{}', 'teams')"), context, "trino")
 
     assert "map_entries(CAST(json_extract(" in sql
-    assert context.values == {"hogql_val_0": "{}", "hogql_val_1": '$["teams"]'}
+    assert context.values == {"hogql_val_0": "{}"}
+    assert "'$[\"teams\"]'" in sql
 
 
 def test_lowers_currency_conversion_with_the_trino_exchange_rate_table() -> None:
@@ -1291,7 +1572,9 @@ def test_lowers_staged_window_filters(query: str) -> None:
 )
 def test_lowers_named_set_operations(operator: str) -> None:
     sql, _ = prepare_and_print_ast(
-        parse_select(f"SELECT 1 AS first, 2 AS second {operator} BY NAME SELECT 2 AS second, 1 AS first"),
+        parse_select(
+            f"SELECT 1 AS first, 2 AS second FROM users {operator} BY NAME SELECT 2 AS second, 1 AS first FROM users"
+        ),
         _context_with_trino_table(),
         "trino",
     )
@@ -1665,6 +1948,15 @@ def test_rejects_invalid_trino_cast_types(type_name: str) -> None:
             "SELECT user_id FROM users ORDER BY user_id LIMIT 10 WITH TIES",
             "FETCH FIRST 10 ROWS WITH TIES",
         ),
+        ("SELECT user_id FROM users ORDER BY user_id LIMIT 2147483647", "ASC LIMIT 2147483647"),
+        # Trino cannot sort with a LIMIT above 2147483647, and a LIMIT that large cannot cut a result.
+        ("SELECT user_id FROM users ORDER BY user_id LIMIT 1000000000000", '"users"."user_id" ASC'),
+        ("SELECT user_id FROM users ORDER BY user_id LIMIT 1000000000000 OFFSET 4", "ASC OFFSET 4 ROWS"),
+        ("SELECT user_id FROM users ORDER BY user_id LIMIT 1000000000000 WITH TIES", '"users"."user_id" ASC'),
+        ("SELECT user_id FROM users ORDER BY user_id LIMIT 2147483647 OFFSET 1", "ASC OFFSET 1 ROWS"),
+        # An unsorted LIMIT has no cap in Trino and can cut a nested result, so it stays.
+        ("SELECT user_id FROM users LIMIT 2147483648", "LIMIT 2147483648"),
+        ("SELECT count() FROM (SELECT user_id FROM users LIMIT 2147483648)", "LIMIT 2147483648)"),
     ],
 )
 def test_prints_trino_limit_syntax(query: str, expected_suffix: str) -> None:
@@ -1673,15 +1965,32 @@ def test_prints_trino_limit_syntax(query: str, expected_suffix: str) -> None:
     assert sql.endswith(expected_suffix)
 
 
-def test_prints_trino_limit_syntax_after_set_operation() -> None:
+@pytest.mark.parametrize(
+    "query",
+    [
+        "SELECT count() FROM (SELECT user_id FROM users ORDER BY user_id LIMIT 2147483648)",
+        "SELECT count() FROM (SELECT user_id FROM users ORDER BY user_id LIMIT 2147483647 OFFSET 1)",
+    ],
+)
+def test_rejects_nested_sorted_limit_above_trino_cap(query: str) -> None:
+    with pytest.raises(TrinoLoweringError) as error:
+        prepare_and_print_ast(parse_select(query), _context_with_trino_table(), "trino")
+
+    assert error.value.feature_code == "TRINO_SORTED_LIMIT_TOO_LARGE"
+
+
+@pytest.mark.parametrize(
+    "limit, expected_suffix", [(10, "OFFSET 4 ROWS LIMIT 10"), (2**40, "OFFSET 4 ROWS LIMIT 1099511627776")]
+)
+def test_prints_trino_limit_syntax_after_set_operation(limit: int, expected_suffix: str) -> None:
     query = parse_select("SELECT user_id FROM users UNION ALL SELECT user_id FROM users")
     assert isinstance(query, ast.SelectSetQuery)
-    query.limit = ast.Constant(value=10)
+    query.limit = ast.Constant(value=limit)
     query.offset = ast.Constant(value=4)
 
     sql, _ = prepare_and_print_ast(query, _context_with_trino_table(), "trino")
 
-    assert sql.endswith("OFFSET 4 ROWS LIMIT 10")
+    assert sql.endswith(expected_suffix)
 
 
 @pytest.mark.parametrize("pretty", [False, True])
@@ -1776,7 +2085,7 @@ def test_rejects_with_fill_before_printing_invalid_trino_sql() -> None:
         ("date_part('year', created_at)", 'EXTRACT(YEAR FROM "users"."created_at")'),
         (
             "JSONExtractKeysAndValues(properties, 'Float64')",
-            'map_entries(transform_values(CAST(json_extract("users"."properties", %(hogql_val_0)s) AS MAP(VARCHAR, JSON))',
+            'map_entries(transform_values(CAST(json_extract("users"."properties", \'$\') AS MAP(VARCHAR, JSON))',
         ),
         ("['a', 'b'][2:]", "slice(ARRAY[%(hogql_val_0)s, %(hogql_val_1)s], 2, 2147483647)"),
     ],
@@ -1955,6 +2264,11 @@ def test_prints_additional_semantics_safe_trino_expressions(expression: str, exp
         ("arrayCumSum([1, -3, 2])", "ROW(total BIGINT, items ARRAY(BIGINT))"),
         ("arrayCumSumNonNegative([1, -3, 2])", "greatest(__hogql_scan_state[1] + __hogql_item, 0)"),
         ("arrayCumSum(value -> value / 2, [1, 2])", "ROW(total DOUBLE, items ARRAY(DOUBLE))"),
+        ("arraySum(value -> value * 2, [1, 2])", 'reduce(transform(ARRAY[1, 2], "value" -> ("value" * 2)), '),
+        ("arrayMax(value -> value * 2, [1, 2])", 'array_max(transform(ARRAY[1, 2], "value" -> ("value" * 2)))'),
+        ("arrayMin(value -> value * 2, [1, 2])", 'array_min(transform(ARRAY[1, 2], "value" -> ("value" * 2)))'),
+        ("arrayMax(value -> toString(value), [1, 2]) = '2'", "))) = %(hogql_val_0)s)"),
+        ("arrayMin(value -> toString(value), [1, 2]) = '2'", "))) = %(hogql_val_0)s)"),
         ("arrayResize(arrayCumSum(value -> value / 2, [1, 2]), 4)", "repeat(DOUBLE '0',"),
         ("arrayFill(value -> value > 0, [0, 1, 0])", "element_at(__hogql_filled, -1)"),
         ("arrayReverseFill(value -> value > 0, [0, 1, 0])", "reverse(reduce(reverse(zip("),
@@ -2286,7 +2600,7 @@ def test_rejects_pr_91053_shortcuts_without_matching_trino_semantics(expression:
     assert error.value.feature_code == "TRINO_FUNCTION_UNSUPPORTED"
 
 
-@pytest.mark.parametrize("identifier", ["parameter?", "parameter%", "nul\0identifier"])
+@pytest.mark.parametrize("identifier", ["parameter%", "nul\0identifier"])
 def test_rejects_trino_identifiers_that_can_collide_with_parameter_binding(identifier: str) -> None:
     with pytest.raises(QueryError):
         escape_trino_identifier(identifier)
@@ -2499,7 +2813,15 @@ def test_lowers_multi_key_any_join_with_a_right_expression() -> None:
     assert '"users"."user_id" = CAST("other"."user_id" AS VARCHAR)' in sql
 
 
-def test_lowers_unaliased_left_any_join() -> None:
+@pytest.mark.parametrize(
+    "people_column, error",
+    [
+        ("people.created_at", None),
+        # Property reads through a derived table are not lowered yet, but the hidden column must still resolve.
+        ("people.raw.key", "TRINO_PROPERTY_NOT_LOWERED"),
+    ],
+)
+def test_lowers_unaliased_left_any_join(people_column: str, error: str | None) -> None:
     context = _context_with_trino_table()
     assert context.database is not None
     context.database.tables.add_child(
@@ -2510,6 +2832,8 @@ def test_lowers_unaliased_left_any_join() -> None:
                 fields={
                     "user_id": StringDatabaseField(name="user_id", nullable=False),
                     "created_at": DateTimeDatabaseField(name="created_at", nullable=False),
+                    "__sync_id": StringDatabaseField(name="_sync_id", hidden=True),
+                    "raw": StringJSONDatabaseField(name="_raw", hidden=True),
                 },
                 external_data_source_id="source-id",
                 trino_catalog="ducklake",
@@ -2519,16 +2843,90 @@ def test_lowers_unaliased_left_any_join() -> None:
             ),
         )
     )
-    sql, _ = prepare_and_print_ast(
-        parse_select(
-            "SELECT users.user_id, people.created_at FROM users LEFT ANY JOIN people ON users.user_id = people.user_id"
-        ),
-        context,
-        "trino",
+    query = parse_select(
+        f"SELECT users.user_id, {people_column} FROM users LEFT ANY JOIN people ON users.user_id = people.user_id"
     )
+    if error is not None:
+        with pytest.raises(TrinoLoweringError, match=error):
+            prepare_and_print_ast(query, context, "trino")
+        return
+    sql, _ = prepare_and_print_ast(query, context, "trino")
 
     assert "LEFT ANY JOIN" not in sql
+    assert "_sync_id" not in sql
+    assert "_raw" not in sql
     assert ') AS "people" ON ("users"."user_id" = "people"."user_id")' in sql
+
+
+@pytest.mark.parametrize(
+    "structure, query, expected",
+    [
+        (
+            "`id` String, `tiers` Nullable(String)",
+            "SELECT tiers != '[]' FROM prices",
+            '("prices"."tiers" != %(hogql_val_0)s)',
+        ),
+        (
+            "`id` String, `tiers` Array(String)",
+            "SELECT tiers != '[]' FROM prices",
+            '(cardinality("prices"."tiers") != 0)',
+        ),
+        (
+            "`id` String, `tiers` Nullable(Array(String))",
+            "SELECT tiers != '[]' FROM prices",
+            '(cardinality("prices"."tiers") != 0)',
+        ),
+        (
+            "`id` String, `tiers` Nullable(String)",
+            "SELECT p.tiers != '[]' FROM (SELECT tiers FROM prices) AS p",
+            '("p"."tiers" != %(hogql_val_0)s)',
+        ),
+        (
+            "`id` String, `tiers` Nullable(String)",
+            "SELECT p.tiers != '[]' FROM prices LEFT ANY JOIN prices AS p ON prices.id = p.id",
+            '("p"."tiers" != %(hogql_val_0)s)',
+        ),
+        (
+            "`id` String, `tiers` Nullable(String)",
+            "SELECT length(t) FROM (SELECT tiers AS t FROM prices UNION ALL SELECT tiers AS t FROM prices)",
+            'SELECT length("t")',
+        ),
+        (
+            "`id` String, `tiers` Nullable(String)",
+            "WITH p AS (SELECT tiers FROM prices UNION ALL SELECT tiers FROM prices) SELECT length(tiers) FROM p",
+            'SELECT length("p"."tiers")',
+        ),
+    ],
+)
+def test_curated_array_field_over_a_text_column_compares_as_text(structure: str, query: str, expected: str) -> None:
+    database = Database(include_posthog_tables=False)
+    database.tables.add_child(
+        TableNode(
+            name="prices",
+            table=DataWarehouseTable(
+                name="prices",
+                url="http://example.com/prices",
+                format="Parquet",
+                structure=structure,
+                fields={
+                    "id": StringDatabaseField(name="id"),
+                    "tiers": StringArrayDatabaseField(name="tiers"),
+                },
+            ),
+        )
+    )
+    context = HogQLContext(
+        database=database,
+        modifiers=_trino_modifiers(),
+        enable_select_queries=True,
+        limit_top_select=False,
+        restricted_properties=set(),
+        trino_table_locators={"prices": ("ducklake", "stripe", "prices")},
+    )
+
+    sql, _ = prepare_and_print_ast(parse_select(query), context, "trino")
+
+    assert expected in sql
 
 
 def test_lowers_any_join_to_the_deduplicated_trino_persons_relation() -> None:
@@ -2573,6 +2971,26 @@ def test_lowers_left_any_join_against_a_cte() -> None:
     assert "LEFT ANY JOIN" not in sql
     assert 'row_number() OVER (PARTITION BY "__hogql_any_source_0"."user_id")' in sql
     assert '"right_rows" AS "__hogql_any_source_0"' in sql
+
+
+def test_left_any_join_against_an_unaliased_cte_keeps_one_match() -> None:
+    context = _context_with_trino_table()
+    sql, _ = prepare_and_print_ast(
+        parse_select(
+            "WITH r AS (SELECT 1 AS k, 10 AS v UNION ALL SELECT 1, 20 UNION ALL SELECT 2, 30), "
+            "l AS (SELECT 1 AS k UNION ALL SELECT 3) "
+            "SELECT l.k, r.v FROM l LEFT ANY JOIN r ON l.k = r.k ORDER BY l.k"
+        ),
+        context,
+        "trino",
+    )
+
+    sql, values = convert_pyformat_placeholders(sql, context.values)
+    with duckdb.connect(":memory:", config={"threads": 1}) as connection:
+        rows = connection.execute(sql, values).fetchall()
+    assert len(rows) == 2
+    assert rows[0][0] == 1 and rows[0][1] in (10, 20)
+    assert rows[1] == (3, None)
 
 
 @pytest.mark.parametrize(
@@ -2634,6 +3052,12 @@ def test_removes_noop_sample_one_for_trino() -> None:
         (
             "SELECT * FROM users UNPIVOT((value1, value2) FOR (key1, key2) IN ((user_id, id)))",
             "TRINO_UNPIVOT_SHAPE_UNSUPPORTED",
+        ),
+        # Inside a lambda, a qualifier that is also a column name would read that column instead of the table.
+        ("SELECT arrayMap(x -> x + id, [1]) AS id FROM users AS properties", "TRINO_LAMBDA_QUALIFIER_AMBIGUOUS"),
+        (
+            "SELECT arrayMap(x -> concat(x, user_id), ['a']) AS user_id FROM users AS id",
+            "TRINO_LAMBDA_QUALIFIER_AMBIGUOUS",
         ),
     ],
 )
@@ -2856,3 +3280,42 @@ def test_trino_signatures_do_not_change_other_dialect_validation(expression: str
     else:
         with pytest.raises(QueryError, match="expects"):
             print_prepared_ast(resolve_types(query, context, dialect), context, dialect)
+
+
+@pytest.mark.parametrize(
+    "query, expected",
+    [
+        (
+            "SELECT name, count() FROM (SELECT 'a' AS name, 1 AS id UNION ALL SELECT 'b', 2 UNION ALL SELECT 'a', 3) "
+            "GROUP BY name ORDER BY name",
+            [("a", 2), ("b", 1)],
+        ),
+        (
+            "SELECT id FROM (SELECT 1 AS id UNION ALL SELECT 1 + 1 UNION ALL SELECT NULL) ORDER BY id NULLS LAST",
+            [(1,), (2,), (None,)],
+        ),
+    ],
+)
+def test_lowers_constant_row_unions_to_one_values_list(query: str, expected: list[tuple[object, ...]]) -> None:
+    # Trino plans every UNION ALL branch below a repartitioning exchange as its own stage.
+    context = _context_with_trino_table()
+    sql, _ = prepare_and_print_ast(parse_select(query), context, "trino")
+    assert "UNION" not in sql
+    assert "VALUES" in sql
+    sql, values = convert_pyformat_placeholders(sql, context.values)
+    with duckdb.connect(":memory:") as connection:
+        assert connection.execute(sql, values).fetchall() == expected
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "SELECT 'a' AS user_id UNION ALL SELECT user_id FROM users",
+        "SELECT tuple(1, 2) AS t UNION ALL SELECT tuple(3, 4)",
+        "SELECT first_value(1) AS x UNION ALL SELECT 2",
+    ],
+)
+def test_keeps_union_when_a_branch_is_not_a_constant_row(query: str) -> None:
+    sql, _ = prepare_and_print_ast(parse_select(query), _context_with_trino_table(), "trino")
+    assert "UNION ALL" in sql
+    assert "VALUES" not in sql

@@ -6,6 +6,7 @@ use metrics::counter;
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 
 pub const CAPTURE_EVENTS_DROPPED_TOTAL: &str = "capture_events_dropped_total";
+pub const CAPTURE_EVENTS_OVER_V1_LIMITS_TOTAL: &str = "capture_events_over_v1_limits_total";
 
 pub const CAPTURE_TIMESTAMP_PATH_TOTAL: &str = "capture_timestamp_path_total";
 pub const CAPTURE_STORED_VS_CLIENT_CAPTURE_SECONDS: &str =
@@ -15,6 +16,11 @@ pub const CAPTURE_EDGE_TIMESTAMP_REJECTED: &str = "capture_edge_timestamp_reject
 
 pub fn report_dropped_events(cause: &'static str, quantity: u64) {
     counter!(CAPTURE_EVENTS_DROPPED_TOTAL, "cause" => cause).increment(quantity);
+}
+
+/// Counts a legacy event that capture v1 would drop; `cause` is the v1 per-event detail tag.
+pub fn report_over_v1_limit(cause: &'static str) {
+    counter!(CAPTURE_EVENTS_OVER_V1_LIMITS_TOTAL, "cause" => cause).increment(1);
 }
 
 pub fn report_overflow_partition(quantity: u64) {

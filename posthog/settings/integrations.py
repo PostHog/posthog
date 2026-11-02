@@ -67,6 +67,8 @@ SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = get_from_env("SOCIAL_AUTH_GOOGLE_OAUTH2_SECRE
 
 LINEAR_APP_CLIENT_ID = get_from_env("LINEAR_APP_CLIENT_ID", "")
 LINEAR_APP_CLIENT_SECRET = get_from_env("LINEAR_APP_CLIENT_SECRET", "")
+# The signing secret from the Linear App's webhook settings. Empty leaves `webhooks/linear` unconfigured.
+LINEAR_APP_WEBHOOK_SECRET = get_from_env("LINEAR_APP_WEBHOOK_SECRET", "")
 
 HELPSCOUT_APP_CLIENT_ID = get_from_env("HELPSCOUT_APP_CLIENT_ID", "")
 HELPSCOUT_APP_CLIENT_SECRET = get_from_env("HELPSCOUT_APP_CLIENT_SECRET", "")
@@ -186,20 +188,6 @@ WORKOS_RADAR_ENABLED = get_from_env("WORKOS_RADAR_ENABLED", False, type_cast=str
 CLOUDFLARE_TURNSTILE_SECRET_KEY = get_from_env("CLOUDFLARE_TURNSTILE_SECRET_KEY", "")
 CLOUDFLARE_TURNSTILE_SITE_KEY = get_from_env("CLOUDFLARE_TURNSTILE_SITE_KEY", "")
 
-# ElevenLabs (Max hands-free mode)
-# STT goes browser ↔ ElevenLabs over a single-use Scribe WebSocket token (backend just mints).
-# TTS goes browser → PostHog → ElevenLabs → audio stream (backend proxies the key to ElevenLabs).
-ELEVENLABS_API_KEY = get_from_env("ELEVENLABS_API_KEY", "")
-ELEVENLABS_API_BASE_URL = get_from_env("ELEVENLABS_API_BASE_URL", "https://api.elevenlabs.io")
-# Rachel is ElevenLabs' default voice — neutral, clear at gym pace. Override if you want a
-# different feel without redeploying.
-ELEVENLABS_VOICE_ID = get_from_env("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
-# Turbo v2.5 has ~300ms TTFB latency, sits in the free tier, and sounds clean enough for
-# gym-pace narration. Flash v2.5 is marginally faster but requires Creator ($22/mo) or above
-# on the ElevenLabs side, so devs running on free quota hit a 402 from the TTS proxy.
-# Override at the env level if you're on a paid tier and want the extra polish.
-ELEVENLABS_TTS_MODEL_ID = get_from_env("ELEVENLABS_TTS_MODEL_ID", "eleven_turbo_v2_5")
-
 # PandaDoc (for legal documents: BAA/DPA). One template per document variant.
 # Each call needs the matching template id, so we keep them as separate env vars —
 # rotating one (e.g., when Legal updates the DPA copy) doesn't touch the others.
@@ -272,13 +260,3 @@ POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_DEV = get_from_env("POSTHOG_CONNECT_OAUTH_CL
 POSTHOG_CONNECT_BASE_URL_US = get_from_env("POSTHOG_CONNECT_BASE_URL_US", "https://us.posthog.com")
 POSTHOG_CONNECT_BASE_URL_EU = get_from_env("POSTHOG_CONNECT_BASE_URL_EU", "https://eu.posthog.com")
 POSTHOG_CONNECT_BASE_URL_DEV = get_from_env("POSTHOG_CONNECT_BASE_URL_DEV", "http://localhost:8000")
-
-# Legacy OAuth client credentials kept alive during an app or secret rotation.
-# Refreshes fall back to these when the primary credentials fail, so tokens issued
-# by a since-migrated app keep working until users reconnect.
-OAUTH_CLIENT_FALLBACKS: dict[str, dict[str, str]] = {
-    "bing-ads": {
-        "client_id": BING_ADS_CLIENT_ID_FALLBACK,
-        "client_secret": BING_ADS_CLIENT_SECRET_FALLBACK,
-    },
-}

@@ -4,9 +4,9 @@
   /* user_id:0 request:_snapshot_ */
   SELECT events.event AS event,
          events.distinct_id AS distinct_id,
-         if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(nullIf(toString(events.properties.key), '')), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.key), '[]'), '{}'), toString(events.properties.key)))) AS key,
+         if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(events.properties.key), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), toJSONString(events.properties.key), toString(events.properties.key)))) AS key,
          'a%sd',
-         concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(nullIf(toString(events.properties.key), '')), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.key), '[]'), '{}'), toString(events.properties.key))))), '')) AS `concat(event, ' ', if(notEquals(toJSONString(properties.^key), '{}'), toJSONString(properties.^key), if(isNull(nullIf(toString(properties.key), '')), NULL, if(and(in(ascii(toString(properties.key)), tuple(91, 123)), in(ascii(toJSONString(properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(properties.key), '[]'), '{}'), toString(properties.key)))))`
+         concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(events.properties.key), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), toJSONString(events.properties.key), toString(events.properties.key))))), '')) AS `concat(event, ' ', if(notEquals(toJSONString(properties.^key), '{}'), toJSONString(properties.^key), if(isNull(properties.key), NULL, if(and(in(ascii(toString(properties.key)), tuple(91, 123)), in(ascii(toJSONString(properties.key)), tuple(91, 123))), toJSONString(properties.key), toString(properties.key)))))`
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), globalIn(events.uuid,
                                                       (SELECT events.uuid AS uuid
@@ -37,16 +37,16 @@
   /* user_id:0 request:_snapshot_ */
   SELECT events.event AS event,
          events.distinct_id AS distinct_id,
-         if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(nullIf(toString(events.properties.key), '')), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.key), '[]'), '{}'), toString(events.properties.key)))) AS key,
+         if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(events.properties.key), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), toJSONString(events.properties.key), toString(events.properties.key)))) AS key,
          'a%sd',
-         concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(nullIf(toString(events.properties.key), '')), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.key), '[]'), '{}'), toString(events.properties.key))))), '')) AS `concat(event, ' ', if(notEquals(toJSONString(properties.^key), '{}'), toJSONString(properties.^key), if(isNull(nullIf(toString(properties.key), '')), NULL, if(and(in(ascii(toString(properties.key)), tuple(91, 123)), in(ascii(toJSONString(properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(properties.key), '[]'), '{}'), toString(properties.key)))))`
+         concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(events.properties.key), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), toJSONString(events.properties.key), toString(events.properties.key))))), '')) AS `concat(event, ' ', if(notEquals(toJSONString(properties.^key), '{}'), toJSONString(properties.^key), if(isNull(properties.key), NULL, if(and(in(ascii(toString(properties.key)), tuple(91, 123)), in(ascii(toJSONString(properties.key)), tuple(91, 123))), toJSONString(properties.key), toString(properties.key)))))`
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), globalIn(events.uuid,
                                                       (SELECT events.uuid AS uuid
                                                        FROM events_json AS events
-                                                       WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(if(notEquals(toJSONString(events.properties.^path), '{}'), toJSONString(events.properties.^path), if(isNull(nullIf(toString(events.properties.path), '')), NULL, if(and(in(ascii(toString(events.properties.path)), tuple(91, 123)), in(ascii(toJSONString(events.properties.path)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.path), '[]'), '{}'), toString(events.properties.path))))), '%/%'), 0), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+                                                       WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(if(notEquals(toJSONString(events.properties.^path), '{}'), toJSONString(events.properties.^path), if(isNull(events.properties.path), NULL, if(and(in(ascii(toString(events.properties.path)), tuple(91, 123)), in(ascii(toJSONString(events.properties.path)), tuple(91, 123))), toJSONString(events.properties.path), toString(events.properties.path))))), '%/%'), 0), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
                                                        ORDER BY events.event ASC
-                                                       LIMIT 101)), and(ifNull(ilike(toString(if(notEquals(toJSONString(events.properties.^path), '{}'), toJSONString(events.properties.^path), if(isNull(nullIf(toString(events.properties.path), '')), NULL, if(and(in(ascii(toString(events.properties.path)), tuple(91, 123)), in(ascii(toJSONString(events.properties.path)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.path), '[]'), '{}'), toString(events.properties.path))))), '%/%'), 0), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC'))))
+                                                       LIMIT 101)), and(ifNull(ilike(toString(if(notEquals(toJSONString(events.properties.^path), '{}'), toJSONString(events.properties.^path), if(isNull(events.properties.path), NULL, if(and(in(ascii(toString(events.properties.path)), tuple(91, 123)), in(ascii(toJSONString(events.properties.path)), tuple(91, 123))), toJSONString(events.properties.path), toString(events.properties.path))))), '%/%'), 0), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC'))))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -70,9 +70,9 @@
   /* user_id:0 request:_snapshot_ */
   SELECT events.event AS event,
          events.distinct_id AS distinct_id,
-         if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(nullIf(toString(events.properties.key), '')), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.key), '[]'), '{}'), toString(events.properties.key)))) AS key,
+         if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(events.properties.key), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), toJSONString(events.properties.key), toString(events.properties.key)))) AS key,
          'a%sd',
-         concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(nullIf(toString(events.properties.key), '')), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.key), '[]'), '{}'), toString(events.properties.key))))), '')) AS `concat(event, ' ', if(notEquals(toJSONString(properties.^key), '{}'), toJSONString(properties.^key), if(isNull(nullIf(toString(properties.key), '')), NULL, if(and(in(ascii(toString(properties.key)), tuple(91, 123)), in(ascii(toJSONString(properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(properties.key), '[]'), '{}'), toString(properties.key)))))`
+         concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(events.properties.key), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), toJSONString(events.properties.key), toString(events.properties.key))))), '')) AS `concat(event, ' ', if(notEquals(toJSONString(properties.^key), '{}'), toJSONString(properties.^key), if(isNull(properties.key), NULL, if(and(in(ascii(toString(properties.key)), tuple(91, 123)), in(ascii(toJSONString(properties.key)), tuple(91, 123))), toJSONString(properties.key), toString(properties.key)))))`
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), globalIn(events.uuid,
                                                       (SELECT events.uuid AS uuid
@@ -190,7 +190,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT events.event AS event,
          events.distinct_id AS distinct_id,
-         if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(nullIf(toString(events.properties.key), '')), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.key), '[]'), '{}'), toString(events.properties.key)))) AS key
+         if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(events.properties.key), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), toJSONString(events.properties.key), toString(events.properties.key)))) AS key
   FROM events_json AS events
   WHERE equals(events.team_id, 99999)
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
@@ -220,7 +220,7 @@
   FROM
     (SELECT events.event AS event,
             events.distinct_id AS distinct_id,
-            if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(nullIf(toString(events.properties.key), '')), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.key), '[]'), '{}'), toString(events.properties.key)))) AS key
+            if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(events.properties.key), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), toJSONString(events.properties.key), toString(events.properties.key)))) AS key
      FROM events_json AS events
      WHERE equals(events.team_id, 99999)
      ORDER BY toTimeZone(events.timestamp, 'UTC') ASC) AS event_view
@@ -246,7 +246,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT events.event AS event,
          events.distinct_id AS distinct_id,
-         if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(nullIf(toString(events.properties.key), '')), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.key), '[]'), '{}'), toString(events.properties.key)))) AS key
+         if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(events.properties.key), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), toJSONString(events.properties.key), toString(events.properties.key)))) AS key
   FROM events_json AS events
   WHERE equals(events.team_id, 99999)
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
@@ -271,9 +271,9 @@
   /* user_id:0 request:_snapshot_ */
   SELECT events.event AS event,
          events.distinct_id AS distinct_id,
-         if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(nullIf(toString(events.properties.key), '')), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.key), '[]'), '{}'), toString(events.properties.key)))) AS key,
+         if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(events.properties.key), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), toJSONString(events.properties.key), toString(events.properties.key)))) AS key,
          'a%sd',
-         concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(nullIf(toString(events.properties.key), '')), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.key), '[]'), '{}'), toString(events.properties.key))))), '')) AS `concat(event, ' ', if(notEquals(toJSONString(properties.^key), '{}'), toJSONString(properties.^key), if(isNull(nullIf(toString(properties.key), '')), NULL, if(and(in(ascii(toString(properties.key)), tuple(91, 123)), in(ascii(toJSONString(properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(properties.key), '[]'), '{}'), toString(properties.key)))))`
+         concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(events.properties.key), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), toJSONString(events.properties.key), toString(events.properties.key))))), '')) AS `concat(event, ' ', if(notEquals(toJSONString(properties.^key), '{}'), toJSONString(properties.^key), if(isNull(properties.key), NULL, if(and(in(ascii(toString(properties.key)), tuple(91, 123)), in(ascii(toJSONString(properties.key)), tuple(91, 123))), toJSONString(properties.key), toString(properties.key)))))`
   FROM events_json AS events
   WHERE 0
   ORDER BY events.event ASC
@@ -299,9 +299,9 @@
   /* user_id:0 request:_snapshot_ */
   SELECT events.event AS event,
          events.distinct_id AS distinct_id,
-         if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(nullIf(toString(events.properties.key), '')), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.key), '[]'), '{}'), toString(events.properties.key)))) AS key,
+         if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(events.properties.key), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), toJSONString(events.properties.key), toString(events.properties.key)))) AS key,
          'a%sd',
-         concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(nullIf(toString(events.properties.key), '')), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.key), '[]'), '{}'), toString(events.properties.key))))), '')) AS `concat(event, ' ', if(notEquals(toJSONString(properties.^key), '{}'), toJSONString(properties.^key), if(isNull(nullIf(toString(properties.key), '')), NULL, if(and(in(ascii(toString(properties.key)), tuple(91, 123)), in(ascii(toJSONString(properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(properties.key), '[]'), '{}'), toString(properties.key)))))`
+         concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(events.properties.key), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), toJSONString(events.properties.key), toString(events.properties.key))))), '')) AS `concat(event, ' ', if(notEquals(toJSONString(properties.^key), '{}'), toJSONString(properties.^key), if(isNull(properties.key), NULL, if(and(in(ascii(toString(properties.key)), tuple(91, 123)), in(ascii(toJSONString(properties.key)), tuple(91, 123))), toJSONString(properties.key), toString(properties.key)))))`
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), globalIn(events.uuid,
                                                       (SELECT events.uuid AS uuid
@@ -332,9 +332,9 @@
   /* user_id:0 request:_snapshot_ */
   SELECT events.event AS event,
          events.distinct_id AS distinct_id,
-         if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(nullIf(toString(events.properties.key), '')), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.key), '[]'), '{}'), toString(events.properties.key)))) AS key,
+         if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(events.properties.key), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), toJSONString(events.properties.key), toString(events.properties.key)))) AS key,
          'a%sd',
-         concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(nullIf(toString(events.properties.key), '')), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.key), '[]'), '{}'), toString(events.properties.key))))), '')) AS `concat(event, ' ', if(notEquals(toJSONString(properties.^key), '{}'), toJSONString(properties.^key), if(isNull(nullIf(toString(properties.key), '')), NULL, if(and(in(ascii(toString(properties.key)), tuple(91, 123)), in(ascii(toJSONString(properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(properties.key), '[]'), '{}'), toString(properties.key)))))`
+         concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(events.properties.key), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), toJSONString(events.properties.key), toString(events.properties.key))))), '')) AS `concat(event, ' ', if(notEquals(toJSONString(properties.^key), '{}'), toJSONString(properties.^key), if(isNull(properties.key), NULL, if(and(in(ascii(toString(properties.key)), tuple(91, 123)), in(ascii(toJSONString(properties.key)), tuple(91, 123))), toJSONString(properties.key), toString(properties.key)))))`
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), globalIn(events.uuid,
                                                       (SELECT events.uuid AS uuid
@@ -365,9 +365,9 @@
   /* user_id:0 request:_snapshot_ */
   SELECT events.event AS event,
          events.distinct_id AS distinct_id,
-         if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(nullIf(toString(events.properties.key), '')), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.key), '[]'), '{}'), toString(events.properties.key)))) AS key,
+         if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(events.properties.key), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), toJSONString(events.properties.key), toString(events.properties.key)))) AS key,
          'a%sd',
-         concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(nullIf(toString(events.properties.key), '')), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.key), '[]'), '{}'), toString(events.properties.key))))), '')) AS `concat(event, ' ', if(notEquals(toJSONString(properties.^key), '{}'), toJSONString(properties.^key), if(isNull(nullIf(toString(properties.key), '')), NULL, if(and(in(ascii(toString(properties.key)), tuple(91, 123)), in(ascii(toJSONString(properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(properties.key), '[]'), '{}'), toString(properties.key)))))`
+         concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(events.properties.key), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), toJSONString(events.properties.key), toString(events.properties.key))))), '')) AS `concat(event, ' ', if(notEquals(toJSONString(properties.^key), '{}'), toJSONString(properties.^key), if(isNull(properties.key), NULL, if(and(in(ascii(toString(properties.key)), tuple(91, 123)), in(ascii(toJSONString(properties.key)), tuple(91, 123))), toJSONString(properties.key), toString(properties.key)))))`
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), globalIn(events.uuid,
                                                       (SELECT events.uuid AS uuid
@@ -398,9 +398,9 @@
   /* user_id:0 request:_snapshot_ */
   SELECT events.event AS event,
          events.distinct_id AS distinct_id,
-         if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(nullIf(toString(events.properties.key), '')), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.key), '[]'), '{}'), toString(events.properties.key)))) AS key,
+         if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(events.properties.key), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), toJSONString(events.properties.key), toString(events.properties.key)))) AS key,
          'a%sd',
-         concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(nullIf(toString(events.properties.key), '')), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.key), '[]'), '{}'), toString(events.properties.key))))), '')) AS `concat(event, ' ', if(notEquals(toJSONString(properties.^key), '{}'), toJSONString(properties.^key), if(isNull(nullIf(toString(properties.key), '')), NULL, if(and(in(ascii(toString(properties.key)), tuple(91, 123)), in(ascii(toJSONString(properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(properties.key), '[]'), '{}'), toString(properties.key)))))`
+         concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(events.properties.key), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), toJSONString(events.properties.key), toString(events.properties.key))))), '')) AS `concat(event, ' ', if(notEquals(toJSONString(properties.^key), '{}'), toJSONString(properties.^key), if(isNull(properties.key), NULL, if(and(in(ascii(toString(properties.key)), tuple(91, 123)), in(ascii(toJSONString(properties.key)), tuple(91, 123))), toJSONString(properties.key), toString(properties.key)))))`
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), globalIn(events.uuid,
                                                       (SELECT events.uuid AS uuid
@@ -429,11 +429,11 @@
 # name: TestQuery.test_property_filter_aggregations[new_events_schema.1]
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(nullIf(toString(events.properties.key), '')), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.key), '[]'), '{}'), toString(events.properties.key)))) AS key,
+  SELECT if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(events.properties.key), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), toJSONString(events.properties.key), toString(events.properties.key)))) AS key,
          count() AS `count()`
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
-  GROUP BY if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(nullIf(toString(events.properties.key), '')), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.key), '[]'), '{}'), toString(events.properties.key))))
+  GROUP BY if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(events.properties.key), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), toJSONString(events.properties.key), toString(events.properties.key))))
   HAVING greater(count(), 1)
   ORDER BY count() DESC
   LIMIT 101
@@ -456,11 +456,11 @@
 # name: TestQuery.test_property_filter_aggregations[new_events_schema]
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(nullIf(toString(events.properties.key), '')), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.key), '[]'), '{}'), toString(events.properties.key)))) AS key,
+  SELECT if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(events.properties.key), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), toJSONString(events.properties.key), toString(events.properties.key)))) AS key,
          count() AS `count()`
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
-  GROUP BY if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(nullIf(toString(events.properties.key), '')), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.key), '[]'), '{}'), toString(events.properties.key))))
+  GROUP BY if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(events.properties.key), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), toJSONString(events.properties.key), toString(events.properties.key))))
   ORDER BY count() DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -584,7 +584,7 @@
   SELECT count() AS `count()`,
          events.event AS event
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), or(equals(events.event, 'sign up'), ifNull(like(if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(nullIf(toString(events.properties.key), '')), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.key), '[]'), '{}'), toString(events.properties.key)))), '%val2'), 0)), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 99999), or(equals(events.event, 'sign up'), ifNull(like(if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(events.properties.key), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), toJSONString(events.properties.key), toString(events.properties.key)))), '%val2'), 0)), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
   GROUP BY events.event
   ORDER BY count() DESC, events.event ASC
   LIMIT 101
@@ -607,18 +607,18 @@
 # name: TestQuery.test_select_hogql_expressions[new_events_schema]
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(nullIf(toString(events.properties.key), '')), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.key), '[]'), '{}'), toString(events.properties.key)))) AS key,
+  SELECT if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(events.properties.key), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), toJSONString(events.properties.key), toString(events.properties.key)))) AS key,
          events.event AS event,
          events.distinct_id AS distinct_id,
-         concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(nullIf(toString(events.properties.key), '')), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.key), '[]'), '{}'), toString(events.properties.key))))), '')) AS `concat(event, ' ', if(notEquals(toJSONString(properties.^key), '{}'), toJSONString(properties.^key), if(isNull(nullIf(toString(properties.key), '')), NULL, if(and(in(ascii(toString(properties.key)), tuple(91, 123)), in(ascii(toJSONString(properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(properties.key), '[]'), '{}'), toString(properties.key)))))`
+         concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(events.properties.key), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), toJSONString(events.properties.key), toString(events.properties.key))))), '')) AS `concat(event, ' ', if(notEquals(toJSONString(properties.^key), '{}'), toJSONString(properties.^key), if(isNull(properties.key), NULL, if(and(in(ascii(toString(properties.key)), tuple(91, 123)), in(ascii(toJSONString(properties.key)), tuple(91, 123))), toJSONString(properties.key), toString(properties.key)))))`
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), globalIn(events.uuid,
                                                       (SELECT events.uuid AS uuid
                                                        FROM events_json AS events
                                                        WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
-                                                       ORDER BY if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(nullIf(toString(events.properties.key), '')), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.key), '[]'), '{}'), toString(events.properties.key)))) ASC
+                                                       ORDER BY if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(events.properties.key), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), toJSONString(events.properties.key), toString(events.properties.key)))) ASC
                                                        LIMIT 101)), and(less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC'))))
-  ORDER BY if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(nullIf(toString(events.properties.key), '')), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.key), '[]'), '{}'), toString(events.properties.key)))) ASC
+  ORDER BY if(notEquals(toJSONString(events.properties.^key), '{}'), toJSONString(events.properties.^key), if(isNull(events.properties.key), NULL, if(and(in(ascii(toString(events.properties.key)), tuple(91, 123)), in(ascii(toJSONString(events.properties.key)), tuple(91, 123))), toJSONString(events.properties.key), toString(events.properties.key)))) ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,

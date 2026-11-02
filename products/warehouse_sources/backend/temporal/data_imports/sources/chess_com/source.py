@@ -56,7 +56,7 @@ class ChessComSource(SimpleSource[ChessComSourceConfig]):
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             keywords=["chess", "games", "gaming"],
             label="Chess.com",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption=(
                 "Sync the games and ratings of a list of Chess.com players.\n\n"
                 "Chess.com publishes this data without a key. "
@@ -70,6 +70,7 @@ class ChessComSource(SimpleSource[ChessComSourceConfig]):
                 [
                     SourceFieldInputConfig(
                         name="usernames",
+                        sync_setting=True,
                         label="Chess.com usernames",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,

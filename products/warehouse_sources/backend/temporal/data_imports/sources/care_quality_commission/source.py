@@ -51,7 +51,7 @@ class CareQualityCommissionSource(ResumableSource[CareQualityCommissionSourceCon
             name=ExternalDataSourceType.CAREQUALITYCOMMISSION,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Care Quality Commission",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your CQC Syndication API subscription key to pull UK health and social care provider and location data into the PostHog Data warehouse.
 
 Create a subscription key from the [CQC developer portal](https://api-portal.service.cqc.org.uk) — subscribe to the Syndication API product and copy its primary key.

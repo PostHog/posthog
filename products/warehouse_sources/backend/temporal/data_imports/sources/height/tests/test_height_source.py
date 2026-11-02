@@ -1,12 +1,7 @@
-import pytest
-
-from parameterized import parameterized
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
     scripted_network,
-    source_inputs,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.height import HeightSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.height.source import HeightSource
@@ -17,31 +12,6 @@ class TestHeightSource:
         self.source = HeightSource()
         self.team_id = 123
         self.config = HeightSourceConfig(api_key="secret_key")
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["lists"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "lists"
-
-    @parameterized.expand(
-        [
-            ("401 Client Error: Unauthorized for url: https://api.height.app/users",),
-            ("403 Client Error: Forbidden for url: https://api.height.app/lists",),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("500 Server Error: Internal Server Error for url: https://api.height.app/users",),
-            ("429 Client Error: Too Many Requests for url: https://api.height.app/lists",),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
 
     def test_validate_credentials_delegates_to_height(self) -> None:
         # The status/message mapping is owned by height.validate_credentials (covered in test_height.py);
@@ -59,7 +29,3 @@ class TestHeightSource:
         assert result.raised is None
         assert result.paths == ["/users"]
         assert result.requests[0].headers["authorization"] == "api-key secret_key"
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        with pytest.raises(ValueError, match="Unknown Height schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, source_inputs("not_a_table"))

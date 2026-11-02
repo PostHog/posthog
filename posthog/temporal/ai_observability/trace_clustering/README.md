@@ -398,7 +398,7 @@ Key constants in `constants.py`:
 ## Error Handling
 
 - **Insufficient data**: Skip clustering if fewer than 1000 items (per analysis level)
-- **Compute activity retries**: 2 attempts with exponential backoff. `ClickHouseAtCapacity` and `ConcurrencyLimitExceeded` wait a jittered 20–60s before the retry instead, and reach error tracking only on the last attempt
+- **Compute activity retries**: 3 attempts with exponential backoff, capped by the 720s schedule-to-close budget. `ClickHouseAtCapacity` and `ConcurrencyLimitExceeded` wait a jittered 20–60s before the retry instead, and reach error tracking only on the last attempt
 - **LLM activity retries**: 2 attempts with longer intervals (for rate limits)
 - **Emit activity retries**: 3 attempts with exponential backoff
 - **LLM fallback**: If label generation fails, use "Cluster N" as title

@@ -20,7 +20,9 @@ import { funnelDataLogic } from './funnelDataLogic'
 
 export function FunnelCanvasLabel(): JSX.Element | null {
     const { insightProps, insight, supportsCreatingExperiment, derivedName } = useValues(insightLogic)
-    const { conversionMetrics, aggregationTargetLabel, funnelVizType } = useValues(funnelDataLogic(insightProps))
+    const { conversionMetrics, aggregationTargetLabel, funnelVizType, hasPartialBreakdownSelection } = useValues(
+        funnelDataLogic(insightProps)
+    )
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
     const { addProductIntentForCrossSell } = useActions(teamLogic)
 
@@ -30,7 +32,11 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                   <>
                       <span className="flex items-center text-secondary mr-1">
                           <Tooltip
-                              title={`Overall conversion rate for all ${aggregationTargetLabel.plural} on the entire funnel.`}
+                              title={
+                                  hasPartialBreakdownSelection
+                                      ? `Overall conversion rate for ${aggregationTargetLabel.plural} in the selected breakdown values on the entire funnel.`
+                                      : `Overall conversion rate for all ${aggregationTargetLabel.plural} on the entire funnel.`
+                              }
                           >
                               <IconInfo className="mr-1 text-xl shrink-0" />
                           </Tooltip>
@@ -45,11 +51,15 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                   <>
                       <span className="flex items-center text-secondary">
                           <Tooltip
-                              title={`Median (50th percentile) of the total time each ${aggregationTargetLabel.singular} spent in the entire funnel.`}
+                              title={`Median (50th percentile) of the total time each ${aggregationTargetLabel.singular} spent in the entire funnel.${hasPartialBreakdownSelection ? ' This median includes all breakdown values.' : ''}`}
                           >
                               <IconInfo className="mr-1 text-xl shrink-0" />
                           </Tooltip>
-                          <span>Median time to convert</span>
+                          <span>
+                              {hasPartialBreakdownSelection
+                                  ? 'Median time to convert (all breakdowns)'
+                                  : 'Median time to convert'}
+                          </span>
                       </span>
                       {funnelVizType === FunnelVizType.TimeToConvert && <FunnelStepsPicker />}
                       <span className="text-secondary mr-1">:</span>

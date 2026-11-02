@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { RetentionPeriodToDaysMap } from '~/ingestion/pipelines/sessionreplay/shared/constants'
+
 // Schema for positive integer string (e.g., "123" -> 123)
 const positiveIntString = (fieldName: string) =>
     z
@@ -37,6 +39,18 @@ export const DeleteRecordingsBodySchema = z.object({
         .min(1, 'session_ids must not be empty')
         .max(MAX_DELETE_SESSION_IDS, `Too many session_ids (max ${MAX_DELETE_SESSION_IDS})`),
     deleted_by: z.string().min(1, 'Missing deleted_by').max(254),
+})
+
+const MAX_ENCRYPT_BLOCKS = 100
+const VALID_RETENTION_DAYS = new Set(Object.values(RetentionPeriodToDaysMap))
+
+export const EncryptBlocksBodySchema = z.object({
+    // Base64 of each compressed plaintext block, encrypted in order.
+    blocks: z
+        .array(z.base64('Invalid block encoding'))
+        .min(1, 'blocks must not be empty')
+        .max(MAX_ENCRYPT_BLOCKS, `Too many blocks (max ${MAX_ENCRYPT_BLOCKS})`),
+    retention_days: z.number().refine((d) => VALID_RETENTION_DAYS.has(d), 'Invalid retention_days'),
 })
 
 // Static schema for getBlock query params (validates structure only)

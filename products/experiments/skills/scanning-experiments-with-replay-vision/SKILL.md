@@ -50,10 +50,10 @@ The experiment lives in `scanner_config`, next to the prompt:
 
 **The API owns the exposure filter and its access control.** It resolves the same exposed-person population the experiment's Recordings tab shows. The filter is **person-scoped**, so it covers people whose exposure fired server-side or in an earlier session. Don't build event or property filters for exposure; the API rejects an `experiment_exposure` set directly inside `query`, and it checks access to the experiment, so a scanner can only reach an experiment its editor can view.
 
-**Keep `query` for non-exposure filters only.** Set `filter_test_accounts` from the experiment's own `exposure_criteria.filterTestAccounts`, defaulting to **`false` when absent**, which is what every experiment surface does. A minimal query is enough:
+**Keep `query` for non-exposure filters only.** Set `filter_test_accounts` to `exposure_criteria.filterTestAccounts ?? true`, the same rule every experiment surface uses. When the experiment omits the setting, use **`true`**. Keep an explicit `false`, because that is an intentional opt-out. A minimal query is enough:
 
 ```json
-{ "kind": "RecordingsQuery", "filter_test_accounts": false }
+{ "kind": "RecordingsQuery", "filter_test_accounts": true }
 ```
 
 Add other recording filters (duration, console errors, a specific page) only when the user asks. **No `date_from`/`date_to`**: the scanner strips them on save, because its 5-minute sweep controls time.

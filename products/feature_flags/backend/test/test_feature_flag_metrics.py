@@ -1,24 +1,17 @@
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
-
-from prometheus_client import CollectorRegistry
+from unittest.mock import patch
 
 from posthog.models import Team
 from posthog.models.organization import Organization
+from posthog.tasks.test.utils import PushGatewayTaskTestMixin
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.tasks import compute_feature_flag_metrics
 
 
-class TestComputeFeatureFlagMetrics(BaseTest):
+class TestComputeFeatureFlagMetrics(PushGatewayTaskTestMixin, BaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.registry = CollectorRegistry()
-        self.mock_context = MagicMock()
-        self.mock_context.__enter__ = MagicMock(return_value=self.registry)
-        self.mock_context.__exit__ = MagicMock(return_value=False)
-        self.patcher = patch("posthog.tasks.utils.pushed_metrics_registry", return_value=self.mock_context)
-        self.patcher.start()
         self.settings_patcher = patch(
             "products.feature_flags.backend.tasks.settings.PROM_PUSHGATEWAY_ADDRESS", "http://localhost:9091"
         )
@@ -26,7 +19,6 @@ class TestComputeFeatureFlagMetrics(BaseTest):
 
     def tearDown(self) -> None:
         self.settings_patcher.stop()
-        self.patcher.stop()
         super().tearDown()
 
     def test_computes_metrics_for_single_team(self) -> None:

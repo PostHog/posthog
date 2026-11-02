@@ -2,6 +2,7 @@ import { strToU8, zipSync } from 'fflate'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { RedisLike } from '@/hono/cache/RedisCache'
+import { hashBytes } from '@/hono/cache/SharedBlobCache'
 import { SkillArchiveCache, type SkillArchiveFetchResult } from '@/hono/cache/SkillArchiveCache'
 import { skillArchiveLastValidatedTimestampSeconds } from '@/hono/metrics'
 import { SkillCatalogService } from '@/hono/skill-catalog-service'
@@ -341,6 +342,37 @@ describe('SkillCatalogService', () => {
         return vi.spyOn(console, 'error').mockImplementation(() => undefined)
     }
 
+    it.each([true, false])('checks the pinned archive before startup (matching=%s)', async (matching) => {
+        const bytes = makeArchive()
+        const service = new SkillCatalogService(makeRedis(), {
+            fetchArchive: async () => downloaded(bytes),
+            expectedArchiveSha: matching ? hashBytes(bytes) : '0'.repeat(64),
+        })
+        if (matching) {
+            await service.warmup()
+            expect(service.getCatalog()?.size).toBe(1)
+        } else {
+            await expect(service.warmup()).rejects.toThrow('does not match the expected SHA-256')
+            expect(service.getCatalog()).toBeUndefined()
+        }
+    })
+
+    it('loads a new pin at the same URL without reusing an older cached archive', async () => {
+        const redis = makeRedis()
+        const firstBytes = makeArchive('first')
+        const secondBytes = makeArchive('second')
+        const fetchArchive = vi.fn(async () => downloaded(firstBytes))
+        const first = new SkillCatalogService(redis, { fetchArchive, expectedArchiveSha: hashBytes(firstBytes) })
+        await first.warmup()
+        fetchArchive.mockResolvedValue(downloaded(secondBytes))
+        const second = new SkillCatalogService(redis, { fetchArchive, expectedArchiveSha: hashBytes(secondBytes) })
+
+        await second.warmup()
+
+        expect(second.getCatalog()?.listNames()).toEqual(['second'])
+        expect(fetchArchive).toHaveBeenCalledTimes(2)
+    })
+
     it('reports upstream validation time across restarts, unchanged releases and refresh failures', async () => {
         vi.useFakeTimers()
         const timestamp = vi.spyOn(skillArchiveLastValidatedTimestampSeconds, 'set')
@@ -394,6 +426,39 @@ describe('SkillCatalogService', () => {
         )
         consoleError.mockRestore()
     })
+
+    it.each([true, false])(
+        'retries pinned archive fetch failures within the startup budget (recovers=%s)',
+        async (recovers) => {
+            vi.useFakeTimers()
+            const consoleError = quietConsole()
+            try {
+                const bytes = makeArchive()
+                let attempts = 0
+                const fetchArchive = vi.fn(async () => {
+                    attempts += 1
+                    if (attempts === 1 || !recovers) {
+                        throw new Error('offline')
+                    }
+                    return downloaded(bytes)
+                })
+                const service = new SkillCatalogService(makeRedis(), {
+                    fetchArchive,
+                    expectedArchiveSha: hashBytes(bytes),
+                    warmupTimeoutMs: 50,
+                    warmupRetryMs: 10,
+                })
+                const outcome = service.warmup().catch((error: unknown) => error)
+                await vi.runAllTimersAsync()
+                expect(await outcome).toEqual(recovers ? undefined : new Error('offline'))
+                expect(fetchArchive.mock.calls.length).toBeGreaterThan(1)
+                expect(service.getCatalog()?.size).toBe(recovers ? 1 : undefined)
+            } finally {
+                consoleError.mockRestore()
+                vi.useRealTimers()
+            }
+        }
+    )
 
     it('loads the catalog at warmup and adopts a newer archive another pod published', async () => {
         const redis = makeRedis()

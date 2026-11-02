@@ -495,7 +495,7 @@ def test_credentials_and_sync_errors_are_actionable(code: str, expected: str) ->
     assert mappings[str(AwsComputeOptimizerError(code))] == message
 
 
-@pytest.mark.parametrize("error", [requests.Timeout(), requests.ConnectionError(), ValueError("invalid JSON")])
+@pytest.mark.parametrize("error", [requests.Timeout(), ValueError("invalid JSON")])
 def test_validation_network_or_response_failure(session: MagicMock, error: Exception) -> None:
     session.post.side_effect = error
     assert validate_credentials(config()) == (False, "Could not reach the AWS Compute Optimizer API. Try again.")

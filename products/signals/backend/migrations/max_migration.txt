@@ -1,1 +1,1 @@
-0185_signalscoutconfig_last_precheck
+0226_signalreport_trgm_fastupdate_off

@@ -52,12 +52,16 @@ class E2BSource(ResumableSource[E2BSourceConfig, E2BResumeConfig]):
         return ExternalDataSourceType.E2B
 
     @property
+    def credential_kind(self) -> str | None:
+        return "e2b"
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=ExternalDataSourceType.E2B,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="E2B",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your E2B API key to sync your sandbox infrastructure data into the PostHog Data warehouse.
 
 You can create a team-scoped API key (prefixed `e2b_`) in your [E2B dashboard](https://e2b.dev/dashboard).

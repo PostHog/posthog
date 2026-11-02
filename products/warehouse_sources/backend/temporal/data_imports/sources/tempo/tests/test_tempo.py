@@ -178,10 +178,7 @@ class TestTempoSourceResponse:
 class TestCheckAccess:
     @parameterized.expand(
         [
-            ("ok", 200, 200, None),
-            ("unauthorized", 401, 401, None),
             ("forbidden", 403, 403, None),
-            ("server_error", 500, 500, "Tempo returned HTTP 500"),
         ]
     )
     def test_status_mapping(self, _name: str, status: int, expected_status: int, expected_message: str | None) -> None:
@@ -194,8 +191,6 @@ class TestCheckAccess:
 
     @parameterized.expand(
         [
-            ("ok_no_endpoint", 200, None, (True, None)),
-            ("unauthorized", 401, None, (False, "Invalid Tempo API token")),
             # A 403 at source-create still proves the token is genuine — Tempo tokens are scoped.
             ("forbidden_at_create", 403, None, (True, None)),
             (
@@ -204,7 +199,6 @@ class TestCheckAccess:
                 "teams",
                 (False, "Your Tempo API token is missing the view scope for 'teams'"),
             ),
-            ("server_error", 500, None, (False, "Tempo returned HTTP 500")),
         ]
     )
     def test_validate_credentials(

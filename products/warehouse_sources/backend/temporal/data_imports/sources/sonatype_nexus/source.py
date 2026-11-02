@@ -61,10 +61,10 @@ class SonatypeNexusSource(
 
 Enter your instance URL (e.g. `https://nexus.example.com`) and the username and password of a user with read access to the repositories you want to sync. A [user token](https://help.sonatype.com/en/user-tokens.html) also works: use the token name code as the username and the pass code as the password.
 
-The tasks table additionally requires the `nx-tasks-read` privilege; deselect it if your user doesn't have it.""",
+Some tables need an extra privilege: `nx-tasks-read` for tasks, `nx-users-read` for users, `nx-roles-read` for roles, `nx-privileges-read` for privileges, and `nx-blobstores-read` for blob stores. Deselect a table if your user doesn't have its privilege.""",
             iconPath="/static/services/sonatype_nexus.png",
             docsUrl="https://posthog.com/docs/cdp/sources/sonatype-nexus",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [
@@ -106,7 +106,7 @@ The tasks table additionally requires the `nx-tasks-read` privilege; deselect it
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized for url": "Your Nexus credentials are invalid or have been revoked. Check the username and password (or user token) and reconnect.",
-            "403 Client Error: Forbidden for url": "Your Nexus user does not have access to this resource. The tasks table requires the nx-tasks-read privilege, and repository content requires browse/read access — deselect the affected tables or use a user with the required privileges.",
+            "403 Client Error: Forbidden for url": "Your Nexus user does not have access to this resource. Repository content needs browse or read access, and the tasks, users, roles, privileges, and blob stores tables each need their read privilege (for example nx-tasks-read). Deselect the affected tables or use a user with the required privileges.",
         }
 
     def get_schemas(

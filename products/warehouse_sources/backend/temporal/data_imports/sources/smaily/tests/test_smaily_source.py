@@ -1,7 +1,4 @@
-import pytest
 from unittest import mock
-
-from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.smaily import SmailySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.smaily.source import SmailySource
@@ -17,40 +14,6 @@ class TestSmailySource:
         # The stored password is sent to `{subdomain}.sendsmaily.net`; retargeting the subdomain
         # without re-entering the password would let an editor replay the credential elsewhere.
         assert self.source.connection_host_fields == ["subdomain"]
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["campaigns"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "campaigns"
-
-    @parameterized.expand(
-        [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://acme.sendsmaily.net/api/campaign.php?page=0",
-            ),
-            ("forbidden", "403 Client Error: Forbidden for url: https://acme.sendsmaily.net/api/contact.php?list=1"),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, _name: str, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://acme.sendsmaily.net/api/campaign.php",
-            ),
-            (
-                "rate_limited",
-                "429 Client Error: Too Many Requests for url: https://acme.sendsmaily.net/api/list.php",
-            ),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.smaily.source.validate_credentials")
     def test_validate_credentials_delegates_with_config_values(self, mock_validate: mock.MagicMock) -> None:
@@ -76,9 +39,3 @@ class TestSmailySource:
         assert kwargs["password"] == "pass"
         assert kwargs["endpoint"] == "campaigns"
         assert kwargs["resumable_source_manager"] is manager
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown Smaily schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)

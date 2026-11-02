@@ -25,7 +25,7 @@ def test_cdc_prerequisites_reject_pooled_host_without_connecting(host):
     config = mock.MagicMock(host=host)
 
     with mock.patch.object(PostgresSource, "check_cdc_prerequisites") as super_check:
-        errors = NeonSource().check_cdc_prerequisites(config, management_mode="posthog", tables=["users"])
+        errors = NeonSource().check_cdc_prerequisites(config, management_mode="posthog", tables=["users"], setup={})
 
     super_check.assert_not_called()
     assert len(errors) == 1
@@ -44,7 +44,9 @@ def test_cdc_prerequisites_delegate_for_direct_hosts(host):
     config = mock.MagicMock(host=host)
 
     with mock.patch.object(PostgresSource, "check_cdc_prerequisites", return_value=[]) as super_check:
-        errors = NeonSource().check_cdc_prerequisites(config, management_mode="posthog", tables=["users"], team_id=7)
+        errors = NeonSource().check_cdc_prerequisites(
+            config, management_mode="posthog", tables=["users"], setup={}, team_id=7
+        )
 
     super_check.assert_called_once()
     assert super_check.call_args.kwargs["team_id"] == 7

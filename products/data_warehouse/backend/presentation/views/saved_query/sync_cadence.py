@@ -170,8 +170,6 @@ def visible_blocker_names(
         return {}
 
     visible: dict[str, str] = {}
-    # Lists, not single ids: one saved query or table can hold a node in several DAGs, and a grant
-    # covers the resource, so every node of it becomes visible together.
     node_ids_by_saved_query: dict[str, list[str]] = {}
     node_ids_by_table: dict[str, list[str]] = {}
     for node_id in node_ids:

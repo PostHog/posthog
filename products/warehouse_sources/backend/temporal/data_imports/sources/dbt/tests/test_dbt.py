@@ -166,10 +166,11 @@ class TestGetEndpointPermissions:
                 region="us",
                 custom_base_url=None,
                 team_id=1,
-                endpoints=["projects"],
+                endpoints=["projects", "repositories"],
             )
 
-        assert result["projects"] is None
+        assert result == {"projects": None, "repositories": None}
+        # repositories has no account-level path; its probe is the projects list it fans out over.
         assert {request.path for request in network.requests_log} == {"/api/v3/accounts/12345/projects/"}
 
     def test_discovery_endpoints_report_one_shared_probe_result(self):
@@ -260,6 +261,24 @@ class TestGetRows:
         # The third page (offset=200) must never be requested — that's the whole point of the
         # newest-first walk: incremental syncs don't re-crawl history.
         assert result.params("offset") == ["0", "100"]
+
+    @pytest.mark.parametrize(
+        "data",
+        [
+            [{"developer": {"total": 5, "in_use": 3}, "read_only": {"total": 10, "in_use": 0}, "note": None}],
+            {"developer": {"total": 5, "in_use": 3}, "read_only": {"total": 10, "in_use": 0}, "note": None},
+        ],
+    )
+    def test_license_allocations_become_one_row_per_license_type(self, data):
+        # The spec types `data` as a list, but the allocation is one object per account, so accept both.
+        result = _driver().run("license_allocations", [ScriptedResponse(json={"data": data})])
+
+        assert result.raised is None
+        assert result.rows == [
+            {"license_type": "developer", "total": 5, "in_use": 3},
+            {"license_type": "read_only", "total": 10, "in_use": 0},
+        ]
+        assert result.paths == ["/api/v2/accounts/12345/licenses/"]
 
     def test_custom_base_url_is_used(self):
         result = _driver(custom_base_url="https://ab123.us1.dbt.com/").run("projects", [_page([])])
@@ -444,3 +463,52 @@ class TestDiscoverySync:
             "model.a.b",
             "model.a.c",
         ]
+
+
+class TestProjectFanout:
+    def test_walks_every_project_and_pages_within_each(self):
+        result = _driver().run(
+            "repositories",
+            route(
+                {
+                    "/accounts/12345/projects/": [_page([{"id": 1}, {"id": 2}, {"id": 3}])],
+                    "/projects/1/repositories/": [
+                        _page([{"id": 10, "project_id": 1}], count=100, total_count=101),
+                        _page([{"id": 11, "project_id": 1}], count=1, total_count=101),
+                    ],
+                    "/projects/2/repositories/": [_page([])],
+                    "/projects/3/repositories/": [_page([{"id": 30, "project_id": 3}])],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [10, 11, 30]
+        assert result.paths == [
+            "/api/v3/accounts/12345/projects/",
+            "/api/v3/accounts/12345/projects/1/repositories/",
+            "/api/v3/accounts/12345/projects/1/repositories/",
+            "/api/v3/accounts/12345/projects/2/repositories/",
+            "/api/v3/accounts/12345/projects/3/repositories/",
+        ]
+        assert result.saved_states == [
+            DbtResumeConfig(offset=100, parent_offset=0),
+            DbtResumeConfig(parent_offset=1),
+        ]
+
+    def test_resumes_inside_the_saved_project(self):
+        result = _driver().run(
+            "repositories",
+            route(
+                {
+                    "/accounts/12345/projects/": [_page([{"id": 1}, {"id": 2}])],
+                    "/projects/2/repositories/": [_page([{"id": 21, "project_id": 2}], count=1, total_count=101)],
+                }
+            ),
+            resume_state=DbtResumeConfig(offset=100, parent_offset=1),
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"id": 21, "project_id": 2}]
+        assert result.paths == ["/api/v3/accounts/12345/projects/", "/api/v3/accounts/12345/projects/2/repositories/"]
+        assert result.requests[1].param("offset") == "100"

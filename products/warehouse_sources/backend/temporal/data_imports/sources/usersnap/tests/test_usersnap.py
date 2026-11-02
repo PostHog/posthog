@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     Script,
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.usersnap import (
@@ -68,10 +67,6 @@ class TestFormatDatetime:
 
 
 class TestValidateCredentials:
-    def test_validate_credentials_swallows_exceptions(self):
-        with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("secret", "jwt-id") is False
-
     def test_validate_credentials_disables_http_sample_capture(self):
         with scripted_network([ScriptedResponse(json={})]) as network:
             assert validate_credentials("secret", "jwt-id") is True

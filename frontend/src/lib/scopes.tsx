@@ -2,7 +2,9 @@ import { AGENT_USE_CASE_SCOPES } from 'lib/agentScopes.generated'
 
 import type { APIScopeAction, APIScopeObject } from '~/types'
 
-export const MAX_API_KEYS_PER_USER = 10 // Same as in posthog/api/personal_api_key.py
+// Fallback when the user has not loaded yet. The real limit comes from the `personal_api_keys`
+// entitlement and travels on the user as `personal_api_keys_limit`.
+export const DEFAULT_MAX_API_KEYS_PER_USER = 10
 
 export type ScopeAccessLevel = 'none' | 'read' | 'write'
 
@@ -215,6 +217,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'heatmap', objectName: 'Heatmap', objectPlural: 'heatmaps' },
     { key: 'hog_flow', objectName: 'Workflow', objectPlural: 'workflows' },
     { key: 'hog_function', objectName: 'Hog function', objectPlural: 'hog functions' },
+    { key: 'inbox', objectName: 'Inbox', objectPlural: 'inbox reports' },
     {
         key: 'ingestion_warning',
         objectName: 'Ingestion warning',
@@ -379,6 +382,7 @@ export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
     'billing:read',
     'replay_scanner:write',
     'session_recording:read',
+    'hog_flow:read',
     'hog_flow:write',
 ] as const
 
@@ -609,6 +613,7 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'data_catalog_approval',
             'mcp_registry',
             'task',
+            'inbox',
             'today',
             'loop',
             'signal_scout',

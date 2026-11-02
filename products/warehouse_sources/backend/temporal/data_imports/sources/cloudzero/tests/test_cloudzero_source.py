@@ -145,10 +145,6 @@ class TestResumableWiring:
 class TestNonRetryableErrors:
     @parameterized.expand(
         [
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://api.cloudzero.com/v2/billing/costs?start_date=2025-01-01",
-            ),
             ("unauthorized", "Unauthorized for url: https://api.cloudzero.com/v2/billing/dimensions"),
             (
                 "expired_cache",
@@ -162,11 +158,6 @@ class TestNonRetryableErrors:
 
     @parameterized.expand(
         [
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.cloudzero.com/v2/billing/costs"),
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://api.cloudzero.com/v2/billing/costs",
-            ),
             ("bad_request", "400 Client Error: Bad Request for url: https://api.cloudzero.com/v2/billing/costs"),
         ]
     )

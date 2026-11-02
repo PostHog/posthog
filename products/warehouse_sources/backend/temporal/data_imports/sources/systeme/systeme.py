@@ -6,16 +6,19 @@ from requests import HTTPError, Response
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    ClientConfig,
     Endpoint,
     EndpointResource,
     RESTAPIConfig,
     rest_api_resource,
+    rest_api_resources,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponseCursorPaginator,
     SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
@@ -24,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.systeme.se
     AUTH_ERROR,
     BASE_URL,
     ENDPOINTS,
+    FANOUT_PARENTS,
     PAGE_SIZE,
     PARTITION_KEYS,
     PERMISSION_ERROR,
@@ -34,6 +38,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.systeme.se
 class SystemeResumeConfig:
     cursor: int | None = None
     completed: bool = False
+    fanout_state: dict[str, Any] | None = None
 
 
 class SystemePaginator(JSONResponseCursorPaginator):
@@ -54,7 +59,8 @@ class SystemePaginator(JSONResponseCursorPaginator):
 
 
 def validate_credentials(api_key: str, schema_name: str | None = None) -> tuple[bool, str | None]:
-    path = schema_for_resource(ENDPOINTS, schema_name or "contacts")
+    resource_name = schema_name or "contacts"
+    path = schema_for_resource(ENDPOINTS, FANOUT_PARENTS.get(resource_name, resource_name))
     client = RESTClient(
         base_url=BASE_URL,
         auth=APIKeyAuth(api_key=api_key, name="X-API-Key"),
@@ -73,6 +79,64 @@ def validate_credentials(api_key: str, schema_name: str | None = None) -> tuple[
     return True, None
 
 
+def _client_config(api_key: str) -> ClientConfig:
+    return {
+        "base_url": BASE_URL,
+        "auth": {"type": "api_key", "name": "X-API-Key", "api_key": api_key, "location": "header"},
+        "paginator": SystemePaginator(),
+        "request_timeout": 30,
+    }
+
+
+def _fanout_resource(
+    api_key: str,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[SystemeResumeConfig],
+) -> Resource:
+    parent = FANOUT_PARENTS[endpoint]
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+    def save_checkpoint(state: dict[str, Any] | None) -> None:
+        if state:
+            resumable_source_manager.save_state(SystemeResumeConfig(fanout_state=state))
+
+    config: RESTAPIConfig = {
+        "client": _client_config(api_key),
+        "resources": [
+            {
+                "name": parent,
+                "endpoint": {
+                    "path": schema_for_resource(ENDPOINTS, parent),
+                    "params": {"limit": PAGE_SIZE, "order": "desc"},
+                    "data_selector": "items",
+                    "data_selector_required": True,
+                },
+            },
+            {
+                "name": endpoint,
+                "endpoint": {
+                    # The child collection documents no limit, cursor or order parameter.
+                    "path": schema_for_resource(ENDPOINTS, endpoint),
+                    "params": {"campaignId": {"type": "resolve", "resource": parent, "field": "id"}},
+                    "data_selector": "items",
+                    "data_selector_required": True,
+                },
+            },
+        ],
+    }
+    resources = rest_api_resources(
+        config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=resume.fanout_state if resume else None,
+    )
+    return next(resource for resource in resources if resource.name == endpoint)
+
+
 def systeme_source(
     api_key: str,
     endpoint: str,
@@ -83,6 +147,10 @@ def systeme_source(
     db_incremental_field_last_value: datetime | str | None = None,
 ) -> SourceResponse:
     path = schema_for_resource(ENDPOINTS, endpoint)
+    if endpoint in FANOUT_PARENTS:
+        fanout_resource = _fanout_resource(api_key, endpoint, team_id, job_id, resumable_source_manager)
+        return SourceResponse(name=endpoint, items=lambda: fanout_resource, primary_keys=["id"])
+
     params: dict[str, Any] = {"limit": PAGE_SIZE, "order": "desc"}
     if endpoint == "contacts" and should_use_incremental_field and db_incremental_field_last_value is not None:
         params["registeredAfter"] = (
@@ -106,12 +174,7 @@ def systeme_source(
     }
     resource_config: EndpointResource = {"name": endpoint, "endpoint": endpoint_config}
     config: RESTAPIConfig = {
-        "client": {
-            "base_url": BASE_URL,
-            "auth": {"type": "api_key", "name": "X-API-Key", "api_key": api_key, "location": "header"},
-            "paginator": SystemePaginator(),
-            "request_timeout": 30,
-        },
+        "client": _client_config(api_key),
         "resources": [resource_config],
     }
     resource = rest_api_resource(

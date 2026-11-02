@@ -122,7 +122,7 @@ class SevdeskSource(ResumableSource[SevdeskSourceConfig, SevdeskResumeConfig]):
             label="sevDesk (sevDesk GmbH)",
             docsUrl="https://posthog.com/docs/cdp/sources/sevdesk",
             iconPath="/static/services/sevdesk.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="Import accounting data with an administrator's API token from Settings > User > API in sevDesk.",
             fields=cast(
                 list[FieldType],

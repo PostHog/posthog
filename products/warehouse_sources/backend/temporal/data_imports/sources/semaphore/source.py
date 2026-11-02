@@ -108,7 +108,7 @@ class SemaphoreSource(ResumableSource[SemaphoreSourceConfig, SemaphoreResumeConf
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Semaphore (Semaphore CI)",
             iconPath="/static/services/semaphore.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="Copy your API token from [Semaphore account settings](https://me.semaphoreci.com/account). "
             "Enter your organization subdomain and the project ID to import.",
             fields=cast(

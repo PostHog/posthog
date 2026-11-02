@@ -85,6 +85,60 @@ class TestWorkOSSourceResumeBehavior:
         assert result.params("after") == ["org_4"]
 
 
+class TestWorkOSWaitlistEntriesFanout:
+    @staticmethod
+    def _run(script: list[ScriptedResponse], **inputs: Any) -> DriveResult:
+        return SourceDriver(WorkOSSource(), WorkOSSourceConfig(api_key="sk_test_123")).run(
+            "waitlist_entries", script, **inputs
+        )
+
+    def test_walks_every_page_of_every_waitlist(self) -> None:
+        result = self._run(
+            [
+                ScriptedResponse(json=_page(["waitlist_a", "waitlist_b"], after=None)),
+                ScriptedResponse(json=_page(["wl_user_1"], after="wl_user_1")),
+                ScriptedResponse(json=_page(["wl_user_2"], after=None)),
+                ScriptedResponse(json=_page(["wl_user_3"], after=None)),
+            ]
+        )
+
+        assert [row["id"] for row in result.rows] == ["wl_user_1", "wl_user_2", "wl_user_3"]
+        assert result.paths == [
+            "/user_management/waitlists",
+            "/user_management/waitlists/waitlist_a/entries",
+            "/user_management/waitlists/waitlist_a/entries",
+            "/user_management/waitlists/waitlist_b/entries",
+        ]
+        # The waitlists listing is unpaginated and documents no `limit`.
+        assert result.params("limit") == [None, "100", "100", "100"]
+        assert result.params("after") == [None, None, "wl_user_1", None]
+
+    def test_resume_skips_finished_waitlists_and_continues_the_current_one(self) -> None:
+        first = self._run(
+            [
+                ScriptedResponse(json=_page(["waitlist_a", "waitlist_b"], after=None)),
+                ScriptedResponse(json=_page(["wl_user_1"], after=None)),
+                ScriptedResponse(json=_page(["wl_user_2"], after="wl_user_2")),
+                ScriptedResponse(status=500, json={"message": "boom"}),
+            ]
+            + [ScriptedResponse(status=500, json={"message": "boom"})] * 10
+        )
+        assert first.raised is not None
+        assert first.final_state is not None
+
+        resumed = self._run(
+            [
+                ScriptedResponse(json=_page(["waitlist_a", "waitlist_b"], after=None)),
+                ScriptedResponse(json=_page(["wl_user_3"], after=None)),
+            ],
+            resume_state=first.final_state,
+        )
+
+        assert resumed.paths == ["/user_management/waitlists", "/user_management/waitlists/waitlist_b/entries"]
+        assert resumed.params("after") == [None, "wl_user_2"]
+        assert [row["id"] for row in resumed.rows] == ["wl_user_3"]
+
+
 class TestWorkOSValidateCredentials:
     @pytest.mark.parametrize(
         ("status_code", "body", "expected_valid"),

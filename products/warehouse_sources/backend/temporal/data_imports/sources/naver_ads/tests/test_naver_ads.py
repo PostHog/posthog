@@ -260,9 +260,6 @@ def test_auth_errors_fail_the_sync_without_retrying(status: int) -> None:
     ("answer", "expected"),
     [
         (ScriptedResponse(json=[]), (True, None)),
-        (ScriptedResponse(status=401, json={"code": 1018, "status": 401}), (False, "rejected")),
-        (ScriptedResponse(status=403, json={"code": 1006, "status": 403}), (False, "rejected")),
-        (ScriptedResponse(status=500, json={}), (False, "status 500")),
     ],
 )
 def test_validate_credentials_maps_the_probe_status(

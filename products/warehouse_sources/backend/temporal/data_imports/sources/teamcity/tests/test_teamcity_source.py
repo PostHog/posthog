@@ -13,10 +13,6 @@ class TestTeamcitySource:
         self.team_id = 123
         self.config = TeamcitySourceConfig(host="https://teamcity.example.com", access_token="token")
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["builds", "nope"])
-        assert [s.name for s in schemas] == ["builds"]
-
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [

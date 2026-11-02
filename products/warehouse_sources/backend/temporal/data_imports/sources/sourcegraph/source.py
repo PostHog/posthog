@@ -59,7 +59,7 @@ class SourcegraphSource(ResumableSource[SourcegraphSourceConfig, SourcegraphResu
             name=ExternalDataSourceType.SOURCEGRAPH,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Sourcegraph",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Sourcegraph instance URL and an access token to pull your Sourcegraph data into the PostHog Data warehouse.
 
 You can create an access token in Sourcegraph under **Settings > Access tokens**.

@@ -74,7 +74,9 @@ class MonoSource(ResumableSource[MonoSourceConfig, MonoResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only={"transactions"})
+        return build_endpoint_schemas(
+            ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only={"transactions", "payments", "mandate_debits"}
+        )
 
     def validate_credentials(
         self,
@@ -132,6 +134,7 @@ class MonoSource(ResumableSource[MonoSourceConfig, MonoResumeConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Transaction start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -140,5 +143,5 @@ class MonoSource(ResumableSource[MonoSourceConfig, MonoResumeConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

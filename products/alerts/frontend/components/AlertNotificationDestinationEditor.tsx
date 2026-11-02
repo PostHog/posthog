@@ -38,7 +38,7 @@ export interface AlertNotificationDestinationView {
     key: string
     title: ReactNode
     detail?: ReactNode
-    tags?: { label: string; type?: LemonTagType }[]
+    tags?: { label: string; type?: LemonTagType; tooltip?: string }[]
     viewAction?: AlertNotificationDestinationIconAction | AlertNotificationDestinationButtonAction
     onDelete: () => void
     deleting?: boolean
@@ -182,9 +182,11 @@ function ExistingDestinations({
                         <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-sm font-medium truncate">{destination.title}</span>
                             {destination.tags?.map((tag) => (
-                                <LemonTag key={tag.label} type={tag.type} size="small">
-                                    {tag.label}
-                                </LemonTag>
+                                <Tooltip key={tag.label} title={tag.tooltip}>
+                                    <LemonTag type={tag.type} size="small">
+                                        {tag.label}
+                                    </LemonTag>
+                                </Tooltip>
                             ))}
                         </div>
                         {destination.detail ? (

@@ -1,8 +1,14 @@
 import { DataColorToken, dataColorVars } from 'lib/colors'
 import { getFunnelDatasetKey, getTrendDatasetKey, isNullBreakdown, isOtherBreakdown } from 'scenes/insights/utils'
 
+import {
+    hasBreakdownFilter,
+    isFunnelsQuery,
+    isInsightVizNode,
+    isRetentionQuery,
+    isTrendsQuery,
+} from '~/queries/schema/node-guards'
 import { BreakdownFilter } from '~/queries/schema/schema-general'
-import { hasBreakdownFilter, isFunnelsQuery, isInsightVizNode, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
 import { DashboardTile, FunnelVizType } from '~/types'
 
 export type BreakdownColorSource = 'auto' | 'manual'
@@ -239,7 +245,7 @@ function extractTileBreakdownValues(tile: DashboardTile): BreakdownValueAndType[
         const propertyKey = getBreakdownPropertyKey(querySource.breakdownFilter)
         breakdownValues =
             tile.insight?.result?.map((result: any): BreakdownValueAndType | null => {
-                const key = getTrendDatasetKey(result)
+                const key = getTrendDatasetKey(result, querySource)
                 const breakdownValue = normalizeBreakdownValue(JSON.parse(key)['breakdown_value'])
                 return breakdownValue == null ? null : makeBreakdownValue(breakdownValue, breakdownType, propertyKey)
             }) || []

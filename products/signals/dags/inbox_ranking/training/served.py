@@ -34,6 +34,7 @@ from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.query import execute_hogql_query
 
 from posthog import settings
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.models import Team
 
 from products.signals.backend.ranking.serving_manifest import SERVED_ROLE, model_key
@@ -102,6 +103,7 @@ def served_events(
         settings=HogQLGlobalSettings(max_execution_time=600),
         # The dag runs without a user; the read is a trusted internal ETL over the dogfood project.
         bypass_warehouse_access_control=True,
+        ch_user=ClickHouseUser.SIGNALS,
     )
     return pd.DataFrame(
         [(scored_at, _properties(properties)) for scored_at, properties in response.results or []],

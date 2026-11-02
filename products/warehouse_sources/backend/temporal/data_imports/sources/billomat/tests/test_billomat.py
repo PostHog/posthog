@@ -114,16 +114,68 @@ class TestBillomatSourceResumeBehavior:
         assert result.raised is None
         assert result.params("page") == ["1"]
 
-    def test_incremental_run_sends_formatted_from_param(self) -> None:
+    @pytest.mark.parametrize(
+        ("schema", "path", "wrapper", "item"),
+        [
+            ("Invoices", "/api/invoices", "invoices", "invoice"),
+            ("InvoicePayments", "/api/invoice-payments", "invoice-payments", "invoice-payment"),
+            ("Confirmations", "/api/confirmations", "confirmations", "confirmation"),
+        ],
+    )
+    def test_incremental_run_sends_formatted_from_param(self, schema: str, path: str, wrapper: str, item: str) -> None:
         result = self._driver().run(
-            "Invoices",
-            [self._page("invoices", "invoice", {"id": "1"}, "1")],
+            schema,
+            [self._page(wrapper, item, {"id": "1"}, "1")],
             should_use_incremental_field=True,
             db_incremental_field_last_value=date(2024, 5, 1),
         )
 
         assert result.raised is None
+        assert result.paths == [path]
         assert result.requests[0].param("from") == "2024-05-01"
+        assert result.requests[0].param("order_by") == "date ASC"
+        assert result.rows == [{"id": "1"}]
+
+
+class TestBillomatClientContactsFanout:
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(BillomatSource(), BillomatSourceConfig(billomat_id="acme", api_key="test-key"))
+
+    @staticmethod
+    def _clients(*ids: str) -> ScriptedResponse:
+        return ScriptedResponse(json={"clients": {"client": [{"id": i} for i in ids], "total": str(len(ids))}})
+
+    @staticmethod
+    def _contacts(client_id: str, *ids: str) -> ScriptedResponse:
+        rows = [{"id": i, "client_id": client_id} for i in ids]
+        return ScriptedResponse(json={"contacts": {"contact": rows, "total": str(len(ids))}})
+
+    def test_fetches_contacts_for_each_client(self) -> None:
+        result = self._driver().run(
+            "ClientContacts",
+            [self._clients("10", "20"), self._contacts("10", "1", "2"), self._contacts("20", "3")],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/api/clients", "/api/contacts", "/api/contacts"]
+        assert result.params("client_id") == [None, "10", "20"]
+        assert result.rows == [
+            {"id": "1", "client_id": "10"},
+            {"id": "2", "client_id": "10"},
+            {"id": "3", "client_id": "20"},
+        ]
+
+    def test_resume_skips_clients_already_synced(self) -> None:
+        result = self._driver().run(
+            "ClientContacts",
+            [self._clients("10", "20"), self._contacts("20", "3")],
+            resume_state=BillomatResumeConfig(completed=["/contacts?client_id=10"]),
+        )
+
+        assert result.raised is None
+        assert result.params("client_id") == [None, "20"]
+        assert result.rows == [{"id": "3", "client_id": "20"}]
 
 
 class TestValidateCredentials:

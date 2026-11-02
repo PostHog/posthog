@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.companycam
 from products.warehouse_sources.backend.temporal.data_imports.sources.companycam.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SHOULD_SYNC_DEFAULT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.companycam import (
     CompanycamSourceConfig,
@@ -71,7 +72,7 @@ class CompanycamSource(ResumableSource[CompanycamSourceConfig, CompanycamResumeC
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, should_sync_default=SHOULD_SYNC_DEFAULT)
 
     def validate_credentials(
         self,
@@ -116,7 +117,7 @@ class CompanycamSource(ResumableSource[CompanycamSourceConfig, CompanycamResumeC
             caption="Sync projects, photos, videos, and team data from your CompanyCam account. "
             "Generate an API key from your [CompanyCam account settings](https://docs.companycam.com/reference/authentication).",
             docsUrl="https://posthog.com/docs/cdp/sources/companycam",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             iconPath="/static/services/companycam.png",
             fields=cast(
                 list[FieldType],

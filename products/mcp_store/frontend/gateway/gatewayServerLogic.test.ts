@@ -277,6 +277,25 @@ describe('gatewayServerLogic', () => {
         })
     })
 
+    it.each([
+        ['a member with their own share', false, YOU, true, true],
+        ['a member whose connection behind their share is deleted', false, YOU, false, false],
+        ['a member with only a teammate share', false, TEAMMATE, true, false],
+        ['an admin without a share', true, TEAMMATE, true, true],
+    ])('lets %s edit an agent scope', (_label, isAdmin, sharer, connected, expected) => {
+        parentLogic.actions.loadConfigSuccess({
+            is_admin: isAdmin,
+            registered_template_ids: [],
+            allow_custom_servers: true,
+            allow_member_agent_access: true,
+        })
+        parentLogic.actions.loadServersSuccess([gatewayServer(connected ? {} : { your_connection: null })])
+        parentLogic.actions.loadServiceAccountsSuccess([serviceAccount('scout-id', [{ user: sharer, scope: 'team' }])])
+        logic.actions.setScope({ scopeType: 'agent', scopeServiceAccountId: 'scout-id', label: 'Agent scout-id' })
+
+        expect(logic.values.canEditScope).toBe(expected)
+    })
+
     it('uses the policy mutation response while keeping the loader in flight', async () => {
         const pendingResponse = deferred<Awaited<ReturnType<typeof mcpGatewayServersPoliciesCreate>>>()
         const updatedPolicy = toolPolicy('create_issue', { policy_state: 'needs_approval' })

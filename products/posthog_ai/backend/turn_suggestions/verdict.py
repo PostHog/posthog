@@ -136,4 +136,5 @@ class TurnVerdict:
     show_probability: float
     picked: OfferKind
     offer_probabilities: Mapping[str, float]
+    scout_recurrence_probability: float
     draft: Draft | None

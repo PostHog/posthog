@@ -8,11 +8,12 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
+import { QuillTaskComposerSkeleton } from 'products/posthog_ai/frontend/api/composer'
+
 import { newSessionSceneLogic } from './newSessionSceneLogic'
 import { NewSessionSuggestions } from './NewSessionSuggestions'
 import { newSessionSuggestionsLogic } from './newSessionSuggestionsLogic'
 import { SpaceTaskComposer } from './SpaceTaskComposer'
-import { SpaceTaskComposerSkeleton } from './SpaceTaskComposerSkeleton'
 
 export const scene: SceneExport = {
     component: NewSessionScene,
@@ -60,7 +61,7 @@ export function NewSessionScene(): JSX.Element {
                         <>
                             <h1 className="sr-only">Start a new session</h1>
                             {resolving ? (
-                                <SpaceTaskComposerSkeleton />
+                                <QuillTaskComposerSkeleton />
                             ) : (
                                 space && (
                                     // Each space gets its own composer, so it starts on that space's repository.

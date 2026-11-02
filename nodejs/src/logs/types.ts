@@ -1,5 +1,7 @@
 import { Message } from 'node-rdkafka'
 
+import type { InternalLogs } from './internal-logs'
+
 export type LogsIngestionMessage = {
     token: string
     teamId: number
@@ -12,4 +14,5 @@ export type LogsIngestionMessage = {
     /** Earliest row timestamp in epoch microseconds, from the `min_timestamp` header; absent from older producers. */
     minTimestampMicros?: number
     backfillRequested?: boolean
+    internalLogs?: InternalLogs
 }

@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.phyllo import PhylloSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.phyllo.phyllo import (
     PhylloResumeConfig,
+    endpoint_supports_resume,
     phyllo_source,
     validate_credentials,
 )
@@ -59,7 +60,7 @@ class PhylloSource(ResumableSource[PhylloSourceConfig, PhylloResumeConfig]):
             name=ExternalDataSourceType.PHYLLO,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Phyllo",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Phyllo API credentials to pull creator accounts, profiles, content, and income data into the PostHog Data warehouse.
 
 You can find your client ID and secret in the [Phyllo developer dashboard](https://dashboard.getphyllo.com) under **API credentials**. Credentials are environment-specific — sandbox credentials only authenticate against the sandbox environment.
@@ -138,6 +139,16 @@ You can find your client ID and secret in the [Phyllo developer dashboard](https
     ) -> tuple[bool, str | None]:
         # Credentials are environment-wide, so a single probe validates access to every schema.
         return validate_credentials(config.client_id, config.client_secret, config.environment)
+
+    def resume_covers_run(
+        self,
+        *,
+        incremental_or_append: bool,
+        schema_name: str | None = None,
+    ) -> bool:
+        # An endpoint that cannot checkpoint restarts from the first account on every attempt, so the
+        # larger resumable retry budget would only repeat the whole fan-out.
+        return schema_name is None or schema_name not in PHYLLO_ENDPOINTS or endpoint_supports_resume(schema_name)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[PhylloResumeConfig]:
         return ResumableSourceManager[PhylloResumeConfig](inputs, PhylloResumeConfig)

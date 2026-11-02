@@ -42,7 +42,6 @@ DataModelingJob
 DataWarehouseCredential
 DataWarehouseJoin
 DataWarehouseManagedViewSet
-DataWarehouseModelPath
 DataWarehouseSavedQuery
 DataWarehouseSavedQueryDraft
 DataWarehouseSavedQueryFolder

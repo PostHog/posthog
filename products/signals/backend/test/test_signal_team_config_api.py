@@ -1,19 +1,24 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 
 from products.signals.backend.agent_instructions import AGENT_STEERING_MAX_LENGTH, STEERING_FIELDS
 from products.signals.backend.facade.api import set_default_slack_notification_channel
+from products.signals.backend.implementation_repositories import MAX_IMPLEMENTATION_REPOSITORIES
 from products.signals.backend.models import SignalReport, SignalTeamConfig
 from products.signals.backend.serializers import MAX_AUTOSTART_BASE_BRANCH_ENTRIES, SignalTeamConfigSerializer
 from products.signals.backend.views import SignalTeamConfigViewSet
@@ -30,8 +35,9 @@ class TestSignalTeamConfigAPI(APIBaseTest):
     def _activity(self) -> list[ActivityLog]:
         return list(ActivityLog.objects.filter(team_id=self.team.pk, scope="SignalTeamConfig").order_by("created_at"))
 
-    def test_admin_can_save_and_clear_roles_independently(self) -> None:
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+    @parameterized.expand([OrganizationMembership.Level.MEMBER, OrganizationMembership.Level.ADMIN])
+    def test_project_member_can_save_and_clear_roles_independently(self, level: int) -> None:
+        self.organization_membership.level = level
         self.organization_membership.save()
         initial = {field: f"Instructions for {role}." for role, field in STEERING_FIELDS.items()}
         response = self.client.post(self._url(), initial, format="json")
@@ -54,17 +60,46 @@ class TestSignalTeamConfigAPI(APIBaseTest):
             "implementation instructions",
         }
 
-    def test_member_can_read_but_not_change_steering(self) -> None:
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
+    @parameterized.expand([*STEERING_FIELDS.values(), "implementation_repositories"])
+    def test_non_member_cannot_change_protected_settings(self, field: str) -> None:
+        self.organization_membership.delete()
+        value = ["example/assets"] if field == "implementation_repositories" else "Check product intent."
+        response = self.client.post(self._url(), {field: value}, format="json")
+        assert response.status_code == 403, response.content
+
+    @parameterized.expand([*STEERING_FIELDS.values(), "implementation_repositories"])
+    def test_sandbox_cannot_change_protected_settings(self, field: str) -> None:
+        application = OAuthApplication.objects.create(
+            client_id=sorted(SANDBOX_OAUTH_APP_CLIENT_IDS)[0],
+            name="Settings test",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm=OAuthApplication.RS256_ALGORITHM,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token="pha_settings_test_token",
+            scope="task:read task:write internal_run:read",
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_teams=[self.team.id],
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
+        value = ["example/assets"] if field == "implementation_repositories" else "Check product intent."
+        response = self.client.post(self._url(), {field: value}, format="json")
+        assert response.status_code == 403, response.content
+        assert (
+            response.json()["detail"]
+            == "Task agents cannot modify steering instructions or implementation repositories."
+        )
         assert self.client.get(self._url()).status_code == 200
-        for field in STEERING_FIELDS.values():
-            response = self.client.post(self._url(), {field: "New rules."}, format="json")
-            assert response.status_code == 403, response.content
-        assert self.client.post(self._url(), {"autostart_enabled": False}, format="json").status_code == 200
+        self.config.refresh_from_db()
+        assert getattr(self.config, field) in (None, [])
 
     def test_steering_save_preserves_a_concurrent_autonomy_change(self) -> None:
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         stale_config = SignalTeamConfig.objects.get(pk=self.config.pk)
         self.config.autostart_enabled = False
@@ -88,6 +123,15 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         assert data["default_autostart_priority"] == "P4"
         # Null until a team explicitly opts out; the guard treats null as autostart-on.
         assert data["autostart_enabled"] is None
+        assert data["anomaly_scoring_enabled"] is True
+
+    @parameterized.expand([("covered", True), ("not_covered", False)])
+    def test_anomaly_scoring_available_follows_the_scoring_payload(self, _name, covered):
+        payload = {"enabled": True, "organization_ids": [str(self.organization.id)] if covered else []}
+        with patch("products.signals.backend.serializers.read_payload", return_value=payload):
+            data = self.client.get(self._url()).json()
+
+        assert data["anomaly_scoring_available"] is covered
 
     def test_get_config_lazily_creates_when_no_config_exists(self):
         self.config.delete()
@@ -115,24 +159,32 @@ class TestSignalTeamConfigAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("set", None, "C123|#posthog-signals", "C123|#posthog-signals"),
-            ("clear", "C123|#posthog-signals", None, None),
+            ("set", None, "C123|#posthog-signals", False, "C123|#posthog-signals", False),
+            ("set_with_workspace", None, "C123|#posthog-signals", True, "C123|#posthog-signals", True),
+            ("change_without_workspace", "C999|#old", "C123|#posthog-signals", False, "C123|#posthog-signals", False),
+            ("clear", "C123|#posthog-signals", None, False, None, False),
         ]
     )
-    def test_update_default_slack_notification_channel(self, _name, initial, sent, expected):
+    def test_update_default_slack_notification_channel(
+        self, _name, initial, sent, send_workspace, expected, expect_bound
+    ):
+        workspace = Integration.objects.create(team=self.team, kind="slack", integration_id="T123", config={})
         if initial is not None:
             self.config.default_slack_notification_channel = initial
-            self.config.save(update_fields=["default_slack_notification_channel"])
-        response = self.client.post(
-            self._url(),
-            data={"default_slack_notification_channel": sent},
-            format="json",
-        )
+            self.config.default_slack_notification_integration_id = workspace.id
+            self.config.save(
+                update_fields=["default_slack_notification_channel", "default_slack_notification_integration_id"]
+            )
+        payload: dict = {"default_slack_notification_channel": sent}
+        if send_workspace:
+            payload["default_slack_notification_integration"] = workspace.id
+        response = self.client.post(self._url(), data=payload, format="json")
         data = response.json()
         assert response.status_code == status.HTTP_200_OK, data
         assert data["default_slack_notification_channel"] == expected
         self.config.refresh_from_db()
         assert self.config.default_slack_notification_channel == expected
+        assert self.config.default_slack_notification_integration_id == (workspace.id if expect_bound else None)
 
     def test_partial_update_preserves_default_autostart_priority(self):
         self.config.default_autostart_priority = "P2"
@@ -322,6 +374,7 @@ class TestSignalTeamConfigAPI(APIBaseTest):
                 False,
                 True,
             ),
+            ("anomaly_scoring", "anomaly_scoring_enabled", False, "anomaly scoring", "changed", True, False),
         ]
     )
     def test_update_is_recorded_in_the_activity_log(self, _name, field, sent, label, action, before, after):
@@ -353,7 +406,7 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         # materialized, so the row is created with the channel already set. That first choice
         # must still be audited even though it arrives as a create rather than an update.
         self.config.delete()
-        set_default_slack_notification_channel(self.team.pk, "C123|#posthog-signals")
+        set_default_slack_notification_channel(self.team.pk, "C123|#posthog-signals", integration_id=None)
 
         entries = self._activity()
         assert len(entries) == 1
@@ -376,8 +429,56 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert len(self._activity()) == 1
 
+    @parameterized.expand(
+        [
+            (
+                "reachable_entries_are_normalized",
+                [],
+                ["Acme/Assets", "acme/assets", "acme/docs"],
+                status.HTTP_200_OK,
+                ["acme/assets", "acme/docs"],
+            ),
+            ("unreachable_entry_is_rejected", [], ["acme/assets", "other/secret"], status.HTTP_400_BAD_REQUEST, []),
+            # A stored entry that lost access can still be removed, and kept, without a fresh check.
+            ("stored_entry_skips_the_check", ["acme/gone"], ["acme/gone"], status.HTTP_200_OK, ["acme/gone"]),
+            ("stored_entry_can_be_removed", ["acme/gone"], [], status.HTTP_200_OK, []),
+        ]
+    )
+    def test_update_implementation_repositories_checks_new_entries_against_the_installation(
+        self, _name: str, stored: list[str], sent: list[str], expected_status: int, expected: list[str]
+    ) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.config.implementation_repositories = stored
+        self.config.save(update_fields=["implementation_repositories"])
+        Integration.objects.create(team=self.team, kind="github", config={"account": {"name": "acme"}})
+
+        with patch.object(
+            GitHubIntegration,
+            "list_all_cached_repositories",
+            return_value=[{"full_name": "acme/assets"}, {"full_name": "acme/docs"}],
+        ):
+            response = self.client.post(self._url(), {"implementation_repositories": sent}, format="json")
+
+        assert response.status_code == expected_status, response.content
+        self.config.refresh_from_db()
+        assert self.config.implementation_repositories == (
+            expected if expected_status == status.HTTP_200_OK else stored
+        )
+
 
 class TestSignalTeamConfigSerializerValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("not_owner_slash_repo", ["assets"]),
+            ("too_many_entries", [f"acme/repo{i}" for i in range(MAX_IMPLEMENTATION_REPOSITORIES + 1)]),
+        ]
+    )
+    def test_implementation_repositories_rejects_malformed_input(self, _name: str, value: list[str]) -> None:
+        serializer = SignalTeamConfigSerializer(data={"implementation_repositories": value}, partial=True)
+        assert not serializer.is_valid()
+        assert "implementation_repositories" in serializer.errors
+
     @parameterized.expand(list(STEERING_FIELDS.values()))
     def test_steering_rejects_oversized_instructions(self, field: str) -> None:
         serializer = SignalTeamConfigSerializer(data={field: "x" * AGENT_STEERING_MAX_LENGTH}, partial=True)

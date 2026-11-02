@@ -82,7 +82,12 @@ It stays in `seeding`, holding the cohort's run slot, until an operator cancels 
 ### Claiming and fencing
 
 A worker claims the next chunk with one statement using `FOR UPDATE SKIP LOCKED`.
-It picks the oldest day first across all seeding runs, and admits:
+It picks behavioral chunks before person chunks.
+Within a kind, it serves the team that holds the fewest of this replica's claim slots, then the run that holds the fewest, and only then the newest day.
+A heavy run's chunk can hold its slot for hours, so under day order alone that run ends up with every slot.
+With this order, each slot that frees goes to the team and run that hold the fewest, so the split moves toward an even share.
+A claim never takes a slot back, and a team that is alone gets every slot.
+It admits:
 
 - pending chunks and failed chunks past their backoff, both under the attempt cap,
 - `scanning` chunks whose lease expired, under the attempt cap,
@@ -106,7 +111,7 @@ Max-merge makes that harmless.
 
 ### Scanning
 
-One chunk is one streaming ClickHouse query:
+One chunk is one streaming ClickHouse query per table it reads:
 
 ```text
 SELECT <projected columns>, canonical person_id
@@ -120,6 +125,7 @@ WHERE team_id = <team>
   [AND hash(person) % bands = band]
 ```
 
+- **Flag calls table.** The run's pinned payload can name `events` or `flag_evaluations` in `flag_calls_table`. A missing key reads as `events`, and an unknown value fails the run. A chunk of a run pinned to `flag_evaluations` reads `$feature_flag_called` from `flag_evaluations` and its other event names from `events`, in two queries that fold into one set of tiles. Each query projects and filters only for the conditions on its own event names. The `flag_evaluations` query selects an empty `elements_chain`, because the table has none, and bounds arrival on `inserted_at` alone. The backfill in `posthog/dags/flag_evaluations_backfill.py` copies rows from `events` without `inserted_at`, so the column's `DEFAULT timestamp` sets it to the row's `timestamp`. A copied row therefore passes the `S_chunk` bound even when the backfill writes it after the chunk's claim. While the backfill runs, a chunk can miss rows that are not yet copied, and two queries over the same chunk can read different rows. Django must therefore pin `flag_evaluations` for a team only after the backfill covers the run's whole lookback. A chunk that queries `flag_evaluations` also fails once its day reaches the table's TTL, checked before its queries and again after them, because the TTL may have dropped some of the day's rows.
 - **Canonical persons.** The join maps each distinct id through the latest person override, so events of merged persons count toward the survivor.
 - **Timezone days.** The day's bounds are computed in the run's pinned timezone.
 - **Arrival bound.** Only events that reached ClickHouse before `S_chunk` count.
@@ -154,7 +160,14 @@ At the end of the chunk, each count becomes one **day tile**:
 Tiles are keyed `"{team_id}:{person_id}"`, so each lands on the partition of the worker that owns the person.
 A shared rate limiter paces production, and a cap bounds the tiles in flight.
 
-The chunk then moves to `produced`, which means every tile was handed to the producer, waits for every acknowledgment, and moves to `confirmed`.
+On a condition where every leaf of the run keeps only the newest matching day, as a `performed_event` leaf does, an older tile changes nothing.
+Each run keeps an in-memory index of the newest day it has scanned for each person on such a condition.
+A chunk records its days right after its scan, and skips a tile when the index holds a strictly newer day.
+Losing the index on a restart only sends more tiles.
+`SEEDER_NEWEST_DAY_INDEX_MAX_ENTRIES` caps the entries of all indexes together, and past the cap a new pair sends every day.
+`seeder_tiles_skipped_total` counts the skipped tiles, and `seeder_newest_day_index_entries` shows how full the cap is.
+
+The chunk then moves to `produced`, which means every tile it sends was handed to the producer, waits for every acknowledgment, and moves to `confirmed`.
 
 ### Chunk states and retries
 
@@ -330,7 +343,7 @@ p-1 hashes to partition 26.
    The pinned condition resolves to a 7-day sliding window.
    The seeder plans 7 chunks, for 2026-03-03 through 2026-03-09, one band each, and stamps the planning proof.
 3. **Claim.**
-   Workers claim chunks oldest day first.
+   Workers claim chunks newest day first.
    At 15:00:20 one of them claims the 2026-03-05 chunk.
    `S_chunk` is 15:00:20 and the claim epoch is 1.
 4. **Scan.**
@@ -374,13 +387,14 @@ Ingestion writes event properties with `JSON.stringify` of a parsed object, so a
 `tests/ch_event_row_filter.rs` checks all of this against a live ClickHouse, with the VM as the oracle.
 
 Where possible, the test reads a materialized column instead of the blob.
-Before each chunk with a row filter or [column-backed keys](#column-backed-keys), the seeder looks in `system.columns` for a `String` column of `sharded_events` whose default expression is exactly that extraction for the key, and that also exists on `events`.
+Before each chunk with a row filter or [column-backed keys](#column-backed-keys), the seeder looks in `system.columns` for a `String` column of the scanned table's data table (`sharded_events` or `sharded_flag_evaluations`) whose default expression is exactly that extraction for the key, and that also exists on the table the scan reads.
+On `flag_evaluations` that finds `flag_key` for `$feature_flag`.
 The lookup serves both together, split into queries that each fit a GET.
 Only such a column is used, because a column with another expression, such as a typed `JSONExtract`, reads different values for the same row.
 The column holds '' for a blob ClickHouse cannot parse, so the test admits '' there instead of reading the blob.
 Without one, the test extracts from the blob: ClickHouse still decompresses the blob for the event's rows, but only the matching rows are transferred and evaluated.
 The filter is dropped when the query would grow past the 8192 bytes the client sends by GET, since the `cohort_seeder` profile refuses the POST form.
-`seeder_scan_row_filter_total{outcome}` reports per chunk whether the filter read materialized columns, read the blob, did not apply, or was dropped for length.
+`seeder_scan_row_filter_total{outcome,table}` reports, once for each table a scanned chunk reads, whether the filter read materialized columns, read the blob, did not apply, or was dropped for length.
 
 ### Column-backed keys
 
@@ -428,7 +442,7 @@ ClickHouse computes a column added after the data was written from `properties` 
 The materializer backfills only `MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS`, which defaults to 0.
 So check `system.parts_columns` for the lookback before a long run: an old partition without the column reads the blob as before.
 
-`seeder_scan_properties_source_total{source}` reports per chunk where `properties` came from.
+`seeder_scan_properties_source_total{source,table}` reports, once for each table a scanned chunk reads, where `properties` came from.
 `columns` and `empty` keep ClickHouse off the blob.
 `rebuilt_inexact_key`, `rebuilt_no_column`, `rebuilt_ambiguous_value` and `rebuilt_too_long` name why a chunk kept the rebuild, and `rebuilt_no_column` includes a failed or timed-out lookup.
 A chunk that reads a key holding the boolean `false`, such as a flag response, counts under `rebuilt_ambiguous_value`.
@@ -443,7 +457,11 @@ Set them only to go below the profile.
 ## Things that surprise people
 
 - `B` is the moment the seeder first saw the run, not when the run was created, except for disaster-recovery runs, whose `B` Django pins.
-- Claims take the oldest day first across every run, so a small new cohort's recent days wait behind a large team run's older days.
+- Claims share slots between teams first, then between a team's runs, and only then take the newest day.
+  A run that holds no slot can still wait, because a team that holds fewer slots goes first.
+  With one slot per kind, or when more teams wait than slots free, the newest day decides, so the older days of a long-window run wait behind the newer days of other runs.
+  If none of its chunks moves for `--stalled-for-hours`, `manage_cohort_backfill_runs inventory` lists it as a `seeding-stalled` cancel candidate, even though it is only queued.
+  Each replica counts only the slots it holds, so with more than one replica the split is fair on each replica, not exactly across them.
 - A chunk in `produced` has enqueued its tiles but may not have all acknowledgments yet.
 - The seeder writes the claim epoch into every tile, but the processor ignores it.
   Fencing is purely a Postgres concern, and duplicates are absorbed by max-merge.

@@ -60,6 +60,7 @@ from products.error_tracking.backend.hogql_queries.error_tracking_query_builder 
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import (
     SEVERITY_RANKING,
+    extract_event,
     search_tokenizer,
 )
 from products.error_tracking.backend.hogql_queries.error_tracking_similar_issues_query_runner import (
@@ -1101,8 +1102,22 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
 
         self.assertEqual([result["id"] for result in results], [self.issue_id_one])
 
+    @parameterized.expand(
+        [
+            (
+                "name",
+                ErrorTrackingIssueFilter(key="name", value=["Recent unmapped issue"], operator=PropertyOperator.EXACT),
+            ),
+            (
+                "first_seen",
+                ErrorTrackingIssueFilter(
+                    key="first_seen", value="2022-01-10T00:00:00", operator=PropertyOperator.IS_DATE_AFTER
+                ),
+            ),
+        ]
+    )
     @time_machine.travel("2022-01-10T12:11:00", tick=False)
-    def test_recent_issue_state_keeps_legacy_events_without_fingerprint_state(self):
+    def test_recent_issue_state_keeps_legacy_events_without_fingerprint_state(self, _name, issue_filter):
         issue_id = "01936e80-f594-7a2e-8545-7bcb491aa620"
         ErrorTrackingIssue.objects.create(
             id=issue_id,
@@ -1129,11 +1144,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                 values=[
                     PropertyGroupFilterValue(
                         type=FilterLogicalOperator.AND_,
-                        values=[
-                            ErrorTrackingIssueFilter(
-                                key="name", value=["Recent unmapped issue"], operator=PropertyOperator.EXACT
-                            )
-                        ],
+                        values=[issue_filter],
                     )
                 ],
             )
@@ -1227,42 +1238,42 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                 "first_seen",
                 PropertyOperator.GT,
                 "2022-01-01",
-                "greater(e.issue_first_seen, toDateTime('2022-01-01'))",
+                "in(e.issue_id, (SELECT issue_id FROM posthog.error_tracking_fingerprint_issue_state GROUP BY issue_id HAVING greater(min(first_seen), toDateTime('2022-01-01'))))",
             ),
             (
                 "first_seen_gte",
                 "first_seen",
                 PropertyOperator.GTE,
                 "2022-01-01",
-                "greaterOrEquals(e.issue_first_seen, toDateTime('2022-01-01'))",
+                "in(e.issue_id, (SELECT issue_id FROM posthog.error_tracking_fingerprint_issue_state GROUP BY issue_id HAVING greaterOrEquals(min(first_seen), toDateTime('2022-01-01'))))",
             ),
             (
                 "first_seen_lt",
                 "first_seen",
                 PropertyOperator.LT,
                 "2022-01-01",
-                "less(e.issue_first_seen, toDateTime('2022-01-01'))",
+                "in(e.issue_id, (SELECT issue_id FROM posthog.error_tracking_fingerprint_issue_state GROUP BY issue_id HAVING less(min(first_seen), toDateTime('2022-01-01'))))",
             ),
             (
                 "first_seen_lte",
                 "first_seen",
                 PropertyOperator.LTE,
                 "2022-01-01",
-                "lessOrEquals(e.issue_first_seen, toDateTime('2022-01-01'))",
+                "in(e.issue_id, (SELECT issue_id FROM posthog.error_tracking_fingerprint_issue_state GROUP BY issue_id HAVING lessOrEquals(min(first_seen), toDateTime('2022-01-01'))))",
             ),
             (
                 "first_seen_is_date_after",
                 "first_seen",
                 PropertyOperator.IS_DATE_AFTER,
                 "2022-01-01",
-                "greater(e.issue_first_seen, toDateTime('2022-01-01'))",
+                "in(e.issue_id, (SELECT issue_id FROM posthog.error_tracking_fingerprint_issue_state GROUP BY issue_id HAVING greater(min(first_seen), toDateTime('2022-01-01'))))",
             ),
             (
                 "first_seen_is_date_before",
                 "first_seen",
                 PropertyOperator.IS_DATE_BEFORE,
                 "2022-01-01",
-                "less(e.issue_first_seen, toDateTime('2022-01-01'))",
+                "in(e.issue_id, (SELECT issue_id FROM posthog.error_tracking_fingerprint_issue_state GROUP BY issue_id HAVING less(min(first_seen), toDateTime('2022-01-01'))))",
             ),
             (
                 "first_seen_exact_single",
@@ -1793,6 +1804,19 @@ class TestSeverityRanking(TestCase):
         # model enum is what reaches the `severity` column, the schema enum is what the API offers.
         self.assertEqual(set(SEVERITY_RANKING), {severity.value for severity in ErrorTrackingQueryIssueSeverity})
         self.assertEqual(set(SEVERITY_RANKING), set(ErrorTrackingIssue.Severity.values))
+
+
+class TestExtractEvent(TestCase):
+    @parameterized.expand(
+        [
+            ("utc", ZoneInfo("UTC"), "2026-09-01T10:00:30.659000+00:00"),
+            ("project_timezone", ZoneInfo("America/Denver"), "2026-09-01T10:00:30.659000-06:00"),
+        ]
+    )
+    def test_timestamp_is_iso_8601(self, _name, tz, expected):
+        event = extract_event(("uuid", "distinct_id", datetime(2026, 9, 1, 10, 0, 30, 659000, tzinfo=tz), "{}"))
+        assert event is not None
+        self.assertEqual(event["timestamp"], expected)
 
 
 class TestSearchTokenizer(TestCase):

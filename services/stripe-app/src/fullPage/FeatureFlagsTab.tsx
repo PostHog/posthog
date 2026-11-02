@@ -109,7 +109,7 @@ const FeatureFlagsTab = ({ client, projectId }: Props): JSX.Element => {
 
     const linkMap: Record<string, string> = {}
     const items: DataTableItem[] = visibleFlags.map((f: PostHogFeatureFlag) => {
-        const url = `${posthogBase}/feature_flags/${f.id}`
+        const url = `${posthogBase}/feature-flags/${f.id}`
         linkMap[url] = f.key
         return {
             id: `flag:${f.id}`,
@@ -158,7 +158,7 @@ const FeatureFlagsTab = ({ client, projectId }: Props): JSX.Element => {
                     </Box>
                 )}
                 <Box css={{ paddingX: 'medium' }}>
-                    <ExternalLink href={`${posthogBase}/feature_flags`}>View in PostHog</ExternalLink>
+                    <ExternalLink href={`${posthogBase}/feature-flags`}>View in PostHog</ExternalLink>
                 </Box>
             </Box>
         </>

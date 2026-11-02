@@ -132,7 +132,6 @@ export const AGENT_USE_CASE_SCOPES = [
     'survey:read',
     'survey:write',
     'tagger:read',
-    'tagger:write',
     'ticket:read',
     'ticket:write',
     'task:read',

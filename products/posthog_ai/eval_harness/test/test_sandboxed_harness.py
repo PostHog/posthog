@@ -7,7 +7,7 @@ import subprocess
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Literal, cast
+from typing import Any, Literal, cast
 from uuid import UUID
 
 import pytest
@@ -23,16 +23,22 @@ from products.posthog_ai.eval_harness.harness import lifecycle
 from products.posthog_ai.eval_harness.harness.cli import SkillDelivery, parse_args
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.discovery import EvalSuite
-from products.posthog_ai.eval_harness.harness.lifecycle import SandboxedEvalHarness, eval_feature_enabled
+from products.posthog_ai.eval_harness.harness.lifecycle import SandboxedEvalHarness
 from products.posthog_ai.eval_harness.harness.live_server import EvalLiveServer
-from products.posthog_ai.eval_harness.harness.providers import ModalProviderStrategy, SandboxProviderStrategy
-from products.posthog_ai.eval_harness.harness.reporting import ProgressReporter
-from products.tasks.backend.constants import (
-    WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG,
-    WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG,
+from products.posthog_ai.eval_harness.harness.providers import (
+    DockerProviderStrategy,
+    ModalProviderStrategy,
+    SandboxProviderStrategy,
 )
-from products.tasks.backend.facade.agents import MultiTurnSession, TurnPollResult, TurnPollTimeout
+from products.posthog_ai.eval_harness.harness.reporting import ProgressReporter
+from products.tasks.backend.facade.agents import (
+    CustomPromptSandboxContext,
+    MultiTurnSession,
+    TurnPollResult,
+    TurnPollTimeout,
+)
 from products.tasks.backend.facade.contracts import AgentTaskRunDTO
+from products.tasks.backend.logic.services import custom_prompt_internals
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.utils import mcp_exec_skills_env_vars
 
@@ -80,6 +86,29 @@ class _Provider(SandboxProviderStrategy):
 
 
 _TASK_ID = UUID("00000000-0000-0000-0000-000000000001")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "system_prompt",
+    [None, {"type": "preset", "preset": "claude_code", "append": "Test surface instructions"}],
+)
+async def test_surface_prompt_reaches_task_run_state(
+    monkeypatch: pytest.MonkeyPatch, system_prompt: dict[str, str] | None
+) -> None:
+    task = MagicMock(id=_TASK_ID, team_id=25)
+    task.latest_run = MagicMock(id=UUID("00000000-0000-0000-0000-000000000002"))
+    create = MagicMock(return_value=task)
+    monkeypatch.setattr(custom_prompt_internals.Team.objects, "get", MagicMock(return_value=MagicMock(id=25)))
+    monkeypatch.setattr(custom_prompt_internals.Task, "create_and_run", create)
+
+    await runner.create_task_and_trigger(
+        "prompt", CustomPromptSandboxContext(team_id=25, user_id=26, system_prompt=system_prompt)
+    )
+
+    assert create.call_args.kwargs["extra_run_state"] == (
+        {"systemPrompt": system_prompt} if system_prompt is not None else {}
+    )
 
 
 def _patch_runner_boundaries(monkeypatch: pytest.MonkeyPatch, handle: _FakeWorkflowHandle, poll: AsyncMock) -> None:
@@ -159,17 +188,6 @@ def test_parse_args_resolves_team_setup_concurrency(
     assert options.team_setup_concurrency == expected_concurrency
 
 
-@parameterized.expand(
-    [
-        ("workflow dispatch async", WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG, False),
-        ("workflow dispatch restart", WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG, False),
-        ("anything else", "tasks-modal-vm-sandbox", True),
-    ]
-)
-def test_eval_feature_enabled_leaves_dispatcher_flags_off(_name: str, flag: str, expected: bool) -> None:
-    assert eval_feature_enabled(flag, distinct_id="distinct-1") is expected
-
-
 @pytest.mark.parametrize(
     "outcome, fail_under, score, expected_exit_code",
     [
@@ -184,12 +202,13 @@ def test_eval_feature_enabled_leaves_dispatcher_flags_off(_name: str, flag: str,
         pytest.param("ok", 0.5, None, 1, id="no_scores_with_gate"),
         pytest.param("timeout", None, 0.0, 0, id="timeout_without_gate"),
         pytest.param("timeout", 0.5, 0.0, 1, id="timeout_below_gate"),
+        pytest.param("check", None, None, 0, id="configuration_check_only"),
     ],
 )
 def test_eval_run_exit_status(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
-    outcome: Literal["ok", "case_error", "engine_error", "both_errors", "timeout", "crash"],
+    outcome: Literal["ok", "case_error", "engine_error", "both_errors", "timeout", "crash", "check"],
     fail_under: float | None,
     score: float | None,
     expected_exit_code: int,
@@ -197,6 +216,7 @@ def test_eval_run_exit_status(
     monkeypatch.delenv("EXPORT_EVAL_RESULTS", raising=False)
 
     async def suite(ctx: EvalContext) -> None:
+        assert outcome != "check", "Configuration checks must not execute cases"
         if outcome == "crash":
             raise RuntimeError("Synthetic suite failure")
         await ctx.reporter.case_done("experiment", "completed-case", duration_seconds=1.0)
@@ -224,12 +244,30 @@ def test_eval_run_exit_status(
     )
     monkeypatch.setattr(lifecycle, "infra_union", lambda _kinds: frozenset())
     monkeypatch.setattr(lifecycle, "validate_eval_env", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(SandboxedEvalHarness, "_bootstrap", lambda *_args: None)
+    bootstrap = MagicMock()
+    monkeypatch.setattr(SandboxedEvalHarness, "_bootstrap", bootstrap)
     args = [] if fail_under is None else ["--fail-under", str(fail_under)]
+    if outcome == "check":
+        args.append("--check")
 
     assert SandboxedEvalHarness(parse_args(args)).run() == expected_exit_code
     output = capsys.readouterr().out
-    assert f"Status: {'PASS' if expected_exit_code == 0 else 'FAIL'}" in output
+    if outcome == "check":
+        bootstrap.assert_not_called()
+        assert "SUITE START" not in output
+    else:
+        assert f"Status: {'PASS' if expected_exit_code == 0 else 'FAIL'}" in output
+
+
+def test_eval_run_rejects_overwriting_its_snapshot_input(tmp_path: Path) -> None:
+    report = tmp_path / "results.json"
+    report.write_text('{"saved": true}')
+    harness = SandboxedEvalHarness(parse_args(["--skill-snapshot-report", str(report), "--results-file", str(report)]))
+
+    with pytest.raises(lifecycle.PreflightError, match="must use different paths"):
+        harness.run()
+
+    assert report.read_text() == '{"saved": true}'
 
 
 @pytest.mark.asyncio
@@ -456,6 +494,31 @@ def test_modal_cleanup_case_terminates_only_the_task_sandboxes(monkeypatch: pyte
 
     sandbox_list.assert_called_once_with(app_id="app-id", tags={"task_id": "task-id"})
     sandbox.terminate.assert_called_once_with()
+
+
+def _docker_provider() -> SandboxProviderStrategy:
+    return DockerProviderStrategy(keep_containers=False)
+
+
+def _modal_provider() -> SandboxProviderStrategy:
+    provider = ModalProviderStrategy()
+    provider._tunnels = cast(Any, SimpleNamespace(url_for=lambda name: f"https://{name}.funnel.example.com"))
+    return provider
+
+
+@parameterized.expand(
+    [
+        ("docker", _docker_provider, "http://localhost:18080", "http://host.docker.internal:18080"),
+        ("modal", _modal_provider, "https://gateway.funnel.example.com", "https://gateway.funnel.example.com"),
+    ]
+)
+def test_provider_routes_model_calls_to_a_gateway_the_host_worker_can_mint_through(
+    _name: str, build: Callable[[], SandboxProviderStrategy], gateway_url: str, fallback_url: str
+) -> None:
+    overrides = build().settings_overrides()
+
+    assert overrides["SANDBOX_AI_GATEWAY_URL"] == gateway_url
+    assert overrides["SANDBOX_LLM_GATEWAY_URL"] == fallback_url
 
 
 class TestAgentRunFailureDetection:

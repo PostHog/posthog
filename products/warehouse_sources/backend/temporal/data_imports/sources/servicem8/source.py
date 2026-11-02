@@ -124,7 +124,7 @@ class Servicem8Source(ResumableSource[Servicem8SourceConfig, ServiceM8ResumeConf
             caption="Enter an API key from your ServiceM8 account (Settings -> API Keys) to sync jobs, clients, staff, and job activity into the PostHog Data warehouse.",
             docsUrl="https://posthog.com/docs/cdp/sources/servicem8",
             iconPath="/static/services/servicem8.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["field service", "jobs", "trades"],
             fields=cast(
                 list[FieldType],

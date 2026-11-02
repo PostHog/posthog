@@ -143,5 +143,5 @@ class YocoSource(ResumableSource[YocoSourceConfig, YocoResumeConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

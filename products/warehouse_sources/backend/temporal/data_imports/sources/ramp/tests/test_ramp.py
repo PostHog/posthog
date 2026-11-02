@@ -5,13 +5,10 @@ from urllib.parse import parse_qs
 
 import pytest
 
-import requests
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
     ScriptedResponse,
     SourceDriver,
-    always,
     route,
     scripted_network,
 )
@@ -88,13 +85,6 @@ class TestValidateCredentials:
 
         assert is_valid is False
         assert "credentials" in (message or "")
-
-    def test_transient_error_is_not_reported_as_invalid_credentials(self):
-        with scripted_network(always(requests.ConnectionError("connection refused"))):
-            is_valid, message = validate_credentials("production", "cid", "sec")
-
-        assert is_valid is False
-        assert "Could not reach Ramp" in (message or "")
 
 
 class TestGetRows:

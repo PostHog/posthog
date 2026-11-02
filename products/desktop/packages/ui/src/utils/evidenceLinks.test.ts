@@ -37,7 +37,7 @@ describe("evidenceLinks", () => {
     ["dashboard", "12", "/dashboard/12"],
     ["error", "018f-44aa", "/error_tracking/018f-44aa"],
     ["replay", "s_01HQ4K", "/replay/s_01HQ4K"],
-    ["flag", "42", "/feature_flags/42"],
+    ["flag", "42", "/feature-flags/42"],
     ["experiment", "7", "/experiments/7"],
     ["survey", "srv-11", "/surveys/srv-11"],
     ["ticket", "conv_88", "/support/tickets/conv_88"],

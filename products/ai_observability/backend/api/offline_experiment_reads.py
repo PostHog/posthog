@@ -31,7 +31,6 @@ from products.ai_observability.backend.api.offline_experiment_read_serializers i
     OfflineExperimentQuerySerializer,
     OfflineExperimentReadSerializer,
     OfflineHistoryPageSerializer,
-    OfflineHistoryQuerySerializer,
     OfflineItemPageSerializer,
     OfflineItemPayloadReadSerializer,
     OfflineItemReadSerializer,
@@ -40,6 +39,7 @@ from products.ai_observability.backend.api.offline_experiment_read_serializers i
     OfflineResultPageSerializer,
     OfflineResultPayloadReadSerializer,
     OfflineResultQuerySerializer,
+    OfflineScorerHistoryQuerySerializer,
     OfflineSummaryPageSerializer,
     OfflineSummaryQuerySerializer,
 )
@@ -253,7 +253,7 @@ class OfflineExperimentReadViewSet(OfflineEvaluationReadViewSet):
 
 class OfflineScorerViewSet(OfflineEvaluationReadViewSet):
     @validated_request(
-        query_serializer=OfflineHistoryQuerySerializer,
+        query_serializer=OfflineScorerHistoryQuerySerializer,
         operation_id="ai_observability_offline_scorers_history_list",
         parameters=[OpenApiParameter("id", UUID, OpenApiParameter.PATH, description="Scorer definition UUID.")],
         responses={200: OfflineHistoryPageSerializer, **READ_ERROR_RESPONSES},

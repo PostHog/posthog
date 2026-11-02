@@ -397,13 +397,11 @@ class Watchdog:
             self.peak_current = max(self.peak_current, reading.current)
         return reading
 
-    def wait_for_release(self, identities: dict[int, int]) -> None:
+    def wait_for_exit(self, identities: dict[int, int]) -> None:
         deadline = time.monotonic() + TERM_GRACE_SECONDS
         while time.monotonic() < deadline and _alive_matching(identities):
             time.sleep(POLL_SECONDS)
-            reading = self.observe()
-            if reading is not None and not should_trigger(reading.current, reading.limit, TRIGGER_RATIO):
-                return
+            self.observe()
 
     def wait_below_trigger(self) -> bool:
         deadline = time.monotonic() + TERM_GRACE_SECONDS
@@ -437,10 +435,9 @@ class Watchdog:
         identities = {pid: start for pid in tree.pids if (start := _start_time(pid)) is not None}
         signal_pids(identities, signal.SIGTERM)
         final_signal = signal.SIGTERM
-        self.wait_for_release(identities)
-        reading = self.observe()
+        self.wait_for_exit(identities)
         remaining = _alive_matching(identities)
-        if reading is not None and should_trigger(reading.current, reading.limit, TRIGGER_RATIO) and remaining:
+        if remaining:
             signal_pids(remaining, signal.SIGKILL)
             final_signal = signal.SIGKILL
         released = self.wait_below_trigger()

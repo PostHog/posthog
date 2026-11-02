@@ -312,6 +312,22 @@ class TestExportIterator:
         assert result.params("from_date") == ["2024-01-02"]
         assert [row["event"] for row in result.rows] == ["B"]
 
+    @time_machine.travel("2024-01-01", tick=False)
+    def test_browser_version_is_always_text(self) -> None:
+        lines = [
+            orjson.dumps({"event": "A", "properties": {"time": 1, "$browser_version": version}})
+            for version in (120, 120.0, 17.4, "130.0.0.0")
+        ]
+        result = _driver().run(
+            "export",
+            [_export_answer(*lines)],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2024, 1, 1),
+        )
+        assert result.raised is None
+        assert [row["$browser_version"] for row in result.rows] == ["120", "120", "17.4", "130.0.0.0"]
+        assert [row["time"] for row in result.rows] == [1, 1, 1, 1]
+
 
 class TestExportStreamRetry:
     def _line(self, insert_id: str) -> bytes:
@@ -386,6 +402,37 @@ class TestExportStreamRetry:
             patch.object(mp.time, "sleep") as mock_sleep,
         ):
             with pytest.raises(ValueError):
+                list(
+                    mp._iter_export(
+                        "us",
+                        "u",
+                        "s",
+                        "123",
+                        LOGGER,
+                        manager,  # type: ignore[arg-type]
+                        start_date=day,
+                        end_date=day,
+                        api_version=MIXPANEL_API_VERSION_V1,
+                    )
+                )
+
+        assert mock_request.call_count == 1
+        mock_sleep.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("read_timeout", requests.ReadTimeout("stalled")),
+            ("connection_error", requests.ConnectionError("refused")),
+        ]
+    )
+    def test_does_not_refetch_when_request_gave_up(self, _name: str, error: Exception) -> None:
+        manager = FakeManager()
+        day = date(2024, 1, 1)
+        with (
+            patch.object(mp, "_request", side_effect=error) as mock_request,
+            patch.object(mp.time, "sleep") as mock_sleep,
+        ):
+            with pytest.raises(type(error)):
                 list(
                     mp._iter_export(
                         "us",

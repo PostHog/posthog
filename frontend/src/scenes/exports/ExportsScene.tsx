@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconDownload, IconPencil, IconRefresh, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonTable, LemonTag, Spinner, lemonToast } from '@posthog/lemon-ui'
 import { LemonTableColumns } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { exportedAssetBlob } from 'lib/components/ExportButton/exporter'
@@ -10,6 +11,7 @@ import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { getExportDisabledReason, getExportPendingLabel } from 'lib/components/ExportButton/exportStatus'
 import { takeScreenshotLogic } from 'lib/components/TakeScreenshot/takeScreenshotLogic'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -103,6 +105,7 @@ function ExportActions({ asset }: { asset: ExportedAssetType }): JSX.Element {
 export function ExportsScene(): JSX.Element {
     const { exports, exportsLoading, assetFormat } = useValues(exportsLogic)
     const { loadExports, setAssetFormat } = useActions(exportsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const columns: LemonTableColumns<ExportedAssetType> = [
         {
@@ -153,16 +156,28 @@ export function ExportsScene(): JSX.Element {
                 resourceType={{ type: 'exports' }}
                 scope={settingsSectionSceneScope('environment-exports')}
                 actions={
-                    <LemonButton
-                        onClick={loadExports}
-                        type="primary"
-                        size="small"
-                        icon={<IconRefresh />}
-                        loading={exportsLoading}
-                        data-attr="export-refresh"
-                    >
-                        Refresh
-                    </LemonButton>
+                    todayRailNav ? (
+                        <Button
+                            onClick={loadExports}
+                            variant="primary"
+                            loading={exportsLoading}
+                            data-attr="export-refresh"
+                        >
+                            <IconRefresh />
+                            Refresh
+                        </Button>
+                    ) : (
+                        <LemonButton
+                            onClick={loadExports}
+                            type="primary"
+                            size="small"
+                            icon={<IconRefresh />}
+                            loading={exportsLoading}
+                            data-attr="export-refresh"
+                        >
+                            Refresh
+                        </LemonButton>
+                    )
                 }
             />
 

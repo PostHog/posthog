@@ -48,6 +48,7 @@ from posthog.temporal.ai_observability.evaluation_workflow_activities import (
 from posthog.temporal.ai_observability.metrics import increment_errors, increment_settle_poll
 from posthog.temporal.ai_observability.run_evaluation import (
     WorkflowResult,
+    compact_backfill_result,
     handle_llm_judge_activity_error,
     handle_terminal_user_error_result,
 )
@@ -64,6 +65,11 @@ from posthog.temporal.ai_observability.run_trace_evaluation import (
     emit_trace_evaluation_event_activity,
     execute_trace_hog_eval_activity,
     execute_trace_llm_judge_activity,
+)
+from posthog.temporal.ai_observability.team_capture import (
+    EMIT_EVENT_RETRY_POLICY,
+    EMIT_EVENT_SCHEDULE_TO_CLOSE_TIMEOUT,
+    EMIT_EVENT_START_TO_CLOSE_TIMEOUT,
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import close_db_connections
@@ -482,6 +488,9 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: RunAggregateEvaluationInputs) -> WorkflowResult:
+        return compact_backfill_result(await self._run(inputs), inputs.backfill_id)
+
+    async def _run(self, inputs: RunAggregateEvaluationInputs) -> WorkflowResult:
         # A historical unit is settled by definition, so a backfill skips the settle wait and
         # aggregates from the anchor, its first matching generation. Live starts carry no anchor,
         # so old histories never take this branch and it needs no patch marker.
@@ -704,8 +713,9 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
                     backfill_id=inputs.backfill_id,
                     event_timestamp=inputs.anchor_timestamp,
                 ),
-                schedule_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RetryPolicy(maximum_attempts=3),
+                start_to_close_timeout=EMIT_EVENT_START_TO_CLOSE_TIMEOUT,
+                schedule_to_close_timeout=EMIT_EVENT_SCHEDULE_TO_CLOSE_TIMEOUT,
+                retry_policy=EMIT_EVENT_RETRY_POLICY,
             )
         except Exception:
             increment_errors("emit_evaluation_event_failed", provider=result.get("provider"))

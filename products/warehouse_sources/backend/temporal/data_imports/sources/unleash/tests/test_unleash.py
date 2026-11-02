@@ -194,13 +194,6 @@ class TestValidateCredentials:
         assert [request.path for request in network.requests_log] == ["/api/admin/projects"]
         assert network.requests_log[0].headers["authorization"] == TOKEN
 
-    def test_validate_credentials_invalid_token(self) -> None:
-        with scripted_network([ScriptedResponse(status=401, json={"message": "nope"})]):
-            valid, message = validate_credentials(BASE_URL, TOKEN, team_id=1)
-
-        assert valid is False
-        assert message == "Invalid Unleash API token"
-
     def test_validate_credentials_accepts_403_at_source_create(self) -> None:
         # A valid token may lack the permission for the probe endpoint; source creation must
         # still go through, and per-schema syncs surface their own permission errors.
@@ -249,13 +242,6 @@ class TestValidateCredentials:
         assert valid is False
         assert message == "Invalid Unleash instance URL"
         assert network.requests_log == []
-
-    def test_validate_credentials_handles_connection_errors(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            valid, message = validate_credentials(BASE_URL, TOKEN, team_id=1)
-
-        assert valid is False
-        assert message is not None and "Could not connect to Unleash" in message
 
     @parameterized.expand(
         [

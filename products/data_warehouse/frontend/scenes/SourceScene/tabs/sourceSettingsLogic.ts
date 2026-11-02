@@ -36,6 +36,7 @@ import {
 } from '~/types'
 
 import { groupTablesBySchema } from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
+import { FILE_UPLOAD_SOURCE_LABEL, isFileUploadSource } from 'products/data_warehouse/frontend/shared/fileUploadSources'
 import {
     clonePayloadPreservingFiles,
     findUploadedFiles,
@@ -1361,7 +1362,9 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 const breadcrumbName =
                     values.source?.access_method === 'direct'
                         ? values.source?.prefix || values.source?.source_type || 'Source'
-                        : values.source?.source_type || 'Source'
+                        : isFileUploadSource(values.source)
+                          ? FILE_UPLOAD_SOURCE_LABEL
+                          : values.source?.source_type || 'Source'
 
                 if (values.pollPauseCount === 0) {
                     cache.disposables.add(() => {
@@ -1560,6 +1563,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     return
                 }
                 clonedSource.schemas[schemaIndex].table = undefined
+                clonedSource.schemas[schemaIndex].should_sync = false
                 clonedSource.schemas[schemaIndex].status = undefined
                 clonedSource.schemas[schemaIndex].last_synced_at = undefined
                 actions.loadSourceSuccess(clonedSource)

@@ -69,7 +69,7 @@ You can generate an API key in your Metaplane account settings. A paid Metaplane
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

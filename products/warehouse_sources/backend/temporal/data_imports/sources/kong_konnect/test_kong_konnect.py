@@ -121,6 +121,109 @@ class TestGetRowsPagination:
         assert body["offset"] == 5000
 
 
+def _metrics_page(*events: dict[str, Any]) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={"data": [{"event": event, "timestamp": "2026-06-14T00:00:00Z"} for event in events], "meta": {}}
+    )
+
+
+class TestDailyServiceMetrics:
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
+    def test_walks_days_and_merges_metric_groups_per_service(self) -> None:
+        result = _driver().run(
+            "daily_service_metrics",
+            [
+                _metrics_page(
+                    {"gateway_service": "cp:svc-a", "request_count": 10, "error_rate": 0.1},
+                    {"gateway_service": None, "request_count": 2, "error_rate": 0},
+                ),
+                _metrics_page({"gateway_service": "cp:svc-a", "response_latency_p99": 40}),
+                _metrics_page(),
+                _metrics_page(),
+            ],
+            incremental_field="day",
+            db_incremental_field_last_value=datetime(2026, 6, 14, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        day = datetime(2026, 6, 14, tzinfo=UTC)
+        assert result.rows == [
+            {
+                "day": day,
+                "gateway_service": "cp:svc-a",
+                "request_count": 10,
+                "error_rate": 0.1,
+                "response_latency_p99": 40,
+            },
+            {"day": day, "gateway_service": "", "request_count": 2, "error_rate": 0},
+        ]
+        bodies = [request.json() for request in result.requests]
+        assert all(request.method == "POST" and request.path == "/v2/metrics" for request in result.requests)
+        assert [body["dimensions"] for body in bodies] == [["gateway_service"]] * 4
+        assert [body["metrics"] for body in bodies[:2]] == [
+            ["request_count", "error_rate", "response_latency_average"],
+            ["response_latency_p99", "upstream_latency_p99", "kong_latency_p99"],
+        ]
+        # The current day ends at now, so a later sync re-reads it and the merge replaces its rows.
+        assert [(body["time_range"]["start"], body["time_range"]["end"]) for body in bodies] == [
+            ("2026-06-14T00:00:00Z", "2026-06-15T00:00:00Z"),
+            ("2026-06-14T00:00:00Z", "2026-06-15T00:00:00Z"),
+            ("2026-06-15T00:00:00Z", "2026-06-15T12:00:00Z"),
+            ("2026-06-15T00:00:00Z", "2026-06-15T12:00:00Z"),
+        ]
+        # The completed day moves the cursor on; the day still in progress keeps it there.
+        assert [state.start for state in result.saved_states] == ["2026-06-15T00:00:00Z", "2026-06-15T00:00:00Z"]
+        assert result.response is not None
+        assert result.response.sort_mode == "asc"
+
+    @parameterized.expand(
+        [
+            ("full_refresh_walks_back_lookback", {"should_use_incremental_field": False}, None, "2026-06-12T00:00:00Z"),
+            (
+                "incremental_starts_at_watermark_day",
+                {
+                    "incremental_field": "day",
+                    "db_incremental_field_last_value": datetime(2026, 6, 14, 9, 30, tzinfo=UTC),
+                },
+                None,
+                "2026-06-14T00:00:00Z",
+            ),
+            (
+                "future_watermark_clamped_to_today",
+                {"incremental_field": "day", "db_incremental_field_last_value": datetime(2027, 1, 1, tzinfo=UTC)},
+                None,
+                "2026-06-15T00:00:00Z",
+            ),
+            (
+                "stale_watermark_clamped_to_metrics_api_limit",
+                {"incremental_field": "day", "db_incremental_field_last_value": datetime(2026, 1, 1, tzinfo=UTC)},
+                None,
+                "2026-05-15T00:00:00Z",
+            ),
+            (
+                "resume_state_wins_over_watermark",
+                {"incremental_field": "day", "db_incremental_field_last_value": datetime(2026, 6, 12, tzinfo=UTC)},
+                KongKonnectResumeConfig(start="2026-06-14T00:00:00Z"),
+                "2026-06-14T00:00:00Z",
+            ),
+        ]
+    )
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
+    def test_first_day_queried(
+        self, _name: str, inputs: dict[str, Any], resume: KongKonnectResumeConfig | None, expected_start: str
+    ) -> None:
+        start = datetime.fromisoformat(expected_start.replace("Z", "+00:00"))
+        days = (datetime(2026, 6, 15, tzinfo=UTC) - start).days + 1
+        result = _driver(lookback_days=3).run(
+            "daily_service_metrics", [_metrics_page()] * (2 * days), resume_state=resume, **inputs
+        )
+
+        assert result.raised is None
+        assert result.rows == []
+        assert len(result.requests) == 2 * days
+        assert result.requests[0].json()["time_range"]["start"] == expected_start
+
+
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
     def test_status_mapping(self, _name: str, status: int, expected: bool) -> None:
@@ -227,6 +330,49 @@ class TestLookupRows:
         ]
         assert result.params("offset") == [None, None, "next-token", None, None]
 
+    @parameterized.expand(
+        [
+            (
+                "plugin_config",
+                "plugins",
+                {"id": "p-1", "name": "aws-lambda", "config": {"aws_secret": "shh"}},
+                {"id": "p-1", "name": "aws-lambda", "control_plane_id": "cp-a"},
+            ),
+            (
+                "upstream_health_check_headers",
+                "upstreams",
+                {
+                    "id": "u-1",
+                    "healthchecks": {
+                        "active": {"headers": {"Authorization": ["Bearer shh"]}, "http_path": "/health"},
+                        "passive": {"type": "http"},
+                    },
+                },
+                {
+                    "id": "u-1",
+                    "healthchecks": {"active": {"http_path": "/health"}, "passive": {"type": "http"}},
+                    "control_plane_id": "cp-a",
+                },
+            ),
+        ]
+    )
+    def test_core_entities_drop_credential_fields(
+        self, _name: str, endpoint: str, row: dict[str, Any], expected: dict[str, Any]
+    ) -> None:
+        with patch(f"{kong_konnect.__name__}.make_tracked_session", wraps=kong_konnect.make_tracked_session) as spy:
+            result = _driver().run(
+                endpoint,
+                [
+                    ScriptedResponse(json={"data": [_control_plane("cp-a")], "meta": {"page": {"total": 1}}}),
+                    ScriptedResponse(json={"data": [row]}),
+                ],
+            )
+
+        assert result.raised is None
+        assert result.rows == [expected]
+        # HTTP samples would capture the raw response before the fields are dropped.
+        assert spy.call_args.kwargs["capture"] is False
+
     def test_core_entities_raise_on_auth_error(self) -> None:
         result = _driver().run(
             "consumers",
@@ -304,6 +450,39 @@ class TestLookupRows:
             child_url.format(id="p-gone"),
         ]
         assert result.params("sort") == ["name", "name", "name"]
+
+    @parameterized.expand(
+        [
+            ("meters", "meters", "/v3/openmeter/meters", "created_at"),
+            ("subscriptions", "subscriptions", "/v3/openmeter/subscriptions", "id"),
+        ]
+    )
+    def test_metering_lists_use_v3_page_number_pagination(
+        self, _name: str, endpoint: str, path: str, sort: str
+    ) -> None:
+        result = _driver().run(
+            endpoint,
+            [
+                ScriptedResponse(
+                    json={
+                        "data": [{"id": f"m-{i}"} for i in range(LIST_PAGE_SIZE)],
+                        "meta": {"page": {"number": 1, "size": LIST_PAGE_SIZE, "total": LIST_PAGE_SIZE + 1}},
+                    }
+                ),
+                ScriptedResponse(
+                    json={
+                        "data": [{"id": "m-last"}],
+                        "meta": {"page": {"number": 2, "size": LIST_PAGE_SIZE, "total": LIST_PAGE_SIZE + 1}},
+                    }
+                ),
+            ],
+        )
+
+        assert result.raised is None
+        assert len(result.rows) == LIST_PAGE_SIZE + 1
+        assert result.paths == [path, path]
+        assert result.params("page[number]") == ["1", "2"]
+        assert result.params("sort") == [sort, sort]
 
     def test_realm_consumers_follow_page_after_cursor_from_meta_next(self) -> None:
         result = _driver().run(

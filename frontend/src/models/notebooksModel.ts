@@ -7,6 +7,7 @@ import api from 'lib/api'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { addProductIntent } from 'lib/utils/product-intents'
+import { withBackLink } from 'scenes/analytics/analyticsBackLink'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import type { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogic'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
@@ -59,9 +60,9 @@ export const openNotebook = async (
         thePanelLogic.actions.selectNotebook(notebookId)
     } else {
         if (router.values.location.pathname === urls.notebook('new')) {
-            router.actions.replace(urls.notebook(notebookId))
+            router.actions.replace(withBackLink(urls.notebook(notebookId)))
         } else {
-            router.actions.push(urls.notebook(notebookId))
+            router.actions.push(withBackLink(urls.notebook(notebookId)))
         }
     }
 

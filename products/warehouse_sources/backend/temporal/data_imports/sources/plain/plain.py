@@ -33,11 +33,16 @@ _MESSAGE_INFO_FIELDS: list[tuple[str, str]] = [
 
 _ACTOR_FIELDS = ("createdBy", "updatedBy", "statusChangedBy", "markedAsSpamBy", "actor")
 # Null on most rows, so always split them into Type/Id columns rather than keep a null struct column.
-_NULLABLE_ACTOR_FIELDS = ("deletedBy", "archivedBy")
+_NULLABLE_ACTOR_FIELDS = ("deletedBy", "archivedBy", "manuallyTriggeredBy")
 
-_REFERENCE_ID_FIELDS: list[tuple[str, str]] = [
-    ("accountOwner", "accountOwnerId"),
-    ("parentLabelType", "parentLabelTypeId"),
+# (nested object, key inside it, flat column) — a null object still yields a null column.
+_NESTED_VALUE_FIELDS: list[tuple[str, str, str]] = [
+    ("accountOwner", "id", "accountOwnerId"),
+    ("parentLabelType", "id", "parentLabelTypeId"),
+    ("agent", "id", "agentId"),
+    ("channelDetails", "channelType", "channelType"),
+    ("template", "type", "templateType"),
+    ("template", "questionText", "templateQuestionText"),
 ]
 
 
@@ -142,10 +147,13 @@ def _flatten_node(node: dict[str, Any]) -> dict[str, Any]:
             actor.get("userId") or actor.get("machineUserId") or actor.get("customerId") or actor.get("systemId")
         )
 
-    for src_field, dst_field in _REFERENCE_ID_FIELDS:
-        if src_field in flattened:
-            reference = flattened.pop(src_field)
-            flattened[dst_field] = reference.get("id") if isinstance(reference, dict) else None
+    nested_sources = {src_field for src_field, _, _ in _NESTED_VALUE_FIELDS if src_field in flattened}
+    for src_field, key, dst_field in _NESTED_VALUE_FIELDS:
+        if src_field in nested_sources:
+            nested = flattened[src_field]
+            flattened[dst_field] = nested.get(key) if isinstance(nested, dict) else None
+    for src_field in nested_sources:
+        del flattened[src_field]
 
     for src_field, dst_field in _MESSAGE_INFO_FIELDS:
         if src_field in flattened:

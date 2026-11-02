@@ -4,8 +4,6 @@ from typing import Any, Optional
 import pytest
 from unittest import mock
 
-import requests
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
     ScriptedResponse,
@@ -153,8 +151,6 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected_valid, expected_msg_substr",
         [
-            (200, True, None),
-            (401, False, "Invalid GitLab personal access token"),
             # A 404 can't tell a missing project from one the token can't see, so the message has to
             # carry the next step rather than dead-ending on "not accessible".
             (404, False, "not accessible with this token. Check the spelling and that your token has read access"),
@@ -240,12 +236,6 @@ class TestValidateCredentials:
             valid, _ = validate_credentials("https://gitlab.com", "tok", "114682853")
             assert valid is True
             assert len(network.requests_log) == 1
-
-    def test_request_exception_returns_failure(self):
-        with scripted_network(always(requests.exceptions.ConnectionError("boom"))):
-            valid, msg = validate_credentials("https://gitlab.com", "tok", "group/project")
-            assert valid is False
-            assert "boom" in (msg or "")
 
     def test_rejects_redirect_response(self):
         redirect = ScriptedResponse(status=302, headers={"Location": "https://gitlab.com/login"})

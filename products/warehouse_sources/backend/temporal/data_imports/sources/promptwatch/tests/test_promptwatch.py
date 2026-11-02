@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
+import time_machine
 from unittest.mock import patch
 
 from requests import HTTPError
@@ -27,7 +28,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.promptwatc
     BASE_URL,
     MAX_PAGES,
     NON_RETRYABLE_ERRORS,
-    PROJECT_ERROR,
     QUOTA_ERROR,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.promptwatch.source import PromptWatchSource
@@ -95,16 +95,18 @@ def test_response_requests(
 
 
 @pytest.mark.parametrize(
-    "endpoint,body",
+    "endpoint,body,params",
     [
-        ("prompts", {"prompts": [{"id": "prompt"}], "totalPages": 1}),
-        ("monitors", [{"id": "monitor"}]),
-        ("tags", {"tags": [{"id": "tag"}]}),
-        ("topics", {"topics": [{"id": "topic"}]}),
-        ("personas", {"personas": [{"id": "persona"}]}),
+        ("prompts", {"prompts": [{"id": "prompt"}], "totalPages": 1}, {"sortBy": "createdAt"}),
+        ("monitors", [{"id": "monitor"}], {}),
+        ("tags", {"tags": [{"id": "tag"}]}, {}),
+        ("topics", {"topics": [{"id": "topic"}]}, {}),
+        ("personas", {"personas": [{"id": "persona"}]}, {}),
+        ("models", {"models": [{"id": "model"}], "total": 1}, {"includeDeprecated": "true"}),
+        ("brands", {"brands": [{"id": "brand"}], "total": 1, "totalPages": 1}, {"page": "1", "sortBy": None}),
     ],
 )
-def test_configuration_tables(endpoint: str, body: object) -> None:
+def test_configuration_tables(endpoint: str, body: object, params: dict[str, str | None]) -> None:
     config = PromptWatchSourceConfig(api_key="fake-api-key", start_date="2026-01-01")
 
     result = run(config, endpoint, [ScriptedResponse(json=body)])
@@ -112,6 +114,8 @@ def test_configuration_tables(endpoint: str, body: object) -> None:
     assert len(result.items) == 1 and len(result.items[0]) == 1
     assert len(result.requests) == 1
     assert result.requests[0].path == f"/api/v2/{endpoint}"
+    for name, value in params.items():
+        assert result.requests[0].param(name) == value
     assert "from" not in result.requests[0].query
     assert "until" not in result.requests[0].query
     assert "x-project-id" not in result.requests[0].headers
@@ -191,8 +195,6 @@ def test_empty_and_oversized_tables(
         (200, {"valid": True, "project": {"id": "test-project"}}, None),
         (200, {"valid": False}, AUTH_ERROR),
         (200, {"valid": True, "project": None}, "Enter a project ID when you use an organization API key."),
-        (401, {"message": "Invalid API key"}, AUTH_ERROR),
-        (403, {"message": "Forbidden"}, PROJECT_ERROR),
         (
             429,
             {
@@ -280,3 +282,153 @@ def test_malformed_response_retries(config: PromptWatchSourceConfig, status: int
 
     assert result.raised is None
     assert len(result.requests) == 2
+
+
+def citation(url_id: str) -> dict[str, Any]:
+    return {"url": {"id": url_id, "url": f"https://{url_id}.example.com", "domain": {"domainName": "example.com"}}}
+
+
+@time_machine.travel(datetime(2026, 5, 10, 15, tzinfo=UTC), tick=False)
+def test_grouped_citations(config: PromptWatchSourceConfig) -> None:
+    result = run(
+        config,
+        "grouped_citations",
+        [
+            ScriptedResponse(json={"data": [citation("a")], "pagination": {"totalPages": 2}}),
+            ScriptedResponse(json={"data": [citation("b")], "pagination": {"totalPages": 2}}),
+        ],
+    )
+
+    assert result.raised is None
+    assert [row["urlId"] for row in result.rows] == ["a", "b"]
+    assert result.rows[0]["url"]["url"] == "https://a.example.com"
+    assert result.response is not None
+    assert result.response.primary_keys == ["urlId"]
+    assert result.response.sort_mode is None
+    assert result.paths == ["/api/v2/citations/grouped"] * 2
+    assert result.params("page") == ["1", "2"]
+    assert result.params("startDate") == ["2026-02-08"] * 2
+    assert result.params("endDate") == ["2026-05-10"] * 2
+    assert result.params("sortBy") == ["count"] * 2
+    assert result.params("sortOrder") == ["desc"] * 2
+    assert "from" not in result.requests[0].query
+    assert [state.page for state in result.saved_states] == [2, 0]
+
+
+def test_grouped_citations_resume_keeps_the_saved_window(config: PromptWatchSourceConfig) -> None:
+    result = run(
+        config,
+        "grouped_citations",
+        [ScriptedResponse(json={"data": [citation("b")], "pagination": {"totalPages": 2}})],
+        resume_state=PromptWatchResumeConfig(page=2, from_date="2026-01-01", until="2026-04-01"),
+    )
+
+    assert [row["urlId"] for row in result.rows] == ["b"]
+    assert result.params("page") == ["2"]
+    assert result.params("startDate") == ["2026-01-01"]
+    assert result.params("endDate") == ["2026-04-01"]
+
+
+@pytest.mark.parametrize(
+    "endpoint,body,error",
+    [
+        ("grouped_citations", {"data": [citation("a")], "pagination": {"totalPages": MAX_PAGES + 1}}, None),
+        ("brands", {"brands": [{"id": "brand"}], "total": 2000, "totalPages": MAX_PAGES + 1}, "PROMPTWATCH_ROW_LIMIT"),
+        ("grouped_citations", {"data": [citation("a")], "pagination": {}}, "invalid pagination metadata"),
+        ("grouped_citations", {"data": [citation("a")], "pagination": None}, "invalid pagination metadata"),
+    ],
+)
+def test_page_limits_for_new_tables(
+    config: PromptWatchSourceConfig, endpoint: str, body: dict[str, Any], error: str | None
+) -> None:
+    with patch(LOGGER_PATCH) as logger:
+        result = run(config, endpoint, lambda _request: ScriptedResponse(json=body))
+
+    if error:
+        assert result.raised is not None
+        assert error in str(result.raised)
+        assert len(result.requests) == 1
+    else:
+        assert result.raised is None
+        assert result.params("page") == [str(page) for page in range(1, MAX_PAGES + 1)]
+        logger.warning.assert_called_once_with(
+            "promptwatch.page_cap_reached", maximum_page=MAX_PAGES, total_pages=MAX_PAGES + 1
+        )
+
+
+def visitor_body(dates: list[str], series: dict[str, list[int]]) -> dict[str, Any]:
+    return {"dates": dates, "series": [{"name": name, "data": data} for name, data in series.items()]}
+
+
+@time_machine.travel(datetime(2026, 5, 10, 15, tzinfo=UTC), tick=False)
+@pytest.mark.parametrize(
+    "incremental,watermark,windows",
+    [
+        (False, None, [("2026-03-12", "2026-05-10")]),
+        (True, None, [("2026-03-12", "2026-05-10")]),
+        (False, "2026-05-08", [("2026-03-12", "2026-05-10")]),
+        (True, "2026-05-08", [("2026-05-07", "2026-05-10")]),
+        (True, datetime(2026, 5, 8, 0, tzinfo=UTC), [("2026-05-07", "2026-05-10")]),
+        (True, "2026-05-12", []),
+        (
+            True,
+            "2026-01-01",
+            [("2025-12-31", "2026-02-28"), ("2026-03-01", "2026-04-29"), ("2026-04-30", "2026-05-10")],
+        ),
+    ],
+)
+def test_visitor_trend_windows(
+    config: PromptWatchSourceConfig,
+    incremental: bool,
+    watermark: str | datetime | None,
+    windows: list[tuple[str, str]],
+) -> None:
+    result = run(
+        config,
+        "visitor_trends",
+        lambda _request: ScriptedResponse(json=visitor_body([], {})),
+        **incremental_inputs(incremental, watermark),
+    )
+
+    assert result.raised is None
+    assert result.rows == []
+    assert result.paths == ["/api/v2/analytics/visitors/trend"] * len(windows)
+    assert list(zip(result.params("startDate"), result.params("endDate"))) == windows
+    assert result.params("timezone") == ["UTC"] * len(windows)
+
+
+@time_machine.travel(datetime(2026, 3, 15, 15, tzinfo=UTC), tick=False)
+def test_visitor_trend_rows(config: PromptWatchSourceConfig) -> None:
+    result = run(
+        config,
+        "visitor_trends",
+        [
+            ScriptedResponse(
+                json=visitor_body(["2026-03-14", "2026-03-15"], {"chatgpt.com": [620, 655], "claude.ai": [0, 12]})
+            )
+        ],
+        **incremental_inputs(True, "2026-03-15"),
+    )
+
+    assert result.raised is None
+    assert result.rows == [
+        {"date": "2026-03-14", "referrer": "chatgpt.com", "visitors": 620},
+        {"date": "2026-03-15", "referrer": "chatgpt.com", "visitors": 655},
+        {"date": "2026-03-14", "referrer": "claude.ai", "visitors": 0},
+        {"date": "2026-03-15", "referrer": "claude.ai", "visitors": 12},
+    ]
+    assert result.response is not None
+    assert result.response.primary_keys == ["date", "referrer"]
+    assert result.saved_states == []
+
+
+@time_machine.travel(datetime(2026, 3, 15, 15, tzinfo=UTC), tick=False)
+def test_visitor_trend_series_length_mismatch_fails(config: PromptWatchSourceConfig) -> None:
+    result = run(
+        config,
+        "visitor_trends",
+        [ScriptedResponse(json=visitor_body(["2026-03-14", "2026-03-15"], {"chatgpt.com": [620]}))],
+        **incremental_inputs(True, "2026-03-15"),
+    )
+
+    assert isinstance(result.raised, ValueError)

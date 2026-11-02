@@ -8,16 +8,20 @@ from typing import Any
 import orjson
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
 from posthog.dataclasses import frozen
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.cursor.settings import (
+    CONVERSATION_INSIGHT_SLICES,
     CURSOR_ENDPOINTS,
     MAX_WINDOW_DAYS,
     CursorEndpointConfig,
@@ -112,7 +116,7 @@ def _is_plan_rejection(response: requests.Response) -> bool:
     return isinstance(message, str) and _ENTERPRISE_PLAN_MARKER in message.lower()
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type(
         (
             CursorRetryableError,
@@ -285,6 +289,68 @@ def _get_members_rows(
         yield rows
 
 
+_normalize_billing_group = _make_iso_normalizer("createdAt", "updatedAt", "billingCycleStart", "billingCycleEnd")
+_normalize_billing_group_member = _make_iso_normalizer("joinedAt", "leftAt", "billingCycleStart", "billingCycleEnd")
+
+
+def _all_billing_groups(data: dict[str, Any]) -> list[dict[str, Any]]:
+    # Members in no group sit in a reserved `Unassigned` group the API returns apart from the rest.
+    unassigned = data.get("unassignedGroup")
+    return [*(data.get("groups") or []), *([unassigned] if isinstance(unassigned, dict) else [])]
+
+
+def _billing_group_rows(data: dict[str, Any]) -> list[dict[str, Any]]:
+    cycle = data.get("billingCycle") or {}
+    # Members land in billing_group_members, so leave the unbounded member lists out of the group row.
+    return [
+        _normalize_billing_group(
+            {
+                **{key: value for key, value in group.items() if key not in ("currentMembers", "formerMembers")},
+                "billingCycleStart": cycle.get("cycleStart"),
+                "billingCycleEnd": cycle.get("cycleEnd"),
+            }
+        )
+        for group in _all_billing_groups(data)
+    ]
+
+
+def _billing_group_member_rows(data: dict[str, Any]) -> list[dict[str, Any]]:
+    cycle = data.get("billingCycle") or {}
+    return [
+        _normalize_billing_group_member(
+            {
+                **member,
+                "groupId": group.get("id"),
+                "groupName": group.get("name"),
+                "isCurrentMember": is_current,
+                "billingCycleStart": cycle.get("cycleStart"),
+                "billingCycleEnd": cycle.get("cycleEnd"),
+            }
+        )
+        for group in _all_billing_groups(data)
+        for members_key, is_current in (("currentMembers", True), ("formerMembers", False))
+        for member in group.get(members_key) or []
+    ]
+
+
+_BILLING_GROUP_ROW_BUILDERS: dict[str, Callable[[dict[str, Any]], list[dict[str, Any]]]] = {
+    "billing_groups": _billing_group_rows,
+    "billing_group_members": _billing_group_member_rows,
+}
+
+
+def _get_billing_group_rows(
+    session: requests.Session,
+    config: CursorEndpointConfig,
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    # The group listing carries every group's members inline, so both tables read the same response.
+    data = _fetch(session, config.method, f"{CURSOR_BASE_URL}{config.path}", logger)
+    rows = _BILLING_GROUP_ROW_BUILDERS[config.name](data)
+    if rows:
+        yield rows
+
+
 def _get_spend_rows(
     session: requests.Session,
     config: CursorEndpointConfig,
@@ -337,6 +403,9 @@ _WINDOWED_NORMALIZERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "by_user_models": _make_iso_normalizer("date"),
     "ai_code_commits": _make_iso_normalizer("commitTs", "createdAt"),
     "ai_code_changes": _make_iso_normalizer("createdAt"),
+    "audit_logs": _make_iso_normalizer("timestamp"),
+    "bugbot_reviews": _make_iso_normalizer("timestamp"),
+    "conversation_insights": _make_iso_normalizer("date"),
 }
 
 
@@ -361,8 +430,41 @@ _ROW_EXPANDERS: dict[str, Callable[[dict[str, Any]], list[dict[str, Any]]]] = {
 }
 
 
+def _conversation_insight_rows(payload: Any) -> list[dict[str, Any]]:
+    """Flatten each slice's daily time series into one row per day per slice value.
+
+    The distribution and top-value lists are totals over the requested range, so they change with
+    the window and cannot merge across syncs. The daily points can.
+    """
+    if not isinstance(payload, dict):
+        return []
+    rows = []
+    for slice_name, value_key in CONVERSATION_INSIGHT_SLICES.items():
+        slice_data = payload.get(slice_name)
+        if not isinstance(slice_data, dict):
+            continue
+        for point in slice_data.get("timeSeries") or []:
+            rows.append(
+                {
+                    "date": point.get("date"),
+                    "slice": slice_name,
+                    "value": point.get(value_key),
+                    "count": point.get("count"),
+                }
+            )
+    return rows
+
+
+_PAYLOAD_EXTRACTORS: dict[str, Callable[[Any], list[dict[str, Any]]]] = {
+    "conversation_insights": _conversation_insight_rows,
+}
+
+
 def _extract_rows(config: CursorEndpointConfig, data: dict[str, Any]) -> list[dict[str, Any]]:
     payload = data.get(config.data_key)
+    extract = _PAYLOAD_EXTRACTORS.get(config.name)
+    if extract:
+        return extract(payload)
     expand = _ROW_EXPANDERS.get(config.name)
     if not config.by_user:
         rows = payload or []
@@ -397,10 +499,12 @@ def _page_item_count(config: CursorEndpointConfig, data: dict[str, Any], rows: l
 def _window_request_params(
     config: CursorEndpointConfig, window_start: int, window_end: int, page: int
 ) -> dict[str, Any]:
+    start_param, end_param = config.date_param_names
     if config.date_param_format == "iso_date":
-        params: dict[str, Any] = {"startDate": _to_iso_date(window_start), "endDate": _to_iso_date(window_end)}
+        params: dict[str, Any] = {start_param: _to_iso_date(window_start), end_param: _to_iso_date(window_end)}
     else:
-        params = {"startDate": window_start, "endDate": window_end}
+        params = {start_param: window_start, end_param: window_end}
+    params |= config.extra_params
     if config.paginated:
         params |= {"page": page, "pageSize": config.page_size}
     return params
@@ -537,6 +641,8 @@ def cursor_source(
 
         if endpoint == "members":
             yield from _get_members_rows(session, config, logger)
+        elif endpoint in _BILLING_GROUP_ROW_BUILDERS:
+            yield from _get_billing_group_rows(session, config, logger)
         elif endpoint == "spend":
             yield from _get_spend_rows(session, config, logger, resumable_source_manager)
         else:

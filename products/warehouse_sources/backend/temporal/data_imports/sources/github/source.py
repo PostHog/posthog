@@ -347,6 +347,7 @@ class GithubSource(
                     ),
                     SourceFieldOauthAccountSelectConfig(
                         name="repositories",
+                        sync_setting=True,
                         label="Repositories",
                         integrationField="github_integration_id",
                         integrationKind="github",
@@ -359,6 +360,7 @@ class GithubSource(
                     # doubles as the marker for the repo whose schemas keep bare, unqualified names.
                     SourceFieldOauthAccountSelectConfig(
                         name="repository",
+                        sync_setting=True,
                         label="Repository",
                         integrationField="github_integration_id",
                         integrationKind="github",
@@ -961,7 +963,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         # against it, and the failed repos' manual setup instructions tell the user to reuse it.
         return WebhookCreationResult(
             success=False,
-            error="Failed to create the webhook in some repositories — " + "; ".join(failures),
+            error="Couldn't create the webhook in some repositories. " + "; ".join(failures),
             extra_inputs={"signing_secret": secret} if any_success else {},
         )
 

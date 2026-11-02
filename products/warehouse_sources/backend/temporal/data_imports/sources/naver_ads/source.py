@@ -126,7 +126,7 @@ class NaverAdsSource(ResumableSource[NaverAdsSourceConfig, NaverAdsResumeConfig]
             ),
             iconPath="/static/services/naver_ads.png",
             docsUrl="https://posthog.com/docs/cdp/sources/naver-ads",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

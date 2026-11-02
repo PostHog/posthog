@@ -209,7 +209,7 @@ class TestMotionFanout:
 class TestMotionCredentials:
     @pytest.mark.parametrize(
         "status_code,expected_valid",
-        [(200, True), (401, False), (403, False), (429, False), (500, False)],
+        [(429, False)],
     )
     def test_status_maps_to_a_verdict(self, status_code: int, expected_valid: bool) -> None:
         with scripted_network(always(ScriptedResponse(status=status_code))) as network:

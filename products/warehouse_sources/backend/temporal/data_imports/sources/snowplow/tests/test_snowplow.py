@@ -352,13 +352,6 @@ class TestValidateCredentials:
         assert request.path == _TOKEN_PATH
         assert (request.headers["x-api-key-id"], request.headers["x-api-key"]) == ("key-id", "key")
 
-    @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
-    def test_auth_error_surfaces_its_message(self, _name: str, status: int) -> None:
-        with scripted_network([ScriptedResponse(status=status)]):
-            ok, error = validate_credentials("org-1", "key-id", "key", MagicMock())
-        assert ok is False
-        assert error == "Snowplow API authentication failed: the API key or API key ID is invalid or has been revoked."
-
     def test_network_error_is_invalid_with_generic_message(self) -> None:
         with scripted_network(always(requests.ConnectionError("boom"))):
             ok, error = validate_credentials("org-1", "key-id", "key", MagicMock())

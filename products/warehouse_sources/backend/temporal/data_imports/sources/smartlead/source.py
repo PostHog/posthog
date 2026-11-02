@@ -54,7 +54,7 @@ class SmartleadSource(ResumableSource[SmartleadSourceConfig, SmartleadResumeConf
             name=ExternalDataSourceType.SMARTLEAD,
             category=DataWarehouseSourceCategory.SALES,
             label="Smartlead",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Smartlead API key to pull your cold email campaigns, leads, statistics, email accounts, and clients into the PostHog Data warehouse.
 
 Find or create your API key under **Settings → Smartlead API key** in your Smartlead account. The key has access to everything your account can see.""",

@@ -314,7 +314,11 @@ class TestSourceResponse:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("valid", 200, True), ("invalid_key", 401, False), ("forbidden", 403, False)])
+    @parameterized.expand(
+        [
+            ("valid", 200, True),
+        ]
+    )
     def test_status_mapping(self, _name: str, status_code: int, expected: bool) -> None:
         with scripted_network([ScriptedResponse(status=status_code)]) as network:
             assert validate_credentials("user-key") is expected

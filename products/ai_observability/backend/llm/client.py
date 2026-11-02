@@ -102,7 +102,7 @@ class Client:
 
 
 def _get_provider(name: str, provider_key: "LLMProviderKey | None" = None) -> "Provider":
-    """Get provider by name. Azure and OpenAI-compatible read extra config from provider_key."""
+    """Get provider by name. Anthropic, Azure and OpenAI-compatible read extra config from provider_key."""
     from typing import cast
 
     from products.ai_observability.backend.llm.providers.anthropic import AnthropicAdapter
@@ -114,13 +114,13 @@ def _get_provider(name: str, provider_key: "LLMProviderKey | None" = None) -> "P
     from products.ai_observability.backend.llm.providers.openai_compatible import OpenAICompatibleAdapter
     from products.ai_observability.backend.llm.providers.openrouter import OpenRouterAdapter
     from products.ai_observability.backend.llm.providers.together import TogetherAdapter
-    from products.ai_observability.backend.llm.providers.zeabur import ZeaburAdapter
 
     match name:
         case "openai":
             return cast("Provider", OpenAIAdapter())
         case "anthropic":
-            return cast("Provider", AnthropicAdapter())
+            config = provider_key.encrypted_config if provider_key else {}
+            return cast("Provider", AnthropicAdapter(foundry_endpoint=config.get("azure_endpoint", "")))
         case "gemini":
             return cast("Provider", GeminiAdapter())
         case "together_ai":
@@ -131,8 +131,6 @@ def _get_provider(name: str, provider_key: "LLMProviderKey | None" = None) -> "P
             return cast("Provider", FireworksAdapter())
         case "minimax":
             return cast("Provider", MiniMaxAdapter())
-        case "zeabur":
-            return cast("Provider", ZeaburAdapter())
         case "azure_openai":
             config = provider_key.encrypted_config if provider_key else {}
             return cast(

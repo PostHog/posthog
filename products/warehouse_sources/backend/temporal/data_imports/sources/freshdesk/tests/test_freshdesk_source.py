@@ -21,11 +21,6 @@ class TestFreshdeskSource:
         self.team_id = 1
         self.config = FreshdeskSourceConfig(subdomain="acme", api_key="key")
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["tickets"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "tickets"
-
     @pytest.mark.parametrize(
         "subdomain, status, schema_name, expected_valid",
         [

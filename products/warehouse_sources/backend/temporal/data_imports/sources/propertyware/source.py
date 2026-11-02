@@ -56,7 +56,7 @@ class PropertywareSource(ResumableSource[PropertywareSourceConfig, PropertywareR
             name=ExternalDataSourceType.PROPERTYWARE,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Propertyware (RealPage)",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["property management", "rentals", "realpage"],
             caption="""Enter your Propertyware API credentials to sync property, lease, and accounting data into the PostHog Data warehouse.
 

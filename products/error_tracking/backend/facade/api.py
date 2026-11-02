@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from django.db import transaction
 from django.db.models import QuerySet
 
 import posthoganalytics
@@ -16,8 +17,8 @@ from posthog.event_usage import AnalyticsProps, groups
 from products.access_control.backend.facade.api import valid_role_member_user_ids
 
 from .. import logic, weekly_digest, weekly_digest_delivery
-from ..indexed_embedding import EMBEDDING_TABLES
-from ..logic import external_references, github_external_references, rules
+from ..indexed_embedding import DOCUMENT_EMBEDDINGS_BUFFER_SHARDED_TABLE, EMBEDDING_TABLES
+from ..logic import built_in_filters, external_references, github_external_references, rules
 from ..models import (
     ErrorTrackingIssue,
     override_error_tracking_issue_fingerprint as override_error_tracking_issue_fingerprint,
@@ -37,6 +38,7 @@ ExternalReferenceValidationError = external_references.ErrorTrackingExternalRefe
 ReleaseHashInUseError = logic.ErrorTrackingReleaseHashInUseError
 InvalidBytecodeError = rules.ErrorTrackingInvalidBytecodeError
 SeverityRuleLimitError = rules.ErrorTrackingSeverityRuleLimitError
+UnknownBuiltInFilterError = built_in_filters.UnknownBuiltInFilterError
 
 SOURCE_MAPS_DOCS_URL = contracts.SOURCE_MAPS_DOCS_URL
 
@@ -190,6 +192,8 @@ def get_issue_basics(team_id: int, issue_id: UUID | str) -> contracts.ErrorTrack
         description=issue.description,
         status=issue.status,
         severity=issue.severity,
+        created_at=issue.created_at,
+        first_seen=getattr(issue, "first_seen", None),
     )
 
 
@@ -197,21 +201,27 @@ def resolve_fingerprints(team_id: int, issue_ids: list[str]) -> list[str]:
     return resolve_fingerprints_for_issues(team_id=team_id, issue_ids=issue_ids)
 
 
-def _to_settings(settings) -> contracts.ErrorTrackingSettings:
+def _to_settings(settings, ingestion_enabled: bool) -> contracts.ErrorTrackingSettings:
     return contracts.ErrorTrackingSettings(
         project_rate_limit_value=settings.project_rate_limit_value,
         project_rate_limit_bucket_size_minutes=settings.project_rate_limit_bucket_size_minutes,
         per_issue_rate_limit_value=settings.per_issue_rate_limit_value,
         per_issue_rate_limit_bucket_size_minutes=settings.per_issue_rate_limit_bucket_size_minutes,
+        ingestion_enabled=ingestion_enabled,
     )
 
 
 def get_settings(team_id: int) -> contracts.ErrorTrackingSettings:
-    return _to_settings(logic.get_or_create_settings(team_id))
+    return _to_settings(logic.get_or_create_settings(team_id), logic.is_exception_ingestion_enabled(team_id))
 
 
-def update_settings(team_id: int, fields: dict[str, int | None]) -> contracts.ErrorTrackingSettings:
-    return _to_settings(logic.update_settings(team_id=team_id, fields=fields))
+def update_settings(team_id: int, fields: dict[str, int | bool | None]) -> contracts.ErrorTrackingSettings:
+    ingestion_enabled = fields.get("ingestion_enabled")
+    with transaction.atomic():
+        if isinstance(ingestion_enabled, bool):
+            logic.set_exception_ingestion_enabled(team_id, ingestion_enabled)
+        settings = logic.update_settings(team_id=team_id, fields=fields)
+    return _to_settings(settings, logic.is_exception_ingestion_enabled(team_id))
 
 
 def _to_spike_detection_config(config) -> contracts.ErrorTrackingSpikeDetectionConfig:
@@ -566,6 +576,25 @@ def get_client_safe_suppression_rules(team_id: int) -> list[dict]:
     return rules.get_client_safe_suppression_rules(team_id)
 
 
+def _to_built_in_filter(state: built_in_filters.BuiltInFilterState) -> contracts.ErrorTrackingBuiltInFilter:
+    return contracts.ErrorTrackingBuiltInFilter(
+        key=state.definition.key,
+        name=state.definition.name,
+        description=state.definition.description,
+        evaluation=contracts.BuiltInFilterEvaluation(built_in_filters.built_in_filter_evaluation(state.definition)),
+        enabled=state.enabled,
+        disabled_reason=state.disabled_reason,
+    )
+
+
+def list_built_in_filters(team_id: int) -> list[contracts.ErrorTrackingBuiltInFilter]:
+    return [_to_built_in_filter(state) for state in built_in_filters.list_built_in_filters(team_id)]
+
+
+def set_built_in_filter_enabled(team_id: int, key: str, *, enabled: bool) -> contracts.ErrorTrackingBuiltInFilter:
+    return _to_built_in_filter(built_in_filters.set_built_in_filter_enabled(team_id, key, enabled=enabled))
+
+
 def _to_bypass_rule(rule) -> contracts.ErrorTrackingBypassRule:
     return contracts.ErrorTrackingBypassRule(
         id=rule.id,
@@ -812,3 +841,8 @@ def document_embedding_tables() -> list[DocumentEmbeddingTable]:
         )
         for table in EMBEDDING_TABLES
     ]
+
+
+def document_embeddings_buffer_table() -> str:
+    """The sharded buffer that holds every new document, in each model, until its TTL drops it."""
+    return DOCUMENT_EMBEDDINGS_BUFFER_SHARDED_TABLE

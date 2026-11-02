@@ -36,7 +36,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponsePaginator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -177,6 +180,11 @@ def _dependent_rows(
     assert config.fanout is not None
     parent_config = CALENDLY_ENDPOINTS[config.fanout.parent_name]
     organization = get_current_organization(token, base_url) if parent_config.scope_param == "organization" else None
+    child_endpoint_extra: Endpoint = (
+        {"paginator": "single_page", "data_selector": "resource"}
+        if config.single_resource
+        else {"paginator": _paginator(), "data_selector": "collection"}
+    )
 
     return build_dependent_resource(
         endpoint_configs=CALENDLY_ENDPOINTS,
@@ -192,13 +200,14 @@ def _dependent_rows(
         job_id=job_id,
         # No child endpoint here exposes a server-side time filter, so they all full refresh.
         db_incremental_field_last_value=None,
-        page_size_param="count",
+        # The parent's `count` already rides in `parent_params`, so this only sizes child pages.
+        page_size_param=None if config.single_resource else "count",
         parent_data_map=_with_parent_lookup_fields,
         # Both requests are declared explicitly because a child path carrying a `{placeholder}`
         # would otherwise be taken for a single-entity endpoint and paginated as one page. The
         # paginator is stateful, so parent and child each get their own instance.
         parent_endpoint_extra={"paginator": _paginator(), "data_selector": "collection"},
-        child_endpoint_extra={"paginator": _paginator(), "data_selector": "collection"},
+        child_endpoint_extra=child_endpoint_extra,
     )
 
 
@@ -281,7 +290,7 @@ def calendly_source(
     return SourceResponse(
         name=endpoint,
         items=items,
-        primary_keys=["uri"],
+        primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,

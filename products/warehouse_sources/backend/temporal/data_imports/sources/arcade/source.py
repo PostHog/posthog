@@ -90,7 +90,7 @@ class ArcadeSource(ResumableSource[ArcadeSourceConfig, ArcadeResumeConfig]):
             label="Arcade",
             keywords=["interactive demo", "product demo", "demo analytics"],
             iconPath="/static/services/arcade.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Requires an Arcade Enterprise workspace. Create an API key in Settings > Advanced. "
                 "Enable insights access for engagement data. Enable User provisioning for teams and users. "
@@ -118,6 +118,7 @@ class ArcadeSource(ResumableSource[ArcadeSourceConfig, ArcadeResumeConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Engagement start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,

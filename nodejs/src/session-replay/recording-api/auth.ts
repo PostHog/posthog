@@ -10,11 +10,11 @@ import { logger } from '~/common/utils/logger'
  *
  * Each route requires a team + operation scoped JWT (audience `posthog:recording_api`) minted by
  * an authorized service: the token's `team_id` must match the `:team_id` in the path and its `op`
- * must match the route (read vs delete). During migration the legacy `X-Internal-Api-Secret` is
+ * must match the route (read, delete or write). During migration the legacy `X-Internal-Api-Secret` is
  * accepted as a fallback while `allowLegacySecret` is true; the final cutover flips that flag off.
  */
 
-export type RecordingApiOp = 'read' | 'delete'
+export type RecordingApiOp = 'read' | 'delete' | 'write'
 
 // jsonwebtoken tolerates up to this many seconds of clock skew between minter and verifier.
 const CLOCK_TOLERANCE_SECONDS = 30

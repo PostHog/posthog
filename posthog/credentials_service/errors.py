@@ -50,27 +50,6 @@ class SecretMissingError(CredentialsSecretError):
         )
 
 
-class CredentialsServiceMisconfiguredError(CredentialsServiceFailure):
-    """Half-configured: one of the two variables is set and the other is not.
-
-    Both unset is a valid state — self-hosted and local development don't run the service, and
-    reading the environment is the whole point of the fallback. One without the other is a state
-    nobody chose, and it is invisible: it reads as "not configured", so credentials still mounted
-    as environment variables resolve as if the service answered, while the ones that have actually
-    moved raise SecretMissingError. Refuse instead, and name the variable to set.
-
-    Reportable: a deployment is wrong and only a deploy fixes it.
-    """
-
-    def __init__(self, missing: str) -> None:
-        self.missing = missing
-        super().__init__(
-            f"{missing} is not set. The credentials service client needs both "
-            f"CREDENTIALS_SERVICE_URL and CREDENTIALS_SERVICE_JWT_SECRET, or neither "
-            f"(which reads credentials from the environment, as self-hosted does)."
-        )
-
-
 class SecretInRecoveryError(CredentialsSecretError):
     """The credential is known-burned and has no valid replacement yet.
 

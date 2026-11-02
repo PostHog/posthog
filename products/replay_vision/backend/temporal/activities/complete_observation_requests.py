@@ -18,12 +18,12 @@ def _complete_observation_requests() -> int:
     )
 
     # Isolated so a failure in one sweep still lets the other run; each also keeps to its own time budget.
-    with bounded_queries(COMPLETE_OBSERVATION_REQUESTS_TIMEOUT):
+    with bounded_queries(COMPLETE_OBSERVATION_REQUESTS_TIMEOUT) as query_deadline:
         try:
             start_waiting_requests()
         except Exception:
             activity.logger.exception("Starting waiting observation requests failed")
-        return complete_settled_requests()
+        return complete_settled_requests(query_deadline=query_deadline)
 
 
 @activity.defn

@@ -444,6 +444,14 @@ describe('experimentReplayTabLogic', () => {
         // event-shaped stands in for it in the filter tree.
         expect(recordingsFilters.experiment_exposure).toEqual({ experiment_id: 42 })
         expect(recordingsFilters.filter_group).toEqual(EMPTY_FILTER_GROUP)
+
+        // Criteria without the key exclude test accounts from the results, so the filter bar must show them excluded.
+        const withoutKey = experimentReplayTabLogic({
+            experiment: { ...EXPERIMENT, id: 69, exposure_criteria: {} } as Experiment,
+        })
+        withoutKey.mount()
+        expect(withoutKey.values.recordingsFilters.filter_test_accounts).toBe(true)
+        withoutKey.unmount()
     })
 
     it('keeps the selected variant across remounts, in step with the playlist persisting its filters', async () => {

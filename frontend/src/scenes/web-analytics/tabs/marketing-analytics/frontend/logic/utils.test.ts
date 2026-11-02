@@ -595,6 +595,16 @@ describe('marketing analytics utils', () => {
             expect(mathHogql).not.toContain(`${costColumn} / 1000000`)
         })
 
+        it.each(['cpc', 'cost_per_reported_conversion', 'roas'] as const)(
+            'converts Google Ads %s to the project currency',
+            (metric) => {
+                const source = makeMockSource('GoogleAds', sourceFields.GoogleAds)
+                expect(createMarketingTile(source, metric, 'EUR')?.math_hogql).toContain(
+                    "convertCurrency(coalesce(customer_currency_code, 'EUR'), 'EUR'"
+                )
+            }
+        )
+
         const testCases = VALID_NATIVE_MARKETING_SOURCES.flatMap((sourceType) =>
             ALL_TILE_COLUMNS.map(
                 (column) =>

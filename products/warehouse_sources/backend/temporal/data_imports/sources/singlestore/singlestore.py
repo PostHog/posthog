@@ -227,7 +227,5 @@ def singlestore_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        # Full-refresh endpoints have no server-side order guarantee; billing_usage requests
-        # `startTime` ascending via the incremental window, so asc holds for every endpoint.
-        sort_mode="asc",
+        # No `sort_mode`: billing_usage rows come in one group per metric, so `startTime` has no order.
     )

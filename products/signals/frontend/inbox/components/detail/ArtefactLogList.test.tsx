@@ -21,6 +21,18 @@ describe('ArtefactLogList', () => {
     })
 
     it.each([
+        ['resolved', 'already_fixed', 'Report resolved', 'Already fixed'],
+        ['resolved', 'no_action_needed', 'Report resolved', 'No action needed'],
+        ['suppressed', 'already_fixed', 'Report dismissed', 'Already fixed'],
+        ['potential', 'other', 'Report snoozed', 'Something else…'],
+        [undefined, 'already_fixed', 'Report feedback added', 'Already fixed'],
+    ])('labels feedback by its recorded verdict %s and reason %s', (state, reason, title, reasonLabel) => {
+        render(<ArtefactLogList reportId="report-1" artefacts={[makeArtefact({ state, reason }, 'dismissal')]} />)
+        expect(screen.getByText(title)).toBeInTheDocument()
+        expect(screen.getByText(reasonLabel)).toBeInTheDocument()
+    })
+
+    it.each([
         ['a replacement recommendation', true, undefined, 'Replacement recommended'],
         ['a kept PR', false, undefined, 'Still the right fix'],
         ['a capped request', false, 'revision_limit', 'Replacement limit reached'],
@@ -54,6 +66,54 @@ describe('ArtefactLogList', () => {
         )
         expect(screen.getByText('Inconclusive')).toBeInTheDocument()
         expect(screen.getByText('The measurement window cannot fit before expiry.')).toBeInTheDocument()
+    })
+
+    it.each([
+        ['on track', 8, { operator: 'lte', value: 30 }, 'number', 'at most 30'],
+        ['not on track', 35, { operator: 'lte', value: 30 }, 'number', 'at most 30'],
+        ['not on track', 10, { operator: 'gte', value: 10.00011574 }, 'count', 'at least 10.00011574'],
+        ['not on track', 10, { operator: 'lte', value: 9.99988426 }, 'count', 'at most 9.99988426'],
+        [
+            'not on track',
+            10,
+            { operator: 'between', bounds: { lower: 10.00011574, upper: 20.00011574 } },
+            'count',
+            'between 10.00011574 errors and 20.00011574',
+        ],
+        [
+            'not on track',
+            10,
+            { operator: 'between', bounds: { lower: 0, upper: 9.99988426 } },
+            'count',
+            'between 0 errors and 9.99988426',
+        ],
+    ])('shows the %s observation without hiding the goal (%s, %j)', (status, value, comparison, value_format, goal) => {
+        render(
+            <ArtefactLogList
+                reportId="report-1"
+                artefacts={[
+                    makeArtefact(
+                        {
+                            title: 'Checkout errors stay low',
+                            observed_value: value,
+                            comparison,
+                            value_format,
+                            matches: status === 'on track',
+                            unit: 'errors',
+                            measured_at: '2026-10-04T12:00:00Z',
+                            monitoring_ends_at: '2026-10-05T00:00:00Z',
+                            explanation: 'Interim measurement: legacy wording',
+                        },
+                        'check_observation'
+                    ),
+                ]}
+            />
+        )
+        expect(screen.getByText(status).tagName).toBe('STRONG')
+        expect(screen.getByText(`Measured ${value} errors against a goal of ${goal} errors.`)).toBeInTheDocument()
+        expect(screen.getByText('12h of monitoring remained at this measurement.')).toBeInTheDocument()
+        expect(screen.getAllByText('Interim measurement')).toHaveLength(1)
+        expect(screen.queryByText(/legacy wording/)).not.toBeInTheDocument()
     })
 
     it('links the selected predecessors when a replacement starts', () => {
@@ -247,7 +307,7 @@ describe('ArtefactLogList', () => {
 
         expect(screen.getByText('Ranking scored')).toBeInTheDocument()
         expect(screen.getByText('Open')).toBeInTheDocument()
-        expect(screen.getByText('Engage')).toBeInTheDocument()
+        expect(screen.getByText('Action')).toBeInTheDocument()
         expect(screen.getByText('Fix')).toBeInTheDocument()
         // The scores keep their display order. The other heads sort highest lift first, and stored lifts win over the metadata threshold.
         expect(screen.getAllByText(/^[\d.]+x$/).map((node) => node.textContent)).toEqual([
