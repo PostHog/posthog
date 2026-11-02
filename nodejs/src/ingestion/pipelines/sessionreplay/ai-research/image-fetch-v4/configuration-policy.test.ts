@@ -6,7 +6,7 @@ import {
     ConfigurationFetchResult,
     ConfigurationPolicyService,
     HttpConfigurationFetcher,
-    applicableRobotsBody,
+    collectRobots,
     explicitFreshnessLifetimeMs,
     parseRobotsPolicy,
     responseOptOutReason,
@@ -154,7 +154,7 @@ describe('robots policy', () => {
             'Allow: /second/public.png',
         ].join('\n')
 
-        expect(applicableRobotsBody(body, robotsParser)).toBe(
+        expect(collectRobots(body, robotsParser).applicableBody()).toBe(
             [
                 'User-agent:PostHogImageFetcherBot',
                 'Disallow:/first',
