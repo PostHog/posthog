@@ -1,5 +1,5 @@
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from django.utils import timezone
 
@@ -129,8 +129,15 @@ class TestRemoveSuppressionResetsSource(APIBaseTest):
             "remove_suppression must reset the row so the node write path can auto-suppress this address again if it later bounces"
         )
 
-    def test_remove_clears_the_ses_account_suppression_on_cloud(self) -> None:
+    @parameterized.expand([("hard_bounced_row", True), ("manual_row_without_a_bounce", False)])
+    def test_remove_clears_the_ses_account_suppression_only_after_a_hard_bounce(
+        self, _name: str, hard_bounced: bool
+    ) -> None:
         self.client.post(self._url("add_suppression"), {"identifier": "user@example.com"}, format="json")
+        if hard_bounced:
+            MessageSuppression.objects.for_team(self.team.id).filter(identifier="user@example.com").update(
+                hard_bounced_at=timezone.now()
+            )
 
         with (
             patch("products.messaging.backend.services.suppression.is_cloud", return_value=True),
@@ -144,4 +151,4 @@ class TestRemoveSuppressionResetsSource(APIBaseTest):
             )
 
         assert response.status_code == 204
-        clear_ses.assert_called_once_with("user@example.com")
+        assert clear_ses.call_args_list == ([call("user@example.com")] if hard_bounced else [])
