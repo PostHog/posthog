@@ -2149,10 +2149,11 @@ describe('EmailService', () => {
             expect(result.capturedPostHogEvents).toHaveLength(0)
         })
 
-        it('should capture a $workflows_email_failed PostHog event on failure', async () => {
+        it('should capture a $workflows_email_failed PostHog event with the message id when a transactional send fails', async () => {
             jest.spyOn((service as any).teamWorkflowsConfigService, 'shouldCaptureEngagementEvents').mockResolvedValue(
                 true
             )
+            invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
             sendEmailSpy.mockRejectedValue(new Error('SES error'))
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeDefined()
@@ -2160,6 +2161,7 @@ describe('EmailService', () => {
             expect(result.capturedPostHogEvents[0]).toMatchObject({
                 event: '$workflows_email_failed',
                 distinct_id: 'distinct_id',
+                properties: { $email_message_id: invocation.id },
             })
         })
     })
