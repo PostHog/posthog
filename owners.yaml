@@ -45,19 +45,27 @@ teams:
         notifications:
             stamphog: false
 rules:
-    - match: Dockerfile.llm-analytics
+    - match:
+          - '/packages/llm-normalizer/'
+          - Dockerfile.llm-analytics
       owners: team-ai-observability
     - match:
-          - Dockerfile
-          - 'docker-compose*.yml'
           - '.prettierrc'
           - '.test_quarantine.json'
-          - hogli.yaml
-          - tach.toml
-          - CLAUDE.md
-          - AGENTS.md
           - '/.coderabbit.yaml'
           - '/.greptile/'
+          - '/common/esbuilder/'
+          - '/frontend/src/mocks/'
+          - '/frontend/src/test/*'
+          - '/tools/*'
+          - '/tools/hogbox-preview/'
+          - '/tools/workflow-plan/'
+          - AGENTS.md
+          - CLAUDE.md
+          - Dockerfile
+          - 'docker-compose*.yml'
+          - hogli.yaml
+          - tach.toml
       owners: team-devex
     # Every owners.yaml routes to devex (unanchored: matches at any depth)
     # unless a nearer file or rule claims it — ownership-policy edits must
@@ -77,11 +85,26 @@ rules:
       owners: team-devex
     - match: '/bin/inject_mcp_intents.py'
       owners: mcp-analytics
-    - match: '/.agents/skills/manage-dashboard-widgets/'
+    - match:
+          - '/.agents/skills/manage-dashboard-widgets/'
+          - '/frontend/src/exporter/ExportedInsight/'
+          - '/frontend/src/exporter/scenes/'
+          - '/frontend/src/queries/nodes/DataTable/'
+          - '/frontend/src/queries/nodes/DataVisualization/*'
+          - '/frontend/src/queries/nodes/DataVisualization/Components/Charts/'
+          - '/frontend/src/queries/nodes/DataVisualization/Components/Heatmap/'
+          - '/frontend/src/queries/nodes/DataVisualization/Components/Variables/'
+          - '/frontend/src/queries/nodes/InsightQuery/'
+          - '/frontend/src/queries/nodes/InsightViz/'
+          - '/frontend/src/test/insight-testing/'
+          - '/playwright/e2e/persons/'
+          - '/playwright/e2e/product-analytics/insights/'
       owners: team-product-analytics
     - match: '/.claude/'
       owners: team-devex
-    - match: '/.claude/agents/ingestion/'
+    - match:
+          - '/.claude/agents/ingestion/'
+          - '/common/ingestion/'
       owners: team-ingestion
     - match: '/bin/start-llm-gateway'
       owners: [team-devex, team-agent-infrastructure]
@@ -93,8 +116,20 @@ rules:
     - match: '/docs/published/handbook/engineering/developing-locally.md'
       owners: team-devex
     - match:
+          - '/frontend/src/layout/ErrorBoundary/'
+          - '/frontend/src/layout/navigation-3000/*'
+          - '/frontend/src/layout/navigation/Breadcrumbs/'
+          - '/frontend/src/layout/panel-layout/*'
+          - '/frontend/src/layout/panel-layout/ProjectTree/'
+          - '/frontend/src/layout/panel-layout/navbar/*'
+          - '/frontend/src/lib/charts/'
+          - '/frontend/src/lib/forms/'
+          - '/frontend/src/lib/hooks/'
           - '/frontend/src/lib/lemon-ui/'
+          - '/frontend/src/lib/logic/scenes/'
+          - '/frontend/src/lib/memory/'
           - '/frontend/src/lib/ui/'
+          - '/frontend/src/taxonomy/'
       owners: platform-ux
     # Platform UX owns the nav rail and the UI rules file, so every change to them goes to that team, however small.
     - match:
@@ -126,7 +161,11 @@ rules:
           - '/posthog/ingress/'
           - '/posthog/urls.py'
       owners: team-devex
-    - match: '/posthog/helpers/email_utils.py'
+    - match:
+          - '/frontend/src/layout/navigation-3000/sidepanel/panels/access_control/ResourceAccessControlsV2/'
+          - '/frontend/src/layout/navigation-3000/sidepanel/panels/activity/'
+          - '/frontend/src/layout/navigation/ImpersonationNotice/'
+          - '/posthog/helpers/email_utils.py'
       owners: team-platform-features
     - match: '/posthog/test/activity_logging/'
       owners: team-platform-features
@@ -216,72 +255,19 @@ rules:
           - '/cli/*'
           - '/hog/*'
       additions: team-devex
-    - match:
-          - '/common/hogvm/'
+    - match: '/common/hogvm/'
       owners: hogql
-    - match:
-          - '/frontend/src/layout/ErrorBoundary/'
-          - '/frontend/src/layout/navigation-3000/*'
-          - '/frontend/src/layout/navigation/Breadcrumbs/'
-          - '/frontend/src/layout/panel-layout/*'
-          - '/frontend/src/layout/panel-layout/ProjectTree/'
-          - '/frontend/src/layout/panel-layout/navbar/*'
-          - '/frontend/src/lib/charts/'
-          - '/frontend/src/lib/forms/'
-          - '/frontend/src/lib/hooks/'
-          - '/frontend/src/lib/logic/scenes/'
-          - '/frontend/src/lib/memory/'
-          - '/frontend/src/taxonomy/'
-      owners: platform-ux
-    - match:
-          - '/packages/llm-normalizer/'
-      owners: team-ai-observability
-    - match:
-          - '/frontend/src/lib/monaco/languages/'
+    - match: '/frontend/src/lib/monaco/languages/'
       owners: team-apm
-    - match:
-          - '/frontend/src/queries/nodes/HogQLX/'
+    - match: '/frontend/src/queries/nodes/HogQLX/'
       owners: team-data-tools
-    - match:
-          - '/common/esbuilder/'
-          - '/frontend/src/mocks/'
-          - '/frontend/src/test/*'
-          - '/tools/*'
-          - '/tools/hogbox-preview/'
-          - '/tools/workflow-plan/'
-      owners: team-devex
-    - match:
-          - '/playwright/e2e/experiments/'
+    - match: '/playwright/e2e/experiments/'
       owners: team-experiments
-    - match:
-          - '/common/ingestion/'
-      owners: team-ingestion
-    - match:
-          - '/frontend/src/layout/navigation-3000/sidepanel/panels/access_control/ResourceAccessControlsV2/'
-          - '/frontend/src/layout/navigation-3000/sidepanel/panels/activity/'
-          - '/frontend/src/layout/navigation/ImpersonationNotice/'
-      owners: team-platform-features
-    - match:
-          - '/frontend/src/exporter/ExportedInsight/'
-          - '/frontend/src/exporter/scenes/'
-          - '/frontend/src/queries/nodes/DataTable/'
-          - '/frontend/src/queries/nodes/DataVisualization/*'
-          - '/frontend/src/queries/nodes/DataVisualization/Components/Charts/'
-          - '/frontend/src/queries/nodes/DataVisualization/Components/Heatmap/'
-          - '/frontend/src/queries/nodes/DataVisualization/Components/Variables/'
-          - '/frontend/src/queries/nodes/InsightQuery/'
-          - '/frontend/src/queries/nodes/InsightViz/'
-          - '/frontend/src/test/insight-testing/'
-          - '/playwright/e2e/persons/'
-          - '/playwright/e2e/product-analytics/insights/'
-      owners: team-product-analytics
     - match:
           - '/common/replay-headless/'
           - '/common/replay-shared/'
       owners: team-replay
-    - match:
-          - '/frontend/src/lib/signals/'
+    - match: '/frontend/src/lib/signals/'
       owners: team-self-driving
-    - match:
-          - '/frontend/src/layout/navigation-3000/sidepanel/panels/max/'
+    - match: '/frontend/src/layout/navigation-3000/sidepanel/panels/max/'
       owners: team-surfaces

@@ -1,7 +1,11 @@
 version: 1
 owners: []
 rules:
-    - match: ['/actor_strategies.py', '/actors_query_runner.py']
+    - match:
+          - '/actor_strategies.py'
+          - '/actors_query_runner.py'
+          - '/legacy_compatibility/'
+          - '/validation/'
       owners: team-product-analytics
     - match: '/ai/'
       owners: team-ai-observability
@@ -32,8 +36,4 @@ rules:
               '/utils/properties.py',
               '/utils/utils.py',
           ]
-      owners: team-product-analytics
-    - match:
-          - '/legacy_compatibility/'
-          - '/validation/'
       owners: team-product-analytics

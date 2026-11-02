@@ -3,11 +3,17 @@ owners: []
 rules:
     - match: '/ai_observability/'
       owners: team-ai-observability
-    - match: '/alerts/'
+    - match:
+          - '/alerts/'
+          - '/tests/cleanup_property_definitions/'
       owners: team-product-analytics
     - match: '/data_modeling/'
       owners: team-data-modeling
-    - match: '/delete_persons/'
+    - match:
+          - '/delete_persons/'
+          - '/ingestion_acceptance_test/'
+          - '/tests/delete_persons/'
+          - '/tests/ingestion_acceptance_test/'
       owners: team-ingestion
     - match: '/experiments/'
       owners: team-experiments
@@ -21,39 +27,17 @@ rules:
       owners: team-workflows
     - match: '/product_analytics/'
       owners: team-product-analytics
-    - match: '/proxy_service/'
-      owners: team-platform-features
-    - match: '/quota_limiting/'
-      owners: team-billing
-    - match: '/session_replay/'
-      owners: team-replay
-    - match: '/sync_person_distinct_ids/'
-      owners: team-ingestion
-    - match: '/tests/weekly_digest/'
-      owners: team-growth
-    - match: '/usage_report/'
-      owners: team-billing
-    - match: '/weekly_digest/'
-      owners: team-growth
     - match:
+          - '/proxy_service/'
+          - '/tests/delete_teams/'
+      owners: team-platform-features
+    - match:
+          - '/quota_limiting/'
           - '/tests/salesforce_enrichment/'
           - '/tests/usage_report/'
       owners: team-billing
     - match:
-          - '/health_checks/'
-      owners: team-growth
-    - match:
-          - '/ingestion_acceptance_test/'
-          - '/tests/delete_persons/'
-          - '/tests/ingestion_acceptance_test/'
-      owners: team-ingestion
-    - match:
-          - '/tests/delete_teams/'
-      owners: team-platform-features
-    - match:
-          - '/tests/cleanup_property_definitions/'
-      owners: team-product-analytics
-    - match:
+          - '/session_replay/'
           - '/tests/session_replay/count_playlist_items/'
           - '/tests/session_replay/delete_recordings/'
           - '/tests/session_replay/enforce_max_replay_retention/'
@@ -62,6 +46,15 @@ rules:
           - '/tests/session_replay/surfacing_score_export_sweep/'
           - '/tests/session_replay/surfacing_scoring_sweep/'
       owners: team-replay
+    - match: '/sync_person_distinct_ids/'
+      owners: team-ingestion
     - match:
-          - '/tests/warehouse_sources_queue_partition_management/'
+          - '/health_checks/'
+          - '/tests/weekly_digest/'
+      owners: team-growth
+    - match: '/usage_report/'
+      owners: team-billing
+    - match: '/weekly_digest/'
+      owners: team-growth
+    - match: '/tests/warehouse_sources_queue_partition_management/'
       owners: team-warehouse-sources

@@ -1,7 +1,9 @@
 version: 1
 owners: []
 rules:
-    - match: '/api/agentic_provisioning/'
+    - match:
+          - '/api/agentic_provisioning/'
+          - '/partners/'
       owners: team-growth
     - match: ['/api/billing.py', '/api/test/test_billing.py', '/billing/']
       owners: team-billing
@@ -15,18 +17,11 @@ rules:
       owners: team-replay
     - match: '/surveys/'
       owners: conversations
-    - match:
-          - '/clickhouse/test/'
+    - match: '/clickhouse/test/'
       owners: clickhouse
-    - match:
-          - '/clickhouse/views/'
+    - match: '/clickhouse/views/'
       owners: team-experiments
-    - match:
-          - '/clickhouse/queries/'
+    - match: '/clickhouse/queries/'
       owners: team-feature-flags
-    - match:
-          - '/partners/'
-      owners: team-growth
-    - match:
-          - '/api/tests/'
+    - match: '/api/tests/'
       owners: team-surfaces

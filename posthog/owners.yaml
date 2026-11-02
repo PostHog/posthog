@@ -3,15 +3,27 @@ owners: []
 rules:
     - match: '/caching/'
       owners: team-analytics-platform
-    - match: '/clickhouse/hcl/'
+    - match:
+          - '/clickhouse/*'
+          - '/clickhouse/hcl/'
+          - '/user_scripts/'
       owners: clickhouse
     - match:
           - '/csp_middleware.py'
           - '/test/test_csp_middleware.py'
       owners: team-security
-    - match: '/data_freshness.py'
+    - match:
+          - '/data_freshness.py'
+          - '/session/'
       owners: team-platform-features
-    - match: '/egress/'
+    - match:
+          - '/async_migrations/'
+          - '/egress/'
+          - '/local_bootstrap/'
+          - '/management/migration_profiling/'
+          - '/ownership/'
+          - '/scheduling/'
+          - '/slo/'
       owners: team-devex
     - match: '/email.py'
       owners: team-platform-features
@@ -32,7 +44,10 @@ rules:
       owners: team-platform-features
     - match: '/slack/'
       owners: team-devex
-    - match: '/taxonomy/'
+    - match:
+          - '/resource_limits/'
+          - '/schema_migrations/'
+          - '/taxonomy/'
       owners: team-product-analytics
     - match: '/templates/surveys/'
       owners: conversations
@@ -43,42 +58,19 @@ rules:
       sensitive: true
     - match: '*llm_prompt*.py'
       owners: team-experiments
-    - match:
-          - '/clickhouse/*'
-          - '/user_scripts/'
-      owners: clickhouse
-    - match:
-          - '/taxonomic_search_intent/'
+    - match: '/taxonomic_search_intent/'
       owners: platform-ux
-    - match:
-          - '/usage_ingestion/'
+    - match: '/usage_ingestion/'
       owners: team-billing
-    - match:
-          - '/async_migrations/'
-          - '/local_bootstrap/'
-          - '/management/migration_profiling/'
-          - '/ownership/'
-          - '/scheduling/'
-          - '/slo/'
-      owners: team-devex
     - match:
           - '/kafka_client/'
           - '/personhog_client/'
       owners: team-ingestion
     - match:
-          - '/session/'
-      owners: team-platform-features
-    - match:
-          - '/resource_limits/'
-          - '/schema_migrations/'
-      owners: team-product-analytics
-    - match:
           - '/query_cache/'
           - '/query_scan/'
       owners: team-query-performance
-    - match:
-          - '/object_tags/'
+    - match: '/object_tags/'
       owners: team-surfaces
-    - match:
-          - '/plugins/'
+    - match: '/plugins/'
       owners: team-workflows

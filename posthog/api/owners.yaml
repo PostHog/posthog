@@ -1,7 +1,10 @@
 version: 1
 owners: []
 rules:
-    - match: ['/cohort.py', '/test/test_cohort.py']
+    - match:
+          - '/cohort.py'
+          - '/test/rust_integration/'
+          - '/test/test_cohort.py'
       owners: team-feature-flags
     - match: '/comments.py'
       owners: conversations
@@ -19,18 +22,15 @@ rules:
       owners: team-growth
     - match: ['/person.py', '/test/test_person.py', '/test/test_person_personhog.py']
       owners: team-product-analytics
-    - match: ['/proxy_record.py', '/proxy_record_diagnostics.py', '/resource_transfer.py']
+    - match:
+          - '/advanced_activity_logs/'
+          - '/proxy_record.py'
+          - '/proxy_record_diagnostics.py'
+          - '/resource_transfer.py'
       owners: team-platform-features
     - match: '/schema_property_group.py'
       owners: team-product-analytics
     - match: ['/test/test_proxy_record.py', '/test/test_proxy_record_diagnostics.py']
       owners: team-platform-features
-    - match:
-          - '/test/notebooks/'
+    - match: '/test/notebooks/'
       owners: team-data-tools
-    - match:
-          - '/test/rust_integration/'
-      owners: team-feature-flags
-    - match:
-          - '/advanced_activity_logs/'
-      owners: team-platform-features

@@ -3,7 +3,10 @@ owners: []
 rules:
     - match: '/HogQLEditor/'
       owners: team-data-tools
-    - match: '/LiveUserCount/'
+    - match:
+          - '/AccountAssignmentFilter/'
+          - '/LiveUserCount/'
+          - '/PathCleanFilters/'
       owners: team-web-analytics
     - match: '/MarkdownNotebook/'
       owners: team-data-tools
@@ -11,9 +14,17 @@ rules:
     - match: '/NavPanelAdvertisement/'
       owners: team-growth
       sensitive: true
-    - match: '/ProductEmptyState/'
+    - match:
+          - '/HTMLElementsDisplay/'
+          - '/ProductEmptyState/'
+          - '/ProductSetup/'
       owners: team-growth
-    - match: '/ReverseProxyChecker/'
+    - match:
+          - '/Account/'
+          - '/ActivityLog/activityDescriptions/'
+          - '/NotificationsMenu/'
+          - '/ReverseProxyChecker/'
+          - '/TimeSensitiveAuthentication/'
       owners: team-platform-features
     - match: '/RichContentEditor/'
       owners: team-data-tools
@@ -54,14 +65,11 @@ rules:
           - '/TimezoneSelect/'
           - '/UniversalFilters/'
       owners: platform-ux
-    - match:
-          - '/ViewTraceButton/'
+    - match: '/ViewTraceButton/'
       owners: team-apm
-    - match:
-          - '/PayGateMini/'
+    - match: '/PayGateMini/'
       owners: team-billing
-    - match:
-          - '/VisualImageDiffViewer/'
+    - match: '/VisualImageDiffViewer/'
       owners: team-devex
     - match:
           - '/Errors/'
@@ -73,16 +81,6 @@ rules:
           - '/FlagCalledMoveNotice/'
           - '/FlagCalledRebuildBanner/'
       owners: team-feature-flags
-    - match:
-          - '/HTMLElementsDisplay/'
-          - '/ProductSetup/'
-      owners: team-growth
-    - match:
-          - '/Account/'
-          - '/ActivityLog/activityDescriptions/'
-          - '/NotificationsMenu/'
-          - '/TimeSensitiveAuthentication/'
-      owners: team-platform-features
     - match:
           - '/AddToDashboard/'
           - '/AnalyticsMetricCard/'
@@ -99,13 +97,8 @@ rules:
           - '/IngestionControls/'
           - '/ViewRecordingButton/'
       owners: team-replay
-    - match:
-          - '/AgentObjectTags/'
+    - match: '/AgentObjectTags/'
       owners: team-surfaces
-    - match:
-          - '/AccountAssignmentFilter/'
-          - '/PathCleanFilters/'
-      owners: team-web-analytics
     - match:
           - '/AppMetrics/'
           - '/CyclotronJob/integrations/'

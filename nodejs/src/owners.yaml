@@ -3,29 +3,10 @@ owners: []
 rules:
     - match: '/ai-observability/'
       owners: team-ai-observability
-    - match: '/cdp/'
+    - match:
+          - '/cdp/'
+          - '/messaging/'
       owners: team-workflows
-    - match: '/ingestion/'
-      owners: team-ingestion
-    - match: '/ingestion/pipelines/sessionreplay/'
-      owners: [team-replay, team-ingestion]
-    - match:
-          - '/ingestion/pipelines/sessionreplay/ml-mirror/'
-          - '/ingestion/pipelines/sessionreplay/ml-mirror-*/'
-      owners: ai-research
-    - match: '/session-replay/recording-rasterizer/'
-      owners: team-replay
-    - match:
-          - '/logs/metrics-rules/'
-          - '/logs/pipeline/'
-          - '/logs/retention/'
-          - '/logs/sampling/'
-          - '/logs/services/'
-          - '/logs/transformations/'
-      owners: team-apm
-    - match:
-          - '/common/usage-ingestion/'
-      owners: team-billing
     - match:
           - '/common/api/'
           - '/common/config/'
@@ -36,10 +17,25 @@ rules:
           - '/common/persons/'
           - '/common/tracing/'
           - '/common/utils/event-ingestion-restrictions/'
+          - '/ingestion/'
       owners: team-ingestion
+    - match: '/ingestion/pipelines/sessionreplay/'
+      owners: [team-replay, team-ingestion]
+    - match:
+          - '/ingestion/pipelines/sessionreplay/ml-mirror/'
+          - '/ingestion/pipelines/sessionreplay/ml-mirror-*/'
+      owners: ai-research
     - match:
           - '/session-replay/recording-api/'
+          - '/session-replay/recording-rasterizer/'
       owners: team-replay
     - match:
-          - '/messaging/'
-      owners: team-workflows
+          - '/logs/metrics-rules/'
+          - '/logs/pipeline/'
+          - '/logs/retention/'
+          - '/logs/sampling/'
+          - '/logs/services/'
+          - '/logs/transformations/'
+      owners: team-apm
+    - match: '/common/usage-ingestion/'
+      owners: team-billing
