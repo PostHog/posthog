@@ -683,7 +683,7 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
                     scan.window_exprs,
                 )
             )
-            or not all(isinstance(column, ast.Alias) for column in scan.select)
+            or not all(isinstance(column, ast.Alias) and isinstance(column.expr, ast.Field) for column in scan.select)
             or any(node.set_operator != "UNION ALL" for node in union.subsequent_select_queries)
         ):
             return None

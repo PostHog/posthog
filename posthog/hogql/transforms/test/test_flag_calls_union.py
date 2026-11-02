@@ -697,6 +697,15 @@ class TestReadFlagCallsWithUnion(BaseTest):
         assert UNION_EXPANSION in sql
         assert "LIMIT 10) AS e" not in sql
 
+    def test_union_scan_pushdown_ignores_a_user_written_aggregating_subquery(self):
+        sql = self._sql(
+            "SELECT s.n FROM (SELECT count() AS n FROM (SELECT event FROM events UNION ALL SELECT event FROM events)) "
+            "AS s LEFT JOIN persons AS p ON p.id = s.n WHERE s.n > 0 LIMIT 10",
+            persons_on_events=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+        )
+
+        assert "WHERE greater(count()" not in sql
+
     def test_persons_join_runs_one_override_join(self):
         sql = self._sql(
             f"SELECT person_id, person.properties.email FROM events WHERE {MIXED}",
