@@ -16,53 +16,6 @@ import {
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const SelfDrivingActivationGetSchema = () => z.object({})
-
-const selfDrivingActivationGet = (): ToolBase<
-    ReturnType<typeof SelfDrivingActivationGetSchema>,
-    Schemas.SelfDrivingActivationPreview
-> => ({
-    name: 'self-driving-activation-get',
-    schema: SelfDrivingActivationGetSchema(),
-    handler: async (context: Context, _params: z.infer<ReturnType<typeof SelfDrivingActivationGetSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.SelfDrivingActivationPreview>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/onboarding/activation/`,
-        })
-        return result
-    },
-})
-
-const SelfDrivingActivateSchema = () => {
-    const SignalsOnboardingActivateCreateBody = orvalSchemas.SignalsOnboardingActivateCreateBody()
-    return SignalsOnboardingActivateCreateBody
-}
-
-const selfDrivingActivate = (): ToolBase<
-    ReturnType<typeof SelfDrivingActivateSchema>,
-    Schemas.SelfDrivingActivationPreview
-> => ({
-    name: 'self-driving-activate',
-    schema: SelfDrivingActivateSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof SelfDrivingActivateSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.expected_activation_mode !== undefined) {
-            body['expected_activation_mode'] = params.expected_activation_mode
-        }
-        if (params.expected_automatic_implementation !== undefined) {
-            body['expected_automatic_implementation'] = params.expected_automatic_implementation
-        }
-        const result = await context.api.request<Schemas.SelfDrivingActivationPreview>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/onboarding/activate/`,
-            body,
-        })
-        return result
-    },
-})
-
 const ActivitySummaryGetSchema = () => z.object({})
 
 const activitySummaryGet = (): ToolBase<ReturnType<typeof ActivitySummaryGetSchema>, Schemas.ActivitySummary> => ({
@@ -2951,6 +2904,53 @@ const scoutTrialStart = (): ToolBase<ReturnType<typeof ScoutTrialStartSchema>, u
     },
 })
 
+const SelfDrivingActivateSchema = () => {
+    const SignalsOnboardingActivateCreateBody = orvalSchemas.SignalsOnboardingActivateCreateBody()
+    return SignalsOnboardingActivateCreateBody
+}
+
+const selfDrivingActivate = (): ToolBase<
+    ReturnType<typeof SelfDrivingActivateSchema>,
+    Schemas.SelfDrivingActivationPreview
+> => ({
+    name: 'self-driving-activate',
+    schema: SelfDrivingActivateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof SelfDrivingActivateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.expected_activation_mode !== undefined) {
+            body['expected_activation_mode'] = params.expected_activation_mode
+        }
+        if (params.expected_automatic_implementation !== undefined) {
+            body['expected_automatic_implementation'] = params.expected_automatic_implementation
+        }
+        const result = await context.api.request<Schemas.SelfDrivingActivationPreview>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/onboarding/activate/`,
+            body,
+        })
+        return result
+    },
+})
+
+const SelfDrivingActivationGetSchema = () => z.object({})
+
+const selfDrivingActivationGet = (): ToolBase<
+    ReturnType<typeof SelfDrivingActivationGetSchema>,
+    Schemas.SelfDrivingActivationPreview
+> => ({
+    name: 'self-driving-activation-get',
+    schema: SelfDrivingActivationGetSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof SelfDrivingActivationGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SelfDrivingActivationPreview>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/onboarding/activation/`,
+        })
+        return result
+    },
+})
+
 const SignalsScoutConfigCreateSchema = () => {
     const SignalsScoutConfigCreateBody = orvalSchemas.SignalsScoutConfigCreateBody()
     return SignalsScoutConfigCreateBody
@@ -3686,8 +3686,6 @@ const signalsScoutScratchpadSearch = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'self-driving-activation-get': selfDrivingActivationGet,
-    'self-driving-activate': selfDrivingActivate,
     'activity-summary-get': activitySummaryGet,
     'activity-summary-versions-list': activitySummaryVersionsList,
     'anomaly-insight-get': anomalyInsightGet,
@@ -3771,6 +3769,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-trial-resume': scoutTrialResume,
     'scout-trial-setup': scoutTrialSetup,
     'scout-trial-start': scoutTrialStart,
+    'self-driving-activate': selfDrivingActivate,
+    'self-driving-activation-get': selfDrivingActivationGet,
     'signals-scout-config-create': signalsScoutConfigCreate,
     'signals-scout-config-delete': signalsScoutConfigDelete,
     'signals-scout-config-list': signalsScoutConfigList,
