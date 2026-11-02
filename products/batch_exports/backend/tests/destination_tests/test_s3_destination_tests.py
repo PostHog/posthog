@@ -299,10 +299,17 @@ async def test_custom_s3_rejects_private_bucket_hostname_before_connecting(virtu
 
 
 @pytest.mark.parametrize("debug,test", [(True, False), (False, True)])
-async def test_custom_s3_bypasses_validation_in_dev_and_test(debug: bool, test: bool) -> None:
+@pytest.mark.parametrize("proxied", [False, True])
+async def test_custom_s3_bypasses_validation_in_dev_and_test(debug: bool, test: bool, proxied: bool) -> None:
     with (
-        override_settings(DEBUG=debug, TEST=test, FORCE_URL_VALIDATION=False),
-        patch.dict(os.environ, {key: "" for key in os.environ if key.lower().endswith("_proxy")}),
+        override_settings(DEBUG=debug, TEST=test, FORCE_URL_VALIDATION=False, SSRF_TRUSTED_PROXY_URLS=[]),
+        patch.dict(
+            os.environ,
+            {
+                **{key: "" for key in os.environ if key.lower().endswith("_proxy")},
+                "HTTP_PROXY": "http://127.0.0.1:3128" if proxied else "",
+            },
+        ),
         patch("dns.resolver.Resolver.resolve_name", side_effect=AssertionError("Unexpected validation")),
         patch(
             "aiohappyeyeballs.start_connection", side_effect=RuntimeError("Socket connection intercepted")
@@ -318,6 +325,7 @@ async def test_custom_s3_bypasses_validation_in_dev_and_test(debug: bool, test: 
 
     connect.assert_awaited_once()
     assert connect.call_args.kwargs["addr_infos"][0][4][0] == "127.0.0.1"
+    assert connect.call_args.kwargs["addr_infos"][0][4][1] == (3128 if proxied else 19000)
 
 
 @override_settings(FORCE_URL_VALIDATION=True)
