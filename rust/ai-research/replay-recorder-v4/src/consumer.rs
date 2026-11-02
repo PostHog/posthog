@@ -51,7 +51,8 @@ struct Assignments {
     start_retry_at: Option<Instant>,
     /// The next offset and epoch of each partition with stored blocks that are not committed.
     unsettled: HashMap<Tp, (u64, i64)>,
-    commits_failing_since: Option<Instant>,
+    /// When the offset commits started to fail, and when the last one failed.
+    commit_failures: Option<(Instant, Instant)>,
 }
 
 /// The pause after a failed start commit, so a broker that does not answer does not stall every message.
@@ -101,11 +102,18 @@ impl Assignments {
             self.uncommitted.remove(tp);
         }
         self.unsettled.clear();
-        self.commits_failing_since = None;
+        self.commit_failures = None;
     }
 
     fn commit_failed(&mut self, now: Instant) -> Duration {
-        now.saturating_duration_since(*self.commits_failing_since.get_or_insert(now))
+        let (since, last) = self.commit_failures.get_or_insert((now, now));
+        *last = now;
+        now.saturating_duration_since(*since)
+    }
+
+    fn commit_retry_due(&self, now: Instant, interval: Duration) -> bool {
+        self.commit_failures
+            .is_some_and(|(_, last)| now.saturating_duration_since(last) >= interval)
     }
 }
 
@@ -362,14 +370,14 @@ impl RecorderConsumer {
 
     /// Commits the next offset of every partition this process still owns under the same assignment, with the offsets
     /// of earlier flushes that did not commit. A failed commit is not retried here, because the rebalance callbacks run
-    /// only when the consume loop polls, so a rebalance cannot end while this waits. The next flush tries again. The
-    /// blocks are stored, so until then a failed commit means only that a new owner or a restart reads them again.
+    /// only when the consume loop polls, so a rebalance cannot end while this waits. The blocks are stored, so until a
+    /// later commit a failure means only that a new owner or a restart reads them again.
     async fn commit(&self, flushed: &HashMap<Tp, (u64, i64)>) -> Result<(), String> {
         let due = {
             let mut state = self.state.lock().unwrap();
             let due = state.offsets_due(flushed);
             if due.is_empty() {
-                state.commits_failing_since = None;
+                state.commit_failures = None;
                 return Ok(());
             }
             due
@@ -392,10 +400,21 @@ impl RecorderConsumer {
                         "committing offsets failed for {failing:?}: {error}"
                     ));
                 }
-                tracing::warn!(%error, ?failing, "committing offsets failed, the next flush tries again");
+                tracing::warn!(%error, ?failing, "committing offsets failed, trying again later");
                 Ok(())
             }
         }
+    }
+
+    async fn retry_commit(&self) -> Result<(), String> {
+        self.commit(&HashMap::new()).await
+    }
+
+    fn commit_retry_due(&self, interval: Duration) -> bool {
+        self.state
+            .lock()
+            .unwrap()
+            .commit_retry_due(Instant::now(), interval)
     }
 
     /// A synchronous commit on a blocking thread, so the caller's deadlines and heartbeats keep running. A commit
@@ -554,12 +573,18 @@ async fn consume(
                 handle.signal_failure(format!("flush failed: {error}"));
                 return;
             }
+        } else if batch.is_empty() && consumer.commit_retry_due(settings.flush_interval) {
+            // Without new messages, no flush comes to commit these offsets.
+            if let Err(error) = with_heartbeat(handle, consumer.retry_commit()).await {
+                tracing::error!(%error, "commit retry failed");
+                handle.signal_failure(error);
+                return;
+            }
         }
     }
     if batch.is_empty() {
-        // The last flush can still have offsets that did not commit.
         if let Ok(Err(error)) =
-            tokio::time::timeout(settings.shutdown_flush, consumer.commit(&HashMap::new())).await
+            tokio::time::timeout(settings.shutdown_flush, consumer.retry_commit()).await
         {
             tracing::warn!(%error, "the commit on shutdown failed");
         }
@@ -922,8 +947,7 @@ mod tests {
             [(tp(0), 10), (tp(1), 10), (tp(2), 10)]
         );
 
-        // Partition 0 reads more, partition 1 has no new messages, and partition 2 moves to another process and comes
-        // back. The old offset of partition 2 belongs to the earlier assignment, so it does not commit.
+        // Partition 0 reads more, partition 1 has no new messages, and partition 2 comes back under a later epoch.
         state.epochs.insert(tp(2), (2, true));
         assert_eq!(
             due(&mut state, &[(tp(0), (1, 20))]),
@@ -947,6 +971,24 @@ mod tests {
         assert_eq!(state.commit_failed(start + COMMIT_GIVE_UP), COMMIT_GIVE_UP);
         state.offsets_committed();
         assert_eq!(state.commit_failed(start + COMMIT_GIVE_UP), Duration::ZERO);
+    }
+
+    #[test]
+    fn an_idle_consumer_retries_a_failed_commit_once_per_interval() {
+        let mut state = Assignments::default();
+        let start = Instant::now();
+        let interval = Duration::from_secs(60);
+        assert!(!state.commit_retry_due(start + interval, interval));
+
+        state.commit_failed(start);
+        assert!(!state.commit_retry_due(start + interval - Duration::from_secs(1), interval));
+        assert!(state.commit_retry_due(start + interval, interval));
+
+        state.commit_failed(start + interval);
+        assert!(!state.commit_retry_due(start + interval, interval));
+
+        state.offsets_committed();
+        assert!(!state.commit_retry_due(start + 2 * interval, interval));
     }
 
     #[test]
