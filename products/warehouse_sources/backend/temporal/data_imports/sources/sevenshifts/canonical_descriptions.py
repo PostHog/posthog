@@ -71,4 +71,32 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "modified": "The time when the time punch was last modified, in UTC.",
         },
     },
+    "revenue_centers": {
+        "description": "POS revenue centers for each location, such as a bar or patio, from any integration.",
+        "docs_url": "https://developers.7shifts.com/reference/listposrevenuecenters",
+        "columns": {
+            "external_id": "The POS system's unique identifier for the revenue center.",
+            "name": "Display name of the revenue center.",
+            "location_id": "The 7shifts location this revenue center belongs to.",
+        },
+    },
+    "sales_categories": {
+        "description": "POS sales categories for each location, from any integration.",
+        "docs_url": "https://developers.7shifts.com/reference/listpossalescategories",
+        "columns": {
+            "external_id": "The POS system's unique identifier for the sales category.",
+            "name": "Display name of the sales category.",
+            "location_id": "The 7shifts location this sales category belongs to.",
+        },
+    },
+    "dining_options": {
+        "description": "POS dining options for each location, such as dine-in, takeout, or delivery, from any integration.",
+        "docs_url": "https://developers.7shifts.com/reference/listposdiningoptions",
+        "columns": {
+            "external_id": "The POS system's unique identifier for the dining option.",
+            "name": "Display name of the dining option.",
+            "location_id": "The 7shifts location this dining option belongs to.",
+            "type": "The POS system's service-mode classification of the dining option, such as dine_in, takeout, or delivery.",
+        },
+    },
 }

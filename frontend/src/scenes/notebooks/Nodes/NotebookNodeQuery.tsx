@@ -16,17 +16,16 @@ import { defineNotebookWidgetViews, getNotebookWidgetDefaultView } from 'scenes/
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { DataTableNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema/schema-general'
 import {
     containsHogQLQuery,
     isDataTableNode,
-    isEventsQuery,
     isHogQLQuery,
     isInsightVizNode,
     isNodeWithSource,
-    isSavedInsightNode,
     isActorsQuery,
-} from '~/queries/utils'
+} from '~/queries/schema/node-guards'
+import { DataTableNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema/schema-general'
+import { isEventsQuery, isSavedInsightNode } from '~/queries/utils'
 import { InsightLogicProps, InsightShortId } from '~/types'
 
 import { NotebookInsightDataframe } from 'products/notebooks/frontend/NotebookInsightDataframe'

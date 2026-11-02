@@ -55,7 +55,7 @@ export interface ActivitySummaryThemeApi {
      * @nullable
      */
     strength: string | null
-    /** Refs into `computed.owned`, `computed.watched` and `computed.pages` of the same version, such as `o1` or `p2`, that show this thread. A ref is valid only inside one version. */
+    /** Refs into `computed.owned`, `computed.watched`, `computed.pages`, `computed.tasks` and `computed.mcp_sessions` of the same version, such as `o1`, `p2`, `t3` or `m1`, that show this thread. A ref is valid only inside one version. */
     refs: string[]
     /**
      * The last day of activity on the refs of this thread, as YYYY-MM-DD.
@@ -209,6 +209,13 @@ export interface ActivitySummaryProductSplitApi {
     visits: ActivitySummaryProductEnumApi[]
 }
 
+export interface ActivitySummaryLineRefApi {
+    /** The ref that themes cite, such as `t1` for a task or `m1` for an MCP session. */
+    ref: string
+    /** The day of the task or MCP session, as YYYY-MM-DD. */
+    last_at: string
+}
+
 export interface ActivitySummaryComputedApi {
     /** The version of the shape of these fields. */
     schema_version: number
@@ -222,6 +229,10 @@ export interface ActivitySummaryComputedApi {
     products: ActivitySummaryProductSplitApi
     /** The number of tasks the user gave to PostHog AI or the Slack agent. */
     task_count: number
+    /** Tasks the user gave to PostHog AI or the Slack agent that the summary input showed, oldest first. Empty on summaries from before task refs existed. */
+    tasks: ActivitySummaryLineRefApi[]
+    /** Sessions of the user's AI agent over MCP that the summary input showed, oldest first. Empty on summaries from before MCP refs existed. */
+    mcp_sessions: ActivitySummaryLineRefApi[]
 }
 
 export interface ActivitySummaryApi {

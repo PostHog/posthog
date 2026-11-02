@@ -18,6 +18,7 @@ from rest_framework.views import APIView
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import Team, User
+from posthog.models.integer_field_bounds import INTEGER_FIELD_MAX
 from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scoped_team_ids
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -27,9 +28,6 @@ from products.customer_analytics.backend.facade.constants import CUSTOMER_ANALYT
 _ASSIGNED_TO_ERROR = "assigned_to must be me, unassigned, a project member ID, or role:<role UUID>."
 # pinned: the frontend writes the same prefix into links and API calls
 _ROLE_ASSIGNEE_PREFIX = "role:"
-# posthog_user.id is an int4 column, and DRF never runs full_clean, so an ID past this bound would
-# fail in Postgres with a 500 rather than being rejected here.
-_MAX_MEMBER_ID = 2147483647
 
 _ORDERING_CHOICES = [
     "name",
@@ -274,7 +272,8 @@ class CustomerTaskListQuerySerializer(serializers.Serializer):
             member_id = int(value)
         except ValueError:
             raise serializers.ValidationError(_ASSIGNED_TO_ERROR) from None
-        if not 1 <= member_id <= _MAX_MEMBER_ID:
+        # posthog_user.id is an int4 column and DRF never runs full_clean, so a larger ID would fail in Postgres with a 500.
+        if not 1 <= member_id <= INTEGER_FIELD_MAX:
             raise serializers.ValidationError(_ASSIGNED_TO_ERROR)
         return str(member_id)
 

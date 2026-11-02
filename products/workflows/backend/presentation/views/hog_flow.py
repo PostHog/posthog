@@ -298,6 +298,7 @@ from products.workflows.backend.facade.validation import (
     exceeds_unit_cap,
     find_behavioral_cohort_name,
     find_clock_function,
+    find_group_field,
     find_realtime_behavioral_cohort,
     is_duration,
     is_signed_duration,
@@ -408,8 +409,8 @@ def _wait_condition_already_stored(action: dict, context: dict) -> bool:
     True when this wait's condition matches the one already persisted for the same action.
 
     The gate exists to stop *new* clock-based waits, not to make an existing workflow un-editable.
-    Every strict save re-validates the whole actions array, so without this an unrelated edit (or
-    simply resuming a paused flow) would be refused over a condition that was already accepted.
+    Every strict save re-validates the whole actions array, so without this an unrelated edit to an
+    active flow would be refused over a condition that was already accepted.
     """
     stored = context.get("stored_wait_conditions")
     if not stored:
@@ -513,10 +514,12 @@ def _actions_reference_cohorts(actions: Any) -> bool:
 
 def _reject_clock_based_wait(config: dict, team: Team) -> None:
     """
-    Refuse a wait whose condition depends on the clock rather than on something happening.
+    Refuse a wait the subscription matcher could never wake.
 
-    Nothing notifies the matcher when time passes, so such a wait can only be advanced by the
-    periodic re-check. Rejecting it at save time is what allows that re-check to be removed.
+    Two conditions qualify: one that depends on the clock rather than on something happening, and
+    one that reads a group property, which arrives on no stream the matcher keys parked jobs by.
+    Either can only be advanced by the periodic re-check. Rejecting them at save time is what
+    allows that re-check to be removed.
     """
     filters = (config.get("condition") or {}).get("filters")
     if not filters:
@@ -535,6 +538,18 @@ def _reject_clock_based_wait(config: dict, team: Team) -> None:
                 "config": (
                     "This wait's condition could not be read, so we can't tell how it would be woken. "
                     "Check the events, actions and properties it refers to still exist."
+                )
+            }
+        )
+
+    group_field = find_group_field(expr)
+    if group_field:
+        raise serializers.ValidationError(
+            {
+                "config": (
+                    "This wait's condition uses a group property. A group change does not identify the "
+                    "people waiting on it, so nothing can advance this wait and it would run to its "
+                    "maximum wait time. Use a person property, or wait for an event instead."
                 )
             }
         )
@@ -3512,9 +3527,11 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # Wait conditions the live flow already carries, so per-action validation can tell a newly
         # introduced clock condition from one we have been storing all along. Seeded here because
         # nested action validation runs during field processing, before validate() is reached.
+        # Only an active flow's conditions count: a draft's actions come from lenient builder saves,
+        # so exempting them would let enabling a draft skip the check.
         self.context["stored_wait_conditions"] = {
             action["id"]: (action.get("config") or {}).get("condition")
-            for action in ((instance.actions if instance else None) or [])
+            for action in ((instance.actions if instance and instance.status == HogFlowState.ACTIVE else None) or [])
             if isinstance(action, dict) and action.get("id") and action.get("type") == "wait_until_condition"
         }
 

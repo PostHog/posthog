@@ -530,9 +530,18 @@ class SignalReport(UUIDModel):
                 name="signals_report_first_visible",
             ),
             # Back the inbox `search` filter. On UPPER(...) because icontains compiles to
-            # UPPER(col) LIKE UPPER(pattern) on Postgres.
-            GinIndex(OpClass(Upper("title"), name="gin_trgm_ops"), name="signals_report_title_trgm"),
-            GinIndex(OpClass(Upper("summary"), name="gin_trgm_ops"), name="signals_report_summary_trgm"),
+            # UPPER(col) LIKE UPPER(pattern) on Postgres. Direct updates avoid pending-list
+            # merges that make one insert absorb the batched GIN maintenance of earlier writes.
+            GinIndex(
+                OpClass(Upper("title"), name="gin_trgm_ops"),
+                name="signals_report_title_trgm",
+                fastupdate=False,
+            ),
+            GinIndex(
+                OpClass(Upper("summary"), name="gin_trgm_ops"),
+                name="signals_report_summary_trgm",
+                fastupdate=False,
+            ),
         ]
         constraints = [
             # The barrier itself, not a lookup aid: two emits racing on one key both reach the
@@ -4296,8 +4305,9 @@ class UserActivitySummaryQueueCursor(models.Model):
 class PersonalInboxRanking(TeamScopedRootMixin, UUIDModel):
     """One build of one person's ranked inbox list, from `personal_ranking/logic.py`.
 
-    Append-only: every build writes one row, so later readers can reuse the latest row while its
-    `input_hash` still matches the current inputs.
+    Every build writes one row, so later readers can reuse the latest row while its `input_hash`
+    still matches the current inputs. A build then deletes the person's rows past the newest
+    `max_rows_per_person`.
     """
 
     class Status(models.TextChoices):
@@ -4383,4 +4393,39 @@ class AnomalyScoringState(TeamScopedRootMixin, UUIDModel):
             models.UniqueConstraint(
                 fields=["team", "insight_id", "profile"], name="signals_anomaly_scoring_state_unique"
             ),
+        ]
+
+
+class AnomalyScoringDueInsight(TeamScopedRootMixin, UUIDModel):
+    """One active insight on the stored due list of the anomaly scoring tick.
+
+    A slow refresh job adds the active insights, removes the ones that left, and sets the usage. The tick
+    reads the due rows, and each pick moves its row's `next_due_at`. See `anomaly_scores/due_list.py`.
+    """
+
+    # See SignalReportRefund.all_teams for rationale.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    # Not a foreign key: insights belong to another product.
+    insight_id = models.BigIntegerField()
+    interval = models.CharField(max_length=16)
+    # The tick picks the row at or after this time. A never-scored insight is due at once.
+    next_due_at = models.DateTimeField()
+    refreshed_at = models.DateTimeField()
+    # Series key to the newest scored bucket start of the series, as an ISO time in UTC.
+    series_scored_through = models.JSONField(default=dict, db_default={})
+    viewers = models.PositiveIntegerField(default=0)
+    has_enabled_alert = models.BooleanField(default=False)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        default_manager_name = "all_teams"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "insight_id"], name="signals_anomaly_due_insight_unique"),
+        ]
+        indexes = [
+            models.Index(fields=["next_due_at"], name="signals_anomaly_due_next_idx"),
         ]

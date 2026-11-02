@@ -428,6 +428,7 @@ rules:
                               |LegacySignalSpend
 
                               |AnomalyScoringState
+                              |AnomalyScoringDueInsight
                               |SignalScratchpad
                               |SignalProjectProfile
                               |SingleSessionSummary
@@ -476,6 +477,7 @@ rules:
                               |SigningSecret
                               |Ticket
                               |TicketView
+                              |TicketMacro
                               |TicketViewFavorite
                               |ZendeskImportJob
                               |ReviewQueue
@@ -923,6 +925,7 @@ rules:
                         |LegacySignalSpend
 
                         |AnomalyScoringState
+                        |AnomalyScoringDueInsight
                         |SignalScratchpad
                         |SignalProjectProfile
                         |SingleSessionSummary
@@ -970,6 +973,7 @@ rules:
                         |SigningSecret
                         |Ticket
                         |TicketView
+                        |TicketMacro
                         |TicketViewFavorite
                         |ZendeskImportJob
                         |ReviewQueue

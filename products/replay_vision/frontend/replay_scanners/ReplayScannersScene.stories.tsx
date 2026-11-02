@@ -1,15 +1,18 @@
-import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_USER } from 'lib/api.mock'
+import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
+import { useActions } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
 import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
 import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -21,6 +24,7 @@ import { StartupProgramLabel } from '~/types'
 import { expect } from 'storybook/test'
 
 import { LONG, LONG_INACTIVE, summary as timelineSummary } from '../__mocks__/recordingTimelineObservations'
+import scoutTemplates from '../__mocks__/scoutTemplates.json'
 import type {
     BackfillEstimateResponseApi,
     DraftScannerResponseApi,
@@ -1021,6 +1025,15 @@ const meta: Meta = {
                         : params.id === monitorOverviewScanner.id
                           ? monitorOverviewScanner
                           : summarizerScanner,
+                // Rendered by the backend's templates; only the root cause body is full, since only its form is shown.
+                '/api/projects/:team_id/vision/scanners/:scannerId/scouts/templates/': ({ params }) =>
+                    (params.scannerId === summarizerScanner.id
+                        ? scoutTemplates.summarizer
+                        : scoutTemplates.monitor
+                    ).map((template) => ({
+                        ...template,
+                        body: template.body.replaceAll('SCANNER_ID', String(params.scannerId)),
+                    })),
                 '/api/projects/:team_id/vision/scanners/:id/self_driving_stats/': noSelfDrivingStats,
                 '/api/projects/:team_id/vision/scanners/:id/observations/': observations,
                 '/api/projects/:team_id/vision/scanners/:id/observations/stats/': ({ params }) =>
@@ -1100,6 +1113,19 @@ export default meta
 
 export const ScannersList: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision()}?tab=scanners` },
+}
+
+export const ScannersListReplayOff: StoryObj = {
+    parameters: { pageUrl: `${urls.replayVision()}?tab=scanners` },
+    decorators: [
+        (Story) => {
+            const { loadCurrentTeamSuccess } = useActions(teamLogic)
+            useDelayedOnMountEffect(() => {
+                loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, session_recording_opt_in: false })
+            })
+            return <Story />
+        },
+    ],
 }
 
 // A project that has never created a scanner: the surface of the empty-state experiment.
@@ -1326,6 +1352,31 @@ export const MonitorOverview: StoryObj = {
 export const ScannerStatusThrottled: StoryObj = {
     parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
     decorators: [overviewDecorator({ ...summarizerScanner, sweep_throttle_factor: 12 }, summarizerStats)],
+}
+
+export const ScannerCreatorLostAccess: StoryObj = {
+    parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
+    decorators: [
+        overviewDecorator(
+            { ...summarizerScanner, enabled: false, unrunnable_reason: 'creator_lost_access' },
+            summarizerStats
+        ),
+    ],
+}
+
+export const ScannerNoRecordings: StoryObj = {
+    parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
+    decorators: [
+        overviewDecorator(summarizerScanner, summarizerStats),
+        mswDecorator({
+            get: { '/api/environments/:team_id/session_recordings/': { results: [], has_next: false } },
+        }),
+    ],
+}
+
+export const ScannerTurnedOff: StoryObj = {
+    parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
+    decorators: [overviewDecorator({ ...summarizerScanner, enabled: false }, summarizerStats)],
 }
 
 // Once a scanner has enough observations, the overview offers a dashboard for it.
