@@ -1,6 +1,7 @@
+import type { DashboardFilter } from '~/queries/schema/schema-general'
 import type { DashboardTile } from '~/types'
 
-import { chunkTileIds, findNewlyAddedWidgetTiles, isWidgetStale } from './widgetFetchUtils'
+import { chunkTileIds, findNewlyAddedWidgetTiles, isWidgetStale, widgetDashboardFilters } from './widgetFetchUtils'
 
 describe('widgetFetchUtils', () => {
     it('treats failed widgets as stale but not loading or missing widgets', () => {
@@ -41,6 +42,28 @@ describe('widgetFetchUtils', () => {
         it('returns empty when no new widget tile exists', () => {
             const previousTileIds = new Set([7])
             expect(findNewlyAddedWidgetTiles(previousTileIds, [widgetTile(7)])).toEqual([])
+        })
+    })
+
+    describe('widgetDashboardFilters', () => {
+        it.each([
+            [
+                'keeps a cleared filter explicit, so it replaces the saved one',
+                {},
+                { date_from: null, date_to: null, metricFilters: [] },
+            ],
+            [
+                'keeps the date range and label filters and drops the rest',
+                {
+                    date_from: '-1h',
+                    properties: [],
+                    breakdown_filter: {},
+                    metricFilters: [{ key: 'route', op: 'eq', value: '/cart' }],
+                },
+                { date_from: '-1h', date_to: null, metricFilters: [{ key: 'route', op: 'eq', value: '/cart' }] },
+            ],
+        ])('%s', (_name, filters, expected) => {
+            expect(widgetDashboardFilters(filters as DashboardFilter)).toEqual(expected)
         })
     })
 

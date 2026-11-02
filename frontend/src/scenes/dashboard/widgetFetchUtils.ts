@@ -38,12 +38,13 @@ export function chunkTileIds(tileIds: number[], chunkSize = 4): number[][] {
 }
 
 /** The dashboard filters `run_widgets` passes on: the date range and metric label filters. Other keys would
- * only make a widget refetch for a change it ignores. */
+ * only make a widget refetch for a change it ignores. Empty values stay in, because the server merges the
+ * override onto the saved filters, and a cleared filter must replace the saved one. */
 export function widgetDashboardFilters(filters: DashboardFilter): DashboardFilter {
     return {
-        ...(filters.date_from ? { date_from: filters.date_from } : {}),
-        ...(filters.date_to ? { date_to: filters.date_to } : {}),
-        ...(filters.metricFilters?.length ? { metricFilters: filters.metricFilters } : {}),
+        date_from: filters.date_from ?? null,
+        date_to: filters.date_to ?? null,
+        metricFilters: filters.metricFilters ?? [],
     }
 }
 
@@ -71,9 +72,7 @@ export async function fetchRunWidgets(
         dashboardId,
         {
             tile_ids: tileIds.join(','),
-            ...(filtersOverride && Object.keys(filtersOverride).length
-                ? { filters_override: JSON.stringify(filtersOverride) }
-                : {}),
+            ...(filtersOverride ? { filters_override: JSON.stringify(filtersOverride) } : {}),
             ...(options?.refresh ? { refresh: true } : {}),
         },
         { signal: options?.signal }
