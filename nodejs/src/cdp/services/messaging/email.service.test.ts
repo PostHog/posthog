@@ -623,6 +623,59 @@ describe('EmailService', () => {
                 expect(field === 'cc' ? destination?.CcAddresses : destination?.BccAddresses).toEqual([email])
             })
 
+            it.each([false, true])(
+                'a running worker stops sandbox sends within a minute of a block and resumes within a minute of its removal (isTest=%s)',
+                async (isTest) => {
+                    const setBlocked = (blocked: boolean): Promise<unknown> =>
+                        hub.postgres.query(
+                            PostgresUse.COMMON_WRITE,
+                            blocked
+                                ? `INSERT INTO workflows_sandboxsenderorganizationblock (organization_id, reason, created_at)
+                                   VALUES ($1, 'Abuse report', now())`
+                                : 'DELETE FROM workflows_sandboxsenderorganizationblock WHERE organization_id = $1',
+                            [team.organization_id],
+                            'test:set-sandbox-organization-block'
+                        )
+                    const sendAt = (time: number) => {
+                        clock.mockReturnValue(time)
+                        invocation.state.vmState = { stack: [] } as any
+                        return service.executeSendEmail(invocation, isTest)
+                    }
+                    const now = Date.now()
+                    const clock = jest.spyOn(Date, 'now').mockReturnValue(now)
+                    try {
+                        service = createSandboxService(true)
+                        await sendAt(now)
+                        expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+
+                        await setBlocked(true)
+                        const blocked = await sendAt(now + 61_000)
+
+                        expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                        expect(blocked).toMatchObject({ finished: true, skipped: true, metrics: [] })
+                        expect(blocked.invocation.state.vmState?.stack).toEqual([{ success: false }])
+                        expect(blocked.logs).toContainEqual(
+                            expect.objectContaining({
+                                level: 'info',
+                                message:
+                                    'Skipping send: the sandbox sender is turned off for this organization. Contact support to find out why.',
+                            })
+                        )
+                        expectBlockedEvent('organization_blocked', isTest, 0)
+
+                        await setBlocked(false)
+                        const unblocked = await sendAt(now + 122_000)
+
+                        expect(unblocked.error).toBeUndefined()
+                        expect(unblocked.skipped).not.toBe(true)
+                        expect(sendEmailSpy).toHaveBeenCalledTimes(2)
+                    } finally {
+                        clock.mockRestore()
+                        await setBlocked(false)
+                    }
+                }
+            )
+
             it.each([false, true])('blocks a non-member To address (isTest=%s)', async (isTest) => {
                 service = createSandboxService(true)
                 invocation.queueParameters = createSandboxParams({ to: { email: 'outside@example.com' } })

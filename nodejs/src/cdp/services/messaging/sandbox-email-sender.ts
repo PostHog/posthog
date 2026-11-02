@@ -42,6 +42,7 @@ export type SandboxEmailBlockReason =
     | 'check_failed'
     | 'cap_reached'
     | 'paused'
+    | 'organization_blocked'
 
 export type SandboxDailyCapGrant = { type: 'granted'; claim: IssuedClaim; buckets: ClaimRequest[] }
 

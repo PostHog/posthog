@@ -29,7 +29,7 @@ Only workflows that send email are subject to the tiers; SMS, push, and webhook 
 The `workflows-sandbox-sender` flag enables a PostHog-managed email integration per project through `POST /api/projects/:project_id/integrations/email_sandbox_sender/`.
 The endpoint requires `integration:write` and project membership. Repeated requests keep the same integration and refresh its display name from the organization name.
 Staff turn the sandbox sender off for one organization by adding a `SandboxSenderOrganizationBlock` row in the Django admin, and lift the block by deleting the row.
-While the block exists, the endpoint returns 404 for the organization's projects. Existing sandbox senders stay, and the email worker does not read the block.
+While the block exists, the endpoint returns 404 for the organization's projects. Existing sandbox senders stay, but their sends skip.
 Set `WORKFLOWS_SANDBOX_SENDER_DOMAIN`, `SES_SANDBOX_FROM_ADDRESS`, and `SES_SANDBOX_TENANT_NAME` in Django; any empty value leaves the endpoint unavailable.
 The worker sends from the same `SES_SANDBOX_FROM_ADDRESS`, so set it once for Django and the worker. The address the UI shows is then the address the worker sends from.
 Workflow email steps and test sends offer it as a sender.
@@ -117,6 +117,8 @@ Every sandbox send, test sends included, skips while the shared sandbox SES tena
 The worker checks the pause again after the daily allowance claim and gives the claim back when the pause blocks delivery.
 Django mirrors the tenant named by `SES_SANDBOX_TENANT_NAME` into `SandboxSenderTenantState` from the SES tenant-state webhook and the daily reconciliation, without emailing project admins. Set the same `SES_SANDBOX_TENANT_NAME` on Django web, Celery, and the worker.
 A committed state change reaches the workers through the `reload-sandbox-sender-state` message. Own-sender sends do not read this state.
+A blocked organization's sandbox sends skip with the reason `organization_blocked`.
+The worker reads the block with the organization members, so a block and its removal reach the workers within one minute. Own-sender sends do not read it.
 Each delivered send emits a `workflows sandbox email sent` event.
 Test sends never record `email_sent`, so they do not count toward the sending tier.
 A successful live sandbox send records `email_sandbox_sent` next to `email_sent`, so the workflow's metrics still show it.

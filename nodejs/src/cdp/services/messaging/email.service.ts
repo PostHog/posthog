@@ -463,7 +463,7 @@ function sandboxRecipientsOf(params: CyclotronInvocationQueueParametersEmailType
     return [params.to.email.trim(), ...sandboxAddressList(params.cc), ...sandboxAddressList(params.bcc)]
 }
 
-type SandboxRecipientBlockReason = Exclude<SandboxEmailBlockReason, 'switch_off' | 'paused'>
+type SandboxRecipientBlockReason = Exclude<SandboxEmailBlockReason, 'switch_off' | 'paused' | 'organization_blocked'>
 
 type SesRoute = {
     tenantName: string
@@ -500,6 +500,9 @@ const SANDBOX_RECIPIENT_BLOCK_COPY: Record<
         guidance: 'Verify your own domain to send more.',
     },
 }
+
+const SANDBOX_ORGANIZATION_BLOCKED_MESSAGE =
+    'Skipping send: the sandbox sender is turned off for this organization. Contact support to find out why.'
 
 const SANDBOX_PAUSE_SKIP_MESSAGES = {
     paused: 'Skipping send: the sandbox sender is paused right now. Verify your own domain to keep sending.',
@@ -1177,13 +1180,16 @@ export class EmailService {
         isTest: boolean
     ): Promise<boolean> {
         const { teamId } = result.invocation
+        let organizationBlocked = false
         let blockedRecipients: string[]
         let reason: SandboxRecipientBlockReason
         try {
             if (!this.organizationMembers) {
                 throw new Error('Organization member checks are not configured')
             }
-            const blocked = await this.organizationMembers.getBlockedRecipients(teamId, recipients)
+            const check = await this.organizationMembers.checkRecipients(teamId, recipients)
+            organizationBlocked = check.organizationBlocked
+            const blocked = check.organizationBlocked ? [] : check.blockedRecipients
             blockedRecipients = blocked.map(({ address }) => address)
             reason = blocked.every(({ unverifiedMember }) => unverifiedMember)
                 ? 'recipient_unverified'
@@ -1195,6 +1201,11 @@ export class EmailService {
                 teamId,
                 error: error instanceof Error ? error.message : 'Unknown error',
             })
+        }
+        if (organizationBlocked) {
+            this.skipSandboxSend(result, isTest, SANDBOX_ORGANIZATION_BLOCKED_MESSAGE, 'sending_suspended')
+            await this.sandboxSender?.captureBlocked(teamId, isTest, 'organization_blocked', 0)
+            return false
         }
         if (!blockedRecipients.length) {
             return true
