@@ -473,6 +473,71 @@ class ExtensionCollector implements RobotsParseHandler {
     }
 }
 
+/**
+ * Collects only the rules that apply to this bot. ParsedRobots copies the rules of a group once for each of its user
+ * agents, and again for each repeated agent, so a small robots.txt can expand to hundreds of millions of entries.
+ */
+class ApplicableRulesCollector implements RobotsParseHandler {
+    public readonly botRules: string[] = []
+    public readonly wildcardRules: string[] = []
+    private forBot = false
+    private forWildcard = false
+    private hasRules = false
+
+    handleRobotsStart(): void {}
+    handleRobotsEnd(): void {}
+    reportLineMetadata(): void {}
+    handleSitemap(): void {}
+    handleUnknownAction(): void {}
+
+    handleUserAgent(_lineNum: number, value: string): void {
+        if (this.hasRules) {
+            this.forBot = false
+            this.forWildcard = false
+            this.hasRules = false
+        }
+        if (/^\*(?:\s|$)/.test(value)) {
+            this.forWildcard = true
+        } else if (/^[a-z_-]+/i.exec(value)?.[0].toLowerCase() === BOT_NAME.toLowerCase()) {
+            this.forBot = true
+        }
+    }
+
+    handleAllow(_lineNum: number, value: string): void {
+        this.addRule('Allow', value)
+    }
+
+    handleDisallow(_lineNum: number, value: string): void {
+        this.addRule('Disallow', value)
+    }
+
+    private addRule(directive: string, value: string): void {
+        if (!value) {
+            return
+        }
+        this.hasRules = true
+        if (this.forBot) {
+            this.botRules.push(`${directive}:${value}`)
+        }
+        if (this.forWildcard) {
+            this.wildcardRules.push(`${directive}:${value}`)
+        }
+    }
+}
+
+/** The robots.txt that decides the same URLs for this bot, with one group for the bot and one for `*`. */
+export function applicableRobotsBody(
+    body: string,
+    parseRobotsTxt: typeof import('@trybyte/robotstxt-parser').parseRobotsTxt
+): string {
+    const collector = new ApplicableRulesCollector()
+    parseRobotsTxt(body, collector)
+    return [
+        ...(collector.botRules.length ? [`User-agent:${BOT_NAME}`, ...collector.botRules] : []),
+        ...(collector.wildcardRules.length ? ['User-agent:*', ...collector.wildcardRules] : []),
+    ].join('\n')
+}
+
 function selectedExtensionFields(
     body: string,
     parseRobotsTxt: typeof import('@trybyte/robotstxt-parser').parseRobotsTxt
@@ -511,7 +576,7 @@ async function parseRobotsConfiguration(body: string): Promise<ParsedRobotsConfi
     const robotsParser = await import('@trybyte/robotstxt-parser')
     const { ParsedRobots, parseRobotsTxt } = robotsParser
     return {
-        matcher: ParsedRobots.parse(body),
+        matcher: ParsedRobots.parse(applicableRobotsBody(body, parseRobotsTxt)),
         fields: selectedExtensionFields(body, parseRobotsTxt),
     }
 }
