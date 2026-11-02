@@ -2,10 +2,10 @@ import { useActions, useValues } from 'kea'
 import { type RefObject, Suspense, lazy, useLayoutEffect, useRef } from 'react'
 
 import { dayjs } from 'lib/dayjs'
+import { formatAggregationAxisValue } from 'lib/insights/aggregationAxisFormat'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { retryImport } from 'lib/utils/retryImport'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { CurrencyCode, TrendsFilter } from '~/queries/schema/schema-general'

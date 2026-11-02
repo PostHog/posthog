@@ -16,6 +16,28 @@ import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
 
 import {
+    getBreakdown,
+    getCompareFilter,
+    getDisplay,
+    getFormula,
+    getInterval,
+    getSeries,
+    queryUsesDataWarehouse,
+} from '~/queries/schema/node-accessors'
+import {
+    isBIVisualizationNode,
+    isActionsNode,
+    isAnyDataWarehouseNode,
+    isEventsNode,
+    isFunnelsQuery,
+    isInsightQueryNode,
+    isInsightVizNode,
+    isMetricsQuery,
+    isNodeWithSource,
+    isStickinessQuery,
+    isTrendsQuery,
+} from '~/queries/schema/node-guards'
+import {
     Breakdown,
     ExperimentFunnelsQuery,
     ExperimentMetric,
@@ -32,26 +54,6 @@ import {
     Node,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { isBIVisualizationNode } from '~/queries/utils'
-import {
-    getBreakdown,
-    getCompareFilter,
-    getDisplay,
-    getFormula,
-    getInterval,
-    getSeries,
-    isActionsNode,
-    isAnyDataWarehouseNode,
-    isEventsNode,
-    isFunnelsQuery,
-    isInsightQueryNode,
-    isInsightVizNode,
-    isMetricsQuery,
-    isNodeWithSource,
-    isStickinessQuery,
-    isTrendsQuery,
-    queryUsesDataWarehouse,
-} from '~/queries/utils'
 import {
     ChartDisplayType,
     CohortType,

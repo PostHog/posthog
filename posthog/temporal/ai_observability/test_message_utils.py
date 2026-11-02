@@ -119,6 +119,12 @@ class TestExtractTextFromMessages:
                 "[audio 1]",
                 id="openai_audio_wav",
             ),
+            pytest.param({"inline_data": {"mime_type": "video/mp4", "data": "aGk="}}, "[video 1]", id="gemini_video"),
+            pytest.param(
+                {"type": "file", "mediaType": "video/mp4", "file": f"phaiblob://v1/sha256/{'c' * 64}?mime=video%2Fmp4"},
+                "[video 1]",
+                id="vercel_video",
+            ),
             pytest.param(
                 {
                     "type": "input_audio",

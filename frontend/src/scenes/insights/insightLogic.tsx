@@ -23,6 +23,7 @@ import { isTransientServerError, shouldReportApiFailure } from 'lib/api-error'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { getInsightId } from 'lib/insights/getInsightId'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -37,7 +38,6 @@ import { withBackLink } from 'scenes/analytics/analyticsBackLink'
 import { isDashboardFilterOverrideEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
 import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -53,9 +53,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { RESPONSE_CACHE_TTL } from '~/queries/nodes/DataNode/responseCache'
-import { DashboardFilter, HogQLVariable, Node, TileFilters } from '~/queries/schema/schema-general'
 import {
-    convertDataTableNodeToDataVisualizationNode,
     isFunnelsQuery,
     isLifecycleQuery,
     isNodeWithSource,
@@ -63,8 +61,9 @@ import {
     isRetentionQuery,
     isStickinessQuery,
     isTrendsQuery,
-    isValidQueryForExperiment,
-} from '~/queries/utils'
+} from '~/queries/schema/node-guards'
+import { DashboardFilter, HogQLVariable, Node, TileFilters } from '~/queries/schema/schema-general'
+import { convertDataTableNodeToDataVisualizationNode, isValidQueryForExperiment } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,

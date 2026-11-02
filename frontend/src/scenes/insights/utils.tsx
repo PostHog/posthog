@@ -19,6 +19,17 @@ import { urls } from 'scenes/urls'
 import { propertyFilterTypeToPropertyDefinitionType } from '~/lib/components/PropertyFilters/utils'
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import { examples } from '~/queries/examples'
+import { cleanInsightQuery } from '~/queries/nodes/InsightViz/queryUtils'
+import {
+    containsHogQLQuery,
+    isBIVisualizationNode,
+    isDataTableNode,
+    isEventsNode,
+    isGroupNode,
+    isHogQLQuery,
+    isInsightVizNode,
+    isNodeWithSource,
+} from '~/queries/schema/node-guards'
 import {
     AnyDataWarehouseNode,
     AnyEntityNode,
@@ -41,17 +52,6 @@ import {
     ResultCustomizationByValue,
     TileFilters,
 } from '~/queries/schema/schema-general'
-import {
-    containsHogQLQuery,
-    isBIVisualizationNode,
-    isDataTableNode,
-    isEventsNode,
-    isGroupNode,
-    isHogQLQuery,
-    isInsightVizNode,
-    isNodeWithSource,
-} from '~/queries/utils'
-import { cleanInsightQuery } from '~/scenes/insights/utils/queryUtils'
 import { getResultSeriesIndex } from '~/scenes/insights/utils/resultSeries'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
