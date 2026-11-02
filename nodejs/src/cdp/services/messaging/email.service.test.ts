@@ -707,6 +707,22 @@ describe('EmailService', () => {
                 )
             })
 
+            it('blocks a cc mailbox the member check and the delivery parser could read differently', async () => {
+                service = createSandboxService(true)
+                invocation.queueParameters = createSandboxParams({
+                    cc: `( ") <outside@example.com> ( ") <${memberEmail('cc')}>`,
+                })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expectSkipped(result)
+                expect(capture).toHaveBeenCalledWith(
+                    expect.objectContaining({ id: team.id }),
+                    'workflows sandbox email blocked',
+                    expect.objectContaining({ reason: 'recipient_not_member' })
+                )
+            })
+
             it('fails closed when the member check fails', async () => {
                 const membersPostgres = new PostgresRouter(hub)
                 await membersPostgres.end()
@@ -744,6 +760,36 @@ describe('EmailService', () => {
                         const suppressed = await isSuppressed.apply(this, args)
                         clock.mockReturnValue(now + 63_000)
                         return suppressed
+                    })
+                    invocation.state.vmState = { stack: [] } as any
+
+                    const result = await service.executeSendEmail(invocation)
+
+                    expect(result).toMatchObject({ finished: true, skipped: true, metrics: [] })
+                    expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                    expectBlockedEvent('recipient_not_member', false, 1)
+                } finally {
+                    clock.mockRestore()
+                    preparation.mockRestore()
+                }
+            })
+
+            it('blocks a member removed during preparation while the member snapshot is still fresh', async () => {
+                const clock = jest.spyOn(Date, 'now').mockReturnValue(Date.now())
+                const preparation = jest.spyOn(EmailSuppressionService.prototype, 'isSuppressed')
+                const isSuppressed = preparation.getMockImplementation()!
+                try {
+                    service = createSandboxService(true)
+                    await service.executeSendEmail(invocation)
+                    expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                    preparation.mockImplementation(async function (this: EmailSuppressionService, ...args) {
+                        await hub.postgres.query(
+                            PostgresUse.COMMON_WRITE,
+                            'DELETE FROM posthog_organizationmembership WHERE user_id = $1',
+                            [memberId],
+                            'test:revoke-sandbox-member-during-preparation'
+                        )
+                        return isSuppressed.apply(this, args)
                     })
                     invocation.state.vmState = { stack: [] } as any
 
