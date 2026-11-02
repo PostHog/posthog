@@ -44,8 +44,8 @@ class ProvidedView:
     fields: dict[str, FieldOrTable]
     # Non-materialized views are computed at query time, without a schedule or S3 table.
     materialized: bool = True
-    # One of the schedulable cadence buckets. A cadence the view's sources cannot feed leaves the
-    # view computed at query time.
+    # One of the schedulable cadence buckets, stored as declared: readers never change it, and a run
+    # is never scheduled finer than the view's sources deliver.
     sync_frequency: timedelta = DEFAULT_MANAGED_VIEW_SYNC_FREQUENCY
     # The saved query's ``incremental_config`` blob: a run then upserts the rows past the last
     # watermark instead of rebuilding the table. None keeps every run a full refresh. A dict rather
