@@ -42,11 +42,11 @@ Neither is a workflow, even though the code runs each of them as a workflow.
 _Avoid_: Journey, Campaign, Flow
 
 **Messaging workflow**:
-A workflow with an email, SMS or push step.
+A workflow with an email, SMS or push step that is not a loop.
 A Slack step does not make a workflow a messaging workflow.
 
 **Automation**:
-A workflow with no email, SMS or push step.
+A workflow with no email, SMS or push step that is not a loop.
 It is a view, not a noun of its own.
 
 **Loop**:
@@ -68,7 +68,7 @@ The section label is "Transactional".
 _Avoid_: API send, transactional message (until a second channel ships)
 
 **Message**:
-One email, SMS, push or Slack post that reaches one recipient.
+One email, SMS or push notification that reaches one recipient, or one Slack post.
 A broadcast to 1,000 people is 1,000 messages.
 
 **Templates**:
@@ -99,11 +99,13 @@ It holds opt-outs and the suppression list.
 _Avoid_: Audience, Subscriptions, Contacts, Consent
 
 **Topic**:
-A kind of message that a person can opt out of.
+A kind of message, either marketing or transactional.
+A person can opt out of a marketing topic.
+A transactional topic ignores opt-outs.
 _Avoid_: Message category, Category, Subscription type
 
 **Opt-out**:
-A person's choice to stop one topic or all messages, made on the **preferences page**.
+A person's choice to stop one topic or all marketing messages, made on the **preferences page**.
 _Avoid_: Unsubscribe list (as a noun for the area)
 
 **Suppression list**:
