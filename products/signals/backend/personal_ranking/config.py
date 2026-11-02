@@ -98,6 +98,9 @@ class PersonalRankingConfig:
     max_candidates: int = 30
     # The model ranks only this many candidates. The others follow in model order. At most `max_limit`.
     rank_top: int = 10
+    # The most entries in each tier. The validator moves an entry past a cap down one tier and keeps its rank.
+    top_max: int = 5
+    worth_a_look_max: int = 10
     # The entries that get a `next_step`, and the most a caller can ask for.
     default_limit: int = 25
     max_limit: int = 50
@@ -115,6 +118,8 @@ class PersonalRankingConfig:
     build_burst: int = 2
     builds_per_hour: int = 12
     builds_per_day: int = 40
+    # Each build keeps this many of the person's newest rows and deletes the older ones.
+    max_rows_per_person: int = 5
 
 
 DEFAULTS = PersonalRankingConfig()
@@ -130,6 +135,8 @@ _MAXIMUMS: dict[str, int] = {
     "max_candidates": 100,
     "pool_size": 100,
     "rank_top": 100,
+    "top_max": 50,
+    "worth_a_look_max": 100,
     "default_limit": 100,
     "max_limit": 100,
     "next_step_max_chars": 400,
@@ -142,6 +149,7 @@ _MAXIMUMS: dict[str, int] = {
     "build_burst": 20,
     "builds_per_hour": 120,
     "builds_per_day": 500,
+    "max_rows_per_person": 100,
     "reason_max_chars": 500,
 }
 

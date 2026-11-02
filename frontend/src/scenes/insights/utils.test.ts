@@ -11,6 +11,7 @@ import {
 } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { isEventsNode } from '~/queries/schema/node-guards'
 import {
     ActionsNode,
     BreakdownFilter,
@@ -20,7 +21,6 @@ import {
     NodeKind,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { isEventsNode } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 import { BaseMathType, CompareLabelType, Entity, FilterType, InsightType, TeamType } from '~/types'
 

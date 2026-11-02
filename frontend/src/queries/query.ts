@@ -7,6 +7,14 @@ import { uuid } from 'lib/utils/dom'
 import { HogQLQueryString } from 'lib/utils/hogql'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
+import { queryUsesDataWarehouse } from '~/queries/schema/node-accessors'
+import {
+    isDataTableNode,
+    isDataVisualizationNode,
+    isHogQLQuery,
+    isInsightQueryNode,
+    isPersonsNode,
+} from '~/queries/schema/node-guards'
 import {
     DashboardFilter,
     DataNode,
@@ -21,16 +29,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { OnlineExportContext, QueryExportContext } from '~/types'
 
-import {
-    dataWarehouseSourcesFromResponse,
-    isAsyncResponse,
-    isDataTableNode,
-    isDataVisualizationNode,
-    isHogQLQuery,
-    isInsightQueryNode,
-    isPersonsNode,
-    queryUsesDataWarehouse,
-} from './utils'
+import { dataWarehouseSourcesFromResponse, isAsyncResponse } from './utils'
 
 export function waitForPageVisible(signal?: AbortSignal): Promise<void> {
     if (typeof document === 'undefined' || document.visibilityState === 'visible') {

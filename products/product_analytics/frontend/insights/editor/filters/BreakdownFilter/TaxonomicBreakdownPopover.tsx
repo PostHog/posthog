@@ -10,8 +10,13 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
+import {
+    isActionsNode,
+    isInsightQueryWithSeries,
+    isInsightVizNode,
+    isRetentionQuery,
+} from '~/queries/schema/node-guards'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { isActionsNode, isInsightQueryWithSeries, isInsightVizNode, isRetentionQuery } from '~/queries/utils'
 
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 

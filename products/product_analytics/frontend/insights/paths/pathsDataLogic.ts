@@ -12,6 +12,7 @@ import { pathsTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
 import { OpenPersonsModalProps, openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { urls } from 'scenes/urls'
 
+import { isPathsQuery } from '~/queries/schema/node-guards'
 import { InsightActorsQuery, InsightVizNode, NodeKind, PathsLink, PathsQuery } from '~/queries/schema/schema-general'
 import type {
     DataNode,
@@ -29,7 +30,6 @@ import type {
     WebStatsTableQuery,
 } from '~/queries/schema/schema-general'
 import type { PathsV2Query } from '~/queries/schema/schema-general'
-import { isPathsQuery } from '~/queries/utils'
 import { FunnelVizType, InsightLogicProps, PathType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { pathNodeKeys } from './pathsChartTransforms'
