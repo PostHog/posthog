@@ -30,6 +30,12 @@ export class SessionRecordingIngesterMetrics {
         buckets: BUCKETS_KB_WRITTEN,
     })
 
+    private static readonly kafkaBatchDecodedKb = new Histogram({
+        name: 'recording_blob_ingestion_v2_kafka_batch_decoded_kb',
+        help: 'The stated decompressed size in kb of the batches we are receiving from Kafka',
+        buckets: BUCKETS_KB_WRITTEN,
+    })
+
     private static readonly batchStageDuration = new Histogram({
         name: 'recording_blob_ingestion_v2_batch_stage_duration_ms',
         help: 'Wall time one poll batch spent running one stage. Batches overlap across stages, so a stage that runs for close to 100% of wall time is the one the lane is bound by',
@@ -123,6 +129,10 @@ export class SessionRecordingIngesterMetrics {
 
     public static incrementMessagesByEncoding(encoding: string): void {
         this.messagesByEncoding.labels(encoding).inc()
+    }
+
+    public static observeKafkaBatchDecodedKb(decodedKb: number): void {
+        this.kafkaBatchDecodedKb.observe(decodedKb)
     }
 
     public static observeMessageShape(windowIdBytes: number, events: number): void {

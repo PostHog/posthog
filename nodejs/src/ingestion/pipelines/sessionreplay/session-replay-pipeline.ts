@@ -58,6 +58,7 @@ export type SessionReplayPipeline = BatchingPipeline<
 
 export interface SessionReplayPipelineConfig {
     messageLimits?: MessageLimits
+    maxDecodedBytesPerWrite?: number
     outputs: IngestionOutputs<IngestionWarningsOutput | DlqOutput | OverflowOutput>
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
     overflowMode: IngestionOverflowMode
