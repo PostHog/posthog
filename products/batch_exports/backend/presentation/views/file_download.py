@@ -1,5 +1,5 @@
 import datetime as dt
-from typing import Any, cast
+from typing import Any
 from uuid import UUID
 
 from django.db import models
@@ -8,13 +8,13 @@ from django.http import HttpResponseRedirect
 from drf_spectacular.utils import OpenApiResponse, PolymorphicProxySerializer, extend_schema
 from rest_framework import response, serializers, status, viewsets
 from rest_framework.exceptions import APIException, NotAuthenticated, NotFound, ValidationError
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.throttling import BaseThrottle
 
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.errors import ExposedCHQueryError
@@ -31,7 +31,6 @@ from products.batch_exports.backend.presentation.views.utils import (
     HOGQL_MODIFIERS_HELP_TEXT,
     HogQLModifiersField,
     check_hogql_batch_exports_enabled,
-    fetch_facade_page,
 )
 
 FILE_DOWNLOAD_MAX_RANGE = dt.timedelta(weeks=1)
@@ -372,6 +371,7 @@ class FileDownloadBatchExportOnDemandViewSet(TeamAndOrgViewSetMixin, LogEntryMix
     path_parameters = {"pk": PathParameter(type=UUID, description="A UUID string identifying this batch export run.")}
     scope_object = "batch_export"
     serializer_class = FileDownloadBatchExportOnDemandSerializer
+    pagination_class = FacadeLimitOffsetPagination
     log_source = "batch_exports"
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
@@ -401,13 +401,10 @@ class FileDownloadBatchExportOnDemandViewSet(TeamAndOrgViewSetMixin, LogEntryMix
         return run
 
     def list(self, request, *args, **kwargs) -> response.Response:
-        paginator = cast(LimitOffsetPagination, self.paginator)
-        runs = fetch_facade_page(
-            paginator,
-            request,
-            lambda offset, limit: batch_exports_api.list_file_download_runs(self.team_id, offset=offset, limit=limit),
+        return facade_page_response(
+            self,
+            lambda page: batch_exports_api.list_file_download_runs(self.team_id, page=page),
         )
-        return paginator.get_paginated_response(ListOutputSerializer(runs, many=True).data)
 
     @extend_schema(
         request=PolymorphicProxySerializer(
