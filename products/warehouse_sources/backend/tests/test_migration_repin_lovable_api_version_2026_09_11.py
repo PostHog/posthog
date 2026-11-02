@@ -1,9 +1,9 @@
 from typing import Any
 
-from posthog.test.base import TestMigrations
+from posthog.test.base import NonAtomicTestMigrations
 
 
-class TestRepinLovableApiVersion20260911(TestMigrations):
+class TestRepinLovableApiVersion20260911(NonAtomicTestMigrations):
     migrate_from = "0188_reset_trunkio_v2_failing_tests"
     migrate_to = "0189_repin_lovable_api_version_2026_09_11"
 

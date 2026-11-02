@@ -30040,6 +30040,30 @@ export namespace Schemas {
     }
 
     /**
+     * * `second` - second
+     * * `minute` - minute
+     * * `hour` - hour
+     * * `day` - day
+     * * `week` - week
+     * * `month` - month
+     * * `quarter` - quarter
+     * * `year` - year
+     */
+    export type IntervalTypeEnum = typeof IntervalTypeEnum[keyof typeof IntervalTypeEnum];
+
+
+    export const IntervalTypeEnum = {
+      Second: 'second',
+      Minute: 'minute',
+      Hour: 'hour',
+      Day: 'day',
+      Week: 'week',
+      Month: 'month',
+      Quarter: 'quarter',
+      Year: 'year',
+    } as const;
+
+    /**
      * OpenAPI-only shape for a dashboard's filters object (agents/MCP).
      *
      * Documents the dashboard-level filters that act as the single source of truth for the
@@ -30059,6 +30083,26 @@ export namespace Schemas {
       date_to?: string | null;
       /** Dashboard-level property filters applied to every tile (PostHog property filter group). */
       properties?: unknown;
+      /** Dashboard-level breakdown applied to every tile that supports one, replacing the tile's own breakdown. Example: {"breakdown_type": "event", "breakdown": "$browser"}. Null clears it. */
+      breakdown_filter?: BreakdownFilter | null;
+      /** Time granularity forced onto every tile that supports one. Null means each tile keeps its own.
+       *
+       * * `second` - second
+       * * `minute` - minute
+       * * `hour` - hour
+       * * `day` - day
+       * * `week` - week
+       * * `month` - month
+       * * `quarter` - quarter
+       * * `year` - year */
+      interval?: IntervalTypeEnum | null;
+      /** Period comparison forced onto every tile that supports one. Null means each tile keeps its own. */
+      compareFilter?: CompareFilter | null;
+      /**
+         * True forces test accounts out of every tile, false forces them in, null keeps each tile's setting.
+         * @nullable
+         */
+      filterTestAccounts?: boolean | null;
     }
 
     /**
@@ -30855,30 +30899,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `second` - second
-     * * `minute` - minute
-     * * `hour` - hour
-     * * `day` - day
-     * * `week` - week
-     * * `month` - month
-     * * `quarter` - quarter
-     * * `year` - year
-     */
-    export type DataCatalogMetricRunRequestIntervalEnum = typeof DataCatalogMetricRunRequestIntervalEnum[keyof typeof DataCatalogMetricRunRequestIntervalEnum];
-
-
-    export const DataCatalogMetricRunRequestIntervalEnum = {
-      Second: 'second',
-      Minute: 'minute',
-      Hour: 'hour',
-      Day: 'day',
-      Week: 'week',
-      Month: 'month',
-      Quarter: 'quarter',
-      Year: 'year',
-    } as const;
-
-    /**
      * Optional run-time overrides. The whole body may be omitted; a metric runs by its URL name.
      */
     export interface DataCatalogMetricRunRequest {
@@ -30896,7 +30916,7 @@ export namespace Schemas {
        * * `month` - month
        * * `quarter` - quarter
        * * `year` - year */
-      interval?: DataCatalogMetricRunRequestIntervalEnum;
+      interval?: IntervalTypeEnum;
       /** Client-supplied id to correlate or cancel the run. */
       query_id?: string;
     }
@@ -66644,6 +66664,90 @@ export namespace Schemas {
      */
     export interface IntegrationConfig {
       readonly id: number;
+      /**
+         * The provider of the integration, for example 'slack' or 'github'. A create accepts only the kinds that PostHog connects here. Data warehouse sources also store their typed-in credentials as integrations, under a kind per source type.
+         * @maxLength 32
+         */
+      kind: string;
+      /** How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
+       *
+       * * `oauth` - OAuth
+       * * `token` - Token
+       * * `credentials` - Credentials */
+      readonly auth_type: IntegrationAuthTypeEnum;
+      config?: unknown;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      readonly errors: string;
+      readonly display_name: string;
+      /** Slack only: whether reconnecting can request the files:write scope. */
+      readonly files_write_requestable: boolean;
+      /**
+         * GitHub only, null otherwise. Whether another project's GitHub integration references the same App installation. When false, disconnecting this integration also uninstalls the GitHub App from the connected account or organization and removes personal GitHub connections that share it.
+         * @nullable
+         */
+      readonly installation_shared: boolean | null;
+      /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
+      readonly installation_status: InstallationStatusEnum | null;
+    }
+
+    /**
+     * The request schema of a create. A create accepts only the public kinds, so the schema lists them.
+     */
+    export interface IntegrationConfigCreate {
+      readonly id: number;
+      /** The provider of the integration, for example 'slack' or 'github'.
+       *
+       * * `anthropic` - Anthropic
+       * * `apple-ads` - Apple Ads
+       * * `apns` - Apple Push
+       * * `aws-redshift` - Aws Redshift
+       * * `aws-s3` - Aws S3
+       * * `azure-blob` - Azure Blob
+       * * `bing-ads` - Bing Ads
+       * * `clickup` - Clickup
+       * * `customerio-app` - Customerio App
+       * * `customerio-track` - Customerio Track
+       * * `customerio-webhook` - Customerio Webhook
+       * * `databricks` - Databricks
+       * * `email` - Email
+       * * `firebase` - Firebase
+       * * `github` - Github
+       * * `gitlab` - Gitlab
+       * * `google-ads` - Google Ads
+       * * `google-analytics` - Google Analytics
+       * * `google-calendar` - Google Calendar
+       * * `google-cloud-service-account` - Google Cloud Service Account
+       * * `google-cloud-storage` - Google Cloud Storage
+       * * `google-pubsub` - Google Pubsub
+       * * `google-search-console` - Google Search Console
+       * * `google-sheets` - Google Sheets
+       * * `helpscout` - Helpscout
+       * * `hubspot` - Hubspot
+       * * `instagram` - Instagram
+       * * `intercom` - Intercom
+       * * `jira` - Jira
+       * * `linear` - Linear
+       * * `linkedin-ads` - Linkedin Ads
+       * * `meta-ads` - Meta Ads
+       * * `pardot` - Pardot
+       * * `pinterest-ads` - Pinterest Ads
+       * * `postgresql` - Postgresql
+       * * `posthog` - Posthog
+       * * `reddit-ads` - Reddit Ads
+       * * `twitter-ads` - Twitter Ads
+       * * `resend` - Resend
+       * * `s3-compatible` - S3 Compatible
+       * * `salesforce` - Salesforce
+       * * `slack` - Slack
+       * * `slack-posthog-code` - Slack Posthog Code
+       * * `snapchat` - Snapchat
+       * * `snowflake` - Snowflake
+       * * `stripe` - Stripe
+       * * `tiktok-ads` - Tiktok Ads
+       * * `twilio` - Twilio
+       * * `vercel` - Vercel
+       * * `youtube-analytics` - Youtube Analytics */
       kind: IntegrationKindEnum;
       /** How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
        *
@@ -80687,7 +80791,8 @@ export namespace Schemas {
      */
     export interface SessionRecordingExternalReferenceIntegration {
       readonly id: number;
-      readonly kind: IntegrationKindEnum;
+      /** The provider of the integration, for example 'github'. */
+      readonly kind: string;
       readonly display_name: string;
     }
 
@@ -90166,7 +90271,11 @@ export namespace Schemas {
      */
     export interface PatchedIntegrationConfig {
       readonly id?: number;
-      kind?: IntegrationKindEnum;
+      /**
+         * The provider of the integration, for example 'slack' or 'github'. A create accepts only the kinds that PostHog connects here. Data warehouse sources also store their typed-in credentials as integrations, under a kind per source type.
+         * @maxLength 32
+         */
+      kind?: string;
       /** How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
        *
        * * `oauth` - OAuth
@@ -91219,7 +91328,7 @@ export namespace Schemas {
       name?: string | null;
       description?: string;
       pinned?: boolean;
-      /** Dashboard-level filters (date range and properties) applied across all tiles as the source of truth. */
+      /** Dashboard-level filters (date range, properties, breakdown, interval, comparison) applied across all tiles as the source of truth. */
       filters?: DashboardFiltersOpenApi;
       /**
          * Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them.
