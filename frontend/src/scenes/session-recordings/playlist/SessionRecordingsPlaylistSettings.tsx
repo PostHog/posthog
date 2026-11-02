@@ -20,7 +20,12 @@ import { bulkScanLogic } from 'products/replay_vision/frontend/logics/bulkScanLo
 import { visionQuotaLogic } from 'products/replay_vision/frontend/logics/visionQuotaLogic'
 import { quotaUx } from 'products/replay_vision/frontend/utils/quotaProjection'
 
-import { useAutoplayMenuItems, useHideRecordingsMenuItems, useTimestampFormatMenuItems } from './listViewMenuItems'
+import {
+    useAutoplayMenuItems,
+    useHideRecordingsMenuItems,
+    useLayoutMenuItems,
+    useTimestampFormatMenuItems,
+} from './listViewMenuItems'
 import {
     DELETE_CONFIRMATION_TEXT,
     MAX_SELECTED_RECORDINGS,
@@ -220,11 +225,13 @@ function ListViewMenu({
     const recommendedItem = useRecommendedOnlyMenuItem(filters, setFilters)
     const hideItems = useHideRecordingsMenuItems()
     const timestampItems = useTimestampFormatMenuItems()
+    const layoutItems = useLayoutMenuItems()
 
     const items: LemonMenuItems = [
         { title: 'Sort by', items: sortItems },
         { title: 'Show', items: [recommendedItem, ...hideItems] },
         { title: 'Timestamps', items: timestampItems },
+        ...(layoutItems.length ? [{ title: 'Layout', items: layoutItems }] : []),
     ]
 
     return (
@@ -241,7 +248,7 @@ function ListViewMenu({
     )
 }
 
-function ConfirmDeleteRecordings({ shortId }: { shortId?: string }): JSX.Element {
+export function ConfirmDeleteRecordings({ shortId }: { shortId?: string }): JSX.Element {
     const {
         selectedRecordingsIds,
         isDeleteSelectedRecordingsDialogOpen,
@@ -472,7 +479,7 @@ export function AddToCollectionModal({ shortId }: { shortId?: string }): JSX.Ele
 }
 
 /** Bulk "Scan these recordings" row whose scanner list opens on hover (a nested `items` menu is click-only). */
-function BulkScanMenuItem(): JSX.Element {
+export function BulkScanMenuItem(): JSX.Element {
     const { selectedRecordingsIds } = useValues(sessionRecordingsPlaylistLogic)
     const { scanners, scannersLoading, scanning } = useValues(bulkScanLogic)
     const { scanRecordings } = useActions(bulkScanLogic)
@@ -553,7 +560,7 @@ export function SessionRecordingsPlaylistTopSettings({
     } = useActions(sessionRecordingsPlaylistLogic)
 
     const recordings = type === 'filters' ? otherRecordings : pinnedRecordings
-    const checked = recordings.length > 0 && selectedRecordingsIds.length === recordings.length
+    const checked = recordings.length > 0 && recordings.every((r) => selectedRecordingsIds.includes(r.id))
 
     const accessControlDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.SessionRecording,

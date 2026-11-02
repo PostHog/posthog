@@ -55,6 +55,7 @@ import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropert
 import { PersonsSearch } from '~/queries/nodes/PersonsNode/PersonsSearch'
 import { SessionPropertyFilters } from '~/queries/nodes/SessionsNode/SessionPropertyFilters'
 import { TracesSearch } from '~/queries/nodes/TracesQuery/TracesSearch'
+import { isActorsQuery, isHogQLQuery } from '~/queries/schema/node-guards'
 import {
     ActorsQuery,
     AnyResponseType,
@@ -73,11 +74,9 @@ import {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import {
-    isActorsQuery,
     isEventsQuery,
     isGroupsQuery,
     isHogQLAggregation,
-    isHogQLQuery,
     isInsightActorsQuery,
     isMarketingAnalyticsTableQuery,
     isSessionsQuery,
@@ -1167,7 +1166,11 @@ export function DataTable({
                                     (dataTableRows ?? []).length > 0 &&
                                     (context?.showLoadNextButton ||
                                         !sourceFeatures.has(QueryFeature.hideLoadNextButton)) ? (
-                                        <LoadNext query={query.source} nouns={context?.dataTableNouns} />
+                                        <LoadNext
+                                            query={query.source}
+                                            nouns={context?.dataTableNouns}
+                                            expectedTotalRows={context?.dataTableExpectedTotalRows}
+                                        />
                                     ) : null
                                 }
                                 nouns={context?.dataTableNouns}

@@ -258,6 +258,19 @@ export const IntegrationKindEnumApi = {
 } as const
 
 /**
+ * * `oauth` - OAuth
+ * * `token` - Token
+ * * `credentials` - Credentials
+ */
+export type IntegrationAuthTypeEnumApi = (typeof IntegrationAuthTypeEnumApi)[keyof typeof IntegrationAuthTypeEnumApi]
+
+export const IntegrationAuthTypeEnumApi = {
+    Oauth: 'oauth',
+    Token: 'token',
+    Credentials: 'credentials',
+} as const
+
+/**
  * * `connected` - connected
  * * `unavailable` - unavailable
  */
@@ -274,6 +287,12 @@ export const InstallationStatusEnumApi = {
 export interface IntegrationConfigApi {
     readonly id: number
     kind: IntegrationKindEnumApi
+    /** How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
+     *
+     * * `oauth` - OAuth
+     * * `token` - Token
+     * * `credentials` - Credentials */
+    readonly auth_type: IntegrationAuthTypeEnumApi
     config?: unknown
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -314,7 +333,20 @@ export interface SlackChannelApi {
     is_private_without_access: boolean
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface SlackChannelsResponseApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** Slack channels visible to the PostHog Slack app. */
     channels: SlackChannelApi[]
     /**
@@ -332,6 +364,12 @@ export interface SlackChannelsResponseApi {
 export interface PatchedIntegrationConfigApi {
     readonly id?: number
     kind?: IntegrationKindEnumApi
+    /** How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
+     *
+     * * `oauth` - OAuth
+     * * `token` - Token
+     * * `credentials` - Credentials */
+    readonly auth_type?: IntegrationAuthTypeEnumApi
     config?: unknown
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -566,7 +604,20 @@ export interface IntegrationAssigneesResponseApi {
     reconnect_required: boolean
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface GitHubBranchesResponseApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** List of branch names */
     branches: string[]
     /**
@@ -599,7 +650,20 @@ export interface GitHubRepoApi {
     can_push?: boolean
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface GitHubReposResponseApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     repositories: GitHubRepoApi[]
     /** Whether more repositories are available beyond this page. */
     has_more: boolean
@@ -622,6 +686,16 @@ export interface GitHubReposRefreshResponseApi {
     installation_status: InstallationStatusEnumApi
 }
 
+export interface GitHubRepositoryAccessResponseApi {
+    /** Whether a live GitHub request confirmed repository access. */
+    available: boolean
+}
+
+export interface ErrorResponseApi {
+    /** Error message */
+    error: string
+}
+
 export interface GitHubTeamApi {
     /** GitHub team numeric identifier. */
     id: number
@@ -631,7 +705,20 @@ export interface GitHubTeamApi {
     name: string
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface GitHubTeamsResponseApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** List of GitHub teams available to the installation organization. */
     teams: GitHubTeamApi[]
     /** Whether more teams are available beyond this page. */
@@ -698,7 +785,20 @@ export interface SlackUserApi {
     display_name: string
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface SlackUsersResponseApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** Human Slack workspace members the PostHog Slack app can DM. */
     users: SlackUserApi[]
     /**
@@ -1225,6 +1325,14 @@ export type IntegrationsGithubReposRetrieveParams = {
      * Optional case-insensitive repository name search query.
      */
     search?: string
+}
+
+export type IntegrationsGithubRepositoryAccessRetrieveParams = {
+    /**
+     * Repository in owner/repo format. Omit to check access to any repository.
+     * @minLength 1
+     */
+    repository?: string
 }
 
 export type IntegrationsGithubTeamsRetrieveParams = {

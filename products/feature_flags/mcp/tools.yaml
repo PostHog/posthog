@@ -72,7 +72,7 @@ tools:
                     default) or `device_id`. Using `device_id` is incompatible with `ensure_experience_continuity=true`.
         hooks: featureFlags/conditionIdHooks
     delete-feature-flag:
-        operation: feature_flags_destroy
+        operation: feature_flags_partial_update
         enabled: true
         scopes:
             - feature_flag:write
@@ -81,8 +81,17 @@ tools:
             destructive: true
             idempotent: true
         title: Delete feature flag
-        description: |
+        description: >
             Soft-delete a feature flag by ID in the current project.
+
+
+            A flag whose `filters.version` is 2 requires `version`, so read the flag first and send its current
+            `version`; never guess it. On such a flag a stale `version` returns 409: read the flag again and decide
+            against its current state. Other flags do not check `version`.
+        include_params:
+            - version
+        inject_body:
+            deleted: true
         param_overrides:
             id:
                 cast: string-int
@@ -92,7 +101,6 @@ tools:
                     - feature_flag_id
                     - featureFlagId
         hooks: featureFlags/conditionIdHooks
-        soft_delete: true
     feature-flag-archive:
         operation: feature_flags_archive_create
         enabled: true
@@ -169,8 +177,9 @@ tools:
 
 
             Pass `version` from the flag you read. A flag whose `filters.version` is 2 requires it, so read the flag
-            first and send its current `version`; never guess it. With `version`, a change made after that read returns
-            409: read the flag again and decide against its current state.
+            first and send its current `version`; never guess it. When the call would change the flag, a stale `version`
+            returns 409: read the flag again and decide against its current state. A call that changes nothing succeeds
+            without checking `version`, and the response carries the current `version`.
 
 
             A disabled flag stops evaluating everywhere, so every caller falls back to its own default. Tell the user
@@ -228,8 +237,9 @@ tools:
 
 
             Pass `version` from the flag you read. A flag whose `filters.version` is 2 requires it, so read the flag
-            first and send its current `version`; never guess it. With `version`, a change made after that read returns
-            409: read the flag again and decide against its current state.
+            first and send its current `version`; never guess it. When the call would change the flag, a stale `version`
+            returns 409: read the flag again and decide against its current state. A call that changes nothing succeeds
+            without checking `version`, and the response carries the current `version`.
 
 
             Returns 400 when the flag is archived (call `feature-flag-unarchive` first), when a flag it depends on is
@@ -908,10 +918,16 @@ tools:
 
             `feature-flag-set-release-condition-rollout` changes one release condition's percentage and
             `feature-flag-roll-out-to-everyone` serves the flag to its whole audience. Both send no `filters` and both
-            refuse the write when the flag changed after the version you read, so a concurrent edit cannot be lost. This
-            tool sends no `version`, so it writes even when the flag changed after your read. It replaces the whole
-            `filters` object with your copy of it. Use it for a rollout change only when those two tools cannot express
-            it, such as changing the split between variants while leaving the audience alone.
+            refuse the write when the flag changed after the version you read, so a concurrent edit cannot be lost. On a
+            flag without `filters.version` 2, this tool does not check `version`, so it writes even when the flag
+            changed after your read. It replaces the whole `filters` object with your copy of it. Use it for a rollout
+            change only when those two tools cannot express it, such as changing the split between variants while
+            leaving the audience alone.
+
+
+            A flag whose `filters.version` is 2 requires `version` for any change, so read the flag first and send its
+            current `version`; never guess it. A stale `version` returns 409: read the flag again and decide against its
+            current state. Don't send `filters` for such a flag: its rules change through `feature-flag-rules-update`.
 
 
             Rollout conditions, variants, and payloads live in the structured `filters` param, and sending `filters`
@@ -944,6 +960,7 @@ tools:
             - ensure_experience_continuity
             - evaluation_runtime
             - bucketing_identifier
+            - version
         param_overrides:
             id:
                 cast: string-int

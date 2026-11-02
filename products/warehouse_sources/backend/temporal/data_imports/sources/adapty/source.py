@@ -87,6 +87,7 @@ class AdaptySource(ResumableSource[AdaptySourceConfig, AdaptyResumeConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Report start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,

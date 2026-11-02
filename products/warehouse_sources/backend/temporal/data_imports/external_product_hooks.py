@@ -356,6 +356,7 @@ class PersonPropertyFailedRunInputs:
     trigger: str
     started_at: str
     error: str
+    count_failure: bool = True
 
     @property
     def binding(self) -> WarehouseBinding:
@@ -432,6 +433,7 @@ class PersonPropertySyncRunRecord:
     produced: int
     skipped_missing_person: int
     error: str | None
+    count_failure: bool = True
 
 
 PersonPropertySyncRecorder = Callable[[PersonPropertySyncRunRecord], None]

@@ -20,6 +20,7 @@ CI_STATUSES = ("passing", "failing", "pending", "none")
 GITHUB_PR_URL_PREFIX = "https://github.com/"
 ARTIFACT_OPEN_NETWORK_WRITER_KEY = "written_with_open_network"
 ARTIFACT_SCRIPT_SHA256_KEY = "script_sha256"
+FINAL_MESSAGE_MAX_CHARS = 20_000
 
 
 def is_html_artifact(name: str, content_type: str) -> bool:
@@ -229,9 +230,7 @@ OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAGS: dict[str, str] = {
 SUBSCRIPTION_PLAN_NAMES: dict[str, str] = {"claude": "Claude plan", "codex": "ChatGPT plan"}
 CODEX_SUBSCRIPTION_EGRESS_DOMAINS: tuple[str, ...] = ("chatgpt.com",)
 
-SnapshotKind = Literal["filesystem", "directory"]
-SNAPSHOT_KIND_FILESYSTEM: SnapshotKind = "filesystem"
-SNAPSHOT_KIND_DIRECTORY: SnapshotKind = "directory"
+RESUME_SNAPSHOT_KIND = "directory"
 DEFAULT_SANDBOX_WORKING_DIR = "/tmp/workspace"
 # Directory a sandbox clones repositories under, as `<root>/<organization>/<repository>`. Anything
 # that tells an agent where its checkout is must read it from here (see `sandbox_repo_path`), or a

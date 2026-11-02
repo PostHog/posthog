@@ -1,4 +1,5 @@
 import re
+import dataclasses
 from collections import deque
 from typing import Any
 
@@ -12,6 +13,7 @@ from products.workflows.backend.services.data_suggestions.email_design import Em
 from products.workflows.backend.services.data_suggestions.planner import (
     MAX_PLANNED_STEPS,
     Channel,
+    PlannedBranch,
     PlannedStep,
     PlannedWorkflow,
     WorkflowIdea,
@@ -50,6 +52,8 @@ class BuildContext:
     once_per_person: bool = False
     event_properties: frozenset[str] = frozenset()
     weekly_count: int = 0
+    # Person property name to the values seen for it, the only ones a branch condition may use.
+    person_properties: dict[str, tuple[str, ...]] = dataclasses.field(default_factory=dict)
     push_integration_ids: tuple[int, ...] = ()
 
 
@@ -306,9 +310,10 @@ def _build_step(step: PlannedStep, action_id: str, context: BuildContext) -> dic
                 return None
             return _action(step, action_id, "wait_until_condition", _wait_config(step))
         case "conditional_branch":
-            # Empty filters, like a branch added in the editor, which rejects null filters. The step's note asks the
-            # team to set each condition.
-            conditions = [{"filters": {}, "name": clean_copy(branch.label)[:60]} for branch in step.branches or []]
+            conditions = [
+                {"filters": _branch_filters(branch, context), "name": clean_copy(branch.label)[:60]}
+                for branch in step.branches or []
+            ]
             return _action(step, action_id, "conditional_branch", {"conditions": conditions})
         case "random_split":
             branches = step.branches or []
@@ -322,6 +327,19 @@ def _build_step(step: PlannedStep, action_id: str, context: BuildContext) -> dic
             return _action(step, action_id, "random_cohort_branch", {"cohorts": cohorts})
         case "exit":
             return _action(step, action_id, "exit", {"reason": clean_copy(step.name)[:100] or "Exit"})
+
+
+def _branch_filters(branch: PlannedBranch, context: BuildContext) -> dict[str, Any]:
+    # A property or value the project does not send leaves the filters empty, like a branch added in the editor,
+    # which rejects null filters. The step's note then asks the team to set the condition.
+    values = context.person_properties.get(branch.person_property or "", ())
+    if branch.property_value not in values:
+        return {}
+    return {
+        "properties": [
+            {"key": branch.person_property, "value": [branch.property_value], "operator": "exact", "type": "person"}
+        ]
+    }
 
 
 def _slack_config(step: PlannedStep, context: BuildContext) -> dict[str, Any]:

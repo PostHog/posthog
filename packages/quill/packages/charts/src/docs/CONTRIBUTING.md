@@ -20,7 +20,7 @@ Where new code goes:
 
 ## Conventions
 
-- **No kea, no PostHog imports.** Theme, colors, and data are passed in as props. The library has no app dependencies — it's used by trends but shouldn't know about them.
+- **No kea, no PostHog imports.** Colors and data are passed in as props. The theme comes from a prop or a `ChartThemeProvider`, resolved with `useResolvedChartTheme`. The library has no app dependencies — it's used by trends but shouldn't know about them.
 - **`ChartScales` must not expose d3 types.** Public interface is `x(label) => px`, `y(value) => px`, `yTicks() => number[]`. d3 stays inside the chart-type's `createScales`.
 - **Canvas functions are stateless.** Pure functions in `canvas-renderer.ts`, no React or side effects. State lives in React; drawing reads it.
 - **Overlays use the granular hooks.** `useChartLayout()` doesn't re-render on hover; `useChartHover()` does. Use `useChart()` only when an overlay genuinely needs both — it re-renders on every mousemove.

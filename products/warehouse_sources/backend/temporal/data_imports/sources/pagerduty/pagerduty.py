@@ -224,7 +224,7 @@ def _row_map(endpoint: str, config: PagerDutyEndpointConfig) -> Optional[Callabl
 
 
 def _list_params(config: PagerDutyEndpointConfig, should_use_incremental_field: bool) -> dict[str, Any]:
-    params: dict[str, Any] = {}
+    params: dict[str, Any] = dict(config.extra_params)
     if config.supports_since:
         # created_at is immutable, so an ascending sort means new rows append to the end and never
         # shift pages we've already read. Sent on every sync (not just incremental ones) so full

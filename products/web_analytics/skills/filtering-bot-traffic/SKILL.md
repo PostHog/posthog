@@ -52,19 +52,18 @@ so you don't pass anything in. Available wherever you pick an event property.
 
 ### HogQL functions (raw SQL)
 
-Pass the user agent explicitly. Use `coalesce(nullIf(properties.$raw_user_agent, ''), properties.$user_agent)`
-to cover both server-side (`$raw_user_agent`) and JS SDK (`$user_agent`) captures. The `nullIf`
-keeps an empty `$raw_user_agent` from shadowing a real `$user_agent` and being misread as a bot —
-this mirrors the expression the virtual properties use internally.
+Pass `properties.$raw_user_agent` (and optionally `properties.$ip`) as is, the same arguments the
+virtual properties use. Don't wrap it, e.g. in `coalesce(...)`: server and mobile SDK events (and
+cookieless events) are exempt from the empty-UA rule only when the argument is that plain field.
 
-| Function                 | Returns                                                                      |
-| ------------------------ | ---------------------------------------------------------------------------- |
-| `isLikelyBot(ua)`        | `true` if the UA matches a bot/automation pattern (empty UA counts as a bot) |
-| `getTrafficType(ua)`     | `AI Agent` / `Bot` / `Automation` / `Regular`                                |
-| `getTrafficCategory(ua)` | subcategory; `regular` for humans                                            |
-| `getBotType(ua)`         | same subcategory but empty string for humans — handy for filtering           |
-| `getBotName(ua)`         | bot name; empty for humans                                                   |
-| `getBotOperator(ua)`     | operator/company; empty for humans                                           |
+| Function                 | Returns                                                               |
+| ------------------------ | --------------------------------------------------------------------- |
+| `isLikelyBot(ua)`        | `true` on a bot pattern or empty UA (server/mobile SDK events exempt) |
+| `getTrafficType(ua)`     | `AI Agent` / `Bot` / `Automation` / `Regular`                         |
+| `getTrafficCategory(ua)` | subcategory; `regular` for humans                                     |
+| `getBotType(ua)`         | same subcategory but empty string for humans — handy for filtering    |
+| `getBotName(ua)`         | bot name; empty for humans                                            |
+| `getBotOperator(ua)`     | operator/company; empty for humans                                    |
 
 ## Traffic types — what to keep vs drop
 
@@ -135,16 +134,16 @@ which tools (OpenAI, Anthropic, Perplexity, …) read your site and which pages 
 SELECT count() AS human_pageviews
 FROM events
 WHERE event = '$pageview'
-    AND NOT isLikelyBot(coalesce(nullIf(properties.$raw_user_agent, ''), properties.$user_agent))
+    AND NOT isLikelyBot(properties.$raw_user_agent)
 
 -- top bots by hits
 SELECT
-    getBotName(coalesce(nullIf(properties.$raw_user_agent, ''), properties.$user_agent)) AS bot,
-    getBotOperator(coalesce(nullIf(properties.$raw_user_agent, ''), properties.$user_agent)) AS operator,
+    getBotName(properties.$raw_user_agent) AS bot,
+    getBotOperator(properties.$raw_user_agent) AS operator,
     count() AS hits
 FROM events
 WHERE event = '$pageview'
-    AND isLikelyBot(coalesce(nullIf(properties.$raw_user_agent, ''), properties.$user_agent))
+    AND isLikelyBot(properties.$raw_user_agent)
 GROUP BY bot, operator
 ORDER BY hits DESC
 ```
@@ -196,8 +195,9 @@ the capture API) before building bot insights.
 - **`isLikelyBot` is "likely".** Detection is a user-agent heuristic — some bots spoof
   real browser UAs, and some legit tools use bot-like ones. Treat it as best-effort, not
   ground truth.
-- **Empty user agent = bot.** Requests with no UA (server-to-server, misconfigured SDKs)
-  classify as `Automation` / `no_user_agent`, so `isLikelyBot` returns `true`.
+- **Empty user agent = bot, except from server and mobile SDKs.** Events with no UA classify as
+  `Automation` / `no_user_agent`, unless `$lib` is a server or mobile SDK, which only sends a UA
+  when the app forwards one.
 - **Don't silently drop the host filter.** If the user is scoped to one domain, inherit
   `$host` in `properties` — leaving it out changes the answer.
 - **Bot definitions evolve.** The detected-bot list changes over time, so re-running the

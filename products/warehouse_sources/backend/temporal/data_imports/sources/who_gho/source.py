@@ -77,6 +77,7 @@ WHO refreshes each indicator on its own publication cycle, typically annually, s
                 [
                     SourceFieldInputConfig(
                         name="indicator_codes",
+                        sync_setting=True,
                         label="Indicator codes",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,

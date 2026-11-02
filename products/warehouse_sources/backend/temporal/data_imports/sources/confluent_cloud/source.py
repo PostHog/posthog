@@ -85,6 +85,7 @@ Then list the IDs of the resources to collect metrics for — for example Kafka 
                     ),
                     SourceFieldInputConfig(
                         name="kafka_cluster_ids",
+                        sync_setting=True,
                         label="Kafka cluster IDs",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -93,6 +94,7 @@ Then list the IDs of the resources to collect metrics for — for example Kafka 
                     ),
                     SourceFieldInputConfig(
                         name="connector_ids",
+                        sync_setting=True,
                         label="Connector IDs",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -101,6 +103,7 @@ Then list the IDs of the resources to collect metrics for — for example Kafka 
                     ),
                     SourceFieldInputConfig(
                         name="ksqldb_cluster_ids",
+                        sync_setting=True,
                         label="ksqlDB cluster IDs",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -109,6 +112,7 @@ Then list the IDs of the resources to collect metrics for — for example Kafka 
                     ),
                     SourceFieldInputConfig(
                         name="schema_registry_ids",
+                        sync_setting=True,
                         label="Schema Registry cluster IDs",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -117,6 +121,7 @@ Then list the IDs of the resources to collect metrics for — for example Kafka 
                     ),
                     SourceFieldInputConfig(
                         name="compute_pool_ids",
+                        sync_setting=True,
                         label="Flink compute pool IDs",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

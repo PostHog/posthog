@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.braintrust
     AUTH_ERRORS,
     ENDPOINTS,
     PAGE_SIZE,
+    S3_HOST_PATTERN,
     BraintrustEndpoint,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -155,6 +156,9 @@ def _client_config(config: BraintrustSourceConfig, team_id: int) -> ClientConfig
         "auth": {"type": "bearer", "token": config.api_key},
         "allowed_hosts": [],
         "allow_redirects": False,
+        # A response over the API's size limit comes back as a 303 to a presigned S3 object. Only S3
+        # hosts match: other `amazonaws.com` names, like EC2 ones, can resolve to private addresses.
+        "presigned_redirect_host_pattern": S3_HOST_PATTERN,
         "request_timeout": (10, 60),
         "paginator": {
             "type": "cursor",

@@ -75,6 +75,7 @@ class NewYorkTimesSource(ResumableSource[NewYorkTimesSourceConfig, NewYorkTimesR
                     ),
                     SourceFieldInputConfig(
                         name="article_search_query",
+                        sync_setting=True,
                         label="Article Search query (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

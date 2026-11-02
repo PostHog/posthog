@@ -4,16 +4,51 @@ import { useEffect } from 'react'
 
 import { useStorybookMocks } from '~/mocks/browser'
 
+import type { ProviderImportRunApi } from 'products/messaging/frontend/generated/api.schemas'
+
 import { customerIOImportLogic } from './customerIOImportLogic'
 import type { OptOutSyncConfigResponse } from './customerIOImportLogic'
 import { CustomerIOImportModal } from './CustomerIOImportModal'
 
 const syncConfigEndpoint = '/api/environments/:team_id/messaging_categories/optout_sync_config/'
+const importRunsEndpoint = '/api/projects/:team_id/messaging_provider_imports/'
+const importProvidersEndpoint = '/api/projects/:team_id/messaging_provider_imports/providers/'
 
-function mockSyncConfig(config: OptOutSyncConfigResponse): Record<string, any> {
+const importProviders = [
+    {
+        key: 'customerio',
+        label: 'Customer.io',
+        steps: [
+            {
+                key: 'categories',
+                label: 'Subscription topics',
+                description: 'Creates a message category for each Customer.io subscription topic.',
+            },
+            {
+                key: 'suppressions',
+                label: 'Suppressed addresses',
+                description:
+                    "Adds the addresses that Customer.io's email provider bounced, marked as invalid, or got a spam report for to the suppression list.",
+            },
+            {
+                key: 'opt_outs',
+                label: 'Global unsubscribes',
+                description:
+                    'Opts people who unsubscribed from all Customer.io messages out of all marketing messages.',
+            },
+        ],
+    },
+]
+
+function mockSyncConfig(
+    config: OptOutSyncConfigResponse,
+    importRuns: ProviderImportRunApi[] = []
+): Record<string, any> {
     return {
         get: {
             [syncConfigEndpoint]: config,
+            [importRunsEndpoint]: importRuns,
+            [importProvidersEndpoint]: importProviders,
         },
     }
 }
@@ -82,10 +117,11 @@ export default meta
 
 type StoryProps = {
     syncConfig: OptOutSyncConfigResponse
+    importRuns?: ProviderImportRunApi[]
 }
 
-const Template: StoryFn<StoryProps> = ({ syncConfig }) => {
-    useStorybookMocks(mockSyncConfig(syncConfig))
+const Template: StoryFn<StoryProps> = ({ syncConfig, importRuns }) => {
+    useStorybookMocks(mockSyncConfig(syncConfig, importRuns))
     const { openImportModal } = useActions(customerIOImportLogic)
 
     useEffect(() => {
@@ -181,3 +217,91 @@ Step4TrackDisabled.parameters = { testOptions: { waitForSelector: '.LemonCollaps
 export const AllStepsCompleted: StoryFn<StoryProps> = Template.bind({})
 AllStepsCompleted.args = { syncConfig: step4EnabledConfig }
 AllStepsCompleted.parameters = { testOptions: { waitForSelector: '.LemonCollapse' } }
+
+const storedKeyConfig: OptOutSyncConfigResponse = { ...emptySyncConfig, app_integration_id: 1 }
+
+const importRun = (
+    status: ProviderImportRunApi['status'],
+    steps: ProviderImportRunApi['steps']
+): ProviderImportRunApi => ({
+    id: 'run-1',
+    provider: 'customerio',
+    status,
+    steps,
+    created_at: '2026-04-13T10:00:00Z',
+    started_at: '2026-04-13T10:00:02Z',
+    finished_at: status === 'completed' || status === 'failed' ? '2026-04-13T10:06:00Z' : null,
+})
+
+export const ImportRunning: StoryFn<StoryProps> = Template.bind({})
+ImportRunning.args = {
+    syncConfig: storedKeyConfig,
+    importRuns: [
+        importRun('running', [
+            {
+                key: 'categories',
+                label: 'Subscription topics',
+                status: 'completed',
+                processed: 6,
+                imported: 6,
+                warnings: [],
+                last_error: null,
+            },
+            {
+                key: 'suppressions',
+                label: 'Suppressed addresses',
+                status: 'running',
+                processed: 12000,
+                imported: 11874,
+                warnings: [],
+                last_error: 'Customer.io returned HTTP 503.',
+            },
+            {
+                key: 'opt_outs',
+                label: 'Global unsubscribes',
+                status: 'pending',
+                processed: 0,
+                imported: 0,
+                warnings: [],
+                last_error: null,
+            },
+        ]),
+    ],
+}
+ImportRunning.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+        waitForSelector: '[data-attr="customerio-import-run-progress"]',
+    },
+}
+
+export const ImportStepFailed: StoryFn<StoryProps> = Template.bind({})
+ImportStepFailed.args = {
+    syncConfig: storedKeyConfig,
+    importRuns: [
+        importRun('failed', [
+            {
+                key: 'suppressions',
+                label: 'Suppressed addresses',
+                status: 'completed',
+                processed: 2505,
+                imported: 2505,
+                warnings: [],
+                last_error: null,
+            },
+            {
+                key: 'opt_outs',
+                label: 'Global unsubscribes',
+                status: 'failed',
+                processed: 1000,
+                imported: 1000,
+                warnings: [],
+                last_error: 'Customer.io returned HTTP 503.',
+            },
+        ]),
+    ],
+}
+ImportStepFailed.parameters = {
+    mockDate: '2026-04-13 10:30:00',
+    testOptions: { waitForSelector: '[data-attr="customerio-import-run-progress"]' },
+}

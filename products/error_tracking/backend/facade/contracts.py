@@ -21,6 +21,11 @@ from posthog.enums import LabeledStrEnum
 ERROR_TRACKING_ISSUE_SEVERITIES = ("low", "medium", "high", "critical")
 
 
+class BuiltInFilterEvaluation(LabeledStrEnum):
+    CLIENT = "client"
+    SERVER = "server"
+
+
 class IssueTrendDirection(LabeledStrEnum):
     NEW = "new"
     INCREASING = "increasing"
@@ -101,6 +106,21 @@ class GitHubExternalReferenceJob:
 
 
 @dataclass(frozen=True)
+class LinearStatusSyncJob:
+    # The Linear workspace id, which is the `integration_id` of the team's `linear` integration.
+    organization_id: str
+    # The ticket's identifier first, then any identifiers it had before it moved between Linear teams.
+    identifiers: tuple[str, ...]
+    # The workflow state the ticket left. The task reads its category to tell a reopen from a move
+    # between two open states.
+    previous_state_id: str
+
+    def __post_init__(self) -> None:
+        if not self.identifiers:
+            raise ValueError("Provide at least one Linear issue identifier.")
+
+
+@dataclass(frozen=True)
 class ErrorTrackingFingerprint:
     id: UUID
     fingerprint: str
@@ -172,6 +192,7 @@ class ErrorTrackingSettings:
     per_issue_rate_limit_value: int | None
     per_issue_rate_limit_bucket_size_minutes: int | None
     ingestion_enabled: bool
+    linear_status_sync_enabled: bool
 
 
 @dataclass(frozen=True)
@@ -297,6 +318,16 @@ class ErrorTrackingSuppressionRule:
 
 
 @dataclass(frozen=True)
+class ErrorTrackingBuiltInFilter:
+    key: str
+    name: str
+    description: str
+    evaluation: BuiltInFilterEvaluation
+    enabled: bool
+    disabled_reason: str | None
+
+
+@dataclass(frozen=True)
 class ErrorTrackingBypassRule:
     id: UUID
     filters: dict
@@ -313,6 +344,7 @@ class ErrorTrackingIssueBasics:
     description: str | None
     status: str
     severity: str | None
+    created_at: datetime
     # Earliest across all fingerprints, merged ones included.
     first_seen: datetime | None
 

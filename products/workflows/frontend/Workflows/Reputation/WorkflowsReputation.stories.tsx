@@ -1,5 +1,7 @@
 import { Meta, StoryFn } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { useStorybookMocks } from '~/mocks/browser'
 
 import type { TeamEmailReputationResponseApi } from 'products/workflows/frontend/generated/api.schemas'
@@ -112,6 +114,7 @@ const meta: Meta<typeof WorkflowsReputation> = {
     parameters: {
         layout: 'padded',
         testOptions: { waitForLoadersToDisappear: true },
+        featureFlags: [FEATURE_FLAGS.WORKFLOWS_SENDING_TIER_REQUESTS],
     },
 }
 export default meta

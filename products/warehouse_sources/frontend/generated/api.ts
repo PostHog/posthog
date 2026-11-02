@@ -18,11 +18,13 @@ import type {
     CredentialAccountsRequestApi,
     DatabaseSchemaRequestApi,
     DeleteWebhookResponseApi,
+    DestinationConnectLinkApi,
     DestinationConnectionTestResponseApi,
     DirectConnectionSourceOptionApi,
     DraftCustomManifestRequestApi,
     DraftCustomManifestResponseApi,
     ExternalDataDestinationApi,
+    ExternalDataDestinationsConnectLinkRetrieveParams,
     ExternalDataDestinationsListParams,
     ExternalDataJobSerializersApi,
     ExternalDataSchemaApi,
@@ -66,7 +68,6 @@ import type {
     WarehouseAlertCreateDestinationApi,
     WarehouseAlertDeleteDestinationApi,
     WarehouseAlertDestinationApi,
-    WarehouseAlertDestinationCreatedApi,
     WarehouseColumnStatisticsApi,
     WarehouseColumnStatisticsListParams,
     WebhookInfoResponseApi,
@@ -279,6 +280,42 @@ export const externalDataDestinationsTestConnectionCreate = async (
             method: 'POST',
         }
     )
+}
+
+export const getExternalDataDestinationsConnectLinkRetrieveUrl = (
+    projectId: string,
+    params: ExternalDataDestinationsConnectLinkRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/external_data_destinations/connect_link/?${stringifiedParams}`
+        : `/api/projects/${projectId}/external_data_destinations/connect_link/`
+}
+
+/**
+ * Return a secure browser link where the user connects the credentials for a destination.
+ *
+ * The page saves an integration and does not create the destination, so secrets never pass
+ * through the agent. The agent then creates the destination with the new integration's id.
+ */
+export const externalDataDestinationsConnectLinkRetrieve = async (
+    projectId: string,
+    params: ExternalDataDestinationsConnectLinkRetrieveParams,
+    options?: RequestInit
+): Promise<DestinationConnectLinkApi> => {
+    return apiMutator<DestinationConnectLinkApi>(getExternalDataDestinationsConnectLinkRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getExternalDataSchemasListUrl = (projectId: string, params?: ExternalDataSchemasListParams) => {
@@ -1515,15 +1552,15 @@ export const getWarehouseAlertsDestinationsCreateUrl = (projectId: string, id: s
 }
 
 /**
- * Add a notification destination to a warehouse alert. One HogFunction is created per alert event kind (firing, resolved). A PagerDuty destination gets the incident opened and incident closed kinds instead, so each incident it opens is resolved.
+ * Add a notification destination to a warehouse alert.
  */
 export const warehouseAlertsDestinationsCreate = async (
     projectId: string,
     id: string,
     warehouseAlertCreateDestinationApi: WarehouseAlertCreateDestinationApi,
     options?: RequestInit
-): Promise<WarehouseAlertDestinationCreatedApi> => {
-    return apiMutator<WarehouseAlertDestinationCreatedApi>(getWarehouseAlertsDestinationsCreateUrl(projectId, id), {
+): Promise<WarehouseAlertDestinationApi> => {
+    return apiMutator<WarehouseAlertDestinationApi>(getWarehouseAlertsDestinationsCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -1536,7 +1573,7 @@ export const getWarehouseAlertsDestinationsDeleteCreateUrl = (projectId: string,
 }
 
 /**
- * Delete one notification destination of a warehouse alert, all its HogFunctions together.
+ * Delete notification destinations of a warehouse alert.
  */
 export const warehouseAlertsDestinationsDeleteCreate = async (
     projectId: string,

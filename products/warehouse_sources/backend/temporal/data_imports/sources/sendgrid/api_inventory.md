@@ -32,6 +32,10 @@ on the primary key — wasted API calls, not corrupted data.
 | `singlesends`                    | `/marketing/singlesends`                                               | `_metadata`   | `{"result": [...]}`   | `id`                                                               | full refresh                         |
 | `singlesend_stats`               | `/marketing/stats/singlesends`                                         | `_metadata`   | `{"results": [...]}`  | `id`, `ab_variation`, `ab_phase`                                   | full refresh                         |
 | `singlesend_link_stats`          | `/marketing/stats/singlesends/{id}/links` (fan-out over `singlesends`) | `_metadata`   | `{"results": [...]}`  | `singlesend_id`, `url`, `url_location`, `ab_variation`, `ab_phase` | full refresh                         |
+| `categories`                     | `/categories`                                                          | limit/offset  | bare array            | `category`                                                         | full refresh                         |
+| `category_stats`                 | `/categories/stats` (fan-out over `categories`)                        | none (single) | nested daily stats    | `category`, `date`                                                 | `date` via `start_date` (YYYY-MM-DD) |
+| `automation_stats`               | `/marketing/stats/automations`                                         | `_metadata`   | `{"results": [...]}`  | `id`, `aggregation`, `step_id`                                     | full refresh                         |
+| `automation_link_stats`          | `/marketing/stats/automations/{id}/links` (fan-out)                    | `_metadata`   | `{"results": [...]}`  | `automation_id`, `url`, `url_location`, `step_id`                  | full refresh                         |
 
 Notes:
 
@@ -78,6 +82,25 @@ Notes:
   over `/asm/groups` and still lack the creation time. Neither takes a time filter.
 - The Single Send endpoints (`singlesends`, `singlesend_stats`, `singlesend_link_stats`) follow
   `_metadata.next` like the other marketing endpoints. The stats endpoints cap `page_size` at 50.
+- `categories` reads `/categories`, a bare array of `{category}` paged by `limit`/`offset`. No maximum
+  `limit` is documented, so it pages at the documented default of 50: a silently capped page would read
+  as the short last page and end the walk early.
+- `/categories/stats` requires `categories` (up to 10 names) and `start_date`, so `category_stats` fans
+  out over `categories` with one category per request and `aggregated_by=day`. Each response is the
+  same `{date, stats: [{name, type, metrics}]}` nesting as `/stats`, flattened to one row per category
+  and day. Category names are free text, so the name is percent-encoded before it goes into the query
+  string. `start_date` filters server-side, so the table syncs incrementally on `date`. Rows come one
+  category at a time, so they declare no sort order. The listing needs `categories.read` and the stats
+  need `categories.stats.read`, so the permission probe calls `/categories/stats` itself with a
+  placeholder category. `/categories/stats/sums` is not synced: it sums the same metrics over a date
+  range, which a query over `category_stats` can do.
+- The Automation endpoints (`automation_stats`, `automation_link_stats`) follow `_metadata.next` and
+  cap `page_size` at 50, like the Single Send stats. The API has no Automation listing, so the link
+  fan-out reads the Automation ids from the stats rows (one lifetime-total row per Automation without
+  `group_by`).
+- `/marketing/contacts` is not synced. It returns a sample of up to 50 recent contacts, and its pagination
+  is deprecated. The full set needs the asynchronous export job (`POST /marketing/contacts/exports`, poll
+  the status, then download the files), and the public spec does not document the file layout.
   `singlesend_stats` sends no `singlesend_ids`, so it returns lifetime totals for every Single Send;
   without `group_by` each row has `ab_variation` and `ab_phase` set to `all`. `singlesend_link_stats`
   fans out over `singlesends`, and a 404 for a Single Send deleted mid-sync is skipped. No Single Send

@@ -136,6 +136,7 @@ class PromptWatchSource(ResumableSource[PromptWatchSourceConfig, PromptWatchResu
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         secret=False,
                         label="Response start date",
                         type=SourceFieldInputConfigType.TEXT,

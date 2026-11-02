@@ -14,24 +14,33 @@ QUALTRICS_DEFAULT_DOMAIN_SUFFIX = ".qualtrics.com"
 #   "survey_query"  — the same collection shape, filtered per survey via a `surveyId` param
 #   "survey_path"   — one un-paginated `result.elements` payload per survey, keyed in the path
 #   "survey_export" — the async response-export pipeline (create job -> poll -> download zip)
-FetchMode = Literal["list", "survey_query", "survey_path", "survey_export"]
+#   "directory_path" — a paginated `result.elements` collection per XM Directory, keyed in the path
+#   "distribution_path" — a paginated collection per distribution, reached through each survey's
+#                         distribution list (surveys -> distributions -> rows)
+FetchMode = Literal["list", "survey_query", "survey_path", "survey_export", "directory_path", "distribution_path"]
 
 
 @dataclass(frozen=True)
 class QualtricsEndpointConfig:
     name: str
-    # Path under `/API/{version}`. `{survey_id}` is substituted per parent survey.
+    # Path under `/API/{version}`. `{survey_id}`, `{directory_id}` or `{distribution_id}` is
+    # substituted per parent.
     path: str
     primary_key: list[str]
     fetch_mode: FetchMode = "list"
+    params: dict[str, str] = field(default_factory=dict)
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Stable creation-time field, never a `lastModified`-style column that would rewrite
     # partitions on every sync.
     partition_key: str | None = None
 
     @property
-    def fans_out_over_surveys(self) -> bool:
+    def fans_out(self) -> bool:
         return self.fetch_mode != "list"
+
+    @property
+    def parent_path(self) -> str:
+        return "/directories" if self.fetch_mode == "directory_path" else "/surveys"
 
 
 RECORDED_DATE_INCREMENTAL = incremental_field("recordedDate")
@@ -82,6 +91,32 @@ QUALTRICS_ENDPOINTS: dict[str, QualtricsEndpointConfig] = {
         incremental_fields=[RECORDED_DATE_INCREMENTAL],
         partition_key="recordedDate",
     ),
+    # The XM Directory endpoints below have no modified-since filter, so they are full refresh.
+    "directories": QualtricsEndpointConfig(
+        name="directories",
+        path="/directories",
+        primary_key=["directoryId"],
+        params={"includeCount": "true"},
+    ),
+    "directory_contacts": QualtricsEndpointConfig(
+        name="directory_contacts",
+        path="/directories/{directory_id}/contacts",
+        primary_key=["directoryId", "contactId"],
+        fetch_mode="directory_path",
+    ),
+    "mailing_lists": QualtricsEndpointConfig(
+        name="mailing_lists",
+        path="/directories/{directory_id}/mailinglists",
+        primary_key=["directoryId", "mailingListId"],
+        fetch_mode="directory_path",
+        params={"includeCount": "true"},
+    ),
+    "distribution_history": QualtricsEndpointConfig(
+        name="distribution_history",
+        path="/distributions/{distribution_id}/history",
+        primary_key=["distributionId", "contactId"],
+        fetch_mode="distribution_path",
+    ),
 }
 
 ENDPOINTS = tuple(QUALTRICS_ENDPOINTS)
@@ -91,7 +126,7 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
 }
 
 # Endpoint probed during per-schema credential validation. Fan-out endpoints have no reachable
-# URL without a survey id, so they validate through the survey list instead.
+# URL without a parent id, so they validate through their parent list instead.
 VALIDATION_PATHS: dict[str, str] = {
-    name: "/surveys" if config.fans_out_over_surveys else config.path for name, config in QUALTRICS_ENDPOINTS.items()
+    name: config.parent_path if config.fans_out else config.path for name, config in QUALTRICS_ENDPOINTS.items()
 }

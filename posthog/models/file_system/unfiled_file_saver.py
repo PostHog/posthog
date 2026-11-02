@@ -16,7 +16,6 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
-from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
@@ -25,7 +24,6 @@ from products.surveys.backend.models import Survey
 MIXIN_MODELS: dict[str, type[FileSystemSyncMixin]] = {
     "action": Action,
     "feature_flag": FeatureFlag,
-    "experiment": Experiment,
     "insight": Insight,
     "dashboard": Dashboard,
     "notebook": Notebook,

@@ -17,6 +17,7 @@ import type {
     ErrorTrackingAssignmentRuleCreateRequestApi,
     ErrorTrackingAssignmentRuleUpdateRequestApi,
     ErrorTrackingAssignmentRulesListParams,
+    ErrorTrackingBuiltInFilterApi,
     ErrorTrackingBypassRuleApi,
     ErrorTrackingBypassRuleCreateRequestApi,
     ErrorTrackingBypassRuleUpdateRequestApi,
@@ -107,6 +108,7 @@ import type {
     PatchedErrorTrackingAlertUpdateRequestApi,
     PatchedErrorTrackingAssignmentRuleReorderRequestApi,
     PatchedErrorTrackingAssignmentRuleUpdateRequestApi,
+    PatchedErrorTrackingBuiltInFilterUpdateRequestApi,
     PatchedErrorTrackingBypassRuleReorderRequestApi,
     PatchedErrorTrackingBypassRuleUpdateRequestApi,
     PatchedErrorTrackingGroupingRuleReorderRequestApi,
@@ -380,6 +382,38 @@ export const errorTrackingAssignmentRulesReorderPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedErrorTrackingAssignmentRuleReorderRequestApi),
+    })
+}
+
+export const getErrorTrackingBuiltInFiltersListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/built_in_filters/`
+}
+
+export const errorTrackingBuiltInFiltersList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ErrorTrackingBuiltInFilterApi[]> => {
+    return apiMutator<ErrorTrackingBuiltInFilterApi[]>(getErrorTrackingBuiltInFiltersListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getErrorTrackingBuiltInFiltersPartialUpdateUrl = (projectId: string, key: string) => {
+    return `/api/projects/${projectId}/error_tracking/built_in_filters/${key}/`
+}
+
+export const errorTrackingBuiltInFiltersPartialUpdate = async (
+    projectId: string,
+    key: string,
+    patchedErrorTrackingBuiltInFilterUpdateRequestApi?: PatchedErrorTrackingBuiltInFilterUpdateRequestApi,
+    options?: RequestInit
+): Promise<ErrorTrackingBuiltInFilterApi> => {
+    return apiMutator<ErrorTrackingBuiltInFilterApi>(getErrorTrackingBuiltInFiltersPartialUpdateUrl(projectId, key), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedErrorTrackingBuiltInFilterUpdateRequestApi),
     })
 }
 

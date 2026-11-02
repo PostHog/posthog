@@ -110,7 +110,7 @@ The realtime membership serves two readers: feature flags on teams enabled in th
 
 ### Shape hashes
 
-For realtime, non-static, non-deleted cohorts on teams in `REALTIME_COHORT_TEAM_ALLOWLIST`, every save that includes `filters` also maintains three hash columns on the cohort row.
+For realtime, non-static, non-deleted cohorts on teams the pipeline processes ([gates](backfill-coordination.md#gates)), every save that includes `filters` also maintains three hash columns on the cohort row.
 
 | Column                          | What it fingerprints                                                                           | Read by                                                                                                                      |
 | ------------------------------- | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |

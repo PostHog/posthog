@@ -72,6 +72,7 @@ The history tables each cover one series, so they need a bit more setup. Set the
                     ),
                     SourceFieldInputConfig(
                         name="exchange_rate_base_asset",
+                        sync_setting=True,
                         label="Exchange rate base asset",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -80,6 +81,7 @@ The history tables each cover one series, so they need a bit more setup. Set the
                     ),
                     SourceFieldInputConfig(
                         name="exchange_rate_quote_asset",
+                        sync_setting=True,
                         label="Exchange rate quote asset",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -88,6 +90,7 @@ The history tables each cover one series, so they need a bit more setup. Set the
                     ),
                     SourceFieldInputConfig(
                         name="symbol_id",
+                        sync_setting=True,
                         label="Symbol ID",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -96,6 +99,7 @@ The history tables each cover one series, so they need a bit more setup. Set the
                     ),
                     SourceFieldInputConfig(
                         name="period_id",
+                        sync_setting=True,
                         label="Period ID",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -104,6 +108,7 @@ The history tables each cover one series, so they need a bit more setup. Set the
                     ),
                     SourceFieldInputConfig(
                         name="metric_id",
+                        sync_setting=True,
                         label="Metric ID",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -112,6 +117,7 @@ The history tables each cover one series, so they need a bit more setup. Set the
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

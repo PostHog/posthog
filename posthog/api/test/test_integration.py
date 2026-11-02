@@ -6,7 +6,7 @@ from collections.abc import Callable
 from contextlib import nullcontext
 from datetime import timedelta
 from typing import Any, cast
-from urllib.parse import quote, urlencode
+from urllib.parse import parse_qs, quote, urlencode, urlparse
 from uuid import uuid4
 
 import pytest
@@ -1740,6 +1740,7 @@ class TestIntegrationAPIKeyAccess:
         "url_suffix,method,expected_provider",
         [
             ("github_repos/", "get", "GitHub"),
+            ("github_repository_access/", "get", "GitHub"),
             ("github_repos/refresh/", "post", "GitHub"),
             ("github_branches/?repo=org/repo", "get", "GitHub"),
             ("jira_projects/", "get", "Jira"),
@@ -1768,6 +1769,52 @@ class TestIntegrationAPIKeyAccess:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert expected_provider in response.json()["detail"]
+
+    @pytest.mark.parametrize("repository", ["", "org/repo"])
+    @pytest.mark.parametrize(
+        "github_status,refresh_status,expected_status",
+        [(200, None, 200), (404, None, 200), (503, None, 503), (None, None, 503), (401, 404, 200), (401, 503, 503)],
+    )
+    @patch("posthog.models.integration.github.GitHubIntegration.client_request")
+    @patch("posthog.models.github_integration_base.github_request")
+    def test_github_repository_access_ignores_stale_cache(
+        self,
+        mock_request: MagicMock,
+        mock_token_request: MagicMock,
+        repository: str,
+        github_status: int | None,
+        refresh_status: int | None,
+        expected_status: int,
+        client: HttpClient,
+    ) -> None:
+        self.github_integration.repository_cache = []
+        self.github_integration.repository_cache_updated_at = timezone.now() - timedelta(days=2)
+        self.github_integration.save()
+        if github_status is None:
+            mock_request.side_effect = requests.ConnectionError("Network unavailable")
+        else:
+            mock_request.return_value.status_code = github_status
+            mock_request.return_value.headers = {}
+            mock_request.return_value.json.return_value = {
+                "repositories": [{"id": 1, "name": "repo", "full_name": "org/repo"}]
+            }
+        mock_token_request.return_value.status_code = refresh_status
+        mock_token_request.return_value.text = "Token refresh failed"
+        mock_token_request.return_value.json.return_value = {"message": "Token refresh failed"}
+        key_value = "test_repository_access"
+        PersonalAPIKey.objects.create(
+            user=self.user, secure_value=hash_key_value(key_value), scopes=["integration:read"]
+        )
+
+        response = client.get(
+            f"/api/projects/{self.team.pk}/integrations/{self.github_integration.id}/github_repository_access/",
+            {"repository": repository} if repository else {},
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == expected_status
+        if expected_status == 200:
+            assert response.json() == {"available": github_status == 200}
 
     @patch("posthog.models.integration.github.GitHubIntegration.list_cached_repositories")
     def test_github_repos_with_scope_succeeds(self, mock_list_repos, client: HttpClient):
@@ -1934,21 +1981,21 @@ class TestIntegrationAPIKeyAccess:
         )
 
         seen: list[str] = []
-        offset: int | None = 0
+        url: str | None = (
+            f"/api/environments/{self.team.pk}/integrations/{self.github_integration.id}/github_repos/"
+            f"?limit=100&offset=0&compact={str(compact).lower()}"
+        )
         pages = 0
-        while offset is not None:
-            response = client.get(
-                f"/api/environments/{self.team.pk}/integrations/{self.github_integration.id}/github_repos/"
-                f"?limit=100&offset={offset}&compact={str(compact).lower()}",
-                HTTP_AUTHORIZATION=f"Bearer {key_value}",
-            )
+        while url is not None:
+            response = client.get(url, HTTP_AUTHORIZATION=f"Bearer {key_value}")
             assert response.status_code == status.HTTP_200_OK
             data = response.json()
             assert data["total"] == 250
-            assert data["has_more"] is (data["next_offset"] is not None)
+            assert data["has_more"] is (data["next_offset"] is not None) is (data["next"] is not None)
+            assert (data["previous"] is None) is (pages == 0)
             assert all(set(repo) == expected_keys for repo in data["repositories"])
             seen.extend(repo["full_name"] for repo in data["repositories"])
-            offset = data["next_offset"]
+            url = data["next"]
             pages += 1
 
         assert pages == 3
@@ -2467,6 +2514,10 @@ class TestIntegrationAPIKeyAccess:
         assert data["channels"][0]["id"] == "C2"
         assert data["has_more"] is True
 
+        last_page = client.get(data["next"], HTTP_AUTHORIZATION=f"Bearer {key_value}").json()
+        assert [channel["id"] for channel in last_page["channels"]] == ["C3"]
+        assert last_page["next"] is None
+
         mock_slack_instance.list_channels.assert_called_once()
 
     @pytest.mark.parametrize("owns_integration", [True, False])
@@ -2895,6 +2946,11 @@ class TestIntegrationAPIKeyAccess:
         assert [member["id"] for member in data["users"]] == ["U1"]
         assert data["has_more"] is True
 
+        last_page = client.get(data["next"], HTTP_AUTHORIZATION=f"Bearer {key_value}").json()
+        assert [member["id"] for member in last_page["users"]] == ["U2"]
+        assert last_page["next"] is None
+        assert last_page["previous"] is not None
+
     @patch("posthog.api.integration.SlackIntegration")
     def test_users_action_direct_lookup_and_kind_guard(self, mock_slack_class, client: HttpClient):
         slack_integration = Integration.objects.create(
@@ -2928,6 +2984,7 @@ class TestIntegrationAPIKeyAccess:
         )
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["users"] == [{"id": "U42", "name": "andy.m", "display_name": "andy"}]
+        assert response.json()["next"] is None and response.json()["previous"] is None
         mock_slack_instance.get_user_by_id.assert_called_once_with("U42")
 
         # Lookups are cached per id — hits and misses alike — so repeated probes can't spend the
@@ -3224,6 +3281,39 @@ class TestIntegrationAPIKeyAccess:
         kinds = [integration["kind"] for integration in results]
         assert "github" in kinds
         assert "twilio" in kinds
+
+    def test_list_and_retrieve_show_every_auth_type(self, client: HttpClient):
+        client.force_login(self.user)
+        token_row = Integration.objects._with_auth(Integration.AuthType.TOKEN).create(
+            team=self.team, kind="github", integration_id="typed-in", sensitive_config={"token": "secret"}
+        )
+        source_row = Integration.objects._with_auth(Integration.AuthType.CREDENTIALS).create(
+            team=self.team, kind="postgresql", integration_id="source", config={"warehouse_source_type": "Postgres"}
+        )
+        base_url = f"/api/environments/{self.team.pk}/integrations"
+
+        with patch.object(GitHubIntegration, "ensure_account_name") as heal:
+            listed = client.get(f"{base_url}/").json()["results"]
+            retrieved = client.get(f"{base_url}/{token_row.id}/")
+        repos = client.get(f"{base_url}/{token_row.id}/github_repos/")
+
+        assert {(row["id"], row["auth_type"]) for row in listed} == {
+            (self.github_integration.id, "oauth"),
+            (self.twilio_integration.id, "token"),
+            (token_row.id, "token"),
+            (source_row.id, "credentials"),
+        }
+        # Code that does not state its auth types does not see the warehouse source row.
+        assert not Integration.objects.filter(team=self.team, kind="postgresql").exists()
+        assert retrieved.status_code == status.HTTP_200_OK
+        assert (retrieved.json()["auth_type"], retrieved.json()["installation_status"]) == ("token", None)
+        assert repos.status_code == status.HTTP_404_NOT_FOUND
+        # Only the App row of the list heals its account name. The token row has no installation.
+        assert heal.call_count == 1
+        # Actions other than list and retrieve do not reach the warehouse source row.
+        deleted = client.delete(f"{base_url}/{source_row.id}/")
+        assert deleted.status_code == status.HTTP_404_NOT_FOUND
+        assert Integration._base_manager.filter(id=source_row.id).exists()
 
     def test_list_integrations_filtered_by_kind(self, client: HttpClient):
         client.force_login(self.user)
@@ -6411,6 +6501,8 @@ class TestGitHubBranches:
         data = response.json()
         assert len(data["branches"]) == 10
         assert data["has_more"] is True
+        assert parse_qs(urlparse(data["next"]).query)["offset"] == ["60"]
+        assert parse_qs(urlparse(data["previous"]).query)["offset"] == ["40"]
         assert data["default_branch"] == "main"
         mock_list_cached.assert_called_once_with(
             "org/repo",

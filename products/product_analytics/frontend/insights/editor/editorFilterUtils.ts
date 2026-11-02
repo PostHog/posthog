@@ -1,5 +1,5 @@
+import { formatEventName } from 'lib/insights/entityFilterNames'
 import { pluralize } from 'lib/utils/strings'
-import { formatEventName } from 'scenes/insights/utils'
 
 import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'

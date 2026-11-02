@@ -1,6 +1,6 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 
 import { LemonDialog, PaginationManual, lemonToast } from '@posthog/lemon-ui'
 
@@ -8,7 +8,7 @@ import api, { CountedPaginatedResponse } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic as enabledFeaturesLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { objectsEqual } from 'lib/utils/objects'
+import { objectClean, objectsEqual } from 'lib/utils/objects'
 import { parseNumericArrayFilter, parseTagsFilter, toParams } from 'lib/utils/url'
 import { handleFlagApprovalRequired } from 'scenes/feature-flags/updateFlagActiveInProject'
 import { projectLogic } from 'scenes/projectLogic'
@@ -183,6 +183,85 @@ const DEFAULT_FILTERS: FeatureFlagsFilters = {
     excluded_tags: undefined,
 }
 
+const FILTER_PARAM_KEYS = Object.keys(DEFAULT_FILTERS) as (keyof FeatureFlagsFilters)[]
+
+function filtersFromSearchParams(searchParams: Record<string, any>): FeatureFlagsFilters {
+    const { page, created_by_id, active, archived, type, search, order, evaluation_runtime, tags } = searchParams
+    return {
+        ...DEFAULT_FILTERS,
+        created_by_id: parseNumericArrayFilter(created_by_id),
+        type,
+        order,
+        evaluation_runtime,
+        tags: parseTagsFilter(tags),
+        excluded_tags: parseTagsFilter(searchParams['excluded_tags']),
+        active: active !== undefined ? String(active) : undefined,
+        archived: archived !== undefined ? String(archived) : undefined,
+        page: page !== undefined ? parseInt(page) : undefined,
+        search: search !== undefined ? String(search) : undefined,
+    }
+}
+
+/**
+ * Prefix for the list's filter params while they ride on a flag detail URL. The prefix keeps them
+ * out of the way of the detail page's own params — most importantly `page`, which the History tab's
+ * activityLogLogic reads for its pagination.
+ */
+const CARRIED_FILTER_PARAM_PREFIX = 'list_'
+
+/**
+ * The list's filter params found in `filters` or in the list URL's search params. A flag opened
+ * from the list carries them (prefixed) in its own URL, and the detail scene's list breadcrumb
+ * hands them back, so returning that way restores the view the user left. They ride in the URL
+ * because sceneLogic unmounts the list scene's logic before it mounts the flag scene's logic, so
+ * the flag logic's connection to `featureFlagsLogic` mounts a new copy with default filters.
+ */
+export function featureFlagsListFilterParams(searchParams: Record<string, any>): Record<string, any> {
+    const params = objectClean(Object.fromEntries(FILTER_PARAM_KEYS.map((key) => [key, searchParams[key]])))
+    // Page 1 is the default view, so leave the param out and keep default URLs bare
+    if (String(params.page) === '1') {
+        delete params.page
+    }
+    return params
+}
+
+/** A flag detail URL that carries the list's current filters as `list_`-prefixed params. */
+export function featureFlagUrlFromList(
+    id: number | string,
+    filters: Record<string, any>,
+    extraParams: Record<string, any> = {}
+): string {
+    const carried = Object.fromEntries(
+        Object.entries(featureFlagsListFilterParams(filters)).map(([key, value]) => [
+            CARRIED_FILTER_PARAM_PREFIX + key,
+            value,
+        ])
+    )
+    return combineUrl(urls.featureFlag(id), { ...carried, ...extraParams }).url
+}
+
+/** The `list_`-prefixed params on a flag page's URL, as-is, for redirects that stay on the flag page. */
+export function carriedListFilterParams(searchParams: Record<string, any>): Record<string, any> {
+    return objectClean(
+        Object.fromEntries(
+            FILTER_PARAM_KEYS.map((key) => [
+                CARRIED_FILTER_PARAM_PREFIX + key,
+                searchParams[CARRIED_FILTER_PARAM_PREFIX + key],
+            ])
+        )
+    )
+}
+
+/** The carried params translated back into the list's own filter params, for the list breadcrumb. */
+export function listFilterParamsFromCarried(searchParams: Record<string, any>): Record<string, any> {
+    return Object.fromEntries(
+        Object.entries(carriedListFilterParams(searchParams)).map(([key, value]) => [
+            key.slice(CARRIED_FILTER_PARAM_PREFIX.length),
+            value,
+        ])
+    )
+}
+
 export interface FlagLogicProps {
     flagPrefix?: string // used to filter flags by prefix e.g. for the user interview flags
 }
@@ -287,8 +366,10 @@ export interface featureFlagsLogicActions {
     }
     setFeatureFlagsFilters: (
         filters: Partial<FeatureFlagsFilters>,
-        replace?: boolean
+        replace?: boolean,
+        debounce?: boolean
     ) => {
+        debounce: boolean
         filters: Partial<FeatureFlagsFilters>
         replace: boolean | undefined
     }
@@ -463,7 +544,15 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         updateFlagActive: (id: number, active: boolean) => ({ id, active }),
         deleteFlag: (id: number) => ({ id }),
         setActiveTab: (tabKey: FeatureFlagsTab) => ({ tabKey }),
-        setFeatureFlagsFilters: (filters: Partial<FeatureFlagsFilters>, replace?: boolean) => ({ filters, replace }),
+        setFeatureFlagsFilters: (
+            filters: Partial<FeatureFlagsFilters>,
+            replace?: boolean,
+            debounce: boolean = true
+        ) => ({
+            filters,
+            replace,
+            debounce,
+        }),
         resetFilters: true,
         toggleFeatureFlagActive: (id: number, active: boolean) => ({ id, active }),
         closeEnrichAnalyticsNotice: true,
@@ -763,9 +852,11 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     actions.updateFeatureFlagArchived({ id, archived: true, via: 'disable-confirmation' }),
             })
         },
-        setFeatureFlagsFilters: async (_, breakpoint) => {
+        setFeatureFlagsFilters: async ({ debounce }, breakpoint) => {
             if (values.activeTab === FeatureFlagsTab.OVERVIEW) {
-                await breakpoint(300)
+                if (debounce) {
+                    await breakpoint(300)
+                }
                 actions.loadFeatureFlags()
             }
         },
@@ -818,41 +909,35 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             setActiveTab: changeUrl,
         }
     }),
-    urlToAction(({ actions, values }) => ({
-        [urls.featureFlags()]: async (_, searchParams) => {
-            const tabInURL = searchParams['tab']
-
-            if (!tabInURL) {
-                if (values.activeTab !== FeatureFlagsTab.OVERVIEW) {
-                    actions.setActiveTab(FeatureFlagsTab.OVERVIEW)
-                }
-            } else if (tabInURL !== values.activeTab) {
-                const availableTab =
+    urlToAction(({ actions, values, cache }) => ({
+        [urls.featureFlags()]: async (_, searchParams, __, { initial }, previousLocation) => {
+            if (cache.settingTabFromUrl) {
+                return
+            }
+            const tabInURL = searchParams['tab'] || FeatureFlagsTab.OVERVIEW
+            if (tabInURL !== values.activeTab) {
+                const tab =
                     tabInURL === FeatureFlagsTab.USAGE &&
                     values.receivedFeatureFlags &&
                     !values.enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE]
                         ? FeatureFlagsTab.OVERVIEW
                         : tabInURL
-                actions.setActiveTab(availableTab)
+                // Ignore actionToUrl's echo of the filter reset in setActiveTab, so the list loads once, with the URL's filters
+                cache.settingTabFromUrl = true
+                try {
+                    actions.setActiveTab(tab)
+                } finally {
+                    cache.settingTabFromUrl = false
+                }
             }
 
-            const { page, created_by_id, active, archived, type, search, order, evaluation_runtime, tags } =
-                searchParams
-            const pageFiltersFromUrl: Partial<FeatureFlagsFilters> = {
-                created_by_id: parseNumericArrayFilter(created_by_id),
-                type,
-                order,
-                evaluation_runtime,
-                tags: parseTagsFilter(tags),
-                excluded_tags: parseTagsFilter(searchParams['excluded_tags']),
+            const filtersFromUrl = filtersFromSearchParams(searchParams)
+            // actionToUrl sends every filter change back here. Skip that echo: it would send the same request
+            // twice, or cut short the debounce of a search the user is still typing.
+            const arrived = initial || previousLocation?.pathname !== router.values.location.pathname
+            if (arrived || !objectsEqual({ ...values.filters, ...filtersFromUrl }, values.filters)) {
+                actions.setFeatureFlagsFilters(filtersFromUrl, false, false)
             }
-
-            pageFiltersFromUrl.active = active !== undefined ? String(active) : undefined
-            pageFiltersFromUrl.archived = archived !== undefined ? String(archived) : undefined
-            pageFiltersFromUrl.page = page !== undefined ? parseInt(page) : undefined
-            pageFiltersFromUrl.search = search !== undefined ? String(search) : undefined
-
-            actions.setFeatureFlagsFilters({ ...DEFAULT_FILTERS, ...pageFiltersFromUrl })
         },
     })),
 ])

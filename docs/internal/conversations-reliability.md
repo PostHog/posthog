@@ -115,6 +115,7 @@ That is provider acceptance, not customer delivery.
 Timeouts after a possible accept retry with the same `client_msg_id`.
 Honor `Retry-After` on 429s, cap at one hour, and treat 5xx plus Slack timeout codes as transient.
 Permanent Slack application errors (revoked token, missing channel, invalid blocks) fail the part.
+Automated PR replies check the approved channel list and current channel type before posting. A failed channel lookup retries; a known external channel fails the part.
 Keep `post_reply_to_slack` registered for in-flight Celery messages.
 New work uses `process_slack_delivery_part`.
 
