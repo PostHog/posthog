@@ -24,6 +24,9 @@ export type StoredSecret = PersonalApiKeySecret
 
 export type StoreKind = 'keychain' | 'file' | 'memory'
 
+// The stores a login can use. The memory store exists for tests only.
+export type StoreChoice = Exclude<StoreKind, 'memory'>
+
 // Where hog keeps the secrets of the logins `hog auth login` saves, one per host. Commands only see
 // this interface, so each store behaves the same to them.
 export interface CredentialStore {
@@ -163,7 +166,7 @@ async function keychainCall<T>(runtime: Runtime, operation: () => Promise<T>): P
         }
         throw new HogError(
             'keychain_access_timeout',
-            `hog waited ${KEYCHAIN_TIMEOUT_MS / 1000} seconds for access to the keychain.`,
+            `hog stopped after waiting ${KEYCHAIN_TIMEOUT_MS / 1000} seconds for access to the keychain.`,
             'Close the keychain dialog that is still open. Then run the command again and click "Always Allow".'
         )
     })
@@ -218,6 +221,6 @@ export async function probeKeychain(runtime: Runtime): Promise<KeychainProbe> {
     }
 }
 
-export function openStore(runtime: Runtime, kind: 'keychain' | 'file'): KeychainStore | FileStore {
+export function openStore(runtime: Runtime, kind: StoreChoice): KeychainStore | FileStore {
     return kind === 'keychain' ? new KeychainStore(runtime) : new FileStore(runtime)
 }

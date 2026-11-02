@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import type { Env, Runtime } from '@/core/runtime'
 
-import { FileStore } from './credential-store'
+import { FileStore, type StoreChoice } from './credential-store'
 import { readLogin, type StoredLogin } from './logins'
 import { readSettings } from './settings'
 
@@ -23,7 +23,7 @@ export type CredentialSource = 'env' | 'dotenv-file' | 'store' | 'posthog-cli-fi
 export type ResolvedCredentials = Credentials & {
     source: CredentialSource
     // Set when the source is the store.
-    store?: 'keychain' | 'file'
+    store?: StoreChoice
     // The file the credentials came from, when they came from one.
     path?: string
 }
@@ -150,7 +150,7 @@ function validate(raw: RawCredentials, host: string): Credentials {
     return { apiKey: raw.apiKey, projectId: raw.projectId, host }
 }
 
-export function posthogCliCredentialsPath(runtime: Runtime): string {
+export function legacyCredentialsPath(runtime: Runtime): string {
     return posthogFile(runtime, 'credentials.json')
 }
 
