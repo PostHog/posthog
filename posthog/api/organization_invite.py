@@ -46,7 +46,7 @@ from posthog.rate_limit import (
     OrganizationInviteBurstThrottle,
     OrganizationInviteSustainedThrottle,
 )
-from posthog.tasks.email import check_invite_email_suppression, send_invite
+from posthog.tasks.email import send_invite
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, ordered_access_levels
 
@@ -355,9 +355,8 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         if is_email_available(with_absolute_urls=True) and send_email:
             invite.emailing_attempt_made = True
             send_invite(invite_id=invite.id)
-            invite.save()
-            # Runs after the save so the save cannot overwrite the result. The lookup can take seconds, so it stays off the request path.
-            check_invite_email_suppression.delay(str(invite.id))
+            # A full-row save would overwrite `email_suppressed` if the suppression check that `send_invite` queues finished first.
+            invite.save(update_fields=["emailing_attempt_made", "updated_at"])
 
         report_team_member_invited(
             self.context["request"].user,

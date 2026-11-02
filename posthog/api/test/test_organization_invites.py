@@ -273,11 +273,11 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             ("api_failure", ESPSuppressionReason.API_FAILURE_FALLBACK, False),
         ]
     )
-    @patch("posthog.api.organization_invite.send_invite")
+    @patch("posthog.tasks.email.EmailMessage")
     @patch("posthog.tasks.email.check_esp_suppression")
     @patch("posthog.tasks.email.ph_scoped_capture")
     def test_add_organization_invite_flags_esp_suppressed_email(
-        self, _name, reason, expected_suppressed, mock_scoped_capture, mock_check, mock_send_invite
+        self, _name, reason, expected_suppressed, mock_scoped_capture, mock_check, _mock_email_message
     ):
         set_instance_setting("EMAIL_HOST", "localhost")
         mock_check.return_value = ESPSuppressionResult(
@@ -290,7 +290,6 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         mock_check.assert_called_once_with("x@x.com")
-        mock_send_invite.assert_called_once()
         list_response = self.client.get("/api/organizations/@current/invites/")
         self.assertEqual(list_response.json()["results"][0]["email_suppressed"], expected_suppressed)
         events = [c.kwargs["event"] for c in capture.call_args_list]
