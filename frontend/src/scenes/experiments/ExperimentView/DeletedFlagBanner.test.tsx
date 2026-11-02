@@ -138,6 +138,36 @@ describe('DeletedFlagBanner', () => {
         expect(await screen.findByText((text) => text.startsWith(`${name} deleted`))).toBeInTheDocument()
     })
 
+    it('names whoever deleted the flag most recently', async () => {
+        // A flag can be deleted, restored and deleted again. The activity API lists the newest entry first.
+        const newerDeletion = {
+            ...deletion,
+            id: '3',
+            user: { first_name: 'Alex', last_name: 'Jones', email: 'alex@example.com' },
+            created_at: dayjs().subtract(1, 'day').toISOString(),
+        }
+        const restore = {
+            ...deletion,
+            id: '2',
+            activity: 'restored',
+            created_at: dayjs().subtract(2, 'day').toISOString(),
+        }
+        useMocks({
+            get: {
+                '/api/projects/:team/feature_flags/:id/activity': {
+                    results: [newerDeletion, restore, deletion],
+                    next: null,
+                    previous: null,
+                    total_count: 3,
+                },
+            },
+        })
+        renderBanner(draftExperiment())
+
+        expect(await screen.findByText((text) => text.startsWith('Alex Jones deleted'))).toBeInTheDocument()
+        expect(screen.queryByText((text) => text.startsWith('Max Smith deleted'))).not.toBeInTheDocument()
+    })
+
     it('links the flag, and names the client that deleted it', async () => {
         renderBanner(draftExperiment())
 
