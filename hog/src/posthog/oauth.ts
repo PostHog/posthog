@@ -5,7 +5,7 @@ import { withFileLock } from '@/core/file-lock'
 import type { Runtime } from '@/core/runtime'
 
 import { sendRequest, type HttpResponse } from './api'
-import type { FileStore, KeychainStore, OAuthCredential } from './credential-store'
+import { hostKey, type FileStore, type KeychainStore, type OAuthCredential } from './credential-store'
 import { readLogin, writeLogin } from './logins'
 import { readSettings } from './settings'
 
@@ -92,7 +92,8 @@ async function refresh(runtime: Runtime, credential: OAuthCredential): Promise<O
 
 // Serializes the processes that renew or remove the login to one host.
 export function withLoginLock<T>(runtime: Runtime, host: string, work: () => Promise<T>): Promise<T> {
-    const name = createHash('sha256').update(host).digest('hex').slice(0, 16)
+    // By origin, so `https://eu.posthog.com/` and `https://eu.posthog.com` take the same lock.
+    const name = createHash('sha256').update(hostKey(host)).digest('hex').slice(0, 16)
     return withFileLock(runtime, `refresh-${name}.lock`, work)
 }
 

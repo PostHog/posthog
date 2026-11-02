@@ -3,10 +3,11 @@ import { randomUUID } from 'node:crypto'
 import { hogFile } from './paths'
 import type { Runtime } from './runtime'
 
-// A lock older than this belongs to a process that died before it removed it. A live owner holds a
-// lock through at most a keychain read, a token request and a keychain write, so the limit is longer
-// than all three timeouts together.
+// A lock older than this belongs to a process that died before it removed it. The owner rewrites
+// its lock every LOCK_REFRESH_MS while it works, so waiting on another lock or on a keychain dialog
+// never makes a live lock look abandoned.
 const LOCK_STALE_MS = 180_000
+const LOCK_REFRESH_MS = 60_000
 const LOCK_POLL_MS = 250
 
 interface LockContents {
@@ -54,9 +55,21 @@ export async function withFileLock<T>(runtime: Runtime, name: string, work: () =
         }
         await runtime.sleep(LOCK_POLL_MS)
     }
+    const done = new AbortController()
+    const refreshing = (async () => {
+        for (;;) {
+            await runtime.sleep(LOCK_REFRESH_MS, done.signal)
+            if (done.signal.aborted || (await readLock(runtime, lock))?.id !== id) {
+                return
+            }
+            await runtime.writePrivateFile(lock, JSON.stringify({ id, createdAt: runtime.now() }))
+        }
+    })()
     try {
         return await work()
     } finally {
+        done.abort()
+        await refreshing
         // A process that took over this lock as stale owns it now, so leave its lock in place.
         if ((await readLock(runtime, lock))?.id === id) {
             await runtime.removeFile(lock)
