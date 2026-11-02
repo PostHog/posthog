@@ -23,16 +23,16 @@ Run the setup in [README.md](../README.md#sign-in-to-the-local-backend) first.
 The backend needs migrated Postgres, object storage, and the normal local services.
 Use the same development environment and `SITE_URL` as the running backend.
 
-The demo project contains ready and pending-input Inbox reports for the test account and a completed Chat with saved messages.
-No agent runs for these examples.
-To add Inbox reports to another existing project, run `python manage.py seed_inbox_data --team-id <project-id> --user-id <user-id>`.
+The demo project has pinned views and recent errors. It has no Inbox reports and no chats.
+To add ready and pending-input Inbox reports, run `python manage.py seed_inbox_data --team-id <project-id> --user-id <user-id>` with the demo project ID and the test account's user ID.
+No agent runs for these reports. The command works for any existing project.
 No backend command checks sign-in over HTTP. Check sign-in, token refresh, and sign-out on a simulator or device with the steps below.
 
 On an iOS simulator or Android emulator with a development build:
 
 1. Leave demo mode and sign out. Choose **Self-hosted** with the local backend URL and prefilled local Client ID.
 2. Sign in as `test@posthog.com` with `12345678`, approve access, and verify the browser returns to the app through its variant's callback scheme.
-3. Confirm the account and project match the demo project. Open the ready and pending-input Inbox reports, their details, and the completed Chat. The stored user and assistant messages should load without starting a task run.
+3. Confirm the account and project match the demo project. Open the ready and pending-input Inbox reports from `seed_inbox_data` and their details. Start a chat from the app and confirm that the chat screen shows your message.
 4. Open Views, Errors, and Replay. Confirm saved views and errors load for the same project. A playable replay needs the recording step below.
 5. Switch to another project available to the account, then back. Each Inbox, Chat, and saved view list must belong to the selected project. If the account only has one project, create another in the local web app before this check.
 6. Background and reopen the app. Verify the account and project remain selected. Sign out and verify returning to the app requires sign-in again.

@@ -65,8 +65,10 @@ python manage.py generate_demo_data
 ```
 
 This creates the usual `test@posthog.com` / `12345678` account with a Hedgebox demo project.
-In local development the project also contains Inbox reports for that account and a completed Chat with saved messages.
-Running the command again creates `test+1@posthog.com`. To add Inbox reports to an existing project instead, run `python manage.py seed_inbox_data --team-id <project-id> --user-id <user-id>`.
+The project has pinned views and recent errors. It has no Inbox reports and no chats.
+Running the command again creates `test+1@posthog.com`.
+To add Inbox reports, run `python manage.py seed_inbox_data --team-id <project-id> --user-id <user-id>` with the demo project ID and the test account's user ID. The command works for any existing project, in local development only.
+To test Chat, start a chat from the app.
 `bin/migrate` registers the local OAuth callbacks. Local OAuth also needs `OIDC_RSA_PRIVATE_KEY` in the backend environment.
 
 From this mobile workspace, build the development app:
