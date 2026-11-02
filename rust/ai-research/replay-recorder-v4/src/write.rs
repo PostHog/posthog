@@ -970,6 +970,14 @@ mod tests {
             json!({"type": 2, "tagName": "a", "attributes": {"href": link}, "childNodes": [], "id": 3}),
             json!({"type": 2, "tagName": "style", "attributes": {"_cssText": "@\\66 ont-face{font-family:Escaped;src:url(https://fonts.example.com/escaped.woff2)}"}, "childNodes": [], "id": 4}),
         ];
+        // Each escaped URL takes a rewrite, so past the rewrite budget its URL is not named.
+        let escaped_faces: String = (0..=MAX_BLOCK_REMOTE_URLS)
+            .map(|i| format!("@font-face{{font-family:Escaped{i};src:url(https://fonts.example.com/{i}\\2e woff2)}}"))
+            .collect();
+        let escaped_fonts = vec![
+            json!({"type": 2, "tagName": "style", "attributes": {"_cssText": escaped_faces}, "childNodes": [], "id": 2}),
+            json!({"type": 2, "tagName": "a", "attributes": {"href": link}, "childNodes": [], "id": 3}),
+        ];
         use posthog_replay_anonymizer::v4_image_refs::{
             FONT_URL_UNCHECKED_MARKER, URL_UNCHECKED_MARKER,
         };
@@ -982,6 +990,12 @@ mod tests {
             ),
             (
                 fonts,
+                "fonturl:v4:7:2026-10:",
+                FONT_URL_UNCHECKED_MARKER,
+                URL_UNCHECKED_MARKER,
+            ),
+            (
+                escaped_fonts,
                 "fonturl:v4:7:2026-10:",
                 FONT_URL_UNCHECKED_MARKER,
                 URL_UNCHECKED_MARKER,

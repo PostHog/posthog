@@ -197,6 +197,8 @@ pub enum UrlLimit {
     AttributeItems,
     FontUrlCount,
     FontUrlBytes,
+    /// A font rewrite can hold an escaped remote URL, which no other rewrite replaces.
+    FontRewrites,
 }
 
 impl UrlLimit {
@@ -208,11 +210,15 @@ impl UrlLimit {
             UrlLimit::AttributeItems => "too_many_attribute_items",
             UrlLimit::FontUrlCount => "too_many_font_urls",
             UrlLimit::FontUrlBytes => "too_many_font_url_bytes",
+            UrlLimit::FontRewrites => "too_many_font_rewrites",
         }
     }
 
     pub fn is_font_budget(self) -> bool {
-        matches!(self, UrlLimit::FontUrlCount | UrlLimit::FontUrlBytes)
+        matches!(
+            self,
+            UrlLimit::FontUrlCount | UrlLimit::FontUrlBytes | UrlLimit::FontRewrites
+        )
     }
 }
 
@@ -356,6 +362,11 @@ impl RemoteUrls {
         {
             rewrites.bytes += bytes;
             rewrites.values.insert(text, rewrite);
+        } else if rewrite
+            .and_then(|rewrite| rewrite.resolved)
+            .is_some_and(|resolved| resolved.kind != RemoteKind::Image)
+        {
+            self.font_limit = self.font_limit.or(Some(UrlLimit::FontRewrites));
         }
     }
 

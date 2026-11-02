@@ -532,6 +532,11 @@ fn escaped_url_function_urls(
     if is_root_relative(&decoded) {
         return url_function_urls(function, &decoded, resolver, found);
     }
+    let decoded = if is_protocol_relative(&decoded) {
+        format!("https:{decoded}")
+    } else {
+        decoded
+    };
     // A serialized URL percent-encodes `"` and holds no backslash, so the quotes of the rewrite hold it.
     let Some(absolute) = Url::parse(&decoded)
         .ok()
@@ -1067,6 +1072,7 @@ mod tests {
             "@font-face{font-family:Descriptor;\\73 rc:url(https://cdn.example.com/descriptor.woff2)}",
             "@font-face{font-family:Function;src:\\75 rl(https://cdn.example.com/function.woff2)}",
             "@font-face{font-family:Source;src:url(https://cdn.example.com/source\\2e woff2)}",
+            "@font-face{font-family:Relative;src:url(//cdn.example.com/relative\\2e woff2)}",
         );
         assert_eq!(
             found(css, Some("https://app.example.com/")),
@@ -1085,6 +1091,8 @@ mod tests {
                 "font https://cdn.example.com/function.woff2 Some(\"Function\")",
                 "resolved font https://cdn.example.com/source.woff2",
                 "rewrite url(https://cdn.example.com/source\\2e woff2) => url(\"https://cdn.example.com/source.woff2\") dropping []",
+                "resolved font https://cdn.example.com/relative.woff2",
+                "rewrite url(//cdn.example.com/relative\\2e woff2) => url(\"https://cdn.example.com/relative.woff2\") dropping []",
             ]
         );
     }
