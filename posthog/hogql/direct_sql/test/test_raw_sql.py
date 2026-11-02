@@ -88,6 +88,12 @@ class TestDirectSQLQuoting(SimpleTestCase):
             ("redshift", ensure_read_only_raw_redshift_statement, "set_config('example', 'value', false)"),
             ("snowflake", ensure_read_only_raw_snowflake_statement, "last_query_id()"),
             ("mysql", ensure_read_only_raw_mysql_statement, "load_file('example.txt')"),
+            ("duckdb_quoted", ensure_read_only_raw_motherduck_statement, "\"read_text\"('example.txt')"),
+            ("clickhouse_quoted", ensure_read_only_raw_clickhouse_statement, "\"file\"('example.csv', 'CSV')"),
+            ("redshift_quoted", ensure_read_only_raw_redshift_statement, "\"set_config\"('example', 'value', false)"),
+            ("snowflake_quoted", ensure_read_only_raw_snowflake_statement, '"LAST_QUERY_ID"()'),
+            ("snowflake_system_quoted", ensure_read_only_raw_snowflake_statement, '"SYSTEM$EXAMPLE"()'),
+            ("mysql_quoted", ensure_read_only_raw_mysql_statement, "`load_file`('example.txt')"),
         ]
     )
     def test_checks_functions_after_literals(self, _name: str, validate: Callable[[str], str], call: str) -> None:

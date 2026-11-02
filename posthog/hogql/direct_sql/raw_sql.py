@@ -67,6 +67,8 @@ def _guard_tokens(token: "DialectToken", *, is_call: bool, is_qualified: bool, s
         TokenType.UNICODE_STRING,
     }
     if token.token_type == TokenType.IDENTIFIER:
+        if is_call:
+            return [Token(sqlparse_tokens.Name, token.text)]
         kind = sqlparse_tokens.Name if dialect == "mysql" else sqlparse_tokens.String.Symbol
         quote = "`" if dialect == "mysql" else '"'
         return [Token(kind, quote + token.text + quote)]
