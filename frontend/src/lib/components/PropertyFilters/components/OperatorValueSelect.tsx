@@ -364,7 +364,8 @@ export function OperatorValueSelect({
                 () => {}
             )
         }
-    }, [needsRE2, re2])
+        // A failed load leaves re2 null, so the next edit of the value tries again.
+    }, [needsRE2, re2, value])
 
     const validationError =
         currentOperator && value ? getValidationError(currentOperator, value, re2, propertyKey) : null

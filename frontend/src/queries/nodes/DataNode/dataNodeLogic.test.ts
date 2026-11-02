@@ -370,9 +370,10 @@ describe('dataNodeLogic', () => {
     })
 
     it.each([
-        ['runs a query with a valid regex filter', '^/api/.*', 1],
-        ['skips a query with an invalid regex filter', '(?=lookahead)', 0],
-    ])('%s once the RE2 engine loads', async (_name, pattern, expectedCalls) => {
+        ['runs a query with a valid regex filter', '^/api/.*', false, 1],
+        ['skips a query with an invalid regex filter', '(?=lookahead)', false, 0],
+        ['skips a query cancelled during the load', '^/api/cancelled', true, 0],
+    ])('%s once the RE2 engine loads', async (_name, pattern, cancel, expectedCalls) => {
         mockedQuery.mockResolvedValueOnce({ results: [] })
         logic = dataNodeLogic({
             key: `regex-${pattern}`,
@@ -383,6 +384,9 @@ describe('dataNodeLogic', () => {
             }),
         })
         logic.mount()
+        if (cancel) {
+            logic.actions.cancelQuery()
+        }
 
         await expectLogic(logic).toFinishAllListeners()
         await waitFor(() => expect(logic.values.responseLoading).toBe(false))
