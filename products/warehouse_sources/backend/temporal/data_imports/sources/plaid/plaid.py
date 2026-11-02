@@ -1,7 +1,7 @@
 import time
 import dataclasses
 from collections.abc import Iterator
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
 import requests
@@ -27,6 +27,9 @@ DEFAULT_START_DATE = "2000-01-01"
 # /transactions/get is limited to 30 req/min per Item — space requests out.
 REQUEST_INTERVAL_SECONDS = 2.1
 REQUEST_TIMEOUT_SECONDS = 120
+# Capital One non-depository accounts and Apple Card have no real-time balance, and Plaid rejects
+# /accounts/balance/get for them without options.min_last_updated_datetime. Other institutions ignore it.
+BALANCE_MAX_STALENESS = timedelta(days=7)
 MAX_RETRY_ATTEMPTS = 5
 
 
@@ -53,6 +56,8 @@ PRODUCT_GATED_ENDPOINTS = {
     "investment_holdings": "investments",
     "investment_transactions": "investments",
     "liabilities": "liabilities",
+    "recurring_transactions": "transactions",
+    "identity": "identity",
 }
 
 
@@ -92,8 +97,12 @@ def _format_date(value: Any) -> str:
     return str(value)[:10]
 
 
+def _now() -> datetime:
+    return datetime.now(UTC)
+
+
 def _today() -> str:
-    return datetime.now(UTC).strftime("%Y-%m-%d")
+    return _now().strftime("%Y-%m-%d")
 
 
 def _error_code(response: requests.Response) -> str | None:
@@ -172,6 +181,20 @@ def get_rows(
             yield items
         return
 
+    if endpoint == "balances":
+        min_last_updated = (_now() - BALANCE_MAX_STALENESS).strftime("%Y-%m-%dT%H:%M:%SZ")
+        data = post("/accounts/balance/get", {"options": {"min_last_updated_datetime": min_last_updated}})
+        items = data.get("accounts", []) or []
+        if items:
+            yield items
+        return
+
+    if endpoint == "items":
+        data = post("/item/get", {})
+        if item := data.get("item"):
+            yield [{**item, "status": data.get("status")}]
+        return
+
     if endpoint == "institutions":
         institution_id = get_item().get("institution_id")
         if not institution_id:
@@ -210,6 +233,24 @@ def get_rows(
             ]
             if rows:
                 yield rows
+            return
+
+        if endpoint == "recurring_transactions":
+            data = post("/transactions/recurring/get", {})
+            rows = [
+                {**stream, "direction": direction}
+                for direction, streams_key in (("inflow", "inflow_streams"), ("outflow", "outflow_streams"))
+                for stream in data.get(streams_key) or []
+            ]
+            if rows:
+                yield rows
+            return
+
+        if endpoint == "identity":
+            data = post("/identity/get", {})
+            items = data.get("accounts", []) or []
+            if items:
+                yield items
             return
 
         path, rows_key, total_key = OFFSET_PAGINATED_ENDPOINTS[endpoint]
