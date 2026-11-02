@@ -48,7 +48,11 @@ from products.experiments.backend.logic.result_stats import MetricResultStats
 from products.experiments.backend.metric_resolution import MetricRole, saved_metric_link_role, saved_metric_links
 from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.metric_validation import defined_event_names, event_last_seen, extract_entity_nodes
-from products.experiments.backend.models.experiment import Experiment, ExperimentToSavedMetric
+from products.experiments.backend.models.experiment import (
+    Experiment,
+    ExperimentToSavedMetric,
+    live_experiments_for_flag,
+)
 from products.experiments.backend.running_time_target import RunningTimeTarget
 from products.feature_flags.backend.facade.edits import (
     BucketingChange,
@@ -225,9 +229,7 @@ class ExperimentOnFlag:
     flag, so the flag's state can belong to one of them. It has no name or id, because the reader of this experiment
     may have no access to the other one."""
 
-    # None for a draft.
     launched_at: datetime | None
-    # None while it runs, and for a draft.
     ended_at: datetime | None
     archived: bool
 
@@ -774,7 +776,8 @@ def _other_experiments_on_flag(experiment: Experiment) -> tuple[ExperimentOnFlag
     if not experiment.is_stopped:
         return None
     others = (
-        Experiment.objects.filter(team_id=experiment.team_id, feature_flag_id=experiment.feature_flag_id, deleted=False)
+        live_experiments_for_flag(experiment.feature_flag_id)
+        .filter(team_id=experiment.team_id)
         .exclude(id=experiment.id)
         .values_list("start_date", "end_date", "archived", named=True)
     )

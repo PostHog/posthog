@@ -222,7 +222,7 @@ def _no_rollout(*, observed: bool) -> ExperimentHealthFinding:
 
 def _live_after_end(ctx: HealthContext, ended_at: datetime) -> ExperimentHealthFinding | None:
     others = ctx.other_experiments_on_flag or ()
-    # Disabling the flag would stop the later experiment, and that experiment's own check reports the flag's state.
+    # The flag's state belongs to the later experiment, and that experiment's own check reports it.
     if any(_serves_later_experiment(other, ended_at) for other in others):
         return None
     if any(other.launched_at is None and not other.archived for other in others):

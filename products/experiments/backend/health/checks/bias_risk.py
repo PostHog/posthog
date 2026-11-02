@@ -43,7 +43,8 @@ def evaluate_bias_risk(
     if multiple_variant_handling != MultipleVariantHandling.EXCLUDE:
         return None
 
-    # The exposure query drops an excluded variant's events before it finds users in several variants.
+    # Excluded variants don't count, because the exposure query drops their events before it counts users in several
+    # variants. `is_evenly_distributed` needs shares that add up to 100. Shares one point apart are even, like 34/33/33.
     compared = [
         variant.rollout_percentage
         for variant in variants
@@ -51,8 +52,6 @@ def evaluate_bias_risk(
         and variant.rollout_percentage > 0
         and variant.key not in excluded_variant_keys
     ]
-    # Not `is_evenly_distributed`: without its excluded variants the split doesn't add up to 100. Shares one point
-    # apart are as even as whole percentages allow, like 34/33/33.
     if len(compared) < 2 or max(compared) - min(compared) <= 1:
         return None
 
