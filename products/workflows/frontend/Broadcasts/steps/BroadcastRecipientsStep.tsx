@@ -164,7 +164,6 @@ function AudienceListModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =
 
 export function BroadcastRecipientsStep(): JSX.Element {
     const cohortConditionsEnabled = useFeatureFlag('WORKFLOWS_COHORT_CONDITIONS')
-    const pushChannelEnabled = useFeatureFlag('BROADCASTS_PUSH_CHANNEL')
     const { audienceProperties, linkAudienceRejected, blastRadius, channel } = useValues(broadcastWizardLogic)
     // A realtime cohort has to be the audience's only condition.
     const realtimeCohortAlone = !!blastRadius?.realtime_cohort || !!blastRadius?.realtime_cohort_with_other_conditions
@@ -175,7 +174,7 @@ export function BroadcastRecipientsStep(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-2 @container">
-            {pushChannelEnabled ? <BroadcastChannelPicker /> : null}
+            <BroadcastChannelPicker />
             <div>
                 <h2 className="m-0 text-xl font-semibold">
                     Who should receive this {channel === 'push' ? 'notification' : 'email'}?

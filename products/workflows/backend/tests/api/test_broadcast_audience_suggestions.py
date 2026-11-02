@@ -21,7 +21,6 @@ from products.workflows.backend.services.audience_suggestions.planner import Aud
 from products.workflows.backend.services.audience_suggestions.service import _cache_key
 
 SERVICE = "products.workflows.backend.services.audience_suggestions.service"
-FLAG = f"{SERVICE}.posthoganalytics.feature_enabled"
 
 
 def _idea(
@@ -47,8 +46,6 @@ class TestBroadcastAudienceSuggestions(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         cache.delete(_cache_key(self.team.id))
-        self.flag = patch(FLAG, return_value=True).start()
-        # FLAG patches the shared feature_enabled, which the privacy mode check reads too.
         patch(f"{SERVICE}.is_privacy_mode_enabled", return_value=False).start()
         self.addCleanup(patch.stopall)
         self.organization.is_ai_data_processing_approved = True
@@ -197,23 +194,20 @@ class TestBroadcastAudienceSuggestions(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("ai_not_approved", False, True, False, 200, "ai_not_approved"),
-            ("flag_off", True, False, False, 403, None),
-            ("email_hidden_from_the_user", True, True, True, 403, None),
+            ("ai_not_approved", False, False, 200, "ai_not_approved"),
+            ("email_hidden_from_the_user", True, True, 403, None),
         ]
     )
     @patch(f"{SERVICE}.suggest_audiences")
-    def test_runs_nothing_without_consent_or_flag(
+    def test_runs_nothing_without_consent_or_email_access(
         self,
         _name: str,
         approved: bool,
-        flag_on: bool,
         email_restricted: bool,
         status_code: int,
         status: str | None,
         suggest: MagicMock,
     ) -> None:
-        self.flag.return_value = flag_on
         self.organization.is_ai_data_processing_approved = approved
         if email_restricted:
             self.organization.available_product_features = [

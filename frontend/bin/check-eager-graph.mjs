@@ -41,6 +41,12 @@ const failForbiddenHits = process.argv.includes('--fail-forbidden-hits')
 // lib/utils/objects and delay from lib/utils/async instead. No app module imports it, so the guard is
 // a tripwire, and the verify prefix checks the kea package layout that it relies on.
 const KEA_TEST_UTILS = { pattern: 'node_modules/kea-test-utils/', verifyPrefix: 'node_modules/kea/' }
+// The published @posthog/quill dist inlines a second copy of quill-primitives. The app resolves the
+// umbrella to its re-export source (root tsconfig paths), so a hit means that mapping stopped applying.
+const QUILL_UMBRELLA_DIST = {
+    pattern: 'packages/quill/packages/quill/dist/',
+    verifyPrefix: 'packages/quill/packages/primitives/dist/',
+}
 
 const ROOTS = [
     {
@@ -184,6 +190,7 @@ const ROOTS = [
         // 2026-11-02: 9.49 MiB (3729 files), stable CSS included. ~3.6% headroom.
         budgetBytes: 10_314_000,
         forbidden: [
+            QUILL_UMBRELLA_DIST,
             // Neither scene plays recordings. A hit means a static import pulled the playlist and player onto it.
             'src/scenes/session-recordings/playlist/SessionRecordingsPlaylist.tsx',
             // Only web analytics insights render this tile. A hit means a static import put the web
@@ -212,6 +219,7 @@ const ROOTS = [
         // 2026-11-02: 4.92 MiB, stable CSS included. ~0.3% headroom.
         budgetBytes: 5_170_000,
         forbidden: [
+            QUILL_UMBRELLA_DIST,
             'src/scenes/project-homepage/ai-first/AiFirstHomepage.tsx',
             'src/scenes/project-homepage/today/TodayReportPage.tsx',
             'src/queries/Query/Query.tsx',
@@ -230,6 +238,7 @@ const ROOTS = [
         // 2026-11-02: 6.22 MiB, stable CSS included. ~1% headroom.
         budgetBytes: 6_576_000,
         forbidden: [
+            QUILL_UMBRELLA_DIST,
             'products/posthog_ai/frontend/components/tool/widgets/VisualizationWidget.tsx',
             'products/posthog_ai/frontend/components/tool/widgets/RecordingsWidget.tsx',
             'src/queries/Query/Query.tsx',
@@ -245,6 +254,7 @@ const ROOTS = [
         // 2026-11-02: 8.92 MiB (3499 files), stable CSS included. ~5.5% headroom.
         budgetBytes: 9_869_000,
         forbidden: [
+            QUILL_UMBRELLA_DIST,
             // Neither scene plays recordings. A hit means a static import pulled the playlist and player onto it.
             'src/scenes/session-recordings/playlist/SessionRecordingsPlaylist.tsx',
             // Only web analytics insights render this tile. A hit means a static import put the web
@@ -272,6 +282,7 @@ const ROOTS = [
         // 2026-11-02: 9.72 MiB (3766 files), stable CSS included. ~7.9% headroom.
         budgetBytes: 10_999_000,
         forbidden: [
+            QUILL_UMBRELLA_DIST,
             // Only the live tab renders this dashboard. Its world map holds about 1 MiB of country shapes.
             'src/scenes/web-analytics/LiveMetricsDashboard/LiveWebAnalyticsMetrics.tsx',
             'products/product_analytics/frontend/insights/trends/WorldMap/countryVectors.tsx',
@@ -293,6 +304,7 @@ const ROOTS = [
         // 2026-11-02: 7.39 MiB (2690 files), stable CSS included. ~10% headroom.
         budgetBytes: 8_520_000,
         forbidden: [
+            QUILL_UMBRELLA_DIST,
             // The player shows a snapshot of a few settings. A hit means it imports settingsLogic again,
             // which holds every settings page.
             'src/scenes/settings/SettingsMap.tsx',
