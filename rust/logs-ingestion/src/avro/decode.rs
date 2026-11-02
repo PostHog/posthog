@@ -296,6 +296,25 @@ fn read_header(tap: &mut Tap<'_>) -> Option<Header> {
 /// grows its buffer as data arrives instead of trusting the header.
 const MAX_PRESIZED_FRAME: u64 = 64 << 20;
 
+const DEFAULT_WINDOW_LOG_MAX: u32 = 27;
+
+/// The window a frame header declares. The one-shot decoder does not apply zstd's default window
+/// limit, which the streaming decoder and Node both enforce, so such frames take the streaming path.
+fn declared_window_exceeds_default(data: &[u8]) -> bool {
+    let Some(&descriptor) = data.get(4) else {
+        return true;
+    };
+    if descriptor & 0x20 != 0 {
+        return false;
+    }
+    let Some(&window) = data.get(5) else {
+        return true;
+    };
+    let log = u32::from(window >> 3) + 10;
+    let base = 1u64 << log;
+    base + (base / 8) * u64::from(window & 7) > 1u64 << DEFAULT_WINDOW_LOG_MAX
+}
+
 thread_local! {
     /// A zstd context is large to set up, so each thread keeps one.
     static DECOMPRESSOR: RefCell<Option<zstd::bulk::Decompressor<'static>>> = const { RefCell::new(None) };
@@ -309,7 +328,8 @@ fn inflate(data: &[u8]) -> std::io::Result<Vec<u8>> {
         find_frame_compressed_size(data),
         get_frame_content_size(data),
     ) {
-        if len == data.len() && size <= MAX_PRESIZED_FRAME {
+        if len == data.len() && size <= MAX_PRESIZED_FRAME && !declared_window_exceeds_default(data)
+        {
             let fast = DECOMPRESSOR.with(|cell| {
                 let mut slot = cell.borrow_mut();
                 let decompressor = match slot.as_mut() {
@@ -378,16 +398,13 @@ pub fn decode_container(buf: &[u8]) -> Result<Container, AvroError> {
         }
     }
 
-    let mut records = Vec::with_capacity(
-        blocks
-            .iter()
-            .map(|(count, _)| (*count as i64).clamp(0, 4096) as usize)
-            .sum(),
-    );
+    let mut records = Vec::new();
     let mut empty_records = 0u64;
     for (count, data) in blocks {
         let inflated =
             inflate(data).map_err(|_| AvroError::Decompression("zstandard".to_string()))?;
+        // The sender controls `count`, so the reservation is bounded by bytes actually inflated.
+        records.reserve(((count as i64).clamp(0, 4096) as usize).min(inflated.len()));
         // avsc keeps `count | 0`. A negative count never counts down to 0, so avsc reads records
         // until one fails.
         let mut remaining = i64::from((count as i64) as i32);

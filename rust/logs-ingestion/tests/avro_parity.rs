@@ -210,3 +210,68 @@ fn encode_long(n: i64) -> Vec<u8> {
     out.push(z as u8);
     out
 }
+
+fn zstd_container(schema: &[u8], blocks: &[(i64, Vec<u8>)]) -> Vec<u8> {
+    let sync = [7u8; 16];
+    let mut buf = b"Obj\x01".to_vec();
+    buf.extend(encode_long(2));
+    for (key, value) in [(&b"avro.schema"[..], schema), (b"avro.codec", b"zstandard")] {
+        buf.extend(encode_long(key.len() as i64));
+        buf.extend_from_slice(key);
+        buf.extend(encode_long(value.len() as i64));
+        buf.extend_from_slice(value);
+    }
+    buf.push(0);
+    buf.extend_from_slice(&sync);
+    for (count, data) in blocks {
+        buf.extend(encode_long(*count));
+        buf.extend(encode_long(data.len() as i64));
+        buf.extend_from_slice(data);
+        buf.extend_from_slice(&sync);
+    }
+    buf
+}
+
+const STRING_RECORD: &[u8] =
+    br#"{"type":"record","name":"R","fields":[{"name":"a","type":"string"}]}"#;
+
+#[test]
+fn block_counts_do_not_drive_allocation_before_decompression() {
+    // About 1 MB of blocks that each claim 4096 records would reserve ~20 GB if counts were trusted.
+    let blocks = vec![(4096, Vec::new()); 60_000];
+    assert!(decode_container(&zstd_container(STRING_RECORD, &blocks)).is_err());
+}
+
+#[test]
+fn zstd_frames_above_the_default_window_limit_are_rejected() {
+    let mut records = Vec::new();
+    for i in 0..300 {
+        let value = format!("{i:04}").repeat(250);
+        records.extend(encode_long(value.len() as i64));
+        records.extend_from_slice(value.as_bytes());
+    }
+    let frame = zstd::bulk::compress(&records, 1).unwrap();
+    // Rewrite the single-segment header as a windowed one that declares a 2^28 window.
+    let descriptor = frame[4];
+    assert_eq!(
+        descriptor & 0x23,
+        0x20,
+        "expected a single-segment frame without a dictionary"
+    );
+    let content_size: u64 = match descriptor >> 6 {
+        1 => u64::from(u16::from_le_bytes([frame[5], frame[6]])) + 256,
+        2 => u64::from(u32::from_le_bytes(frame[5..9].try_into().unwrap())),
+        other => panic!("unexpected content size flag {other}"),
+    };
+    let header_len = 5 + if descriptor >> 6 == 1 { 2 } else { 4 };
+    let mut windowed = frame[..4].to_vec();
+    windowed.push((2 << 6) | (descriptor & 0x04));
+    windowed.push((28 - 10) << 3);
+    windowed.extend_from_slice(&(content_size as u32).to_le_bytes());
+    windowed.extend_from_slice(&frame[header_len..]);
+
+    let accepted = zstd_container(STRING_RECORD, &[(300, frame)]);
+    assert_eq!(decode_container(&accepted).unwrap().records.len(), 300);
+    let rejected = zstd_container(STRING_RECORD, &[(300, windowed)]);
+    assert!(decode_container(&rejected).is_err());
+}
