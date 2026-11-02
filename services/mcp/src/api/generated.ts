@@ -83684,7 +83684,7 @@ export namespace Schemas {
          */
       name: string;
       /**
-         * Slash command for this macro, without the leading slash. Lowercase letters, numbers, and hyphens. Unique among the project's shared macros and the creator's personal macros. Null when the macro has no shortcut.
+         * Slash command for this macro, without the leading slash. Lowercase letters, numbers, and hyphens. A shared shortcut is unique among the project's shared macros, and a personal one among the creator's personal macros. Null when the macro has no shortcut.
          * @maxLength 50
          * @nullable
          */
@@ -95225,7 +95225,7 @@ export namespace Schemas {
          */
       name?: string;
       /**
-         * Slash command for this macro, without the leading slash. Lowercase letters, numbers, and hyphens. Unique among the project's shared macros and the creator's personal macros. Null when the macro has no shortcut.
+         * Slash command for this macro, without the leading slash. Lowercase letters, numbers, and hyphens. A shared shortcut is unique among the project's shared macros, and a personal one among the creator's personal macros. Null when the macro has no shortcut.
          * @maxLength 50
          * @nullable
          */

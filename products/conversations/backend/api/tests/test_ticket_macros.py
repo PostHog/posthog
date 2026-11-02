@@ -195,8 +195,9 @@ class TestTicketMacroAPI(APIBaseTest):
         [
             ("teammate_reuses_my_personal_shortcut", "personal", "teammate", "personal", status.HTTP_201_CREATED),
             ("teammate_shares_my_personal_shortcut", "personal", "teammate", "shared", status.HTTP_201_CREATED),
-            ("teammate_shadows_a_shared_shortcut", "shared", "teammate", "personal", status.HTTP_400_BAD_REQUEST),
-            ("i_share_my_personal_shortcut", "personal", "me", "shared", status.HTTP_400_BAD_REQUEST),
+            ("teammate_shadows_a_shared_shortcut", "shared", "teammate", "personal", status.HTTP_201_CREATED),
+            ("teammate_reuses_a_shared_shortcut", "shared", "teammate", "shared", status.HTTP_400_BAD_REQUEST),
+            ("i_share_my_personal_shortcut", "personal", "me", "shared", status.HTTP_201_CREATED),
             ("i_reuse_my_personal_shortcut", "personal", "me", "personal", status.HTTP_400_BAD_REQUEST),
         ]
     )
@@ -211,6 +212,18 @@ class TestTicketMacroAPI(APIBaseTest):
         )
         assert response.status_code == expected_status, response.json()
 
+    def test_hidden_personal_shortcut_never_blocks_an_edit(self):
+        personal = self._create(name="Mine", shortcut="hi", visibility="personal")
+        shared = self._create(name="Shared", shortcut="other")
+
+        self.client.force_login(User.objects.create_and_join(self.organization, "teammate@example.com", None))
+        response = self.client.patch(f"{self.base_url}{shared['id']}/", {"shortcut": "hi"}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        self.client.force_login(self.user)
+        response = self.client.patch(f"{self.base_url}{personal['id']}/", {"body": "Hey"}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
     def test_only_the_creator_can_make_a_macro_personal(self):
         teammate = User.objects.create_and_join(self.organization, "teammate@example.com", None)
         theirs = TicketMacro.objects.for_team(self.team.id).create(
@@ -222,9 +235,14 @@ class TestTicketMacroAPI(APIBaseTest):
         assert theirs.visibility == "shared"
 
         mine = self._create()
-        response = self.client.patch(f"{self.base_url}{mine['id']}/", {"visibility": "personal"}, format="json")
+        response = self.client.patch(
+            f"{self.base_url}{mine['id']}/", {"visibility": "personal", "name": "Private"}, format="json"
+        )
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["visibility"] == "personal"
+        log = ActivityLog.objects.filter(scope="TicketMacro", item_id=mine["id"], activity="updated").get()
+        assert log.detail["name"] == "Cancellation"
+        assert [change["field"] for change in log.detail["changes"]] == ["visibility"]
 
     def test_editor_grant_on_one_ticket_cannot_edit_macros(self):
         created = self._create()

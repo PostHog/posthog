@@ -43,8 +43,8 @@ class TicketMacroSerializer(serializers.ModelSerializer):
         allow_null=True,
         allow_blank=True,
         help_text="Slash command for this macro, without the leading slash. Lowercase letters, numbers, and "
-        "hyphens. Unique among the project's shared macros and the creator's personal macros. Null when the "
-        "macro has no shortcut.",
+        "hyphens. A shared shortcut is unique among the project's shared macros, and a personal one among "
+        "the creator's personal macros. Null when the macro has no shortcut.",
     )
     body = serializers.CharField(
         max_length=MAX_BODY_LENGTH,
@@ -137,12 +137,12 @@ class TicketMacroSerializer(serializers.ModelSerializer):
 
         shortcut = attrs["shortcut"] if "shortcut" in attrs else getattr(self.instance, "shortcut", None)
         if shortcut:
-            # Clash with the shared shortcuts and the owner's own personal ones. A teammate's personal
-            # shortcut stays invisible here, so it never blocks anyone else.
-            visible_to_owner = Q(visibility=TicketMacro.Visibility.SHARED)
-            if owner_id is not None:
-                visible_to_owner |= Q(created_by_id=owner_id)
-            clashes = TicketMacro.objects.for_team(self.context["team_id"]).filter(visible_to_owner, shortcut=shortcut)
+            # Each scope only clashes with itself, so the check never reads another person's personal
+            # macros and cannot reveal their shortcuts. A personal macro here always belongs to the caller.
+            same_scope = Q(visibility=visibility)
+            if visibility == TicketMacro.Visibility.PERSONAL:
+                same_scope &= Q(created_by_id=user_id)
+            clashes = TicketMacro.objects.for_team(self.context["team_id"]).filter(same_scope, shortcut=shortcut)
             if self.instance is not None:
                 clashes = clashes.exclude(pk=self.instance.pk)
             if clashes.exists():

@@ -25,7 +25,7 @@ export const ConversationsMacrosCreateBody = /* @__PURE__ */ zod.object({
         .max(conversationsMacrosCreateBodyShortcutMax)
         .nullish()
         .describe(
-            "Slash command for this macro, without the leading slash. Lowercase letters, numbers, and hyphens. Unique among the project's shared macros and the creator's personal macros. Null when the macro has no shortcut."
+            "Slash command for this macro, without the leading slash. Lowercase letters, numbers, and hyphens. A shared shortcut is unique among the project's shared macros, and a personal one among the creator's personal macros. Null when the macro has no shortcut."
         ),
     body: zod
         .string()
@@ -59,7 +59,7 @@ export const ConversationsMacrosPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(conversationsMacrosPartialUpdateBodyShortcutMax)
         .nullish()
         .describe(
-            "Slash command for this macro, without the leading slash. Lowercase letters, numbers, and hyphens. Unique among the project's shared macros and the creator's personal macros. Null when the macro has no shortcut."
+            "Slash command for this macro, without the leading slash. Lowercase letters, numbers, and hyphens. A shared shortcut is unique among the project's shared macros, and a personal one among the creator's personal macros. Null when the macro has no shortcut."
         ),
     body: zod
         .string()
