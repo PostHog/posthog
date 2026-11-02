@@ -726,6 +726,30 @@ describe('scoutFleetLogic', () => {
         expect(mockSignalsScoutChatTasksCreate).not.toHaveBeenCalled()
     })
 
+    it('disables every scout chat after the daily cap refusal until its retry time', async () => {
+        jest.useFakeTimers()
+        try {
+            mockSignalsScoutChatTasksCreate.mockRejectedValue(
+                new ApiError('Request was throttled.', 429, new Headers({ 'Retry-After': '3600' }), {
+                    code: 'throttled',
+                })
+            )
+
+            logic.actions.startScoutChatTask('author_scout', 'scout authoring task')
+            await jest.advanceTimersByTimeAsync(0)
+            expect(logic.values.scoutChatDisabledReason).toMatch(/^You've reached today's limit for scout chats/)
+
+            logic.actions.startScoutChatTask('fleet_overview', 'fleet overview task')
+            await jest.advanceTimersByTimeAsync(0)
+            expect(mockSignalsScoutChatTasksCreate).toHaveBeenCalledTimes(1)
+
+            await jest.advanceTimersByTimeAsync(3600 * 1000)
+            expect(logic.values.scoutChatDisabledReason).toBeNull()
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     it('reports roster filtering with the search length, not the term', async () => {
         jest.useFakeTimers()
         try {

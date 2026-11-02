@@ -118,6 +118,7 @@ const endpointLogs = (): ToolBase<ReturnType<typeof EndpointLogsSchema>, unknown
                 instance_id: params.instance_id,
                 level: params.level,
                 limit: params.limit,
+                offset: params.offset,
                 search: params.search,
             },
         })
