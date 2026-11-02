@@ -4,6 +4,7 @@ import json
 import asyncio
 import hashlib
 from collections import Counter
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, tzinfo
 from typing import Any
@@ -11,7 +12,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Case, Count, DateTimeField, Max, PositiveSmallIntegerField, Q, Value, When
+from django.db.models import Case, Count, DateTimeField, Max, PositiveSmallIntegerField, Q, QuerySet, Value, When
 from django.utils import timezone
 
 import structlog
@@ -50,6 +51,7 @@ from products.signals.backend.scout_harness.config_registry import (
 from products.signals.backend.scout_harness.lazy_seed import (
     canonical_config_tags_for,
     canonical_display_name_for,
+    canonical_precheck_query_for,
     canonical_skill_names,
     discover_canonical_skills,
     sync_canonical_skills,
@@ -77,7 +79,6 @@ from products.signals.backend.scout_harness.team_limits import (
     Enrollment,
     _canonicalize_team_config_keys,
     _default_team_config,
-    _parse_background,
     _parse_enrollment,
     _read_flag_payload,
     _resolve_child_start_delay,
@@ -90,6 +91,7 @@ from products.signals.backend.scout_harness.team_limits import (
     _runs_today_by_team,
     _team_configs,
     background_sample_bucket,
+    parse_background_lanes,
     resolve_max_enabled_scouts,
 )
 from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, RunSignalsScoutWorkflow
@@ -114,7 +116,7 @@ MAX_RUNS_PER_TICK = 1000
 # size lanes off the cadence dispatch actually produces; it is imported above.
 TICK_SECONDS = COORDINATOR_INTERVAL_MINUTES * 60
 
-# One event per region per tick that runs the background lane, to chart its backlog and time to first run.
+# One event per region per tick and lane, to chart each lane's backlog and time to first run.
 BACKGROUND_TICK_EVENT = "signals_scout_background_tick"
 # One event per region per tick, and one per project with due runs that tick. Each carries the limits
 # the flag payload resolved next to the usage, so a chart never needs its own copy of the limits.
@@ -235,7 +237,7 @@ async def fetch_enabled_signals_scout_runs_activity(
         # configs are derived from the same snapshot so they can't disagree across two reads.
         payload = await asyncio.to_thread(_read_flag_payload)
         enrollment = _parse_enrollment(payload)
-        background = _parse_background(payload)
+        background_lanes = parse_background_lanes(payload)
         team_configs = _team_configs(payload)
         default_team_config = _default_team_config(payload)
         # The global per-tick ceiling is flag-tunable (no deploy): resolve it here off the same
@@ -253,7 +255,7 @@ async def fetch_enabled_signals_scout_runs_activity(
             team_configs,
             default_team_config,
             global_max_runs_per_tick,
-            background,
+            background_lanes,
             start_delay_spread_seconds=smear_seconds if child_start_delay else 0,
         )
     logger.info("signals_scout coordinator: planned runs", count=len(planned))
@@ -282,12 +284,12 @@ async def stamp_dispatched_signals_scout_runs_activity(
         # `database_sync_to_async`'s pool is sized for DB-bound work.
         payload = await asyncio.to_thread(_read_flag_payload)
         slot_aligned = _resolve_slot_aligned_dispatch(payload)
-        background = _parse_background(payload)
+        backoffs = {lane.skill_name: lane.backoff for lane in parse_background_lanes(payload) or () if lane.backoff}
         await database_sync_to_async(_stamp_dispatched_runs, thread_sensitive=False)(
             stamp_input.dispatched_runs,
             slot_aligned=slot_aligned,
             dispatched_at=stamp_input.dispatched_at,
-            backoff=background.backoff if background is not None else None,
+            backoffs=backoffs,
         )
     # Counted here rather than in the workflow so a replay cannot double-count it, and after the
     # stamp so a retried attempt counts the batch once.
@@ -370,7 +372,7 @@ def _stamp_dispatched_runs(
     *,
     slot_aligned: bool = True,
     dispatched_at: datetime | None = None,
-    backoff: BackgroundBackoff | None = None,
+    backoffs: Mapping[str, BackgroundBackoff] | None = None,
 ) -> None:
     """Sync bulk stamp. `.update()` bypasses save(), so this per-tick write never hits the
     activity log.
@@ -396,8 +398,8 @@ def _stamp_dispatched_runs(
       slot on a new period can sit up to that whole period back, which would dispatch it early and
       undo the backoff. The tick start is already on the grid, so nothing drifts.
 
-    With `backoff` set, this also moves the backoff level of each dispatched background config (see
-    `_next_backoff_levels`).
+    `backoffs` maps a lane skill to its backoff. This also moves the backoff level of each dispatched
+    background config whose lane has one (see `_next_backoff_levels`).
     """
     if not dispatched_runs:
         return
@@ -416,9 +418,10 @@ def _stamp_dispatched_runs(
             "managed_by",
             "background_backoff_level",
             "last_run_at",
+            "skill_name",
         )
     )
-    levels = _next_backoff_levels(rows, backoff, now) if backoff is not None else {}
+    levels = _next_backoff_levels(rows, backoffs, now) if backoffs else {}
     # The level and `last_run_at` commit together. After a partial write, the retried stamp would
     # read the old `last_run_at` and raise the level a second time.
     with transaction.atomic():
@@ -452,26 +455,29 @@ def _stamp_dispatched_runs(
         )
 
 
-def _next_backoff_levels(rows: list[tuple], backoff: BackgroundBackoff, now: datetime) -> dict[UUID, int]:
-    """The backoff level to store for each enabled rolling-interval background config in `rows`.
+def _next_backoff_levels(
+    rows: list[tuple], backoffs: Mapping[str, BackgroundBackoff], now: datetime
+) -> dict[UUID, int]:
+    """The backoff level to store for each enabled rolling-interval background config in `rows` whose lane backs off.
 
     A config that a member engaged with since its previous run goes back to level 0. A config with a
     previous run and no engagement goes up one level. The first run of a config keeps level 0,
     because no earlier run exists for anyone to ignore. A previous dispatch that the child skipped
     (quota, daily report limit, an active run) left no output to ignore, so it keeps the level.
     """
-    previous_runs: dict[UUID, tuple[int, int, int | None, datetime]] = {
-        pk: (team_id, interval_minutes, level, last_run_at)
-        for pk, team_id, enabled, cron_schedule, interval_minutes, managed_by, level, last_run_at in rows
+    previous_runs: dict[UUID, tuple[int, int, int | None, datetime, BackgroundBackoff]] = {
+        pk: (team_id, interval_minutes, level, last_run_at, backoffs[skill_name])
+        for pk, team_id, enabled, cron_schedule, interval_minutes, managed_by, level, last_run_at, skill_name in rows
         if enabled
         and not cron_schedule
         and managed_by == SignalScoutConfig.ManagedBy.BACKGROUND
         and last_run_at is not None
+        and skill_name in backoffs
     }
-    engaged = _engaged_team_ids({team_id: since for team_id, _, _, since in previous_runs.values()})
-    ran = _configs_with_run_between({pk: since for pk, (_, _, _, since) in previous_runs.items()}, now)
+    engaged = _engaged_team_ids({team_id: since for team_id, _, _, since, _ in previous_runs.values()})
+    ran = _configs_with_run_between({pk: since for pk, (_, _, _, since, _) in previous_runs.items()}, now)
     levels: dict[UUID, int] = {}
-    for pk, (team_id, interval_minutes, level, _) in previous_runs.items():
+    for pk, (team_id, interval_minutes, level, _, backoff) in previous_runs.items():
         if team_id in engaged:
             levels[pk] = 0
         elif pk in ran:
@@ -558,22 +564,30 @@ class _BackgroundDueRun:
     due_age_s: float
 
 
+@dataclass(frozen=True)
+class _BackgroundLaneTick:
+    lane: BackgroundEnrollment
+    due: list[_BackgroundDueRun]
+    runs_last_24h: int | None
+
+
 def _collect_planned_runs(
     enrollment: Enrollment,
     team_configs: dict[int, dict] | None = None,
     default_team_config: dict | None = None,
     max_runs_per_tick: int | None = None,
-    background: BackgroundEnrollment | None = None,
+    background_lanes: Sequence[BackgroundEnrollment] | None = None,
     start_delay_spread_seconds: int = 0,
 ) -> list[PlannedRun]:
     """Sync DB scan. Runs in a worker thread via Django's per-thread connection mgmt.
 
     Takes the parsed enrollment (explicit allowlist + the `"*"` wildcard), the optional per-team
     config overrides, the fleet-wide default config, the resolved global per-tick ceiling, and the
-    parsed `background` block — so the flag reads all stay off this DB pool.
+    parsed background lanes — so the flag reads all stay off this DB pool. `None` lanes (no lane
+    key, or a malformed list) leave every background config as it is.
 
     Background configs are dispatched only through `_collect_background_runs`, never through the
-    participating-team loop, so the consent check and the background kill switch gate every one.
+    participating-team loop, so the consent check and each lane's kill switch gate every one.
 
     `start_delay_spread_seconds` is the window the start delays of the planned runs spread across.
     0 gives every run no delay.
@@ -582,23 +596,29 @@ def _collect_planned_runs(
     team_configs = _canonicalize_team_config_keys(team_configs or {})
     default_team_config = default_team_config or {}
     due: list[_DueRun] = []
-    background_team_ids: set[int] = set()
-    if background is not None:
-        skipped_team_ids = _canonicalize_team_ids(enrollment.skip)
-        background_team_ids = _canonicalize_team_ids(set(background.team_ids)) - skipped_team_ids
+    lane_team_ids: dict[str, set[int]] = {}
+    if background_lanes is not None:
         try:
-            # A hand-picked team keeps no band, so `team_ids` stays an override that bands never change.
-            band_by_team = {
-                team_id: band
-                for team_id, band in _sampled_band_teams(background).items()
-                if team_id not in background_team_ids and team_id not in skipped_team_ids
-            }
-            background_team_ids |= band_by_team.keys()
-            _reconcile_background_configs(
-                background, background_team_ids, band_by_team, team_configs, default_team_config
-            )
+            _pause_removed_lane_configs({lane.skill_name for lane in background_lanes})
         except Exception:
-            logger.exception("signals_scout coordinator: background reconcile failed; continuing")
+            logger.exception("signals_scout coordinator: removed background lane pause failed; continuing")
+        skipped_team_ids = _canonicalize_team_ids(enrollment.skip)
+        for lane in background_lanes:
+            listed_team_ids = _canonicalize_team_ids(set(lane.team_ids)) - skipped_team_ids
+            try:
+                # A hand-picked team keeps no band, so `team_ids` stays an override that bands never change.
+                band_by_team = {
+                    team_id: band
+                    for team_id, band in _sampled_band_teams(lane).items()
+                    if team_id not in listed_team_ids and team_id not in skipped_team_ids
+                }
+                listed_team_ids |= band_by_team.keys()
+                _reconcile_background_configs(lane, listed_team_ids, band_by_team, team_configs, default_team_config)
+            except Exception:
+                logger.exception(
+                    "signals_scout coordinator: background reconcile failed; continuing", skill_name=lane.skill_name
+                )
+            lane_team_ids[lane.skill_name] = listed_team_ids
     paused_by_team = _breaker_paused_configs_by_team()
     skipped_without_consent = 0
     reconcile_by_team = operational_configs_needing_reconcile() if enrollment.wildcard else {}
@@ -690,22 +710,26 @@ def _collect_planned_runs(
             team_count=skipped_without_consent,
         )
 
-    background_due: list[_BackgroundDueRun] = []
-    runs_last_24h: int | None = None
-    if background is not None and background.enabled:
-        background_due = _collect_background_runs(
-            background,
-            background_team_ids,
+    lane_ticks: list[_BackgroundLaneTick] = []
+    for lane in background_lanes or ():
+        if not lane.enabled:
+            continue
+        listed_team_ids = lane_team_ids.get(lane.skill_name, set())
+        lane_due = _collect_background_runs(
+            lane,
+            listed_team_ids,
             team_configs,
             default_team_config,
             now,
             start_delay_spread_seconds=start_delay_spread_seconds,
         )
-        admitted = [d.run for d in background_due]
-        if background.budget is not None and background_due:
-            runs_last_24h = _background_runs_since(background, background_team_ids, now - DAILY_BUDGET_WINDOW)
-            admitted = _apply_background_budget(background_due, background.budget, runs_last_24h)
+        admitted = [d.run for d in lane_due]
+        runs_last_24h: int | None = None
+        if lane.budget is not None and lane_due:
+            runs_last_24h = _background_runs_since(lane, listed_team_ids, now - DAILY_BUDGET_WINDOW)
+            admitted = _apply_background_budget(lane_due, lane.budget, runs_last_24h)
         due.extend(admitted)
+        lane_ticks.append(_BackgroundLaneTick(lane=lane, due=lane_due, runs_last_24h=runs_last_24h))
 
     selected: list[_DueRun] = []
     runs_today: dict[int, int] = {}
@@ -720,8 +744,8 @@ def _collect_planned_runs(
         runs_today = _runs_today_by_team(capped_team_ids, now - DAILY_BUDGET_WINDOW)
         selected = _allocate_tick_budget(due, team_configs, default_team_config, runs_today, max_runs_per_tick)
     _capture_capacity_tick(due, selected, team_configs, default_team_config, runs_today, max_runs_per_tick)
-    if background is not None and background.enabled:
-        _capture_background_tick(background_due, selected, background.budget, runs_last_24h)
+    for lane_tick in lane_ticks:
+        _capture_background_tick(lane_tick, selected)
     planned = [
         PlannedRun(team_id=d.team_id, skill_name=d.skill_name, start_delay_seconds=d.start_delay_s) for d in selected
     ]
@@ -731,7 +755,7 @@ def _collect_planned_runs(
 
 
 def _background_runs_since(background: BackgroundEnrollment, listed_team_ids: set[int], since: datetime) -> int:
-    """Background runs that started since `since` in this region, in one aggregate query.
+    """Background runs of one lane that started since `since` in this region, in one aggregate query.
 
     Counts the bridge rows stamped with the background origin, so a run still counts after a person
     takes its config over. The team and skill filters keep the read on the per-scout run index. A
@@ -766,6 +790,7 @@ def _apply_background_budget(
     if len(ordered) > allowance:
         logger.info(
             "signals_scout coordinator: background budget defers due runs",
+            skill_name=ordered[0].run.skill_name,
             due=len(ordered),
             allowance=allowance,
             runs_last_24h=runs_last_24h,
@@ -774,25 +799,23 @@ def _apply_background_budget(
     return [d.run for d in ordered[:allowance]]
 
 
-def _capture_background_tick(
-    background_due: list[_BackgroundDueRun],
-    selected: list[_DueRun],
-    budget: BackgroundBudget | None,
-    runs_last_24h: int | None,
-) -> None:
-    """Log and capture the backlog of the background lane for this tick.
+def _capture_background_tick(lane_tick: _BackgroundLaneTick, selected: list[_DueRun]) -> None:
+    """Log and capture the backlog of one background lane for this tick.
 
     `dispatched` counts the background runs that also pass the shared tick caps, so `due`,
     `dispatched`, and `deferred` always add up.
     """
     selected_pks = {d.config_pk for d in selected}
+    background_due = lane_tick.due
+    budget = lane_tick.lane.budget
     dispatched = sum(1 for d in background_due if d.run.config_pk in selected_pks)
     properties = {
         "region": settings.CLOUD_DEPLOYMENT,
+        "skill_name": lane_tick.lane.skill_name,
         "due": len(background_due),
         "dispatched": dispatched,
         "deferred": len(background_due) - dispatched,
-        "runs_last_24h": runs_last_24h,
+        "runs_last_24h": lane_tick.runs_last_24h,
         "max_runs_per_day": budget.max_runs_per_day if budget is not None else None,
         "never_run_due": sum(1 for d in background_due if d.never_run),
         "oldest_due_age_s": max((d.due_age_s for d in background_due), default=0.0),
@@ -1198,7 +1221,7 @@ def _ai_data_processing_approved(team: Team) -> bool:
 
 
 def _sampled_band_teams(background: BackgroundEnrollment) -> dict[int, int]:
-    """`team_id -> band` for each project that its band percent samples into the background lane.
+    """`team_id -> band` for each project of the lane's audience that its band percent samples into the lane.
 
     Reads nothing when every band is at 0 percent, which is the rollout default.
     """
@@ -1207,10 +1230,10 @@ def _sampled_band_teams(background: BackgroundEnrollment) -> dict[int, int]:
         return {}
     return {
         team_id: band
-        for team_id, band in SignalScoutBackgroundBand.all_teams.filter(band__in=percents).values_list(
-            "team_id", "band"
-        )
-        if background_sample_bucket(team_id) < percents[band]
+        for team_id, band in SignalScoutBackgroundBand.all_teams.filter(
+            band__in=percents, audience=background.audience
+        ).values_list("team_id", "band")
+        if background_sample_bucket(team_id, background.skill_name) < percents[band]
     }
 
 
@@ -1221,7 +1244,7 @@ def _reconcile_background_configs(
     team_configs: dict[int, dict],
     default_team_config: dict,
 ) -> None:
-    """Move background configs toward the `background` block of the flag payload.
+    """Move the background configs of one lane toward that lane in the flag payload.
 
     `listed_team_ids` holds the hand-picked `team_ids` and the band-sampled teams in `band_by_team`.
     Runs on a valid block only, because an unreadable block must never read as an empty list. The
@@ -1229,7 +1252,7 @@ def _reconcile_background_configs(
     stopping the pilot. A lower band percent pauses through the same path, because the team leaves
     the listed set. Creation, resume, and band updates run only with `enabled` on.
     """
-    _pause_departed_background_configs(listed_team_ids)
+    _pause_departed_background_configs(background.skill_name, listed_team_ids)
     if not background.enabled:
         return
     if background.skill_name not in canonical_skill_names():
@@ -1249,23 +1272,40 @@ def _reconcile_background_configs(
     _create_background_configs(background, eligible, band_by_team, team_configs, default_team_config)
 
 
-def _pause_departed_background_configs(listed_team_ids: set[int]) -> None:
-    """Pause every runnable background config whose team is no longer listed.
+def _pause_removed_lane_configs(lane_skill_names: set[str]) -> None:
+    """Pause every runnable background config whose skill has no lane any more."""
+    _pause_background_configs(
+        SignalScoutConfig.all_teams.filter(
+            managed_by=SignalScoutConfig.ManagedBy.BACKGROUND,
+            status__in=SignalScoutConfig.RUNNABLE_STATUSES,
+        ).exclude(skill_name__in=lane_skill_names)
+    )
+
+
+def _pause_departed_background_configs(skill_name: str, listed_team_ids: set[int]) -> None:
+    """Pause every runnable background config of one lane whose team is no longer listed."""
+    _pause_background_configs(
+        SignalScoutConfig.all_teams.filter(
+            skill_name=skill_name,
+            managed_by=SignalScoutConfig.ManagedBy.BACKGROUND,
+            status__in=SignalScoutConfig.RUNNABLE_STATUSES,
+        ).exclude(team_id__in=listed_team_ids)
+    )
+
+
+def _pause_background_configs(configs: QuerySet[SignalScoutConfig]) -> None:
+    """Pause `configs` with `background_removed`.
 
     `transition_status_by_system` refuses a row a person paused or another writer owns, so this
     only ever pauses what the background coordinator may still change.
     """
-    departed = SignalScoutConfig.all_teams.filter(
-        managed_by=SignalScoutConfig.ManagedBy.BACKGROUND,
-        status__in=SignalScoutConfig.RUNNABLE_STATUSES,
-    ).exclude(team_id__in=listed_team_ids)
-    for config in departed:
+    for config in configs:
         if config.transition_status_by_system(
             SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
             pause_reason=SignalScoutConfig.PauseReason.BACKGROUND_REMOVED,
         ):
             logger.info(
-                "signals_scout coordinator: paused background scout for a team that left the list",
+                "signals_scout coordinator: paused background scout that left its lane",
                 team_id=config.team_id,
                 skill_name=config.skill_name,
             )
@@ -1418,6 +1458,12 @@ def _collect_background_runs(
     previous run makes it due at the band interval again, before the stamp stores level 0.
     """
     if not listed_team_ids:
+        return []
+    if background.require_precheck and not canonical_precheck_query_for(background.skill_name):
+        logger.warning(
+            "signals_scout coordinator: background lane requires a pre-check its skill does not ship; skipping it",
+            skill_name=background.skill_name,
+        )
         return []
     configs = list(
         SignalScoutConfig.all_teams.filter(

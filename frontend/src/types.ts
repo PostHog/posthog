@@ -2,12 +2,13 @@ import { LogicWrapper } from 'kea'
 import type { PostHog, PropertyMatchType, SupportedWebVitalsMetrics } from 'posthog-js'
 import { LogLevel } from 'posthog-js/rrweb-plugin-console-record'
 import { eventWithTime } from 'posthog-js/rrweb-types'
-import { ReactNode } from 'react'
+import { ComponentType, ReactNode } from 'react'
 import { LayoutItem } from 'react-grid-layout'
 
 import { LemonTableColumns } from '@posthog/lemon-ui'
 
 import { PaginatedResponse } from 'lib/api'
+import type { Describer } from 'lib/components/ActivityLog/humanizeActivity'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import { HedgehogActorOptions } from 'lib/components/HedgehogMode/types'
 import { SessionRecordingTriggerGroupsConfig, UrlTriggerConfig } from 'lib/components/IngestionControls/types'
@@ -30,11 +31,11 @@ import {
     TeamMembershipLevel,
 } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { AggregationAxisFormat } from 'lib/insights/aggregationAxisFormat'
 import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
 import type { ProjectSecretAPIKeyAllowedScope } from 'lib/scopes'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { BreakdownColorConfig } from 'scenes/dashboard/dashboardBreakdownColors'
-import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Params, Scene, SceneConfig, SceneTab } from 'scenes/sceneTypes'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants'
@@ -2697,9 +2698,8 @@ export interface InsightModel<R extends Node<Record<string, any>> = Node<Record<
     created_by: UserBasicType | null
     is_sample: boolean
     /**
-     * @deprecated Write-only. Session responses omit it, so read membership with
-     * `liveDashboardIds(insight.dashboard_tiles)`. Send it to place a new insight on dashboards, or to
-     * replace a saved insight's whole membership.
+     * @deprecated Session responses omit it, so read membership with `liveDashboardIds(insight.dashboard_tiles)`.
+     * The app never sends it: on an unsaved insight it holds the dashboards to place the saved insight on.
      */
     dashboards?: number[]
     dashboard_tiles: DashboardTileBasicType[] | null
@@ -2960,6 +2960,7 @@ export interface OrganizationInviteType {
     level: OrganizationMembershipLevel
     is_expired: boolean
     emailing_attempt_made: boolean
+    email_suppressed: boolean
     created_by: UserBasicType | null
     created_at: string
     updated_at: string
@@ -3614,7 +3615,6 @@ interface Person {
 
 export interface FunnelStep {
     // The type returned from the API.
-    action_id: string
     average_conversion_time: number | null
     median_conversion_time: number | null
     count: number
@@ -3622,7 +3622,6 @@ export interface FunnelStep {
     custom_name?: string | null
     order: number
     people?: string[]
-    type: EntityType
     labels?: string[]
     breakdown?: BreakdownKeyType
     breakdowns?: BreakdownKeyType[]
@@ -6239,6 +6238,7 @@ export enum ActivityScope {
     PLATFORM_ALERT_CONFIGURATION = 'PlatformAlertConfiguration',
     PRODUCT_TOUR = 'ProductTour',
     TICKET = 'Ticket',
+    TICKET_MACRO = 'TicketMacro',
     KNOWLEDGE_SOURCE = 'KnowledgeSource',
     KNOWLEDGE_LIBRARY = 'KnowledgeLibrary',
     INSTANCE_SETTING = 'InstanceSetting',
@@ -6520,6 +6520,8 @@ export interface ExternalDataSource {
     latest_error: string | null
     last_run_at?: Dayjs
     schemas: ExternalDataSourceSchema[]
+    /** The name of the file a file upload source imports. */
+    file_name?: string | null
     sync_frequency: DataWarehouseSyncInterval
     job_inputs: Record<string, any>
     revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfig
@@ -6704,6 +6706,8 @@ export type IncrementalSyncBlockedReason = IncrementalSyncBlockedReasonEnumApi
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
     table?: SimpleDataWarehouseTable
+    /** The live table the schema syncs into, also before its first sync when the schema already names one. */
+    table_id?: string | null
     /** The schema is linked to a self-managed table that its first sync will import. */
     pending_self_managed_table?: boolean
     incremental: boolean
@@ -6759,6 +6763,8 @@ export interface ExternalDataSchemaSourceSummary {
     supports_column_selection?: boolean
     supports_row_filters?: boolean
     requires_exact_column_metadata?: boolean
+    /** The name of the file a file upload source imports. */
+    file_name?: string | null
     user_access_level: AccessControlLevel | null
     /** The source's effective vendor API version — what schemas without an override sync on */
     api_version?: string | null
@@ -7960,6 +7966,10 @@ export interface ProductManifest {
      * request after login (see `productSetupPreloadLogic`).
      */
     setupProbe?: ProductSetupProbe
+    /** Aggregated into `productActivityDescribers`, which loads each one on demand. */
+    activityDescribers?: Partial<Record<ActivityScope, () => Promise<Describer>>>
+    /** Aggregated into `productGlobalModals`. Each one renders on every logged-in page and owns its open state. */
+    globalModals?: Record<string, () => Promise<ComponentType>>
 }
 
 export interface ProjectTreeRef {

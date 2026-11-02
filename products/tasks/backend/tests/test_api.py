@@ -5,6 +5,7 @@ import base64
 import asyncio
 import hashlib
 from collections.abc import AsyncGenerator, Iterator
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, ClassVar, cast
@@ -56,13 +57,18 @@ from posthog.utils import absolute_uri
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.access import DesktopAccessResolutionError
-from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, DEV_STACK_PREVIEW_PORT
+from products.tasks.backend.constants import (
+    DEFAULT_SANDBOX_WORKING_DIR,
+    DEV_STACK_PREVIEW_PORT,
+    FINAL_MESSAGE_MAX_CHARS,
+)
 from products.tasks.backend.exceptions import SandboxNotFoundError
 from products.tasks.backend.facade import (
     access as tasks_access,
     api as tasks_facade,
     contracts as tasks_contracts,
 )
+from products.tasks.backend.facade.profiles import NetworkAccess, NetworkPolicy, TaskProfile, get_task_profile
 from products.tasks.backend.facade.repo_selection import RepoSelectionResult
 from products.tasks.backend.facade.run_config import TaskArtifactAdapter, TaskArtifactType
 from products.tasks.backend.logic.services.ai_run_defaults import update_team_ai_run_preferences
@@ -125,6 +131,8 @@ from products.tasks.backend.redis import get_tasks_cache, get_tasks_stream_redis
 from products.tasks.backend.temporal.process_task.utils import get_cached_github_user_token
 
 from ee.billing.quota_limiting import QuotaResource
+
+BUSINESS_KNOWLEDGE = get_task_profile("business_knowledge")
 
 # The catalog gates no model behind a rollout flag now, so the write paths that re-check
 # entitlement are exercised with a stand-in rather than with whichever model is mid-rollout.
@@ -547,14 +555,22 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
         with patch.object(tasks_facade, "signal_workflow_completion") as signal_completion:
             response = client.patch(
                 base,
-                {"status": "failed", "error_message": "Synthetic failure", "state": {"agent_version": "test-agent"}},
+                {
+                    "status": "failed",
+                    "error_message": "Synthetic failure",
+                    "error_type": "agent_declined",
+                    "output": {"final_message": "Synthetic report"},
+                    "state": {"agent_version": "test-agent"},
+                },
                 format="json",
             )
         assert response.status_code == status.HTTP_200_OK, response.json()
-        signal_completion.assert_called_once_with(run.id, TaskRun.Status.FAILED, "Synthetic failure", None)
+        signal_completion.assert_called_once_with(run.id, TaskRun.Status.FAILED, "Synthetic failure", "agent_declined")
         run.refresh_from_db()
         assert run.status == TaskRun.Status.FAILED
         assert run.error_message == "Synthetic failure"
+        assert run.output is not None
+        assert run.output["final_message"] == "Synthetic report"
         assert run.completed_at is not None
         assert run.state is not None
         assert run.state["agent_version"] == "test-agent"
@@ -571,6 +587,13 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
             ("remove", {"state_remove_keys": ["model"]}),
             ("branch", {"branch": "other"}),
             ("output", {"output": {"url": "https://example.com"}}),
+            ("report_with_other_output", {"status": "completed", "output": {"final_message": "x", "url": "x"}}),
+            ("report_without_terminal_status", {"output": {"final_message": "x"}}),
+            (
+                "report_too_long",
+                {"status": "completed", "output": {"final_message": "x" * (FINAL_MESSAGE_MAX_CHARS + 1)}},
+            ),
+            ("error_type_without_failure", {"status": "completed", "error_type": "agent_declined"}),
             ("status_type", {"status": {"value": "failed"}}),
         ]
     )
@@ -2916,6 +2939,7 @@ class TestTaskAPI(BaseTaskAPITest):
             (Task.OriginProduct.SPACE_SETUP,),
             (Task.OriginProduct.BUSINESS_KNOWLEDGE,),
             (Task.OriginProduct.METRICS_IMPORT,),
+            (Task.OriginProduct.CONTEXT_LAYER,),
         ]
     )
     def test_create_task_rejects_server_created_origin(self, origin_product: Task.OriginProduct):
@@ -10926,6 +10950,68 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(static.status_code, status.HTTP_200_OK)
         self.assertEqual(static.json()["scripts_available"], scripts_available)
         self.assertEqual(scripted.status_code, status.HTTP_200_OK if scripts_available else status.HTTP_403_FORBIDDEN)
+
+    @parameterized.expand(
+        [
+            ("restricted_profile_without_environment", BUSINESS_KNOWLEDGE, None, False),
+            ("restricted_profile_on_an_open_internal_environment", BUSINESS_KNOWLEDGE, True, False),
+            ("restricted_profile_on_an_open_picked_environment", BUSINESS_KNOWLEDGE, False, True),
+            (
+                "open_profile_without_environment",
+                replace(
+                    BUSINESS_KNOWLEDGE, key="test.open_network", network=NetworkPolicy(levels=(NetworkAccess.FULL,))
+                ),
+                None,
+                True,
+            ),
+        ]
+    )
+    @override_settings(
+        CANVAS_ARTIFACT_ORIGIN="https://usercontent.example", ALLOWED_HOSTS=["testserver", "usercontent.example"]
+    )
+    @patch("posthog.storage.object_storage.write")
+    @patch("posthog.storage.object_storage.tag")
+    def test_html_artifact_scripts_follow_the_profile_network_of_a_profiled_run(
+        self, _name, profile: TaskProfile, internal_environment: bool | None, scripts_available: bool, *_mocks
+    ):
+        task = self.create_task()
+        task.profile = profile.key
+        task.save(update_fields=["profile"])
+        state: dict[str, Any] = {}
+        started_at = django_timezone.now()
+        if internal_environment is not None:
+            environment = SandboxEnvironment.objects.create(
+                team=self.team,
+                name="Writer env",
+                created_by=self.user,
+                network_access_level=SandboxEnvironment.NetworkAccessLevel.FULL,
+                internal=internal_environment,
+            )
+            state["sandbox_environment_id"] = str(environment.id)
+            started_at = environment.updated_at + timedelta(minutes=1)
+        run = TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, state=state, created_at=started_at
+        )
+
+        with patch.dict("products.tasks.backend.facade.profiles._profiles", {profile.key: profile}):
+            uploaded = self._sandbox_oauth_client(task.id).post(
+                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/",
+                {
+                    "artifacts": [
+                        {"name": "report.html", "type": "output", "source": "agent_output", "content": "<p>Report</p>"}
+                    ]
+                },
+                format="json",
+            )
+        self.assertEqual(uploaded.status_code, status.HTTP_200_OK)
+
+        preview = self.client.get(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/"
+            f"{uploaded.json()['artifacts'][0]['id']}/preview/"
+        )
+
+        self.assertEqual(preview.status_code, status.HTTP_200_OK)
+        self.assertEqual(preview.json()["scripts_available"], scripts_available)
 
     @override_settings(
         CANVAS_ARTIFACT_ORIGIN="https://usercontent.example", ALLOWED_HOSTS=["testserver", "usercontent.example"]
