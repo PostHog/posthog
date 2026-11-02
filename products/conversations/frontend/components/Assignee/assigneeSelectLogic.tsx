@@ -2,9 +2,9 @@ import Fuse from 'fuse.js'
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
 import { createFuse } from 'lib/utils/fuseSearch'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { rolesLogic } from 'scenes/settings/organization/Permissions/Roles/rolesLogic'
 
+import { membersLogic } from '~/models/membersLogic'
 import type { RoleType } from '~/types'
 
 import type { OrganizationMemberType } from '../../../../../frontend/src/types'

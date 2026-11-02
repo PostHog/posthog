@@ -87,6 +87,14 @@ Only an approved OTA publishing step writes the private key to an owner-readable
 Staging and promotion both pass the key to EAS, which signs the manifests locally. The native client verifies updates against its embedded certificate before applying them.
 
 The first signed release must be **native**, with a version above the unsigned `1.4.0` baseline. Existing unsigned binaries must upgrade through TestFlight or the stores; this change cannot add verification to them through OTA.
+
+Version `1.5.0` establishes that signed native baseline through the `native-150` release request.
+It targets TestFlight and Google Play internal testing. Compatible OTA requests can follow only after its hosted release receipt is complete.
+
+Version `1.6.0` follows `native-150` through the `native-160` native release request.
+It includes full-screen chats with Back, New chat, Copy link to chat and Archive chat controls, readable insight-table numbers with horizontal scrolling, and safer release retries.
+It targets TestFlight and Google Play internal testing and establishes a new runtime for compatible OTA updates.
+
 The native receipt records the certificate fingerprint. An OTA request must match it as well as the native fingerprints; a receipt without a certificate fingerprint cannot authorize an OTA.
 Rotate the key and certificate together, retain the old material securely for older runtimes, and raise the app version in a new native release before publishing updates with the new key.
 
@@ -94,6 +102,9 @@ Rotate the key and certificate together, retain the old material securely for ol
 
 The workflow run and `mobile-production` deployment report its outcome. The `mobile-staging` deployment records the build/update staging outcome.
 The GitHub prerelease `mobile-release/<id>` contains a machine-readable JSON receipt; the Actions run also retains a receipt artifact, including a claimed receipt if publishing fails.
+Receipt lookup includes draft releases across every page of the release list. GitHub's release-by-tag endpoint only returns published releases and cannot find an interrupted draft claim.
+Repeated entries across pages are deduplicated by numeric release ID, so only distinct releases can cause a duplicate-receipt error.
+Receipt writes use the numeric release ID returned when the claim is created and explicitly retain its request tag. If multiple releases share a request tag, publication stops before any EAS operation; reconcile every named release ID before retrying.
 A completed request rerun does not repeat EAS publication. If only the production pointer update failed, rerunning repairs it without resubmitting.
 
 GitHub keeps at most one pending job in a concurrency group. When several requests merge quickly, a newer pending job can replace an older one.

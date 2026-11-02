@@ -1,5 +1,5 @@
 import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/utils'
-import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
+import { getDisplayNameFromEntityFilter } from 'lib/insights/entityFilterNames'
 
 import { UniversalFilterValue } from '~/types'
 

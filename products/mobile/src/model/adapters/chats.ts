@@ -21,8 +21,10 @@ function titleOr(title: string | null | undefined, fallback: string): string {
     return title?.trim() || fallback
 }
 
-function taskWebUrl(scope: ProjectScope | null, taskId: string): string | undefined {
-    return scope ? `${scope.host}/project/${scope.projectId}/ai?task=${encodeURIComponent(taskId)}` : undefined
+export function taskWebUrl(scope: ProjectScope | null, taskId: string | null): string | undefined {
+    return scope && taskId
+        ? `${scope.host.replace(/\/$/, '')}/project/${scope.projectId}/ai?task=${encodeURIComponent(taskId)}`
+        : undefined
 }
 
 function sessionStatus(session: TaskSummaryApi): ChatSessionStatus {
