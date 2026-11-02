@@ -10,8 +10,8 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.permissions import APIScopePermission
 
+from products.signals.backend.facade.spend import scout_spend_overview, source_spend_overview
 from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
-from products.signals.backend.spend_reporting import SpendReporting
 
 
 class SpendAmountSerializer(serializers.Serializer):
@@ -67,7 +67,7 @@ class SignalSpendViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(responses=SpendOverviewSerializer, operation_id="signals_spend_overview")
     def list(self, request: Request, **kwargs: object) -> Response:
-        return Response(SpendOverviewSerializer(asdict(SpendReporting(self.team).scouts())).data)
+        return Response(SpendOverviewSerializer(asdict(scout_spend_overview(team=self.team))).data)
 
 
 class SignalSourceSpendViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -79,4 +79,4 @@ class SignalSourceSpendViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(responses=SourceSpendSerializer(many=True), operation_id="signals_source_spend")
     def list(self, request: Request, **kwargs: object) -> Response:
-        return Response(SourceSpendSerializer(SpendReporting(self.team).sources(), many=True).data)
+        return Response(SourceSpendSerializer(source_spend_overview(team=self.team), many=True).data)
