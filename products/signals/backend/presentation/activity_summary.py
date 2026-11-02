@@ -51,8 +51,9 @@ class ActivitySummaryThemeSerializer(serializers.Serializer):
     )
     refs = serializers.ListField(
         child=serializers.CharField(),
-        help_text="Refs into `computed.owned`, `computed.watched` and `computed.pages` of the same version, "
-        "such as `o1` or `p2`, that show this thread. A ref is valid only inside one version.",
+        help_text="Refs into `computed.owned`, `computed.watched`, `computed.pages`, `computed.tasks` and "
+        "`computed.mcp_sessions` of the same version, such as `o1`, `p2`, `t3` or `m1`, that show this thread. "
+        "A ref is valid only inside one version.",
     )
     last_seen = serializers.CharField(
         allow_null=True, help_text="The last day of activity on the refs of this thread, as YYYY-MM-DD."
@@ -88,6 +89,13 @@ class ActivitySummaryPageVisitsSerializer(serializers.Serializer):
     last_at = serializers.CharField(help_text="The last day the user opened its pages, as YYYY-MM-DD.")
 
 
+class ActivitySummaryLineRefSerializer(serializers.Serializer):
+    ref = serializers.CharField(
+        help_text="The ref that themes cite, such as `t1` for a task or `m1` for an MCP session."
+    )
+    last_at = serializers.CharField(help_text="The day of the task or MCP session, as YYYY-MM-DD.")
+
+
 class ActivitySummaryProductSplitSerializer(serializers.Serializer):
     works_in = serializers.ListField(
         child=serializers.ChoiceField(choices=ActivitySummaryProduct.choices),
@@ -115,6 +123,16 @@ class ActivitySummaryComputedSerializer(serializers.Serializer):
     )
     task_count = serializers.IntegerField(
         help_text="The number of tasks the user gave to PostHog AI or the Slack agent."
+    )
+    tasks = ActivitySummaryLineRefSerializer(
+        many=True,
+        help_text="Tasks the user gave to PostHog AI or the Slack agent that the summary input showed, oldest first. "
+        "Empty on summaries from before task refs existed.",
+    )
+    mcp_sessions = ActivitySummaryLineRefSerializer(
+        many=True,
+        help_text="Sessions of the user's AI agent over MCP that the summary input showed, oldest first. "
+        "Empty on summaries from before MCP refs existed.",
     )
 
 

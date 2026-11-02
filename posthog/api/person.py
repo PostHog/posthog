@@ -59,6 +59,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, load_ac
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person.bulk_delete import (
+    DeletionRun,
     delete_persons_profile,
     queue_person_event_deletion,
     queue_person_recording_deletion,
@@ -1173,6 +1174,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         persons_deleted = 0
         errors: builtins.list[dict[str, str]] = []
         if not keep_person:
+            # This path holds a web worker, so each saga call gets the request-path deadline.
             result = delete_persons_profile(
                 self.team_id,
                 persons,
@@ -1180,6 +1182,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 request=request,
                 organization_id=self.organization.id,
                 queue_ai_training_deletion=False,
+                run=DeletionRun.fresh(rpc_timeout=settings.PERSON_DELETE_LIFECYCLE_REQUEST_TIMEOUT_MS / 1000),
             )
             persons_deleted = result.deleted_count
             errors = [

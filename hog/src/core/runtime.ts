@@ -7,6 +7,7 @@ import type { ApiToolLibrary } from '@posthog/mcp/src/cli/library-types'
 
 import { HogError } from './errors'
 import { clackPrompts, type Prompts } from './prompts'
+import { DEFAULT_TELEMETRY_TOKEN } from './telemetry'
 
 export type Env = Readonly<Record<string, string | undefined>>
 
@@ -47,6 +48,8 @@ export interface Runtime {
     // Resolves to false when no browser could be started, for example on a server without one.
     openUrl: (url: string) => Promise<boolean>
     prompts: Prompts
+    // The project token for anonymous usage events. Undefined turns them off, as in tests.
+    telemetryToken: string | undefined
     // Accepts any TLS certificate from here on, for every request, including the API tools' own.
     skipTlsVerification: () => void
     // The MCP server's tool catalog, which `hog api` browses and calls. Loaded on first use: it is large.
@@ -150,6 +153,7 @@ export function processRuntime(): Runtime {
             }
         },
         prompts: clackPrompts(),
+        telemetryToken: DEFAULT_TELEMETRY_TOKEN,
         skipTlsVerification: () => {
             // Runs only for --skip-ssl-verification, posthog-cli's opt-in flag for self-hosted certificates.
             process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0' // nosemgrep: trailofbits.generic.node-disable-certificate-validation.node-disable-certificate-validation

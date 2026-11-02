@@ -300,8 +300,8 @@ def validate_credentials(api_token: str, app_id: str) -> bool:
         app = _validate_app_id(app_id)
     except ValueError:
         raise AppsFlyerCredentialsError(
-            "The AppsFlyer app id looks invalid. Use your app's identifier from the dashboard "
-            "(e.g. 'id123456789' for iOS or the package name for Android)."
+            "That AppsFlyer app ID isn't valid. In AppsFlyer, open My apps and copy the ID under your app name, "
+            "such as 'id123456789' or 'com.example.app'."
         ) from None
     # http.client encodes headers as latin-1, so a smart quote pasted with the token would crash the request.
     if not _normalize_token(api_token).isascii():
@@ -338,7 +338,9 @@ def validate_credentials(api_token: str, app_id: str) -> bool:
         )
     if response.status_code == 404:
         raise _credentials_error(
-            "AppsFlyer couldn't find an app with that app id. Please check the app id.", response, api_token
+            "AppsFlyer couldn't find an app with that app ID. In AppsFlyer, open My apps and copy the ID under your app name.",
+            response,
+            api_token,
         )
     # Any other status is unexpected (e.g. a 400 from a malformed request) — surface the real
     # code rather than blaming the token or app id, which sends users debugging the wrong thing.

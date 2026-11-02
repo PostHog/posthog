@@ -53,12 +53,13 @@ Replacement = DuckLakeDayReplacement | DuckLakeTableReplacement
 
 def backfills_through_trino(organization_id: str) -> bool:
     try:
+        # Dagster runs without POSTHOG_PERSONAL_API_KEY, so the client cannot load flag definitions there. A
+        # local-only evaluation would return off for every organization, so the client asks the flags service.
         return feature_enabled_or_false(
             DUCKLAKE_TRINO_REGISTRATION_FLAG,
             organization_id,
             groups={"organization": organization_id},
             group_properties={"organization": {"id": organization_id}},
-            only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
     except Exception as error:

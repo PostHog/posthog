@@ -80,7 +80,12 @@ class TestWhopSource:
     @pytest.mark.parametrize("method_name", ["create_webhook", "delete_webhook", "get_external_webhook_info"])
     @pytest.mark.parametrize(
         "pinned, sent_version",
-        [("2025-01-01", "2025-01-01"), ("v1", "2025-01-01"), (None, "2026-10-13-1")],
+        [
+            ("2025-01-01", "2025-01-01"),
+            ("v1", "2025-01-01"),
+            ("2026-10-13-1", "2026-10-13-1"),
+            (None, "2026-10-29-8"),
+        ],
     )
     def test_webhook_management_passes_the_connected_company(self, method_name, pinned, sent_version):
         # The webhook endpoints require the company, and a webhook created under the wrong version
@@ -104,7 +109,7 @@ class TestWhopSource:
             "biz_test",
             WEBHOOK_URL,
             sorted(SCHEMA_TO_WEBHOOK_EVENTS["refunds"]),
-            "2026-10-13-1",
+            "2026-10-29-8",
         )
 
     def test_source_for_pipeline_plumbs_the_sync_inputs(self):

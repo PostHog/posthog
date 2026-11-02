@@ -24,6 +24,8 @@ export interface UploadOptions {
     force: boolean
     skipOnConflict: boolean
     concurrency?: number
+    // Filled as chunks finish, so a caller still sees what a failed run uploaded.
+    progress?: Map<string, UploadStatus>
 }
 
 export interface UploadOutcome {
@@ -143,7 +145,8 @@ export class SymbolSetClient {
 
     constructor(
         private readonly runtime: Runtime,
-        private readonly credentials: Credentials
+        private readonly credentials: Credentials,
+        private readonly onFallback: () => void = () => {}
     ) {
         this.throttle = new Throttle(runtime, RATE_LIMIT_PER_MINUTE)
     }
@@ -201,7 +204,7 @@ export class SymbolSetClient {
         options: UploadOptions,
         runId: string
     ): Promise<UploadOutcome> {
-        const status = new Map<string, UploadStatus>()
+        const status = options.progress ?? new Map<string, UploadStatus>()
         const contentHashes = new Map<string, string>()
         const kept: (SymbolSetUpload & { hash: string })[] = []
         for (const upload of uploads) {
@@ -388,8 +391,9 @@ export class SymbolSetClient {
                     `Object storage answered ${response.status}: ${await response.text()}`
                 )
             }
-            if (useFallback && primaryTransportErrors >= 2 && fallbackTransportErrors === 0) {
+            if (useFallback && primaryTransportErrors >= 2 && fallbackTransportErrors === 0 && !this.preferFallback) {
                 this.preferFallback = true
+                this.onFallback()
             }
         }).catch((error) => {
             throw new HogError(

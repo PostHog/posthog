@@ -6,8 +6,8 @@ import { ReactNode } from 'react'
 import { IconChevronDown } from '@posthog/icons'
 import { LemonMenu, LemonMenuItem } from '@posthog/lemon-ui'
 
+import { formatAggregationAxisValue } from 'lib/insights/aggregationAxisFormat'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { formatAggregationValue } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 

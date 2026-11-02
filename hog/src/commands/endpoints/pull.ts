@@ -196,4 +196,11 @@ export default defineCommand({
     },
 
     exitCode: (result) => (result.problems.length > 0 ? 1 : 0),
+
+    telemetry: ({ result, options }) => ({
+        status: result.status,
+        all: options.all === true,
+        endpoint_count: result.plan.length,
+        written: result.written.length,
+    }),
 })

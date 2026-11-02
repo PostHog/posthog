@@ -653,6 +653,7 @@ const inboxReportsForMe = (): ToolBase<ReturnType<typeof InboxReportsForMeSchema
                 focus: params.focus,
                 limit: params.limit,
                 refresh: params.refresh,
+                wait_seconds: params.wait_seconds,
             },
         })
         return result
