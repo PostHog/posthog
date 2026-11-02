@@ -1071,7 +1071,9 @@ class TestWidgetTeamPollWriteThrottleSplit(SimpleTestCase):
             ("team_poll", rate_limit.WidgetTeamPollThrottle),
         ]
     )
-    def test_exhausted_bucket_is_counted_by_scope_and_team(self, _name: str, throttle_class: type) -> None:
+    def test_exhausted_bucket_is_counted_by_scope_and_team(
+        self, _name: str, throttle_class: type[rate_limit.WidgetUserBurstThrottle | rate_limit.WidgetTeamPollThrottle]
+    ) -> None:
         path = "/api/conversations/v1/widget/tickets"
         request = Mock(
             headers={"X-Conversations-Token": "widget-token"},

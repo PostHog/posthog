@@ -11,6 +11,7 @@ Security model:
 Anonymous users are controlled by widget_session_id. Verified users are controlled by distinct_id.
 """
 
+import re
 import uuid
 import hashlib
 import logging
@@ -34,9 +35,10 @@ from posthog.event_usage import report_team_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.comment import Comment
-from posthog.rate_limit import WIDGET_POLL_THROTTLES, WIDGET_WRITE_THROTTLES
+from posthog.rate_limit import WIDGET_WRITE_THROTTLES, WidgetTeamPollThrottle, WidgetUserBurstThrottle
 
 from products.conversations.backend.api.serializers import (
+    IDENTITY_HASH_PATTERN,
     WIDGET_TICKETS_DEFAULT_LIMIT,
     WidgetMarkReadSerializer,
     WidgetMessageSerializer,
@@ -103,7 +105,7 @@ class IdentityVerificationNotConfigured(IdentityVerificationFailed):
     # the specific reason is logged server-side for the team's own admins to see.
 
 
-def _identity_secrets(team: Team) -> list[_IdentitySecret]:
+def _identity_secrets(team: Team, *, record_metrics: bool = True) -> list[_IdentitySecret]:
     """Credentials to verify a hash against, preferred store first.
 
     The conversations signing secret is where this credential is moving; the legacy
@@ -136,7 +138,7 @@ def _identity_secrets(team: Team) -> list[_IdentitySecret]:
             # the window closes. Tied to the trusted branch so a stale row contributes nothing.
             if signing_secret.previous_secret_active and signing_secret.previous_secret:
                 secrets.append(_IdentitySecret(source="signing_secret_previous", secret=signing_secret.previous_secret))
-        else:
+        elif record_metrics:
             SIGNING_SECRET_STALE_COUNTER.inc()
             logger.warning("Conversations signing secret is stale, skipping it", extra={"team_id": team.id})
 
@@ -289,6 +291,62 @@ def _identity_tickets_cache_key(cache_namespace: str, verified_distinct_id: str,
         return base_key
     email_digest = hashlib.sha256(verified_email.encode()).hexdigest()
     return f"{base_key}:email:{email_digest}"
+
+
+_THROTTLE_IDENTITY_ATTR = "_conversations_throttle_verified_distinct_id"
+
+
+def _throttle_verified_distinct_id(request: Request) -> str | None:
+    """Return the distinct_id of a poll request whose identity hash verifies, else None.
+
+    Both poll throttles call this, so the result stays on the request and the team's secrets load once.
+    It records no verification metric, because the view verifies the identity again and records it there.
+    """
+    if hasattr(request, _THROTTLE_IDENTITY_ATTR):
+        return getattr(request, _THROTTLE_IDENTITY_ATTR)
+    verified: str | None = None
+    team = request.auth
+    distinct_id = request.query_params.get("identity_distinct_id")
+    hash_value = request.query_params.get("identity_hash")
+    # The throttle runs before the serializer, so it checks the hash format itself. A non-hex hash
+    # would make hmac.compare_digest raise TypeError, which turns a bad request into a 500.
+    if isinstance(team, Team) and distinct_id and hash_value and re.fullmatch(IDENTITY_HASH_PATTERN, hash_value):
+        secrets = _identity_secrets(team, record_metrics=False)
+        if any(verify_identity_hash(distinct_id, hash_value, secret.secret) for secret in secrets):
+            verified = distinct_id
+    setattr(request, _THROTTLE_IDENTITY_ATTR, verified)
+    return verified
+
+
+class WidgetSharedPollThrottle(WidgetTeamPollThrottle):
+    """Polls without a verified identity share one bucket per widget token.
+    A wrong identity hash also lands here, so a forged identity cannot get a bucket of its own."""
+
+    def get_cache_key(self, request: Request, view: APIView) -> str | None:
+        if _throttle_verified_distinct_id(request) is not None:
+            return None
+        return super().get_cache_key(request, view)
+
+
+class WidgetVerifiedPollThrottle(WidgetTeamPollThrottle):
+    """A person with a verified identity gets a bucket of their own. Otherwise every signed-in user
+    of one site or app shares the token bucket, and a busy hour locks all of them out."""
+
+    scope = "widget_verified_poll"
+    # The tickets and messages views share this bucket. A ticket thread open in the in-app side panel
+    # polls both every 10 seconds (720 requests an hour), so this leaves room for page loads and tabs.
+    rate = "1800/hour"
+
+    def get_cache_key(self, request: Request, view: APIView) -> str | None:
+        distinct_id = _throttle_verified_distinct_id(request)
+        if distinct_id is None:
+            return None
+        token = request.headers.get("X-Conversations-Token", "")
+        ident = hashlib.sha256(f"{token}\x00{distinct_id}".encode()).hexdigest()
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+WIDGET_POLL_THROTTLES = (WidgetUserBurstThrottle, WidgetSharedPollThrottle, WidgetVerifiedPollThrottle)
 
 
 class WidgetMessageView(APIView):

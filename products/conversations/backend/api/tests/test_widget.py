@@ -20,6 +20,7 @@ from posthog.rate_limit import WidgetTeamPollThrottle
 from posthog.test.authentication_checks import covers_authentication
 
 from products.conversations.backend.api.serializers import WidgetMessageSerializer, WidgetTicketsQuerySerializer
+from products.conversations.backend.api.widget import WidgetVerifiedPollThrottle
 from products.conversations.backend.models import SigningSecret, Ticket
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Status
 from products.conversations.backend.services.identity import (
@@ -795,6 +796,46 @@ class TestWidgetIdentityVerification(BaseTest):
             distinct_id=distinct_id or self.distinct_id,
             channel_source="widget",
         )
+
+    # --- Poll throttling ---
+
+    @parameterized.expand(
+        [
+            ("valid_hash_gets_its_own_bucket", True, status.HTTP_200_OK),
+            ("wrong_hash_shares_the_token_bucket", False, status.HTTP_429_TOO_MANY_REQUESTS),
+        ]
+    )
+    def test_poll_after_token_bucket_is_exhausted(self, _name, valid_hash, expected_status):
+        with patch.object(WidgetTeamPollThrottle, "rate", "1/minute"):
+            self.client.get(
+                "/api/conversations/v1/widget/tickets",
+                {"widget_session_id": self.widget_session_id},
+                **self._get_headers(),
+            )
+            response = self.client.get(
+                "/api/conversations/v1/widget/tickets",
+                {
+                    "identity_distinct_id": self.distinct_id,
+                    "identity_hash": self.identity_hash if valid_hash else "0" * 64,
+                },
+                **self._get_headers(),
+            )
+        self.assertEqual(response.status_code, expected_status)
+
+    def test_verified_poll_bucket_is_per_person(self):
+        other_distinct_id = "user_456"
+
+        def poll(distinct_id: str) -> int:
+            return self.client.get(
+                "/api/conversations/v1/widget/tickets",
+                {"identity_distinct_id": distinct_id, "identity_hash": compute_identity_hash(distinct_id, self.secret)},
+                **self._get_headers(),
+            ).status_code
+
+        with patch.object(WidgetVerifiedPollThrottle, "rate", "1/minute"):
+            self.assertEqual(poll(self.distinct_id), status.HTTP_200_OK)
+            self.assertEqual(poll(self.distinct_id), status.HTTP_429_TOO_MANY_REQUESTS)
+            self.assertEqual(poll(other_distinct_id), status.HTTP_200_OK)
 
     # --- List tickets ---
 

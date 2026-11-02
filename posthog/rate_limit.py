@@ -1508,7 +1508,7 @@ class WidgetUserBurstThrottle(_CountedWidgetThrottle):
 class _WidgetTeamTokenThrottle(_CountedWidgetThrottle):
     rate = "3600/hour"
 
-    def get_cache_key(self, request: "Request", view: "APIView") -> str:
+    def get_cache_key(self, request: "Request", view: "APIView") -> str | None:
         if not self.scope:
             raise NotImplementedError("Set scope on WidgetTeamPollThrottle or WidgetTeamWriteThrottle")
         token = request.headers.get("X-Conversations-Token", "")
@@ -1532,7 +1532,6 @@ class WidgetTeamWriteThrottle(_WidgetTeamTokenThrottle):
     scope = "widget_team_write"
 
 
-WIDGET_POLL_THROTTLES = (WidgetUserBurstThrottle, WidgetTeamPollThrottle)
 WIDGET_WRITE_THROTTLES = (WidgetUserBurstThrottle, WidgetTeamWriteThrottle)
 
 

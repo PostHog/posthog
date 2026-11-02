@@ -13,6 +13,8 @@ from posthog.security.url_validation import has_ambiguous_authority
 from products.conversations.backend.models import TicketAssignment
 from products.conversations.backend.models.constants import Status
 
+IDENTITY_HASH_PATTERN = r"^[0-9a-f]{64}$"
+
 
 class TicketAssignmentSerializer(serializers.ModelSerializer):
     """Serializer for ticket assignment (user or role)."""
@@ -57,7 +59,7 @@ class WidgetAuthSerializer(serializers.Serializer):
     # Hex charset enforced here, not just the length: hmac.compare_digest raises TypeError
     # on non-ASCII str, which would surface as a 500 instead of a rejected request.
     identity_hash = serializers.RegexField(
-        r"^[0-9a-f]{64}$",
+        IDENTITY_HASH_PATTERN,
         required=False,
         help_text="HMAC-SHA256 of identity_distinct_id using the team's signing secret",
     )
