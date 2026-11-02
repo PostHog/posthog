@@ -105,6 +105,8 @@ rules:
                               |BatchImport
                               |BriefConfig
                               |ButtonTile
+                              |CITrustPolicy
+                              |CITrustPolicyRequest
                               |Canvas
                               |CanvasBuild
                               |CanvasHomePreference
@@ -613,6 +615,8 @@ rules:
                         |BatchImport
                         |BriefConfig
                         |ButtonTile
+                        |CITrustPolicy
+                        |CITrustPolicyRequest
                         |Canvas
                         |CanvasBuild
                         |CanvasHomePreference
