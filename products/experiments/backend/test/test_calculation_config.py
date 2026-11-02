@@ -21,9 +21,11 @@ from products.experiments.backend.metric_calculation.config import (
     build_calculation_configs,
     normalize_exposure,
 )
+from products.experiments.backend.metric_calculation.results import _recalc_fingerprint, result_configuration_status
 from products.experiments.backend.metric_resolution import MetricRole, MetricSource
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.test.utils import patch_calculation_key_version
 from products.experiments.stats.shared.enums import DifferenceType
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -137,6 +139,10 @@ STORED_KEY_CASES = [
 
 
 class TestMetricCalculationConfig(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.enterContext(patch_calculation_key_version(2))
+
     def _flag(self) -> FeatureFlag:
         return FeatureFlag.objects.create(
             team=self.team,
@@ -404,6 +410,7 @@ _SETTINGS = ExperimentCalculationSettings(
     only_count_matured_users=False,
     timezone="UTC",
     stored_exposure_criteria=None,
+    key_version=2,
 )
 _MEAN = {**DEFINITIONS["mean"], "uuid": "m1"}
 
@@ -663,8 +670,9 @@ def test_every_field_that_can_change_the_key_has_a_case() -> None:
     # it. This fails until the new field has a case above, and the case fails until the key reads the field.
     compared_settings = {field.name for field in dataclasses.fields(ExperimentCalculationSettings) if field.compare}
     expected = (
-        # The exposure_criteria cases cover normalized_exposure. The team is the tenant, not an input.
-        {f"settings.{name}" for name in compared_settings - {"team_id", "normalized_exposure"}}
+        # The exposure_criteria cases cover normalized_exposure. The team is the tenant and the key version picks the
+        # key, so neither is an input.
+        {f"settings.{name}" for name in compared_settings - {"team_id", "normalized_exposure", "key_version"}}
         | {f"bayesian.{field.name}" for field in dataclasses.fields(BayesianSettings)}
         | {f"frequentist.{field.name}" for field in dataclasses.fields(FrequentistSettings)}
         | {f"cuped.{field.name}" for field in dataclasses.fields(CupedQueryConfig)}
@@ -706,3 +714,37 @@ def test_key_version_2_is_stable(settings: ExperimentCalculationSettings, defini
     # Every stored result is filed under this hash. A change to the hashed payload, such as a new settings field,
     # makes all of them unreachable for reuse, so it has to come with a CALCULATION_KEY_VERSION bump and new pins.
     assert settings.build_metric_config(metric_id="m1", role="primary", definition=definition).calculation_key() == key
+
+
+@pytest.mark.parametrize("active_version", [1, 2])
+def test_a_key_tells_its_version_whatever_version_is_active(active_version: int) -> None:
+    calculation_config = _SETTINGS.build_metric_config(metric_id="m1", role="primary", definition=_MEAN)
+    active = calculation_config.with_key_version(active_version)
+
+    assert active.calculation_key() == calculation_config.key_for_version(active_version)
+    assert [active.key_version_of(calculation_config.key_for_version(version)) for version in (1, 2)] == [1, 2]
+    assert active.key_version_of("0" * 64) is None
+
+
+@pytest.mark.parametrize(
+    "active_version,row_version,salted,expected",
+    [
+        (1, 1, False, "current"),
+        (1, 2, True, "current"),
+        # A version 1 key omits settings, so once version 2 is active such a row's settings are unknown.
+        (2, 1, False, "unknown"),
+        (2, 1, True, "unknown"),
+        (2, 2, False, "current"),
+        (1, None, False, "previous"),
+    ],
+)
+def test_result_provenance_is_relative_to_the_active_key_version(
+    active_version: int, row_version: int | None, salted: bool, expected: str
+) -> None:
+    calculation_config = _SETTINGS.build_metric_config(
+        metric_id="m1", role="primary", definition=_MEAN
+    ).with_key_version(active_version)
+    fingerprint = calculation_config.key_for_version(row_version) if row_version is not None else "a" * 64
+    fingerprint = _recalc_fingerprint(fingerprint) if salted else fingerprint
+
+    assert result_configuration_status(fingerprint, calculation_config) == expected

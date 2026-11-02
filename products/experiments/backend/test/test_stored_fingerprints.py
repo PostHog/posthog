@@ -16,6 +16,7 @@ from products.experiments.backend.metric_calculation.stored_fingerprints import 
     rewrite_stored_fingerprints,
 )
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricResult
+from products.experiments.backend.test.utils import patch_calculation_key_version
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -30,6 +31,10 @@ def _mean_metric(uuid: str, **fields: Any) -> dict[str, Any]:
 
 
 class TestStoredFingerprints(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.enterContext(patch_calculation_key_version(2))
+
     def _experiment(self, key: str, *, deleted: bool = False) -> Experiment:
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key=key)
         experiment = Experiment.objects.create(

@@ -35,6 +35,7 @@ class ExperimentRegularMetricResult:
     fingerprint: str
     success: bool
     error_message: str | None = None
+    skipped: bool = False
 
 
 @dataclasses.dataclass
@@ -63,6 +64,7 @@ class ExperimentSavedMetricResult:
     fingerprint: str
     success: bool
     error_message: str | None = None
+    skipped: bool = False
 
 
 @dataclasses.dataclass

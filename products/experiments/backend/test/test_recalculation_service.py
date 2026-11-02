@@ -39,6 +39,7 @@ from products.experiments.backend.recalculation import (
     request_recalculation,
     request_recalculation_without_age_limit,
 )
+from products.experiments.backend.test.utils import patch_calculation_key_version
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -629,6 +630,10 @@ class TestRecalculationService(BaseTest):
 @pytest.mark.django_db(transaction=True)
 @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
 class TestTimeseriesColdStartPayload(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.enterContext(patch_calculation_key_version(2))
+
     def _flag(self, key: str) -> FeatureFlag:
         return FeatureFlag.objects.create(
             team=self.team,
@@ -702,14 +707,23 @@ class TestTimeseriesColdStartPayload(BaseTest):
 
     @parameterized.expand(
         [
-            ("fresh_point", timedelta(hours=23), True),
-            ("stale_point", timedelta(hours=25), False),
+            ("fresh_point", timedelta(hours=23), None, True),
+            ("stale_point", timedelta(hours=25), None, False),
             # The backfill writes end-of-day points, so today's point can sit in the future.
-            ("future_point", timedelta(hours=-10), False),
+            ("future_point", timedelta(hours=-10), None, False),
+            # An ended experiment's point that reaches the end date is its final result, however old.
+            ("ended_with_a_point_at_the_end_date", timedelta(days=3), timedelta(days=3), True),
+            # A point before the end date misses the final hours, so a cold run must compute them.
+            ("ended_with_a_stale_point_before_the_end_date", timedelta(days=4), timedelta(days=3), False),
         ]
     )
-    def test_only_points_inside_the_max_age_feed_the_fallback(self, _name: str, age: timedelta, included: bool):
+    def test_only_points_inside_the_max_age_feed_the_fallback(
+        self, _name: str, age: timedelta, ended_ago: timedelta | None, included: bool
+    ) -> None:
         exp = self._experiment(f"ts-age-{_name}", ["m1"])
+        if ended_ago is not None:
+            exp.end_date = timezone.now() - ended_ago
+            exp.save()
         self._timeseries_point(exp, "m1", timezone.now() - age, {"ok": True})
 
         payload = build_timeseries_cold_start_payload(exp)

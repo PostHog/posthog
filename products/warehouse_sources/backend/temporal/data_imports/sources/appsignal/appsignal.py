@@ -876,23 +876,31 @@ def _iter_action_traces(
     windows: deque[tuple[int, int]] = deque([(since, before)])
     while windows:
         window_since, window_before = windows.popleft()
-        rows = (
-            _fetch_v2(
-                session,
-                api_token,
-                "/tracing/traces/performance",
-                logger,
-                body={
-                    "site_ids": [app_id],
-                    "namespace": namespace,
-                    "action_name": action_name,
-                    "from": _to_iso(window_since),
-                    "to": _to_iso(window_before),
-                    "pagination": {"per_page": V2_PAGE_SIZE, "order": "ASC", "cursor": "Time"},
-                },
+        try:
+            rows = (
+                _fetch_v2(
+                    session,
+                    api_token,
+                    "/tracing/traces/performance",
+                    logger,
+                    body={
+                        "site_ids": [app_id],
+                        "namespace": namespace,
+                        "action_name": action_name,
+                        "from": _to_iso(window_since),
+                        "to": _to_iso(window_before),
+                        "pagination": {"per_page": V2_PAGE_SIZE, "order": "ASC", "cursor": "Time"},
+                    },
+                )
+                or []
             )
-            or []
-        )
+        except requests.HTTPError as error:
+            # Same documented terminal statuses as `/deploys/stats`: an action whose trace data
+            # aged out of retention between the actions listing and this query has nothing to
+            # report, and AppSignal answers 422 for a query it cannot run rather than an empty list.
+            if error.response is None or error.response.status_code not in (404, 422):
+                raise
+            rows = []
         rows = [row for row in rows if isinstance(row, dict)]
 
         if len(rows) >= V2_PAGE_SIZE and (window_before - window_since) >= 2 * MIN_WINDOW_SECONDS:

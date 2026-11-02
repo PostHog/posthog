@@ -54,7 +54,7 @@ def _attach_github_login(user: User, login: str, *, uid: str | None = None) -> N
 
 
 class TestSignalReportArtefactViewSet(APIBaseTest):
-    @parameterized.expand([("impact_measurement_plan",), ("reviewer_corrections",)])
+    @parameterized.expand([("impact_measurement_plan",), ("reviewer_corrections",), ("check_authoring",)])
     def test_system_decision_type_cannot_be_written(self, artefact_type: str) -> None:
         report = self._create_report()
         response = self.client.post(

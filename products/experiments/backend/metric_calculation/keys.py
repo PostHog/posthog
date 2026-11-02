@@ -18,7 +18,12 @@ from products.experiments.backend.metric_calculation.config import (
     saved_metric_calculation_keys,
     team_experiments_configs,
 )
-from products.experiments.backend.metric_resolution import is_scheduled_metric, saved_metric_links
+from products.experiments.backend.metric_resolution import (
+    apply_saved_metric_overrides,
+    is_scheduled_metric,
+    saved_metric_link_role,
+    saved_metric_links,
+)
 from products.experiments.backend.models.experiment import Experiment, ExperimentToSavedMetric
 
 logger = structlog.get_logger(__name__)
@@ -112,6 +117,30 @@ def daily_saved_metric_calculations(team_id_by_experiment_id: Mapping[int, int])
                 )
             )
     return calculations
+
+
+def saved_metric_link_for_calculation_key(
+    experiment: Experiment, links: list[ExperimentToSavedMetric], calculation_key: str
+) -> ExperimentToSavedMetric | None:
+    """The link among `links` whose effective definition gives `calculation_key` in some key version under the current
+    settings of the experiment, or None when no link does.
+
+    Two links of one experiment can carry the same saved-metric uuid with different overrides, and the daily discovery
+    queues each of them under its own key. This tells the calculation which of them a queued key belongs to.
+    """
+    settings = ExperimentCalculationSettings.from_experiment(experiment)
+    for link in links:
+        query = link.saved_metric.query
+        if not isinstance(query, dict):
+            continue
+        calculation_config = settings.build_metric_config(
+            metric_id=query.get("uuid") or "",
+            role=saved_metric_link_role(link),
+            definition=apply_saved_metric_overrides(query, link.metadata),
+        )
+        if calculation_config.key_version_of(calculation_key) is not None:
+            return link
+    return None
 
 
 def metric_calculation_keys(experiment_id: int, *, team_id: int) -> MetricCalculationKeys:

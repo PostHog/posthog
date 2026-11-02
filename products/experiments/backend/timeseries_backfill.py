@@ -120,7 +120,7 @@ def backfill_experiment_timeseries(recalculation_id: str, *, backfill_until: dat
                 role=calculation_config.role,
                 definition=recalculation_request.metric,
             )
-            if runtime_config.calculation_key() != fingerprint:
+            if runtime_config.key_for_version(calculation_config.settings.key_version) != fingerprint:
                 ExperimentTimeseriesRecalculation.objects.filter(id=recalculation_id).update(
                     status=ExperimentTimeseriesRecalculation.Status.CANCELED
                 )
@@ -137,7 +137,7 @@ def backfill_experiment_timeseries(recalculation_id: str, *, backfill_until: dat
                 results.record_daily_point(
                     recalculation_request.metric["uuid"],
                     fingerprint,
-                    calculation_config=calculation_config,
+                    display_key=calculation_config.legacy_key(),
                     window=query_to_utc,
                     query_from=experiment.start_date,
                     result=sanitize_non_finite(result.model_dump()),

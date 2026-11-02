@@ -1908,6 +1908,17 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Place an existing insight on this dashboard as a new tile. Requires edit access to the dashboard and view access to the insight. Returns the tile. Adding an insight the dashboard already shows returns its tile unchanged, and adding one that was removed from the dashboard restores its tile with its old layout. To take an insight off a dashboard, use delete_tile.
+ */
+export const DashboardsAddInsightCreateBody = /* @__PURE__ */ zod.object({
+    insight_id: zod
+        .number()
+        .describe(
+            'ID of an existing insight to place on the dashboard. The insight must belong to the same environment as the dashboard. Adding an insight the dashboard already shows changes nothing, and adding one that was removed from the dashboard restores its tile.'
+        ),
+})
+
+/**
  * Copy a group of tiles and its settings to another dashboard.
  */
 export const dashboardsCopyGroupCreateBodyGroupKeyMax = 100

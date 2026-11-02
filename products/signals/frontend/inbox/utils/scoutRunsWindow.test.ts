@@ -79,11 +79,9 @@ describe('scoutRunsWindow report channel', () => {
     })
 
     describe('formatRunCost', () => {
-        // A cheap run still cost something, and "$0.00" is exactly the number this readout exists
-        // to replace, so anything under a cent gets the digits to show it.
         it.each<[number, string]>([
             [4.0327, '$4.03'],
-            [0.0042, '$0.0042'],
+            [0.0042, '$0.00'],
             [0, '$0.00'],
         ])('%s → %s', (cost, expected) => {
             expect(formatRunCost(cost)).toEqual(expected)

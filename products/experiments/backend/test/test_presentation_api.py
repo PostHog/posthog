@@ -7,7 +7,7 @@ from uuid import uuid4
 import unittest
 import time_machine
 from posthog.test.base import ClickhouseTestMixin, FuzzyInt, _create_event, _create_person, flush_persons_and_events
-from unittest.mock import ANY, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from django.core.cache import cache
 from django.db import connection
@@ -59,6 +59,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentHoldout,
     ExperimentMetricResult,
     ExperimentSavedMetric,
+    ExperimentTimeseriesRecalculation,
     ExperimentToSavedMetric,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
@@ -547,7 +548,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         # Query count must stay flat as rows grow — five experiments must not cost more than one.
         self.assertLessEqual(len(five_rows.captured_queries), len(single_row.captured_queries))
         # The list serializer stamps no calculation keys, so the saved metrics cost no extra query.
-        self.assertEqual(len(five_rows.captured_queries), 15)
+        self.assertEqual(len(five_rows.captured_queries), 14)
 
     def test_experiment_detail_with_saved_metrics_reads_each_relation_once(self) -> None:
         experiment = self._create_fully_populated_experiment(0)
@@ -564,7 +565,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         # The saved-metric fingerprints reuse the prefetched links and add one read of the team's
         # experiment settings, whatever the number of saved metrics.
-        with self.assertNumQueries(17):
+        with self.assertNumQueries(16):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -3897,7 +3898,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         # TODO: Make sure permission bool doesn't cause n + 1
         # +1 query for survey internal flag IDs lookup, +1 for the project's replay gates
-        with self.assertNumQueries(21):
+        with self.assertNumQueries(20):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -5563,14 +5564,15 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         exp_id = response.json()["id"]
         initial_metrics = response.json()["metrics"]
 
-        # The stored fingerprint of each metric is the calculation key that the result readers derive.
-        def calculation_key(metric_uuid: str) -> str:
-            calculation_config = get_metric_calculation_config(Experiment.objects.get(id=exp_id), metric_uuid)
-            assert calculation_config is not None
-            return calculation_config.calculation_key()
+        expected_initial_fingerprints = {
+            "mean": "d2e1f06570c3ec0af658c6255890c0ee509e0a275cbc80f630d8e8718a1b8c25",
+            "funnel": "dc70f252171bb66b8b40a28ba702ad2907c61d0962b54f332dee96afd67b240c",
+            "ratio": "ac46d8229e2ec5558200082a3f5d2e4e6e5041585d4f07dbd28930ee90fad235",
+        }
 
         for metric in initial_metrics:
-            self.assertEqual(metric["fingerprint"], calculation_key(metric["uuid"]))
+            metric_type = metric["metric_type"]
+            self.assertEqual(metric["fingerprint"], expected_initial_fingerprints[metric_type])
 
         # Step 2: Update with different metrics, conversion windows, start_date, stats_config, exposure_criteria
         updated_funnel_metric = {
@@ -5631,13 +5633,15 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         updated_metrics = response.json()["metrics"]
 
+        expected_updated_fingerprints = {
+            "mean": "24bf7ca8d497f33ace065e9e5facd961a4a2cb68938263b4008266fb22055f98",
+            "funnel": "c1325e7c9c494859e14901f144e99532745d6c22a8cb1536ef1cd9574cfa5672",
+            "ratio": "9d74f7f895166c1ac12708a4bc2aa8c61c963bb98a9ad15fecf747b79e706631",
+        }
+
         for metric in updated_metrics:
-            self.assertEqual(metric["fingerprint"], calculation_key(metric["uuid"]))
-        self.assertTrue(
-            {metric["fingerprint"] for metric in updated_metrics}.isdisjoint(
-                {metric["fingerprint"] for metric in initial_metrics}
-            )
-        )
+            metric_type = metric["metric_type"]
+            self.assertEqual(metric["fingerprint"], expected_updated_fingerprints[metric_type])
 
     @parameterized.expand([("stale_client_fingerprint", "&fingerprint=" + "0" * 64), ("no_client_fingerprint", "")])
     def test_timeseries_results_reads_the_key_of_the_current_settings(self, _name: str, fingerprint_param: str) -> None:
@@ -5672,6 +5676,47 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         assert response.status_code == status.HTTP_200_OK, response.content
         assert response.json()["timeseries"] == {start.date().isoformat(): {"variant_results": []}}
+        assert response.json()["configuration_by_day"] == {start.date().isoformat(): "current"}
+
+    @parameterized.expand([("stale_client_definition", {"fingerprint": "0" * 64}), ("uuid_only", {})])
+    def test_recalculate_timeseries_backfills_the_experiment_definition_under_its_key(
+        self, _name: str, extra_body: dict
+    ) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="backfill-key-flag")
+        metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "uuid": "m1",
+            "source": {"kind": "EventsNode", "event": "$pageview"},
+        }
+        experiment = Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            feature_flag=flag,
+            name="Backfill key",
+            start_date=timezone.now() - timedelta(days=2),
+            metrics=[metric],
+        )
+        posted_metric = (
+            {**metric, "source": {"kind": "EventsNode", "event": "stale_event"}} if extra_body else {"uuid": "m1"}
+        )
+
+        with patch("products.experiments.backend.presentation.views.sync_connect") as mock_connect:
+            mock_connect.return_value.start_workflow = AsyncMock()
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/experiments/{experiment.id}/recalculate_timeseries/",
+                {"metric": posted_metric, **extra_body},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        calculation_config = get_metric_calculation_config(experiment, "m1")
+        assert calculation_config is not None
+        request = ExperimentTimeseriesRecalculation.objects.get(id=response.json()["id"])
+        assert (request.fingerprint, request.metric["source"]["event"]) == (
+            calculation_config.calculation_key(),
+            "$pageview",
+        )
 
     def test_creating_draft_experiment_sets_status_draft(self):
         response = self.client.post(

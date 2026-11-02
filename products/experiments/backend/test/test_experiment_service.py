@@ -71,7 +71,8 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.test.utils import patch_exposure_event_flag
+from products.experiments.backend.test.utils import patch_calculation_key_version, patch_exposure_event_flag
+from products.experiments.backend.timeseries_backfill import backfill_experiment_timeseries
 from products.feature_flags.backend.facade.api import set_flag_active, update_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
@@ -2377,14 +2378,16 @@ class TestExperimentService(APIBaseTest):
         [
             ("name", {"name": "Renamed experiment"}, "name"),
             ("description", {"description": "A brand new hypothesis"}, "description"),
+            # Under key version 2 the credible interval feeds the key, so the update restamps every inline metric.
             ("confidence", {"stats_config": {"method": "bayesian", "bayesian": {"ci_level": 0.9}}}, "stats_config"),
         ]
     )
     @patch("products.experiments.backend.experiment_service.report_user_action")
     def test_update_changed_fields_scalar_edit(self, _name, update_data, expected_field, mock_report_user_action):
-        experiment = self._create_draft_experiment()
-        service = self._service()
-        service.update_experiment(experiment, update_data, serializer_context=service._build_serializer_context())
+        with patch_calculation_key_version(2):
+            experiment = self._create_draft_experiment()
+            service = self._service()
+            service.update_experiment(experiment, update_data, serializer_context=service._build_serializer_context())
 
         changed = self._changed_fields(mock_report_user_action)
         assert expected_field in changed
@@ -5509,8 +5512,8 @@ class TestExperimentService(APIBaseTest):
     @parameterized.expand(
         [
             ("current_rows", ("current", "current"), "completed"),
-            # History from before calculation key version 2 renders where no current row covers a day.
-            ("history_before_key_version_2", ("version_1", "current"), "completed"),
+            # Rows under the inactive key version of the config render where no current row covers a day.
+            ("rows_of_the_other_key_version", ("other_version", "current"), "completed"),
             ("rows_of_earlier_settings", ("earlier_settings", "current"), "partial"),
         ]
     )
@@ -5535,7 +5538,7 @@ class TestExperimentService(APIBaseTest):
         assert calculation_config is not None
         keys = {
             "current": calculation_config.calculation_key(),
-            "version_1": calculation_config.legacy_key(),
+            "other_version": calculation_config.key_for_version(2),
             "earlier_settings": "a" * 64,
         }
 
@@ -5656,15 +5659,17 @@ class TestExperimentService(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("same_request", False, False),
-            # A backfill requested before calculation key version 2 writes the same days, so a second one would race it.
-            ("backfill_requested_before_key_version_2", True, False),
+            ("same_request", False, False, False),
+            # A backfill under the other key version writes the same days, so a second one would race it.
+            ("backfill_requested_under_the_other_key_version", True, False, False),
             # A settings edit changes the key, but the running backfill still writes the same days.
-            ("settings_edited_while_the_backfill_runs", False, True),
+            ("settings_edited_while_the_backfill_runs", False, True, False),
+            # A Temporal retry can start a failed backfill again, beside its replacement under the same key.
+            ("backfill_failed_before_the_request", False, False, True),
         ]
     )
     def test_request_timeseries_recalculation_idempotent(
-        self, _name: str, first_under_legacy_key: bool, edit_settings_after_first: bool
+        self, _name: str, first_under_other_key_version: bool, edit_settings_after_first: bool, first_failed: bool
     ) -> None:
         self._create_flag(key=f"ts-idempotent-{_name}")
         service = self._service()
@@ -5675,30 +5680,31 @@ class TestExperimentService(APIBaseTest):
             metrics=[self._DEFAULT_METRIC],
             allow_unknown_events=True,
         )
-        if first_under_legacy_key:
+        if first_under_other_key_version:
             calculation_config = get_metric_calculation_config(experiment, "m1")
             assert calculation_config is not None
             first_id = ExperimentTimeseriesRecalculation.objects.create(
                 team=self.team,
                 experiment=experiment,
                 metric=calculation_config.definition,
-                fingerprint=calculation_config.legacy_key(),
+                fingerprint=calculation_config.key_for_version(2),
                 status=ExperimentTimeseriesRecalculation.Status.IN_PROGRESS,
             ).id
         else:
             first_id = service.request_timeseries_recalculation(experiment, metric_uuid="m1")["id"]
+        if first_failed:
+            ExperimentTimeseriesRecalculation.objects.filter(id=first_id).update(
+                status=ExperimentTimeseriesRecalculation.Status.FAILED
+            )
         if edit_settings_after_first:
             key_before_edit = _calculation_key(experiment, "m1")
-            experiment.stats_config = {
-                **(experiment.stats_config or {}),
-                "cuped": {"enabled": True, "lookback_days": 21},
-            }
+            experiment.stats_config = {**(experiment.stats_config or {}), "method": "frequentist"}
             experiment.save()
             assert _calculation_key(experiment, "m1") != key_before_edit
 
         second = service.request_timeseries_recalculation(experiment, metric_uuid="m1")
 
-        superseded = first_under_legacy_key or edit_settings_after_first
+        superseded = first_under_other_key_version or edit_settings_after_first or first_failed
         assert second["is_existing"] is not superseded
         assert (second["id"] == first_id) is not superseded
         assert second["fingerprint"] == _calculation_key(experiment, "m1")
@@ -5706,6 +5712,9 @@ class TestExperimentService(APIBaseTest):
             2 if superseded else 1
         )
         if superseded:
+            assert ExperimentTimeseriesRecalculation.objects.get(id=first_id).status == "canceled"
+            retried = backfill_experiment_timeseries(str(first_id))
+            assert (retried["status"], retried["days_processed"]) == ("canceled", 0)
             assert ExperimentTimeseriesRecalculation.objects.get(id=first_id).status == "canceled"
         chart = service.get_timeseries_results(experiment, metric_uuid="m1")
         assert chart["recalculation_status"] is not None

@@ -886,6 +886,14 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                 })
             },
             setCurrentRecalculation: () => {
+                const notice = values.resultConfigurationNotice
+                if (notice && cache.reportedConfigurationNotice !== notice) {
+                    cache.reportedConfigurationNotice = notice
+                    posthog.capture('experiment results configuration notice shown', {
+                        experiment_id: props.experiment.id,
+                        notice,
+                    })
+                }
                 // Re-enable the reload button the moment the window closes, not on the next data load.
                 cache.disposables.dispose('manualRefreshEligibility')
                 const nextAllowed = values.nextAllowedManualRefresh

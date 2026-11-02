@@ -1,6 +1,7 @@
 import asyncio
 import threading
 import dataclasses
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import datetime, timedelta
@@ -25,9 +26,12 @@ from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.tests.utils.asyncify import restored_asyncify_executor
 
+from products.experiments.backend.facade.enums import ExposuresPath
+from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
 from products.experiments.backend.models.experiment import (
@@ -37,6 +41,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentSavedMetric,
     ExperimentToSavedMetric,
 )
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.temporal.models import (
     CAPACITY_MAX_METRIC_ATTEMPTS,
     MAX_METRIC_ATTEMPTS,
@@ -92,11 +97,27 @@ def _calculate(
     role: str = "primary",
     is_final_attempt: bool = True,
     attempt: int = 1,
+    calculation_key_version: int = 1,
 ):
     with patch("products.experiments.backend.temporal.recalculation_logic.close_old_connections"):
         return _calculate_experiment_metric_for_recalculation_sync(
-            experiment_id, metric_uuid, recalculation_id, query_to, role, is_final_attempt, attempt
+            experiment_id,
+            metric_uuid,
+            recalculation_id,
+            query_to,
+            role,
+            is_final_attempt,
+            attempt,
+            calculation_key_version,
         )
+
+
+@contextmanager
+def _patched_runner() -> Iterator[MagicMock]:
+    with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+        # A MagicMock in this attribute can't be stored in `metric_errors`.
+        mock_runner.return_value.exposures_path = None
+        yield mock_runner
 
 
 @pytest.mark.django_db(transaction=True)
@@ -734,7 +755,7 @@ class TestCalculateActivity(BaseTest):
         ExperimentToSavedMetric.objects.create(experiment=exp, saved_metric=saved, metadata={"type": "primary"})
         recalc = self._recalc(exp, metric_uuids=["s1"])
 
-        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+        with _patched_runner() as mock_runner:
             mock_runner.return_value.run.side_effect = RuntimeError("kaboom")
             with pytest.raises(RuntimeError, match="kaboom"):
                 _calculate(exp.id, "s1", str(recalc.id), _QUERY_TO)
@@ -750,7 +771,7 @@ class TestCalculateActivity(BaseTest):
         exp = self._experiment(flag_key="calc-transient", metrics=[_mean_metric("m1")])
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
-        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+        with _patched_runner() as mock_runner:
             mock_runner.return_value.run.side_effect = RuntimeError("transient blip")
 
             # Non-final attempt: re-raises, but nothing is recorded.
@@ -819,7 +840,7 @@ class TestCalculateActivity(BaseTest):
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
         with (
-            patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner,
+            _patched_runner() as mock_runner,
             patch("products.experiments.backend.temporal.recalculation_logic.random.uniform", return_value=47.5),
         ):
             mock_runner.return_value.run.side_effect = exc
@@ -836,7 +857,7 @@ class TestCalculateActivity(BaseTest):
         next_retry_at = datetime.fromisoformat(entry["next_retry_at"])
         assert (next_retry_at - timezone.now()).total_seconds() == expected_delay_seconds
 
-        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+        with _patched_runner() as mock_runner:
             mock_runner.return_value.run.return_value.model_dump.return_value = {}
             result = _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, attempt=attempt + 1)
 
@@ -859,8 +880,9 @@ class TestCalculateActivity(BaseTest):
         exp = self._experiment(flag_key=f"calc-terminal-{name}", metrics=[_mean_metric("m1")])
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
-        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+        with _patched_runner() as mock_runner:
             mock_runner.return_value.run.side_effect = exc
+            mock_runner.return_value.exposures_path = ExposuresPath.DIRECT_SCAN
             with pytest.raises(Exception):
                 _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=True)
 
@@ -868,6 +890,7 @@ class TestCalculateActivity(BaseTest):
         entry = recalc.metric_errors["m1"]
         assert entry["error_type"] == expected_error_type
         assert entry["retriable"] is expected_retriable
+        assert entry["exposures_path"] == "direct_scan"
 
     def test_terminal_failure_clears_retry_state(self):
         # A metric that retried and then failed for good must not keep a stale "retrying" entry alongside
@@ -875,7 +898,7 @@ class TestCalculateActivity(BaseTest):
         exp = self._experiment(flag_key="calc-retry-terminal", metrics=[_mean_metric("m1")])
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
-        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+        with _patched_runner() as mock_runner:
             mock_runner.return_value.run.side_effect = RuntimeError("transient blip")
             with pytest.raises(RuntimeError):
                 _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False, attempt=2)
@@ -902,7 +925,7 @@ class TestCalculateActivity(BaseTest):
     ):
         exp = self._experiment(flag_key=f"calc-out-of-time-{name}", metrics=[_mean_metric("m1")])
         recalc = self._recalc(exp, metric_uuids=["m1"])
-        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+        with _patched_runner() as mock_runner:
             if last_attempt_error is None:
                 mock_runner.return_value.run.return_value.model_dump.return_value = {}
                 _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False, attempt=2)
@@ -950,7 +973,7 @@ class TestCalculateActivity(BaseTest):
             )
         )
 
-        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+        with _patched_runner() as mock_runner:
             mock_runner.return_value.run.return_value.model_dump.return_value = {}
             result = _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False, attempt=3)
 
@@ -977,7 +1000,7 @@ class TestCalculateActivity(BaseTest):
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
         with (
-            patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner,
+            _patched_runner() as mock_runner,
             patch("products.experiments.backend.temporal.recalculation_logic.capture_exception") as mock_capture,
             patch("products.experiments.backend.temporal.recalculation_logic.random.uniform", return_value=47.5),
         ):
@@ -1013,7 +1036,7 @@ class TestCalculateActivity(BaseTest):
         exp = self._experiment(flag_key=f"calc-class-cap-{name}", metrics=[_mean_metric("m1")])
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
-        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+        with _patched_runner() as mock_runner:
             mock_runner.return_value.run.side_effect = exc
             with pytest.raises((type(exc), ApplicationError)):
                 _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False, attempt=cap - 1)
@@ -1049,7 +1072,7 @@ class TestCalculateActivity(BaseTest):
         exp = self._experiment(flag_key=f"calc-permanent-{name}", metrics=[_mean_metric("m1")])
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
-        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+        with _patched_runner() as mock_runner:
             mock_runner.return_value.run.side_effect = exc
 
             with pytest.raises(ApplicationError) as exc_info:
@@ -1074,7 +1097,7 @@ class TestCalculateActivity(BaseTest):
         exp = self._experiment(flag_key="calc-as-of", metrics=[_mean_metric("m1")])
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
-        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+        with _patched_runner() as mock_runner:
             mock_runner.return_value.run.return_value.model_dump.return_value = {}
             _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
 
@@ -1093,7 +1116,7 @@ class TestCalculateActivity(BaseTest):
         exp = self._experiment(flag_key="calc-query-from", metrics=[_mean_metric("m1")])
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
-        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+        with _patched_runner() as mock_runner:
             mock_runner.return_value.run.return_value.model_dump.return_value = {}
             _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
 
@@ -1110,7 +1133,7 @@ class TestCalculateActivity(BaseTest):
         exp = self._experiment(flag_key="calc-query-id", metrics=[_mean_metric("m1")])
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
-        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+        with _patched_runner() as mock_runner:
             mock_runner.return_value.run.return_value.model_dump.return_value = {}
             _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
 
@@ -1138,7 +1161,7 @@ class TestCalculateActivity(BaseTest):
         with (
             patch("products.experiments.backend.recalculation.feature_enabled_or_false", **flag),
             patch("posthog.clickhouse.client.execute.get_client_from_pool") as client_from_pool,
-            patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner,
+            _patched_runner() as mock_runner,
         ):
             client_from_pool.return_value.__enter__.return_value.execute.return_value = []
             mock_runner.return_value.run.side_effect = run_metric_and_precompute_queries
@@ -1160,10 +1183,7 @@ class TestCalculateActivity(BaseTest):
         assert len(recalc.metric_errors) == 2
         assert set(recalc.metric_errors.keys()) == {"missing-a", "missing-b"}
 
-    @parameterized.expand([("version_2_key", False), ("version_1_key_is_display_only", True)])
-    def test_skips_query_when_completed_result_already_exists_for_this_fingerprint(
-        self, _name: str, version_1: bool
-    ) -> None:
+    def test_skips_query_when_completed_result_already_exists_for_this_fingerprint(self):
         # Speed optimization: if a COMPLETED row already exists at this (experiment, metric_uuid, query_to)
         # under THIS run's recalc fingerprint, the metric is unchanged and already computed for this window, so
         # the activity returns success without re-running the ClickHouse query. The fingerprint is the
@@ -1171,11 +1191,7 @@ class TestCalculateActivity(BaseTest):
         metric = _mean_metric("m1")
         exp = self._experiment(flag_key="calc-skip-existing", metrics=[metric])
         query_to = datetime.fromisoformat(_QUERY_TO)
-        calculation_config = get_metric_calculation_config(exp, "m1")
-        assert calculation_config is not None
-        recalc_fp = _recalc_fingerprint(
-            calculation_config.legacy_key() if version_1 else calculation_config.calculation_key()
-        )
+        recalc_fp = _recalc_fingerprint(_calculation_key(exp, "m1"))
         existing = ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid="m1",
@@ -1191,14 +1207,10 @@ class TestCalculateActivity(BaseTest):
         recalc.metric_retries = {"m1": {"attempt": 3, "max_attempts": 8}}
         recalc.save(update_fields=["metric_retries"])
 
-        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
-            mock_runner.return_value.run.return_value.model_dump.return_value = {"fresh": True}
+        with _patched_runner() as mock_runner:
             result = _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
 
-        if version_1:
-            mock_runner.assert_called_once()
-        else:
-            mock_runner.assert_not_called()
+        mock_runner.assert_not_called()
         assert result.success is True
         recalc.refresh_from_db()
         assert recalc.metric_retries == {}
@@ -1207,8 +1219,7 @@ class TestCalculateActivity(BaseTest):
         assert rows.count() == 1
         row = rows.get()
         assert row.id == existing.id
-        assert row.result == ({"fresh": True} if version_1 else {"already": "computed"})
-        assert row.fingerprint == _recalc_fingerprint(calculation_config.calculation_key())
+        assert row.result == {"already": "computed"}
 
     def test_recomputes_when_existing_result_has_a_different_fingerprint(self):
         # A config change yields a different recalc fingerprint, so the existing row does not match and the
@@ -1227,44 +1238,76 @@ class TestCalculateActivity(BaseTest):
         )
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
-        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+        with _patched_runner() as mock_runner:
             mock_runner.return_value.run.return_value.model_dump.return_value = {}
             _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
 
         mock_runner.assert_called_once()
 
-    @parameterized.expand(
-        [
-            ("excluded_variants", {"excluded_variants": ["test"]}),
-            ("credible_interval", {"stats_config": {"bayesian": {"ci_level": 0.9}}}),
-            ("baseline", {"stats_config": {"baseline_variant_key": "test"}}),
-            ("cuped", {"stats_config": {"cuped": {"enabled": True}}}),
-        ]
-    )
-    def test_a_cached_row_that_may_come_from_other_settings_recomputes(self, _name: str, changes: dict) -> None:
-        # The run reuses the previous window, which is what a metric config change does. The skip check must not
-        # take the cached row as this run's result whatever the trigger, so the query re-runs.
-        exp = self._experiment(flag_key=f"calc-stale-{_name}", metrics=[_mean_metric("m1")])
+    def test_excluded_variants_change_recomputes(self):
+        # A cached row computed before a variant was excluded must not satisfy the skip check: the exclusion
+        # set feeds the fingerprint, so the stale row's fingerprint no longer matches and the query re-runs.
+        metric = _mean_metric("m1")
+        exp = self._experiment(flag_key="calc-excluded", metrics=[metric])
         query_to = datetime.fromisoformat(_QUERY_TO)
+        recalc_fp = _recalc_fingerprint(_calculation_key(exp, "m1"))
         ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid="m1",
-            fingerprint=_recalc_fingerprint(_calculation_key(exp, "m1")),
+            fingerprint=recalc_fp,
             query_from=query_to,
             query_to=query_to,
             status=ExperimentMetricResult.Status.COMPLETED,
             result={"stale": True},
         )
-        Experiment.objects.filter(pk=exp.pk).update(**changes)
+        exp.excluded_variants = ["test"]
+        exp.save(update_fields=["excluded_variants"])
         recalc = self._recalc(exp, metric_uuids=["m1"])
-        recalc.trigger = ExperimentMetricsRecalculation.Trigger.METRIC_CONFIG_CHANGE
-        recalc.save(update_fields=["trigger"])
 
-        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+        with _patched_runner() as mock_runner:
             mock_runner.return_value.run.return_value.model_dump.return_value = {}
             _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
 
         mock_runner.assert_called_once()
+
+    @parameterized.expand([("key_version_1", 1), ("key_version_2", 2)])
+    def test_a_settings_change_before_the_runner_reads_them_is_not_stored_under_the_earlier_key(
+        self, _name: str, key_version: int
+    ) -> None:
+        metric = _mean_metric("m1")
+        exp = self._experiment(flag_key="calc-settings-race", metrics=[metric])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+        team_config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        runners: list[ExperimentQueryRunner] = []
+
+        def change_settings_then_build_runner(*args, **kwargs) -> ExperimentQueryRunner:
+            # Version 1 hashes the stats method, and version 2 also hashes the CUPED team default.
+            Experiment.objects.filter(id=exp.id).update(stats_config={"method": "frequentist"})
+            team_config.default_cuped_enabled = not team_config.default_cuped_enabled
+            team_config.save()
+            runner = ExperimentQueryRunner(*args, **kwargs)
+            runners.append(runner)
+            return runner
+
+        computed = MagicMock()
+        computed.model_dump.return_value = {"variant_results": []}
+        with (
+            patch(
+                "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner",
+                side_effect=change_settings_then_build_runner,
+            ),
+            patch.object(ExperimentQueryRunner, "run", return_value=computed),
+        ):
+            _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, calculation_key_version=key_version)
+
+        [runner] = runners
+        executed_key = runner.calculation_config.settings.build_metric_config(
+            metric_id="m1", role="primary", definition=metric
+        ).key_for_version(key_version)
+        stored = ExperimentMetricResult.objects.filter(experiment=exp, metric_uuid="m1").values_list(
+            "fingerprint", flat=True
+        )
+        assert list(stored) == [_recalc_fingerprint(executed_key)]
 
     @parameterized.expand(
         [
@@ -1288,9 +1331,7 @@ class TestCalculateActivity(BaseTest):
 
         def _run() -> None:
             if mock_runner_failure:
-                with patch(
-                    "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner"
-                ) as mock_runner:
+                with _patched_runner() as mock_runner:
                     mock_runner.return_value.run.side_effect = RuntimeError("kaboom")
                     # Calc-step failures now re-raise so Temporal can retry transient errors. The record is
                     # written before the re-raise, so the assertions below still hold across attempts.
@@ -1370,7 +1411,7 @@ class TestCalculateActivity(BaseTest):
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
         with (
-            patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner,
+            _patched_runner() as mock_runner,
             patch("products.experiments.backend.temporal.recalculation_logic.capture_exception") as mock_capture,
         ):
             mock_runner.return_value.run.side_effect = RuntimeError("x" * 5000)
@@ -1733,9 +1774,7 @@ class TestRecalculationAnalytics(BaseTest):
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
         with _record_captures() as captured:
-            with patch(
-                "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner"
-            ) as mock_runner:
+            with _patched_runner() as mock_runner:
                 mock_runner.return_value.run.return_value.model_dump.return_value = {}
                 _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
 
@@ -1756,9 +1795,7 @@ class TestRecalculationAnalytics(BaseTest):
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
         with _record_captures() as captured:
-            with patch(
-                "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner"
-            ) as mock_runner:
+            with _patched_runner() as mock_runner:
                 mock_runner.return_value.run.side_effect = StatisticError("not enough data")
                 _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
 
@@ -1776,9 +1813,7 @@ class TestRecalculationAnalytics(BaseTest):
         recalc = self._recalc(exp, metric_uuids=["s1"])
 
         with _record_captures() as captured:
-            with patch(
-                "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner"
-            ) as mock_runner:
+            with _patched_runner() as mock_runner:
                 mock_runner.return_value.run.return_value.model_dump.return_value = {}
                 _calculate(exp.id, "s1", str(recalc.id), _QUERY_TO, role="secondary")
 
@@ -1826,7 +1861,7 @@ class TestRecalculationAnalytics(BaseTest):
 
         with _record_captures() as captured:
             with (
-                patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner,
+                _patched_runner() as mock_runner,
                 patch("products.experiments.backend.temporal.recalculation_logic.random.uniform", return_value=47.5),
             ):
                 mock_runner.return_value.run.side_effect = exc
@@ -1869,9 +1904,7 @@ class TestRecalculationAnalytics(BaseTest):
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
         with _record_captures() as captured:
-            with patch(
-                "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner"
-            ) as mock_runner:
+            with _patched_runner() as mock_runner:
                 mock_runner.return_value.run.side_effect = exc
                 with pytest.raises(ApplicationError if raises_application_error else type(exc)):
                     _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=True)

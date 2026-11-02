@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { IconBell, IconCheck, IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonButton, Tooltip } from '@posthog/lemon-ui'
@@ -44,7 +45,13 @@ export function RecalculationStatus({ experiment }: { experiment: Experiment }):
                 className="mb-2"
                 action={{
                     children: 'Recalculate',
-                    onClick: () => triggerRecalculation('manual'),
+                    onClick: () => {
+                        posthog.capture('experiment results configuration notice recalculated', {
+                            experiment_id: experiment.id,
+                            notice: resultConfigurationNotice,
+                        })
+                        triggerRecalculation('manual')
+                    },
                     loading: isRecalculating,
                     disabledReason: isManualRefreshBlocked ? 'Please wait before recalculating again' : undefined,
                 }}

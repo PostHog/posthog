@@ -174,6 +174,9 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
                         recalculation_id,
                         query_to,
                         metric.role,
+                        # Only a version the activity default does not cover goes on the wire, so a worker without
+                        # the parameter still runs every version 1 run.
+                        *([inputs.calculation_key_version] if inputs.calculation_key_version != 1 else []),
                     ],
                     start_to_close_timeout=timedelta(seconds=METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS),
                     schedule_to_close_timeout=timedelta(seconds=METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS),
@@ -195,7 +198,7 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
             if isinstance(result, ActivityError) and _ended_by_temporal(result)
         ]
         if out_of_time and temporalio.workflow.patched("recalc-persist-out-of-time-metrics-2026-10"):
-            await self._record_out_of_time_failures(recalculation_id, out_of_time)
+            await self._record_out_of_time_failures(recalculation_id, out_of_time, inputs.calculation_key_version)
 
         succeeded = sum(1 for result in results if not isinstance(result, BaseException) and result.success)
         failed = len(results) - succeeded
@@ -234,7 +237,7 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
         return {"total": len(metrics), "succeeded": succeeded, "failed": failed}
 
     async def _record_out_of_time_failures(
-        self, recalculation_id: str, metrics: list[ExperimentMetricToRecalculate]
+        self, recalculation_id: str, metrics: list[ExperimentMetricToRecalculate], calculation_key_version: int
     ) -> None:
         # Best effort: a backstop failure must not stop the finish step, which still counts these metrics failed.
         await asyncio.gather(
@@ -246,6 +249,7 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
                         experiment_id=metric.experiment_id,
                         metric_uuid=metric.metric_uuid,
                         role=metric.role,
+                        calculation_key_version=calculation_key_version,
                     ),
                     start_to_close_timeout=timedelta(seconds=METRIC_FAILURE_BACKSTOP_ACTIVITY_TIMEOUT_SECONDS),
                     schedule_to_close_timeout=timedelta(
