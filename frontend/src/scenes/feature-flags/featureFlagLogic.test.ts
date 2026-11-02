@@ -3915,6 +3915,38 @@ describe('featureFlagLogic', () => {
             dialogOpenSpy.mockRestore()
         })
 
+        it('confirms turning on a disabled flag that is already at 100% of all users', async () => {
+            const dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            const disabledForEveryone = { ...withRollout(100), active: false }
+            logic.actions.setOriginalFeatureFlag(disabledForEveryone)
+            logic.actions.setFeatureFlag(disabledForEveryone)
+
+            await expectLogic(logic, () => logic.actions.toggleFeatureFlagActive(true)).toFinishAllListeners()
+
+            expect(dialogOpenSpy).toHaveBeenCalledTimes(1)
+            expect(dialogOpenSpy.mock.calls[0][0].primaryButton?.children).toBe('Release to all users')
+            expect(capturesOf('feature flag release to everyone confirmation shown')).toHaveLength(1)
+            dialogOpenSpy.mockRestore()
+        })
+
+        it('keeps the usual save confirmation for a partial rollout when the team requires confirmation', async () => {
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, feature_flag_confirmation_enabled: true })
+            const dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            logic.actions.setOriginalFeatureFlag(withRollout(50))
+            logic.actions.setFeatureFlag(withRollout(60))
+
+            await expectLogic(logic, () => logic.actions.submitFeatureFlagWithValidation(logic.values.featureFlag))
+                .toNotHaveDispatchedActions(['saveFeatureFlag'])
+                .toFinishAllListeners()
+
+            const dialogProps = dialogOpenSpy.mock.calls[0][0]
+            expect(dialogProps.primaryButton?.children).toBe('Save changes')
+            dialogProps.onAfterClose?.()
+            expect(capturesOf('feature flag release to everyone confirmation shown')).toHaveLength(0)
+            expect(capturesOf('feature flag release to everyone confirmation canceled')).toHaveLength(0)
+            dialogOpenSpy.mockRestore()
+        })
+
         it.each([
             { scenario: 'dismissed with Escape, the close icon or the overlay', confirm: false, canceled: 1 },
             { scenario: 'confirmed', confirm: true, canceled: 0 },
@@ -3935,6 +3967,7 @@ describe('featureFlagLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(capturesOf('feature flag release to everyone confirmation canceled')).toHaveLength(canceled)
+            expect(update).toHaveBeenCalledTimes(confirm ? 1 : 0)
             dialogOpenSpy.mockRestore()
             update.mockRestore()
         })
