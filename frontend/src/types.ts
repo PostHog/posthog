@@ -2961,6 +2961,7 @@ export interface OrganizationInviteType {
     level: OrganizationMembershipLevel
     is_expired: boolean
     emailing_attempt_made: boolean
+    email_suppressed: boolean
     created_by: UserBasicType | null
     created_at: string
     updated_at: string
@@ -3615,7 +3616,6 @@ interface Person {
 
 export interface FunnelStep {
     // The type returned from the API.
-    action_id: string
     average_conversion_time: number | null
     median_conversion_time: number | null
     count: number
@@ -3623,7 +3623,6 @@ export interface FunnelStep {
     custom_name?: string | null
     order: number
     people?: string[]
-    type: EntityType
     labels?: string[]
     breakdown?: BreakdownKeyType
     breakdowns?: BreakdownKeyType[]
@@ -6240,6 +6239,7 @@ export enum ActivityScope {
     PLATFORM_ALERT_CONFIGURATION = 'PlatformAlertConfiguration',
     PRODUCT_TOUR = 'ProductTour',
     TICKET = 'Ticket',
+    TICKET_MACRO = 'TicketMacro',
     KNOWLEDGE_SOURCE = 'KnowledgeSource',
     KNOWLEDGE_LIBRARY = 'KnowledgeLibrary',
     INSTANCE_SETTING = 'InstanceSetting',

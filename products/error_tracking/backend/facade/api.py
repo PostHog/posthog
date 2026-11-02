@@ -208,6 +208,7 @@ def _to_settings(settings, ingestion_enabled: bool) -> contracts.ErrorTrackingSe
         per_issue_rate_limit_value=settings.per_issue_rate_limit_value,
         per_issue_rate_limit_bucket_size_minutes=settings.per_issue_rate_limit_bucket_size_minutes,
         ingestion_enabled=ingestion_enabled,
+        linear_status_sync_enabled=settings.linear_status_sync_enabled,
     )
 
 
