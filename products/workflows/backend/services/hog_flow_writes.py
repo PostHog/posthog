@@ -27,6 +27,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import (
     exit_condition_that_runs,
 )
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
+from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES
 from products.workflows.backend.services.action_redirects import compute_action_redirects
 from products.workflows.backend.services.email_utm_defaults import (
     flow_has_active_schedule,
@@ -350,6 +351,25 @@ def _pause_schedules_on_audience_change(before: HogFlow, after: HogFlow) -> int:
     )
 
 
+def _delete_schedules_on_unscheduled_trigger(before: HogFlow, after: HogFlow) -> None:
+    """Delete every schedule when the live trigger stops being a scheduled type.
+
+    The scheduler keeps a schedule row through a switch to another trigger and arms it again when
+    the trigger switches back. By then the author has usually added a new schedule, so each
+    occurrence fires twice. Deleting the row on the switch leaves one schedule per cadence.
+
+    Called wherever the LIVE trigger changes (direct save, graph edit, publish), never for draft
+    writes, because a staged trigger change must not stop a schedule that still fires. It also
+    requires a scheduled trigger before the write, so a save that does not touch the trigger
+    keeps a schedule that a staged draft depends on.
+    """
+    if (before.trigger or {}).get("type") not in SCHEDULED_TRIGGER_TYPES:
+        return
+    if (after.trigger or {}).get("type") in SCHEDULED_TRIGGER_TYPES:
+        return
+    after.schedules.all().delete()
+
+
 def update_workflow(
     *,
     team_id: int,
@@ -449,6 +469,7 @@ def update_workflow(
     if not route_to_draft:
         _reschedule_timing_edits(team_id, before_update, instance)
         paused = _pause_schedules_on_audience_change(before_update, instance)
+        _delete_schedules_on_unscheduled_trigger(before_update, instance)
     return WorkflowWriteResult(
         previous=field_values(before_update), current=field_values(instance), schedules_paused=paused
     )
@@ -509,6 +530,7 @@ def edit_workflow_content(
     if changes_graph and not route_to_draft:
         _reschedule_timing_edits(team_id, before_update, locked)
         paused = _pause_schedules_on_audience_change(before_update, locked)
+        _delete_schedules_on_unscheduled_trigger(before_update, locked)
     return WorkflowWriteResult(
         previous=field_values(before_update),
         current=field_values(locked),
@@ -594,6 +616,7 @@ def publish_draft(
 
     _reschedule_timing_edits(team_id, before_update, locked)
     paused = _pause_schedules_on_audience_change(before_update, locked)
+    _delete_schedules_on_unscheduled_trigger(before_update, locked)
     return WorkflowWriteResult(
         previous=field_values(before_update), current=field_values(locked), schedules_paused=paused
     )
