@@ -195,8 +195,7 @@ describe('taskTrackerSceneLogic', () => {
         expect(runBody).not.toHaveProperty('pending_user_artifact_ids')
     })
 
-    // Without Tasks access the list and composer fall back to classic PostHog AI, but an Inbox task link must
-    // still open its transcript.
+    // An Inbox task link must still open its transcript without Tasks access.
     it.each([
         ['/tasks', '/ai'],
         ['/tasks/new', '/ai'],

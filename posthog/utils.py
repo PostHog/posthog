@@ -965,7 +965,6 @@ def add_user_app_context(request: HttpRequest, posthog_app_context: dict[str, An
         posthog_app_context["has_screen"] = event_info["has_screen"]
         posthog_app_context["has_person_email"] = get_has_person_email(user.team)
 
-        # The frontend picks PostHog AI 2.0 or classic from this before it renders anything.
         with tracer.start_as_current_span("template.posthog_ai_access"):
             try:
                 posthog_ai_access = get_cached_posthog_ai_access_decision(user, user.team.organization).allowed

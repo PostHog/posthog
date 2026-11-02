@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -12,6 +13,7 @@ from posthoganalytics.types import FeatureFlagResult
 from posthog.models import Organization, User
 
 from products.tasks.backend.access import (
+    DesktopAccessResolutionError,
     PostHogAIAccessDecision,
     get_cached_posthog_ai_access_decision,
     get_posthog_ai_access_decision,
@@ -104,6 +106,29 @@ class TestPostHogAIAccessDecision(SimpleTestCase):
                 "2025-01-01",
                 PostHogAIAccessDecision.UNRESOLVED,
             ),
+            (
+                "rules_as_json_string",
+                set(),
+                True,
+                json.dumps(RULES),
+                None,
+                False,
+                5,
+                "2025-01-01",
+                PostHogAIAccessDecision.ALLOWED,
+            ),
+            (
+                "billing_unavailable_fails_closed",
+                set(),
+                True,
+                RULES,
+                None,
+                False,
+                9,
+                "2025-01-01",
+                PostHogAIAccessDecision.UNRESOLVED,
+                True,
+            ),
         ]
     )
     def test_decision(
@@ -111,12 +136,13 @@ class TestPostHogAIAccessDecision(SimpleTestCase):
         _name: str,
         grandfathered_flags: set[str],
         beta_enabled: bool,
-        rules: dict[str, Any] | None,
+        rules: dict[str, Any] | str | None,
         startup_program_label: StartupProgramLabel | None,
         has_prepaid_credits: bool,
         trust_score: int,
         org_created: str,
         expected: PostHogAIAccessDecision,
+        billing_unavailable: bool = False,
     ) -> None:
         organization = Organization(
             name="Fixture org",
@@ -138,6 +164,7 @@ class TestPostHogAIAccessDecision(SimpleTestCase):
                 return_value=OrganizationFundingStatus(
                     startup_program_label=startup_program_label, prepaid_credit_state=prepaid
                 ),
+                side_effect=DesktopAccessResolutionError("billing unavailable") if billing_unavailable else None,
             ),
         ):
             decision = get_posthog_ai_access_decision(user, organization)

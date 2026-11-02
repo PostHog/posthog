@@ -735,8 +735,7 @@ class ConversationViewSet(
             raise QuotaLimitExceeded(
                 "Your organization reached its AI credit usage limit. Increase the limits in Billing settings, or ask an org admin to do so."
             )
-        # Checked before the lookup, so a caller outside PostHog AI 2.0 can neither start nor continue
-        # a sandbox conversation.
+        # Checked before the lookup, so a denied caller cannot continue an existing sandbox conversation either.
         if not get_posthog_ai_access_decision(cast(User, request.user), self.team.organization).allowed:
             raise exceptions.ValidationError("This conversation is not on the sandbox runtime.")
         serializer = SandboxOpenSerializer(data=request.data, context=self.get_serializer_context())

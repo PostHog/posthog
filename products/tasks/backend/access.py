@@ -271,8 +271,7 @@ def get_posthog_ai_access_decision(user: User, organization: "Organization") -> 
         return PostHogAIAccessDecision.UNRESOLVED
 
     person_properties = _posthog_ai_person_properties(user)
-    # A failed lookup reads as None. It must not become a cacheable denial, or a flag outage would look like
-    # a deliberate one.
+    # A failed lookup reads as None. Caching it as a denial would hide a flag outage.
     flag_unresolved = False
     for flag in POSTHOG_AI_GRANDFATHERED_FLAGS:
         enabled = _resolve_flag(flag, user, organization, person_properties)

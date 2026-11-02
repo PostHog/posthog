@@ -1419,9 +1419,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 actions.clearActiveCreation()
             }
         }
-        // The task list and composer opened without PostHog AI 2.0 or the Tasks beta land on classic PostHog AI.
-        // A task detail link stays open, because Inbox runs are entitled without either, and the server decides
-        // whether a run may continue.
+        // Only the list and composer fall back to classic PostHog AI. Inbox task links need neither flag.
         const redirectedWithoutAccess = (taskId?: string): boolean => {
             if (props.panelId || hasTasksFlag(values.featureFlags) || (taskId && taskId !== 'new')) {
                 return false
