@@ -2,11 +2,11 @@
     "csv_rows": [
         "name,breakdown_value,action_id,count,median_conversion_time (seconds),average_conversion_time (seconds)",
         "$pageview,slider_on,$pageview,5193,,",
-        "2671,slider_on,2671,88,30,473.5640151515152",
+        "User Signed Up,slider_on,2671,88,30,473.5640151515152",
         "$pageview,,$pageview,746,,",
-        "2671,,2671,1,1283,1283.25",
+        "User Signed Up,,2671,1,1283,1283.25",
         "$pageview,control,$pageview,5109,,",
-        "2671,control,2671,75,32,4309.385604617603",
+        "User Signed Up,control,2671,75,32,4309.385604617603",
         ""
     ],
     "response": {
