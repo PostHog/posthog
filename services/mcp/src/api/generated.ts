@@ -61999,7 +61999,7 @@ export namespace Schemas {
     } as const;
 
     export interface MarketingAnalyticsRecommendationStep {
-      /** Text to paste into Google Ads at this step, such as a campaign name or a keyword in match type syntax. */
+      /** Text to paste into Google Ads at this step, such as a campaign name or keywords in match type syntax, one per line. */
       copyValue?: string | null;
       /** The words in `text` that link to `url`, usually the section name. */
       linkText?: string | null;
