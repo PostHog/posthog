@@ -42,11 +42,11 @@ Neither is a workflow, even though the code runs each of them as a workflow.
 _Avoid_: Journey, Campaign, Flow
 
 **Messaging workflow**:
-A workflow with an email, SMS or push step that is not a loop.
+A workflow that is not a loop and has an email, SMS or push step.
 A Slack step does not make a workflow a messaging workflow.
 
 **Automation**:
-A workflow with no email, SMS or push step that is not a loop.
+A workflow that is not a loop and has no email, SMS or push step.
 It is a view, not a noun of its own.
 
 **Loop**:
