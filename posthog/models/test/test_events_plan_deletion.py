@@ -54,21 +54,18 @@ class TestPlanDeletionRules(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("monthly_setting", 6, True, None, 6),
-            ("setting_waits_for_a_pass", 6, False, None, None),
-            ("pass_window", 6, False, 6, 6),
-            ("monthly_setting_shorter_than_the_pass", 6, True, 12, 6),
-            ("pass_shorter_than_a_monthly_setting", 24, True, 12, 12),
-            ("nothing_set", None, False, None, None),
+            ("setting", 6, None, 6),
+            ("pass_window", None, 6, 6),
+            ("setting_shorter_than_the_pass", 6, 12, 6),
+            ("pass_shorter_than_the_setting", 24, 12, 12),
+            ("nothing_set", None, None, None),
         ]
     )
     def test_deletion_months(
-        self, _name: str, setting: int | None, monthly: bool, pass_months: int | None, expected: int | None
+        self, _name: str, setting: int | None, pass_months: int | None, expected: int | None
     ) -> None:
         retention = (
-            TeamEventsRetention(organization_id=UUID(int=0), team_id=1, months=setting, delete_monthly=monthly)
-            if setting is not None
-            else None
+            TeamEventsRetention(organization_id=UUID(int=0), team_id=1, months=setting) if setting is not None else None
         )
 
         assert deletion_months(retention, pass_months) == expected

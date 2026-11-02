@@ -9,9 +9,9 @@ from posthog.models.events_plan_deletion import (
     TeamEventsPlanDeletion,
     admitted,
     cleanup_date,
+    default_window,
     next_cleanup_on,
     next_pass_on,
-    retention_window,
     with_window,
 )
 from posthog.models.events_retention_config import (
@@ -27,6 +27,8 @@ from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.team.event_retention import (
     events_deletion_applies,
+    events_retention_windows,
+    organization_default_window,
     organization_events_retention_months,
     should_enforce_events_retention,
 )
@@ -43,9 +45,11 @@ def organization_events_retention(organization: Organization) -> OrganizationEve
     config = OrganizationEventsRetentionConfig.objects.filter(organization_id=organization.id).first()
     plan_months = organization_events_retention_months(organization)
     staff_max = config.max_events_retention_months if config else None
+    default_months = organization_default_window(organization)
     return OrganizationEventsRetention(
         organization_months=config.default_events_retention_months if config else None,
-        organization_delete_monthly=config.delete_monthly if config else False,
+        default_months=default_months,
+        default_is_grandfathered=default_months > default_window(plan_months, standard=True),
         plan_months=plan_months,
         min_months=(config.min_events_retention_months if config else None) or 1,
         max_months=min(plan_months, staff_max) if staff_max else plan_months,
@@ -56,9 +60,9 @@ def organization_events_retention(organization: Organization) -> OrganizationEve
 def _next_deletion(
     team_id: int, setting: TeamEventsRetention | None, window_months: int, scheduled_pass_on: date | None
 ) -> ScheduledEventsDeletion | None:
-    if setting is not None and setting.delete_monthly:
+    if setting is not None:
         deletes_on, months = next_cleanup_on(), setting.months
-    elif scheduled_pass_on is not None and events_deletion_applies(team_id, setting.months if setting else None):
+    elif scheduled_pass_on is not None and should_enforce_events_retention(team_id):
         deletes_on, months = scheduled_pass_on, window_months
     else:
         return None
@@ -73,13 +77,12 @@ def project_events_retention(team: Team) -> ProjectEventsRetention:
         .first()
     )
     setting = next(iter(effective_events_retention(team_ids=[team.id])), None)
-    window_months = retention_window(team.event_retention_months, setting.months if setting else None)
+    window_months = events_retention_windows([team])[team.id]
     today = cleanup_date()
     row = TeamEventsPlanDeletion.objects.filter(team_id=team.id).first()
     scheduled_pass_on = with_window(row.state, window_months, today).next_deletion_on if row else None
     return ProjectEventsRetention(
         project_months=project_months,
-        delete_monthly=setting.delete_monthly if setting else False,
         next_deletion=_next_deletion(team.id, setting, window_months, scheduled_pass_on),
         scheduled_pass_on=scheduled_pass_on,
         first_pass_on=next_pass_on(today),
@@ -87,13 +90,11 @@ def project_events_retention(team: Team) -> ProjectEventsRetention:
     )
 
 
-def _check_allowed(retention: OrganizationEventsRetention, months: int | None, delete_monthly: bool) -> None:
+def _check_allowed(retention: OrganizationEventsRetention, months: int | None) -> None:
     if months is not None and not retention.min_months <= months <= retention.max_months:
         raise ValidationError(
             f"Events retention has to be {describe_months_range(retention.min_months, retention.max_months)}."
         )
-    if delete_monthly and months is None:
-        raise ValidationError("Set a window to delete events every month.")
 
 
 def _schedule_passes(teams: Sequence[Team]) -> None:
@@ -101,13 +102,13 @@ def _schedule_passes(teams: Sequence[Team]) -> None:
     today = cleanup_date()
     team_ids = [team.id for team in teams]
     setting_months = {item.team_id: item.months for item in effective_events_retention(team_ids=team_ids)}
+    windows = events_retention_windows(teams)
     states = {row.team_id: row.state for row in TeamEventsPlanDeletion.objects.filter(team_id__in=team_ids)}
     rows = []
     for team in teams:
-        months = setting_months.get(team.id)
-        if not events_deletion_applies(team.id, months):
+        if not events_deletion_applies(team.id, setting_months.get(team.id)):
             continue
-        window = retention_window(team.event_retention_months, months)
+        window = windows[team.id]
         state = with_window(states[team.id], window, today) if team.id in states else admitted(window, today)
         rows.append(TeamEventsPlanDeletion(team=team, months=state.months, next_deletion_on=state.next_deletion_on))
     TeamEventsPlanDeletion.objects.bulk_create(
@@ -116,19 +117,18 @@ def _schedule_passes(teams: Sequence[Team]) -> None:
 
 
 def set_organization_events_retention(
-    organization: Organization, months: int | None, delete_monthly: bool, *, user: User, was_impersonated: bool
+    organization: Organization, months: int | None, *, user: User, was_impersonated: bool
 ) -> None:
     with transaction.atomic():
         # Lock before reading, because save() writes the staff range too and must not write back a stale one.
         lock_organization_retention(organization.id)
         config = OrganizationEventsRetentionConfig.objects.filter(organization_id=organization.id).first()
-        before = (config.default_events_retention_months, config.delete_monthly) if config else (None, False)
-        if (months, delete_monthly) == before:
+        before = config.default_events_retention_months if config else None
+        if months == before:
             return
-        _check_allowed(organization_events_retention(organization), months, delete_monthly)
+        _check_allowed(organization_events_retention(organization), months)
         config = config or OrganizationEventsRetentionConfig(organization_id=organization.id)
         config.default_events_retention_months = months
-        config.delete_monthly = delete_monthly
         config.full_clean()
         if months is None and config.min_events_retention_months is None and config.max_events_retention_months is None:
             config.delete()
@@ -146,26 +146,25 @@ def set_organization_events_retention(
         activity="updated",
         detail=Detail(
             name=organization.name,
-            changes=_changes("Organization", "events retention", before, (months, delete_monthly)),
+            changes=[
+                Change(type="Organization", action="changed", field="events retention", before=before, after=months)
+            ],
         ),
     )
 
 
-def set_project_events_retention(
-    team: Team, months: int | None, delete_monthly: bool, *, user: User, was_impersonated: bool
-) -> None:
+def set_project_events_retention(team: Team, months: int | None, *, user: User, was_impersonated: bool) -> None:
     with transaction.atomic():
         config = TeamEventsRetentionConfig.objects.filter(team_id=team.id).first()
-        before = (config.events_retention_months, config.delete_monthly) if config else (None, False)
-        if (months, delete_monthly) == before:
+        before = config.events_retention_months if config else None
+        if months == before:
             return
-        _check_allowed(organization_events_retention(team.organization), months, delete_monthly)
+        _check_allowed(organization_events_retention(team.organization), months)
         if months is None:
             TeamEventsRetentionConfig.objects.filter(team_id=team.id).delete()
         else:
             config = config or TeamEventsRetentionConfig(team=team)
             config.events_retention_months = months
-            config.delete_monthly = delete_monthly
             config.full_clean()
             config.save()
         _schedule_passes([team])
@@ -180,17 +179,8 @@ def set_project_events_retention(
         activity="updated",
         detail=Detail(
             name=team.name,
-            changes=_changes("Team", "events_retention_months", before, (months, delete_monthly)),
+            changes=[
+                Change(type="Team", action="changed", field="events_retention_months", before=before, after=months)
+            ],
         ),
     )
-
-
-def _changes(
-    scope: str, months_field: str, before: tuple[int | None, bool], after: tuple[int | None, bool]
-) -> list[Change]:
-    fields = (months_field, "events_retention_delete_monthly")
-    return [
-        Change(type=scope, action="changed", field=field, before=old, after=new)
-        for field, old, new in zip(fields, before, after, strict=True)
-        if old != new
-    ]

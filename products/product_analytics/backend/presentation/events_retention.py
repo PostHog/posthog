@@ -30,11 +30,15 @@ class OrganizationEventsRetentionSerializer(serializers.Serializer):
     organization_retention_months = serializers.IntegerField(
         read_only=True,
         allow_null=True,
-        help_text="The window, in months, that every project without its own window uses. Null while the organization keeps events for its plan's window.",
+        help_text="The window, in months, that every project without its own window uses. Null while those projects use the default window.",
     )
-    organization_delete_monthly = serializers.BooleanField(
+    default_retention_months = serializers.IntegerField(
         read_only=True,
-        help_text="Whether projects that use the organization's window delete events older than it at every monthly cleanup. When false, they're deleted at the cleanup every 3 months.",
+        help_text="The window, in months, that projects use while no window is set for them or their organization. 24 months on current plans, never longer than the plan's window. Plans from before the 24-month default use the plan's window.",
+    )
+    default_is_grandfathered = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether the default is longer than 24 months because the plan predates the 24-month default.",
     )
     plan_retention_months = serializers.IntegerField(
         read_only=True,
@@ -75,10 +79,6 @@ class EventsRetentionSerializer(OrganizationEventsRetentionSerializer):
         allow_null=True,
         help_text="The window, in months, set for this project. Null while the project uses the organization's window.",
     )
-    delete_monthly = serializers.BooleanField(
-        read_only=True,
-        help_text="Whether the project's window deletes older events at every monthly cleanup. When false, they're deleted at the cleanup every 3 months, at least 3 months after the window gets shorter.",
-    )
     next_deletion_on = serializers.DateField(
         read_only=True,
         allow_null=True,
@@ -92,15 +92,15 @@ class EventsRetentionSerializer(OrganizationEventsRetentionSerializer):
     scheduled_pass_on = serializers.DateField(
         read_only=True,
         allow_null=True,
-        help_text="The next cleanup every 3 months that deletes this project's events past its current window, whether or not the window deletes monthly. Null while the project has none scheduled.",
+        help_text="The next cleanup every 3 months that deletes this project's events past its current window. Null while the project has none scheduled.",
     )
     first_pass_on = serializers.DateField(
         read_only=True,
-        help_text="The earliest cleanup every 3 months for a window that is set or made shorter today.",
+        help_text="The earliest cleanup every 3 months for a window that gets shorter today.",
     )
     default_window_deletes = serializers.BooleanField(
         read_only=True,
-        help_text="Whether the cleanup deletes this project's events past the plan's window while no window is set.",
+        help_text="Whether the cleanup deletes this project's events past the default window while no window is set.",
     )
 
 
@@ -108,18 +108,15 @@ class EventsRetentionUpdateSerializer(serializers.Serializer):
     retention_months = serializers.IntegerField(
         allow_null=True,
         min_value=1,
-        help_text="The window in months. Older events are deleted and can't be restored. Null removes the window.",
-    )
-    delete_monthly = serializers.BooleanField(
-        default=False,
-        help_text="Delete events older than the window at every monthly cleanup. When false, they're deleted at the cleanup every 3 months, at least 3 months after the window gets shorter. Needs a window.",
+        help_text="The window in months. Older events are deleted at the next monthly cleanup and can't be restored. Null removes the window.",
     )
 
 
 def _organization_fields(organization: OrganizationEventsRetention) -> dict[str, Any]:
     return {
         "organization_retention_months": organization.organization_months,
-        "organization_delete_monthly": organization.organization_delete_monthly,
+        "default_retention_months": organization.default_months,
+        "default_is_grandfathered": organization.default_is_grandfathered,
         "plan_retention_months": organization.plan_months,
         "min_retention_months": organization.min_months,
         "max_retention_months": organization.max_months,
@@ -146,7 +143,6 @@ class EventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     "retained_from": retained_from,
                     "docs_url": EVENTS_RETENTION_DOCS_URL,
                     "project_retention_months": project.project_months,
-                    "delete_monthly": project.delete_monthly,
                     "next_deletion_on": project.next_deletion.deletes_on if project.next_deletion else None,
                     "next_deletion_before": project.next_deletion.deletes_before if project.next_deletion else None,
                     "scheduled_pass_on": project.scheduled_pass_on,
@@ -175,9 +171,8 @@ class EventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         operation_id="events_retention_update",
         summary="Set the events retention window for a project",
         description=(
-            "Sets how long this project keeps events, overriding the organization's window, and whether older events "
-            "are deleted at every monthly cleanup or every 3 months. Deleted events can't be restored. Organization "
-            "admins only."
+            "Sets how long this project keeps events, overriding the organization's window. Older events are deleted "
+            "at the next monthly cleanup and can't be restored. Organization admins only."
         ),
         responses={
             200: OpenApiResponse(response=EventsRetentionSerializer, description="The project's new window."),
@@ -190,7 +185,6 @@ class EventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             set_project_events_retention(
                 self.team,
                 request.validated_data["retention_months"],
-                request.validated_data["delete_monthly"],
                 user=cast(User, request.user),
                 was_impersonated=is_impersonated(request),
             )
@@ -216,8 +210,8 @@ class OrganizationEventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSe
         operation_id="organization_events_retention_retrieve",
         summary="Get the organization's events retention window",
         description=(
-            "Returns the events retention window that every project without its own window uses, and the range an "
-            "organization admin can set."
+            "Returns the events retention window that every project without its own window uses, the default window "
+            "while none is set, and the range an organization admin can set."
         ),
         responses={200: OrganizationEventsRetentionSerializer},
     )
@@ -229,8 +223,8 @@ class OrganizationEventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSe
         operation_id="organization_events_retention_update",
         summary="Set the organization's events retention window",
         description=(
-            "Sets how long every project without its own window keeps events, and whether older events are deleted at "
-            "every monthly cleanup or every 3 months. Deleted events can't be restored. Organization admins only."
+            "Sets how long every project without its own window keeps events. Older events are deleted at the next "
+            "monthly cleanup and can't be restored. Organization admins only."
         ),
         responses={
             200: OpenApiResponse(
@@ -245,7 +239,6 @@ class OrganizationEventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSe
             set_organization_events_retention(
                 self.organization,
                 request.validated_data["retention_months"],
-                request.validated_data["delete_monthly"],
                 user=cast(User, request.user),
                 was_impersonated=is_impersonated(request),
             )

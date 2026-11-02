@@ -186,10 +186,11 @@ class InsightDashboardContext:
 
 @dataclass(frozen=True)
 class OrganizationEventsRetention:
-    """The window an organization set for its projects, and the windows its admins can set, in months."""
+    """The window an organization set for its projects, its default, and the windows its admins can set, in months."""
 
     organization_months: int | None
-    organization_delete_monthly: bool
+    default_months: int
+    default_is_grandfathered: bool
     plan_months: int
     min_months: int
     max_months: int
@@ -206,10 +207,9 @@ class ScheduledEventsDeletion:
 
 @dataclass(frozen=True)
 class ProjectEventsRetention:
-    """The window set for a project, whether its window deletes monthly, its next deletion, and its pass dates."""
+    """The window set for a project, its next deletion, and its pass dates."""
 
     project_months: int | None
-    delete_monthly: bool
     next_deletion: ScheduledEventsDeletion | None
     scheduled_pass_on: date | None
     first_pass_on: date

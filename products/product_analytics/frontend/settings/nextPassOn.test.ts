@@ -8,37 +8,15 @@ const SCHEDULED: EventsPassSchedule = {
 
 describe('nextPassOn', () => {
     it.each([
-        ['keeps the scheduled pass for an unchanged window', SCHEDULED, true, false, '2026-12-03'],
-        ['waits at least 3 months for a shorter window', SCHEDULED, true, true, '2027-02-03'],
+        ['waits at least 3 months for a shorter window', SCHEDULED, '2027-02-03'],
+        ['keeps a later scheduled pass', { ...SCHEDULED, scheduled_pass_on: '2027-05-03' }, '2027-05-03'],
+        ['knows no date before admission', { ...SCHEDULED, scheduled_pass_on: null }, null],
         [
-            'keeps a later scheduled pass for a shorter window',
-            { ...SCHEDULED, scheduled_pass_on: '2027-05-03' },
-            true,
-            true,
-            '2027-05-03',
-        ],
-        [
-            'starts a newly set window at the first pass',
-            { ...SCHEDULED, scheduled_pass_on: null },
-            true,
-            false,
-            '2027-02-03',
-        ],
-        [
-            'knows no date for the plan window before admission',
-            { ...SCHEDULED, scheduled_pass_on: null },
-            false,
-            false,
-            null,
-        ],
-        [
-            'deletes nothing past the plan window when the cleanup does not enforce it',
+            'deletes nothing when the cleanup does not enforce the default',
             { ...SCHEDULED, default_window_deletes: false },
-            false,
-            true,
             null,
         ],
-    ])('%s', (_name, schedule, isSet, isShorter, expected) => {
-        expect(nextPassOn(schedule, { isSet, isShorter })).toEqual(expected)
+    ])('%s', (_name, schedule, expected) => {
+        expect(nextPassOn(schedule)).toEqual(expected)
     })
 })

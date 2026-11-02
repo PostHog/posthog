@@ -14,6 +14,8 @@ from posthog.models.team import Team
 PASS_INTERVAL_MONTHS = 3
 CLEANUP_DAY_OF_MONTH = 3
 CLEANUP_HOUR = 21
+# The default window of plans with the standard data retention feature. Older plans default to their whole window.
+STANDARD_DEFAULT_WINDOW_MONTHS = 24
 
 
 class TeamEventsPlanDeletion(models.Model):
@@ -61,9 +63,13 @@ def next_pass_on(today: date) -> date:
     return cleanup_on_or_after(today + relativedelta(months=PASS_INTERVAL_MONTHS))
 
 
-def retention_window(plan_months: int, setting_months: int | None) -> int:
-    """The window a team's passes delete past: the one set in settings, never past the plan's, else the plan's."""
-    return min(plan_months, setting_months) if setting_months is not None else plan_months
+def default_window(plan_months: int, standard: bool) -> int:
+    return min(plan_months, STANDARD_DEFAULT_WINDOW_MONTHS) if standard else plan_months
+
+
+def retention_window(plan_months: int, default_months: int, setting_months: int | None) -> int:
+    """The window a team keeps events for: the one set in settings, never past the plan's, else the default."""
+    return min(plan_months, setting_months) if setting_months is not None else default_months
 
 
 def admitted(window_months: int, today: date) -> PlanDeletionState:
@@ -89,7 +95,9 @@ def after_pass(state: PlanDeletionState, today: date) -> PlanDeletionState:
 
 
 def deletion_months(setting: TeamEventsRetention | None, pass_months: int | None) -> int | None:
-    """The window the cleanup deletes past for a team this run, or None to delete nothing."""
-    monthly_months = setting.months if setting is not None and setting.delete_monthly else None
-    windows = [months for months in (monthly_months, pass_months) if months is not None]
+    """The window the cleanup deletes past for a team this run, or None to delete nothing.
+
+    A window set in settings deletes at every monthly cleanup. The default deletes only at the team's passes.
+    """
+    windows = [months for months in (setting.months if setting else None, pass_months) if months is not None]
     return min(windows) if windows else None

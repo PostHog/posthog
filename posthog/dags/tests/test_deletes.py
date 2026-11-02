@@ -745,16 +745,14 @@ def _teams_with_13_and_18_months() -> tuple[Team, Team, Team]:
     thirteen = Team.objects.create(organization=organization, name="13 months")
     eighteen = Team.objects.create(organization=organization, name="18 months")
     no_retention = Team.objects.create(organization=organization, name="No retention", event_retention_months=12)
-    TeamEventsRetentionConfig.objects.create(team=thirteen, events_retention_months=13, delete_monthly=True)
-    TeamEventsRetentionConfig.objects.create(team=eighteen, events_retention_months=18, delete_monthly=True)
+    TeamEventsRetentionConfig.objects.create(team=thirteen, events_retention_months=13)
+    TeamEventsRetentionConfig.objects.create(team=eighteen, events_retention_months=18)
     return thirteen, eighteen, no_retention
 
 
 @pytest.mark.django_db
 def test_plan_old_events_cleanup_lists_the_due_teams_per_month(cluster: ClickhouseCluster):
     thirteen, eighteen, no_retention = _teams_with_13_and_18_months()
-    waits_for_a_pass = Team.objects.create(organization=thirteen.organization, name="Waits for a pass")
-    TeamEventsRetentionConfig.objects.create(team=waits_for_a_pass, events_retention_months=6)
     _insert_events(
         cluster,
         _events(thirteen.id, _mid_month(15), 0, 3)
@@ -763,8 +761,7 @@ def test_plan_old_events_cleanup_lists_the_due_teams_per_month(cluster: Clickhou
         + _events(eighteen.id, _mid_month(15), 0, 6)
         + _events(eighteen.id, _mid_month(20), 100, 7)
         + _events(eighteen.id, _first_hour_of_month(18), 200, 8)
-        + _events(no_retention.id, _mid_month(20), 0, 9)
-        + _events(waits_for_a_pass.id, _mid_month(20), 0, 1),
+        + _events(no_retention.id, _mid_month(20), 0, 9),
     )
     context = build_op_context()
 
@@ -970,18 +967,26 @@ def test_pass_deletes_events_and_sessions_past_the_window_and_moves_only_a_compl
     ],
 )
 @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
-def test_update_plan_deletions_downgrade_pushes_the_next_pass(
+def test_update_plan_deletions_shorter_window_pushes_the_next_pass(
     cluster: ClickhouseCluster, deployment: str, now: str, next_pass: date
 ):
-    organization = Organization.objects.create(name="Downgraded")
-    team = Team.objects.create(organization=organization, name="Downgraded", event_retention_months=12)
-    TeamEventsPlanDeletion.objects.create(team=team, months=24, next_deletion_on=date(2026, 11, 10))
+    downgraded = Team.objects.create(
+        organization=Organization.objects.create(name="Downgraded"), name="Downgraded", event_retention_months=12
+    )
+    standard = Team.objects.create(
+        organization=Organization.objects.create(name="Standard"), name="Standard", event_retention_months=84
+    )
+    Organization.objects.filter(id=standard.organization_id).update(
+        available_product_features=[{"key": "product_analytics_standard_data_retention"}]
+    )
+    TeamEventsPlanDeletion.objects.create(team=downgraded, months=24, next_deletion_on=date(2026, 11, 10))
+    TeamEventsPlanDeletion.objects.create(team=standard, months=84, next_deletion_on=date(2026, 11, 10))
 
     with override_settings(CLOUD_DEPLOYMENT=deployment), time_machine.travel(now, tick=False):
         passes = update_plan_deletions(build_op_context(), PlanDeletionConfig(), cluster)
 
     assert passes.window_months_by_team == {}
-    assert _plan_state(team) == (12, next_pass)
+    assert (_plan_state(downgraded), _plan_state(standard)) == ((12, next_pass), (24, next_pass))
 
 
 @pytest.mark.django_db

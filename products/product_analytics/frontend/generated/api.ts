@@ -87,7 +87,7 @@ export const getOrganizationEventsRetentionRetrieveUrl = (organizationId: string
 }
 
 /**
- * Returns the events retention window that every project without its own window uses, and the range an organization admin can set.
+ * Returns the events retention window that every project without its own window uses, the default window while none is set, and the range an organization admin can set.
  * @summary Get the organization's events retention window
  */
 export const organizationEventsRetentionRetrieve = async (
@@ -105,7 +105,7 @@ export const getOrganizationEventsRetentionUpdateUrl = (organizationId: string) 
 }
 
 /**
- * Sets how long every project without its own window keeps events, and whether older events are deleted at every monthly cleanup or every 3 months. Deleted events can't be restored. Organization admins only.
+ * Sets how long every project without its own window keeps events. Older events are deleted at the next monthly cleanup and can't be restored. Organization admins only.
  * @summary Set the organization's events retention window
  */
 export const organizationEventsRetentionUpdate = async (
@@ -415,7 +415,7 @@ export const getEventsRetentionUpdateUrl = (projectId: string) => {
 }
 
 /**
- * Sets how long this project keeps events, overriding the organization's window, and whether older events are deleted at every monthly cleanup or every 3 months. Deleted events can't be restored. Organization admins only.
+ * Sets how long this project keeps events, overriding the organization's window. Older events are deleted at the next monthly cleanup and can't be restored. Organization admins only.
  * @summary Set the events retention window for a project
  */
 export const eventsRetentionUpdate = async (

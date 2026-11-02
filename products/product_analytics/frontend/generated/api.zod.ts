@@ -10,23 +10,17 @@
 import * as zod from 'zod'
 
 /**
- * Sets how long every project without its own window keeps events, and whether older events are deleted at every monthly cleanup or every 3 months. Deleted events can't be restored. Organization admins only.
+ * Sets how long every project without its own window keeps events. Older events are deleted at the next monthly cleanup and can't be restored. Organization admins only.
  * @summary Set the organization's events retention window
  */
-
-export const organizationEventsRetentionUpdateBodyDeleteMonthlyDefault = false
 
 export const OrganizationEventsRetentionUpdateBody = /* @__PURE__ */ zod.object({
     retention_months: zod
         .number()
         .min(1)
         .nullable()
-        .describe("The window in months. Older events are deleted and can't be restored. Null removes the window."),
-    delete_monthly: zod
-        .boolean()
-        .default(organizationEventsRetentionUpdateBodyDeleteMonthlyDefault)
         .describe(
-            "Delete events older than the window at every monthly cleanup. When false, they're deleted at the cleanup every 3 months, at least 3 months after the window gets shorter. Needs a window."
+            "The window in months. Older events are deleted at the next monthly cleanup and can't be restored. Null removes the window."
         ),
 })
 
@@ -213,23 +207,17 @@ export const ElementsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Sets how long this project keeps events, overriding the organization's window, and whether older events are deleted at every monthly cleanup or every 3 months. Deleted events can't be restored. Organization admins only.
+ * Sets how long this project keeps events, overriding the organization's window. Older events are deleted at the next monthly cleanup and can't be restored. Organization admins only.
  * @summary Set the events retention window for a project
  */
-
-export const eventsRetentionUpdateBodyDeleteMonthlyDefault = false
 
 export const EventsRetentionUpdateBody = /* @__PURE__ */ zod.object({
     retention_months: zod
         .number()
         .min(1)
         .nullable()
-        .describe("The window in months. Older events are deleted and can't be restored. Null removes the window."),
-    delete_monthly: zod
-        .boolean()
-        .default(eventsRetentionUpdateBodyDeleteMonthlyDefault)
         .describe(
-            "Delete events older than the window at every monthly cleanup. When false, they're deleted at the cleanup every 3 months, at least 3 months after the window gets shorter. Needs a window."
+            "The window in months. Older events are deleted at the next monthly cleanup and can't be restored. Null removes the window."
         ),
 })
 

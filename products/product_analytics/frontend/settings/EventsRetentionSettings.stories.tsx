@@ -22,29 +22,32 @@ type Story = StoryObj
 interface RetentionMockOptions {
     organizationMonths?: number | null
     projectMonths?: number | null
-    deleteMonthly?: boolean
+    planMonths?: number
+    grandfathered?: boolean
 }
 
 const retentionMocks = ({
     organizationMonths = null,
     projectMonths = null,
-    deleteMonthly = false,
+    planMonths = 36,
+    grandfathered = false,
 }: RetentionMockOptions): ReturnType<typeof mswDecorator> => {
+    const defaultMonths = grandfathered ? planMonths : Math.min(planMonths, 24)
     const organization: OrganizationEventsRetentionApi = {
         organization_retention_months: organizationMonths,
-        organization_delete_monthly: projectMonths === null && deleteMonthly,
-        plan_retention_months: 36,
+        default_retention_months: defaultMonths,
+        default_is_grandfathered: grandfathered,
+        plan_retention_months: planMonths,
         min_retention_months: 1,
-        max_retention_months: 36,
+        max_retention_months: planMonths,
         next_monthly_cleanup_on: '2026-11-03',
     }
     const project: EventsRetentionApi = {
         ...organization,
-        retention_months: projectMonths ?? organizationMonths ?? 36,
+        retention_months: projectMonths ?? organizationMonths ?? defaultMonths,
         retained_from: '2024-11-01',
         docs_url: 'https://posthog.com/docs/data/events-retention',
         project_retention_months: projectMonths,
-        delete_monthly: deleteMonthly,
         next_deletion_on: null,
         next_deletion_before: null,
         scheduled_pass_on: '2027-02-03',
@@ -66,17 +69,17 @@ export const OrganizationWithoutWindow: Story = {
 
 export const OrganizationWithWindow: Story = {
     render: () => <OrganizationEventsRetentionSetting />,
-    decorators: [retentionMocks({ organizationMonths: 24, deleteMonthly: true })],
+    decorators: [retentionMocks({ organizationMonths: 12 })],
+}
+
+export const OrganizationOnGrandfatheredPlan: Story = {
+    render: () => <OrganizationEventsRetentionSetting />,
+    decorators: [retentionMocks({ planMonths: 84, grandfathered: true })],
 }
 
 export const ProjectUsingOrganizationWindow: Story = {
     render: () => <ProjectEventsRetentionSetting />,
-    decorators: [retentionMocks({ organizationMonths: 24 })],
-}
-
-export const ProjectUsingPlanWindow: Story = {
-    render: () => <ProjectEventsRetentionSetting />,
-    decorators: [retentionMocks({})],
+    decorators: [retentionMocks({ organizationMonths: 12 })],
 }
 
 export const ProjectWithOwnWindow: Story = {

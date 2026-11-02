@@ -173,8 +173,7 @@ const TEAM_PROPERTIES_MAPPING: Record<
     | 'heatmaps_screenshot_allowed_hostnames'
     | 'conversations_signing_secret'
     | 'conversations_signing_secret_previous'
-    | 'events_retention_months'
-    | 'events_retention_delete_monthly',
+    | 'events_retention_months',
     (change: ActivityChange) => ChangeMapping | null
 > = {
     // API-related tokens
@@ -459,15 +458,6 @@ const TEAM_PROPERTIES_MAPPING: Record<
                 <>
                     set the events retention window to <em>{String(change.after)} months</em>
                 </>
-            ),
-        ],
-    }),
-    events_retention_delete_monthly: (change) => ({
-        description: [
-            change.after ? (
-                <>turned on monthly deletion of events older than the retention window</>
-            ) : (
-                <>turned off monthly deletion of events older than the retention window</>
             ),
         ],
     }),

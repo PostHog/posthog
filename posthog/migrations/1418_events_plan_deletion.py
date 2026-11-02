@@ -11,14 +11,6 @@ RETENTION_MONTHS_HELP = (
 )
 
 
-def _delete_monthly_field(window: str, default: bool) -> models.BooleanField:
-    return models.BooleanField(
-        default=default,
-        help_text=f"Delete events older than {window} at every monthly cleanup. Otherwise they're deleted at the "
-        "cleanup every 3 months, at least 3 months after the window gets shorter.",
-    )
-
-
 class Migration(migrations.Migration):
     dependencies = [("posthog", "1417_organizationinvite_email_suppressed")]
 
@@ -50,35 +42,13 @@ class Migration(migrations.Migration):
                 ),
             ],
         ),
-        # Windows saved before this column existed were promised deletion at the next monthly cleanup, so they
-        # keep it. New rows default to the cleanup every 3 months.
-        migrations.AddField(
-            model_name="organizationeventsretentionconfig",
-            name="delete_monthly",
-            field=_delete_monthly_field("the default", default=True),
-        ),
-        migrations.AlterField(
-            model_name="organizationeventsretentionconfig",
-            name="delete_monthly",
-            field=_delete_monthly_field("the default", default=False),
-        ),
-        migrations.AddField(
-            model_name="teameventsretentionconfig",
-            name="delete_monthly",
-            field=_delete_monthly_field("this window", default=True),
-        ),
-        migrations.AlterField(
-            model_name="teameventsretentionconfig",
-            name="delete_monthly",
-            field=_delete_monthly_field("this window", default=False),
-        ),
         migrations.AlterField(
             model_name="organizationeventsretentionconfig",
             name="default_events_retention_months",
             field=models.PositiveSmallIntegerField(
                 blank=True,
                 help_text="Applies to every team in the organization that has no value of its own. Leave empty to use "
-                f"the plan's window. {RETENTION_MONTHS_HELP}",
+                f"the plan's default window. {RETENTION_MONTHS_HELP}",
                 null=True,
                 validators=[django.core.validators.MinValueValidator(1)],
             ),

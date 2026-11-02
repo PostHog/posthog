@@ -89,7 +89,7 @@ from posthog.models.sessions.sql import (
     TABLE_BASE_NAME as SESSIONS_TABLE_BASE_NAME,
 )
 from posthog.models.team import Team
-from posthog.models.team.event_retention import events_deletion_applies
+from posthog.models.team.event_retention import TeamPlan, default_windows, events_deletion_applies
 from posthog.run_mode import run_mode
 
 from products.error_tracking.backend.facade.api import (
@@ -176,8 +176,8 @@ class TeamProductDocumentsDeleteConfig(dagster.Config):
 class MonthlyCleanupConfig(dagster.Config):
     team_ids: list[int] = pydantic.Field(
         default_factory=list,
-        description="Only clean up these teams. Empty means every team whose window deletes monthly or whose pass is "
-        "due. A listed team with neither is ignored.",
+        description="Only clean up these teams. Empty means every team with a window set in settings or a pass due. "
+        "A listed team with neither is ignored.",
     )
     partitions: list[int] = pydantic.Field(
         default_factory=list,
@@ -1653,12 +1653,20 @@ def _deletion_teams(team_ids: list[int]) -> list[_PlanTeam]:
     """Every team whose window the cleanup enforces, with that window."""
     setting_months = {item.team_id: item.months for item in effective_events_retention(team_ids=team_ids or None)}
     teams = Team.objects.filter(id__in=team_ids) if team_ids else Team.objects.all()
-    return [
-        _PlanTeam(team_id=team_id, window_months=retention_window(plan_months, setting_months.get(team_id)))
-        for team_id, plan_months in teams.order_by("organization_id", "id")
-        .values_list("id", "event_retention_months")
+    plans = [
+        TeamPlan(team_id=team_id, organization_id=organization_id, plan_months=plan_months)
+        for team_id, organization_id, plan_months in teams.order_by("organization_id", "id")
+        .values_list("id", "organization_id", "event_retention_months")
         .iterator(chunk_size=_ADMISSION_CHUNK_SIZE)
         if events_deletion_applies(team_id, setting_months.get(team_id))
+    ]
+    defaults = default_windows(plans)
+    return [
+        _PlanTeam(
+            team_id=plan.team_id,
+            window_months=retention_window(plan.plan_months, defaults[plan.team_id], setting_months.get(plan.team_id)),
+        )
+        for plan in plans
     ]
 
 
@@ -1761,7 +1769,7 @@ def plan_old_events_cleanup(
         if (months := deletion_months(setting_by_team.get(team_id), pass_months.get(team_id))) is not None
     }
     if ignored := sorted(set(config.team_ids) - set(window_months)):
-        context.log.info(f"Ignoring teams whose window neither deletes monthly nor has a pass due: {ignored}")
+        context.log.info(f"Ignoring teams with neither a window set in settings nor a pass due: {ignored}")
     if not window_months:
         context.log.info("No team has an events retention to enforce")
         return OldEventsCleanupPlan(partitions=[], completed_pass_team_ids=completed_pass_team_ids)
@@ -2002,7 +2010,7 @@ def cleanup_old_sessions_by_partition(
     }
 )
 def monthly_retention_events_cleanup_job():
-    """Delete each team's events and sessions past its window, monthly where set to, else on each pass."""
+    """Delete each team's events and sessions past its window, monthly where set in settings, else on each pass."""
     passes = update_plan_deletions(start_after=ensure_no_concurrent_deletes_run())
     plan = plan_old_events_cleanup(passes)
     events_deleted = cleanup_old_events_by_partition(plan)

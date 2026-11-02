@@ -6,8 +6,9 @@ import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
+import { EventsRetentionPlanNote } from './EventsRetentionPlanNote'
 import { eventsRetentionSettingsLogic } from './eventsRetentionSettingsLogic'
-import { EventsRetentionFallback, EventsRetentionWindowForm } from './EventsRetentionWindowForm'
+import { EventsRetentionWindowForm } from './EventsRetentionWindowForm'
 
 export function ProjectEventsRetentionSetting(): JSX.Element | null {
     const { projectRetention, projectRetentionLoading } = useValues(eventsRetentionSettingsLogic)
@@ -18,23 +19,14 @@ export function ProjectEventsRetentionSetting(): JSX.Element | null {
         return null
     }
 
-    const organizationMonths = projectRetention.organization_retention_months
-    const fallback: EventsRetentionFallback =
-        organizationMonths !== null
-            ? {
-                  months: organizationMonths,
-                  deleteMonthly: projectRetention.organization_delete_monthly,
-                  isSet: true,
-              }
-            : {
-                  months: projectRetention.plan_retention_months,
-                  deleteMonthly: false,
-                  isSet: false,
-              }
+    const organizationMonths =
+        projectRetention.organization_retention_months === null
+            ? null
+            : Math.min(projectRetention.organization_retention_months, projectRetention.plan_retention_months)
 
     return (
         <div>
-            <p className="max-w-160 text-sm text-secondary mb-4">
+            <p className="max-w-160 text-sm text-secondary mb-2">
                 Choose how long this project keeps events. This replaces the window set in{' '}
                 <Link to={urls.settings('organization-details', 'organization-events-retention')}>
                     organization settings
@@ -44,14 +36,16 @@ export function ProjectEventsRetentionSetting(): JSX.Element | null {
                     Learn more
                 </Link>
             </p>
+            <EventsRetentionPlanNote plan={projectRetention} />
             <EventsRetentionWindowForm
                 retentionMonths={projectRetention.project_retention_months}
-                deleteMonthly={projectRetention.delete_monthly}
-                fallback={fallback}
+                defaultMonths={organizationMonths ?? projectRetention.default_retention_months}
+                defaultIsOrganizationWindow={organizationMonths !== null}
                 minMonths={projectRetention.min_retention_months}
                 maxMonths={projectRetention.max_retention_months}
                 planMonths={projectRetention.plan_retention_months}
-                keptBy="This project"
+                scope="Events in this project"
+                overrideNote="This project's custom events retention replaces the organization's events retention."
                 nextMonthlyCleanupOn={projectRetention.next_monthly_cleanup_on}
                 passSchedule={projectRetention}
                 saving={projectRetentionLoading}

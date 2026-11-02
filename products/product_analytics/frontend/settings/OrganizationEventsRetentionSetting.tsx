@@ -5,6 +5,7 @@ import { Link } from '@posthog/lemon-ui'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 
+import { EventsRetentionPlanNote } from './EventsRetentionPlanNote'
 import { eventsRetentionSettingsLogic } from './eventsRetentionSettingsLogic'
 import { EventsRetentionWindowForm } from './EventsRetentionWindowForm'
 
@@ -20,20 +21,22 @@ export function OrganizationEventsRetentionSetting(): JSX.Element | null {
 
     return (
         <div>
-            <p className="max-w-160 text-sm text-secondary mb-4">
+            <p className="max-w-160 text-sm text-secondary mb-2">
                 Choose how long projects in this organization keep events. A project can set its own window instead.{' '}
                 <Link to={projectRetention.docs_url} target="_blank">
                     Learn more
                 </Link>
             </p>
+            <EventsRetentionPlanNote plan={organizationRetention} />
             <EventsRetentionWindowForm
                 retentionMonths={organizationRetention.organization_retention_months}
-                deleteMonthly={organizationRetention.organization_delete_monthly}
-                fallback={{ months: organizationRetention.plan_retention_months, deleteMonthly: false, isSet: false }}
+                defaultMonths={organizationRetention.default_retention_months}
+                defaultIsOrganizationWindow={false}
                 minMonths={organizationRetention.min_retention_months}
                 maxMonths={organizationRetention.max_retention_months}
                 planMonths={organizationRetention.plan_retention_months}
-                keptBy="Every project without its own window"
+                scope="Events in projects without their own custom events retention"
+                overrideNote="Projects with their own custom events retention policy will override this organization level policy."
                 nextMonthlyCleanupOn={organizationRetention.next_monthly_cleanup_on}
                 passSchedule={projectRetention.project_retention_months === null ? projectRetention : null}
                 saving={organizationRetentionLoading}
