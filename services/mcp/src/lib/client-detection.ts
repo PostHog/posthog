@@ -13,14 +13,10 @@
  *   only way a client lands in tools mode without an explicit `?mode=` /
  *   `x-posthog-mcp-mode` override — see `resolveMode`.
  *
- * - `isCliModeEnabled()` matches clients that should drop `structuredContent`
- *   when a `formatted_results` override is set. Every known Anthropic client
- *   qualifies — matched against the `x-anthropic-client` (`vendorClient`)
- *   header, since Anthropic pools MCP transports across all its products and
- *   reports the live one there. Other coding agents are matched by
- *   self-reported client name. Cursor is deliberately excluded from the name
- *   match — it reads text for the model and renders `structuredContent` in UI,
- *   so it does not need the formatted-results workaround.
+ * - `prefersFormattedText()` decides whether a client drops `structuredContent`
+ *   when a `formatted_results` override is set. Every client does, except the
+ *   ones that render `structuredContent` (Cursor and render-ui hosts), so a new
+ *   text-only client needs no entry. Anthropic clients always drop it.
  *
  * - `isPostHogCodeConsumer()` matches the `x-posthog-mcp-consumer` header
  *   sent by the PostHog Desktop Tasks wrapper.
@@ -58,39 +54,6 @@ function matchesProductName(value: string | undefined, names: readonly string[])
     const product = value?.trim().split(/[\s/]/, 1)[0]?.toLowerCase()
     return !!product && names.includes(product)
 }
-
-// Coding agents and LLM-driven clients that read `content[].text` and do not render MCP Apps UI.
-// Matched by `isCliModeEnabled()`, which gates dropping `structuredContent` when a
-// `formatted_results` override is set. Mode selection does NOT read this list — CLI
-// (single-exec) is the default for every client; `TOOLS_MODE_CLIENT_NAME_FRAGMENTS`
-// is the tools-mode allow-list.
-export const CODING_AGENT_CLIENT_NAME_FRAGMENTS = [
-    'claude-code',
-    'cline',
-    'roo-code',
-    'roo-cline',
-    'continue',
-    'codex',
-    'windsurf',
-    'zed',
-    'aider',
-    'copilot',
-    'gemini-cli',
-    // Devin self-reports `clientInfo.name` as `Devin`.
-    'devin',
-    // Notion AI self-reports `notion-mcp-client`.
-    'notion',
-    // OpenCode (also the engine behind OpenWork) self-reports `opencode`.
-    'opencode',
-    // Sourcegraph Amp self-reports `amp-mcp-client`.
-    'amp-mcp-client',
-    // Grok Build and the grok.com assistant both match `grok`.
-    'grok',
-    // Ando self-reports `ando-mcp-gateway`.
-    'ando-mcp-gateway',
-    'librechat',
-    'poke',
-] as const
 
 // Clients that wedge after a stateless `server/discover` but complete the legacy
 // handshake, so discover answers method-not-found to push them back to `initialize`.
@@ -188,7 +151,7 @@ export const INLINE_EXEC_UI_APP_VENDOR_FRAGMENTS = ['claudecode'] as const
 // User-Agent Anthropic clients send when they connect without the
 // `x-anthropic-client` header (Claude.ai web/desktop and internal Anthropic
 // tooling). It's a generic Anthropic signal — Claude Code and Cowork can send it
-// too — so it drives CLI-mode detection; the UI-host check reuses it as its own
+// too — so it drives Anthropic detection; the UI-host check reuses it as its own
 // user-agent fallback.
 export const ANTHROPIC_USER_AGENT_FRAGMENTS = ['claude-user'] as const
 export const ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS = ANTHROPIC_USER_AGENT_FRAGMENTS
@@ -269,15 +232,17 @@ export class MCPClientProfile {
         )
     }
 
-    isCliModeEnabled(): boolean {
-        // Gates dropping `structuredContent` when a `formatted_results` override
-        // is set — these clients read `content[].text`, so the structured copy
-        // would only bloat the payload. Every Anthropic product qualifies.
+    prefersFormattedText(): boolean {
+        // Gates dropping `structuredContent` when a `formatted_results` override is set.
+        // A client that only reads `content[].text` gets nothing from the structured copy
+        // but tokens, and a UI app still loads from the `_meta` copy the payload builder
+        // keeps. Cursor shows `structuredContent` in its UI and render-ui hosts hand it to
+        // their apps, so they keep it. Anthropic clients drop it even on render-ui hosts,
+        // because Claude Code shows `structuredContent` to the model.
         if (this.isAnthropicClient()) {
             return true
         }
-        // Otherwise fall back to the self-reported client name for coding agents.
-        return matchesAnyFragment(this.clientName, CODING_AGENT_CLIENT_NAME_FRAGMENTS)
+        return !this.isToolsModeClient() && !this.isRenderUiHost()
     }
 
     isAnthropicClient(): boolean {
@@ -287,7 +252,7 @@ export class MCPClientProfile {
         // (Claude.ai web/desktop, internal tools) connect without that header, so
         // also accept the `Claude-User` user-agent and the pooled `Anthropic/…`
         // `clientInfo.name`. Unlike `isRenderUiHost`, matching the pooled name here
-        // is safe and intended: every Anthropic product belongs in CLI mode, so
+        // is safe and intended: every Anthropic product gets the same treatment, so
         // there is nothing to misclassify.
         return matchesAnyFragment(this.vendorClient, ANTHROPIC_CLIENT_NAME_FRAGMENTS) || this.isAnthropicConnector()
     }
@@ -374,10 +339,6 @@ export class MCPClientProfile {
         }
         return resolved
     }
-}
-
-export function isCliModeEnabledClient(clientName: string | undefined): boolean {
-    return new MCPClientProfile({ clientName }).isCliModeEnabled()
 }
 
 export function isLegacyDialectOnlyClient(clientName: string | undefined): boolean {

@@ -469,7 +469,7 @@ describe('ToolExecutor', () => {
                     toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: skillsEnabled },
                     clientProfile: {
                         capabilities: { supportsInstructions: true },
-                        isCliModeEnabled: vi.fn(() => true),
+                        prefersFormattedText: vi.fn(() => true),
                         isInlineExecUiHost: vi.fn(() => false),
                         isClaudeChatHost: vi.fn(() => isClaudeChatHost),
                         isAnthropicConnector: vi.fn(() => isClaudeChatHost),
@@ -725,7 +725,7 @@ describe('ToolExecutor', () => {
                         distinctId,
                         clientProfile: {
                             capabilities: { supportsInstructions },
-                            isCliModeEnabled: vi.fn(() => true),
+                            prefersFormattedText: vi.fn(() => true),
                             isInlineExecUiHost: vi.fn(() => false),
                             isClaudeChatHost: vi.fn(() => isClaudeChatHost),
                             isAnthropicConnector: vi.fn(() => isClaudeChatHost),
@@ -760,7 +760,7 @@ describe('ToolExecutor', () => {
                     renderUiEnabled: true,
                     clientProfile: {
                         capabilities: { supportsInstructions: true },
-                        isCliModeEnabled: vi.fn(() => true),
+                        prefersFormattedText: vi.fn(() => true),
                         isInlineExecUiHost: vi.fn(() => false),
                         isClaudeChatHost: vi.fn(() => true),
                         isAnthropicConnector: vi.fn(() => true),
@@ -909,7 +909,7 @@ describe('ToolExecutor', () => {
             } as any)
 
             const state = makeToolExecutorState([uiAppTool], { useSingleExec, renderUiEnabled })
-            vi.mocked(state.clientProfile.isCliModeEnabled).mockReturnValue(true)
+            vi.mocked(state.clientProfile.prefersFormattedText).mockReturnValue(true)
             if (posthogAi) {
                 state.clientProfile = { ...state.clientProfile, consumer: 'posthog_ai' } as typeof state.clientProfile
             }
