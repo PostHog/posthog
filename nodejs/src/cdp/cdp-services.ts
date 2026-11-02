@@ -57,7 +57,6 @@ import { EncryptedFields } from './utils/encryption-utils'
 import { PosthogJwtAudience } from './utils/jwt-utils'
 import { ScopedServiceJwt } from './utils/scoped-service-jwt'
 
-/** Union of every output name resolved by `createCdpOutputsRegistry()`. */
 export type CdpOutput =
     | AppMetricsOutput
     | LogEntriesOutput
@@ -89,7 +88,6 @@ export interface CdpCoreServices {
      * Constructed with `sendEvents: false` so it never emits duplicate billable team events.
      */
     hogWatcherMirror: HogWatcherService
-    /** Hog execution with async functions (fetch, email, push). Its `hogExecutor` is the synchronous core. */
     hogExecutorAsync: HogExecutorAsyncService
     /** Rebuilds the templated/resolved input bundle for a hog function — used by the rerun path to re-derive `inputs` after they're stripped from the persisted payload. */
     hogInputsService: HogInputsService
@@ -101,23 +99,18 @@ export interface CdpCoreServices {
     emailSuppressionService: EmailSuppressionService
     emailValidationService: EmailValidationService
     teamWorkflowsConfigService: TeamWorkflowsConfigService
-    /** Point lookups for realtime/behavioral cohort membership (behavioral cohorts DB). */
     cohortMembershipRepository: CohortMembershipRepository
     hogFlowExecutor: HogFlowExecutorService
     hogFunctionMonitoringService: HogFunctionMonitoringService
     cdpUsageReporter: CdpUsageReporterService
     capturedEventsService: CapturedEventsService
-    /** Per-invocation lifecycle row producer for the new runs/invocations UI + rerun path. */
     hogInvocationResultsService: HogInvocationResultsService
-    /** Fans `CyclotronJobInvocationResult` batches across monitoring / warehouse / captured-events. */
     invocationResultsService: InvocationResultsService
     nativeDestinationExecutorService: NativeDestinationExecutorService
     segmentDestinationExecutorService: SegmentDestinationExecutorService
     recipientTokensService: RecipientTokensService
-    /** Resolved outputs shared across every CDP service/consumer. */
     outputs: CdpOutputs
     emailService: EmailService
-    /** Buffers rendered-email asset rows and bulk-flushes them at the batch boundary. */
     messageAssetsService: MessageAssetsService
     /** Buffers transactional email status rows. `invocationResultsService.flush()` produces them. */
     emailStatusService: EmailStatusService
@@ -209,7 +202,6 @@ export interface CdpCoreServicesDeps {
     teamManager: TeamManager
     personRepository: PersonReadRepository
     integrationManager: IntegrationManagerService
-    /** Registry of producers backing the CDP outputs (DEFAULT / MSK / Warpstream-ingestion / Warehouse). */
     cdpProducerRegistry: KafkaProducerRegistry<CdpProducerName>
     internalCaptureService: InternalCaptureService
     /**
@@ -226,10 +218,6 @@ export interface CdpCoreServicesDeps {
     frequencyCapValkey: RedisV2 | null
 }
 
-/**
- * Creates a Redis reader pool, using a dedicated reader host if configured,
- * otherwise falling back to the writer pool.
- */
 export function createCdpReaderRedisPool(
     config: Pick<
         CdpCoreServicesConfig,
@@ -260,7 +248,6 @@ export function createCdpReaderRedisPool(
             poolMaxSize: config.REDIS_POOL_MAX_SIZE,
         })
 
-        // Non-blocking startup health check — surfaces misconfig immediately in logs
         void readerPool
             .useClient({ name: 'startup-ping', timeout: 5000 }, (client) => client.ping())
             .catch((err) => {
@@ -442,16 +429,13 @@ export function createCdpCoreServices(
     const outputs = createCdpOutputsRegistry().build(deps.cdpProducerRegistry, config)
     const messageAssetsService = new MessageAssetsService(outputs)
     const emailStatusService = new EmailStatusService(outputs, config)
-    // Constructed here (rather than below with the other messaging services) so it can be threaded
-    // into EmailService — the pre-send suppression check lives there so every send path shares one
-    // choke point regardless of whether the invocation came from a workflow action or a hog function.
+    // EmailService owns the suppression check, so every send path shares one choke point.
     const emailSuppressionService = new EmailSuppressionService(deps.postgres, {
         transientBounceThreshold: config.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD,
     })
     const recipientsManager = new RecipientsManagerService(deps.postgres)
     const personsManager = new PersonsManagerService(deps.teamManager, deps.personRepository, config.SITE_URL)
-    // Per-workflow send pacing rides the SES Valkey pool, which is only populated on pods that
-    // execute email actions — exactly where the limit is enforced. Null elsewhere disables it.
+    // The SES Valkey pool exists only on pods that execute email actions, so null elsewhere disables pacing.
     const workflowEmailRateLimiter = deps.emailValidationValkey
         ? new RateLimiterService(deps.emailValidationValkey, { name: 'workflow-email' })
         : null
@@ -460,8 +444,8 @@ export function createCdpCoreServices(
     const teamEmailRateLimiter = deps.emailValidationValkey
         ? new RateLimiterService(deps.emailValidationValkey, { name: 'team-email' })
         : null
-    const emailService = new EmailService(
-        {
+    const emailService = new EmailService({
+        sesConfig: {
             sesAccessKeyId: config.SES_ACCESS_KEY_ID,
             sesSecretAccessKey: config.SES_SECRET_ACCESS_KEY,
             sesRegion: config.SES_REGION,
@@ -472,18 +456,18 @@ export function createCdpCoreServices(
             teamEmailTierHourlyCaps: parseTierCaps(config.EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER),
             teamEmailTierDailyCaps: parseTierCaps(config.EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER),
         },
-        deps.integrationManager,
+        integrationManager: deps.integrationManager,
         teamWorkflowsConfigService,
-        config.ENCRYPTION_SALT_KEYS,
-        config.SITE_URL,
+        encryptionSaltKeys: config.ENCRYPTION_SALT_KEYS,
+        siteUrl: config.SITE_URL,
         trackingCodeSigner,
         emailSuppressionService,
         recipientsManager,
         emailStatusService,
         messageAssetsService,
         workflowEmailRateLimiter,
-        teamEmailRateLimiter
-    )
+        teamEmailRateLimiter,
+    })
     const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
     const hogInputsService = new HogInputsService(deps.integrationManager, recipientTokensService, deps.encryptedFields)
     const pushNotificationService = new PushNotificationService(
@@ -496,7 +480,7 @@ export function createCdpCoreServices(
             backoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
             backoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
         },
-        // Valkey-only: push is pre-release, so it moved over whole rather than dual-writing.
+        // Push writes only to Valkey, without a dual-write, because push is pre-release.
         valkeyShadow.writer,
         personsManager,
         messageAssetsService

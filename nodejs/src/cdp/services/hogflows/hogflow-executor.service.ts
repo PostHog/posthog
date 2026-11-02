@@ -80,7 +80,6 @@ export function createHogFlowInvocation(
     hogFlow: HogFlow,
     filterGlobals: HogFunctionFilterGlobals
 ): CyclotronJobInvocationHogFlow {
-    // Build default variables from hogFlow, then merge in any provided in globals.variables
     const defaultVariables =
         hogFlow.variables?.reduce(
             (acc, variable) => {
@@ -194,7 +193,6 @@ export class HogFlowExecutorService {
         }
     }
 
-    // Decrypted secret input values across the flow's function actions, for redacting test-run logs.
     async getSensitiveValues(hogFlow: HogFlow): Promise<string[]> {
         return this.hogFlowFunctionsService.getSensitiveValues(hogFlow)
     }
@@ -326,13 +324,6 @@ export class HogFlowExecutorService {
         }
         this.recordEnrollment(enrollmentConversion, watcher, metrics, capturedPostHogEvents, conversionWatchers)
 
-        // Routing-only reschedule: the previous dequeue moved this job onto a dedicated queue
-        // (e.g. 'email' for SES rate-limit gating) and is continuing the same action. Suppress
-        // the redundant trigger log — the customer-visible story should be one Resuming line
-        // per real wake (delay, wait_until_condition, throttle retry), not a second one for
-        // an internal queue transition. The flag stays set so executeCurrentAction can also
-        // suppress its "Executing action..." debug log on this same continuation; it clears
-        // the flag itself after reading so subsequent actions on this dequeue log normally.
         if (!invocation.state.currentAction?.routingOnlyReschedule) {
             logs.push(this.logExecutionTriggerInfo(invocation))
         }
@@ -340,7 +331,6 @@ export class HogFlowExecutorService {
         while (!result || !result.finished) {
             const nextInvocation: CyclotronJobInvocationHogFlow = result?.invocation ?? invocation
 
-            // Here we could be continuing the hog function side of things?
             result = await this.executeCurrentAction(nextInvocation)
 
             if (result.finished) {
@@ -493,15 +483,6 @@ export class HogFlowExecutorService {
             }
         }
 
-        /**
-         * If one of the following happens:
-         * - we have finished the flow successfully
-         * - something has been scheduled to run later
-         * - there was an error during the action and the action's on_error is set to 'abort'
-         * - we have reached the max async functions count
-         *
-         * then we break the loop
-         */
         return finishedWithoutError || delayScheduled || shouldAbortAfterError
     }
 
@@ -563,9 +544,6 @@ export class HogFlowExecutorService {
         return trigger.transition === 'entered' ? inCohort === true : inCohort !== true
     }
 
-    /**
-     * Determines if the invocation should exit early based on the hogflow's exit condition
-     */
     private async shouldExitEarly(
         invocation: CyclotronJobInvocationHogFlow
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null> {
@@ -685,8 +663,9 @@ export class HogFlowExecutorService {
         // run whose email action isn't the first action executed.
         const result = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
             queuePriority: invocation.queuePriority,
+            queueMetadata: invocation.queue === 'email' ? invocation.queueMetadata : undefined,
         })
-        result.finished = false // Typically we are never finished unless we error or exit
+        result.finished = false
 
         try {
             const currentAction = ensureCurrentAction(invocation)
@@ -700,11 +679,6 @@ export class HogFlowExecutorService {
 
             await this.observeDuplicateInvocation(invocation, currentAction)
 
-            // Routing-only reschedule continuation (see hog_function.ts): the previous dequeue
-            // set this flag so the executor knows the current call is just resuming an action
-            // that was momentarily parked to switch queues — not the start of a fresh action
-            // step. Suppress the redundant "Executing action..." log and consume the flag so
-            // subsequent actions (next handler returns nextAction → loop continues) log normally.
             if (invocation.state.currentAction?.routingOnlyReschedule) {
                 invocation.state.currentAction.routingOnlyReschedule = false
             } else {
@@ -750,7 +724,6 @@ export class HogFlowExecutorService {
                 if (handlerResult.finished) {
                     result.finished = true
                     result.skipped = handlerResult.skipped
-                    // A non-matching trigger is filtered, while an exit is a successful finish.
                     this.trackActionMetric(result, currentAction, handlerResult.skipped ? 'filtered' : 'succeeded')
                 }
 
@@ -767,8 +740,7 @@ export class HogFlowExecutorService {
                 // outer catch. The same error from an untouched flow is a malformed definition and
                 // keeps the failure treatment.
                 if (!this.isLiveEditWorkflowChange(err, invocation)) {
-                    // Add logs and metric specifically for this action
-                    this.logAction(result, currentAction, 'error', `Errored: ${String(err)}`) // TODO: Is this enough detail?
+                    this.logAction(result, currentAction, 'error', `Errored: ${String(err)}`)
                     this.trackActionMetric(result, currentAction, 'failed')
                 }
 
@@ -802,11 +774,8 @@ export class HogFlowExecutorService {
                 return result
             }
 
-            // The final catch - in this case we are always just logging the final outcome
             result.error = err.message
             result.finished = true // Explicitly set to true to prevent infinite loops
-            // (a WorkflowChangedError from an untouched flow lands here too: the graph was malformed
-            // all along, so it stays a failure the author can see rather than a quiet exit)
 
             this.maybeContinueToNextActionOnError(result)
 
@@ -896,7 +865,6 @@ export class HogFlowExecutorService {
         result.finished = false
 
         result.invocation.state.actionStepCount++
-        // Update the state to be going to the next action
         result.invocation.state.currentAction = {
             id: nextAction.id,
             startedAtTimestamp: DateTime.now().toMillis(),
@@ -913,10 +881,6 @@ export class HogFlowExecutorService {
         return result
     }
 
-    /**
-     * Unless the action has on_error set to 'abort' we continue to the next action instead of failing the flow.
-     * An action without on_error gets the default, which is to continue.
-     */
     private maybeContinueToNextActionOnError(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>
     ): void {
@@ -934,8 +898,6 @@ export class HogFlowExecutorService {
             ) {
                 return
             }
-            // Unless the current action's on_error is set to 'abort', we move to the next action instead of
-            // failing the flow. 'continue' is the default, so an action that never had on_error set gets it too.
             const currentAction = ensureCurrentAction(invocation)
             if (currentAction?.on_error !== 'abort') {
                 const nextAction = findContinueAction(invocation)
@@ -947,10 +909,6 @@ export class HogFlowExecutorService {
                         `Continuing to next action ${actionIdForLogging(nextAction)} despite error due to error handling setting being set to continue on error`
                     )
 
-                    /**
-                     * TODO: Determine if we should track this as a 'succeeded' metric here or
-                     * a new metric_name e.g. 'continued_after_error'
-                     */
                     this.goToNextAction(result, currentAction, nextAction, 'succeeded')
                 }
             }
@@ -959,21 +917,12 @@ export class HogFlowExecutorService {
         }
     }
 
-    /**
-     * Updates the scheduledAt field on the result to indicate that the invocation should be scheduled for the future
-     */
     private scheduleInvocation(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
         scheduledAt: DateTime
     ): CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> {
-        // If the result has scheduled for the future then we return that triggering a push back to the queue
         result.invocation.queueScheduledAt = scheduledAt
         result.finished = false
-        // Routing-only reschedules (hog function moving the job onto a dedicated queue) don't
-        // represent a workflow-author-visible pause — the next dequeue fires almost
-        // immediately and continues the same action. Skip the "Workflow will pause until..."
-        // log in that case so it doesn't surface as a pause the workflow never actually took.
-        // Real pauses (delays, wait_until_condition, throttle retries) still log normally.
         if (!result.invocation.state.currentAction?.routingOnlyReschedule) {
             result.logs.push({
                 level: 'info',
@@ -1026,7 +975,6 @@ export class HogFlowExecutorService {
         action: HogFlowAction,
         actionResult: unknown
     ): void {
-        // Normalize output_variable to an array for uniform handling
         const outputVars = Array.isArray(action.output_variable)
             ? action.output_variable
             : action.output_variable
@@ -1059,7 +1007,6 @@ export class HogFlowExecutorService {
 
             const resolvedResult = outputVar.result_path ? get(actionResult, outputVar.result_path) : actionResult
 
-            // When spread is true, store each property of the result as a separate variable
             if (
                 outputVar.spread &&
                 typeof resolvedResult === 'object' &&
@@ -1078,7 +1025,6 @@ export class HogFlowExecutorService {
             }
         }
 
-        // Check that total variables are below 5KB
         const resultSize = Buffer.byteLength(JSON.stringify(result.invocation.state.variables), 'utf8')
         if (resultSize > 5120) {
             const keyNames = allStoredKeys.join(', ')
@@ -1087,7 +1033,6 @@ export class HogFlowExecutorService {
                 'error',
                 `Total variable size after updating '${keyNames}' exceeds 5KB limit. Use result_path to store only the fields you need.`
             )
-            // Clean up all variables we just set
             for (const key of allStoredKeys) {
                 delete result.invocation.state.variables[key]
             }

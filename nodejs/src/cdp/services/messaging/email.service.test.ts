@@ -150,8 +150,8 @@ describe('EmailService', () => {
         hub = await createHub({})
         team = (await createTestTeamFixture(hub.postgres)).team
         integrationIdBase = team.id
-        service = new EmailService(
-            {
+        service = new EmailService({
+            sesConfig: {
                 sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
                 sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
                 sesRegion: hub.SES_REGION,
@@ -159,15 +159,15 @@ describe('EmailService', () => {
                 sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
                 sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
             },
-            hub.integrationManager,
-            new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
-            hub.ENCRYPTION_SALT_KEYS,
-            hub.SITE_URL,
-            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
-            new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
-            new RecipientsManagerService(hub.postgres),
-            null
-        )
+            integrationManager: hub.integrationManager,
+            teamWorkflowsConfigService: new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
+            encryptionSaltKeys: hub.ENCRYPTION_SALT_KEYS,
+            siteUrl: hub.SITE_URL,
+            trackingCodeSigner: new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
+            emailSuppressionService: new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
+            recipientsManager: new RecipientsManagerService(hub.postgres),
+            emailStatusService: null,
+        })
         mockFetch.mockClear()
     })
     afterEach(async () => {
@@ -177,8 +177,8 @@ describe('EmailService', () => {
     })
     describe('when SES is not configured', () => {
         it('should not crash on construction and should fail explicitly on send', async () => {
-            const serviceWithoutSES = new EmailService(
-                {
+            const serviceWithoutSES = new EmailService({
+                sesConfig: {
                     sesAccessKeyId: '',
                     sesSecretAccessKey: '',
                     sesRegion: '',
@@ -186,15 +186,15 @@ describe('EmailService', () => {
                     sesTrackedConfigurationSet: 'posthog-messaging',
                     sesUntrackedConfigurationSet: '',
                 },
-                hub.integrationManager,
-                new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
-                hub.ENCRYPTION_SALT_KEYS,
-                hub.SITE_URL,
-                new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
-                new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
-                new RecipientsManagerService(hub.postgres),
-                null
-            )
+                integrationManager: hub.integrationManager,
+                teamWorkflowsConfigService: new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
+                encryptionSaltKeys: hub.ENCRYPTION_SALT_KEYS,
+                siteUrl: hub.SITE_URL,
+                trackingCodeSigner: new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
+                emailSuppressionService: new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
+                recipientsManager: new RecipientsManagerService(hub.postgres),
+                emailStatusService: null,
+            })
             expect(serviceWithoutSES.sesV2Client).toBeNull()
 
             await insertIntegration(hub.postgres, team.id, {
@@ -596,8 +596,8 @@ describe('EmailService', () => {
 
             beforeEach(() => {
                 claimOrReserve = jest.fn().mockResolvedValue({ granted: 1, retryAfterMs: null, reserved: false })
-                limitedService = new EmailService(
-                    {
+                limitedService = new EmailService({
+                    sesConfig: {
                         sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
                         sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
                         sesRegion: hub.SES_REGION,
@@ -605,17 +605,19 @@ describe('EmailService', () => {
                         sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
                         sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
                     },
-                    hub.integrationManager,
-                    new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
-                    hub.ENCRYPTION_SALT_KEYS,
-                    hub.SITE_URL,
-                    new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
-                    new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
-                    new RecipientsManagerService(hub.postgres),
-                    null,
-                    undefined,
-                    { claimOrReserve } as unknown as RateLimiterService
-                )
+                    integrationManager: hub.integrationManager,
+                    teamWorkflowsConfigService: new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
+                    encryptionSaltKeys: hub.ENCRYPTION_SALT_KEYS,
+                    siteUrl: hub.SITE_URL,
+                    trackingCodeSigner: new EmailTrackingCodeSigner(
+                        hub.ENCRYPTION_SALT_KEYS,
+                        hub.CDP_EMAIL_TRACKING_URL
+                    ),
+                    emailSuppressionService: new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
+                    recipientsManager: new RecipientsManagerService(hub.postgres),
+                    emailStatusService: null,
+                    workflowEmailRateLimiter: { claimOrReserve } as unknown as RateLimiterService,
+                })
                 limitedSendSpy = jest.spyOn(limitedService.sesV2Client!, 'send') as any
                 limitedSendSpy.mockResolvedValue({ MessageId: 'test-message-id' })
                 invocation.hogFunction.metadata = {
@@ -769,8 +771,8 @@ describe('EmailService', () => {
                     poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
                 })
                 testRedisPools.push(redis)
-                const realLimitedService = new EmailService(
-                    {
+                const realLimitedService = new EmailService({
+                    sesConfig: {
                         sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
                         sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
                         sesRegion: hub.SES_REGION,
@@ -778,17 +780,19 @@ describe('EmailService', () => {
                         sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
                         sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
                     },
-                    hub.integrationManager,
-                    new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
-                    hub.ENCRYPTION_SALT_KEYS,
-                    hub.SITE_URL,
-                    new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
-                    new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
-                    new RecipientsManagerService(hub.postgres),
-                    null,
-                    undefined,
-                    new RateLimiterService(redis, { name: 'workflow-email-backlog-test' })
-                )
+                    integrationManager: hub.integrationManager,
+                    teamWorkflowsConfigService: new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
+                    encryptionSaltKeys: hub.ENCRYPTION_SALT_KEYS,
+                    siteUrl: hub.SITE_URL,
+                    trackingCodeSigner: new EmailTrackingCodeSigner(
+                        hub.ENCRYPTION_SALT_KEYS,
+                        hub.CDP_EMAIL_TRACKING_URL
+                    ),
+                    emailSuppressionService: new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
+                    recipientsManager: new RecipientsManagerService(hub.postgres),
+                    emailStatusService: null,
+                    workflowEmailRateLimiter: new RateLimiterService(redis, { name: 'workflow-email-backlog-test' }),
+                })
                 const realSendSpy = jest.spyOn(realLimitedService.sesV2Client!, 'send') as any
                 realSendSpy.mockResolvedValue({ MessageId: 'test-message-id' })
 
@@ -837,8 +841,8 @@ describe('EmailService', () => {
                 claimAllOrNothingPair = jest.fn()
                 const configService = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
                 jest.spyOn(configService, 'getEmailSendingTier').mockResolvedValue(0)
-                cappedService = new EmailService(
-                    {
+                cappedService = new EmailService({
+                    sesConfig: {
                         sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
                         sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
                         sesRegion: hub.SES_REGION,
@@ -849,18 +853,19 @@ describe('EmailService', () => {
                         teamEmailTierHourlyCaps: [100],
                         teamEmailTierDailyCaps: [200],
                     },
-                    hub.integrationManager,
-                    configService,
-                    hub.ENCRYPTION_SALT_KEYS,
-                    hub.SITE_URL,
-                    new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
-                    new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
-                    new RecipientsManagerService(hub.postgres),
-                    null,
-                    undefined,
-                    null,
-                    { claimAllOrNothingPair } as unknown as RateLimiterService
-                )
+                    integrationManager: hub.integrationManager,
+                    teamWorkflowsConfigService: configService,
+                    encryptionSaltKeys: hub.ENCRYPTION_SALT_KEYS,
+                    siteUrl: hub.SITE_URL,
+                    trackingCodeSigner: new EmailTrackingCodeSigner(
+                        hub.ENCRYPTION_SALT_KEYS,
+                        hub.CDP_EMAIL_TRACKING_URL
+                    ),
+                    emailSuppressionService: new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
+                    recipientsManager: new RecipientsManagerService(hub.postgres),
+                    emailStatusService: null,
+                    teamEmailRateLimiter: { claimAllOrNothingPair } as unknown as RateLimiterService,
+                })
                 cappedSendSpy = jest.spyOn(cappedService.sesV2Client!, 'send') as any
                 cappedSendSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             })
@@ -967,8 +972,8 @@ describe('EmailService', () => {
                 const limiter = new RateLimiterService(redis, { name: 'team-email-cap-test' })
                 const configService = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
                 jest.spyOn(configService, 'getEmailSendingTier').mockResolvedValue(0)
-                const enforcedService = new EmailService(
-                    {
+                const enforcedService = new EmailService({
+                    sesConfig: {
                         sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
                         sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
                         sesRegion: hub.SES_REGION,
@@ -979,18 +984,19 @@ describe('EmailService', () => {
                         teamEmailTierHourlyCaps: [hourlyCap],
                         teamEmailTierDailyCaps: [dailyCap],
                     },
-                    hub.integrationManager,
-                    configService,
-                    hub.ENCRYPTION_SALT_KEYS,
-                    hub.SITE_URL,
-                    new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
-                    new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
-                    new RecipientsManagerService(hub.postgres),
-                    null,
-                    undefined,
-                    null,
-                    limiter
-                )
+                    integrationManager: hub.integrationManager,
+                    teamWorkflowsConfigService: configService,
+                    encryptionSaltKeys: hub.ENCRYPTION_SALT_KEYS,
+                    siteUrl: hub.SITE_URL,
+                    trackingCodeSigner: new EmailTrackingCodeSigner(
+                        hub.ENCRYPTION_SALT_KEYS,
+                        hub.CDP_EMAIL_TRACKING_URL
+                    ),
+                    emailSuppressionService: new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
+                    recipientsManager: new RecipientsManagerService(hub.postgres),
+                    emailStatusService: null,
+                    teamEmailRateLimiter: limiter,
+                })
                 const enforcedSendSpy = jest.spyOn(enforcedService.sesV2Client!, 'send') as any
                 enforcedSendSpy.mockResolvedValue({ MessageId: 'test-message-id' })
 

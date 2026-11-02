@@ -73,8 +73,8 @@ describe('Hog Executor', () => {
             new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
             encryptedFields
         )
-        const emailService = new EmailService(
-            {
+        const emailService = new EmailService({
+            sesConfig: {
                 sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
                 sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
                 sesRegion: hub.SES_REGION,
@@ -82,15 +82,15 @@ describe('Hog Executor', () => {
                 sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
                 sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
             },
-            hub.integrationManager,
-            new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
-            hub.ENCRYPTION_SALT_KEYS,
-            hub.SITE_URL,
-            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
-            new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
-            new RecipientsManagerService(hub.postgres),
-            null
-        )
+            integrationManager: hub.integrationManager,
+            teamWorkflowsConfigService: new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
+            encryptionSaltKeys: hub.ENCRYPTION_SALT_KEYS,
+            siteUrl: hub.SITE_URL,
+            trackingCodeSigner: new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
+            emailSuppressionService: new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
+            recipientsManager: new RecipientsManagerService(hub.postgres),
+            emailStatusService: null,
+        })
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         return new HogExecutorAsyncService(
             new HogExecutorService({ executionTimeoutMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS }, hogInputsService),
