@@ -688,6 +688,7 @@ export namespace Schemas {
      * * `session_recording_playlist` - session_recording_playlist
      * * `sharing_configuration` - sharing_configuration
      * * `signal_scout` - signal_scout
+     * * `signal_usage` - signal_usage
      * * `stamphog` - stamphog
      * * `streamlit_app` - streamlit_app
      * * `subscription` - subscription
@@ -810,6 +811,7 @@ export namespace Schemas {
       SessionRecordingPlaylist: 'session_recording_playlist',
       SharingConfiguration: 'sharing_configuration',
       SignalScout: 'signal_scout',
+      SignalUsage: 'signal_usage',
       Stamphog: 'stamphog',
       StreamlitApp: 'streamlit_app',
       Subscription: 'subscription',
@@ -932,6 +934,7 @@ export namespace Schemas {
        * * `session_recording_playlist` - session_recording_playlist
        * * `sharing_configuration` - sharing_configuration
        * * `signal_scout` - signal_scout
+       * * `signal_usage` - signal_usage
        * * `stamphog` - stamphog
        * * `streamlit_app` - streamlit_app
        * * `subscription` - subscription
@@ -1177,6 +1180,7 @@ export namespace Schemas {
        * * `session_recording_playlist` - session_recording_playlist
        * * `sharing_configuration` - sharing_configuration
        * * `signal_scout` - signal_scout
+       * * `signal_usage` - signal_usage
        * * `stamphog` - stamphog
        * * `streamlit_app` - streamlit_app
        * * `subscription` - subscription
@@ -1585,6 +1589,7 @@ export namespace Schemas {
        * * `session_recording_playlist` - session_recording_playlist
        * * `sharing_configuration` - sharing_configuration
        * * `signal_scout` - signal_scout
+       * * `signal_usage` - signal_usage
        * * `stamphog` - stamphog
        * * `streamlit_app` - streamlit_app
        * * `subscription` - subscription
@@ -48139,7 +48144,6 @@ export namespace Schemas {
      * * `metric_all_zero` - Metric All Zero
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `exposure_filter_on_dynamic_cohort` - Exposure Filter On Dynamic Cohort
-     * * `exposure_filter_excludes_events` - Exposure Filter Excludes Events
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
@@ -48169,7 +48173,6 @@ export namespace Schemas {
       MetricAllZero: 'metric_all_zero',
       ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
       ExposureFilterOnDynamicCohort: 'exposure_filter_on_dynamic_cohort',
-      ExposureFilterExcludesEvents: 'exposure_filter_excludes_events',
       Srm: 'srm',
       ZeroExposures: 'zero_exposures',
       TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
@@ -48242,7 +48245,6 @@ export namespace Schemas {
        * * `metric_all_zero` - Metric All Zero
        * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
        * * `exposure_filter_on_dynamic_cohort` - Exposure Filter On Dynamic Cohort
-       * * `exposure_filter_excludes_events` - Exposure Filter Excludes Events
        * * `srm` - Sample Ratio Mismatch
        * * `zero_exposures` - Zero Exposures
        * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
@@ -72962,6 +72964,7 @@ export namespace Schemas {
        * * `session_recording_playlist` - session_recording_playlist
        * * `sharing_configuration` - sharing_configuration
        * * `signal_scout` - signal_scout
+       * * `signal_usage` - signal_usage
        * * `stamphog` - stamphog
        * * `streamlit_app` - streamlit_app
        * * `subscription` - subscription
@@ -79311,11 +79314,11 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `DEBUG` - DEBUG
-     * * `LOG` - LOG
-     * * `INFO` - INFO
-     * * `WARN` - WARN
-     * * `ERROR` - ERROR
+     * * `DEBUG` - Debug
+     * * `LOG` - Log
+     * * `INFO` - Info
+     * * `WARN` - Warn
+     * * `ERROR` - Error
      */
     export type PluginLogEntryTypeEnum = typeof PluginLogEntryTypeEnum[keyof typeof PluginLogEntryTypeEnum];
 
@@ -105927,6 +105930,25 @@ export namespace Schemas {
       signals: SignalNode[];
     }
 
+    export interface SpendAmount {
+      /**
+         * Recorded usage in USD cents, before billing exemptions; null when untracked.
+         * @nullable
+         */
+      total_spend: number | null;
+      /** Whether usage is still settling or accounting is incomplete. */
+      incomplete: boolean;
+    }
+
+    export interface ReportSpend {
+      /** Usage for the report's backing signals, research and repository selection. */
+      generation: SpendAmount;
+      /** Usage for implementation tasks owned by the report. */
+      implementation: SpendAmount;
+      /** Full usage of scout runs that authored this report. Shared with all other output of those runs. */
+      shared_scout_runs: SpendAmount;
+    }
+
     /**
      * * `get_it_merged` - Get it merged
      * * `make_it_green` - Make it green
@@ -110167,6 +110189,18 @@ export namespace Schemas {
       name: string;
       /** Every scope a token minted from this preset carries, including the internal ones. */
       scopes: string[];
+    }
+
+    export interface ScoutSpend {
+      /** Name of the scout skill. */
+      skill_name: string;
+      /** Accumulated usage for this scout's runs in the period. */
+      spend: SpendAmount;
+      /**
+         * Average recorded usage per tracked scout run in USD cents; null when no runs were tracked.
+         * @nullable
+         */
+      average_spend: number | null;
     }
 
     export interface ScoutSuggestionRefresh {
@@ -118268,6 +118302,17 @@ export namespace Schemas {
       webhook?: SourceSetupWebhook;
     }
 
+    export interface SourceSpend {
+      /** Product that emitted the signals. */
+      source_product: string;
+      /** Type of signals emitted by the source. */
+      source_type: string;
+      /** Number of signals received in the last 30 days. */
+      signal_count: number;
+      /** Accumulated processing usage on these signals, including later processing. */
+      spend: SpendAmount;
+    }
+
     /**
      * Validation errors keyed by the source or mapped table ID. Valid sources are omitted.
      */
@@ -118322,6 +118367,17 @@ export namespace Schemas {
       Count: 'count',
       Bytes: 'bytes',
     } as const;
+
+    export interface SpendOverview {
+      /** Inclusive start of the rolling 30-day run window. */
+      period_start: string;
+      /** Exclusive end of the rolling 30-day run window. */
+      period_end: string;
+      /** Usage for each scout with runs in the period. */
+      scouts: ScoutSpend[];
+      /** Total scout run usage in the period. */
+      scout_spend: SpendAmount;
+    }
 
     /**
      * Raw cached payload as stored in Redis, or null on a miss.
@@ -130344,6 +130400,7 @@ export namespace Schemas {
     export type CrossProjectDashboardsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -130355,6 +130412,7 @@ export namespace Schemas {
     export type CrossProjectDashboardsTilesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -137645,6 +137703,7 @@ export namespace Schemas {
     include_tags?: boolean;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -138105,6 +138164,7 @@ export namespace Schemas {
     latest_send_first?: boolean;
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number;
     /**
@@ -138520,6 +138580,7 @@ export namespace Schemas {
     export type HogFlowsProposalsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number;
     /**
@@ -138545,6 +138606,7 @@ export namespace Schemas {
     export type HogFlowsRevisionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number;
     /**
@@ -141711,14 +141773,50 @@ export namespace Schemas {
 
     export type PluginConfigsLogsListParams = {
     /**
-     * Number of results to return per page.
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Maximum number of log entries to return (1-1000, default 100).
+     * @minimum 1
+     * @maximum 1000
      */
     limit?: number;
     /**
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     */
+    search?: string;
+    /**
+     * Log types to include. Repeat the parameter to include more than one type.
+     */
+    type_filter?: PluginConfigsLogsListTypeFilterItem[];
     };
+
+    /**
+     * * `DEBUG` - Debug
+     * * `LOG` - Log
+     * * `INFO` - Info
+     * * `WARN` - Warn
+     * * `ERROR` - Error
+     */
+    export type PluginConfigsLogsListTypeFilterItem = typeof PluginConfigsLogsListTypeFilterItem[keyof typeof PluginConfigsLogsListTypeFilterItem];
+
+
+    export const PluginConfigsLogsListTypeFilterItem = {
+      Debug: 'DEBUG',
+      Log: 'LOG',
+      Info: 'INFO',
+      Warn: 'WARN',
+      Error: 'ERROR',
+    } as const;
 
     export type PrecomputeDebugStateParams = {
     /**
@@ -142387,6 +142485,7 @@ export namespace Schemas {
     created_by?: number;
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number;
     /**
@@ -145750,6 +145849,7 @@ export namespace Schemas {
     kind?: WarehouseSuggestionsListKind;
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -145999,6 +146099,7 @@ export namespace Schemas {
     created_after?: string;
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -146036,7 +146137,7 @@ export namespace Schemas {
     export type WizardSessionsListParams = {
     /**
      * Maximum number of sessions to return.
-     * @minimum 0
+     * @minimum 1
      * @maximum 200
      */
     limit?: number;
