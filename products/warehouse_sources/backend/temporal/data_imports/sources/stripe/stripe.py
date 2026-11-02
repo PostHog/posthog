@@ -520,9 +520,9 @@ class _V2ListPage:
             page = self._client.raw_request("get", next_page_url).data
 
 
-def _v2_lister(client: StripeClient, path: str) -> Callable[..., _V2ListPage]:
-    def _list(params: dict[str, Any]) -> _V2ListPage:
-        return _V2ListPage(client, client.raw_request("get", path, limit=params["limit"]).data)
+def _v2_lister(client: StripeClient, path: str) -> Callable[..., ListObject[Any]]:
+    def _list(params: dict[str, Any]) -> ListObject[Any]:
+        return cast(ListObject[Any], _V2ListPage(client, client.raw_request("get", path, limit=params["limit"]).data))
 
     return _list
 
