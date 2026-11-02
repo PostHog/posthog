@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 
 import {
+    LegacyDisplayEntity,
     formatEventName,
     getDisplayNameFromEntityFilter,
     isAllEventsEntityFilter,
@@ -19,16 +20,16 @@ import {
 } from 'scenes/insights/filters/ActionFilter/seriesNode'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
-import { ActionFilter, EntityFilter, EntityTypes } from '~/types'
+import { ActionFilter, EntityTypes } from '~/types'
 
 import { TaxonomicFilterGroupType } from './TaxonomicFilter/types'
 
 /** A series reaches this component either as a query node or as the legacy entity filter that
  *  query responses and the legacy-persisted surfaces still carry. */
-export type DisplayableEntity = EntityFilter | ActionFilter | SeriesNode
+export type DisplayableEntity = LegacyDisplayEntity | ActionFilter | SeriesNode
 
 /** Reads a node into the legacy display fields, so one set of display rules serves both shapes. */
-export type DisplayEntityFilter = (EntityFilter | ActionFilter) & { table_name?: string }
+export type DisplayEntityFilter = (LegacyDisplayEntity | ActionFilter) & { table_name?: string }
 
 export function toDisplayEntityFilter(filter: DisplayableEntity): DisplayEntityFilter {
     const displayFilter = nodeToDisplayEntityFilter(filter)

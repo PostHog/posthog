@@ -19,16 +19,12 @@ const WIDGET_FETCH_ERROR_PASSTHROUGH_PREFIXES = [
     'Unknown widget type:',
 ] as const
 
-/** `isUserFacing` comes from the run result's `error_is_user_facing`: the backend wrote the message for the viewer. */
-export function getDashboardWidgetFetchDisplayError(
-    error: string | null | undefined,
-    isUserFacing?: boolean | null
-): string | null {
+export function getDashboardWidgetFetchDisplayError(error: string | null | undefined): string | null {
     if (!error) {
         return null
     }
 
-    if (isUserFacing || WIDGET_FETCH_ERROR_PASSTHROUGH_PREFIXES.some((prefix) => error.startsWith(prefix))) {
+    if (WIDGET_FETCH_ERROR_PASSTHROUGH_PREFIXES.some((prefix) => error.startsWith(prefix))) {
         return error
     }
 
