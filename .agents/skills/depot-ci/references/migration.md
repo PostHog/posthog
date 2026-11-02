@@ -6,7 +6,7 @@ Detail for `depot ci migrate` and its subcommands, the transformations migration
 
 Use the default `--forge=github` for repositories that use GitHub as the source of truth. Use `--forge=origin` for Origin-hosted repositories. The Origin flow detects an `origin.cursor.com` remote and checks that Depot can access the repository.
 
-Use `--forge=entire` for Entire repositories with CLI v2.103.3 or later. Preflight checks that a connected Entire installation covers the repository. Entire cannot supply secrets and variables through migration; run `depot ci migrate secrets-and-vars` from a checkout whose push remote is the GitHub repository that holds them, or add them manually. See `entire.md` for setup.
+Use `--forge=entire` for Entire repositories with CLI v2.103.3 or later. Preflight checks that a connected Entire installation covers the repository. Entire cannot supply secrets and variables through migration; run `depot ci migrate secrets-and-vars` from a checkout whose push remote is the GitHub repository that holds them, or add them manually.
 
 ## Migrate subcommands
 

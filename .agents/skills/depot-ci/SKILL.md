@@ -61,8 +61,6 @@ Use `--org <org-id>` when the workflow/repo lives in a different org than the cu
 
 ## Getting Started
 
-For Entire repositories, use the connection and migration steps in `references/entire.md`. The steps below cover GitHub.
-
 ### 1. Install the Depot Code Access GitHub App
 
 Depot dashboard → Settings → GitHub Code Access → Connect to GitHub. (If you've used Claude Code on Depot, this may already be installed.)
@@ -152,7 +150,7 @@ depot ci run --workflow .depot/workflows/ci.yml --repo owner/repo
 depot ci run --workflow .depot/workflows/ci.yml --forge depot
 ```
 
-The CLI detects GitHub, Origin, Entire, and Depot Code from git remotes. Depot Code is automatic only when all supported remotes use Depot Code; mirrored checkouts use the other forge. Set `--forge` to `github`, `origin`, `entire`, or `depot` to select a forge. Use `--repo <name>` to select a repository. Without a matching remote, also specify `--forge` for non-GitHub repositories. Entire names include the namespace, such as `et/acme/api`; read `references/entire.md` for setup and limits.
+The CLI detects GitHub, Origin, Entire, and Depot Code from git remotes. Depot Code is automatic only when all supported remotes use Depot Code; mirrored checkouts use the other forge. Set `--forge` to `github`, `origin`, `entire`, or `depot` to select a forge. Use `--repo <name>` to select a repository. Without a matching remote, also specify `--forge` for non-GitHub repositories. Entire names include the namespace, such as `et/acme/api`.
 
 Local patches contain unpushed changes relative to the branch's remote state, or changes relative to the default branch for local-only branches. The patch applies after `actions/checkout` for the run's repository, including jobs in same-repository reusable workflows. Download or application failures fail the job. Use the latest CLI, because older versions may still warn that reusable workflow patches are unsupported.
 
