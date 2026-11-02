@@ -453,10 +453,12 @@ class RootTeamMixin(models.Model):
     def save(self, *args: Any, **kwargs: Any) -> None:
         # A partial update that leaves the team out cannot change it, so it skips the team read.
         # In a loop over rows that did not load the team, that read costs one query per row.
-        update_fields = kwargs.get("update_fields")
-        if update_fields is not None and not {"team", "team_id"} & set(update_fields):
-            super().save(*args, **kwargs)
-            return
+        if kwargs.get("update_fields") is not None:
+            # Django accepts any iterable here, so read it once and pass the same values on.
+            kwargs["update_fields"] = update_fields = list(kwargs["update_fields"])
+            if not {"team", "team_id"} & set(update_fields):
+                super().save(*args, **kwargs)
+                return
         if hasattr(self, "team") and self.team and hasattr(self.team, "parent_team") and self.team.parent_team:  # type: ignore
             self.team = self.team.parent_team  # type: ignore
         super().save(*args, **kwargs)
