@@ -12,6 +12,12 @@ import type { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
 
 import { examples } from '~/queries/examples'
+import {
+    isBIVisualizationNode,
+    isDataTableNode,
+    isDataVisualizationNode,
+    isHogQLQuery,
+} from '~/queries/schema/node-guards'
 import type { FileSystemImport } from '~/queries/schema/schema-general'
 import {
     DashboardFilter,
@@ -21,14 +27,12 @@ import {
     HogQLFilters,
     HogQLQuery,
     HogQLVariable,
-    MetricsQuery,
     Node,
     NodeKind,
     ProductItemCategory,
     ProductKey,
     TileFilters,
 } from '~/queries/schema/schema-general'
-import { isBIVisualizationNode, isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 import { ExperimentsTabs } from '~/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
@@ -2293,17 +2297,6 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         href: urls.insightNew({ type: InsightType.LIFECYCLE }),
         iconType: 'insight/lifecycle',
         visualOrder: INSIGHT_VISUAL_ORDER.lifecycle,
-        sceneKeys: ['Insight'],
-    },
-    {
-        path: `Insight/Metrics`,
-        type: 'insight',
-        href: urls.insightNew({
-            query: { kind: NodeKind.MetricsQuery, clauses: [], dateRange: { date_from: '-1h' } } as MetricsQuery,
-        }),
-        flag: FEATURE_FLAGS.METRICS_INSIGHT_BUILDER,
-        iconType: 'metrics',
-        visualOrder: INSIGHT_VISUAL_ORDER.metrics,
         sceneKeys: ['Insight'],
     },
     {

@@ -2,12 +2,9 @@ import { useValues } from 'kea'
 
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
 import { RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
+import { getDisplayNameFromEntityFilter } from 'lib/insights/entityFilterNames'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils/strings'
-import {
-    getDisplayNameFromEntityFilter,
-    getDisplayNameFromEntityNode,
-    humanizePathsEventTypes,
-} from 'scenes/insights/utils'
+import { getDisplayNameFromEntityNode, humanizePathsEventTypes } from 'scenes/insights/utils'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import type { cohortsModelType } from '~/models/cohortsModel'
@@ -15,15 +12,7 @@ import { groupsModel } from '~/models/groupsModel'
 import type { groupsModelType } from '~/models/groupsModel'
 import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
 import {
-    Breakdown,
-    BreakdownFilter,
-    InsightQueryNode,
-    MultipleBreakdownType,
-    Node,
-} from '~/queries/schema/schema-general'
-import {
     isDataTableNode,
-    isEventsQuery,
     isFunnelsQuery,
     isHogQLQuery,
     isInsightVizNode,
@@ -36,7 +25,15 @@ import {
     isTrendsQuery,
     isWebOverviewQuery,
     isWebStatsTableQuery,
-} from '~/queries/utils'
+} from '~/queries/schema/node-guards'
+import {
+    Breakdown,
+    BreakdownFilter,
+    InsightQueryNode,
+    MultipleBreakdownType,
+    Node,
+} from '~/queries/schema/schema-general'
+import { isEventsQuery } from '~/queries/utils'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { BreakdownKeyType, BreakdownType, EntityFilter, FilterType, FunnelVizType, StepOrderValue } from '~/types'

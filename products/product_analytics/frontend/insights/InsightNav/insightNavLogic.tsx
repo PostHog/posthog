@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
@@ -14,12 +15,31 @@ import {
     withFlagCallsAggregationTarget,
 } from 'scenes/insights/filters/ActionFilter/flagCallsSeries'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { urls } from 'scenes/urls'
 
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/defaults'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
+import { normalizeDisplay } from '~/queries/schema/node-accessors'
+import {
+    containsHogQLQuery,
+    isAnyDataWarehouseNode,
+    isDataTableNode,
+    isDataVisualizationNode,
+    isDataWarehouseNode,
+    isFunnelsQuery,
+    isFunnelsDataWarehouseNode,
+    isInsightQueryWithBreakdown,
+    isInsightVizNode,
+    isLifecycleDataWarehouseNode,
+    isLifecycleQuery,
+    isMetricsQuery,
+    isPathsQuery,
+    isPathsV2Query,
+    isRetentionQuery,
+    isStickinessQuery,
+    isTrendsQuery,
+} from '~/queries/schema/node-guards'
 import {
     ActionsNode,
     AnyDataWarehouseNode,
@@ -54,30 +74,12 @@ import {
 } from '~/queries/schema/schema-general'
 import type { Node } from '~/queries/schema/schema-general'
 import {
-    containsHogQLQuery,
     getResultCustomizations,
     filterForQuery,
-    isAnyDataWarehouseNode,
-    isDataTableNode,
-    isDataVisualizationNode,
-    isDataWarehouseNode,
     isEndpointsUsageQuery,
     isEventsQuery,
-    isFunnelsQuery,
-    isFunnelsDataWarehouseNode,
     isHogQuery,
-    isInsightQueryWithBreakdown,
-    isInsightVizNode,
-    isLifecycleDataWarehouseNode,
-    isLifecycleQuery,
-    isMetricsQuery,
-    isPathsQuery,
-    isPathsV2Query,
-    isRetentionQuery,
-    isStickinessQuery,
-    isTrendsQuery,
     isWebAnalyticsInsightQuery,
-    normalizeDisplay,
 } from '~/queries/utils'
 import {
     BaseMathType,
@@ -585,7 +587,12 @@ export interface insightNavLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         activeView: (query: Node<Record<string, any>> | null) => InsightType
-        tabs: (activeView: InsightType, query: Node<Record<string, any>> | null, featureFlags: FeatureFlagsSet) => Tab[]
+        tabs: (
+            activeView: InsightType,
+            query: Node<Record<string, any>> | null,
+            featureFlags: FeatureFlagsSet,
+            metricsQueryCache: MetricsQuery | null
+        ) => Tab[]
     }
 }
 
@@ -657,11 +664,12 @@ export const insightNavLogic = kea<insightNavLogicType>([
             },
         ],
         tabs: [
-            (s) => [s.activeView, s.query, s.featureFlags],
+            (s) => [s.activeView, s.query, s.featureFlags, s.metricsQueryCache],
             (
                 activeView: InsightType,
                 query: null | import('~/queries/schema/schema-general').Node,
-                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
+                metricsQueryCache: MetricsQuery | null
             ) => {
                 const tabs: Tab[] = [
                     {
@@ -720,10 +728,9 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     })
                 }
 
-                if (
-                    (featureFlags[FEATURE_FLAGS.METRICS] && featureFlags[FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]) ||
-                    activeView === InsightType.METRICS
-                ) {
+                // New metrics charts are metric widgets. The tab stays only so saved metrics insights remain
+                // editable, including after a switch to another tab and back.
+                if (activeView === InsightType.METRICS || metricsQueryCache) {
                     tabs.push({
                         label: 'Metrics',
                         type: InsightType.METRICS,

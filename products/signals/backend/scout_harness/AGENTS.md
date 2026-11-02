@@ -205,6 +205,7 @@ In production it is driven by `SignalsScoutCoordinatorWorkflow` (periodic tick e
   With the key on, the tick cap stays under `CHILD_START_DELAY_MAX_RUNS_PER_TICK`, because Temporal limits the pending children of one workflow.
   Workflow durations then include the sleep, so read the start rate from `signals_scout_run_started`, not from the dispatch counters.
   A lane paused by the failure-streak breaker (`status=paused_by_system`, `pause_reason=repeated_failures`) is excluded by the `enabled=True` dispatch filter like any other pause; the coordinator additionally dispatches one probe per `AUTO_PAUSE_PROBE_INTERVAL_S` to such lanes (`_collect_probe_runs`).
+- **Source scout refresh** — `../facade/source_scouts.py`. A product that creates scouts for its objects registers a refresher by dotted path, keyed on the config's `source_product`. The runner calls it after the canonical sync and before it loads the skill, so a refresher that publishes new skill text reaches that run. Failures are logged and the run continues with the stored skill. Replay Vision uses it to keep template scouts on the latest template text.
 - **Models** — `SignalScoutConfig`, `SignalScoutRun`, `SignalScratchpad`, `SignalScoutNote`, `SignalProjectProfile` in `../models.py`.
 - **Source variant** — `SignalSourceConfig.SourceProduct.SIGNALS_SCOUT` paired with `SourceType.CROSS_SOURCE_ISSUE`.
 - **Scout fleet** — the `signals-scout-*` skills live at
