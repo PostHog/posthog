@@ -20,7 +20,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle, SimpleRateThrottle
 
-from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
@@ -354,6 +354,10 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
     scope_object = "canvas"
     # The facade reads canvases; the viewset holds no queryset.
     queryset = None
+    path_parameters = {
+        "pk": PathParameter(type=UUID, description="A UUID string identifying this canvas."),
+        "root_comment_id": UUID,
+    }
     serializer_class = CanvasSerializer
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
     scope_object_read_actions = [
@@ -766,10 +770,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
 
     @extend_schema(
         operation_id="canvases_comments_retrieve",
-        parameters=[
-            OpenApiParameter("root_comment_id", UUID, OpenApiParameter.PATH),
-            CanvasCommentDetailQuerySerializer,
-        ],
+        parameters=[CanvasCommentDetailQuerySerializer],
         responses=CanvasCommentDetailSerializer,
     )
     @action(
@@ -778,21 +779,17 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         url_path=r"comments/(?P<root_comment_id>[^/.]+)",
         required_scopes=["canvas:read", "comment:read"],
     )
-    def comment(self, request: Request, *args: Any, root_comment_id: str | None = None, **kwargs: Any) -> Response:
+    def comment(self, request: Request, *args: Any, root_comment_id: UUID, **kwargs: Any) -> Response:
         """One comment thread on this canvas: the root comment and its replies, oldest first."""
         params = CanvasCommentDetailQuerySerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
         canvas = self._canvas()
         try:
-            parsed_comment_id = UUID(str(root_comment_id))
-        except ValueError:
-            raise NotFound()
-        try:
             thread = tasks_facade.retrieve_canvas_comment(
                 team_id=self.team_id,
                 canvas_id=canvas.id,
                 canvas_name=canvas.name,
-                comment_id=parsed_comment_id,
+                comment_id=root_comment_id,
                 limit=params.validated_data["limit"],
                 cursor=params.validated_data.get("cursor"),
                 content_comment_id=params.validated_data.get("comment_id"),
@@ -2198,20 +2195,3 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             canvas_name=canvas.name or "Canvas",
             canvas_url=canvas_url(canvas),
         )
-
-
-# The viewset holds no model, so drf-spectacular cannot type the id path parameter by itself.
-_CANVAS_ID_PARAMETER = OpenApiParameter(
-    "id", OpenApiTypes.UUID, OpenApiParameter.PATH, description="A UUID string identifying this canvas."
-)
-for _detail_action in [
-    "retrieve",
-    "partial_update",
-    "destroy",
-    *(extra.__name__ for extra in CanvasViewSet.get_extra_actions() if getattr(extra, "detail", False)),
-]:
-    setattr(
-        CanvasViewSet,
-        _detail_action,
-        extend_schema(parameters=[_CANVAS_ID_PARAMETER])(getattr(CanvasViewSet, _detail_action)),
-    )
