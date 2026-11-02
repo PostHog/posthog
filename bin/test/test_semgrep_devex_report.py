@@ -63,13 +63,21 @@ class TestSemgrepDevexReport(unittest.TestCase):
         self.assertIn("posthog/b.py:1", printed)
         self.assertNotIn("integration-model-through-sdk", printed)
 
-    def test_ratchet_input_keeps_one_rule_under_the_given_paths(self) -> None:
+    @parameterized.expand(
+        [
+            ("bare_id", "integration-model-through-sdk"),
+            ("config_path_id", "semgrep.rules.devex.integration-model-through-sdk"),
+        ]
+    )
+    def test_ratchet_input_keeps_one_rule_under_the_given_paths(self, _name: str, check_id: str) -> None:
         found = report(
             [
-                result("integration-model-through-sdk", "ee/api/integration.py", "INFO"),
-                result("integration-model-through-sdk", "ee/api/vercel/tasks.py", "INFO", line=12),
-                result("integration-model-through-sdk", "frontend/src/a.tsx", "INFO"),
+                result(check_id, "ee/api/integration.py", "INFO"),
+                result(check_id, "ee/api/vercel/tasks.py", "INFO", line=12),
+                result(check_id, "frontend/src/a.tsx", "INFO"),
                 result("warn", "posthog/a.py", "WARNING"),
+                # The same rule id as a suffix of another rule's id must not join the ratchet.
+                result("not-integration-model-through-sdk", "ee/api/other.py", "INFO"),
             ],
             errors=[
                 {"type": "Timeout", "path": "ee/api/slow.py"},

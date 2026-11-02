@@ -90,12 +90,18 @@ def check_errors(report: dict[str, Any], excluded: Iterable[str]) -> int:
     return 1
 
 
+def names_rule(check_id: str, rule_id: str) -> bool:
+    # A rule read from a config directory is reported under a dotted path, such as
+    # `semgrep.rules.devex.integration-model-through-sdk`.
+    return check_id == rule_id or check_id.endswith("." + rule_id)
+
+
 def ratchet_input(report: dict[str, Any], rule_id: str, prefixes: Iterable[str]) -> dict[str, Any]:
     prefixes = tuple(prefixes)
     results = [
         result
         for result in report.get("results", [])
-        if result.get("check_id") == rule_id and under_any(result.get("path", ""), prefixes)
+        if names_rule(result.get("check_id", ""), rule_id) and under_any(result.get("path", ""), prefixes)
     ]
     errors = []
     for error in report.get("errors", []):
