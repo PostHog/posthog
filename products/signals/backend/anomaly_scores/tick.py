@@ -137,6 +137,7 @@ class AnomalyScoringTickPlan:
     teams_planned: int = 0
     teams_skipped: int = 0
     long_cooldown: int = 0
+    self_driving_organization_percentage: float = 0.0
     due_insights: int | None = None
     oldest_due_seconds: int | None = None
     oldest_refresh_seconds: int | None = None
@@ -196,6 +197,8 @@ class AnomalyScoringTickResult:
     # Teams with active insights that the plan loaded, and the teams that wait for a later tick.
     teams_planned: int = 0
     teams_skipped: int = 0
+    # The percentage rollout after the overrides of this deployment.
+    self_driving_organization_percentage: float = 0.0
     # The plan activity failed, and the tick scored nothing. `plan_error` is the error class.
     plan_failed: bool = False
     plan_error: str | None = None
@@ -240,6 +243,7 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPl
         teams_planned=selection.teams_planned,
         teams_skipped=selection.teams_skipped,
         long_cooldown=selection.long_cooldown,
+        self_driving_organization_percentage=config.self_driving_organization_percentage,
         due_insights=selection.due_insights,
         oldest_due_seconds=selection.oldest_due_seconds,
         oldest_refresh_seconds=selection.oldest_refresh_seconds,
@@ -520,6 +524,7 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
         plan_ms=result.plan_ms,
         teams_planned=result.teams_planned,
         teams_skipped=result.teams_skipped,
+        self_driving_organization_percentage=result.self_driving_organization_percentage,
         plan_failed=result.plan_failed,
         plan_error=result.plan_error,
         long_cooldown=result.long_cooldown,
@@ -558,6 +563,7 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
             "plan_ms": result.plan_ms,
             "teams_planned": result.teams_planned,
             "teams_skipped": result.teams_skipped,
+            "self_driving_organization_percentage": result.self_driving_organization_percentage,
             "plan_failed": result.plan_failed,
             "plan_error": result.plan_error,
             "long_cooldown": result.long_cooldown,
@@ -688,6 +694,7 @@ class AnomalyScoringTickWorkflow:
             teams_planned=plan.teams_planned,
             teams_skipped=plan.teams_skipped,
             long_cooldown=plan.long_cooldown,
+            self_driving_organization_percentage=plan.self_driving_organization_percentage,
             due_insights=plan.due_insights,
             oldest_due_seconds=plan.oldest_due_seconds,
             oldest_refresh_seconds=plan.oldest_refresh_seconds,

@@ -530,9 +530,18 @@ class SignalReport(UUIDModel):
                 name="signals_report_first_visible",
             ),
             # Back the inbox `search` filter. On UPPER(...) because icontains compiles to
-            # UPPER(col) LIKE UPPER(pattern) on Postgres.
-            GinIndex(OpClass(Upper("title"), name="gin_trgm_ops"), name="signals_report_title_trgm"),
-            GinIndex(OpClass(Upper("summary"), name="gin_trgm_ops"), name="signals_report_summary_trgm"),
+            # UPPER(col) LIKE UPPER(pattern) on Postgres. Direct updates avoid pending-list
+            # merges that make one insert absorb the batched GIN maintenance of earlier writes.
+            GinIndex(
+                OpClass(Upper("title"), name="gin_trgm_ops"),
+                name="signals_report_title_trgm",
+                fastupdate=False,
+            ),
+            GinIndex(
+                OpClass(Upper("summary"), name="gin_trgm_ops"),
+                name="signals_report_summary_trgm",
+                fastupdate=False,
+            ),
         ]
         constraints = [
             # The barrier itself, not a lookup aid: two emits racing on one key both reach the
