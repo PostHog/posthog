@@ -57,6 +57,7 @@ from products.dashboards.backend.widgets.activity_events_list import (
     run_activity_events_list_widget,
 )
 from products.dashboards.backend.widgets.error_tracking_list import run_error_tracking_list_widget
+from products.dashboards.backend.widgets.errors import WidgetQueryError
 from products.dashboards.backend.widgets.logs_list import run_logs_list_widget
 from products.dashboards.backend.widgets.session_replay_list import run_session_replay_list_widget
 from products.error_tracking.backend.facade.query_utils import ERROR_TRACKING_LISTING_VOLUME_RESOLUTION
@@ -1522,17 +1523,42 @@ class TestDashboardRunWidgets(APIBaseTest):
         self.assertEqual(started_calls[0].kwargs["properties"]["tile_id"], tile_id)
         self.assertEqual(completed_calls[0].kwargs["properties"]["outcome"], SloOutcome.SUCCESS)
 
+    @parameterized.expand(
+        [
+            ("an unexpected exception", Exception("boom"), SloOutcome.FAILURE, "Widget query failed."),
+            (
+                "an operational widget error",
+                WidgetQueryError("The query timed out.", operational=True),
+                SloOutcome.FAILURE,
+                "The query timed out.",
+            ),
+            (
+                "a viewer-facing widget error",
+                WidgetQueryError("You do not have access to metrics."),
+                SloOutcome.SUCCESS,
+                "You do not have access to metrics.",
+            ),
+        ]
+    )
     @patch("products.dashboards.backend.widgets.error_tracking_list.ErrorTrackingQueryRunner")
     @patch("posthog.slo.events.posthoganalytics.capture")
-    def test_run_widgets_emits_slo_failure_when_widget_query_raises(
-        self, mock_capture: MagicMock, mock_runner_cls: MagicMock
+    def test_run_widgets_slo_outcome_when_widget_query_raises(
+        self,
+        _name: str,
+        error: Exception,
+        expected_outcome: SloOutcome,
+        expected_error_prefix: str,
+        mock_capture: MagicMock,
+        mock_runner_cls: MagicMock,
     ) -> None:
-        mock_runner_cls.return_value.calculate.side_effect = Exception("boom")
+        mock_runner_cls.return_value.calculate.side_effect = error
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
         _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 10})
         tile_id = dashboard_json["tiles"][0]["id"]
 
-        self._run(dashboard_id, [tile_id])
+        body = self._run(dashboard_id, [tile_id])
+
+        self.assertTrue(body["results"][0]["error"].startswith(expected_error_prefix))
 
         completed_calls = [
             call
@@ -1541,5 +1567,5 @@ class TestDashboardRunWidgets(APIBaseTest):
             and call.kwargs.get("properties", {}).get("operation") == SloOperation.DASHBOARD_WIDGET_DELIVERY
         ]
         self.assertEqual(len(completed_calls), 1)
-        self.assertEqual(completed_calls[0].kwargs["properties"]["outcome"], SloOutcome.FAILURE)
+        self.assertEqual(completed_calls[0].kwargs["properties"]["outcome"], expected_outcome)
         self.assertEqual(completed_calls[0].kwargs["properties"]["widget_type"], "error_tracking_list")

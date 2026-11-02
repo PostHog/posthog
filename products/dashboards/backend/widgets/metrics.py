@@ -62,7 +62,7 @@ def _run_with_capacity_retries(run: Callable[[], Any]) -> Any:
         return run()
     except ConcurrencyLimitExceeded as error:
         raise WidgetQueryError(
-            "Too many queries are running on this dashboard. Refresh the tile in a moment."
+            "Too many queries are running on this dashboard. Refresh the tile in a moment.", operational=True
         ) from error
 
 
@@ -106,7 +106,7 @@ def run_metrics_widget(
         raise WidgetQueryError(str(error)) from error
     except APIException as error:
         # The runner's typed refusals (a timeout, a memory or size limit) explain themselves to the viewer.
-        raise WidgetQueryError(str(error.detail)) from error
+        raise WidgetQueryError(str(error.detail), operational=True) from error
 
     # A gap point's `value` is required and null, so None stays in the payload.
     result = response.model_dump(mode="json")
