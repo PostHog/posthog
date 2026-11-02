@@ -62,6 +62,47 @@ describe('OrganizationMembersService', () => {
         }
     })
 
+    it('keeps at most five lookups open while the pool has no connection, and runs no query for them once it recovers', async () => {
+        jest.useFakeTimers()
+        try {
+            let recovered = false
+            const waitingForConnection: (() => void)[] = []
+            const query = jest.fn((_tx: unknown, sql: string) =>
+                Promise.resolve({ rows: sql.startsWith('SET LOCAL') ? [] : [memberRow('member@example.com')] })
+            )
+            const pool = {
+                transaction: (_usage: unknown, _tag: string, run: (tx: unknown) => Promise<unknown>) =>
+                    recovered
+                        ? run({})
+                        : new Promise((resolve, reject) =>
+                              waitingForConnection.push(() => void run({}).then(resolve, reject))
+                          ),
+                query,
+            } as unknown as PostgresRouter
+            const service = new OrganizationMembersService(pool)
+
+            const checks = Array.from({ length: 20 }, () =>
+                service.getBlockedRecipients(1, ['member@example.com'], { fresh: true })
+            )
+            const outcomes = Promise.allSettled(checks)
+            await jest.advanceTimersByTimeAsync(3_000)
+
+            const settled = await outcomes
+            expect(settled.every((outcome) => outcome.status === 'rejected')).toBe(true)
+            expect(waitingForConnection).toHaveLength(5)
+
+            recovered = true
+            waitingForConnection.forEach((connect) => connect())
+            await jest.advanceTimersByTimeAsync(0)
+            expect(query).not.toHaveBeenCalled()
+
+            await expect(service.getBlockedRecipients(1, ['member@example.com'], { fresh: true })).resolves.toEqual([])
+            expect(query).toHaveBeenCalledTimes(2)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     it('shares one member lookup across sends and reloads it after a minute', async () => {
         let now = 0
         let member = 'member@example.com'
