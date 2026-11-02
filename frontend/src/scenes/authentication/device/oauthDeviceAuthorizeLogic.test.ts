@@ -51,19 +51,31 @@ describe('oauthDeviceAuthorizeLogic', () => {
         ['a first login lists every requested scope', [], ALL, false],
         [
             'a login that adds nothing in the project lists every scope',
-            [{ project_id: 42, scopes: ['openid', 'insight:read', 'insight:write', 'dashboard:write'] }],
+            [
+                {
+                    project_id: 42,
+                    organization_id: null,
+                    scopes: ['openid', 'insight:read', 'insight:write', 'dashboard:write'],
+                },
+            ],
             ALL,
             false,
         ],
         [
             'a step-up lists only the scopes it adds in the project',
-            [{ project_id: 42, scopes: ['openid', 'insight:read'] }],
+            [{ project_id: 42, organization_id: null, scopes: ['openid', 'insight:read'] }],
             ['Write access to insights', 'Write access to dashboards'],
             true,
         ],
         [
+            'scopes granted in another organization count for nothing here',
+            [{ project_id: null, organization_id: 'another-org', scopes: ['openid', 'insight:read'] }],
+            ALL,
+            false,
+        ],
+        [
             'scopes granted in another project count for nothing here',
-            [{ project_id: 7, scopes: ['openid', 'insight:read'] }],
+            [{ project_id: 7, organization_id: null, scopes: ['openid', 'insight:read'] }],
             ALL,
             false,
         ],
