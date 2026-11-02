@@ -19,17 +19,17 @@ Node writes lone surrogates as `\udXXX`, and serde_json rejects them.
 | `LogRecord` shape in `log-record-avro.ts`                                                     | `record`          | Done                                        |
 | `attribute-value.ts`                                                                          | `attribute_value` | Done                                        |
 | `log-body-parse.ts`                                                                           | `body_parse`      | Done                                        |
-| `log-pii-scrub.ts`                                                                            | `pii`             | Stub                                        |
-| `log-pattern-mask.ts`, `log-pattern-stage.ts`                                                 | `pattern`         | Stub                                        |
-| `log-record-avro.ts` (normalize, flatten, enrich), `log-record-size.ts`                       | `normalize`       | Stub                                        |
-| `sampling/filter-group-match.ts`                                                              | `filter_group`    | Stub                                        |
-| `sampling/property-filter-match.ts`                                                           | `property_filter` | Stub                                        |
-| `sampling/compile-rules.ts`, `sampling/evaluate.ts`, `sampling/logs-sampling.service.ts`     | `sampling`        | Stub                                        |
-| `retention/*.ts`                                                                              | `retention`       | Stub                                        |
-| `metrics-rules/*.ts`                                                                          | `metric_rules`    | Stub                                        |
-| `internal-logs.ts`                                                                            | `internal_logs`   | Stub                                        |
-| `pipeline/log-processing-pipeline.ts`                                                         | `content_weights` | Stub                                        |
-| `services/logs-rate-limiter.service.ts`, `common/services/keyed-rate-limiter.service.ts`     | `rate_limiter`    | Stub                                        |
+| `log-pii-scrub.ts`                                                                            | `pii`             | Done                                        |
+| `log-pattern-mask.ts`, `log-pattern-stage.ts`                                                 | `pattern`         | Done (stage wiring waits for `pipeline`)    |
+| `log-record-avro.ts` (normalize, flatten, enrich), `log-record-size.ts`                       | `normalize`       | Done                                        |
+| `sampling/filter-group-match.ts`                                                              | `filter_group`    | Done                                        |
+| `sampling/property-filter-match.ts`, node-re2 `new RE2(p, flags).test`                        | `property_filter` | Done                                        |
+| `sampling/compile-rules.ts`, `sampling/evaluate.ts`, `sampling/logs-sampling.service.ts`     | `sampling`        | Done (rules cache not ported)               |
+| `retention/*.ts` except the rules and tracing-config caches                                    | `retention`       | Done                                        |
+| `metrics-rules/*.ts`                                                                          | `metric_rules`    | Done (HTTP POST and Postgres cache: traits) |
+| `internal-logs.ts`                                                                            | `internal_logs`   | Done                                        |
+| `pipeline/log-processing-pipeline.ts`                                                         | `content_weights` | Done                                        |
+| `services/logs-rate-limiter.service.ts`, `common/services/keyed-rate-limiter.service.ts`     | `rate_limiter`    | Done (Redis behind `TokenBucketRedis`)      |
 | `pipeline/*.ts`, `logs-ingestion-consumer.ts`, `traces-ingestion-consumer.ts`                 | `pipeline`        | Stub (needs `rust/ingestion-framework`)     |
 
 ## API
@@ -117,7 +117,7 @@ Each rule has evidence in Node, and a test that pins it.
      - `log-pattern-mask.ts` input cap (`body.slice(0, maxInputChars)`) and output cap (`pattern.slice(0, maxOutputChars)`). Use `utf16_slice_lossy`: the output goes straight to Avro bytes.
      - `metrics-rules/tally.ts` label truncation (`value.slice(0, MAX_LABEL_VALUE_LENGTH)`). Use `JsString::utf16_slice`: the label reaches `JSON.stringify` in the OTLP payload, which keeps `\udxxx`.
      - `.length` comparisons against caps. Use `utf16_len`.
-   - Known gap: the pattern input cap feeds regexes before encoding. A regex that treats a lone surrogate differently from U+FFFD could then disagree. No current mask rule does.
+   - The pattern input cap is not a gap: node-re2's `replace` writes every lone surrogate as U+FFFD (rule 15), so the masker sees the lossy text in Node too.
 7. **`Date.parse`.** V8 tries the ES5 ISO format first, then falls back to a legacy parser.
    - The port follows V8's `dateparser-inl.h`: tokenizer, keyword table, day, time and zone composers, and `TimeClip`.
    - Evidence from `date_parse.json`:
@@ -158,6 +158,54 @@ Each rule has evidence in Node, and a test that pins it.
 10. **avsc encode.**
     - Properties that are not schema fields are ignored. A missing nullable field encodes as null.
     - Blocks hold up to 64 KiB of serialized records. A larger record gets its own block and doubles the size.
+11. **`parseFloat`** (`metrics-rules/tally.ts` value attributes).
+    - It skips ECMAScript whitespace first: Rust's `char::is_whitespace` adds U+0085 and lacks U+FEFF.
+    - It reads the longest decimal prefix: `12.5abc` is 12.5, `1e` is 1, `.5` and `5.` parse, `0x10` is 0, `Infinity` is accepted (and then fails `Number.isFinite`).
+    - Port: `metric_rules::js_parse_float`. Tests: its unit test, checked against Node.
+12. **`Buffer.from(s, 'base64')` and `buf.toString('ascii')`** (`idToHex`).
+    - `'ascii'` clears the high bit of each byte, so `0xC1` reads as `A`.
+    - The decoder skips characters outside the alphabet, accepts `-` and `_`, and stops at the first `=`. Bytes after a padded id are ignored.
+    - Evidence and test: `id_to_hex` in `tests/fixtures/metric-rules-reference.json`.
+13. **`Map` order.** Tallies, the service partition and the overflow map iterate in insertion order, and that order is the OTLP payload order. Rules that share an `id` share one tally map: the first such rule serializes all its entries. Port: `metric_rules::InsertionMap`. Test: `payload_bytes_match_node`.
+14. **RE2, not JavaScript `RegExp`.** `log-pii-scrub.ts` and `log-pattern-mask.ts` compile their rules with `createTrackedRE2` (node-re2 1.22.1, UTF-8 mode, flags `gu`).
+    - `\d`, `\w` and `\b` are ASCII: `\bab\b` on `'éab abé'` gives `'éX Xé'`.
+    - `\s` is `[\t\n\f\r ]`. It excludes `\v`, so `'Bearer\vab'` is not redacted. The `regex` crate's ASCII `\s` includes `\v`.
+    - `(?i:` uses Unicode simple case folding: `(?i:[-A-Za-z0-9._~+/])` also matches U+017F and U+212A, so `'bearer \u212Aabc'` is redacted. Nothing else outside ASCII matches, by a scan of every code point.
+    - Alternation is leftmost-first in both engines.
+    - Port: `pii::translate_re2` rewrites `\d`, `\w`, `\s` and `\b`, and keeps `(?i:` in Unicode mode. Tests: `pii::tests`, and two differential runs against Node of 3,000 random inputs each for `pii` and for `pattern`.
+15. **node-re2 `replace` writes a lone surrogate as U+FFFD**, also when nothing matches: `'x\ud800'.replace(re, f)` is `'x\ufffd'`. `exec` indexes stay in UTF-16 units.
+    - So `maskString` output is always valid UTF-8, and JSON key-set keys that differ only by a lone surrogate merge: `{"\ud800":1,"\ud801":2,"b":3}` gives `<JSON:b,\ufffd>`.
+    - Port: `pattern` masks the lossy UTF-8 form of its input. Test: `pattern::tests::lone_surrogate_keys_merge_after_the_mask`.
+16. **`flattenJsonWithBudget` eviction.** Past 50 attributes, a new array-index key evicts the last key in object order, unless that key is an index no greater than the new one. Named keys past the cap are dropped.
+    - The last key is the last named key, or else the greatest index. `normalize` keeps the two groups apart, so eviction is a pop.
+    - A JSON `null` leaf becomes the string `"null"`, stored as `"\"null\""`. In `string` array mode an array leaf is `JSON.stringify`d after a node-count check.
+    - Tests: `normalize_matches_node`, and a differential run of 8,000 random records against Node with no difference outside the gap below.
+17. **Prototype members as metric labels.** `tally.ts` reads `map?.[key]` for `attributes.*` and `resource_attributes.*` group-by and value keys, so it also finds `Object.prototype` members (`filter_group::lookup_attribute`).
+    - A member with `length >= 2` (`__defineGetter__`) makes `decodeLogAttributeValue` throw. `tallyRecords` does not catch it, so `tally_records` returns `Err` and keeps what the earlier records added.
+    - Any other method is a function label: `null` in the label key, and `stringValue` is omitted, so the attribute value is `{}`.
+    - `__proto__` gives `{}` in the label key and `"stringValue":{}`.
+    - As a value attribute, each one gives NaN, so the record counts in `value_skipped`.
+    - Port: `metric_rules::LabelValue`. Evidence and test: the `payloads` cases in `tests/fixtures/metric-rules-reference.json`.
+18. **`compileMetricRules` throws when `parseFilterGroup` throws**, so `compile_metric_rules` returns `Result`.
+19. **RE2 in filter leaves and sampling patterns.** Regex leaves use `createTrackedRE2(p, 'is')`; `scope_path_pattern` and `path_drop` patterns use no flags.
+    - node-re2 first rewrites the pattern text: `\uXXXX` and `\u{...}` become `\x{...}` (any ASCII letter counts as a hex digit, so `\uZZZZ` fails), `\cJ` becomes `\x0A`, long `\p{...}` names map to short ones, `/` becomes `\/`, and `(?<` becomes `(?P<`. The rewrite also runs inside classes: `[(?<a]` matches `P`.
+    - RE2 then accepts its own syntax only. It rejects look-around, `\1`-`\9`, `\Z`, `(?x)`, `(?#`, stacked repetition (`a**`, `a{1,2}{3}`, `a???`), a count above 1000, and nested counts whose quotient chain from 1000 reaches 0 (`(a{100}){11}`).
+    - It reads as literal what the `regex` crate does not: a `{` that does not start a valid count (`a{,5}`, `a{01}`, `{"a"`), `[` inside a class (`[a[b]]`), and `&&`, `--`, `~~` in a class. `\Q...\E` quotes. `\0dd` is octal.
+    - A surrogate code point (`\x{D800}`, or a lone surrogate in the pattern, which V8 writes in its 3-byte form) compiles and never matches. A lone surrogate in the input is U+FFFD.
+    - `\p{C}` has no unassigned code points. `\p{Cs}` matches nothing.
+    - Port: `property_filter::re2` parses RE2 grammar and writes an equivalent `regex::bytes` pattern. Evidence and test: `tests/fixtures/re2-reference.json` (354 pattern and flag cases, 18,060 `test` results) in `re2_parity`.
+20. **`String()` of a rule value can throw.** A filter value object with an own `toString` key makes `String(value)` throw, because JSON cannot make it callable and `valueOf` returns the object. Array elements convert in order, so `['x', {toString: 1}]` matches `x` before it reaches the throw. `classifySamplingRecord` and `evaluateRetentionDays` callers catch it and keep the record. Port: `property_filter::coerce::js_to_string`, returning `JsTypeError`.
+21. **Prototype members as filter keys.** `decodedAttr` and `getAttribute` read `map[key]`, so `constructor` or `toString` read a function (`is_set` matches, and `String()` gives `function toString() { [native code] }`), `__proto__` reads `[object Object]`, and `__defineGetter__` makes the decode throw. A non-string `key` converts with `String()`: a missing key reads `attributes['undefined']`. Evidence: a Node probe of `matchFilterGroup`. Test: `filter_group::tests`.
+22. **Filter group compile throws on a null child.** `filterGroupDepth` reads `.values` of each child, so a null child anywhere in a group throws, and `compileRuleSet` and `compileRetentionRuleSet` throw with it. A null `config` on any sampling row also throws (`parseAlwaysKeep`). Port: both compilers return `Result`.
+23. **Rule quirks kept.** An unknown `rule_type` compiles as `path_drop` with no patterns, but its `always_keep` still keeps records. `applyRateLimits` looks a rule up in `new Map(rules.map(r => [r.id, r]))`, so the last rule with an id wins. Comparisons with `<` on strings use UTF-16 order.
+24. **ioredis integer replies.** redis-parser 3 reads an integer reply one decimal digit at a time in floating point, so `-9223372036854775808` (Lua's overflow for `1e21`) reads as `-9223372036854778000`. Port: `rate_limiter::redis::ioredis_integer`. Evidence: `rate-limiter-reference.json`.
+25. **Content weights key on object identity.** A stage that puts a new record object in the batch gets weight 0 for it. Port: `content_weights::StagedRecord::fresh`. Test: `content_weights::tests`.
+
+### `metric_rules` wiring
+
+`compile_metric_rules` parses filter groups through `metric_rules::parse_filter_group`, which calls `sampling::parse_filter_group`.
+A parsed `FilterGroupNode` implements `metric_rules::FilterGroupMatcher` with `filter_group::match_filter_group`.
+`compile_metric_rules_with` takes another `FilterGroupParser`.
 
 ## Not reproduced
 
@@ -165,6 +213,16 @@ Each rule has evidence in Node, and a test that pins it.
 - **A block with a negative record count.** avsc reads records until one fails; this port skips the block.
 - **Decode error precedence across blocks.** When an early block has a bad record and a later block fails to decompress, avsc's async order decides which error comes first. This port reports the first block in order.
 - **Encode error text.** It follows avsc's `invalid <schema>: <value>` shape, but the value is printed with Rust `Debug`. Only a hog transformation that writes a wrongly typed value can reach it. Port it with the transformations.
+- **The HTTP POST of `LogsMetricsEmitter`.** The crate has no HTTP client. `LogsMetricsEmitter` takes an `OtlpTransport` and keeps the body, the two attempts, the 2xx check and the `logs_metrics_rules_export_failed_total{team_id}` counter.
+- **`MetricRulesCache`.** Only its interface is ported, as `MetricRulesSource`.
+- **Flattened JSON keys that differ only by a lone surrogate.** A body such as `{"\ud800":1,"\ud801":2}` gives two attribute keys in Node, and avsc writes both as U+FFFD, so the map holds a duplicate key. `AvroMap` keys are Rust strings, so this port keeps one entry. The same holds for such a key next to a sender key `\ufffd`.
+- **The OpenTelemetry skip counter** (`recordJsonEnrichmentSkipped`). `normalize` emits only the Prometheus `logs_ingestion_json_enrichment_skipped_total`.
+- **`logs_ingestion_pattern_stage_error_total`.** The Rust stamping cannot fail, so it has no catch path.
+
+- **`hash01FromTraceId` with no trace id.** Node uses `Math.random()`; the port uses `rand`. No vector can pin it.
+- **RE2 program size limits.** RE2 rejects a program over `max_mem` (8 MiB) and the `regex` crate has its own size and nesting limits (nesting set to 1000; RE2 has none), so a very large pattern can compile in one engine only. The Unicode table versions of the vendored RE2 and the `regex` crate can also differ.
+- **`re2_objects_created_total`.** The tracked-RE2 allocation counter and its LRU cache are not ported; they do not change a result.
+- **The sampling and retention rules caches** (`sampling-rules-cache.ts`, `retention-rules-cache.ts`, `tracing-config-cache.ts`). The compilers take rows.
 
 ## Regenerating references
 
@@ -172,4 +230,22 @@ Each rule has evidence in Node, and a test that pins it.
 
 ```bash
 NODE_PATH=nodejs/node_modules node rust/logs-ingestion/scripts/node-decode-reference.js
+```
+
+`tests/fixtures/metric-rules-reference.json` comes from `scripts/node-metric-rules-reference.ts`:
+
+```bash
+cd nodejs && npx tsx --tsconfig tsconfig.json ../rust/logs-ingestion/scripts/node-metric-rules-reference.ts
+```
+
+`tests/fixtures/re2-reference.json` comes from `scripts/node-re2-reference.js`:
+
+```bash
+NODE_PATH=nodejs/node_modules node rust/logs-ingestion/scripts/node-re2-reference.js
+```
+
+`tests/fixtures/rate-limiter-reference.json` comes from `scripts/node-rate-limiter-reference.ts`. It needs Redis at 127.0.0.1:6379 and deletes only its own keys (`@posthog-test/logs-parity-rl*` and the sampling keys of team 987654321). `tests/rate_limiter_redis.rs` replays it against the same Redis and skips when Redis is down.
+
+```bash
+cd nodejs && NODE_ENV=test npx tsx --tsconfig tsconfig.json ../rust/logs-ingestion/scripts/node-rate-limiter-reference.ts
 ```
