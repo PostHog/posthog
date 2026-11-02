@@ -9,6 +9,8 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
+import { hogFlowEditorLogic } from './hogflows/hogFlowEditorLogic'
+import { HogFlowEditorPanelBuildDetail } from './hogflows/panel/HogFlowEditorPanelBuildDetail'
 import { ViewOnlyArea } from './hogflows/panel/ViewOnlyArea'
 import { HogFlow } from './hogflows/types'
 import { workflowLogic } from './workflowLogic'
@@ -29,8 +31,17 @@ const VIEWER_WORKFLOW: HogFlow = {
             updated_at: 0,
             config: { type: 'event', filters: {} },
         },
+        {
+            id: 'push_node',
+            type: 'function_push',
+            name: 'Push',
+            description: '',
+            created_at: 0,
+            updated_at: 0,
+            config: { template_id: 'template-native-push', inputs: {} },
+        },
     ],
-    edges: [],
+    edges: [{ from: 'trigger_node', to: 'push_node', type: 'continue' }],
     conversion: { filters: [] },
     exit_condition: 'exit_only_at_end',
     version: 1,
@@ -140,6 +151,22 @@ describe('view-only workflow', () => {
         )
 
         expect(fireEvent.keyDown(screen.getByLabelText('Subject'), keyPress)).toBe(true)
+    })
+
+    it('stops a viewer who toggles a push step setting', () => {
+        const editorLogic = hogFlowEditorLogic({ id: WORKFLOW_ID })
+        editorLogic.mount()
+        editorLogic.actions.setSelectedNodeId('push_node')
+
+        renderForViewer(
+            <BindLogic logic={hogFlowEditorLogic} props={{ id: WORKFLOW_ID }}>
+                <HogFlowEditorPanelBuildDetail />
+            </BindLogic>
+        )
+        const toggle = document.querySelector<HTMLElement>('[data-attr="workflow-push-sensitive-toggle"]')
+
+        expect(fireEvent.click(toggle!)).toBe(false)
+        editorLogic.unmount()
     })
 
     it.each([
