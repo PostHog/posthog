@@ -273,6 +273,16 @@ export function buildParityConsumer(
         Object.entries(scenario.pattern_keys_faults).map(([teamId, fault]) => [Number(teamId), fault.times])
     )
 
+    // Rules compile once per team, as production's rule caches serve them, so a benchmark built on
+    // this harness does not time compilation.
+    const compiled = new Map<string, unknown>()
+    const memo = <T>(key: string, build: () => T): T => {
+        if (!compiled.has(key)) {
+            compiled.set(key, build())
+        }
+        return compiled.get(key) as T
+    }
+
     const teamManager = {
         getTeam: (id: number) => {
             const left = teamByIdFaultsLeft.get(id) ?? 0
@@ -323,12 +333,20 @@ export function buildParityConsumer(
         dependencyRetry: { retryCount: 2, initialRetryDelayMs: 1 },
         samplingRulesCache: {
             getCompiledRuleSet: (teamId: number) =>
-                Promise.resolve(compileRuleSet((scenario.sampling_rules[teamId] ?? []) as SamplingRuleRow[])),
+                Promise.resolve(
+                    memo(`sampling:${teamId}`, () =>
+                        compileRuleSet((scenario.sampling_rules[teamId] ?? []) as SamplingRuleRow[])
+                    )
+                ),
         } as unknown as LogsIngestionConsumerDeps['samplingRulesCache'],
         retentionRulesCache: {
             getCompiledRuleSet: (teamId: number, source: string) =>
                 Promise.resolve(
-                    compileRetentionRuleSet((scenario.retention_rules[teamId]?.[source] ?? []) as RetentionRuleRow[])
+                    memo(`retention:${teamId}:${source}`, () =>
+                        compileRetentionRuleSet(
+                            (scenario.retention_rules[teamId]?.[source] ?? []) as RetentionRuleRow[]
+                        )
+                    )
                 ),
         } as unknown as LogsIngestionConsumerDeps['retentionRulesCache'],
         metricRulesCache: {
@@ -337,7 +355,11 @@ export function buildParityConsumer(
                 if (fault) {
                     return Promise.reject(toError(fault))
                 }
-                return Promise.resolve(compileMetricRules((scenario.metric_rules[teamId] ?? []) as MetricRuleRow[]))
+                return Promise.resolve(
+                    memo(`metrics:${teamId}`, () =>
+                        compileMetricRules((scenario.metric_rules[teamId] ?? []) as MetricRuleRow[])
+                    )
+                )
             },
         } as unknown as LogsIngestionConsumerDeps['metricRulesCache'],
         metricsEmitter: {
