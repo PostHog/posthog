@@ -1,3 +1,5 @@
+import { Fragment } from 'react'
+
 import { IconInfo } from '@posthog/icons'
 import {
     FieldLegend,
@@ -11,7 +13,11 @@ import {
     TooltipTrigger,
 } from '@posthog/quill'
 
-import { DisplayOptionSection, DisplayOptionTab, DisplayOptionTabKey } from './insightDisplayOptions'
+import {
+    DisplayOptionSection,
+    DisplayOptionTab,
+    DisplayOptionTabKey,
+} from 'lib/components/ChartOptions/displayOptionLayout'
 
 function QuillDisplayOptionSectionList({ sections }: { sections: DisplayOptionSection[] }): JSX.Element {
     return (
@@ -32,8 +38,8 @@ function QuillDisplayOptionSectionList({ sections }: { sections: DisplayOptionSe
                         </FieldLegend>
                     )}
                     <div className="flex flex-col gap-2" data-attr={section.title ? undefined : section.dataAttr}>
-                        {section.items.map((Item, index) => (
-                            <Item key={index} />
+                        {section.items.map((item) => (
+                            <Fragment key={item.key}>{item.element}</Fragment>
                         ))}
                     </div>
                 </FieldSet>

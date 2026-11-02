@@ -317,6 +317,7 @@ describe('DisplayTab', () => {
 
         const user = userEvent.setup()
 
+        await user.click(await screen.findByText('Lines'))
         await user.click(await screen.findByText('Show line of best fit'))
         // Quill's scatter takes no goal lines.
         expect(screen.queryByText('Goal lines')).not.toBeInTheDocument()

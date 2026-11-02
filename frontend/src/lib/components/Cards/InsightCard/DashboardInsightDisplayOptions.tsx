@@ -1,11 +1,11 @@
 import { IconChevronRight } from '@posthog/icons'
 
+import { DisplayOptionTab } from 'lib/components/ChartOptions/displayOptionLayout'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { LemonMenuItems, LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
 
-import { DisplayOptionTab } from 'products/product_analytics/frontend/insights/editor/insightDisplayOptions'
 import { InsightDisplayOptionsPanel } from 'products/product_analytics/frontend/insights/editor/InsightDisplayOptionsPanel'
 
 // Items are computed in InsightMeta (always mounted) and passed down to avoid mounting

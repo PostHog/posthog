@@ -1,12 +1,16 @@
 import { useState } from 'react'
 
+import {
+    DisplayOptionSection,
+    DisplayOptionTab,
+    DisplayOptionTabKey,
+} from 'lib/components/ChartOptions/displayOptionLayout'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { cn } from 'lib/utils/css-classes'
 
-import { SectionHeader } from './DisplayOptions'
-import { DisplayOptionSection, DisplayOptionTab, DisplayOptionTabKey } from './insightDisplayOptions'
 import { QuillInsightDisplayOptionsPanel } from './QuillInsightDisplayOptionsPanel'
+import { SectionHeader } from './SectionHeader'
 
 function DisplayOptionSectionList({ sections }: { sections: DisplayOptionSection[] }): JSX.Element {
     return (
@@ -23,10 +27,8 @@ function DisplayOptionSectionList({ sections }: { sections: DisplayOptionSection
                             className="flex flex-col gap-2 px-2 pt-1 pb-2"
                             data-attr={section.title ? undefined : section.dataAttr}
                         >
-                            {section.items.map((Item, index) => (
-                                <li key={index}>
-                                    <Item />
-                                </li>
+                            {section.items.map((item) => (
+                                <li key={item.key}>{item.element}</li>
                             ))}
                         </ul>
                     </section>
