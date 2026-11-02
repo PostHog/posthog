@@ -164,7 +164,7 @@ class TestCondensationGatewayClient:
         assert str(client.base_url) == "https://ai-gateway.example.com/v1/"
         assert client.max_retries == 0
         assert headers["X-PostHog-Product"] == "subscriptions"
-        assert json.loads(headers["X-PostHog-Properties"]) == {
+        assert json.loads(str(headers["X-PostHog-Properties"])) == {
             **expected_properties,
             "summary_stage": "query_condensation",
             "ai_product": "subscriptions",

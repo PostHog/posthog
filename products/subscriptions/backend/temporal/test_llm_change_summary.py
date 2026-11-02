@@ -705,7 +705,10 @@ class TestGenerateChangeSummary:
         assert str(client.base_url) == "https://ai-gateway.example.com/v1/"
         assert client.max_retries == 1
         assert headers["X-PostHog-Product"] == "subscriptions"
-        assert json.loads(headers["X-PostHog-Properties"]) == {**expected_properties, "ai_product": "subscriptions"}
+        assert json.loads(str(headers["X-PostHog-Properties"])) == {
+            **expected_properties,
+            "ai_product": "subscriptions",
+        }
         assert headers["X-PostHog-Distinct-Id"] == "US/subscription-summary-team-42"
         assert headers.get("X-PostHog-Billable") == expected_billable
         assert "X-PostHog-Privacy-Mode" not in headers
