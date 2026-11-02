@@ -20,13 +20,33 @@ from posthog.week_start_day import WeekStartDay
 from products.access_control.backend.facade.testing import create_access_control
 from products.actions.backend.models.action import Action
 from products.product_analytics.backend import insight_series
-from products.product_analytics.backend.facade.api import get_insight_series
-from products.product_analytics.backend.facade.contracts import InsightDashboardContext
+from products.product_analytics.backend.facade.api import get_insight_series, viewable_insight_definitions
+from products.product_analytics.backend.facade.contracts import InsightDashboardContext, InsightSeriesNotReady
 from products.product_analytics.backend.insight_series import _visible
 from products.product_analytics.backend.models.insight import Insight
 
 
 class TestBoundedInsightQuery(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("pending", {"query_status": {"id": "q", "complete": False}}, InsightSeriesNotReady),
+            ("error", {"query_status": {"id": "q", "error": True}}, ValueError),
+            ("empty", {"results": []}, None),
+        ]
+    )
+    def test_pending_is_distinct_from_empty_and_error(
+        self, _name: str, response: dict[str, Any], error: type[Exception] | None
+    ) -> None:
+        with patch("posthog.api.services.query.process_query_dict", return_value=response):
+            if error:
+                with self.assertRaises(error):
+                    insight_series._run(cast(Team, None), cast(User, None), {}, None, None, raise_on_pending=True)
+            else:
+                self.assertEqual(
+                    insight_series._run(cast(Team, None), cast(User, None), {}, None, None, raise_on_pending=True),
+                    response,
+                )
+
     @parameterized.expand(
         [
             ("cached", True, False, False, 0.0, 0),
@@ -567,3 +587,10 @@ class TestGetInsightSeries(ClickhouseTestMixin, BaseTest):
         reader = self._create_user("reader@example.com")
 
         self.assertIsNone(get_insight_series(team=self.team, user=reader, short_id=insight.short_id))
+        self.assertEqual(viewable_insight_definitions(team=self.team, user=reader, short_ids=[insight.short_id]), {})
+        self.assertEqual(
+            viewable_insight_definitions(team=self.team, user=self.user, short_ids=[insight.short_id])[
+                insight.short_id
+            ].name,
+            insight.name or insight.derived_name,
+        )

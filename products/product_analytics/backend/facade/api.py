@@ -291,6 +291,25 @@ def save_saved_insight_query(
     return None
 
 
+def viewable_insight_definitions(
+    *, team: Team, user: User, short_ids: Collection[str]
+) -> dict[str, SavedInsightDefinition]:
+    access_control = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
+    insights = access_control.filter_queryset_by_access_level(
+        Insight.objects.filter(team__project_id=team.project_id, short_id__in=short_ids, deleted=False),
+        resource="insight",
+    )
+    return {
+        insight.short_id: SavedInsightDefinition(
+            id=insight.pk,
+            short_id=insight.short_id,
+            name=insight.name or insight.derived_name,
+            query=insight.query or {},
+        )
+        for insight in insights
+    }
+
+
 def get_insight_series(
     *,
     team: Team,
@@ -299,6 +318,7 @@ def get_insight_series(
     dashboard: InsightDashboardContext | None = None,
     blocking: bool = False,
     wait_until: float | None = None,
+    raise_on_pending: bool = False,
 ) -> InsightSeries | None:
     insight = Insight.objects.filter(team__project_id=team.project_id, short_id=short_id, deleted=False).first()
     if insight is None:
@@ -319,4 +339,5 @@ def get_insight_series(
         dashboard=dashboard,
         blocking=blocking,
         wait_until=wait_until,
+        raise_on_pending=raise_on_pending,
     )

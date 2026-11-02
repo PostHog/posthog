@@ -20,7 +20,11 @@ from posthog.models import Team, User
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.week_start_day import WeekStartDay
 
-from products.product_analytics.backend.facade.contracts import InsightDashboardContext, InsightSeries
+from products.product_analytics.backend.facade.contracts import (
+    InsightDashboardContext,
+    InsightSeries,
+    InsightSeriesNotReady,
+)
 
 ADDITIVE_MATH = {
     "total",
@@ -55,6 +59,7 @@ def _run(
     variables: dict[str, Any] | None,
     blocking: bool = False,
     wait_until: float | None = None,
+    raise_on_pending: bool = False,
 ) -> dict[str, Any]:
     from posthog.api.services.query import process_query_dict  # noqa: PLC0415
 
@@ -67,6 +72,10 @@ def _run(
         user=user,
     )
     result = response.model_dump() if isinstance(response, BaseModel) else response
+    if raise_on_pending and result.get("results") is None:
+        if (result.get("query_status") or {}).get("error"):
+            raise ValueError("Insight query failed")
+        raise InsightSeriesNotReady
     if blocking and wait_until is not None and result.get("results") is None:
         status = result.get("query_status") or {}
         while status and not status.get("complete") and not status.get("error"):
@@ -143,13 +152,14 @@ def _sql_series(
     variables: dict[str, Any] | None,
     blocking: bool = False,
     wait_until: float | None = None,
+    raise_on_pending: bool = False,
 ) -> InsightSeries | None:
     settings = query.get("chartSettings") or {}
     x_column = (settings.get("xAxis") or {}).get("column")
     y_axes = [axis for axis in settings.get("yAxis") or [] if axis.get("column")]
     if query.get("display") not in CHARTED_SQL_DISPLAYS or not x_column or not y_axes:
         return None
-    response = _run(team, user, query["source"], filters, variables, blocking, wait_until)
+    response = _run(team, user, query["source"], filters, variables, blocking, wait_until, raise_on_pending)
     if response.get("hasMore"):
         return None
     position = {column: index for index, column in enumerate(response.get("columns") or [])}
@@ -219,6 +229,7 @@ def insight_series(
     dashboard: InsightDashboardContext | None,
     blocking: bool = False,
     wait_until: float | None = None,
+    raise_on_pending: bool = False,
 ) -> InsightSeries | None:
     dashboard_filters: dict[str, Any] = {}
     variables: dict[str, Any] | None = None
@@ -240,6 +251,7 @@ def insight_series(
             variables=variables,
             blocking=blocking,
             wait_until=wait_until,
+            raise_on_pending=raise_on_pending,
         )
     trends = source.get("trendsFilter") or {}
     if source.get("kind") != "TrendsQuery" or trends.get("display") in UNCHARTED_DISPLAYS:
@@ -257,7 +269,7 @@ def insight_series(
         dateRange={**kept, "date_from": LOOKBACK[interval], "excludeIncompletePeriods": True},
         trendsFilter={**{k: v for k, v in trends.items() if k != "smoothingIntervals"}, "metricShowChange": False},
     )
-    response = _run(team, user, bounded, filters, variables, blocking, wait_until)
+    response = _run(team, user, bounded, filters, variables, blocking, wait_until, raise_on_pending)
     formula = bool(trends.get("formula") or trends.get("formulas") or trends.get("formulaNodes"))
     several = len(source.get("series") or []) > 1
     # `_run` executes the upgraded query, which stamps `kind` on series saved without one.

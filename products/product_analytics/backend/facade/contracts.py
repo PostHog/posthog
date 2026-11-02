@@ -73,6 +73,10 @@ class SavedInsightDefinition:
     query: dict[str, Any]
 
 
+class InsightSeriesNotReady(Exception):
+    pass
+
+
 @dataclass(frozen=True)
 class InsightDataCheckFilter:
     """A rule in the shape the project's internal and test users filter stores it."""

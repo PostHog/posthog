@@ -15,7 +15,14 @@ from parameterized import parameterized
 from posthog.models import FileSystemViewLog, User
 
 from products.dashboards.backend.facade.api import DashboardInsights, DashboardInsightTile
-from products.product_analytics.backend.facade.contracts import InsightDashboardContext, InsightSeries
+from products.product_analytics.backend.facade.contracts import (
+    InsightDashboardContext,
+    InsightSeries,
+    InsightSeriesNotReady,
+    SavedInsightDefinition,
+)
+from products.today.backend.facade.contracts import HighlightFindings, PulseSlot
+from products.today.backend.facade.enums import PulseSlotStatus
 from products.today.backend.logic.highlight_rules import human, short
 from products.today.backend.logic.highlight_trends import BAD_METRIC, MONEY, UNCLEAR_LABEL, UNKNOWN_DIRECTION
 from products.today.backend.logic.highlight_types import Context
@@ -468,4 +475,66 @@ class TestRoutineInsights(BaseTest):
                 ("insight:shared", "popular", None),
                 ("insight:once", "popular", None),
             ],
+        )
+
+
+class TestProgressiveInsights(SimpleTestCase):
+    def test_ready_numbers_are_published_while_the_first_query_is_still_running(self) -> None:
+        clock = [0.0]
+        published: list[tuple[float, HighlightFindings, list[PulseSlot]]] = []
+        ready_at = {"slow": 8.0, "fast": 1.0, "empty": 0.0, "timeout": 30.0}
+        views = [routine.ViewedItem(kind="insight", ref=ref, days=frozenset({TODAY})) for ref in ready_at]
+        definitions = {
+            ref: SavedInsightDefinition(id=i, short_id=ref, name=ref, query={"kind": "TrendsQuery"})
+            for i, ref in enumerate(ready_at)
+        }
+        queried: list[tuple[str, float]] = []
+
+        def advance(seconds: float) -> None:
+            clock[0] += seconds
+
+        def series(**kwargs: Any) -> InsightSeries | None:
+            ref = kwargs["short_id"]
+            queried.append((ref, clock[0]))
+            self.assertFalse(kwargs["blocking"])
+            self.assertTrue(kwargs["raise_on_pending"])
+            if clock[0] < ready_at[ref]:
+                raise InsightSeriesNotReady
+            return insight({"opened": days([10.0] * 56)}, short_id=ref, name=ref) if ref != "empty" else None
+
+        context = cast(
+            Context,
+            SimpleNamespace(
+                team=None,
+                user=None,
+                today=TODAY,
+                failures=[],
+                publish_pulse=lambda found, slots: published.append((clock[0], found, slots)),
+            ),
+        )
+        with (
+            patch.object(routine, "_frecent_views", return_value=views),
+            patch.object(routine, "_candidates", side_effect=lambda context, own: iter(own)),
+            patch.object(routine, "viewable_insight_definitions", return_value=definitions),
+            patch.object(routine, "get_insight_series", side_effect=series),
+            patch.object(routine, "monotonic", side_effect=lambda: clock[0]),
+            patch.object(routine, "sleep", side_effect=advance),
+        ):
+            found = routine._progressive_metrics(context, frozenset(), 6)
+
+        self.assertEqual(published[0][0], 0)
+        self.assertTrue(all(slot.status == PulseSlotStatus.PENDING for slot in published[0][2]))
+        first_number = next((at, result) for at, result, _ in published if result.pulse)
+        self.assertEqual(first_number[0], 1.0)
+        self.assertEqual(first_number[1].pulse[0].key, "insight:fast")
+        self.assertEqual([metric.key for metric in found], ["insight:slow", "insight:fast"])
+        self.assertEqual(clock[0], 20.0)
+        self.assertEqual({ref for ref, at in queried if at == 0}, set(ready_at))
+        self.assertEqual(
+            [slot.status for slot in published[-1][2]],
+            [PulseSlotStatus.READY, PulseSlotStatus.READY, PulseSlotStatus.EMPTY, PulseSlotStatus.ERROR],
+        )
+        self.assertEqual(context.failures, ["insight:timeout"])
+        self.assertTrue(
+            all([slot.key for slot in slots] == [slot.key for slot in published[0][2]] for _, _, slots in published)
         )

@@ -34,6 +34,7 @@ from products.today.backend.facade.enums import (
     HighlightPriority,
     HighlightsStatus,
     HighlightUnit,
+    PulseSlotStatus,
 )
 from products.today.backend.logic import highlight_registry, highlight_types, highlights
 from products.today.backend.logic.highlight_types import Context
@@ -495,3 +496,96 @@ class TestLoadSources(SimpleTestCase):
             registry = highlight_registry.load_registry.__wrapped__()
 
         self.assertEqual(dict(registry.products), {"flags": "feature_flags", "routine": "today"})
+
+
+@time_machine.travel(datetime(2026, 10, 13, 12, 0, tzinfo=UTC), tick=False)
+class TestProgressiveHighlights(BaseTest):
+    def test_partial_values_survive_source_retries_and_final_failure(self) -> None:
+        row = TodayHighlights.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=self.user.id, local_day=DAY, key="progress"
+        )
+        inputs = HighlightSourceInputs(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            local_day=DAY.isoformat(),
+            scopes=None,
+            source_name="routine",
+            highlights_id=str(row.id),
+        )
+        slots = [contracts.PulseSlot(key="fast", name="Fast"), contracts.PulseSlot(key="slow", name="Slow")]
+        highlights.publish_pulse(inputs, HighlightFindings(), slots)
+        highlights.publish_pulse(inputs, HighlightFindings(pulse=(metric("fast"),)), slots)
+        highlights.publish_pulse(inputs, HighlightFindings(), slots)
+        row.refresh_from_db()
+        partial = HIGHLIGHTS.validate_python(row.content)
+        self.assertEqual(partial.status, HighlightsStatus.COMPUTING)
+        self.assertEqual([m.key for m in partial.pulse], ["fast"])
+        self.assertEqual(
+            [s.status for s in partial.pulse_slots or []], [PulseSlotStatus.READY, PulseSlotStatus.PENDING]
+        )
+        highlights.finalize(
+            FinalizeHighlightsInputs(
+                team_id=self.team.id,
+                highlights_id=str(row.id),
+                results=[HighlightSourceResult(source_name="routine", found=None, failed=True)],
+            )
+        )
+        row.refresh_from_db()
+        final = HIGHLIGHTS.validate_python(row.content)
+        self.assertEqual(row.status, HighlightsStatus.READY)
+        self.assertTrue(row.failed_sources)
+        self.assertNotIn("_pulse_sources", row.content)
+        self.assertEqual([m.key for m in final.pulse], ["fast"])
+        self.assertEqual([s.status for s in final.pulse_slots or []], [PulseSlotStatus.READY, PulseSlotStatus.ERROR])
+        before = row.content
+        highlights.publish_pulse(inputs, HighlightFindings(pulse=(metric("slow"),)), slots)
+        row.refresh_from_db()
+        self.assertEqual(row.content, before)
+
+    def test_retry_reuses_active_workflow_and_keeps_ready_numbers(self) -> None:
+        connect = MagicMock()
+        connect.return_value.start_workflow = AsyncMock()
+        with (
+            patch.object(highlights, "progressive_pulse_enabled", return_value=True),
+            patch.object(highlights, "sync_connect", connect),
+        ):
+            highlights.get_highlights(team=self.team, user=self.user, scopes=None)
+            rows = TodayHighlights.objects.for_team(self.team.id)
+            first = rows.get()
+            inputs = HighlightSourceInputs(
+                team_id=self.team.id,
+                user_id=self.user.id,
+                local_day=DAY.isoformat(),
+                scopes=None,
+                source_name="routine",
+                highlights_id=str(first.id),
+            )
+            highlights.publish_pulse(
+                inputs,
+                HighlightFindings(pulse=(metric("fast"),)),
+                [contracts.PulseSlot(key="fast", name="Fast"), contracts.PulseSlot(key="slow", name="Slow")],
+            )
+            highlights.finalize(
+                FinalizeHighlightsInputs(
+                    team_id=self.team.id,
+                    highlights_id=str(first.id),
+                    results=[HighlightSourceResult(source_name="routine", found=None, failed=True)],
+                )
+            )
+            rows.filter(id=first.id).update(created_at=timezone.now() - timedelta(seconds=1))
+            ready = highlights.get_highlights(team=self.team, user=self.user, scopes=None, refresh=True)
+            self.assertEqual(ready.status, HighlightsStatus.COMPUTING)
+            self.assertEqual([m.key for m in ready.pulse], ["fast"])
+            new = rows.exclude(id=first.id).get()
+            highlights.publish_pulse(
+                replace(inputs, highlights_id=str(new.id)),
+                HighlightFindings(),
+                [contracts.PulseSlot(key="fast", name="Fast"), contracts.PulseSlot(key="slow", name="Slow")],
+            )
+            pending = highlights.get_highlights(team=self.team, user=self.user, scopes=None, refresh=True)
+            self.assertEqual([m.key for m in pending.pulse], ["fast"])
+            self.assertEqual(
+                [s.status for s in pending.pulse_slots or []], [PulseSlotStatus.READY, PulseSlotStatus.PENDING]
+            )
+            self.assertEqual(connect.return_value.start_workflow.call_count, 2)
+            self.assertTrue(connect.return_value.start_workflow.call_args.args[1].progressive)
