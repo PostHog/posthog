@@ -90,6 +90,7 @@ class TestSpendBillingContract(BaseTest):
         )
         self.organization.save(update_fields=["usage"])
         assert self_driving_quota_resource(self.organization) == QuotaResource.SIGNALS_CREDITS
+        assert self.organization.usage is not None
         assert self.organization.usage["events"]["usage"] == 12
         with time_machine.travel(_at(10), tick=False):
             report = _make_report(self.team)

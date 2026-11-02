@@ -136,3 +136,32 @@ class TestSignalsRatedUsage(BaseTest):
         with patch("products.signals.backend.rated_usage_tasks.report_signals_rated_usage.delay") as enqueue:
             enqueue_signals_rated_usage.run(day=date(2026, 6, 10).isoformat())
         enqueue.assert_called_once_with(str(self.organization.id), "2026-06-10")
+
+    @parameterized.expand([("successful_delivery", False), ("lost_acknowledgment", True)])
+    @patch("ee.billing.billing_manager.http_session.post")
+    def test_project_move_does_not_change_the_customer_on_replay(
+        self, _name: str, lost_acknowledgment: bool, post: MagicMock
+    ) -> None:
+        self._spend("250")
+        post.return_value = MagicMock(status_code=200, json=lambda: {"results": ["replayed"]})
+        if lost_acknowledgment:
+            post.side_effect = TimeoutError("synthetic timeout after acceptance")
+            with pytest.raises(TimeoutError):
+                report_signals_rated_usage.run(str(self.organization.id), "2026-06-10")
+            post.side_effect = None
+        else:
+            report_signals_rated_usage.run(str(self.organization.id), "2026-06-10")
+        original_payload = post.call_args.kwargs["json"]
+        other_org = Organization.objects.create(name="Destination", usage=self.organization.usage)
+        Team.objects.filter(id=self.team.id).update(organization=other_org)
+        post.reset_mock()
+        with patch("products.signals.backend.rated_usage_tasks.report_signals_rated_usage.delay") as enqueue:
+            enqueue_signals_rated_usage.run(day="2026-06-10")
+        assert {call.args[0] for call in enqueue.call_args_list} == {str(self.organization.id), str(other_org.id)}
+        for call in enqueue.call_args_list:
+            report_signals_rated_usage.run(*call.args)
+        post.assert_called_once()
+        assert post.call_args.kwargs["json"] == original_payload
+        token = post.call_args.kwargs["headers"]["Authorization"].removeprefix("Bearer ")
+        claims = jwt.decode(token, "synthetic-secret", algorithms=["HS256"], audience="posthog:license-key")
+        assert claims["organization_id"] == str(self.organization.id)

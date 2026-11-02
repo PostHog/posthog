@@ -11,6 +11,7 @@ from posthog.scoping_audit import skip_team_scope_audit
 
 from products.signals.backend.models import SignalSpend
 from products.signals.backend.rated_usage import SignalsRatedUsageReporter
+from products.signals.backend.rated_usage_models import SignalRatedUsage
 
 
 @shared_task(
@@ -54,8 +55,15 @@ def enqueue_signals_rated_usage(day: str | None = None) -> None:
         )
         .annotate(day=TruncDate("finalized_at", tzinfo=UTC))
         .values_list("team__organization_id", "day")
-        .order_by("team__organization_id", "day")
-        .distinct()
+        .order_by()
     )
-    for organization_id, usage_day in org_days.iterator(chunk_size=1000):
+    deliveries = (
+        SignalRatedUsage.objects.unscoped()
+        .filter(day__gte=begin.date(), day__lt=end.date())
+        .values_list("organization_id", "day")
+        .order_by()
+    )
+    for organization_id, usage_day in (
+        org_days.union(deliveries).order_by("team__organization_id", "day").iterator(chunk_size=1000)
+    ):
         report_signals_rated_usage.delay(str(organization_id), usage_day.isoformat())
