@@ -60,14 +60,12 @@ Event = tuple[str, int, dict[str, Any]]
 
 
 class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
-    def _send(self, events: list[Event], event: str = "$pageview", plans: dict[str, str] | None = None) -> None:
-        plans = plans or {}
+    def _send(
+        self, events: list[Event], event: str = "$pageview", people: dict[str, dict[str, Any]] | None = None
+    ) -> None:
+        people = people or {}
         for distinct_id in dict.fromkeys(distinct_id for distinct_id, _, _ in events):
-            create_person(
-                team=self.team,
-                distinct_ids=[distinct_id],
-                properties={"plan": plans[distinct_id]} if distinct_id in plans else {},
-            )
+            create_person(team=self.team, distinct_ids=[distinct_id], properties=people.get(distinct_id, {}))
         for distinct_id, minutes, properties in events:
             _create_event(
                 team=self.team,
@@ -241,7 +239,13 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
                 ("person-6", 6, called("Matched condition set 1", True, flag_key="other-flag")),
             ],
             event="$feature_flag_called",
-            plans={"person-1": "pro", "person-2": "pro", "person-3": "free", "person-4": "pro", "person-5": "free"},
+            people={
+                "person-1": {"plan": "pro"},
+                "person-2": {"plan": "pro"},
+                "person-3": {"plan": "free"},
+                "person-4": {"plan": "pro"},
+                "person-5": {"plan": "free"},
+            },
         )
         _create_event(
             team=self.team,
@@ -268,6 +272,27 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
                     ConditionMatch.PROPERTIES: ConditionExposure(with_flag=1, exposed=1),
                 },
             },
+        )
+
+    def test_a_relative_date_in_a_condition_counts_back_from_the_range_end(self) -> None:
+        self._send(
+            [("person-1", 1, {"$feature/new-checkout": True}), ("person-2", 2, {"$feature/new-checkout": True})],
+            people={
+                "person-1": {"signed_up_at": (START - timedelta(days=2)).isoformat()},
+                "person-2": {"signed_up_at": (START - timedelta(days=9)).isoformat()},
+            },
+        )
+        recent_sign_up = WatchedCondition(
+            position=0,
+            properties=({"key": "signed_up_at", "type": "person", "value": "-7d", "operator": "is_date_after"},),
+        )
+        edit = dataclasses.replace(BOOLEAN, conditions=(recent_sign_up,))
+
+        exposure = exposure_by_bucket(self.team, [edit], START, START + BUCKET, BUCKET)
+
+        self.assertEqual(
+            exposure[edit.id][0].in_bucket.in_condition[ConditionMatch.PROPERTIES],
+            ConditionExposure(with_flag=1, exposed=1),
         )
 
     def test_a_condition_on_a_deleted_cohort_leaves_out_only_the_counts_by_properties_of_its_edit(self) -> None:

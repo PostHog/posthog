@@ -27,7 +27,8 @@ people per bucket and since the edit.
     per kind of actor finds the reasons of every edit, and joins them to the events by the actor.
   - By the properties of each event against the property filters of the conditions. Person properties come from the
     event, so an event without person processing does not match a person filter. A filter on another flag always
-    matches, because the query can't evaluate a flag. A condition on a cohort that the query can't read, such as a
+    matches, because the query can't evaluate a flag. A relative date such as "-7d" counts back from the range end,
+    so a rerun of the same range gives the same counts. A condition on a cohort that the query can't read, such as a
     deleted static cohort, has no expression, so its edit gets no counts by properties.
 
 One query per team reads every watched edit: a query per edit would read the same events again.
@@ -156,7 +157,7 @@ def _actor(group_type_index: int | None) -> _Actor:
     return _Actor(expr=actor, present=parse_expr("notEmpty({actor})", placeholders={"actor": actor}))
 
 
-def read_flag(team: Team, edit: WatchedEdit, by_reason: ast.Expr | None) -> FlagRead:
+def read_flag(team: Team, edit: WatchedEdit, by_reason: ast.Expr | None, end: datetime) -> FlagRead:
     """`by_reason` is the column of `_reason_joins` for the edit, or None without watched conditions."""
     actor = _actor(edit.group_type_index)
     # A flag key can hold any character, so it goes in as an AST node, never as HogQL text.
@@ -201,11 +202,13 @@ def read_flag(team: Team, edit: WatchedEdit, by_reason: ast.Expr | None) -> Flag
         with_flag=with_flag,
         exposed=exposed,
         variant_key=variant_key,
-        in_condition=_in_condition(team, edit, by_reason),
+        in_condition=_in_condition(team, edit, by_reason, end),
     )
 
 
-def _in_condition(team: Team, edit: WatchedEdit, by_reason: ast.Expr | None) -> dict[ConditionMatch, ast.Expr]:
+def _in_condition(
+    team: Team, edit: WatchedEdit, by_reason: ast.Expr | None, end: datetime
+) -> dict[ConditionMatch, ast.Expr]:
     if by_reason is None:
         return {}
     in_condition = {ConditionMatch.REASON: parse_expr("{by_reason} = 1", placeholders={"by_reason": by_reason})}
@@ -213,7 +216,9 @@ def _in_condition(team: Team, edit: WatchedEdit, by_reason: ast.Expr | None) -> 
         in_condition[ConditionMatch.PROPERTIES] = ast.Or(
             exprs=[
                 property_to_expr(
-                    replace_proxy_properties(team, {"properties": list(condition.properties)}), team, scope="event"
+                    replace_proxy_properties(team, {"properties": list(condition.properties)}, now=end),
+                    team,
+                    scope="event",
                 )
                 for condition in edit.conditions
             ]
@@ -354,7 +359,7 @@ def counts_by_bucket(
         return {}
 
     reason_joins, reason_columns = _reason_joins(edits, end)
-    reads = [read_flag(team, edit, reason_columns.get(edit.id)) for edit in edits]
+    reads = [read_flag(team, edit, reason_columns.get(edit.id), end) for edit in edits]
     states_by_edit = [
         _states(index, edit, read, conditions(edit, read)) for index, (edit, read) in enumerate(zip(edits, reads))
     ]
@@ -411,6 +416,9 @@ def counts_by_bucket(
                 max_execution_time=QUERY_TIMEOUT_SECONDS,
                 max_threads=QUERY_MAX_THREADS,
                 timeout_overflow_mode="throw",
+                # The reason joins group the flag calls by actor. On a large team the aggregation goes to disk instead
+                # of failing the counts of every edit. The value follows `person_sampling.py`.
+                max_bytes_before_external_group_by=4 * 1024**3,
             ),
         )
 
