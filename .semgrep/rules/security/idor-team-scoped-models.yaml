@@ -1308,7 +1308,6 @@ rules:
                         |Threshold
                         |Ticket
                         |TicketView
-                        |TicketMacro
                         |TraceReview
                         |TraceReviewScore
                         |TracesRetentionRule
