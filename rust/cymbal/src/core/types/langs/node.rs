@@ -87,8 +87,11 @@ impl RawNodeFrame {
             let chunk_ref = OrChunkId::ChunkId(chunk_id);
             let sourcemap = catalog.lookup(team_id, chunk_ref).await?;
             let smc = sourcemap.get_smc();
-            // Note: javascript stack frame lines are 1-indexed, so we have to subtract 1
-            let generated_position = SourcePosition::new(location.line - 1, location.column);
+            // JS stack frame lines and columns are 1-based, but the sourcemap cache is 0-based
+            let generated_position = SourcePosition::new(
+                location.line.saturating_sub(1),
+                location.column.saturating_sub(1),
+            );
             if let Some(location) = smc.lookup(generated_position) {
                 let mut frame = Frame::from((self, location, context_lines));
                 if sourcemap.is_source_ignored(generated_position) {
@@ -228,8 +231,8 @@ impl From<(&RawNodeFrame, SourceLocation<'_>, usize)> for Frame {
         let mut res = Self {
             frame_id: FrameId::placeholder(),
             mangled_name: raw_frame.function.clone(),
-            line: Some(location.line()),
-            column: Some(location.column()),
+            line: Some(location.line() + 1),
+            column: Some(location.column() + 1),
             source: location
                 .file()
                 .and_then(|f| f.name())
@@ -350,7 +353,7 @@ mod test {
     async fn source_map_ignore_list_demotes_only_ignored_sources() {
         let catalog = source_map_catalog();
 
-        let vendor = resolvable_frame(0)
+        let vendor = resolvable_frame(1)
             .resolve_frame(1, &catalog, 0)
             .await
             .unwrap();
@@ -358,7 +361,7 @@ mod test {
         assert_eq!(vendor.source.as_deref(), Some("vendor.js"));
         assert!(!vendor.in_app);
 
-        let app = resolvable_frame(10)
+        let app = resolvable_frame(11)
             .resolve_frame(1, &catalog, 0)
             .await
             .unwrap();
