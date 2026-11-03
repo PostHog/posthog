@@ -21,6 +21,7 @@ class TestCodeSendFieldRefusals(SimpleTestCase):
             ("cc_with_a_display_name", {"cc": "Jane <jane@example.com>"}, "cc__0"),
             ("cc_with_a_quoted_local_part", {"cc": ['"jane doe"@example.com']}, "cc__0"),
             ("cc_with_two_addresses_in_one", {"cc": "jane@example.com, joe@example.com"}, "cc__0"),
+            ("cc_the_email_pipeline_refuses", {"cc": ["jane=tag@example.com"]}, "cc__0"),
             ("empty_bcc", {"bcc": []}, "bcc"),
             ("too_many_bcc", {"bcc": [f"user{i}@example.com" for i in range(11)]}, "bcc"),
             (
@@ -86,6 +87,7 @@ class TestCodeSendFieldRefusals(SimpleTestCase):
     @parameterized.expand(
         [
             ("one_address", {"cc": "copy@example.com"}),
+            ("addresses_with_a_plus_and_an_apostrophe", {"cc": ["copy+tag@example.com", "o'neil@example.com"]}),
             ("ten_addresses", {"bcc": [f"user{i}@example.com" for i in range(10)]}),
             (
                 "attachments_at_the_size_limit",

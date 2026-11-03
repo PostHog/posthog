@@ -34,10 +34,19 @@ CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f]")
 
 ADDRESS_FIELDS = ("cc", "bcc")
 CODE_SEND_EXTRA_FIELDS = (*ADDRESS_FIELDS, "attachments")
+# The email rule of Zod 4, which the CDP service checks each address with. The CDP service refuses the whole send
+# for an address that fails it, and the caller then gets a 503 to retry, so Django refuses the address first.
+PIPELINE_ADDRESS_PATTERN = re.compile(
+    r"^(?!\.)(?!.*\.\.)([A-Za-z0-9_'+\-.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}\Z"
+)
 
 
 def is_bare_address(address: str) -> bool:
-    if len(address) > SENDER_ADDRESS_MAX_LENGTH or not SENDER_ADDRESS_PATTERN.match(address):
+    if (
+        len(address) > SENDER_ADDRESS_MAX_LENGTH
+        or not SENDER_ADDRESS_PATTERN.match(address)
+        or not PIPELINE_ADDRESS_PATTERN.match(address)
+    ):
         return False
     try:
         validate_email(address)
