@@ -90,7 +90,7 @@ export const IntegrationsCreateBody = () => zod
     .object({
         config: zod.unknown().optional(),
     })
-    .describe('Standard Integration serializer.')
+    .describe('The request schema of a create. A create accepts only the public kinds, so the schema lists them.')
 
 export const IntegrationsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this integration.'),
