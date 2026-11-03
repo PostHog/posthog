@@ -12,10 +12,6 @@ import {
 } from '../parity/parity-scenarios'
 import type { ParityMessage, ParityScenario } from '../parity/parity-types'
 
-/**
- * Workloads for the logs consumer benchmark, in the parity scenario format so the Node and Rust
- * benchmarks replay the same bytes. Built from seeds at run time and never committed.
- */
 export type BenchWorkloadOptions = {
     nowMs: number
     batches: number

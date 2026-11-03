@@ -8,13 +8,7 @@ import { CURRENT_CLASSES, FRAMEWORK_CLASSES, type ParityConsumerClasses, runPari
 import { buildParityScenarios } from './parity-scenarios'
 import type { ParityFixture } from './parity-types'
 
-/**
- * Replays the shared parity corpus against the logs consumer. `rust/logs-ingestion` replays the same
- * files, so a fixture diff here means the two implementations no longer agree.
- *
- * `LOGS_PARITY_RECORD=1` rebuilds the inputs and rewrites the expected outputs from this consumer.
- * Re-record only when a behavior change is intended, and port the change to Rust in the same PR.
- */
+// `rust/logs-ingestion` replays these files. Re-record only for an intended behavior change, and port it to Rust.
 const FIXTURE_DIR = join(__dirname, 'fixtures', 'scenarios')
 const RECORD = process.env.LOGS_PARITY_RECORD === '1'
 
@@ -69,7 +63,6 @@ describe('logs ingestion parity corpus', () => {
 
     if (RECORD) {
         it('records the corpus', async () => {
-            // Remove fixtures the generator no longer builds, so no stale scenario stays in the corpus.
             rmSync(FIXTURE_DIR, { recursive: true, force: true })
             mkdirSync(FIXTURE_DIR, { recursive: true })
             for (const scenario of await buildParityScenarios()) {
@@ -86,8 +79,7 @@ describe('logs ingestion parity corpus', () => {
         expect(fixtureFiles().length).toBeGreaterThan(0)
     })
 
-    // faults-kafka-delivery was recorded with the produce-replay fix that #128013 adds to the existing consumer.
-    // TODO: remove this skip after #128013 merges.
+    // TODO: remove after #128013 merges. This fixture expects the produce-replay fix that #128013 adds to the existing consumer.
     const SKIPPED_FOR_EXISTING = new Set(['faults-kafka-delivery.json'])
 
     describe.each([

@@ -46,7 +46,6 @@ function toError(spec: ParityError): Error {
 
 type CapturedMessage = { batch: number; output: string; message: IngestionOutputMessage }
 
-/** Records every message the consumer hands to an output, and fails the ones the scenario names. */
 class CapturingIngestionOutputs extends IngestionOutputs<string> {
     public readonly captured: CapturedMessage[] = []
     public producedCount = 0
@@ -111,11 +110,7 @@ export function toKafkaMessage(message: ParityMessage): Message {
     }
 }
 
-/**
- * Canonical JSON for a decoded Avro value: bytes become `{ $bytes: hex }`, and object keys are
- * sorted. Avro maps carry no order that ClickHouse reads, and two encoders may write them in
- * different orders. Arrays keep their order, because Avro arrays are ordered.
- */
+/** Avro maps carry no order that ClickHouse reads, so keys are sorted. Avro arrays are ordered, so arrays keep their order. */
 export function canonicalizeAvroValue(value: unknown): unknown {
     if (Buffer.isBuffer(value)) {
         return { $bytes: value.toString('hex') }
@@ -134,8 +129,7 @@ export function canonicalizeAvroValue(value: unknown): unknown {
 }
 
 function readContainerSchemaAndCodec(buffer: Buffer): { schema: unknown; codec: string } | null {
-    // An Avro object container header is the magic, then a metadata map of avro.schema and avro.codec.
-    // Reading it directly keeps the schema JSON exactly as the writer emitted it.
+    // Read the container header directly to keep the schema JSON exactly as the writer emitted it.
     if (buffer.length < 4 || buffer.subarray(0, 4).toString('latin1') !== 'Obj\u0001') {
         return null
     }
@@ -219,10 +213,7 @@ function compareCanonical(a: unknown, b: unknown): number {
     return left < right ? -1 : left > right ? 1 : 0
 }
 
-/**
- * Sorts the OTLP data point arrays, which follow the order messages finished processing. That
- * order is not a contract: messages of one batch process concurrently.
- */
+/** Data point order follows message completion, which is not a contract because messages process concurrently. */
 function canonicalizeMetricPayload(payload: unknown): unknown {
     const sortArrays = (value: unknown): unknown => {
         if (Array.isArray(value)) {
@@ -236,7 +227,6 @@ function canonicalizeMetricPayload(payload: unknown): unknown {
     return sortArrays(canonicalizeAvroValue(payload))
 }
 
-/** Distinct inputs, so a passthrough output names exactly one input. */
 function indexInputs(scenario: ParityScenario): Map<string, { batch: number; index: number }> {
     const inputs = new Map<string, { batch: number; index: number }>()
     scenario.batches.forEach((batch, batchIndex) =>
@@ -267,10 +257,6 @@ export const FRAMEWORK_CLASSES: ParityConsumerClasses = {
     traces: TracesIngestionFrameworkConsumer,
 }
 
-/**
- * A consumer wired to in-memory dependencies that the scenario describes. The benchmark reuses it
- * with `discard`, which counts produced messages instead of keeping them.
- */
 export function buildParityConsumer(
     scenario: ParityScenario,
     options: { classes?: ParityConsumerClasses; discard?: boolean } = {}
@@ -290,8 +276,7 @@ export function buildParityConsumer(
         Object.entries(scenario.pattern_keys_faults).map(([teamId, fault]) => [Number(teamId), fault.times])
     )
 
-    // Rules compile once per team, as production's rule caches serve them, so a benchmark built on
-    // this harness does not time compilation.
+    // Rules compile once per team, as the production caches serve them, so a benchmark does not time compilation.
     const compiled = new Map<string, unknown>()
     const memo = <T>(key: string, build: () => T): T => {
         if (!compiled.has(key)) {
@@ -413,10 +398,7 @@ export function buildParityConsumer(
     return { consumer, outputs, teamsIngested, metricEmits, usageRecords, quotaChecks }
 }
 
-/**
- * Runs one scenario through the consumer and returns its canonical outputs. The caller empties
- * Redis before the call, and `setClock` pins `Date` for each batch.
- */
+/** The caller empties Redis before the call. */
 export async function runParityScenario(
     scenario: ParityScenario,
     setClock: (nowMs: number) => void,

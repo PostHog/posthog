@@ -1,12 +1,3 @@
-/**
- * Throughput benchmark for the logs consumer: the original consumer (before the framework rewrite),
- * the framework consumer, and the Rust port all replay the same workload files and print the same
- * result JSON. `run-logs-bench.sh` drives the three; this file is the Node side.
- *
- *   tsx logs-consumer-bench.ts generate <dir>
- *   tsx logs-consumer-bench.ts run <framework|before> <workload.json> <result.json> [measuredPasses] [warmupPasses]
- *   tsx logs-consumer-bench.ts compare <result.json>...
- */
 import { mkdirSync, readFileSync, writeFileSync } from 'fs'
 import Redis from 'ioredis'
 import { join, resolve } from 'path'
@@ -23,7 +14,7 @@ import {
 import type { ParityScenario } from '../parity/parity-types'
 import { DEFAULT_BENCH_OPTIONS, buildBenchWorkloads } from './bench-workloads'
 
-/** The schema every implementation prints, so `compare` reads Node and Rust results alike. */
+/** The Rust bench prints the same schema, so `compare` reads both. */
 export type BenchResult = {
     implementation: string
     workload: string
@@ -51,7 +42,7 @@ type BaselineModule = {
     TracesIngestionConsumer: ParityConsumerClasses['traces']
 }
 
-/** Rate-limiter and sampling buckets the consumers write, so a run never clears other data in Redis. */
+/** Only the buckets the consumers write, so a run never clears other data in Redis. */
 const BENCH_REDIS_KEY_PATTERNS = [
     '@posthog*/logs-rate-limiter/*',
     '@posthog*/traces-rate-limiter/*',
@@ -82,9 +73,7 @@ async function loadClasses(implementation: string): Promise<ParityConsumerClasse
         return FRAMEWORK_CLASSES
     }
     if (implementation === 'before') {
-        // Written by run-logs-bench.sh from git; never committed. The harness has already loaded the
-        // current consumer, which registered the same metric names, and nothing here reads them.
-        // The specifier is built at run time so the build never resolves the uncommitted directory.
+        // The current consumer already registered these metric names. A run-time specifier keeps the build off the uncommitted `.baseline`.
         register.clear()
         const baseline = join(__dirname, '.baseline')
         const logs = (await import(join(baseline, 'logs-ingestion-consumer.ts'))) as BaselineModule
@@ -164,7 +153,6 @@ async function run(implementation: string, workloadPath: string, passes: number,
     }
 }
 
-/** Each implementation's median round by records/s, so one noisy round does not decide a row. */
 function medianRounds(results: BenchResult[]): BenchResult[] {
     const groups = new Map<string, BenchResult[]>()
     for (const r of results) {
@@ -208,14 +196,13 @@ async function main(): Promise<void> {
     if (command === 'generate') {
         const dir = resolve(args[0])
         mkdirSync(dir, { recursive: true })
-        // Metric rules skip records older than 20 minutes, and a full run takes longer than that.
-        // Records stamped ahead of the clock pass the age gate in every round of every implementation.
+        // Metric rules skip records older than 20 minutes, so records are stamped ahead of the clock to outlast a full run.
         const nowMs = Date.now() + 12 * 3600 * 1000
         for (const workload of await buildBenchWorkloads({ ...DEFAULT_BENCH_OPTIONS, nowMs })) {
             writeFileSync(join(dir, `${workload.name}.json`), JSON.stringify(workload))
         }
     } else if (command === 'run') {
-        // A file, not stdout: the consumer logs to stdout.
+        // A file, not stdout, because the consumer logs to stdout.
         const [implementation, workload, out, passes = '10', warmup = '2'] = args
         writeFileSync(out, JSON.stringify(await run(implementation, workload, Number(passes), Number(warmup))) + '\n')
     } else if (command === 'compare') {

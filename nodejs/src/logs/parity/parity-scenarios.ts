@@ -10,26 +10,15 @@ import { encodeLogRecords } from '../log-record-avro'
 import { librdKafkaError } from './parity-harness'
 import type { ParityError, ParityHeader, ParityMessage, ParityScenario, ParityTeam } from './parity-types'
 
-/**
- * Builds the parity corpus. Run only in record mode: the fixture files on disk are the contract,
- * and the Rust crate replays them without this generator. The records are seeded, but every Avro
- * container gets a random sync marker, so a re-record rewrites the input bytes even when nothing
- * else changed.
- *
- * Two outcomes depend on the order that concurrent messages reach shared state, so no scenario
- * relies on them: a sampling `rate_limit` bucket shared by several messages of one team in one
- * batch, and a metric-rule exemplar (the first matching record) chosen across messages.
- */
+// Every Avro container gets a random sync marker, so a re-record rewrites the input bytes even when nothing else changed.
+// No scenario relies on concurrent order: a sampling `rate_limit` bucket shared in one batch, or a metric-rule exemplar across messages.
 
 // Mid-hour, so app metric hour truncation and the token bucket refill both show.
 const PARITY_NOW_MS = Date.UTC(2025, 0, 15, 12, 37, 13, 250)
 let NOW_MS = PARITY_NOW_MS
 let NOW_MICROS = NOW_MS * 1000
 
-/**
- * The benchmark stamps its workloads with the real clock instead, because metric rules skip
- * records older than 20 minutes. Parity scenarios always use the pinned clock.
- */
+/** The benchmark uses the real clock, because metric rules skip records older than 20 minutes. */
 export function setGeneratorClock(nowMs: number = PARITY_NOW_MS): void {
     NOW_MS = nowMs
     NOW_MICROS = nowMs * 1000
@@ -42,7 +31,6 @@ function loadSchema(name: 'logs' | 'traces'): avro.Type {
     return avro.Type.forSchema(parseJSON(raw))
 }
 
-/** mulberry32 — small, seedable, and good enough to spread inputs across code paths. */
 export class Rng {
     constructor(private state: number) {}
     next(): number {
@@ -227,7 +215,6 @@ function encodeWithBuiltinCodec(type: avro.Type, codec: string, records: Rec[]):
 
 type MessageOptions = {
     headers?: Record<string, string>
-    /** Header names to leave out of the default capture-logs set. */
     omitHeaders?: string[]
     omitSizeHeaders?: boolean
     codec?: 'zstandard' | 'null' | 'deflate'
@@ -349,7 +336,6 @@ export function baseScenario(
     }
 }
 
-/** Every batch at NOW_MS, or one clock per batch when given. */
 export function finish(scenario: ParityScenario, clocks?: number[]): ParityScenario {
     scenario.batch_now_ms = clocks ?? scenario.batches.map(() => NOW_MS)
     return scenario
@@ -584,7 +570,6 @@ export async function buildParityScenarios(): Promise<ParityScenario[]> {
                 batch.push(await f.make(team, records))
             }
         }
-        // A message where every record is dropped, so the whole message is suppressed.
         batch.push(await f.logs(plain, 3, {}, { severity_text: 'DEBUG', severity_number: 5, attributes: null }))
         s.batches = [batch]
         scenarios.push(finish(s))

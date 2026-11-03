@@ -20,14 +20,7 @@ import { type SamplingRuleRow, compileRuleSet } from '../sampling/compile-rules'
 import { evaluateLogRecord } from '../sampling/evaluate'
 import { canonicalizeAvroValue } from './parity-harness'
 
-/**
- * Per-function vectors for the pure parts of logs ingestion. The end-to-end corpus shows that the
- * Rust port drifted; these show where. Each file is `{ cases: [{ input, output }] }`, recorded from
- * this code with `LOGS_PARITY_RECORD=1`.
- *
- * The inputs lean on JavaScript semantics a port gets wrong first: UTF-16 length and slicing,
- * object key order, `JSON.stringify` number formatting, and `Date.parse` leniency.
- */
+// Recorded with `LOGS_PARITY_RECORD=1`. Inputs target what a port gets wrong: UTF-16 slicing, key order, number format, `Date.parse`.
 const DIR = join(__dirname, 'fixtures', 'modules')
 const RECORD = process.env.LOGS_PARITY_RECORD === '1'
 const NOW_MS = Date.UTC(2025, 0, 15, 12, 37, 13, 250)
