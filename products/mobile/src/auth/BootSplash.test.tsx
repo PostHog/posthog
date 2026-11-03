@@ -35,7 +35,10 @@ jest.mock('@/auth/authStore', () => {
     }
 })
 jest.mock('@/auth/useAuthRedirect', () => ({ useAuthRedirect: jest.fn() }))
-jest.mock('@/demo/demoMode', () => ({ useDemoHydrated: () => true }))
+jest.mock('@/demo/demoMode', () => ({
+    useDemoHydrated: () => true,
+    useDemoMode: (selector: (state: { enabled: boolean }) => boolean) => selector({ enabled: false }),
+}))
 jest.mock('@/ui/appearanceStore', () => ({
     ...jest.requireActual('@/ui/appearanceStore'),
     useAppearanceHydrated: () => true,
@@ -73,6 +76,7 @@ describe('boot splash handoff', () => {
 
             expect(SplashScreen.hideAsync).toHaveBeenCalledTimes(1)
             expect(screen.getByLabelText('Loading PostHog')).toBeTruthy()
+            expect(screen.getByLabelText('ph-no-capture')).toBeTruthy()
             expect(screen.queryByTestId('app-screens')).toBeNull()
 
             act(() => useAuthStore.setState({ status: 'signed_in' }))
