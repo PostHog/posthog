@@ -1454,11 +1454,15 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             caller_entry["github_login"] = "callercase"
         self._create_artefact(report, content=[caller_entry, {"user_uuid": str(teammate.uuid)}])
 
-        response = self.client.delete(self._leave_reviewers_url(str(report.id)))
+        response = self.client.delete(
+            self._leave_reviewers_url(str(report.id)), HTTP_X_POSTHOG_CLIENT_PLATFORM="mobile"
+        )
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert [r["user_uuid"] for r in self._latest_reviewers(report)] == [str(teammate.uuid)]
         assert not self._reviewer_filter_matches(report, self.user)
+        artefact = SignalReportArtefact.objects.filter(report=report, type="suggested_reviewers").latest("created_at")
+        assert (artefact.client_context or {})["client_surface"] == "mobile"
 
     def test_leaving_as_the_default_owner_is_not_a_routing_correction(self):
         report = self._create_report()

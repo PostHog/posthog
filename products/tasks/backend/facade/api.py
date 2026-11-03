@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
 from urllib.parse import urlparse
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from django.conf import settings
 from django.core import signing
@@ -54,7 +54,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.api.tagged_item import replace_tags_on_object
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.dataclasses import frozen
-from posthog.event_usage import groups
+from posthog.event_usage import AnalyticsProps, groups
 from posthog.ingress.contracts import WebhookDelivery
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models import Team, User
@@ -3041,6 +3041,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "agent_started_run_count",
         "resume_from_run_id",
         "run_source",
+        "run_client_context",
         "pr_base_branch",
         "stack_base_branch",
         "github_credential_source",
@@ -5932,6 +5933,7 @@ def signal_task_run_user_message(
     rpc_timeout: timedelta | None = None,
     workflow_id: str | None = None,
     plan_owner_consented: bool = False,
+    client_context: AnalyticsProps | None = None,
 ) -> bool | None:
     """Queue a user_message follow-up signal on the run's workflow.
 
@@ -5977,7 +5979,11 @@ def signal_task_run_user_message(
         raise ComputeBillingLimitError({"team_id": team_id, "task_id": str(task_id), "run_id": str(run_id)}, reason)
     accepted_at = django_timezone.now()
     try:
-        context_values = {"actor_slack_user_id": actor_slack_user_id, "person_message": person_message}
+        context_values = {
+            "actor_slack_user_id": actor_slack_user_id,
+            "person_message": person_message,
+            "client_context": client_context,
+        }
         context = {key: value for key, value in context_values.items() if value} or None
         signal_task_followup_message(
             workflow_id or run.workflow_id,
@@ -5998,7 +6004,9 @@ def signal_task_run_user_message(
         raise
     if message_id and content and content.strip():
         try:
-            run.record_pending_followup_message(message_id, content, accepted_at=accepted_at)
+            run.record_pending_followup_message(
+                message_id, content, accepted_at=accepted_at, client_context=client_context
+            )
         except Exception:
             logger.warning("Failed to record pending follow-up message for task run %s", run.id, exc_info=True)
     return True
@@ -6244,6 +6252,10 @@ def capture_relay_command_telemetry(
     method: str,
     params: dict | None,
     success: bool,
+    client_context: AnalyticsProps | None = None,
+    actor_distinct_id: str | None = None,
+    command_id: str | None = None,
+    actor_kind: Literal["user", "task", "agent"] = "user",
 ) -> None:
     """Emit PostHog AI control-verb telemetry for a relayed agent command.
 
@@ -6254,10 +6266,25 @@ def capture_relay_command_telemetry(
     semantics: a cancel is recorded only when it actually reached the agent, while a permission
     response is recorded with its forward ``success`` either way.
     """
-    if method not in _POSTHOG_AI_RELAY_TELEMETRY_METHODS:
+    try:
+        run = _get_visible_run(run_id, task_id, team_id)
+    except Exception:
+        logger.exception("task_command_telemetry_lookup_failed", extra={"task_id": str(task_id), "run_id": str(run_id)})
         return
-    run = _get_visible_run(run_id, task_id, team_id)
-    if run is None or run.task.origin_product != Task.OriginProduct.POSTHOG_AI:
+    if run is None:
+        return
+
+    action_properties = {**(client_context or {}), "actor_kind": actor_kind, "command_id": command_id}
+    if method in {"user_message", "permission_response", "cancel", "set_config_option"}:
+        run.capture_event(
+            "task_run_command",
+            {**action_properties, "method": method, "success": success},
+            distinct_id_override=actor_distinct_id,
+            event_uuid=str(uuid5(NAMESPACE_URL, f"task-command:{run.id}:{command_id}:{method}:{success}"))
+            if command_id
+            else None,
+        )
+    if method not in _POSTHOG_AI_RELAY_TELEMETRY_METHODS or run.task.origin_product != Task.OriginProduct.POSTHOG_AI:
         return
 
     params = params or {}
@@ -6267,17 +6294,20 @@ def capture_relay_command_telemetry(
         run.capture_event(
             "task_run_cancelled",
             {
+                **action_properties,
                 "execution_type": "sandbox",
                 "surface": "relay",
                 "conversation_id": None,
                 "cancel_source": "user",
             },
+            distinct_id_override=actor_distinct_id,
         )
         return
 
     run.capture_event(
         "permission_responded",
         {
+            **action_properties,
             "execution_type": "sandbox",
             "surface": "relay",
             "conversation_id": None,
@@ -6285,6 +6315,7 @@ def capture_relay_command_telemetry(
             "option_id": params.get("optionId"),
             "success": success,
         },
+        distinct_id_override=actor_distinct_id,
     )
 
 
@@ -8159,6 +8190,7 @@ def create_task(
                     auto_publish=warm_auto_publish,
                     reasoning_effort=warm_reasoning_effort,
                     retry_token=warm_retry_token,
+                    client_context=validated_data.get("state", {}).get("creation_client_context"),
                 )
             except Exception:
                 if report_reservation is not None:
@@ -9092,6 +9124,7 @@ def _activate_warm_run(
     auto_publish: bool | None = None,
     reasoning_effort: str | None = None,
     retry_token: str | None = None,
+    client_context: AnalyticsProps | None = None,
 ) -> None:
     """Activate an idling warm Run: set the draft Task's visible description from raw task text,
     forward the first message to the already-running agent, and drop the ``await_user_message`` marker
@@ -9109,6 +9142,8 @@ def _activate_warm_run(
         task.description = description
         task.save(update_fields=["description", "updated_at"])
     activation_state_updates: dict[str, object] = {"pr_base_branch": branch}
+    if client_context is not None:
+        activation_state_updates["run_client_context"] = client_context
     if auto_publish is not None:
         # Before the signal: the agent-server re-reads run state when the forwarded
         # first message arrives, so the choice must already be persisted by then.
@@ -9825,6 +9860,7 @@ def run_task(
                         auto_publish=validated_data.get("auto_publish"),
                         reasoning_effort=validated_data.get("reasoning_effort"),
                         retry_token=warm_retry_token,
+                        client_context=validated_data.get("client_context"),
                     )
                     return contracts.TaskRunResult(task=get_task_detail(task.id, team_id, user_id), run_id=warm_run.id)
     if warm_retry_token is not None:
@@ -9861,6 +9897,7 @@ def run_task(
         extra_state = extra_state or {}
         extra_state["pending_user_artifact_ids"] = pending_user_artifact_ids
     for key, value in (
+        ("run_client_context", validated_data.get("client_context")),
         ("client_platform", validated_data.get("client_platform")),
         ("initial_permission_mode", initial_permission_mode),
         ("rtk_enabled", validated_data.get("rtk_enabled")),

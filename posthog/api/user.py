@@ -895,7 +895,7 @@ class UserSerializer(serializers.ModelSerializer):
             # completes here rather than at verification.
             report_user_email_change_requested(instance, verification_required=False)
 
-        report_user_updated(instance, updated_attrs)
+        report_user_updated(instance, updated_attrs, request=self.context.get("request"))
 
         return instance
 

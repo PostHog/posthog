@@ -966,6 +966,7 @@ def capture_status_change_analytics(
 
     # Snapshot now — the instance may be mutated again before the commit callback runs.
     properties = _status_change_properties(instance, prior_status, pending_reason=pending_reason)
+    properties.update(getattr(getattr(instance, "_transition_actor", None), "client_context", None) or {})
     # PR reconciliation supplies a known outcome without creating caller-provided dismissal feedback.
     if getattr(instance, "_status_from_pr_state", False):
         if instance.status == SignalReport.Status.RESOLVED:

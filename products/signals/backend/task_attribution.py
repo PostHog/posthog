@@ -17,9 +17,12 @@ caller can only attribute writes to tasks it could already see.
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
+
+from posthog.event_usage import get_request_client_context
 
 from products.signals.backend.models import ArtefactAttribution
 from products.tasks.backend.facade import api as tasks_api
@@ -51,15 +54,16 @@ def resolve_task_id_from_header(request: Request, team_id: int) -> str | None:
 def resolve_request_attribution(request: Request, team_id: int) -> ArtefactAttribution:
     """Resolve the internal task, external MCP agent, or requesting user for an API write."""
     task_id = resolve_task_id_from_header(request, team_id)
+    client_context = get_request_client_context(request)
     if task_id is not None:
-        return ArtefactAttribution.from_task(task_id)
+        return replace(ArtefactAttribution.from_task(task_id), client_context=client_context)
     user_id = request.user.id
     if user_id is None:  # unreachable behind authentication, but keeps attribution honest
         raise ValidationError("Cannot attribute a write to an anonymous user.")
     agent_name = resolve_external_agent_name(request)
     if agent_name is not None:
-        return ArtefactAttribution.from_agent(user_id, agent_name)
-    return ArtefactAttribution.from_user(user_id)
+        return replace(ArtefactAttribution.from_agent(user_id, agent_name), client_context=client_context)
+    return replace(ArtefactAttribution.from_user(user_id), client_context=client_context)
 
 
 def resolve_external_agent_name(request: Request) -> str | None:

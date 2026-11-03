@@ -2102,6 +2102,8 @@ class TestTaskAPI(BaseTaskAPITest):
                 ),
             },
             format="json",
+            HTTP_X_POSTHOG_CLIENT_PLATFORM="mobile",
+            HTTP_X_POSTHOG_CLIENT_ACTION_ID="example-first-message",
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -2109,6 +2111,9 @@ class TestTaskAPI(BaseTaskAPITest):
         run = task.runs.get()
         self.assertEqual(response.json()["latest_run"]["id"], str(run.id))
         self.assertEqual(run.branch, "existing-branch")
+        self.assertEqual((run.state or {})["run_client_context"]["client_surface"], "mobile")
+        self.assertEqual((run.state or {})["run_client_context"]["client_action_id"], "example-first-message")
+        self.assertEqual(run.analytics_properties()["task_created_surface"], "mobile")
         self.assertEqual(run.state["mode"], "background")
         self.assertEqual(run.state["run_source"], "agent")
         self.assertEqual(mock_workflow.call_args.kwargs["posthog_mcp_scopes"], "read_only")
@@ -3976,11 +3981,19 @@ class TestTaskAPI(BaseTaskAPITest):
         # archived_at should not be re-stamped because the value did not transition.
         self.assertEqual(task.archived_at, original_archived_at)
 
+    @parameterized.expand([("mobile", "mobile"), ("web", "api")])
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_run_endpoint_triggers_workflow(self, mock_workflow):
+    def test_run_endpoint_triggers_workflow(self, platform: str, surface: str, mock_workflow):
         task = self.create_task()
+        task.state = {"created_on_mobile": True}
+        task.save(update_fields=["state"])
 
-        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/")
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            HTTP_X_POSTHOG_CLIENT_PLATFORM=platform,
+            HTTP_X_POSTHOG_SESSION_ID="example-session",
+            HTTP_X_POSTHOG_CLIENT_ACTION_ID="example-action",
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         data = response.json()
@@ -3992,6 +4005,13 @@ class TestTaskAPI(BaseTaskAPITest):
 
         latest_run = data["latest_run"]
         run_id = latest_run["id"]
+        run = TaskRun.objects.get(id=run_id)
+        context = (run.state or {})["run_client_context"]
+        self.assertEqual(context["client_surface"], surface)
+        self.assertEqual(context["$session_id"], "example-session")
+        self.assertEqual(context["client_action_id"], "example-action")
+        self.assertEqual(run.analytics_properties()["task_created_surface"], "mobile")
+        self.assertEqual(run.analytics_properties()["run_started_surface"], surface)
 
         mock_workflow.assert_called_once_with(
             task_id=str(task.id),
@@ -7866,6 +7886,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "slack_actor_user_id": self.user.id,
                 "slack_actor_slack_user_id": "U_ORIGINAL_ACTOR",
                 "run_source": "manual",
+                "run_client_context": {"client_surface": "mobile", "client_action_id": "example-start"},
             },
         )
 
@@ -7884,6 +7905,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
             {
                 "state": {
+                    "run_client_context": {"client_surface": "web"},
                     "scout_trial": {"version": 2},
                     "scout_trial_private": {"reports": {}},
                     "github_credential_source": "server_integration",
@@ -8034,6 +8056,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["slack_actor_user_id"] == self.user.id
         assert run.state["slack_actor_slack_user_id"] == "U_ORIGINAL_ACTOR"
         assert run.state["run_source"] == "manual"
+        assert run.state["run_client_context"] == {"client_surface": "mobile", "client_action_id": "example-start"}
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
         assert run.state["systemPrompt"] == system_prompt
         assert run.state["scout_trial"] == trial_context
@@ -8048,6 +8071,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             {
                 "state": {},
                 "state_remove_keys": [
+                    "run_client_context",
                     "scout_trial",
                     "scout_trial_private",
                     "include_live_context",
@@ -8154,6 +8178,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["slack_actor_user_id"] == self.user.id
         assert run.state["slack_actor_slack_user_id"] == "U_ORIGINAL_ACTOR"
         assert run.state["run_source"] == "manual"
+        assert run.state["run_client_context"] == {"client_surface": "mobile", "client_action_id": "example-start"}
         assert "scratch" not in run.state  # non-protected key removed
         assert run.state["systemPrompt"] == system_prompt
         assert run.state["scout_trial"] == trial_context
@@ -15713,6 +15738,8 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
                 "id": "req-4",
             },
             format="json",
+            HTTP_X_POSTHOG_CLIENT_PLATFORM="mobile",
+            HTTP_X_POSTHOG_SESSION_ID="mobile-session",
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -15727,6 +15754,12 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(response.json(), payload)
         self.assertEqual(props["surface"], "relay")
         self.assertIsNone(props["conversation_id"])
+        self.assertEqual(props["client_surface"], "mobile")
+        self.assertEqual(props["$session_id"], "mobile-session")
+        command = self._capture_calls_for_event(mock_capture, "task_run_command")
+        self.assertEqual(len(command), 1)
+        self.assertEqual(command[0].kwargs["properties"]["command_id"], "req-4")
+        self.assertEqual(command[0].kwargs["distinct_id"], self.user.distinct_id)
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.models.posthoganalytics.capture")

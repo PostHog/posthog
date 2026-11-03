@@ -1569,6 +1569,7 @@ class SignalReportArtefact(UUIDModel):
     actor_kind = models.CharField(max_length=10, choices=SignalActorKind, null=True, blank=True)
     actor_agent = models.CharField(max_length=200, null=True, blank=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    client_context = models.JSONField(null=True, blank=True)
     task = models.ForeignKey("tasks.Task", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     claim = models.ForeignKey(
         "self",
@@ -1739,6 +1740,7 @@ class SignalReportArtefact(UUIDModel):
             actor_kind=attribution.kind,
             actor_agent=attribution.agent_name,
             created_by_id=attribution.user_id,
+            client_context=attribution.client_context,
             task_id=attribution.task_id,
             claim_id=claim_id,
             channel_id=content.channel_id if isinstance(content, ChannelAssignment) else None,

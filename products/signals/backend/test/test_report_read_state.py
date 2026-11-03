@@ -80,7 +80,9 @@ class TestReportReadState(APIBaseTest):
         if not denied:
             assert response.json()["states"] == {str(self.report.id): expected_read}
         action.refresh_from_db()
-        assert action.metadata == {"read": expected_read}
+        assert action.metadata["read"] == expected_read
+        if not denied and read is not None:
+            assert action.metadata["client_surface"] == "api"
 
     def test_bulk_is_bounded_and_deduplicated(self):
         body = {"report_ids": [str(self.report.id)] * 2, "read": True}

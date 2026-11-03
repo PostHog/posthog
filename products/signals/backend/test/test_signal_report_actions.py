@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -7,8 +9,10 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
+from posthog.temporal.oauth import POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_US
 
 from products.signals.backend.artefact_schemas import Dismissal
 from products.signals.backend.models import (
@@ -40,6 +44,58 @@ class TestSignalReportSlackActions(BaseTest):
 
 
 class TestSignalReportViewedEndpoint(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("interactive_mobile", True, False, False, True),
+            ("no_consent_lineage", False, False, False, False),
+            ("sandbox_scope", True, True, False, False),
+            ("agent_header", True, False, True, False),
+        ]
+    )
+    def test_only_a_consented_mobile_human_counts_as_consumption(
+        self, _name: str, consented: bool, sandbox: bool, agent: bool, recorded: bool
+    ) -> None:
+        report = self._create_report()
+        application = OAuthApplication.objects.create(
+            name="Example mobile app",
+            client_id=POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_US,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+        )
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token="pha_example-mobile-access-token",
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_teams=[self.team.id],
+            scope="inbox:read" + (" internal_run:read" if sandbox else ""),
+        )
+        if consented:
+            OAuthRefreshToken.objects.create(
+                user=self.user,
+                application=application,
+                token="example-mobile-refresh-token",
+                access_token=access_token,
+            )
+        self.client.logout()
+        headers = {
+            "authorization": f"Bearer {access_token.token}",
+            "X-PostHog-Client-Platform": "mobile",
+            "X-Posthog-Session-Id": "example-mobile-session",
+            **({"X-Posthog-Client": "mcp"} if agent else {}),
+        }
+        response = self.client.post(self._viewed_url(str(report.id)), headers=headers)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        rows = SignalReportAction.objects.for_team(self.team.id).filter(report=report)
+        assert rows.exists() == recorded
+        if recorded:
+            assert rows.get().metadata["client_surface"] == "mobile"
+            assert rows.get().metadata["$session_id"] == "example-mobile-session"
+
     def _viewed_url(self, report_id: str) -> str:
         return f"/api/projects/{self.team.pk}/signals/reports/{report_id}/viewed/"
 
@@ -111,7 +167,7 @@ class TestSignalReportViewedEndpoint(APIBaseTest):
             f"/api/projects/{self.team.pk}/signals/reports/{report.pk}/{action_path}/",
             body,
             format="json",
-            headers={"authorization": f"Bearer {token}"},
+            headers={"authorization": f"Bearer {token}", "X-PostHog-Client-Platform": "mobile"},
         )
 
         assert response.status_code == expected_status

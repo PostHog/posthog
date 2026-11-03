@@ -5,6 +5,7 @@ import time
 import uuid
 from collections.abc import Callable, Iterable, Sequence
 from contextlib import ExitStack
+from dataclasses import replace
 from datetime import UTC, timedelta
 from functools import cached_property, partial
 from typing import Any, Literal, cast
@@ -64,7 +65,7 @@ from posthog.auth import (
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
-from posthog.event_usage import report_user_action
+from posthog.event_usage import AnalyticsProps, get_request_client_context, report_user_action
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
@@ -73,7 +74,7 @@ from posthog.models.github_integration_base import GitHubIntegrationBase, PullRe
 from posthog.models.integration import GitHubIntegration
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
-from posthog.oauth_provenance import is_sandbox_oauth_request, is_sandbox_origin_request
+from posthog.oauth_provenance import is_interactive_mobile_grant, is_sandbox_oauth_request, is_sandbox_origin_request
 from posthog.permissions import (
     APIScopePermission,
     get_authenticator_scoped_team_ids,
@@ -1273,14 +1274,13 @@ class SignalReportContentUpdateSerializer(serializers.Serializer):
 
 
 def _is_person_at_the_ui(request: Request) -> bool:
-    """Whether the caller is a signed-in person in a browser, not an automated credential.
+    """Whether the caller is a person in the browser or the consented mobile app.
 
     Consumption evidence (`SignalReportAction`) must prove a person read the report, but every
     credential this API accepts authenticates *as* a user: through ``request.user`` alone, a
     personal API key or a sandbox agent's OAuth token is indistinguishable from the person it
-    belongs to. Admitting only a browser session keeps automation — including a scout calling
-    the API on its own reports — from manufacturing the engagement that exempts it from the
-    inactivity sweep.
+    belongs to. Require a browser session or the dedicated mobile app with consent-flow
+    lineage and no sandbox or MCP markers, so automation cannot manufacture consumption.
 
     Staff impersonation is excluded for the same reason: it is a browser session, but
     ``request.user`` is the impersonated customer, so a support investigation would otherwise
@@ -1288,9 +1288,17 @@ def _is_person_at_the_ui(request: Request) -> bool:
     read. (Read-only impersonation can't reach these POSTs at all; read-write can.)
     """
     return (
-        isinstance(request.successful_authenticator, SessionAuthentication)
-        and isinstance(request.user, User)
+        isinstance(request.user, User)
         and not is_impersonated_session(request)
+        and (
+            isinstance(request.successful_authenticator, SessionAuthentication)
+            or (
+                is_interactive_mobile_grant(request)
+                and not request.headers.get(TASK_ID_HEADER)
+                and not request.headers.get("X-Posthog-Client")
+                and not request.headers.get("X-Posthog-Mcp-Client-Name")
+            )
+        )
     )
 
 
@@ -1885,8 +1893,20 @@ class SignalReportViewSet(
         if len(set(requested)) != len(ids):
             raise NotFound("One or more reports are unavailable.")
         states = report_read_states(
-            self.team_id, request.user.id, [str(id) for id in ids], serializer.validated_data.get("read")
+            self.team_id,
+            request.user.id,
+            [str(id) for id in ids],
+            serializer.validated_data.get("read"),
+            client_context=get_request_client_context(request),
         )
+        if "read" in serializer.validated_data:
+            report_user_action(
+                request.user,
+                "signals_report_read_state_changed",
+                {"report_ids": [str(id) for id in ids], "read": serializer.validated_data["read"]},
+                team=self.team,
+                request=request,
+            )
         return Response(ReportReadStateResponseSerializer({"states": states}).data)
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
@@ -3298,6 +3318,7 @@ class SignalReportViewSet(
                 team=self.team,
                 report_id=str(report.id),
                 user=cast(User, request.user),
+                client_context=get_request_client_context(request),
                 scoped_team_ids=tuple(scoped_team_ids) if scoped_team_ids is not None else None,
                 was_impersonated=is_impersonated_session(request),
                 removal_reason=removal.validated_data.get("removal_reason"),
@@ -3708,7 +3729,7 @@ class SignalReportViewSet(
         summary="Leave feedback on a report",
         description=(
             "Record the thumbs rating at the end of a report, with an optional note. For "
-            "browser-session requests the rating is persisted as a per-person report action, which "
+            "browser-session or consented first-party mobile requests the rating is persisted as a per-person report action, which "
             "counts as consumption evidence for the scout that authored the report (scouts whose "
             "output nobody consumes are eventually paused); requests authenticated any other way "
             "record no action. When a note is present and the report was authored by a scout, the note is also "
@@ -3776,8 +3797,8 @@ class SignalReportViewSet(
             "kept (repeat views bump a counter), and the record counts as consumption evidence for the "
             "scout that authored the report — scouts whose reports nobody consumes are eventually "
             "paused. Intended as fire-and-forget from the inbox UI when a person opens a report. Only "
-            "browser-session requests leave a record; a call with any other credential (personal API "
-            "key, OAuth token) returns 204 but records nothing."
+            "browser-session or consented first-party mobile requests leave a record. Personal API "
+            "keys, agent credentials, and other OAuth tokens return 204 but record nothing."
         ),
         request=None,
         responses={204: None},
@@ -3785,12 +3806,12 @@ class SignalReportViewSet(
     # inbox:read, not inbox:write: recording that someone read a report is part of reading it.
     # Under resource-level RBAC a `:write` scope demands editor access, which would 403 the
     # viewer-level members whose reads this endpoint exists to capture. Token automation is
-    # already excluded by the session-authentication gate, not by scope.
+    # already excluded by the interactive-caller gate, not by scope.
     @action(detail=True, methods=["post"], url_path="viewed", required_scopes=["inbox:read"])
     def viewed(self, request, pk=None, **kwargs):
         """Upsert a per-person view record for the report.
 
-        Only session-authenticated callers leave a record; any other credential is a silent
+        Only browser sessions and consented mobile callers leave a record; other credentials are a silent
         no-op (204, nothing written), since the row exists to prove a person looked.
         """
         report = cast(SignalReport, self.get_object())
@@ -3800,6 +3821,10 @@ class SignalReportViewSet(
                 report_id=str(report.id),
                 user_id=request.user.id,
                 action_type=SignalReportAction.ActionType.VIEW,
+                metadata=dict(get_request_client_context(request)),
+            )
+            report_user_action(
+                request.user, "signals_report_viewed", {"report_id": str(report.id)}, team=self.team, request=request
             )
             capture_background_report_events(
                 team=self.team, user=request.user, event=BACKGROUND_REPORT_VIEWED_EVENT, report_ids=[str(report.id)]
@@ -3980,6 +4005,7 @@ class SignalReportViewSet(
                     team=self.team,
                     report_id=str(report.id),
                     user=user,
+                    client_context=get_request_client_context(self.request),
                     scoped_team_ids=tuple(scoped_team_ids) if scoped_team_ids is not None else None,
                     was_impersonated=was_impersonated,
                     removal_reason=ReviewerRemovalReason.WRONG_AREA,
@@ -5561,7 +5587,7 @@ def append_suggested_reviewers(
     user_id = request.user.id
     if user_id is None:  # unreachable behind authentication, but keeps attribution honest
         raise serializers.ValidationError("Cannot attribute a reviewer edit to an anonymous user.")
-    attribution = ArtefactAttribution.from_user(user_id)
+    attribution = replace(ArtefactAttribution.from_user(user_id), client_context=get_request_client_context(request))
     # Read off the request here: scout note forwarding runs after commit, where there is no request.
     scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
     scoped_team_id_tuple = tuple(scoped_team_ids) if scoped_team_ids is not None else None
@@ -5992,6 +6018,7 @@ def remove_suggested_reviewer(
     removal_reason: str | None = None,
     removal_note: str | None = None,
     forward_note: bool = True,
+    client_context: AnalyticsProps | None = None,
 ) -> bool:
     """Take one person off a report's suggested reviewers and leave everyone else as they are.
 
@@ -6013,7 +6040,7 @@ def remove_suggested_reviewer(
     user_id = user.id
     if user_id is None:  # unreachable behind authentication, but keeps attribution honest
         raise serializers.ValidationError("Cannot attribute a reviewer edit to an anonymous user.")
-    attribution = ArtefactAttribution.from_user(user_id)
+    attribution = replace(ArtefactAttribution.from_user(user_id), client_context=client_context)
     github_login = user.get_github_login()
     github_login = github_login.lower() if github_login else None
 

@@ -3918,7 +3918,11 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         with patch("products.signals.backend.receivers.posthoganalytics.capture") as mock_capture:
             with self.captureOnCommitCallbacks(execute=True):
                 response = self.client.post(
-                    self._state_url(str(report.id)), data=json.dumps(body), content_type="application/json"
+                    self._state_url(str(report.id)),
+                    data=json.dumps(body),
+                    content_type="application/json",
+                    HTTP_X_POSTHOG_CLIENT_PLATFORM="mobile",
+                    HTTP_X_POSTHOG_SESSION_ID="example-mobile-session",
                 )
         assert response.status_code == status.HTTP_200_OK, response.json()
 
@@ -3929,6 +3933,13 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         )
         assert label["properties"]["status"] == SignalReport.Status.RESOLVED
         assert label["properties"]["dismissal_reason"] == expected_reason
+        assert label["properties"]["client_surface"] == "mobile"
+        assert label["properties"]["actor_kind"] == "user"
+        assert label["properties"]["$session_id"] == "example-mobile-session"
+        if expected_reason:
+            artefact = SignalReportArtefact.objects.filter(report=report, type="dismissal").latest("created_at")
+            assert isinstance(artefact.client_context, dict)
+            assert artefact.client_context["client_surface"] == "mobile"
 
     def test_resolve_via_state_api_closes_the_open_implementation_pr(self):
         # The inbox PR is superseded by a fix that landed elsewhere, so the receiver must close it

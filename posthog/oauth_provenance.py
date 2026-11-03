@@ -11,7 +11,12 @@ pulls in enough of the model layer that importing it here would cycle back throu
 """
 
 from posthog.models.oauth import OAuthRefreshToken
-from posthog.temporal.oauth import POSTHOG_DESKTOP_OAUTH_CLIENT_IDS, SANDBOX_OAUTH_APP_CLIENT_IDS
+from posthog.temporal.oauth import (
+    POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_EU,
+    POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_US,
+    POSTHOG_DESKTOP_OAUTH_CLIENT_IDS,
+    SANDBOX_OAUTH_APP_CLIENT_IDS,
+)
 
 # Minted server-side only, so its presence proves the token was not obtained by a person
 # through the consent flow. See INTERNAL_SCOPES in posthog/temporal/oauth.py.
@@ -89,6 +94,15 @@ def is_interactive_desktop_grant(request, access_token: object | None = None) ->
     if INTERNAL_RUN_SCOPE in scopes:
         return False
     return _has_authorization_flow_lineage(access_token)
+
+
+def is_interactive_mobile_grant(request) -> bool:
+    token = get_oauth_access_token(request)
+    return (
+        _get_client_id(token) in {POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_US, POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_EU}
+        and not is_sandbox_origin_request(request)
+        and is_interactive_desktop_grant(request, token)
+    )
 
 
 def _has_authorization_flow_lineage(access_token: object) -> bool:

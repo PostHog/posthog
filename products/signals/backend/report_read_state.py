@@ -1,9 +1,14 @@
+from typing import TYPE_CHECKING
+
 from django.db import transaction
 from django.utils import timezone
 
 from rest_framework import serializers
 
 from products.signals.backend.models import SignalReportAction
+
+if TYPE_CHECKING:
+    from posthog.event_usage import AnalyticsProps
 
 
 class ReportReadStateRequestSerializer(serializers.Serializer):
@@ -23,7 +28,14 @@ class ReportReadStateResponseSerializer(serializers.Serializer):
     states = serializers.DictField(child=serializers.BooleanField(), help_text="Read state keyed by report UUID.")
 
 
-def report_read_states(team_id: int, user_id: int, report_ids: list[str], read: bool | None) -> dict[str, bool]:
+def report_read_states(
+    team_id: int,
+    user_id: int,
+    report_ids: list[str],
+    read: bool | None,
+    *,
+    client_context: "AnalyticsProps | None" = None,
+) -> dict[str, bool]:
     rows = SignalReportAction.objects.for_team(team_id).filter(
         report_id__in=report_ids,
         user_id=user_id,
@@ -39,7 +51,7 @@ def report_read_states(team_id: int, user_id: int, report_ids: list[str], read: 
                         report_id=report_id,
                         user_id=user_id,
                         type=SignalReportAction.ActionType.READ,
-                        metadata={"read": read},
+                        metadata={**(client_context or {}), "read": read},
                         last_at=now,
                     )
                     for report_id in report_ids
