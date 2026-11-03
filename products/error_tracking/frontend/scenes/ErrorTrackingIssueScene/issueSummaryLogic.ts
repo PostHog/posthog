@@ -140,7 +140,6 @@ export const issueSummaryLogic = kea<issueSummaryLogicType>([
                 cache.viewedGeneratedAt = summary.generated_at
                 posthog.capture('error_tracking_issue_summary_viewed', {
                     issue_id: props.issueId,
-                    category: summary.category,
                     model: summary.model,
                     generated_at: summary.generated_at,
                 })
@@ -150,7 +149,6 @@ export const issueSummaryLogic = kea<issueSummaryLogicType>([
             posthog.capture('error_tracking_issue_summary_feedback', {
                 issue_id: props.issueId,
                 feedback,
-                category: values.summary?.category ?? null,
                 model: values.summary?.model ?? null,
                 generated_at: values.summary?.generated_at ?? null,
             })

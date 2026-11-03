@@ -26,7 +26,6 @@ from products.access_control.backend.facade.api import upsert_property_access_co
 from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
 from products.error_tracking.backend.facade import summaries as summaries_facade
 from products.error_tracking.backend.facade.contracts import (
-    IssueSummaryCategory,
     IssueSummaryRead,
     IssueSummaryStatus,
     IssueSummaryUnavailableReason,
@@ -58,7 +57,6 @@ from products.error_tracking.backend.temporal.lifecycle.issue_created.types impo
     IssueCreatedSnapshot,
     IssueCreatedWorkflowInputs,
 )
-from products.ml_inference.backend.facade.contracts import ChoiceAnswer, DecisionResult
 
 SUMMARY_REPLY = {
     "what_happened": "Checkout throws when the cart is empty.",
@@ -73,14 +71,6 @@ def _completion(content: str) -> MagicMock:
     response = MagicMock()
     response.choices = [MagicMock(message=MagicMock(content=content))]
     return response
-
-
-def _category_result(choice: str) -> DecisionResult:
-    return DecisionResult(
-        model="jev",
-        answers={"category": ChoiceAnswer(choice=choice, confidence=0.9, probabilities={choice: 0.9})},
-        input_tokens=10,
-    )
 
 
 class TestIssueSummaryParsing(SimpleTestCase):
@@ -204,7 +194,6 @@ class TestIssueSummaryGeneration(BaseTest):
         self.client_mock.with_options.return_value.chat.completions.create.return_value = _completion(
             json.dumps(SUMMARY_REPLY)
         )
-        self.decide = MagicMock(return_value=_category_result("own_code"))
         self.enterContext(patch.object(team_flags, "feature_enabled_or_false", return_value=True))
         self.enterContext(patch.object(issue_summaries, "resolve_ai_gateway_config", return_value=MagicMock()))
         self.build_client = self.enterContext(
@@ -213,7 +202,6 @@ class TestIssueSummaryGeneration(BaseTest):
         self.build_inputs = self.enterContext(
             patch.object(issue_summaries, "build_issue_summary_inputs_from_event", side_effect=lambda *_: self.inputs)
         )
-        self.enterContext(patch.object(issue_summaries.ml_inference, "decide_when_available", self.decide))
 
     def tearDown(self) -> None:
         TEST_clear_clients()
@@ -247,28 +235,15 @@ class TestIssueSummaryGeneration(BaseTest):
         self.enterContext(patch.object(issue_summaries, "ISSUE_SUMMARY_WRITE_BUDGET", tiny))
         consume(f"{issue_summaries.ISSUE_SUMMARY_WRITE_BUDGET_KEY_PREFIX}:{team_id}", tiny)
 
-    @parameterized.expand(
-        [
-            ("category_answered", {"return_value": _category_result("network")}, IssueSummaryCategory.NETWORK),
-            ("category_failed", {"side_effect": RuntimeError("jev down")}, None),
-            ("category_unknown_option", {"return_value": _category_result("cosmic_rays")}, None),
-        ]
-    )
-    def test_generates_and_stores_summary(
-        self, _name: str, decide_kwargs: dict[str, Any], expected_category: IssueSummaryCategory | None
-    ) -> None:
-        self.decide.configure_mock(**decide_kwargs)
-
+    def test_generates_and_stores_summary(self) -> None:
         assert self._generate_on_creation() == IssueSummaryOutcome.GENERATED
 
         summary = self._read().summary
         assert summary is not None
         assert summary.what_happened == SUMMARY_REPLY["what_happened"]
-        assert summary.category == expected_category
         request = self.completions.call_args.kwargs
         assert request["extra_headers"] == {"X-PostHog-Privacy-Mode": "true"}
         assert request["response_format"]["json_schema"]["strict"] is True
-        assert self.decide.call_args.args[0].privacy_mode is True
         assert self.build_client.call_args.kwargs["properties"]["issue_id"] == str(self.issue.id)
         assert not issue_summaries.get_client().exists(self._lock_key)
 

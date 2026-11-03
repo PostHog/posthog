@@ -40,14 +40,9 @@ from products.access_control.backend.facade.api import (
     split_restricted_property_names,
 )
 from products.access_control.backend.facade.contracts import UserNotOrganizationMemberError
-from products.error_tracking.backend.facade.contracts import (
-    IssueSummaryCategory,
-    IssueSummaryStatus,
-    IssueSummaryUnavailableReason,
-)
+from products.error_tracking.backend.facade.contracts import IssueSummaryStatus, IssueSummaryUnavailableReason
 from products.error_tracking.backend.facade.query_utils import as_record, extract_release, to_number, truncate_text
 from products.error_tracking.backend.logic.issue_summary_config import (
-    ISSUE_SUMMARY_CATEGORY_MODEL,
     ISSUE_SUMMARY_FLAG,
     ISSUE_SUMMARY_LLM_TIMEOUT_SECONDS,
     ISSUE_SUMMARY_LOCK_TTL_SECONDS,
@@ -58,8 +53,6 @@ from products.error_tracking.backend.logic.issue_summary_config import (
     ISSUE_SUMMARY_WRITE_BUDGET,
 )
 from products.error_tracking.backend.logic.issue_summary_prompt import (
-    ISSUE_SUMMARY_CATEGORY_QUESTION,
-    ISSUE_SUMMARY_CATEGORY_QUESTION_ID,
     ISSUE_SUMMARY_IMPACT_LINE,
     ISSUE_SUMMARY_IMPACT_NOT_KNOWN_YET,
     ISSUE_SUMMARY_INPUT_TEMPLATE,
@@ -79,8 +72,6 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssueSummary,
 )
 from products.error_tracking.backend.temporal.lifecycle.rendering import render_stacktrace
-from products.ml_inference.backend.facade import api as ml_inference
-from products.ml_inference.backend.facade.contracts import ChoiceAnswer, DecisionRequest
 
 logger = structlog.get_logger(__name__)
 
@@ -428,15 +419,13 @@ def _generate_claimed(
         )
         return IssueSummaryResult(outcome=IssueSummaryOutcome.INVALID_OUTPUT, summary=None)
 
-    with timings.stage("category"):
-        category = infer_issue_category(team_id, inputs.prompt)
     generated_at = timezone.now()
     try:
         summary, _ = ErrorTrackingIssueSummary.objects.for_team(team_id).update_or_create(
             issue_id=issue_id,
             defaults={
                 "team_id": team_id,
-                "content": {**response.model_dump(), "category": category.value if category else None},
+                "content": response.model_dump(),
                 "input_hash": inputs.input_hash,
                 "model": ISSUE_SUMMARY_MODEL,
                 "generated_at": generated_at,
@@ -684,25 +673,3 @@ def unsafe_summary_fields(content: Mapping[str, object]) -> list[str]:
         for name, value in content.items()
         if isinstance(value, str) and (SUMMARY_URL.search(value) or SUMMARY_SHELL_COMMAND.search(value))
     ]
-
-
-def infer_issue_category(team_id: int, prompt: str) -> IssueSummaryCategory | None:
-    """Ask the decision model for a category. Any failure leaves the category empty."""
-    try:
-        result = ml_inference.decide_when_available(
-            DecisionRequest(
-                team_id=team_id,
-                state=prompt,
-                questions={ISSUE_SUMMARY_CATEGORY_QUESTION_ID: ISSUE_SUMMARY_CATEGORY_QUESTION},
-                model=ISSUE_SUMMARY_CATEGORY_MODEL,
-                privacy_mode=True,
-            )
-        )
-    except Exception:
-        logger.warning("error_tracking_issue_summary_category_failed", team_id=team_id, exc_info=True)
-        return None
-    answer = result.answers.get(ISSUE_SUMMARY_CATEGORY_QUESTION_ID)
-    if not isinstance(answer, ChoiceAnswer) or answer.choice not in IssueSummaryCategory.values:
-        logger.warning("error_tracking_issue_summary_category_unexpected", team_id=team_id, answer=repr(answer))
-        return None
-    return IssueSummaryCategory(answer.choice)

@@ -18,7 +18,6 @@ STORED_CONTENT = {
     "likely_cause": "The cart total reads a property of an undefined line item.",
     "who_is_affected": "Users who open checkout with an empty cart.",
     "suggested_next_step": "Guard the line item lookup in the cart total.",
-    "category": "own_code",
 }
 
 # name, flag on, sources readable, AI approved, summary stored, expected status, expected reason

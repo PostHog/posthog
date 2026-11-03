@@ -481,15 +481,6 @@ class ErrorTrackingAlert:
     updated_at: datetime
 
 
-class IssueSummaryCategory(LabeledStrEnum):
-    OWN_CODE = "own_code"
-    THIRD_PARTY = "third_party"
-    NETWORK = "network"
-    BOTS = "bots"
-    EXPECTED = "expected"
-    UNCLEAR = "unclear"
-
-
 @dataclass(frozen=True)
 class ErrorTrackingIssueSummary:
     issue_id: UUID
@@ -498,8 +489,6 @@ class ErrorTrackingIssueSummary:
     likely_cause: str
     who_is_affected: str
     suggested_next_step: str
-    # None when the category model did not answer.
-    category: IssueSummaryCategory | None
     model: str
     generated_at: datetime
     # When generation last wrote the summary.
