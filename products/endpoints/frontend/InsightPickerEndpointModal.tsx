@@ -12,8 +12,8 @@ import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/insightTypesMetada
 import { SavedInsightsTable } from 'scenes/saved-insights/SavedInsightsTable'
 import { urls } from 'scenes/urls'
 
+import { isNodeWithSource } from '~/queries/schema/node-guards'
 import { EndpointQueryNode, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
-import { isNodeWithSource } from '~/queries/utils'
 import { InsightType, InsightModel } from '~/types'
 
 import { EndpointFromInsightModal } from './EndpointFromInsightModal'

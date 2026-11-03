@@ -52,6 +52,39 @@ def block_if_team_over_quota(
     return True
 
 
+def block_if_ai_processing_not_approved(
+    *,
+    integration: Any,
+    slack: Any,
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+    context: str,
+    post_denial: bool = True,
+) -> bool:
+    """Refuse a Slack-bot turn when the organization has not approved AI data processing.
+
+    Every turn sends Slack content to external AI services, so it needs the same org
+    consent as PostHog AI in the web app. A null consent counts as not approved, as in
+    the settings toggle. Returns True when the turn was blocked.
+    """
+    from products.slack_app.backend.api import post_ai_processing_not_approved_denial
+
+    if integration.team.organization.is_ai_data_processing_approved:
+        return False
+
+    if post_denial:
+        post_ai_processing_not_approved_denial(
+            integration=integration,
+            slack=slack,
+            channel=channel,
+            thread_ts=thread_ts,
+            slack_user_id=slack_user_id,
+            context=context,
+        )
+    return True
+
+
 # Reaction errors that should never abort a follow-up activity — the 👀/🔍 reaction is purely
 # cosmetic UX feedback, so a deleted/unreachable message or a missing reaction is a no-op.
 _BENIGN_REACTION_ERRORS = frozenset({"already_reacted", "message_not_found", "no_reaction", "cant_react"})

@@ -18,13 +18,20 @@ import {
 import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { SeriesActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 
 import { groupsModel } from '~/models/groupsModel'
-import { EntityTypes, HogFunctionConfigurationType, HogFunctionMappingType } from '~/types'
+import { NodeKind } from '~/queries/schema/schema-general'
+import {
+    ChartDisplayCategory,
+    CyclotronJobFiltersType,
+    HogFunctionConfigurationType,
+    HogFunctionMappingType,
+} from '~/types'
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
+import { cdpFiltersToSeries, seriesToCdpFilters } from '../filters/cdpFilterSeries'
 
 export const humanize = (value: string): string => {
     const fallback = typeof value === 'string' ? (value ?? '') : ''
@@ -100,9 +107,15 @@ export function HogFunctionMapping({
                 {!hideEventFilter && (
                     <>
                         <LemonLabel>Match events and actions</LemonLabel>
-                        <ActionFilter
-                            filters={mapping.filters ?? ({} as any)}
-                            setFilters={(f: any) => onChange({ ...mapping, filters: f })}
+                        <SeriesActionFilter
+                            series={cdpFiltersToSeries(mapping.filters)}
+                            onChange={(series) =>
+                                onChange({
+                                    ...mapping,
+                                    filters: seriesToCdpFilters(series) as unknown as CyclotronJobFiltersType,
+                                })
+                            }
+                            trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
                             typeKey={`match-group-${index}`}
                             mathAvailability={MathAvailability.None}
                             hideRename
@@ -121,11 +134,7 @@ export function HogFunctionMapping({
                                 ...groupsTaxonomicTypes,
                             ]}
                             propertyFiltersPopover
-                            addFilterDefaultOptions={{
-                                id: '$pageview',
-                                name: '$pageview',
-                                type: EntityTypes.EVENTS,
-                            }}
+                            newSeriesDefaults={{ kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' }}
                             buttonProps={{
                                 type: 'secondary',
                             }}

@@ -9,8 +9,8 @@ import api, { ApiConfig, getCookie } from 'lib/api'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 // eslint-disable-next-line import/no-cycle
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { clearSession, isOAuthMode, setOAuthContextIds } from 'lib/oauth/oauthClient'
 import { getAppContext } from 'lib/utils/getAppContext'
+import { clearSession, isOAuthMode, setOAuthContextIds } from 'lib/utils/oauthClient'
 import { identifyUserInPostHog } from 'lib/utils/posthogIdentity'
 import { clearPendingVerificationEmail } from 'scenes/authentication/shared/verificationCode'
 

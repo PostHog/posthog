@@ -68,6 +68,8 @@ class TestOauthIntegrationModel(BaseTest):
         "GOOGLE_ADS_APP_CLIENT_SECRET": "google-client-secret",
         "GOOGLE_CALENDAR_APP_CLIENT_ID": "google-calendar-client-id",
         "GOOGLE_CALENDAR_APP_CLIENT_SECRET": "google-calendar-client-secret",
+        "GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID": "google-search-console-client-id",
+        "GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET": "google-search-console-client-secret",
         "LINKEDIN_APP_CLIENT_ID": "linkedin-client-id",
         "LINKEDIN_APP_CLIENT_SECRET": "linkedin-client-secret",
         "TIKTOK_ADS_CLIENT_ID": "tiktok-app-id",
@@ -78,6 +80,8 @@ class TestOauthIntegrationModel(BaseTest):
         "HELPSCOUT_APP_CLIENT_SECRET": "helpscout-client-secret",
         "STRIPE_APP_CLIENT_ID": "stripe-client-id",
         "STRIPE_APP_SECRET_KEY": "stripe-secret-key",
+        "INSTAGRAM_APP_CLIENT_ID": "instagram-client-id",
+        "INSTAGRAM_APP_CLIENT_SECRET": "instagram-client-secret",
     }
 
     def create_integration(
@@ -109,6 +113,13 @@ class TestOauthIntegrationModel(BaseTest):
                 "code_challenge": params["code_challenge"],
                 "code_challenge_method": "S256",
             }
+
+    def test_google_search_console_authorize_url_offers_the_account_chooser(self):
+        with self.settings(**self.mock_settings):
+            url = OauthIntegration.authorize_url("google-search-console", token="state_token", next="/projects/test")
+            params = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
+            assert params["access_type"] == "offline"
+            assert set(params["prompt"].split(" ")) == {"consent", "select_account"}
 
     def test_authorize_url_carries_initiating_team_id_in_state(self):
         with self.settings(**self.mock_settings):
@@ -277,11 +288,55 @@ class TestOauthIntegrationModel(BaseTest):
                 "json_error_body_other_code",
                 "salesforce",
                 400,
+                {"error": "invalid_request", "error_description": "Missing redirect_uri."},
+                None,
+                '{"error":"invalid_request","error_description":"Missing redirect_uri."}',
+                ["invalid_request", "Missing redirect_uri"],
+                [],
+            ),
+            (
+                "client_credentials_rejected",
+                "salesforce",
+                401,
                 {"error": "invalid_client", "error_description": "Client authentication failed."},
                 None,
                 '{"error":"invalid_client","error_description":"Client authentication failed."}',
-                ["invalid_client", "Client authentication failed"],
-                [],
+                ["Contact support"],
+                ["invalid_client", "Start the connection again"],
+            ),
+            (
+                "meta_client_secret_rejected",
+                "instagram",
+                400,
+                {
+                    "error": {
+                        "message": "Error validating client secret.",
+                        "type": "OAuthException",
+                        "code": 1,
+                        "fbtrace_id": "fake-trace-id",
+                    }
+                },
+                None,
+                '{"error":{"message":"Error validating client secret.","type":"OAuthException","code":1,"fbtrace_id":"fake-trace-id"}}',
+                ["Contact support"],
+                ["OAuthException", "fake-trace-id"],
+            ),
+            (
+                "meta_nested_error_object",
+                "instagram",
+                400,
+                {
+                    "error": {
+                        "message": "Invalid verification code format.",
+                        "type": "OAuthException",
+                        "code": 100,
+                        "fbtrace_id": "fake-trace-id",
+                    }
+                },
+                None,
+                '{"error":{"message":"Invalid verification code format.","type":"OAuthException","code":100,"fbtrace_id":"fake-trace-id"}}',
+                ["Invalid verification code format"],
+                ["OAuthException", "fake-trace-id", "Contact support"],
             ),
             (
                 "non_json_error_body",

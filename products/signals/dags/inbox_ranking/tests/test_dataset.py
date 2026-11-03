@@ -1259,6 +1259,7 @@ def test_an_empty_result_still_writes_the_full_schema(monkeypatch, asset):
         dag.inbox_report_title_embeddings,
         dag.inbox_signal_embeddings,
         dag.inbox_activity_summary_vectors,
+        dag.inbox_activity_summary_profile_vectors,
     ],
 )
 @pytest.mark.parametrize("consent_team_ids", [frozenset({2, 7}), frozenset()])
@@ -1272,11 +1273,20 @@ def test_embeddings_are_read_only_for_teams_opted_in_to_ai_training(monkeypatch,
     assert written["table"].num_rows == 0
 
 
-def test_activity_summary_vectors_read_the_day_and_parse_the_user_from_the_document_id(monkeypatch):
+@pytest.mark.parametrize(
+    "asset,table,rendering",
+    [
+        (dag.inbox_activity_summary_vectors, "inbox_activity_summary_vectors", "summary_text"),
+        (dag.inbox_activity_summary_profile_vectors, "inbox_activity_summary_profile_vectors", "summary_profile"),
+    ],
+)
+def test_activity_summary_vectors_read_the_day_and_parse_the_user_from_the_document_id(
+    monkeypatch, asset, table, rendering
+):
     generated_at = datetime.datetime(2026, 7, 29, 23, 50)
     written = _run_embeddings_asset(
         monkeypatch,
-        dag.inbox_activity_summary_vectors,
+        asset,
         [
             (2, "41:2026-07-29", generated_at, [0.5, 0.25], datetime.datetime(2026, 7, 30, 0, 5), 6, 7, "m", "live"),
             (2, "not-a-user:2026-07-29", generated_at, [0.1], generated_at, 6, 7, "m", "backfill"),
@@ -1288,9 +1298,8 @@ def test_activity_summary_vectors_read_the_day_and_parse_the_user_from_the_docum
         datetime.datetime(2026, 7, 30),
     )
     assert written["params"]["document_types"] == ["activity_summary"]
-    assert written["key"] == common.partition_object_key(
-        "inbox_ranking", "inbox_activity_summary_vectors", SNAPSHOT_DATE.isoformat()
-    )
+    assert written["params"]["rendering"] == rendering
+    assert written["key"] == common.partition_object_key("inbox_ranking", table, SNAPSHOT_DATE.isoformat())
     assert written["table"].schema == ACTIVITY_SUMMARY_VECTORS_SCHEMA
     assert written["table"].to_pylist() == [
         {
@@ -1349,8 +1358,10 @@ def test_the_leaf_snapshots_run_in_the_job_without_feeding_the_join():
             dag.inbox_report_reviewers,
             dag.inbox_user_report_interactions,
             dag.inbox_project_vectors,
+            dag.inbox_user_vectors,
             dag.inbox_engagement_export,
             dag.inbox_activity_summary_vectors,
+            dag.inbox_activity_summary_profile_vectors,
         ]
     )
     model_data_deps = {key.path[-1] for key in dag.inbox_report_model_data.keys_by_input_name.values()}
@@ -1359,8 +1370,10 @@ def test_the_leaf_snapshots_run_in_the_job_without_feeding_the_join():
         dag.REVIEWERS_TABLE,
         dag.USER_INTERACTIONS_TABLE,
         dag.PROJECT_VECTORS_TABLE,
+        dag.USER_VECTORS_TABLE,
         dag.ENGAGEMENT_EXPORT,
         dag.ACTIVITY_SUMMARY_VECTORS_TABLE,
+        dag.ACTIVITY_SUMMARY_PROFILE_VECTORS_TABLE,
     ):
         assert dagster.AssetKey(leaf) in selection
         assert leaf not in model_data_deps

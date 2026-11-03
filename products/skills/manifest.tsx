@@ -5,10 +5,14 @@ import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Skills',
+    activityDescribers: {
+        [ActivityScope.LLM_SKILL]: () =>
+            import('./frontend/activityDescriber').then((module) => module.skillActivityDescriber),
+    },
     scenes: {
         Skills: {
             import: () => import('./frontend/LLMSkillsScene'),
