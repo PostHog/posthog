@@ -421,6 +421,9 @@ The legacy logs stack's `incident_edge` wraps the same rule.
   `<configuration_id>:<grouping_key>:<episode_started_at>`, so a resolve closes the incident of its own
   firing episode. It names the platform in `source`, because a team on the pilot also gets the HogFunction
   path's incident.
+- An insight alert announces no resolve, but it still sends incident actions for an alert the platform owns.
+  A PagerDuty destination on `$insight_alert_incident_opened` and `$insight_alert_incident_closed` opens and resolves its incident.
+  One on `$insight_alert_firing` keeps its HogFunction, which only triggers.
 
 A fire a mute swallowed is still owed an announcement.
 `_firing_is_unannounced` in `facade/lifecycle.py` decides that, and its docstring holds the rule.

@@ -30,12 +30,13 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSourceDestination,
 )
 from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore, UnreadableSourceInputsError
-from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 from products.warehouse_sources.backend.presentation.views.destination_links import (
     DestinationLinkSerializer,
     SourceDestinationsSerializer,
     set_source_destinations,
 )
+from products.warehouse_sources.backend.presentation.views.external_data_source.source_type_field import SourceTypeField
 from products.warehouse_sources.backend.presentation.views.public_source_configs import build_source_configs
 
 from . import base, helpers
@@ -104,8 +105,7 @@ class ExternalDataSourceConnectionOptionSerializer(serializers.ModelSerializer):
     engine = serializers.SerializerMethodField(
         help_text="Backend engine detected for the direct connection.",
     )
-    source_type = serializers.ChoiceField(
-        choices=ExternalDataSourceType.choices,
+    source_type = SourceTypeField(
         read_only=True,
         help_text="The source type (e.g. 'Postgres', 'MySQL', 'Snowflake').",
     )
@@ -171,8 +171,7 @@ class ExternalDataSourceConnectionOptionSerializer(serializers.ModelSerializer):
 class DirectConnectionSourceOptionSerializer(serializers.Serializer):
     """A source type that can be added as a direct (live-query) connection, with display metadata."""
 
-    source_type = serializers.ChoiceField(
-        choices=ExternalDataSourceType.choices,
+    source_type = SourceTypeField(
         read_only=True,
         help_text="The source type to start a direct-connection setup for (e.g. 'Postgres', 'ClickHouse').",
     )

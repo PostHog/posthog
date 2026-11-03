@@ -7,8 +7,13 @@ from requests import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
+    SourceDriver,
     always,
     scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vitally import (
+    VitallyRegionConfig,
+    VitallySourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.vitally.settings import (
     CUSTOM_OBJECT_SCHEMA_PREFIX,
@@ -16,11 +21,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.vitally.se
 from products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source import VitallySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.vitally.vitally import (
     VitallyPaginator,
+    VitallyResumeConfig,
     get_custom_object_records_resource,
     get_messages,
     list_custom_object_definitions,
     vitally_source,
 )
+
+
+def _no_resume() -> Mock:
+    return Mock(can_resume=Mock(return_value=False))
 
 
 def _make_response(json_data: dict[str, Any], status_code: int = 200) -> Mock:
@@ -120,12 +130,108 @@ class TestGetMessages:
         # KeyError('results'); now raise_for_status lets the real HTTP error through.
         with scripted_network(always(ScriptedResponse(status=401, json={"message": "Unauthorized"}))):
             with pytest.raises(HTTPError, match="401"):
-                list(get_messages("secret", "EU", None, None, False, MagicMock()))
+                list(get_messages("secret", "EU", None, None, False, MagicMock(), _no_resume()))
 
     def test_handles_missing_results_key_without_keyerror(self):
         # Defensive: a 200 response that omits "results" must end pagination cleanly, not KeyError.
         with scripted_network([ScriptedResponse(json={"next": None})]):
-            assert list(get_messages("secret", "EU", None, None, False, MagicMock())) == []
+            assert list(get_messages("secret", "EU", None, None, False, MagicMock(), _no_resume())) == []
+
+
+class TestResume:
+    @pytest.mark.parametrize(
+        "endpoint, saved, script, expected_paths, expected_from, expected_ids",
+        [
+            pytest.param(
+                "Organizations",
+                VitallyResumeConfig(cursor="cursor-2"),
+                [ScriptedResponse(json={"results": [{"id": "org-2"}], "next": None})],
+                ["/resources/organizations"],
+                ["cursor-2"],
+                ["org-2"],
+                id="list_endpoint_starts_at_saved_cursor",
+            ),
+            pytest.param(
+                "Messages",
+                VitallyResumeConfig(cursor="cursor-2", conversations_done=["c1"]),
+                [
+                    ScriptedResponse(json={"results": [{"id": "c1"}, {"id": "c2"}], "next": None}),
+                    ScriptedResponse(json={"messages": [{"id": "m2"}]}),
+                ],
+                ["/resources/conversations", "/resources/conversations/c2"],
+                ["cursor-2", None],
+                ["m2"],
+                id="messages_skip_conversations_already_handed_on",
+            ),
+            pytest.param(
+                "Messages",
+                VitallyResumeConfig(cursor=None, conversations_done=["c1"]),
+                [
+                    ScriptedResponse(json={"results": [{"id": "c3"}, {"id": "c1"}, {"id": "c2"}], "next": None}),
+                    ScriptedResponse(json={"messages": [{"id": "m3"}]}),
+                    ScriptedResponse(json={"messages": [{"id": "m2"}]}),
+                ],
+                ["/resources/conversations", "/resources/conversations/c3", "/resources/conversations/c2"],
+                [None, None, None],
+                ["m3", "m2"],
+                id="messages_read_a_conversation_that_moved_ahead_of_finished_ones",
+            ),
+            pytest.param(
+                "Organizations",
+                VitallyResumeConfig(completed=True),
+                [],
+                [],
+                [],
+                [],
+                id="list_endpoint_reads_nothing_after_its_last_page",
+            ),
+        ],
+    )
+    def test_resumes_from_saved_state(
+        self,
+        endpoint: str,
+        saved: VitallyResumeConfig,
+        script: list[ScriptedResponse],
+        expected_paths: list[str],
+        expected_from: list[str | None],
+        expected_ids: list[str],
+    ) -> None:
+        driver = SourceDriver(
+            VitallySource(),
+            VitallySourceConfig(secret_token="secret", region=VitallyRegionConfig(subdomain="", selection="EU")),
+        )
+
+        result = driver.run(endpoint, script, resume_state=saved)
+
+        assert result.raised is None
+        assert result.paths == expected_paths
+        assert result.params("from") == expected_from
+        assert [row["id"] for row in result.rows] == expected_ids
+
+    def test_messages_stage_each_conversation_before_its_messages(self) -> None:
+        driver = SourceDriver(
+            VitallySource(),
+            VitallySourceConfig(secret_token="secret", region=VitallyRegionConfig(subdomain="", selection="EU")),
+        )
+
+        result = driver.run(
+            "Messages",
+            [
+                ScriptedResponse(json={"results": [{"id": "c1"}, {"id": "c2"}], "next": "cursor-2"}),
+                ScriptedResponse(json={"messages": [{"id": "m1"}]}),
+                ScriptedResponse(json={"messages": []}),
+                ScriptedResponse(json={"results": [], "next": None}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.items == [[{"id": "m1", "conversation_updated_at": None}]]
+        assert result.saved_states == [
+            VitallyResumeConfig(cursor=None, conversations_done=[]),
+            VitallyResumeConfig(cursor=None, conversations_done=["c1"]),
+            VitallyResumeConfig(cursor=None, conversations_done=["c1", "c2"]),
+            VitallyResumeConfig(cursor="cursor-2"),
+        ]
 
 
 class TestGetCustomObjectRecordsResource:
@@ -172,6 +278,7 @@ class TestVitallySourceCustomObjectRouting:
                 job_id="job-1",
                 logger=MagicMock(),
                 db_incremental_field_last_value=None,
+                resumable_source_manager=_no_resume(),
                 should_use_incremental_field=False,
             )
         )
@@ -202,6 +309,7 @@ class TestVitallySourceCustomObjectRouting:
                     job_id="job-1",
                     logger=MagicMock(),
                     db_incremental_field_last_value=None,
+                    resumable_source_manager=_no_resume(),
                     should_use_incremental_field=False,
                 )
             )
