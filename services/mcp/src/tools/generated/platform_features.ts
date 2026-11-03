@@ -571,11 +571,57 @@ const CommentsSendToSlackSchema = () => {
         })
 }
 
-const commentsSendToSlack = (): ToolBase<ReturnType<typeof CommentsSendToSlackSchema>, Schemas.CommentSlackThread> => ({
-    name: 'comments-send-to-slack',
+const CommentsSendToSlackSchemaExecute = z.strictObject({
+    confirmation_hash: z
+        .string()
+        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
+    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
+})
+
+const commentsSendToSlackPrepare = (): ToolBase<
+    ReturnType<typeof CommentsSendToSlackSchema>,
+    PrepareConfirmedActionResult
+> => ({
+    name: 'comments-send-to-slack-prepare',
     schema: CommentsSendToSlackSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof CommentsSendToSlackSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        return await prepareConfirmedAction(context, {
+            args: params,
+            purpose: 'comments-send-to-slack',
+            actionLabel: 'send discussion to Slack',
+            messageTemplate:
+                "About to send discussion {id} to Slack channel {channel_id} through integration {integration_id}. Its replies post to the same Slack thread, and later replies keep syncing both ways. Anyone who can read the channel can read the discussion. Reply 'confirm' to send.\n",
+            codec: __runtime.codec,
+            stash: __runtime.stash,
+            boundScope: { projectId: String(__scopeProjectId) },
+        })
+    },
+})
+
+const commentsSendToSlackExecute = (): ToolBase<
+    typeof CommentsSendToSlackSchemaExecute,
+    Schemas.CommentSlackThread
+> => ({
+    name: 'comments-send-to-slack-execute',
+    schema: CommentsSendToSlackSchemaExecute,
+    handler: async (context: Context, confirmationParams: z.infer<typeof CommentsSendToSlackSchemaExecute>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof CommentsSendToSlackSchema>>>(context, {
+            incomingArgs: confirmationParams,
+            purpose: 'comments-send-to-slack',
+            codec: __runtime.codec,
+            ledger: __runtime.ledger,
+            stash: __runtime.stash,
+            expectedScope: { projectId: String(__scopeProjectId) },
+        })
+        if (!__guard.ok) {
+            return __guard.result as never
+        }
+        const params = __guard.verifiedArgs
+        const projectId = __scopeProjectId
         const body: Record<string, unknown> = {}
         if (params.integration_id !== undefined) {
             body['integration_id'] = params.integration_id
@@ -964,7 +1010,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'comment-thread': commentThread,
     'comments-create': commentsCreate,
     'comments-list': commentsList,
-    'comments-send-to-slack': commentsSendToSlack,
+    'comments-send-to-slack-prepare': commentsSendToSlackPrepare,
+    'comments-send-to-slack-execute': commentsSendToSlackExecute,
     'org-member-get-github-login': orgMemberGetGithubLogin,
     'org-members-list': orgMembersList,
     'organization-enforce-2fa-prepare': organizationEnforce2faPrepare,
