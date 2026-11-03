@@ -963,6 +963,7 @@ mod tests {
             (quoted.clone(), quoted.replace("https:", "HTTPS:")),
             (signed.to_owned(), signed.replace("avatar", "ava\ttar")),
             (signed.to_owned(), signed.replace("https://", "https:")),
+            (signed.to_owned(), signed.replace('/', "\\")),
         ] {
             let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
                 "attributes": [{"id": 99, "attributes": {"src": src, "alt": copy}}]}}])

@@ -722,8 +722,11 @@ impl UrlRewrite {
         for found in spellings.json_urls.find_iter(bytes) {
             note(found.pattern().as_usize(), (found.start(), found.end()));
         }
+        // An attribute holds a CSS escape as text, and the check does not know which strings are CSS, so it reads both ways.
         if bytes.contains(&b'\\') {
-            for_each_escaped_match(&spellings.urls, bytes, &mut note);
+            for css in [true, false] {
+                for_each_escaped_match(&spellings.urls, bytes, css, &mut note);
+            }
         }
     }
 

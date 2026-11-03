@@ -328,11 +328,13 @@ fn decoded(bytes: &[u8], (start, end): (usize, usize)) -> String {
 }
 
 /// Calls `on_match` with each match of `patterns` in a JSON string read as a browser reads a URL, and the span of the
-/// bytes that spell it. The string is read through its escapes, with each backslash read as a slash and without tabs
-/// and line breaks. Only a string that holds an escape is read, because any other string reads as its bytes.
+/// bytes that spell it. The string is read through its JSON escapes, and through its CSS escapes when `css` is true,
+/// with each backslash read as a slash and without tabs and line breaks. Only a string that holds an escape is read,
+/// because any other string reads as its bytes.
 pub fn for_each_escaped_match(
     patterns: &AhoCorasick,
     bytes: &[u8],
+    css: bool,
     mut on_match: impl FnMut(usize, (usize, usize)),
 ) {
     let mut at = 0;
@@ -348,14 +350,19 @@ pub fn for_each_escaped_match(
         }
         if escaped {
             let decoded = |position: usize| {
-                let next = unit(bytes, position);
-                let character = match char::from_u32(next.ch) {
+                let (ch, len) = if css {
+                    let next = unit(bytes, position);
+                    (next.ch, next.len)
+                } else {
+                    json_unit(bytes, position)
+                };
+                let character = match char::from_u32(ch) {
                     Some('\t' | '\n' | '\r') => None,
                     Some('\\') => Some('/'),
                     Some(character) => Some(character),
                     None => Some(char::REPLACEMENT_CHARACTER),
                 };
-                (character, next.len)
+                (character, len)
             };
             let mut text = String::new();
             let mut position = open + 1;
@@ -642,7 +649,7 @@ mod tests {
             AhoCorasick::new(["https://a.example.com/p", "https://b.example.com/q"]).unwrap();
         let bytes = r#"{"plain":"https://a.example.com/p","css":"é https\\3a //a.example.com/p https:\\/\\/b.example.com\\/q"}"#;
         let mut found = Vec::new();
-        for_each_escaped_match(&urls, bytes.as_bytes(), |pattern, (start, end)| {
+        for_each_escaped_match(&urls, bytes.as_bytes(), true, |pattern, (start, end)| {
             found.push((pattern, &bytes[start..end]));
         });
         assert_eq!(
