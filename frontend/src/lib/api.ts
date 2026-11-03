@@ -4438,8 +4438,10 @@ const api = {
          * the same length-prefixed bytes as getSnapshots with decompress=false.
          */
         async getBlocksDirectly(urls: string[], token: string): Promise<Uint8Array> {
-            // One failed block fails the batch, so the other downloads stop too.
+            // One failed block fails the batch, so the other downloads stop too. The deadline matches Django's upstream
+            // read limit, so a stalled block falls back instead of holding the loader forever.
             const controller = new AbortController()
+            const deadline = setTimeout(() => controller.abort(), 30_000)
             const blocks = await Promise.all(
                 urls.map(async (url) => {
                     try {
@@ -4464,7 +4466,7 @@ const api = {
                         throw e
                     }
                 })
-            )
+            ).finally(() => clearTimeout(deadline))
             const framed = new Uint8Array(blocks.reduce((total, block) => total + 4 + block.length, 0))
             const view = new DataView(framed.buffer)
             let offset = 0

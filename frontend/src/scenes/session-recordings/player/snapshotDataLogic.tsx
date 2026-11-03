@@ -53,6 +53,7 @@ export interface snapshotDataLogicValues {
     getWindowId: (uuid: string | undefined) => number | undefined // windowIdRegistryLogic
     uuidToIndex: Record<string, number> // windowIdRegistryLogic
     allSourcesLoaded: boolean
+    blockToken: string | null
     isLoadingSnapshots: boolean
     isPolling: boolean
     isRecordingDeleted: boolean
@@ -64,7 +65,6 @@ export interface snapshotDataLogicValues {
     recordingDeletedBy: string | null
     recordingDeletedError: RecordingDeletedError | null
     replayProxyToken: string | null
-    blockToken: string | null
     seekTarget: SeekTarget | null
     snapshotLoadError: Error | null
     snapshotLoadErrorKind: SnapshotLoadErrorKind | null
@@ -162,6 +162,9 @@ export interface snapshotDataLogicActions {
     retrySnapshotLoading: () => {
         value: true
     }
+    setBlockToken: (token: string | null) => {
+        token: string | null
+    }
     setPlayerActive: (active: boolean) => {
         active: boolean
     }
@@ -169,9 +172,6 @@ export interface snapshotDataLogicActions {
         intervalMs: number
     }
     setReplayProxyToken: (token: string | null) => {
-        token: string | null
-    }
-    setBlockToken: (token: string | null) => {
         token: string | null
     }
     setSnapshots: (snapshots: RecordingSnapshot[]) => {
@@ -268,17 +268,27 @@ async function loadBlocksDirectly(
         return null
     }
     try {
-        return await api.recordings.getBlocksDirectly(urls as string[], token)
+        // nosemgrep: prefer-codegen-api-namespaced-replay -- fetches recording-api block urls, not a Django endpoint
+        const blocks = await api.recordings.getBlocksDirectly(urls as string[], token)
+        direct.unauthorizedCount = 0
+        return blocks
     } catch (e) {
         // The snapshots endpoint reads the same blocks, so falling back would get round the rate limit.
         if (e instanceof RecordingDeletedError || (e instanceof ApiError && e.status === 429)) {
             throw e
         }
-        if (e instanceof ApiError && e.status === 401) {
+        const status = e instanceof ApiError ? e.status : undefined
+        if (status === 401) {
             direct.unauthorizedCount += 1
             // Listing the sources again gets a new token for the next batch.
             onTokenExpired()
         }
+        // Without this, a broken rollout looks healthy while every batch pays for a failed download.
+        posthog.capture('replay direct block fetch fell back', {
+            status: status ?? null,
+            reason: e instanceof Error ? e.name : 'unknown',
+            block_count: urls.length,
+        })
         return null
     }
 }
@@ -469,6 +479,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                             (cache.directBlocks ??= { unauthorizedCount: 0 }),
                             () => actions.loadSnapshotSources()
                         )) ??
+                        // nosemgrep: prefer-codegen-api-namespaced-replay -- binary length-prefixed body the generated client does not decode
                         (await api.recordings.getSnapshots(
                             props.sessionRecordingId,
                             { decompress: false, ...params },

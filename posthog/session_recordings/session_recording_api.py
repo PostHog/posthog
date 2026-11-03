@@ -8,6 +8,7 @@ import asyncio
 import builtins
 from collections.abc import Generator
 from contextlib import contextmanager
+from datetime import datetime
 from json import JSONDecodeError
 from typing import Any, Literal, cast
 from urllib.parse import quote, urlparse
@@ -233,18 +234,26 @@ def _replay_proxy_token_for_player(request, team_id: int) -> str | None:
     return mint_replay_proxy_token(team_id)
 
 
-def _replay_blocks_viewer(request) -> str | None:
+@frozen
+class ReplayBlocksViewer:
+    id: str
+    # When the access this viewer authenticated with ends, so the block token can end then too.
+    access_ends_at: datetime | None = None
+
+
+def _replay_blocks_viewer(request) -> ReplayBlocksViewer | None:
     """Who the player is watching as, for the block URLs and the per-viewer rate limit. None for any caller that is
     not the player, which keeps reading blocks through Django."""
     authenticator = getattr(request, "successful_authenticator", None)
     if not isinstance(authenticator, _PLAYER_AUTHENTICATION_CLASSES):
         return None
     if isinstance(authenticator, SessionAuthentication) and isinstance(request.user, User):
-        return f"u{request.user.pk}"
+        return ReplayBlocksViewer(id=f"u{request.user.pk}")
     if isinstance(authenticator, SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication):
-        return f"s{authenticator.sharing_configuration.pk}"
+        sharing_configuration = authenticator.sharing_configuration
+        return ReplayBlocksViewer(id=f"s{sharing_configuration.pk}", access_ends_at=sharing_configuration.expires_at)
     if isinstance(authenticator, ExportRendererAuthentication) and authenticator.exported_asset_id:
-        return f"e{authenticator.exported_asset_id}"
+        return ReplayBlocksViewer(id=f"e{authenticator.exported_asset_id}")
     return None
 
 
@@ -258,11 +267,11 @@ def _replay_blocks_access_for_player(request, team_id: int, session_id: str) -> 
     viewer = _replay_blocks_viewer(request)
     if viewer is None or not is_direct_blocks_enabled(team_id):
         return None
-    token = mint_replay_blocks_token(team_id, session_id, viewer, "browser")
+    token = mint_replay_blocks_token(team_id, session_id, viewer.id, "browser", not_after=viewer.access_ends_at)
     if token is None:
         return None
     return ReplayBlocksAccess(
-        path_prefix=f"/replay-blocks/{team_id}/{quote(session_id, safe='')}/{viewer}/", token=token
+        path_prefix=f"/replay-blocks/{team_id}/{quote(session_id, safe='')}/{viewer.id}/", token=token
     )
 
 

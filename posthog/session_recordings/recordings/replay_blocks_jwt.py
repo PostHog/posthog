@@ -43,15 +43,23 @@ class ReplayBlocksToken:
 
 
 def mint_replay_blocks_token(
-    team_id: int, session_id: str, viewer: str, tier: ReplayBlocksTier
+    team_id: int, session_id: str, viewer: str, tier: ReplayBlocksTier, not_after: datetime | None = None
 ) -> ReplayBlocksToken | None:
     """A token that reads the blocks of one session. `viewer` is also a segment of every block URL, so the browser
-    keeps a separate cache entry for each viewer. Returns None until the signing key is provisioned."""
+    keeps a separate cache entry for each viewer. `not_after` caps the lifetime, so a token never outlives the access
+    that granted it. Returns None until the signing key is provisioned, or when that access already ended."""
     if not REPLAY_BLOCKS_JWT_PURPOSE.enabled():
         return None
     now = int(time.time())
+    issued_at = datetime.fromtimestamp(now, tz=UTC)
+    expires_at = issued_at + REPLAY_BLOCKS_TOKEN_TTL
+    if not_after is not None:
+        expires_at = min(expires_at, not_after)
+    if expires_at <= datetime.now(tz=UTC):
+        return None
     token = REPLAY_BLOCKS_JWT_PURPOSE.mint(
         # recording-api checks the token's age against iat, which encode_jwt does not set.
-        {"team_id": team_id, "session_id": session_id, "sub": viewer, "tier": tier, "iat": now}
+        {"team_id": team_id, "session_id": session_id, "sub": viewer, "tier": tier, "iat": now},
+        ttl=expires_at - issued_at,
     )
-    return ReplayBlocksToken(token=token, expires_at=datetime.fromtimestamp(now, tz=UTC) + REPLAY_BLOCKS_TOKEN_TTL)
+    return ReplayBlocksToken(token=token, expires_at=expires_at)
