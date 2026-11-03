@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { DashboardWidgetPlacementMenu } from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenu'
 import type { DashboardWidgetPlacementDestination } from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenu'
@@ -54,6 +54,8 @@ export function DashboardTileGroupMenu({
     copyLoading,
 }: DashboardTileGroupMenuProps): JSX.Element {
     const { loadDashboardsIfNeeded } = useActions(dashboardsModel)
+    // Each rename sends every group, so a second rename before the first saves would undo it.
+    const { dashboardLoading: dashboardSaving } = useValues(dashboardsModel)
     const { renameLabel, copyLabel, copyNoun, switchTo, switchLabel } = MENU_ITEMS[groupDisplay]
 
     const openRenameDialog = (): void => {
@@ -86,6 +88,7 @@ export function DashboardTileGroupMenu({
                             <LemonButton
                                 fullWidth
                                 onClick={openRenameDialog}
+                                disabledReason={dashboardSaving ? 'Saving dashboard changes' : undefined}
                                 data-attr="dashboard-tile-group-menu-rename"
                             >
                                 {renameLabel}
