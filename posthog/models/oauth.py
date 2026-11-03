@@ -522,6 +522,14 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         self.full_clean()
         super().save(*args, **kwargs)
 
+    def allows_grant_type(self, *grant_types: str) -> bool:
+        # The device grant's approval page can only show a client's self-declared name, so a device
+        # client works only while PostHog staff keep it verified. This covers starting a grant,
+        # redeeming one and refreshing its tokens.
+        if self.authorization_grant_type == self.GRANT_DEVICE_CODE and not self.is_verified:
+            return False
+        return super().allows_grant_type(*grant_types)
+
     def get_allowed_schemes(self) -> list[str]:
         """Extract unique schemes from the application's registered redirect URIs, filtering out blocked schemes."""
         blocked_schemes = self.get_blocked_schemes()
