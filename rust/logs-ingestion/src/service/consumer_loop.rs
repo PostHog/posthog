@@ -1,6 +1,4 @@
-//! The batch loop of `consumer-v2.ts`. A batch's offsets are stored once its background task
-//! and every earlier one succeeded; any failure stops the loop so the restart replays it. A
-//! task's timeout runs from its dispatch, as `trackTask` starts its timer.
+//! Offsets are stored once a batch's task and every earlier one succeeded. A task's timeout runs from its dispatch, as `trackTask` does.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::time::Duration;
@@ -14,7 +12,6 @@ use super::config::ConsumerLoopConfig;
 
 pub type BackgroundTask = BoxFuture<'static, anyhow::Result<()>>;
 
-/// `(topic, partition, next offset)` for each partition a batch read.
 pub type OffsetsToStore = Vec<(String, i32, i64)>;
 
 #[async_trait]
@@ -24,11 +21,9 @@ pub trait BatchSource: Send {
         max: usize,
         timeout: Duration,
     ) -> anyhow::Result<Vec<KafkaMessage>>;
-    /// The fence epoch of each partition in `offsets`, as the last `next_batch` read it.
     fn epochs(&self, offsets: &OffsetsToStore) -> Vec<u64> {
         vec![0; offsets.len()]
     }
-    /// Stores each offset whose partition still has the epoch in `epochs`.
     fn store_offsets(&mut self, offsets: &OffsetsToStore, epochs: &[u64]) -> anyhow::Result<()>;
     fn commit(&mut self) -> anyhow::Result<()>;
 }
@@ -85,7 +80,7 @@ async fn settle(entry: InFlight, source: &mut dyn BatchSource) -> anyhow::Result
     Ok(())
 }
 
-/// Runs until `shutdown` resolves or a batch fails. Either way it commits what was stored.
+/// Either way it commits what was stored.
 pub async fn run_consumer_loop(
     source: &mut dyn BatchSource,
     processor: &dyn BatchProcessor,

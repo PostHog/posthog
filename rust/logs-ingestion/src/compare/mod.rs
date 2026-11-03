@@ -1,7 +1,4 @@
-//! Compares the Node consumer's outputs with the Rust shadow's under the parity contract. A
-//! `logs` record is keyed by its source topic and partition and its `uuid`; a DLQ message by
-//! its source topic, partition and offset. Each side's unmatched items wait up to the lag
-//! tolerance for their counterpart, so the two consumers can run at different offsets.
+//! Each side's unmatched items wait up to the lag tolerance, so the two consumers can run at different offsets.
 
 pub mod kafka;
 
@@ -87,8 +84,7 @@ pub struct CompareSettings {
     pub sample_limit: usize,
 }
 
-/// The Node harness's `canonicalizeAvroValue`: map and record keys sorted, numbers as doubles,
-/// bytes as `{ $bytes: hex }`.
+/// As the Node harness's `canonicalizeAvroValue`: keys sorted, numbers as doubles, bytes as `{ $bytes: hex }`.
 pub fn canonical(value: &AvroValue) -> JsValue {
     let object = |mut entries: Vec<(String, JsValue)>| {
         entries.sort_by(|(a, _), (b, _)| a.encode_utf16().cmp(b.encode_utf16()));
@@ -567,7 +563,6 @@ mod tests {
         c.sweep(t1 + Duration::from_secs(9));
         assert_eq!(c.report().warmup_unmatched, 1);
         assert_eq!(c.pending(), 2);
-        // The counterpart is late but within tolerance.
         c.ingest(
             Side::Rust,
             Stream::Logs,

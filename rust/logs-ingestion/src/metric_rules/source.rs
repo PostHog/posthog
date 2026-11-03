@@ -1,5 +1,3 @@
-//! The interface of `metric-rules-cache.ts`. `service::postgres::PgMetricRules` implements it.
-
 use std::sync::Arc;
 
 use async_trait::async_trait;

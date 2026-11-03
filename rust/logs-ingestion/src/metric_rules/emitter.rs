@@ -1,8 +1,4 @@
-//! Port of `metrics-emitter.ts`.
-//!
-//! The POST itself is behind `OtlpTransport` (`service::shadow::ReqwestOtlpTransport`).
-//! `LogsMetricsEmitter` keeps the Node behavior around it: one JSON body, two attempts, a
-//! 2xx check, and the failure counter.
+//! `LogsMetricsEmitter` keeps Node's two attempts and 2xx check around the `OtlpTransport` POST.
 
 use std::sync::Arc;
 

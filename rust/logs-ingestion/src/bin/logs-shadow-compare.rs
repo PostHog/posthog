@@ -1,5 +1,4 @@
-//! Compares the Node consumer's `logs` (and optionally DLQ) output with the Rust shadow's.
-//! See `README.md`. It never produces: it has no Kafka producer.
+//! It never produces, because it has no Kafka producer.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};

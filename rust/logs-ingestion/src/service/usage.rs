@@ -1,6 +1,4 @@
-//! `UsageRecordBatch` over the usage-ingestion gRPC service (`common/usage-ingestion`): records
-//! deduplicated by (team, usage key, record id), sent on flush in chunks, retried on transient
-//! codes, never failing the batch.
+//! Records dedupe by (team, usage key, record id), retry on transient codes, and never fail the batch.
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
@@ -46,8 +44,7 @@ pub struct GrpcUsageRecordBatch {
     clock: Clock,
 }
 
-/// `buildIntegerMatcher(USAGE_INGESTION_REPORT_TEAMS, true)`: only an exact `*` matches all,
-/// and each item is `parseInt(item)` with no radix.
+/// Only an exact `*` matches all, and each item is `parseInt(item)` with no radix.
 fn report_teams_match(raw: &str, team_id: i64) -> bool {
     if raw.trim().is_empty() {
         return false;
@@ -60,7 +57,7 @@ fn report_teams_match(raw: &str, team_id: i64) -> bool {
 }
 
 impl GrpcUsageRecordBatch {
-    /// `createUsageIngestionClient`: no address or no report teams means no client.
+    /// No address or no report teams means no client.
     pub fn new(config: &UsageConfig, producer_id: &str, clock: Clock) -> anyhow::Result<Self> {
         let client = if config.addr.is_empty() || config.report_teams.is_empty() {
             None

@@ -1,6 +1,4 @@
-//! `IngestionOutputs` over Kafka: the output registry of `logs/outputs/registry.ts` with the
-//! producers of `logs/outputs/producer-registry.ts`. Every send waits for its delivery report,
-//! as `KafkaProducerWrapper.produce` awaits the callback.
+//! Every send waits for its delivery report, as `KafkaProducerWrapper.produce` awaits the callback.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -19,7 +17,7 @@ use crate::pipeline::{KafkaProduceError, NamedError};
 
 use super::config::OutputRoute;
 
-/// `KafkaProducerWrapper.PRODUCER_DEFAULTS`. Env values from the producer's config map win.
+/// Env values from the producer's config map win.
 pub fn producer_client_config(
     overrides: &[(String, String)],
     client_rack: Option<&str>,
@@ -56,8 +54,7 @@ pub fn hostname() -> String {
     std::env::var("HOSTNAME").unwrap_or_else(|_| "logs-ingestion".to_string())
 }
 
-/// How a failed produce reaches the pipeline. The error keeps its librdkafka code, so the
-/// pipeline replays an outage and quarantines only a code that a replay cannot fix.
+/// The error keeps its librdkafka code, so the pipeline replays an outage and quarantines only a code a replay cannot fix.
 pub fn classify_produce_error(error: KafkaError) -> anyhow::Error {
     let Some(code) = error.rdkafka_error_code() else {
         return anyhow::Error::new(NamedError::new("Error", error.to_string()));
@@ -85,8 +82,7 @@ pub struct KafkaOutputs {
 }
 
 impl KafkaOutputs {
-    /// `producers` maps a producer name to its client. A route that names a missing producer is
-    /// a startup error.
+    /// A route that names a missing producer is a startup error.
     pub fn new(
         routes: &[OutputRoute],
         producers: &HashMap<String, FutureProducer>,

@@ -515,8 +515,7 @@ pub struct ScenarioConsumer {
     pub recorded: Arc<Recorded>,
 }
 
-/// The consumer inputs a scenario describes, before they become a consumer. The service tests
-/// swap the outputs for Kafka ones.
+/// The service tests swap the outputs for Kafka ones.
 pub struct ScenarioParts {
     pub identity: LogsConsumerIdentity,
     pub config: LogsIngestionConsumerConfig,
@@ -525,7 +524,7 @@ pub struct ScenarioParts {
     pub recorded: Arc<Recorded>,
 }
 
-/// `buildParityConsumer`. `discard` counts produced messages instead of keeping them.
+/// `discard` counts produced messages instead of keeping them.
 pub fn build_scenario_consumer(
     scenario: &JsValue,
     redis: Arc<dyn TokenBucketRedis>,

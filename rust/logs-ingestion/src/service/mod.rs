@@ -1,6 +1,4 @@
-//! The runnable Kafka service around `LogsIngestionConsumer`: the port of
-//! `servers/ingestion-logs-server.ts` and `servers/ingestion-traces-server.ts`, plus a shadow
-//! mode that runs beside the Node consumer without affecting production.
+//! Shadow mode runs beside the Node consumer without affecting production.
 
 pub mod config;
 pub mod consumer_loop;
@@ -95,9 +93,7 @@ pub fn create_producers(config: &ServiceConfig) -> anyhow::Result<HashMap<String
     Ok(out)
 }
 
-/// Brokers below Metadata v4 ignore `allow.auto.create.topics`, so the shadow also checks that
-/// each of its topics exists before it produces. `metadata` must come from the all-topics
-/// request, because those brokers create a topic that a metadata request names.
+/// Brokers below Metadata v4 ignore `allow.auto.create.topics` and create a named topic, so this checks the all-topics metadata.
 fn require_topic(metadata: &Metadata, topic: &str) -> anyhow::Result<()> {
     let exists = metadata
         .topics()
@@ -220,8 +216,7 @@ pub fn health_router(
         .route("/metrics", get(move || ready(render_metrics())))
 }
 
-/// Starts everything and blocks until shutdown. A failed batch ends the process with an error,
-/// as the Node consumer lets it crash, so the restart replays from the last commit.
+/// A failed batch ends the process with an error, as the Node consumer crashes, so the restart replays from the last commit.
 pub async fn run(config: ServiceConfig) -> anyhow::Result<()> {
     tracing::info!(
         kind = ?config.kind,

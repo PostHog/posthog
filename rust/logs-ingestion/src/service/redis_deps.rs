@@ -1,5 +1,3 @@
-//! Redis: a connection that reconnects after a failure, as ioredis does, and `QuotaLimiting`.
-
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -19,8 +17,7 @@ use crate::rate_limiter::Clock;
 use super::config::RedisTarget;
 use super::lazy_loader::{LazyLoader, LazyLoaderOptions};
 
-/// The ioredis reading of a connection setting: a `scheme://` URL, or a bare host. The port,
-/// password and TLS options win over the URL, as ioredis merges its options last.
+/// The port, password and TLS options win over the URL, as ioredis merges its options last.
 pub fn connection_info(target: &RedisTarget) -> anyhow::Result<ConnectionInfo> {
     use redis::IntoConnectionInfo;
     let url = if target.url_or_host.contains("://") {
@@ -54,7 +51,6 @@ pub fn connection_info(target: &RedisTarget) -> anyhow::Result<ConnectionInfo> {
     Ok(info)
 }
 
-/// A multiplexed connection that is rebuilt on the next call after an I/O failure.
 #[derive(Clone)]
 pub struct ReconnectingRedis {
     client: Client,
@@ -133,9 +129,7 @@ impl ConnectionLike for ReconnectingRedis {
 
 pub const QUOTA_LIMITER_CACHE_KEY: &str = "@posthog/quota-limits/";
 
-/// `QuotaLimiting`: the limited tokens of a resource from `ZRANGEBYSCORE`, cached for an hour and
-/// refreshed in the background after a minute. A Redis error reads as no limited tokens. It
-/// only ever reads.
+/// Cached for an hour and refreshed in the background after a minute. A Redis error reads as no limited tokens.
 pub struct RedisQuotaLimiting {
     // Shared, so a cache hit clones a pointer instead of every limited token.
     loader: LazyLoader<Arc<HashMap<String, f64>>>,

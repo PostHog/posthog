@@ -1,5 +1,3 @@
-//! The logs (or traces) ingestion Kafka consumer. See `README.md` for primary and shadow mode.
-
 use logs_ingestion::service::{self, config::ServiceConfig, node_env::process_env};
 use tracing_subscriber::EnvFilter;
 

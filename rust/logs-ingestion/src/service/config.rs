@@ -24,7 +24,6 @@ pub const SHADOW_GROUP_SUFFIX: &str = "-rust-shadow";
 pub const NODE_DEFAULT_CONFIG_CONSUMER_KEYS: &[&str] = &[];
 const SHADOW_REDIS_DEFAULT_PORT: u16 = 6379;
 
-/// The rdkafka keys `WARPSTREAM_*_PRODUCER_CONFIG_MAP` maps, and the env suffix of each.
 const PRODUCER_KEYS: &[(&str, &str)] = &[
     ("client.id", "CLIENT_ID"),
     ("metadata.broker.list", "METADATA_BROKER_LIST"),
@@ -198,8 +197,6 @@ fn b(v: bool) -> JsValue {
     JsValue::Bool(v)
 }
 
-/// The defaults of `getDefaultLogsIngestionConsumerConfig`, the traces config, the outputs
-/// config, both producer env configs and the `CommonConfig` keys the servers read.
 fn node_defaults(env: &Env) -> Vec<(String, JsValue)> {
     let node_env = determine_node_env(env);
     let prod = node_env == NodeEnv::Production;
@@ -484,7 +481,6 @@ pub fn shadow_routes(
     Ok((group, routes))
 }
 
-/// The host and port of an ioredis connection string: a `scheme://` URL, `host:port` or a host.
 /// The scheme, user info and path are dropped, and the host is lower case.
 fn redis_endpoint(raw: &str) -> (String, Option<u16>) {
     let raw = raw.trim();
@@ -504,9 +500,7 @@ fn redis_endpoint(raw: &str) -> (String, Option<u16>) {
     (host.to_ascii_lowercase(), port.and_then(|p| p.parse().ok()))
 }
 
-/// The endpoints Node's limiter Redis can use, from the keys set in env: `{p}_REDIS_HOST` with
-/// `{p}_REDIS_PORT`, and `REDIS_URL`, which Node uses when the host is empty. A URL port and
-/// the port key both count, so the guard holds whichever one the client applies.
+/// A URL port and the port key both count, so the guard holds whichever one the client applies.
 fn production_redis_endpoints(env: &Env, prefix: &str) -> Vec<(String, String, Vec<u16>)> {
     let mut out = Vec::new();
     let host_key = format!("{prefix}_REDIS_HOST");
@@ -534,8 +528,7 @@ fn production_redis_endpoints(env: &Env, prefix: &str) -> Vec<(String, String, V
     out
 }
 
-/// The shadow token buckets must never share a Redis with Node, so only the
-/// `LOGS_RUST_SHADOW_REDIS_*` keys are read.
+/// The shadow token buckets must never share a Redis with Node, so only `LOGS_RUST_SHADOW_REDIS_*` is read.
 pub fn shadow_redis(
     env: &Env,
     rust: &RustServiceEnv,

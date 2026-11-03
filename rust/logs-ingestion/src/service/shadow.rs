@@ -54,8 +54,7 @@ impl MetricsEmitter for SuppressedMetricsEmitter {
     }
 }
 
-/// `internalFetch` reaches in-cluster capture-logs without a proxy, so this one client opts out
-/// instead of a process-wide `NO_PROXY` entry.
+/// `internalFetch` reaches capture-logs without a proxy, so this client opts out instead of a process-wide `NO_PROXY` entry.
 pub struct ReqwestOtlpTransport {
     client: reqwest::Client,
 }

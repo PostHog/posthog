@@ -1,6 +1,4 @@
-//! The Kafka side of the consumer loop, configured as `consumer-v1.ts` configures node-rdkafka:
-//! the same defaults, `KAFKA_CONSUMER_*` overrides, offsets stored by the loop and committed by
-//! librdkafka's auto commit.
+//! Configured as `consumer-v1.ts` configures node-rdkafka, with offsets stored by the loop and committed by auto commit.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -69,8 +67,7 @@ pub fn consumer_client_config(
     config
 }
 
-/// `stripClassicProtocolConfig`: librdkafka rejects these classic-protocol keys when
-/// `group.protocol=consumer` (KIP-848), so they are removed after every other key is set.
+/// librdkafka rejects these classic-protocol keys under `group.protocol=consumer`, so they go after every other key is set.
 pub fn strip_classic_protocol_config(config: &mut ClientConfig) {
     if config.get("group.protocol") != Some("consumer") {
         return;
@@ -105,8 +102,7 @@ pub fn to_kafka_message(m: &BorrowedMessage<'_>) -> KafkaMessage {
     }
 }
 
-/// `partitionEpochs` of `consumer-v2.ts`: a revoke bumps each revoked partition's epoch, so a
-/// task dispatched before the revoke cannot store its offset after a reassignment.
+/// A revoke bumps each revoked partition's epoch, so a task dispatched before it cannot store its offset after a reassignment.
 #[derive(Default)]
 pub struct PartitionEpochs(Mutex<HashMap<(String, i32), u64>>);
 
@@ -122,7 +118,6 @@ impl PartitionEpochs {
         self.0.lock().unwrap().clone()
     }
 
-    /// The offsets whose partition still has its dispatch epoch.
     pub fn storable(&self, offsets: &OffsetsToStore, dispatch: &[u64]) -> OffsetsToStore {
         let epochs = self.0.lock().unwrap();
         offsets
@@ -140,7 +135,6 @@ impl PartitionEpochs {
     }
 }
 
-/// The consumer context of the service: it fences offset stores across revokes.
 #[derive(Default)]
 pub struct FencingContext {
     pub epochs: PartitionEpochs,
@@ -180,8 +174,7 @@ impl KafkaBatchSource {
     }
 }
 
-/// `retryIfRetriable` with its defaults: node-rdkafka sets no `isRetriable` on a consume error,
-/// so every error is tried 3 times, 100 ms apart doubling, before the loop fails.
+/// node-rdkafka sets no `isRetriable` on a consume error, so every error is tried 3 times before the loop fails.
 pub async fn retry_consume<T, F, Fut>(mut attempt: F) -> anyhow::Result<T>
 where
     F: FnMut() -> Fut,
@@ -206,8 +199,7 @@ where
     }
 }
 
-/// Reads up to `max` messages, as `consume(max, cb)` does with the default consume timeout. An
-/// error is returned only when no message was read, as node-rdkafka's `ConsumeNum` does.
+/// An error is returned only when no message was read, as node-rdkafka's `ConsumeNum` does.
 pub async fn recv_batch<C: ConsumerContext + 'static>(
     consumer: &StreamConsumer<C>,
     max: usize,
@@ -239,8 +231,7 @@ impl BatchSource for KafkaBatchSource {
         max: usize,
         timeout: Duration,
     ) -> anyhow::Result<Vec<KafkaMessage>> {
-        // Rebalance callbacks run inside recv, so this is the epoch every message read here
-        // was read under, or an older one.
+        // Rebalance callbacks run inside recv, so every message here was read under this epoch or an older one.
         self.dispatch_epochs = self.consumer.context().epochs.snapshot();
         let consumer = &self.consumer;
         retry_consume(|| recv_batch(consumer, max, timeout)).await

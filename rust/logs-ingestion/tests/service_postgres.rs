@@ -1,6 +1,4 @@
-//! The Postgres-backed dependencies against the local Django test database. Each test inserts
-//! its own organization, project and team and removes everything it wrote. Skips without
-//! Postgres.
+//! Each test writes its own organization, project and team and removes them. Skips without Postgres.
 
 use std::sync::Arc;
 
@@ -27,7 +25,6 @@ struct SeededTeam {
 }
 
 impl SeededTeam {
-    /// Inserts its own organization, project and team, so it needs no existing rows.
     async fn create(pool: PgPool, logs_settings: &str) -> Self {
         let mut tx = pool.begin().await.unwrap();
         let id: i32 = sqlx::query_scalar("SELECT nextval('posthog_team_id_seq')::int")

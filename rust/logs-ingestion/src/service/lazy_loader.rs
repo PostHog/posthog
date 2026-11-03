@@ -1,7 +1,4 @@
-//! Port of `common/utils/lazy-loader.ts`: a keyed cache that buffers misses for `buffer` and
-//! loads them in one call, shares a load in flight, reloads past `refresh_age` (plus jitter),
-//! and can refresh in the background past `background_age`. Loader retries are not ported:
-//! the logs servers build their loaders without `loaderRetry`.
+//! Loader retries are not ported, because the logs servers build their loaders without `loaderRetry`.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -127,7 +124,7 @@ impl<V: Clone + Send + Sync + 'static> LazyLoader<V> {
         Ok(state.cache.get(key).and_then(|e| e.value.clone()))
     }
 
-    /// `markForRefresh`: the next lookup reloads before it returns.
+    /// The next lookup reloads before it returns.
     pub fn mark_for_refresh(&self, keys: &[String]) {
         let mut state = self.inner.state.lock().unwrap();
         for key in keys {

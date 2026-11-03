@@ -1,7 +1,3 @@
-//! The Node config conventions the service reads env through: `determineNodeEnv`,
-//! `stringToBoolean`, `overrideConfigWithEnv`, the Kafka topic prefix and suffix, and
-//! `parseEnvToRdkafkaConfig`.
-
 use std::collections::HashMap;
 
 use crate::js::{JsObject, JsString, JsValue};
@@ -44,7 +40,6 @@ pub fn determine_node_env(env: &Env) -> NodeEnv {
     NodeEnv::Production
 }
 
-/// `${KAFKA_PREFIX}${name}${isTestEnv() ? '_test' : ''}`, as `kafka-topics.ts` builds names.
 pub fn kafka_topic(env: &Env, name: &str) -> String {
     let prefix = env.get("KAFKA_PREFIX").map(String::as_str).unwrap_or("");
     let suffix = if determine_node_env(env) == NodeEnv::Test {
@@ -55,7 +50,7 @@ pub fn kafka_topic(env: &Env, name: &str) -> String {
     format!("{prefix}{name}{suffix}")
 }
 
-/// `overrideConfigWithEnv`: the default's type picks the parse.
+/// The default's type picks the parse.
 pub fn override_with_env(defaults: &[(&str, JsValue)], env: &Env) -> JsObject {
     let mut out = JsObject::new();
     for (key, default) in defaults {
@@ -76,9 +71,7 @@ pub fn override_with_env(defaults: &[(&str, JsValue)], env: &Env) -> JsObject {
     out
 }
 
-/// `parseEnvToRdkafkaConfig(prefix)`: `KAFKA_CONSUMER_FETCH_WAIT_MAX_MS` is `fetch.wait.max.ms`.
-/// Empty values are skipped. Keys listed in `skip` are Node `defaultConfig` keys that the
-/// prefix also matches.
+/// Empty values are skipped. `skip` lists Node `defaultConfig` keys that the prefix also matches.
 pub fn rdkafka_from_env(env: &Env, prefix: &str, skip: &[&str]) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = env
         .iter()

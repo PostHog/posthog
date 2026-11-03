@@ -100,7 +100,6 @@ pub struct LogsIngestionConsumerDeps {
     pub key_root: KeyRoot,
     /// Epoch milliseconds. Everything that reads `Date.now()` in Node reads this.
     pub clock: Clock,
-    /// Shadow mode only: stamps `source_offset` on `logs` outputs so a comparator can find the
-    /// input message. Node never writes it there.
+    /// Shadow mode only, so a comparator can find the input message. Node never writes `source_offset` there.
     pub source_offset_header: bool,
 }

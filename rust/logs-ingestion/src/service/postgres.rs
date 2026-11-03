@@ -1,5 +1,4 @@
-//! Postgres-backed dependencies: `TeamManager` and the logs rule caches, with the queries,
-//! TTLs and fallbacks of their TypeScript counterparts.
+//! The queries, TTLs and fallbacks match their TypeScript counterparts.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -27,7 +26,6 @@ use crate::sampling::{compile_rule_set, CompiledRuleSet, SamplingRuleRow};
 
 use super::lazy_loader::{LazyLoader, LazyLoaderOptions};
 
-/// `POSTGRES_UNAVAILABLE_ERROR_MESSAGES` in `postgres.ts`.
 const UNAVAILABLE_MESSAGES: &[&str] = &[
     "connection to server at",
     "could not translate host",
@@ -48,7 +46,7 @@ const UNAVAILABLE_MESSAGES: &[&str] = &[
     "conflict with recovery",
 ];
 
-/// `handlePostgresError`. sqlx reports a lost connection as an I/O or pool error instead.
+/// sqlx reports a lost connection as an I/O or pool error instead.
 pub fn classify_pg_error(error: sqlx::Error) -> anyhow::Error {
     let transient = match &error {
         sqlx::Error::Io(_)
@@ -97,7 +95,7 @@ pub struct CachedTeam {
     pub ingested_event: bool,
 }
 
-/// `TeamManager`. Without a `writer` it never writes `ingested_event`.
+/// Without a `writer` it never writes `ingested_event`.
 pub struct PgTeamManager {
     loader: LazyLoader<CachedTeam>,
     writer: Option<PgPool>,
@@ -251,7 +249,7 @@ impl<K: std::hash::Hash + Eq + Clone, V> TtlCache<K, V> {
     }
 }
 
-/// `SamplingRulesCache`. A fetch or compile error propagates.
+/// A fetch or compile error propagates.
 pub struct PgSamplingRules {
     pool: PgPool,
     cache: TtlCache<i64, CompiledRuleSet>,
@@ -310,7 +308,7 @@ impl SamplingRulesSource for PgSamplingRules {
     }
 }
 
-/// `RetentionRulesCache`. A fetch error serves the last rules, or none.
+/// A fetch error serves the last rules, or none.
 pub struct PgRetentionRules {
     pool: PgPool,
     cache: TtlCache<(i64, String), CompiledRetentionRuleSet>,
@@ -403,7 +401,7 @@ impl RetentionRulesSource for PgRetentionRules {
     }
 }
 
-/// `MetricRulesCache`. A fetch or compile error propagates; the consumer fails open on it.
+/// A fetch or compile error propagates, and the consumer fails open on it.
 pub struct PgMetricRules {
     pool: PgPool,
     cache: TtlCache<i64, Vec<CompiledMetricRule>>,
@@ -474,7 +472,7 @@ struct KeysEntry {
     expires_at: Instant,
 }
 
-/// `PatternMessageKeysCache`. Only an outage with nothing cached propagates.
+/// Only an outage with nothing cached propagates.
 pub struct PgPatternMessageKeys {
     pool: PgPool,
     cache: Arc<Mutex<HashMap<i64, KeysEntry>>>,

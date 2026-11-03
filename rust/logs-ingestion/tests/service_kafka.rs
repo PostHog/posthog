@@ -1,7 +1,3 @@
-//! The service on librdkafka's mock cluster: the Kafka outputs, the commit-after-success rule
-//! with a real consumer group, and shadow mode end to end against the parity corpus, followed
-//! by the comparator against the Node outputs the corpus recorded.
-
 mod common;
 
 use std::collections::HashMap;
@@ -133,7 +129,6 @@ async fn produce(
         .unwrap()
 }
 
-/// Every message of `topics`, until `expected` arrived and a short grace window passed.
 async fn read_all(bootstrap: &str, topics: &[&str], expected: usize) -> Vec<KafkaMessage> {
     let consumer: StreamConsumer = ClientConfig::new()
         .set("bootstrap.servers", bootstrap)
@@ -249,7 +244,6 @@ async fn kafka_outputs_route_by_output_name_and_wait_for_delivery() {
     }
 }
 
-/// Fails the background task of the batch that holds `fail_offset` on partition 0.
 struct FailingProcessor {
     fail_offset: i64,
     batches: Arc<Notify>,
@@ -319,7 +313,6 @@ async fn offsets_commit_only_after_the_background_task_succeeds() {
     );
 }
 
-/// Runs the service consumer for exactly one Kafka batch.
 struct OneBatch<'a> {
     consumer: &'a LogsIngestionConsumer,
     done: Arc<Notify>,
@@ -358,8 +351,7 @@ fn obj(entries: Vec<(&str, JsValue)>) -> JsValue {
     JsValue::Object(o)
 }
 
-/// The fixture's view of an output: `parity_corpus.rs` canonicalisation, with the DLQ
-/// `source_offset` mapped back from the mock cluster's offsets to the scenario's.
+/// The DLQ `source_offset` maps back from the mock cluster's offsets to the scenario's.
 fn canonical_output(output: &str, m: &KafkaMessage, inputs: &[Input]) -> JsValue {
     let mut headers: Vec<(String, String)> = m
         .headers
@@ -442,7 +434,6 @@ fn canonical_output(output: &str, m: &KafkaMessage, inputs: &[Input]) -> JsValue
     ])
 }
 
-/// The Node output a fixture recorded, as a Kafka message on the seeded Node topic.
 fn node_message(expected: &JsValue, inputs: &[Input]) -> KafkaMessage {
     let value = get(expected, "value");
     let bytes = match string(get(value, "kind")).as_str() {

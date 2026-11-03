@@ -49,9 +49,7 @@ fn main() -> anyhow::Result<()> {
     let passes: usize = args.get(2).map_or(10, |p| p.parse().unwrap());
     let warmup: usize = args.get(3).map_or(2, |p| p.parse().unwrap());
 
-    // The Node benchmark updates real prom-client metrics and logs at warn. The production
-    // recorder and a warn filter give the Rust side the same per-call work. Logs go to stderr,
-    // because stdout holds the result JSON.
+    // The production recorder and a warn filter match Node's per-call metric and log work. Logs go to stderr, which keeps stdout for the result.
     let _recorder = serve_metrics::setup_metrics_recorder();
     tracing_subscriber::fmt()
         .json()

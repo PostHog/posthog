@@ -1,6 +1,4 @@
-//! Reads every partition of the compared topics with one consumer. It assigns the partitions
-//! itself instead of joining a group, so each replica sees both sides of every partition. The
-//! comparator creates no producer, so it cannot write to any topic.
+//! It assigns partitions itself instead of joining a group, so each replica sees both sides of every partition.
 
 use std::time::{Duration, Instant};
 
@@ -31,8 +29,7 @@ pub struct TopicPlan {
     pub stream: Stream,
 }
 
-/// Assigns every partition of every planned topic from its committed offset. Partitions added
-/// later are not read until a restart.
+/// Partitions added later are not read until a restart.
 pub fn assign_all_partitions(
     consumer: &StreamConsumer,
     plan: &[TopicPlan],
@@ -55,8 +52,6 @@ pub fn assign_all_partitions(
     Ok(())
 }
 
-/// Feeds the comparator until `stop` resolves, or until no message arrived for `idle` when one
-/// is given. Sweeps once a second. A fatal consumer error ends it with that error.
 pub async fn run_compare(
     consumer: &StreamConsumer,
     plan: &[TopicPlan],

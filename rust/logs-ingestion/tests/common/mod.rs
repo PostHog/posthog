@@ -112,7 +112,6 @@ pub fn canonical_text(records: &[AvroValue]) -> String {
     json_stringify(&JsValue::Array(records.iter().map(canonical).collect()))
 }
 
-/// The inverse of `canonical` for one schema: a fixture's canonical record back to Avro.
 pub fn avro_from_canonical(
     schema: &logs_ingestion::avro::Schema,
     value: &JsValue,
