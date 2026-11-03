@@ -28,6 +28,7 @@ from products.experiments.backend.health.context import (
     ExposureSegment,
     ExposureTotals,
     FlagHistory,
+    FlagState,
     HealthContext,
     ReachableCondition,
 )
@@ -129,7 +130,8 @@ def srm(ctx: HealthContext) -> CheckOutcome:
     if exposures is None:
         return not_applicable(RUNS_AFTER_LAUNCH)
     # The split then serves nobody, so the test compares nothing. `forced_variant_release_condition` explains it.
-    if ctx.flag is not None and assigns_nobody_by_split(ctx.flag):
+    overrides = _flag_of_the_run(ctx)
+    if overrides is not None and assigns_nobody_by_split(overrides):
         return not_applicable("The split assigns nobody, because every release condition sets a variant override")
     p_value = exposures.sample_ratio_mismatch_p_value
     if p_value is None:
@@ -277,9 +279,9 @@ def _split_change_cause(ctx: HealthContext) -> ExperimentHealthFinding | None:
 
 
 def _skew_predates_the_change(ctx: HealthContext, exposures: ExposureTotals, history: FlagHistory) -> bool:
-    """Whether the users first exposed before the first split change show the same shares as those first exposed
-    after the last one, and those after it don't match the current split. Mixing two assignments then can't explain
-    the mismatch, because each group of users alone shows it."""
+    """Whether the users first exposed before the first split change, those first exposed after the last one and all
+    exposed users show the same shares, and those after it don't match the current split. Mixing assignments then
+    can't explain the mismatch, because each group of users alone shows it."""
     events = ctx.exposure_events
     if events is None or events.activation is not None:
         return False
@@ -303,7 +305,11 @@ def _skew_predates_the_change(ctx: HealthContext, exposures: ExposureTotals, his
         return False
     if sum(before.values()) < SRM_MINIMUM_SAMPLE_SIZE:
         return False
-    return _share_off_split(before, after) < MATERIAL_SHARE_OFF_SPLIT
+    # The users between the changes and on a change day fill neither group, so all users must show the shares too.
+    return (
+        _share_off_split(before, after) < MATERIAL_SHARE_OFF_SPLIT
+        and _share_off_split(exposures.total_exposures, after) < MATERIAL_SHARE_OFF_SPLIT
+    )
 
 
 def _split_change_warning(ctx: HealthContext) -> ExperimentHealthFinding | None:
@@ -318,13 +324,20 @@ def _split_change_warning(ctx: HealthContext) -> ExperimentHealthFinding | None:
     return None
 
 
+def _flag_of_the_run(ctx: HealthContext) -> FlagState | None:
+    """The flag whose variant overrides can explain the mismatch. None after the end, because the flag then often
+    holds the shipped decision and not the setup of the run, like `flag_to_check` says."""
+    return None if ctx.has_ended else ctx.flag
+
+
 def _pinned_cause(ctx: HealthContext, exposures: ExposureTotals) -> tuple[ReachableCondition, ...]:
     """The release conditions with a variant override in the test, when one of them pins the variant furthest above
     its expected count. Their users don't follow the split, so they can cause the mismatch."""
     expected = exposures.sample_ratio_expected
-    if ctx.flag is None or not expected:
+    flag = _flag_of_the_run(ctx)
+    if flag is None or not expected:
         return ()
-    pinned = tuple(condition for condition in ctx.flag.reachable_conditions if condition.pinned_variant in expected)
+    pinned = tuple(condition for condition in flag.reachable_conditions if condition.pinned_variant in expected)
     over = max(expected, key=lambda variant: exposures.total_exposures.get(variant, 0) - expected[variant])
     return pinned if any(condition.pinned_variant == over for condition in pinned) else ()
 

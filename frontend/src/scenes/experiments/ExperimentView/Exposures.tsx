@@ -20,6 +20,7 @@ import { ExperimentExposureCriteria, ExperimentExposureQueryResponse } from '~/q
 import { EXPERIMENT_VARIANT_MULTIPLE } from 'products/experiments/frontend/constants'
 import {
     getTotalExposures,
+    reportsMismatch,
     sampleRatioLine,
     serverSampleRatioFinding,
 } from 'products/experiments/frontend/health/exposureHealth'
@@ -35,6 +36,11 @@ import { VariantTag } from './VariantTag'
 // Below this, a load looks like any other; above it, the user has no way to tell a slow query
 // from a stuck one, so we start showing elapsed time and a way to retry.
 const SLOW_LOAD_THRESHOLD_SECONDS = 20
+
+const MISMATCH_LINE_STYLE = {
+    warning: { className: 'text-warning font-semibold', icon: <IconWarning className="text-sm" /> },
+    info: { className: 'text-secondary', icon: <IconInfo className="text-sm" /> },
+}
 
 /** Seconds since `active` last became true, ticking every second, reset to 0 when it goes false. */
 function useElapsedSeconds(active: boolean): number {
@@ -167,7 +173,7 @@ export function Exposures(): JSX.Element {
         resolvedHandling === 'first_seen' ? 'using first seen variant' : 'excluded from analysis'
 
     const srmLine = sampleRatioLine(exposures, healthUi === 'panel')
-    const hasSRM = srmLine !== null && srmLine.tone !== 'success'
+    const hasSRM = reportsMismatch(srmLine)
 
     // The open panel says "No exposures yet" for a draft and after a failed exposure query too.
     // Only a launched experiment with an answer that holds no exposure is the zero-exposure state.
@@ -494,20 +500,15 @@ export function Exposures(): JSX.Element {
                                     />
                                     {srmLine && exposures?.sample_ratio_mismatch != null && (
                                         <div className="flex items-center gap-1 text-xs mt-2">
-                                            {srmLine.tone !== 'success' ? (
+                                            {reportsMismatch(srmLine) ? (
                                                 <>
                                                     <Tooltip title={srmLine.tooltip}>
-                                                        {srmLine.tone === 'warning' ? (
-                                                            <span className="flex items-center gap-1 text-warning cursor-pointer">
-                                                                <IconWarning className="text-sm" />
-                                                                <span className="font-semibold">{srmLine.label}</span>
-                                                            </span>
-                                                        ) : (
-                                                            <span className="flex items-center gap-1 text-secondary cursor-pointer">
-                                                                <IconInfo className="text-sm" />
-                                                                <span>{srmLine.label}</span>
-                                                            </span>
-                                                        )}
+                                                        <span
+                                                            className={`flex items-center gap-1 cursor-pointer ${MISMATCH_LINE_STYLE[srmLine.tone].className}`}
+                                                        >
+                                                            {MISMATCH_LINE_STYLE[srmLine.tone].icon}
+                                                            <span>{srmLine.label}</span>
+                                                        </span>
                                                     </Tooltip>
                                                     <span className="text-muted">
                                                         (p = {exposures.sample_ratio_mismatch.p_value.toExponential(2)})

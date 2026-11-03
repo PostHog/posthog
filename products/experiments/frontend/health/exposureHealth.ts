@@ -29,6 +29,11 @@ export type SampleRatioLine = {
     tooltip: string
 }
 
+/** Whether the exposures card's line reports a mismatch, as a warning or as info. */
+export function reportsMismatch(line: SampleRatioLine | null): line is SampleRatioLine & { tone: 'warning' | 'info' } {
+    return line !== null && line.tone !== 'success'
+}
+
 /**
  * The exposures card's line about the sample ratio test, or null without a test. With the health panel the card uses
  * the server's finding, which can name a split change as the likely cause. Without it the card keeps the page's own

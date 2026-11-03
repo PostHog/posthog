@@ -318,6 +318,7 @@ class TestSrmCauses(TestCase):
             (
                 "override_of_the_variant_in_excess",
                 [_pinned_to("test"), EVERYONE],
+                False,
                 None,
                 ("some_conditions_pinned", True),
                 PINNED_TEST,
@@ -325,6 +326,7 @@ class TestSrmCauses(TestCase):
             (
                 "override_and_a_uniform_mismatch",
                 [_pinned_to("test"), EVERYONE],
+                False,
                 (_segment(LIBRARY, "web", 400, 600), _segment(LIBRARY, "posthog-node", 400, 600)),
                 ("some_conditions_pinned", True),
                 PINNED_TEST,
@@ -332,24 +334,43 @@ class TestSrmCauses(TestCase):
             (
                 "override_and_a_segment_with_the_mismatch",
                 [_pinned_to("test"), EVERYONE],
+                False,
                 SERVER_SKEWED,
                 (None, True),
                 f'{MISMATCH} The mismatch comes from users whose first exposure was sent by the "posthog-node" '
                 f"library. {NEXT_STEP}",
             ),
-            ("override_of_the_other_variant", [_pinned_to("control"), EVERYONE], None, (None, True), NO_LOCATION),
+            (
+                "override_of_the_other_variant",
+                [_pinned_to("control"), EVERYONE],
+                False,
+                None,
+                (None, True),
+                NO_LOCATION,
+            ),
+            ("override_after_the_end", [_pinned_to("test"), EVERYONE], True, None, (None, True), NO_LOCATION),
+            (
+                "every_condition_overridden_after_the_end",
+                [_pinned_to("test"), {**EVERYONE, "variant": "control"}],
+                True,
+                None,
+                (None, True),
+                NO_LOCATION,
+            ),
         ]
     )
     def test_names_a_variant_override_of_the_variant_in_excess(
         self,
         _name: str,
         groups: list[dict[str, object]],
+        has_ended: bool,
         segments: tuple[ExposureSegment, ...] | None,
         expected: tuple[str | None, bool],
         detail: str,
     ) -> None:
         ctx = replace(
             RUNNING_CONTEXT,
+            has_ended=has_ended,
             flag=parse_flag_state(active=True, deleted=False, groups=groups, variants=EVEN_SPLIT),
             exposures=_exposures(segments),
         )

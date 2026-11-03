@@ -669,6 +669,7 @@ class TestSrmAfterSplitChange(TestCase):
             (
                 "same_skew_before_the_change",
                 {"control": 600, "test": 400},
+                {"control": 0, "test": 0},
                 (None, True, None),
                 "The variant split changed after launch, but the users first exposed before the change show the same "
                 "mismatch as those first exposed after it, so the change doesn't explain it.",
@@ -676,23 +677,37 @@ class TestSrmAfterSplitChange(TestCase):
             (
                 "another_skew_before_the_change",
                 {"control": 500, "test": 500},
+                {"control": 0, "test": 0},
+                ("split_changed", True, date(2026, 9, 14)),
+                "don't match the current split either (p < 0.001), so look for another cause too.",
+            ),
+            (
+                "another_skew_on_the_change_day",
+                {"control": 600, "test": 400},
+                {"control": 5000, "test": 0},
                 ("split_changed", True, date(2026, 9, 14)),
                 "don't match the current split either (p < 0.001), so look for another cause too.",
             ),
         ]
     )
     def test_rules_out_a_split_change_when_the_skew_predates_it(
-        self, _name: str, before_change: dict[str, int], expected: tuple[str | None, bool, date | None], text: str
+        self,
+        _name: str,
+        before_change: dict[str, int],
+        on_change_day: dict[str, int],
+        expected: tuple[str | None, bool, date | None],
+        text: str,
     ) -> None:
         after_change = {"control": 600, "test": 400}
-        whole_run = sum(before_change.values()) + sum(after_change.values())
+        days = {date(2026, 9, 12): before_change, date(2026, 9, 14): on_change_day, date(2026, 9, 15): after_change}
+        total_exposures = {variant: sum(day[variant] for day in days.values()) for variant in after_change}
+        whole_run = sum(total_exposures.values())
         totals = replace(
             _totals(after_change),
-            total_exposures={variant: before_change[variant] + after_change[variant] for variant in after_change},
+            total_exposures=total_exposures,
             sample_ratio_expected={"control": 0.8 * whole_run, "test": 0.2 * whole_run},
             daily_exposures={
-                variant: {date(2026, 9, 12): before_change[variant], date(2026, 9, 15): after_change[variant]}
-                for variant in after_change
+                variant: {day: day_counts[variant] for day, day_counts in days.items()} for variant in after_change
             },
         )
         ctx = replace(
