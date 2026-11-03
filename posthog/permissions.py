@@ -42,7 +42,6 @@ from posthog.organization_caching import get_cached_organization_membership
 from posthog.scopes import (
     INTERNAL_API_SCOPE_OBJECTS,
     MCP_BUILT_IN_AGENT_SCOPE,
-    APIScopeObject,
     APIScopeObjectOrNotSupported,
     scopes_covered_by_legacy_fallback,
     scopes_not_covered,
@@ -53,10 +52,17 @@ from posthog.utils import get_can_create_org
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.mcp_access import mcp_access_denial
 from products.access_control.backend.facade.user_access_control import (
+    RESOURCE_FALLBACK_MAP,
+    RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS,
     AccessControlLevel,
     UserAccessControl,
+    model_to_resource,
     ordered_access_levels,
 )
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Parent, Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
+from products.authorization.backend.presentation.resources import resource_for_object
 
 CREATE_ACTIONS = ["create", "update"]
 
@@ -130,6 +136,36 @@ def get_required_organization_membership(request: Request, organization: Organiz
     return membership
 
 
+def request_subject(request: Request) -> Optional[Subject]:
+    """The request's user as the check subject, so the check holds without the session middleware.
+
+    Other principals return None, which reads the user that the request session binds.
+    """
+    user = getattr(request, "user", None)
+    return Subject(user_id=user.pk) if isinstance(user, User) and user.pk is not None else None
+
+
+def can_in_organization(request: Request, organization: Organization, action: Action) -> bool:
+    return authorization.check(
+        resource=Resource(type=ResourceType.ORGANIZATION, id=str(organization.id)),
+        action=action,
+        subject=request_subject(request),
+    )
+
+
+def can_in_required_organization(request: Request, organization: Organization, action: Action) -> bool:
+    """Like `can_in_organization`, but a non-member gets a 404, as `get_required_organization_membership` gives."""
+    if not can_in_organization(request, organization, Action.VIEW):
+        raise NotFound("Organization not found.")
+    return can_in_organization(request, organization, action)
+
+
+def can_in_project(request: Request, team: Team, action: Action) -> bool:
+    return authorization.check(
+        resource=Resource(type=ResourceType.PROJECT, id=str(team.pk)), action=action, subject=request_subject(request)
+    )
+
+
 class CanCreateOrg(BasePermission):
     """Whether new organizations can be created in this instances."""
 
@@ -162,12 +198,10 @@ class OrganizationMemberPermissions(BasePermission):
         if view.basename == "organizations" and view.action not in ["list", "create"]:
             return True
 
-        organization = get_organization_from_view(view)
-        return get_cached_organization_membership(organization.id, cast(User, request.user)) is not None
+        return can_in_organization(request, get_organization_from_view(view), Action.VIEW)
 
     def has_object_permission(self, request: Request, view, object: Model) -> bool:
-        organization = extract_organization(object, view)
-        return get_cached_organization_membership(organization.id, cast(User, request.user)) is not None
+        return can_in_organization(request, extract_organization(object, view), Action.VIEW)
 
 
 class UserNoOrgMembershipDeletePermission(BasePermission):
@@ -200,17 +234,13 @@ class OrganizationAdminWritePermissions(BasePermission):
         if view.basename == "organizations" and view.action not in ["create"]:
             return True
 
-        organization = get_organization_from_view(view)
-        membership = get_required_organization_membership(request, organization)
-        return membership.level >= OrganizationMembership.Level.ADMIN
+        return can_in_required_organization(request, get_organization_from_view(view), Action.EDIT)
 
     def has_object_permission(self, request: Request, view, object: Model) -> bool:
         if request.method in SAFE_METHODS:
             return True
 
-        organization = extract_organization(object, view)
-        membership = get_required_organization_membership(request, organization)
-        return membership.level >= OrganizationMembership.Level.ADMIN
+        return can_in_required_organization(request, extract_organization(object, view), Action.EDIT)
 
 
 class OrganizationAdminReadPermissions(BasePermission):
@@ -222,15 +252,12 @@ class OrganizationAdminReadPermissions(BasePermission):
 
     message = "Your organization access level is insufficient."
 
+    # EDIT is the action that needs organization admin, so reads ask for it too.
     def has_permission(self, request: Request, view) -> bool:
-        organization = get_organization_from_view(view)
-        membership = get_required_organization_membership(request, organization)
-        return membership.level >= OrganizationMembership.Level.ADMIN
+        return can_in_required_organization(request, get_organization_from_view(view), Action.EDIT)
 
     def has_object_permission(self, request: Request, view, object: Model) -> bool:
-        organization = extract_organization(object, view)
-        membership = get_required_organization_membership(request, organization)
-        return membership.level >= OrganizationMembership.Level.ADMIN
+        return can_in_required_organization(request, extract_organization(object, view), Action.EDIT)
 
 
 class TeamMemberAccessPermission(BasePermission):
@@ -250,14 +277,11 @@ class TeamMemberAccessPermission(BasePermission):
             return True
 
         try:
-            view.team  # noqa: B018
+            team = view.team
         except Team.DoesNotExist:
             return True  # This will be handled as a 404 in the viewset
 
-        # NOTE: The naming here is confusing - "current_team" refers to the team that the user_permissions was initialized with
-        # - not the "current_team" property of the user
-        requesting_level = view.user_permissions.current_team.effective_membership_level
-        return requesting_level is not None
+        return can_in_project(request, team, Action.VIEW)
 
 
 class VerifiedDomainEnforcementPermission(BasePermission):
@@ -475,13 +499,7 @@ class TeamMemberLightManagementPermission(BasePermission):
             team = view.team
         except Team.DoesNotExist:
             return True  # This will be handled as a 404 in the viewset
-        requesting_level = view.user_permissions.team(team).effective_membership_level
-        if requesting_level is None:
-            return False
-        minimum_level = (
-            OrganizationMembership.Level.MEMBER if request.method != "DELETE" else OrganizationMembership.Level.ADMIN
-        )
-        return requesting_level >= minimum_level
+        return can_in_project(request, team, Action.DELETE if request.method == "DELETE" else Action.VIEW)
 
 
 class TeamMemberStrictManagementPermission(BasePermission):
@@ -493,15 +511,7 @@ class TeamMemberStrictManagementPermission(BasePermission):
     message = "You don't have sufficient permissions in the project."
 
     def has_permission(self, request, view) -> bool:
-        requesting_level = view.user_permissions.current_team.effective_membership_level
-        if requesting_level is None:
-            return False
-        minimum_level = (
-            OrganizationMembership.Level.MEMBER
-            if request.method in SAFE_METHODS
-            else OrganizationMembership.Level.ADMIN
-        )
-        return requesting_level >= minimum_level
+        return can_in_project(request, view.team, Action.VIEW if request.method in SAFE_METHODS else Action.EDIT)
 
 
 class TeamMemberAdminManagementPermission(BasePermission):
@@ -511,11 +521,9 @@ class TeamMemberAdminManagementPermission(BasePermission):
 
     message = "You don't have sufficient permissions in the project."
 
+    # EDIT is the action that needs project admin, so reads ask for it too.
     def has_permission(self, request, view) -> bool:
-        requesting_level = view.user_permissions.current_team.effective_membership_level
-        if requesting_level is None:
-            return False
-        return requesting_level >= OrganizationMembership.Level.ADMIN
+        return can_in_project(request, view.team, Action.EDIT)
 
 
 class IsStaffUser(IsAdminUser):
@@ -1192,6 +1200,43 @@ class MCPAccessPermission(ScopeBasePermission):
         return True
 
 
+# Project and organization levels are member and admin. Every other resource uses viewer and editor.
+REQUIRED_LEVEL_ACTIONS: dict[AccessControlLevel, Action] = {
+    "member": Action.VIEW,
+    "viewer": Action.VIEW,
+    "admin": Action.EDIT,
+    "editor": Action.EDIT,
+}
+
+
+def sdk_resource_type(scope: Optional[str]) -> Optional[ResourceType]:
+    """The SDK type for an API scope object, or None when the SDK has no such type."""
+    try:
+        return ResourceType(scope) if scope else None
+    except ValueError:
+        return None
+
+
+def resource_for_ref(ref: ObjectAccessRef) -> Resource:
+    parent_type = RESOURCE_FALLBACK_MAP.get(ref.resource)
+    parent_id = ref.fallback_parent.id if ref.fallback_parent is not None else None
+    return Resource(
+        type=ResourceType(ref.resource),
+        id=ref.id,
+        project_id=ref.team_id,
+        created_by_id=ref.created_by_id,
+        parent=Parent(type=ResourceType(parent_type), id=parent_id) if parent_type else None,
+    )
+
+
+def view_team(view: Any) -> Optional[Team]:
+    """The team the view's `user_access_control` reads rules from, or None for a view without one."""
+    try:
+        return view.team
+    except (Team.DoesNotExist, KeyError):
+        return None
+
+
 class AccessControlPermission(ScopeBasePermission):
     """
     Unified permissions access - controls access to any object based on the user's access controls
@@ -1243,14 +1288,8 @@ class AccessControlPermission(ScopeBasePermission):
         if is_service_auth(request):
             return True
 
-        # NOTE: If the object is a Team then we shortcircuit here and create a UAC
-        # Reason being that there is a loop from view.user_access_control -> view.team -> view.user_access_control
-        if isinstance(object, Team):
-            uac = UserAccessControl(user=request.user, team=object)
-        else:
-            uac = self._get_user_access_control(request, view)
-
-        if not uac:
+        # A Team needs no view UAC, which would loop through view.team back to itself.
+        if not isinstance(object, Team) and not self._get_user_access_control(request, view):
             # If the view doesn't have a user_access_control then it is not supported by this permission scheme
             return True
 
@@ -1259,15 +1298,33 @@ class AccessControlPermission(ScopeBasePermission):
         if not required_level:
             return True
 
-        if isinstance(object, Model):
-            has_access = uac.check_access_level_for_object(object, required_level=required_level)
-        elif isinstance(object, ObjectAccessRef):
-            has_access = uac.check_access_level_for_ref(object, required_level=required_level)
-        elif not view.records_have_object_access_rules:
-            # has_permission already checked the resource-level rules, and no rule names one record.
+        if not isinstance(object, (Model, ObjectAccessRef)):
+            if not view.records_have_object_access_rules:
+                # has_permission already checked the resource-level rules, and no rule names one record.
+                return True
+            object = view.object_access_ref(object)
+
+        scope = object.resource if isinstance(object, ObjectAccessRef) else model_to_resource(object)
+        if scope is None:
+            # Permissions do not apply to models without a related scope
             return True
+
+        if sdk_resource_type(scope) is None:
+            # The SDK has no type for this scope yet, so the current rules answer directly.
+            uac = self._get_user_access_control(request, view)
+            if isinstance(object, ObjectAccessRef):
+                has_access = uac.check_access_level_for_ref(object, required_level=required_level)
+            else:
+                has_access = uac.check_access_level_for_object(object, required_level=required_level)
         else:
-            has_access = uac.check_access_level_for_ref(view.object_access_ref(object), required_level=required_level)
+            resource = (
+                resource_for_ref(object)
+                if isinstance(object, ObjectAccessRef)
+                else resource_for_object(object, team=None if isinstance(object, Team) else view_team(view))
+            )
+            has_access = authorization.check(
+                resource=resource, action=REQUIRED_LEVEL_ACTIONS[required_level], subject=request_subject(request)
+            )
 
         if not has_access:
             self.message = f"You do not have {required_level} access to this resource."
@@ -1308,14 +1365,7 @@ class AccessControlPermission(ScopeBasePermission):
             # TODO: Does this means its okay because there is no team level thing?
             return True
 
-        # NOTE: This isn't perfect as it will only optimize for endpoints where the pk matches the obj.id
-        # We can't load the actual object as get_object in turn calls the permissions check
-        pk = view.kwargs.get("pk")
-        uac.preload_access_levels(team=team, resource=cast(APIScopeObject, scope_object), resource_id=pk)
-
-        is_member = uac.check_access_level_for_object(team, required_level="member")
-
-        if not is_member:
+        if not can_in_project(request, team, Action.VIEW):
             self.message = f"You don't have access to the project."
             return False
 
@@ -1325,7 +1375,16 @@ class AccessControlPermission(ScopeBasePermission):
             return True
 
         # TODO: Scope object should probably be applied against the `required_scopes` attribute
-        has_access = uac.check_access_level_for_resource(scope_object, required_level=required_level)
+        resource_type = sdk_resource_type(scope_object)
+        if resource_type is None or scope_object in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS:
+            # The SDK has no type, or no resource-level rule, for this scope yet.
+            has_access = uac.check_access_level_for_resource(scope_object, required_level=required_level)
+        else:
+            has_access = authorization.check(
+                resource=Resource(type=resource_type, project_id=team.id),
+                action=REQUIRED_LEVEL_ACTIONS[required_level],
+                subject=request_subject(request),
+            )
         if has_access:
             return True
         elif getattr(view, "requires_resource_level_access", False):

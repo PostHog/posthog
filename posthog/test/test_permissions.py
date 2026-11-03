@@ -708,7 +708,7 @@ class TestTeamMemberAccessPermission(BaseTest):
 
         return request
 
-    def _create_mock_view(self, team=None, raise_exception=None, user_permissions=None):
+    def _create_mock_view(self, team=None, raise_exception=None):
         """Helper to create a mock view with specified team or exception"""
         view = Mock()
 
@@ -717,10 +717,6 @@ class TestTeamMemberAccessPermission(BaseTest):
         else:
             view.team = team
 
-        # Set user_permissions if provided
-        if user_permissions:
-            view.user_permissions = user_permissions
-
         return view
 
     def _create_mock_team(self, team_id=1):
@@ -728,14 +724,6 @@ class TestTeamMemberAccessPermission(BaseTest):
         team = Mock()
         team.id = team_id
         return team
-
-    def _create_mock_user_permissions(self, effective_membership_level=None):
-        """Helper to create a mock user_permissions with specified effective membership level"""
-        user_permissions = Mock()
-        current_team = Mock()
-        current_team.effective_membership_level = effective_membership_level
-        user_permissions.current_team = current_team
-        return user_permissions
 
     def test_has_permission_with_team_secret_token_authenticator(self):
         """Should return True when using TeamSecretTokenAuthentication"""
@@ -773,50 +761,31 @@ class TestTeamMemberAccessPermission(BaseTest):
 
         self.assertFalse(self.permission.has_permission(request, view))
 
-    def test_has_permission_with_non_team_secret_token_authenticator_and_valid_membership(self):
-        """Should return True when not using project secret auth and user has valid membership"""
-        team = self._create_mock_team()
-        user_permissions = self._create_mock_user_permissions(
-            effective_membership_level=OrganizationMembership.Level.MEMBER
-        )
+    @parameterized.expand(
+        [
+            ("member", OrganizationMembership.Level.MEMBER, True),
+            ("admin", OrganizationMembership.Level.ADMIN, True),
+            ("no_membership", None, False),
+        ]
+    )
+    def test_has_permission_follows_project_membership(self, _name, level, expected):
+        if level is None:
+            user = User.objects.create(email="outsider@example.com")
+        else:
+            user = self.user
+            membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
+            membership.level = level
+            membership.save()
 
-        request = self._create_mock_request(authenticator_class=PersonalAPIKeyAuthentication)
-        view = self._create_mock_view(team=team, user_permissions=user_permissions)
+        request = self._create_mock_request(authenticator_class=PersonalAPIKeyAuthentication, user=user)
+        view = self._create_mock_view(team=self.team)
 
-        result = self.permission.has_permission(request, view)
-
-        self.assertTrue(result)
-
-    def test_has_permission_with_non_team_secret_token_authenticator_and_no_membership(self):
-        """Should return False when not using project secret auth and user has no membership"""
-        team = self._create_mock_team()
-        user_permissions = self._create_mock_user_permissions(effective_membership_level=None)
-
-        request = self._create_mock_request(authenticator_class=PersonalAPIKeyAuthentication)
-        view = self._create_mock_view(team=team, user_permissions=user_permissions)
-
-        result = self.permission.has_permission(request, view)
-
-        self.assertFalse(result)
+        self.assertEqual(self.permission.has_permission(request, view), expected)
 
     def test_has_permission_with_team_does_not_exist_exception(self):
         """Should return True when view.team raises Team.DoesNotExist"""
         request = self._create_mock_request(authenticator_class=PersonalAPIKeyAuthentication)
         view = self._create_mock_view(raise_exception=Team.DoesNotExist("Team not found"))
-
-        result = self.permission.has_permission(request, view)
-
-        self.assertTrue(result)
-
-    def test_has_permission_with_admin_membership(self):
-        """Should return True when user has admin membership level"""
-        team = self._create_mock_team()
-        user_permissions = self._create_mock_user_permissions(
-            effective_membership_level=OrganizationMembership.Level.ADMIN
-        )
-
-        request = self._create_mock_request(authenticator_class=PersonalAPIKeyAuthentication)
-        view = self._create_mock_view(team=team, user_permissions=user_permissions)
 
         result = self.permission.has_permission(request, view)
 
