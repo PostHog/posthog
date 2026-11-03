@@ -12,7 +12,7 @@ import { DropdownMenuGroup, DropdownMenuItem } from 'lib/ui/DropdownMenu/Dropdow
 import { cn } from 'lib/utils/css-classes'
 
 import { ProjectTreeLogicProps, projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { ScrollableShadows } from '~/lib/components/ScrollableShadows/ScrollableShadows'
+import { ScrollableShadows } from '~/lib/lemon-ui/ScrollableShadows/ScrollableShadows'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 export interface FolderSelectProps {

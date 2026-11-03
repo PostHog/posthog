@@ -32,8 +32,14 @@ def _to_summary(summary: ErrorTrackingIssueSummary) -> contracts.ErrorTrackingIs
 
 
 def _shown(team_id: int, summary: ErrorTrackingIssueSummary | None) -> contracts.ErrorTrackingIssueSummary | None:
-    """Every read returns through here, so turning the flag off also hides stored summaries."""
+    """Every read returns through here, so turning the flag off also hides stored summaries.
+
+    The output check runs again here because a row stored before the check existed stays until a new summary
+    replaces it, and a rejected regeneration keeps the old row.
+    """
     if summary is None or not issue_summaries.issue_summaries_enabled(team_id):
+        return None
+    if issue_summaries.unsafe_summary_fields(summary.content):
         return None
     return _to_summary(summary)
 

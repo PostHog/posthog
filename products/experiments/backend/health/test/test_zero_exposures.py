@@ -57,6 +57,8 @@ NO_EXPOSURES = ExposureTotals(
     daily_exposures={},
     hours_since_launch=48,
     counts_groups=False,
+    filters_test_accounts=True,
+    has_positive_test_account_filter=False,
 )
 TEST_ACCOUNTS_ONLY = replace(NO_EXPOSURES, exposed_without_test_account_filter=12)
 FLAG_CALLS = ExposureEvents(
@@ -351,10 +353,19 @@ class TestFlagCalledDuringRun(BaseTest):
                 False,
             ),
             (
-                "ended_called_after_the_end",
+                "ended_called_after_the_end_but_not_lately",
                 LAUNCHED_AT,
                 ENDED_AT,
                 datetime(2026, 10, 15, tzinfo=UTC),
+                FlagEvaluationsMode.EVENTS,
+                None,
+                False,
+            ),
+            (
+                "ended_called_lately",
+                LAUNCHED_AT,
+                ENDED_AT,
+                datetime(2026, 10, 19, tzinfo=UTC),
                 FlagEvaluationsMode.EVENTS,
                 None,
                 True,

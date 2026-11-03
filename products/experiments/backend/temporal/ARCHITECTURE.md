@@ -204,7 +204,7 @@ Red nodes advance the window; blue nodes reuse it.
 
 #### Retriable failures
 
-A metric's terminal failure lands in `metric_errors` as `{step, message, error_type, retriable, timestamp}`.
+A metric's terminal failure lands in `metric_errors` as `{step, message, error_type, retriable, timestamp}`, plus `exposures_path` (`precomputed` or `direct_scan`) once the runner has built the query.
 `error_type` is the same taxonomy as the `experiment metric error` event (`classify_experiment_query_error`).
 `retriable` is the backend's own decision, not a frontend mapping of `error_type`: it is true when a transient error (`timeout`, `rate_limited`, `server_error`) used its final attempt, and false when the calc activity failed permanently (`validation_error`, `out_of_memory`, `byte_limit`, `insufficient_data`, a `ValueError`, or a discovery failure) or the request was rejected (`recalculation_window_too_long`).
 A retriable failure reads as a gap, so the page load heals it; a non-retriable one waits for the user, because a new run with the same inputs fails the same way.

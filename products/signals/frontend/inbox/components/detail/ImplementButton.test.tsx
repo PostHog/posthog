@@ -7,10 +7,10 @@ import { expectLogic } from 'kea-test-utils'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
+import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
 import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import { mockTask } from '../../__mocks__/inboxMocks'

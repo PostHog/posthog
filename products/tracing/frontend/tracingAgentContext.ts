@@ -1,3 +1,4 @@
+import { AttachedContextItem } from '~/layout/ai/attachedContext'
 import { DateRange } from '~/queries/schema/schema-general'
 import {
     FilterLogicalOperator,
@@ -6,8 +7,6 @@ import {
     UniversalFiltersGroup,
     UniversalFiltersGroupValue,
 } from '~/types'
-
-import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
 import {
     DEFAULT_DATE_RANGE,
