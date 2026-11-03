@@ -3177,7 +3177,7 @@ describe('exec tool', () => {
             })
         })
 
-        // October 2026 traces: ~49 experiment-update rejections where a metrics
+        // Production traces show experiment-update rejections where a metrics
         // payload failing deep validation read "parameter 'metrics_secondary':
         // Invalid input: expected null, received array" — the null branch of the
         // nullable metrics union, not the real error inside the array branch.
