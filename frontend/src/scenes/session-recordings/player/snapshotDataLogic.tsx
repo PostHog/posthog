@@ -230,12 +230,12 @@ export interface snapshotDataLogicMeta {
         snapshotStore: (storeVersion: number) => SnapshotStore
         sourceLoadingStates: (storeVersion: number) => SourceLoadingState[]
         recordingDeletedError: (
-            snapshotSourcesLoadError: any,
+            snapshotSourcesLoadError: Error | null,
             snapshotLoadError: Error | null
         ) => RecordingDeletedError | null
-        isRecordingDeleted: (recordingDeletedError: any) => boolean
-        recordingDeletedAt: (recordingDeletedError: any) => number | null
-        recordingDeletedBy: (recordingDeletedError: any) => string | null
+        isRecordingDeleted: (recordingDeletedError: RecordingDeletedError | null) => boolean
+        recordingDeletedAt: (recordingDeletedError: RecordingDeletedError | null) => number | null
+        recordingDeletedBy: (recordingDeletedError: RecordingDeletedError | null) => string | null
         isSnapshotUnauthorized: (snapshotLoadError: Error | null) => boolean
         snapshotLoadErrorKind: (snapshotLoadError: Error | null) => SnapshotLoadErrorKind | null
     }
