@@ -1,6 +1,5 @@
 import { type ComponentType, type ReactElement, useEffect, useState } from 'react'
-import { Text, useWindowDimensions, View } from 'react-native'
-
+import { Text, View } from 'react-native'
 import { useAuthStore } from '@/auth/authStore'
 import { ProjectSheet } from '@/features/projects/ProjectSheet'
 import { track } from '@/lib/analytics'
@@ -16,6 +15,7 @@ import type { IconProps } from '@/ui/icons/types'
 import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, radii, type } from '@/ui/tokens'
+import { useSceneDimensions } from '@/ui/useSceneDimensions'
 import { topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { SignOutConfirm } from '../settings/SignOutConfirm'
@@ -87,9 +87,9 @@ export function NavMenu({
     const colors = useColors()
     const styles = useStyles()
     const insets = useScreenInsets()
-    const { width: windowWidth } = useWindowDimensions()
+    const { width: windowWidth } = useSceneDimensions()
     // The handoff's 75% width is the content box; padding and border add 22pt.
-    const width = Math.round(windowWidth * 0.75) + 22
+    const width = Math.min(400, Math.round(windowWidth * 0.75) + 22)
     const [pickingProject, setPickingProject] = useState(false)
 
     useEffect(() => {

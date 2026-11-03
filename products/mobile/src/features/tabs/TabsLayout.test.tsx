@@ -1,6 +1,6 @@
 import { act, fireEvent, renderRouter, screen, within } from 'expo-router/testing-library'
 import { type ReactElement, useState } from 'react'
-import { Button, Text, View } from 'react-native'
+import { Button, Dimensions, Text, View } from 'react-native'
 
 import { setAnalyticsClient } from '@/lib/analytics'
 import { FEATURE_FLAGS, setFeatureFlags } from '@/lib/featureFlags'
@@ -10,6 +10,7 @@ import { restoreNavPins, setNavPinned, useNavPinStore } from './navPinStore'
 import { TabsLayout } from './TabsLayout'
 import { type TabHeaderSlot, type TabKey, useTabHeader, useTabHeaderStore } from './tabHeaderStore'
 
+jest.mock('react-native-keyboard-controller', () => jest.requireActual('react-native-keyboard-controller/jest'))
 jest.mock('react-native-worklets', () => jest.requireActual('react-native-worklets/src/mock'))
 // The router's testing library mocks Reanimated with this module after the hoisted mocks run, so the patch goes here.
 jest.mock('react-native-reanimated/mock', () => ({
@@ -99,6 +100,8 @@ function InboxWithMenuStub(): ReactElement {
     )
 }
 
+const ORIGINAL_WINDOW = Dimensions.get('window')
+
 describe('TabsLayout', () => {
     beforeEach(() => {
         restoreNavPins([])
@@ -106,6 +109,7 @@ describe('TabsLayout', () => {
     })
 
     afterEach(() => {
+        act(() => Dimensions.set({ window: ORIGINAL_WINDOW }))
         setAnalyticsClient(null)
         setFeatureFlags({})
     })
@@ -181,7 +185,13 @@ describe('TabsLayout', () => {
         expect(useNavPinStore.getState().pins).toEqual([pin])
     })
 
-    test('switches between Inbox, Chats and Views under one bar that keeps the /inbox, /chats and /views URLs', () => {
+    test.each([
+        { width: 402, height: 874 },
+        { width: 951, height: 669 },
+        { width: 669, height: 951 },
+    ])('switches Inbox, Chats and Views under one bar at $width × $height', ({ width, height }) => {
+        const previous = Dimensions.get('window')
+        Dimensions.set({ window: { ...previous, width, height } })
         const capture = jest.fn()
         setAnalyticsClient({ capture, identify: jest.fn(), reset: jest.fn() })
         const router = renderRouter(
