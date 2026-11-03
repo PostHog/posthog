@@ -227,6 +227,54 @@ describe('HogFlowManager', () => {
         }
     })
 
+    it('keeps no primary result from a read that a reload overtook', async () => {
+        const lateFlow = await insertHogFlow(
+            hub.postgres,
+            new FixtureHogFlowBuilder().withTeamId(teamId1).withStatus('active').build()
+        )
+        const querySpy = hideHogFlowsFromReplica(hub.postgres, [lateFlow.id])
+        const hideFromReplica = querySpy.getMockImplementation()!
+        let primaryReadStarted: () => void = () => {}
+        const primaryReadInFlight = new Promise<void>((resolve) => {
+            primaryReadStarted = resolve
+        })
+        let releasePrimaryRead: () => void = () => {}
+        const primaryReadReleased = new Promise<void>((resolve) => {
+            releasePrimaryRead = resolve
+        })
+        let holdNextPrimaryRead = true
+        querySpy.mockImplementation(async (target, queryString, values, tag, logLevel) => {
+            const result = await hideFromReplica(target, queryString, values, tag, logLevel)
+            if (holdNextPrimaryRead && target === PostgresUse.COMMON_WRITE && tag === 'fetchHogFlows') {
+                holdNextPrimaryRead = false
+                primaryReadStarted()
+                await primaryReadReleased
+            }
+            return result
+        })
+
+        try {
+            const overtakenLookup = manager.getHogFlowCheckingPrimaryOnMiss(lateFlow.id)
+            await primaryReadInFlight
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET status = 'draft' WHERE id = $1`,
+                [lateFlow.id],
+                'testKey'
+            )
+            manager['onHogFlowsReloaded'](teamId1, [lateFlow.id])
+            releasePrimaryRead()
+            await overtakenLookup
+
+            expect(await manager.getHogFlowCheckingPrimaryOnMiss(lateFlow.id)).toMatchObject({
+                id: lateFlow.id,
+                status: 'draft',
+            })
+        } finally {
+            querySpy.mockRestore()
+        }
+    })
+
     describe('email sending pause', () => {
         // The pause only reaches the send choke point through the manager's column list, so a
         // column left out of HOG_FLOW_FIELDS silently lets a paused workflow keep sending.

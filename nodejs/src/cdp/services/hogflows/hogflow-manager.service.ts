@@ -164,14 +164,18 @@ export class HogFlowManagerService {
     private async readPrimary(ids: HogFlow['id'][]): Promise<Record<HogFlow['id'], HogFlow | null>> {
         const unread = ids.filter((id) => !this.primaryReads.has(id))
         if (unread.length > 0) {
-            const read = this.fetchHogFlows(unread, PostgresUse.COMMON_WRITE).finally(() =>
-                unread.forEach((id) => this.primaryReads.delete(id))
-            )
+            const read = this.fetchHogFlows(unread, PostgresUse.COMMON_WRITE)
             for (const id of unread) {
-                this.primaryReads.set(
-                    id,
-                    read.then((flows) => this.settlePrimaryRead(id, flows[id] ?? null))
+                const settled: Promise<HogFlow | null> = read.then((flows) =>
+                    this.settlePrimaryRead(id, flows[id] ?? null, settled)
                 )
+                this.primaryReads.set(id, settled)
+                const forget = (): void => {
+                    if (this.primaryReads.get(id) === settled) {
+                        this.primaryReads.delete(id)
+                    }
+                }
+                settled.then(forget, forget)
             }
         }
         const reads = ids.map((id) => this.primaryReads.get(id) ?? Promise.resolve(null))
@@ -179,7 +183,10 @@ export class HogFlowManagerService {
         return Object.fromEntries(ids.map((id, index) => [id, flows[index]]))
     }
 
-    private settlePrimaryRead(id: HogFlow['id'], flow: HogFlow | null): HogFlow | null {
+    private settlePrimaryRead(id: HogFlow['id'], flow: HogFlow | null, read: Promise<HogFlow | null>): HogFlow | null {
+        if (this.primaryReads.get(id) !== read) {
+            return flow
+        }
         if (flow) {
             this.lazyLoader.markForRefresh(id)
         }
@@ -217,7 +224,10 @@ export class HogFlowManagerService {
     private onHogFlowsReloaded(teamId: Team['id'], hogFlowIds: HogFlow['id'][]): void {
         this.lazyLoaderByTeam.markForRefresh(teamId.toString())
         this.lazyLoader.markForRefresh(hogFlowIds)
-        hogFlowIds.forEach((id) => this.primaryResults.delete(id))
+        hogFlowIds.forEach((id) => {
+            this.primaryResults.delete(id)
+            this.primaryReads.delete(id)
+        })
     }
 
     private async fetchTeamHogFlows(teamIds: string[]): Promise<Record<string, HogFlowTeamInfo[]>> {
