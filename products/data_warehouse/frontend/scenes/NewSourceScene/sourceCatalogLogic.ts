@@ -13,11 +13,10 @@ import { getSourceDisplayStatus } from 'scenes/data-pipelines/utils/nonHogFuncti
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { HogFunctionTemplateStatus } from '~/types'
+import { type ExternalDataSourceType, HogFunctionTemplateStatus } from '~/types'
 
 import {
     DataWarehouseSourceCategoryApi,
-    ExternalDataSourceTypeEnumApi,
     SourceConfigResponseApi,
 } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
@@ -86,9 +85,9 @@ const SELF_MANAGED_KEYWORDS = [
 // registers interest and leaves without the connector that works today. Each key is hidden while
 // its value is in the catalog and connectable.
 const LIVE_ALTERNATIVE_TO_COMING_SOON: Partial<Record<string, string>> = {
-    [ExternalDataSourceTypeEnumApi.MicrosoftAdvertising]: ExternalDataSourceTypeEnumApi.BingAds,
+    MicrosoftAdvertising: 'BingAds',
     // The managed Amazon S3 source is flag-gated, but the self-managed S3 connector links a bucket.
-    [ExternalDataSourceTypeEnumApi.AmazonS3]: 'aws',
+    AmazonS3: 'aws',
 }
 
 // "Request a data warehouse source" survey. We render our own modal and submit the answer
@@ -97,7 +96,7 @@ export const SOURCE_REQUEST_SURVEY_ID = '0190ff15-5032-0000-722a-e13933c140ac'
 
 export interface SourceCatalogLogicProps {
     /** When set, only managed sources whose name is in this list are shown. */
-    allowedSources?: ExternalDataSourceTypeEnumApi[]
+    allowedSources?: ExternalDataSourceType[]
 }
 
 export interface CatalogItem {
@@ -223,7 +222,7 @@ export interface sourceCatalogLogicMeta {
             featureFlags: FeatureFlagsSet,
             objectStorageSourcesEnabled: boolean,
             dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
-            arg: ExternalDataSourceTypeEnumApi[] | undefined
+            arg: string[] | undefined
         ) => CatalogItem[]
         categoriesWithCounts: (catalogItems: CatalogItem[]) => CatalogCategory[]
         selectedCategoryLabel: (
@@ -369,7 +368,7 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
                 objectStorageSourcesEnabled: boolean,
                 dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
-                allowedSources: ExternalDataSourceTypeEnumApi[] | undefined
+                allowedSources: ExternalDataSourceType[] | undefined
             ): CatalogItem[] => {
                 // SourceConfigResponseApi declares `existingSource`, but the /wizard payload this
                 // selector reads never populates it, so derive it from the project's source list.
@@ -580,9 +579,7 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
         customSourceItem: [
             (s) => [s.catalogItems],
             (catalogItems: CatalogItem[]): CatalogItem | null =>
-                catalogItems.find(
-                    (item) => item.name === ExternalDataSourceTypeEnumApi.Custom && item.status !== 'coming_soon'
-                ) ?? null,
+                catalogItems.find((item) => item.name === 'Custom' && item.status !== 'coming_soon') ?? null,
         ],
     }),
     listeners(({ values, actions }) => ({

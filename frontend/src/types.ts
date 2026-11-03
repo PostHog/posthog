@@ -112,7 +112,6 @@ import type { InsightFilterOverrideContextApi } from 'products/product_analytics
 import type { AIPromptConfigApi, DeliveryConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import type { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 import type {
-    ExternalDataSourceTypeEnumApi,
     IncrementalSyncBlockedReasonEnumApi,
     RowFilterColumnApi,
 } from 'products/warehouse_sources/frontend/generated/api.schemas'
@@ -6392,13 +6391,19 @@ export const manualLinkSources = ['aws', 'google-cloud', 'cloudflare-r2', 'azure
 
 export type ManualLinkSourceType = (typeof manualLinkSources)[number]
 
+/**
+ * A warehouse source's catalog key, e.g. 'Stripe'. A source plugin can name itself with any key, so this
+ * is a plain string and not a union of the known keys. The wizard endpoint lists the keys that exist.
+ */
+export type ExternalDataSourceType = string
+
 export interface ExternalDataSourceRevenueAnalyticsConfig {
     enabled: boolean
     include_invoiceless_charges: boolean
 }
 
 export interface ExternalDataSourceCreatePayload {
-    source_type: ExternalDataSourceTypeEnumApi
+    source_type: ExternalDataSourceType
     prefix?: string
     description?: string
     access_method?: 'warehouse' | 'direct'
@@ -6430,7 +6435,7 @@ export interface ExternalDataSource {
     source_id: string
     connection_id: string
     status: ExternalDataJobStatus
-    source_type: ExternalDataSourceTypeEnumApi
+    source_type: ExternalDataSourceType
     prefix: string | null
     description: string | null
     created_by?: string | null
@@ -6682,7 +6687,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
 /** Lightweight parent-source summary embedded in the single-schema retrieve endpoint. */
 export interface ExternalDataSchemaSourceSummary {
     id: string
-    source_type: ExternalDataSourceTypeEnumApi
+    source_type: ExternalDataSourceType
     access_method?: ExternalDataSource['access_method']
     supports_column_selection?: boolean
     supports_row_filters?: boolean
@@ -7322,6 +7327,7 @@ export type CyclotronJobInputSchemaType = {
         | 'task_repository'
         | 'task_mcp_installations'
         | 'signals_scout'
+        | 'posthog_survey'
         | 'replay_vision_scan'
         | 'task_skills'
     key: string

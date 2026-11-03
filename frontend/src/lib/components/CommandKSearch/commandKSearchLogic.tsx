@@ -77,8 +77,6 @@ import {
     emptyRemoteSlots,
     isSelectable,
     pickDisplayedQuery,
-    rankableSettings,
-    settingsQuery,
     resultsSettled,
     themeSearchItem,
 } from './commandKSections'
@@ -776,9 +774,6 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                     ...displayed.query,
                     stale: displayed.stale,
                     personsFirst: !!displayed.query.remoteQueries.persons?.includes('@'),
-                    settingsInResults:
-                        rankableSettings(local, settingsQuery(displayed.query.localQuery, unifiedRanking)).length > 0 &&
-                        featureFlags[FEATURE_FLAGS.COMMAND_K_SETTINGS_IN_RESULTS] === 'test',
                     unifiedRanking,
                     searchCorrection:
                         searchCorrection &&
