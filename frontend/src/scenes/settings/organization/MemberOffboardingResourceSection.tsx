@@ -40,7 +40,7 @@ export function MemberOffboardingResourceSection({
     const [bulkBarTarget, setBulkBarTarget] = useState<HTMLDivElement | null>(null)
     const { member, keep, removedLoading, savingResourcesLoading, savingResourceIds, getSelectionLabel } =
         useValues(memberOffboardingLogic)
-    const { setKeep, disableResources } = useActions(memberOffboardingLogic)
+    const { setKeep, disableResources, openTransfer } = useActions(memberOffboardingLogic)
     const { user } = useValues(userLogic)
     const isSelf = member?.user.uuid === user?.uuid
     const disabledReason = removedLoading ? 'Removing member…' : savingResourcesLoading ? 'Saving changes…' : undefined
@@ -50,15 +50,38 @@ export function MemberOffboardingResourceSection({
             <h3>{isSubscription ? 'Subscriptions and alerts' : 'Publicly shared resources'}</h3>
             <p>
                 {isSubscription
-                    ? 'These subscriptions and alerts were created by this member. You can keep or disable them.'
+                    ? 'These subscriptions and alerts will be disabled at their next run after this member leaves. Transfer ownership to keep them running, or disable them now.'
                     : "These resources were shared by this member and are accessible to anyone with the link. You can disable public sharing. This won't delete them."}
             </p>
             {!isSelf && (
-                <div className="relative h-9">
-                    <div ref={setBulkBarTarget} className="absolute inset-0 [&:not(:empty)+span]:hidden" />
-                    <span className="flex h-full items-center text-secondary text-sm">
-                        {getSelectionLabel(resources.map((resource) => resource.id))}
-                    </span>
+                <div className="relative min-h-9">
+                    <div ref={setBulkBarTarget} className="[&:not(:empty)+div]:hidden" />
+                    <div className="flex min-h-9 items-center gap-2 flex-wrap">
+                        <span className="text-secondary text-sm mr-auto">
+                            {getSelectionLabel(resources.map((resource) => resource.id))}
+                        </span>
+                        {isSubscription && (
+                            <>
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    disabledReason={disabledReason}
+                                    onClick={() => openTransfer(resources.map((resource) => resource.id))}
+                                >
+                                    Transfer ownership
+                                </LemonButton>
+                                <LemonButton
+                                    type="secondary"
+                                    status="danger"
+                                    size="small"
+                                    disabledReason={disabledReason}
+                                    onClick={() => disableResources(resources.map((resource) => resource.id))}
+                                >
+                                    Disable all
+                                </LemonButton>
+                            </>
+                        )}
+                    </div>
                 </div>
             )}
             <LemonTable
@@ -83,19 +106,36 @@ export function MemberOffboardingResourceSection({
                               barClassName: 'justify-start! px-0! [&>span]:min-w-0 [&>span]:truncate',
                               getSelectionLabel: ({ selectedKeys }) => getSelectionLabel(selectedKeys),
                               renderActions: (ctx) => (
-                                  <LemonButton
-                                      type="secondary"
-                                      status="danger"
-                                      size="small"
-                                      loading={resources.some((resource) => savingResourceIds.includes(resource.id))}
-                                      disabledReason={disabledReason}
-                                      onClick={() => {
-                                          disableResources([...ctx.selectedKeys])
-                                          ctx.clearSelection()
-                                      }}
-                                  >
-                                      Disable selected
-                                  </LemonButton>
+                                  <>
+                                      {isSubscription && (
+                                          <LemonButton
+                                              type="secondary"
+                                              size="small"
+                                              disabledReason={disabledReason}
+                                              onClick={() => {
+                                                  openTransfer([...ctx.selectedKeys])
+                                                  ctx.clearSelection()
+                                              }}
+                                          >
+                                              Transfer ownership
+                                          </LemonButton>
+                                      )}
+                                      <LemonButton
+                                          type="secondary"
+                                          status="danger"
+                                          size="small"
+                                          loading={resources.some((resource) =>
+                                              savingResourceIds.includes(resource.id)
+                                          )}
+                                          disabledReason={disabledReason}
+                                          onClick={() => {
+                                              disableResources([...ctx.selectedKeys])
+                                              ctx.clearSelection()
+                                          }}
+                                      >
+                                          Disable selected
+                                      </LemonButton>
+                                  </>
                               ),
                           }
                 }
