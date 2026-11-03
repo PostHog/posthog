@@ -592,8 +592,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         if self.team.parent_team_id is not None:
             raise Conflict("This URL names an environment. Create its alerts on that environment's logs alerts page.")
         source_kind = request.data.get("source_kind") if isinstance(request.data, dict) else None
-        create_serializer = create_serializers().get(source_kind) if isinstance(source_kind, str) else None
-        if create_serializer is None:
+        if not isinstance(source_kind, str) or (create_serializer := create_serializers().get(source_kind)) is None:
             raise ValidationError(
                 {"source_kind": f"Must be one of: {', '.join(sorted(create_serializers()))}."}, code="invalid_choice"
             )
