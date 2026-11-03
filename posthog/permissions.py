@@ -1547,3 +1547,13 @@ class DenyMCPBuiltInAgentOAuth(BasePermission):
 
     def has_permission(self, request: Request, view: APIView) -> bool:
         return not is_mcp_built_in_agent_oauth_request(request)
+
+
+class DenyWorkloadAccessToken(BasePermission):
+    """For views that act on a person's own connections to other accounts. A workload token acts as the
+    organization owner without the owner minting it, so it must not reach the owner's connections."""
+
+    message = "Workload tokens can't use this endpoint, because it acts on a person's own connections."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        return not isinstance(request.successful_authenticator, WorkloadAccessTokenAuthentication)

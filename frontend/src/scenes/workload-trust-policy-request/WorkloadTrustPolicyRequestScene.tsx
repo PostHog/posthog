@@ -10,7 +10,9 @@ import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { AUTH_NOTES, type AuthNotes } from 'scenes/authentication/shared/authScene/authNotes'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import type { WorkloadTrustPolicyRequestApi } from '~/generated/core/api.schemas'
@@ -113,6 +115,8 @@ function RequestDetails({
     onApprove: () => void
     onReject: () => void
 }): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+    const { currentOrganization } = useValues(organizationLogic)
     const isPending = policyRequest.status === 'pending'
     const riskyScopes = Object.entries(policyRequest.risky_scopes)
 
@@ -132,6 +136,10 @@ function RequestDetails({
             ) : null}
 
             <div className="border rounded px-3">
+                {/* An approval link can switch the app into another organization, so name where the access goes. */}
+                <DetailRow label="Project">
+                    {currentTeam?.name} <span className="text-secondary">in {currentOrganization?.name}</span>
+                </DetailRow>
                 <DetailRow label="Name">{policyRequest.name}</DetailRow>
                 <DetailRow label="CI provider">{policyRequest.provider_name ?? policyRequest.issuer}</DetailRow>
                 <DetailRow label="Repository">

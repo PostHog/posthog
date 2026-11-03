@@ -26,6 +26,7 @@ from posthog.workload_identity.test.fixtures import FAKE_WORKLOAD_ISSUER, with_f
 from posthog.workload_identity.token_exchange import TOKEN_EXCHANGE_GRANT_TYPE
 
 from products.annotations.backend.models import Annotation
+from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 
 # RSA key generation is slow, so the keys are made once per module.
 _PROVIDER_KEY_PEM = generate_rsa_private_key_pem()
@@ -61,7 +62,7 @@ def _oidc_token(*, signing_key: str = _PROVIDER_KEY_PEM, **overrides: Any) -> st
 
 @with_fake_workload_provider()
 @override_settings(SITE_URL=_SITE_URL, OIDC_RSA_PRIVATE_KEY=_POSTHOG_KEY_PEM)
-class TestCITokenExchange(APIBaseTest):
+class TestWorkloadTokenExchange(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         cache.clear()
@@ -338,14 +339,47 @@ class TestCITokenExchange(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
-    def test_workload_tokens_cannot_use_the_owners_mcp_server_installations(self) -> None:
-        self.policy.scopes = ["project:read"]
+    @parameterized.expand(
+        [
+            ("mcp_server_installations", ["project:read"], "get", "mcp_server_installations/"),
+            # The view's own personal API key authenticator rejects the token before the permission runs.
+            (
+                "posthog_connection_forward",
+                ["integration:write", "project:read"],
+                "post",
+                "posthog_connections/1/forward/",
+            ),
+        ]
+    )
+    def test_workload_tokens_cannot_use_the_owners_own_connections(
+        self, _name: str, scopes: list[str], method: str, path: str
+    ) -> None:
+        self.policy.scopes = scopes
         self.policy.save()
         token = self._access_token()
 
-        response = self._call("get", f"/api/environments/{self.team.id}/mcp_server_installations/", token)
+        response = self._call(method, f"/api/environments/{self.team.id}/{path}", token)
+
+        assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN), response.json()
+
+    def test_a_staff_owners_workload_token_cannot_change_global_dashboard_templates(self) -> None:
+        self.user.is_staff = True
+        self.user.save()
+        self.policy.scopes = ["dashboard_template:write"]
+        self.policy.save()
+        template = DashboardTemplate.objects.create(template_name="Global", scope=DashboardTemplate.Scope.GLOBAL)
+        token = self._access_token()
+
+        response = self._call(
+            "patch",
+            f"/api/projects/{self.team.id}/dashboard_templates/{template.id}/",
+            token,
+            {"template_name": "Changed"},
+        )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        template.refresh_from_db()
+        assert template.template_name == "Global"
 
     def test_project_read_hides_secrets_from_workload_tokens_but_not_personal_api_keys(self) -> None:
         self.team.secret_api_token = "phs_example_team_secret"
@@ -355,7 +389,7 @@ class TestCITokenExchange(APIBaseTest):
         token = self._access_token()
         personal_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(
-            user=self.user, label="pat", secure_value=hash_key_value(personal_key), scopes=["project:read"]
+            user=self.user, label="pat", secure_value=hash_key_value(personal_key), scopes=["*"]
         )
 
         workload_body = self._call("get", f"/api/projects/{self.team.id}/", token).json()
