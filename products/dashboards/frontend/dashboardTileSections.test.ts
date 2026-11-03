@@ -1,13 +1,18 @@
 import type { Layout } from 'react-grid-layout'
 
+import { pluralize } from 'lib/utils/strings'
+
 import type { DashboardTile } from '~/types'
 
 import { DashboardGridCompaction, getDashboardGridCompactor } from './dashboardCustomization'
 import {
     getCollapsedTileGroupKeys,
     getDashboardSections,
+    getDashboardTabs,
     getLayoutAfterSectionChange,
+    getLayoutAfterTileMove,
     getSectionLayouts,
+    getTileGroupMoveOptions,
     hasSectionLayoutChanged,
     stackSectionLayouts,
 } from './dashboardTileSections'
@@ -35,6 +40,15 @@ interface SectionsCase {
     layout: Layout
     groups?: Record<string, DashboardTileGroupApi>
     expected: string[]
+}
+
+interface TileMoveCase {
+    name: string
+    tiles: DashboardTile[]
+    targetKey: string | null
+    cell: { x: number; y: number } | null
+    expectedSections: string[]
+    expectedTile?: Partial<Layout[number]>
 }
 
 interface CollapsedCase {
@@ -100,6 +114,27 @@ describe('dashboardTileSections', () => {
         },
     ])('getDashboardSections $name', ({ tiles, layout, groups, expected }) => {
         expect(sectionSummary(tiles, layout, groups)).toEqual(expected)
+    })
+
+    it.each<Omit<SectionsCase, 'groups'>>([
+        {
+            name: 'gathers ungrouped tiles from around the groups into one first tab',
+            tiles: [tile(1), tile(2, 'plans'), tile(3), tile(4, 'regions'), tile(5)],
+            layout: [box(1, 0, 0), box(2, 0, 2), box(3, 0, 4), box(4, 0, 6), box(5, 0, 8)],
+            expected: ['tiles-ungrouped: 1,3,5', 'group-plans: 2', 'group-regions: 4'],
+        },
+        {
+            name: 'shows only the groups when every tile is in one',
+            tiles: [tile(1, 'plans'), tile(2, 'regions')],
+            layout: [box(1, 0, 0), box(2, 0, 2)],
+            expected: ['group-plans: 1', 'group-regions: 2'],
+        },
+    ])('getDashboardTabs $name', ({ tiles, layout, expected }) => {
+        expect(
+            getDashboardTabs(getDashboardSections({ tiles, layout, groups: undefined })).map(
+                (section) => `${section.key}: ${section.tiles.map((t) => t.id).join(',')}`
+            )
+        ).toEqual(expected)
     })
 
     it('keeps section keys when tiles reorder inside their bands', () => {
@@ -198,5 +233,77 @@ describe('dashboardTileSections', () => {
         },
     ])('getCollapsedTileGroupKeys finds $name', ({ tiles, groups, choices, expected }) => {
         expect(getCollapsedTileGroupKeys({ tiles, groups, choices })).toEqual(expected)
+    })
+
+    it.each<TileMoveCase>([
+        {
+            name: 'into a closed group goes below its tiles',
+            tiles: [tile(1, 'plans'), tile(2, 'ops'), tile(3)],
+            targetKey: 'group-ops',
+            cell: null,
+            expectedSections: ['ops(): 2,1', 'tiles: 3'],
+        },
+        {
+            name: 'out of its group joins the last band when that band has no group',
+            tiles: [tile(1, 'plans'), tile(2, 'ops'), tile(3)],
+            targetKey: null,
+            cell: null,
+            expectedSections: ['ops(): 2', 'tiles: 3,1'],
+        },
+        {
+            name: 'out of its group starts a band after the last group',
+            tiles: [tile(1, 'plans'), tile(2, 'ops'), tile(3, 'ops')],
+            targetKey: null,
+            cell: null,
+            expectedSections: ['ops(): 2,3', 'tiles: 1'],
+        },
+        {
+            name: 'into another band lands at the drop cell',
+            tiles: [tile(1, 'plans'), tile(2, 'ops'), tile(3)],
+            targetKey: 'group-ops',
+            cell: { x: 6, y: 0 },
+            expectedSections: ['ops(): 2,1', 'tiles: 3'],
+            expectedTile: { x: 6, y: 0 },
+        },
+    ])('getLayoutAfterTileMove: a tile moved $name', ({ tiles, targetKey, cell, expectedSections, expectedTile }) => {
+        const layout = [box(1, 0, 0), box(2, 0, 2), box(3, 0, 4)]
+        const sections = getDashboardSections({ tiles, layout, groups: undefined })
+        const compactor = getDashboardGridCompactor(DashboardGridCompaction.Vertical)
+
+        const moved = getLayoutAfterTileMove({
+            layout,
+            sections,
+            sectionLayouts: sections.map((section) => getSectionLayouts({ sm: layout }, section.tiles, compactor).sm!),
+            tileId: 1,
+            target: sections.find((section) => section.key === targetKey) ?? null,
+            cell,
+            compactor,
+        })
+        const targetSection = sections.find((section) => section.key === targetKey)
+        const movedTiles = tiles.map((t) =>
+            t.id === 1 ? { ...t, group_key: targetSection?.kind === 'group' ? targetSection.groupKey : null } : t
+        )
+
+        expect(sectionSummary(movedTiles, moved)).toEqual(expectedSections)
+        if (expectedTile) {
+            expect(moved.find((item) => item.i === '1')).toMatchObject(expectedTile)
+        }
+    })
+
+    it('getTileGroupMoveOptions offers the other groups by their band labels, and taking a grouped tile out', () => {
+        const sections = getDashboardSections({
+            tiles: [tile(1, 'plans'), tile(2, 'ops'), tile(3, 'ops'), tile(4)],
+            layout: [box(1, 0, 0), box(2, 0, 2), box(3, 0, 4), box(4, 0, 6)],
+            groups: { plans: { title: 'Pricing plans' } },
+        })
+        const plans = { sectionKey: 'group-plans', label: 'Pricing plans' }
+        const ops = { sectionKey: 'group-ops', label: pluralize(2, 'tile') }
+
+        expect(getTileGroupMoveOptions(sections)).toEqual({
+            1: { targets: [ops], canTakeOut: true },
+            2: { targets: [plans], canTakeOut: true },
+            3: { targets: [plans], canTakeOut: true },
+            4: { targets: [plans, ops], canTakeOut: false },
+        })
     })
 })

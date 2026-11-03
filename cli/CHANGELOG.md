@@ -1,5 +1,17 @@
 # posthog-cli
 
+## 0.19.1 — 2026-11-02
+
+### Patch changes
+
+- [e5ddfc79ecf](https://github.com/PostHog/posthog/commit/e5ddfc79ecff97716aa997879a6d49735aabc647) Keep the release that `hermes inject` stamped when `hermes clone` runs in symbol-set mode without release flags — Thanks @rafaeelaudibert!
+
+## 0.19.0 — 2026-10-28
+
+### Minor changes
+
+- [e1e70f8e4f9](https://github.com/PostHog/posthog/commit/e1e70f8e4f95a6cca62e0610a2846af65251dc88) Support Flutter AOT symbols and opt-in app source context — Thanks @hpouillot!
+
 ## 0.18.12 — 2026-10-21
 
 ### Patch changes

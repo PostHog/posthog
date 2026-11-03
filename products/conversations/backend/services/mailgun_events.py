@@ -809,6 +809,7 @@ def _process_support_email(
                 "is_private": False,
                 "from_email": True,
                 "email_from": sender_email,
+                "email_sender_authenticated": email.sender_authenticated,
                 "email_from_name": sender_name,
                 "email_relay_from": email.relay_sender.email if email.relay_sender is not None else None,
                 "email_message_id": email.message_id,

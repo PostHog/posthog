@@ -38,8 +38,12 @@ class PostHogConfig(AppConfig):
             connect_signal_handlers as connect_gateway_credential_signal_handlers,
         )
         from posthog.storage.team_llm_gateway_policy_signal_handlers import connect_signal_handlers
+        from posthog.storage.team_metadata_signal_handlers import (
+            connect_signal_handlers as connect_team_metadata_signal_handlers,
+        )
 
         connect_signal_handlers()
+        connect_team_metadata_signal_handlers()
         connect_gateway_credential_signal_handlers()
         connect_organization_cache_signal_handlers()
 

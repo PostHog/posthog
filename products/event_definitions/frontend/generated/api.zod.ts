@@ -18,7 +18,7 @@ export const eventDefinitionsCreateBodyPostToSlackDefault = false
 export const EventDefinitionsCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(eventDefinitionsCreateBodyNameMax),
-        owner: zod.number().nullish(),
+        owner: zod.number().nullish().describe('ID of the user responsible for the event. Null removes the owner.'),
         description: zod.string().nullish(),
         tags: zod.array(zod.unknown()).optional(),
         verified: zod.boolean().optional(),
@@ -45,7 +45,7 @@ export const eventDefinitionsUpdateBodyPostToSlackDefault = false
 export const EventDefinitionsUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(eventDefinitionsUpdateBodyNameMax),
-        owner: zod.number().nullish(),
+        owner: zod.number().nullish().describe('ID of the user responsible for the event. Null removes the owner.'),
         description: zod.string().nullish(),
         tags: zod.array(zod.unknown()).optional(),
         verified: zod.boolean().optional(),
@@ -72,7 +72,7 @@ export const eventDefinitionsPartialUpdateBodyPostToSlackDefault = false
 export const EventDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(eventDefinitionsPartialUpdateBodyNameMax).optional(),
-        owner: zod.number().nullish(),
+        owner: zod.number().nullish().describe('ID of the user responsible for the event. Null removes the owner.'),
         description: zod.string().nullish(),
         tags: zod.array(zod.unknown()).optional(),
         verified: zod.boolean().optional(),

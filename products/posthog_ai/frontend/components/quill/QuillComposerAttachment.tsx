@@ -20,7 +20,7 @@ export function QuillComposerAttachment({ file, uploading, onRemove }: ComposerA
                             role="img"
                             aria-label={file.name}
                             aria-busy={uploading}
-                            className="relative flex size-8 items-center justify-center overflow-hidden rounded-md border border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]"
+                            className="relative flex size-6 items-center justify-center overflow-hidden rounded-sm border border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]"
                         >
                             <ComposerAttachmentPreview file={file} />
                             {uploading && (

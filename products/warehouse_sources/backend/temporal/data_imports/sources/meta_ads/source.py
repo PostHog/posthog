@@ -1,7 +1,7 @@
 from datetime import date
 from typing import cast
 
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationNotFound
 
 from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
@@ -144,6 +144,10 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
             "Integration matching query does not exist.": (
                 "The Meta Ads integration for this source no longer exists. Please reconnect the Meta Ads integration."
             ),
+            # `_fetch_integration_row` raises `IntegrationNotFound("Integration not found: <id>")` for the same case.
+            "Integration not found": (
+                "The Meta Ads integration for this source no longer exists. Please reconnect the Meta Ads integration."
+            ),
             META_CHECKPOINT_ERROR_MESSAGE: META_CHECKPOINT_ERROR_MESSAGE,
             # Graph API code 200: "Ad account owner has NOT granted ads_management or ads_read
             # permission." The connected Meta user can't read this ad account's data. Retrying
@@ -267,6 +271,13 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
                 "Meta refused to return an ad creative whose story is incomplete, such as one with no "
                 "Page. Fix or delete that creative in Ads Manager; the next sync runs on schedule."
             ),
+            # Graph API code 100, subcode 1885649: Meta refuses to return budget fields for an ad set
+            # under Campaign Budget Optimization, whose budget lives on the campaign instead. Keyed on
+            # the subcode for the same reason as above — Meta localizes the message.
+            '"error_subcode":1885649': (
+                "Meta refused to return the budget for an ad set that uses Campaign Budget "
+                "Optimization; its budget lives on the campaign instead. The next sync runs on schedule."
+            ),
         }
 
     def get_schemas(
@@ -341,6 +352,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
                     ),
                     SourceFieldInputConfig(
                         name="sync_lookback_days",
+                        sync_setting=True,
                         label="Sync history for insights (days) - applies to every stats table",
                         type=SourceFieldInputConfigType.NUMBER,
                         required=False,
@@ -356,6 +368,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
                     # reconcile PostHog's numbers with Ads Manager, which reports on a specific window.
                     SourceFieldInputConfig(
                         name="action_attribution_windows",
+                        sync_setting=True,
                         label="Attribution windows for insights (comma-separated, e.g. 7d_click,1d_view)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -364,6 +377,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
                     ),
                     SourceFieldSelectConfig(
                         name="use_unified_attribution_setting",
+                        sync_setting=True,
                         label="Use Meta's unified attribution setting",
                         required=False,
                         defaultValue="",
@@ -394,7 +408,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
         # A Meta user's ad accounts are few, so `search` is ignored here and the endpoint filters the list.
         try:
             integration = get_integration_by_id(integration_id, team_id)
-        except Integration.DoesNotExist as e:
+        except IntegrationNotFound as e:
             raise IntegrationAccountListingError(
                 "The linked Meta Ads integration could not be found. Please reconnect your Meta Ads integration."
             ) from e
@@ -404,9 +418,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
         try:
             accounts = list_ad_accounts(integration)
         except MetaAdsAuthError as e:
-            raise IntegrationAccountListingError(
-                f"{META_AUTH_ERROR_MESSAGE} Make sure the connected account can access your ad accounts."
-            ) from e
+            raise IntegrationAccountListingError(META_AUTH_ERROR_MESSAGE) from e
         except MetaAdsRateLimitError as e:
             # Throttling is not a bug: surface it as an actionable 400 the user can retry, rather
             # than a 500 that pages us.

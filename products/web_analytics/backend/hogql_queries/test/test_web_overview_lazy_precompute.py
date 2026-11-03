@@ -19,6 +19,7 @@ from posthog.schema import (
     PropertyOperator,
     SessionPropertyFilter,
     SessionsV2JoinMode,
+    WebAnalyticsPreComputeStrategy,
     WebAnalyticsSampling,
     WebOverviewQuery,
 )
@@ -28,6 +29,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import tags_context
 from posthog.models.utils import uuid7
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
@@ -445,12 +447,18 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         raw_visitors = raw_response.results[0]
         raw_sessions = raw_response.results[2]
 
-        # Path B: lazy precompute, compare=True. Must match the raw response.
+        # Path B: lazy precompute, compare=True. Must match the raw response. User-facing reads
+        # never insert inline, so a background-triggered pass builds both periods first.
         with self._enable_lazy():
+            with tags_context(trigger="webAnalyticsEagerBaselineWarming"):
+                self._run(self._build_query(compare=True))
             lazy_response = self._run(self._build_query(compare=True))
         lazy_visitors = lazy_response.results[0]
         lazy_sessions = lazy_response.results[2]
 
+        assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
+        assert lazy_response.preComputedAt == "2024-01-15T12:00:00+00:00"
+        assert raw_response.preComputedAt is None
         assert lazy_visitors.previous == raw_visitors.previous, (
             f"previous visitors mismatch: lazy={lazy_visitors.previous}, raw={raw_visitors.previous}. "
             f"If lazy is 0/None, the previous-period precompute is missing."

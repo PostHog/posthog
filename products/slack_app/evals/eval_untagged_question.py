@@ -19,7 +19,7 @@ import asyncio
 from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
-from products.posthog_ai.eval_harness.one_shot import OneShotPublicEval
+from products.posthog_ai.eval_harness.one_shot import OneShotEval
 from products.slack_app.backend.temporal.activities import untagged_question
 from products.slack_app.evals.offline_config import offline_suite
 from products.slack_app.evals.scorers import UNTAGGED_QUESTION_KEY, NoUnaskedAnswer, UntaggedQuestionMatch
@@ -255,7 +255,7 @@ async def eval_untagged_question(ctx: EvalContext) -> None:
             "last_message": f"{model}: answerable={answerable}",
         }
 
-    await OneShotPublicEval(
+    await OneShotEval(
         experiment_name="slack-app-untagged-question",
         offline_suite=offline_suite(
             "slack_app/eval_untagged_question::eval_untagged_question",

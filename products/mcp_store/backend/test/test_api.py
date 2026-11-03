@@ -25,6 +25,7 @@ from posthog.models.instance_setting import override_instance_config
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 from posthog.security.url_validation import PinnedUrlVerdict
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 from posthog.test.authentication_checks import covers_authentication
 
 from products.mcp_store.backend.agents import create_gateway_agent_token, sync_built_in_agents
@@ -212,15 +213,20 @@ class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("allowed_and_flagged", True, True, True),
-            ("allowed_without_flag", True, False, False),
-            ("flagged_outside_allowed_project", False, True, False),
+            ("allowed_and_flagged", "team", True, True),
+            ("allowed_without_flag", "team", False, False),
+            ("flagged_outside_allowed_project", "none", True, False),
+            ("wildcard_and_flagged", "wildcard", True, True),
         ]
     )
-    def test_slack_dev_template_visibility(self, _name: str, allowed: bool, flag_enabled: bool, expected: bool) -> None:
+    def test_slack_dev_template_visibility(
+        self, _name: str, allowlist: str, flag_enabled: bool, expected: bool
+    ) -> None:
         template = self._create_active_template(oauth_credentials_source="slack_dev_app")
+        allowed = allowlist != "none"
+        allowed_team_ids = {"team": [str(self.team.id)], "wildcard": ["*"], "none": []}[allowlist]
         with (
-            self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[str(self.team.id)] if allowed else []),
+            self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=allowed_team_ids),
             patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=flag_enabled) as feature_enabled,
         ):
             response = self.client.get(f"/api/environments/{self.team.id}/mcp_servers/")
@@ -2936,7 +2942,8 @@ class TestInstallCustomAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["auth_type"] == "api_key"
 
-    def test_install_custom_none_auth_type_rejected(self):
+    @mock_anti_ssrf_dns_lookup()
+    def test_install_custom_none_auth_type_rejected(self, _dns):
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
             data={"name": "Server", "url": "https://mcp.example.com", "auth_type": "none"},
@@ -3011,7 +3018,8 @@ class TestInstallCustomAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_201_CREATED
 
-    def test_install_custom_rejects_invalid_posthog_code_callback_url(self):
+    @mock_anti_ssrf_dns_lookup()
+    def test_install_custom_rejects_invalid_posthog_code_callback_url(self, _dns):
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
             data={

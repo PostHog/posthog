@@ -20,6 +20,7 @@ WIDER = {
         "inlineQueries": True,
         "state": ["user"],
         "actions": ["tasks.create"],
+        "tools": ["feature-flag-enable"],
         "agentRequests": True,
     },
     "network": {"origins": ["https://api.example.com"]},
@@ -56,6 +57,7 @@ class TestCapabilityWidening(TestCase):
         assert widening.network_origins_added == ["https://api.example.com"]
         assert widening.state_scopes_added == ["user"]
         assert widening.actions_added == ["tasks.create"]
+        assert widening.tools_added == ["feature-flag-enable"]
         assert widening.connectors_added == [
             ConnectorGrant(provider="github", tools=["list_pull_requests", "search_issues"]),
             ConnectorGrant(provider="mcp:mcp.example.com", tools=["list_events"]),

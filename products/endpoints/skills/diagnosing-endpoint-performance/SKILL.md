@@ -86,8 +86,9 @@ match it to the bullets below — they summarise the common cases, not every che
 so the raw reason wins when the two disagree. Propose the rewrite by hand:
 
 - **Cohort breakdown / compare mode rejection** → regular property breakdowns materialise fine;
-  only cohort breakdowns and compare mode are blocked. Swap a cohort breakdown for a property
-  breakdown, or drop compare mode (expose the comparison window as a variable instead).
+  only cohort breakdowns are blocked. Swap a cohort breakdown for a property breakdown. Compare
+  mode materialises for Trends endpoints; on any other query kind, drop compare mode (expose the
+  comparison window as a variable instead).
 - **JOINs combined with variables** → a top-level `JOIN` plus a variable filter is rejected for
   materialisation, because applying the variable changes the joined row cardinality and silently
   produces wrong results (e.g. `LEFT JOIN` non-matches lose the variable column). Restructure so the

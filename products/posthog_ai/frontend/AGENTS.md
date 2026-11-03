@@ -76,12 +76,17 @@ The headline exports per module:
 - **`api/logics`** — **`runStreamLogic`** (SSE stream + thread projection, see §3),
   **`runInteractionLogic`** (Max-agnostic follow-up/queue facade), status helpers
   (`isTerminalRunStatus`, `INITIAL_PERMISSION_MODE`), thinking-message helpers,
-  **`attachedContextLogic`** + **`useAttachedContext`** (context injection, see §3), and
+  **`useAttachedContext`** (context injection, see §3), and
   **`toolStreamEventsLogic`** + **`useToolStreamListener`** (tool-stream subscriptions, see §3).
   Imports only `logics/*` + `hooks/*` + `utils/*` — never a component or the registry. The two hooks are a
   deliberate, mild deviation from the "no React" reading of this lane: they import `react` + `kea` but no
   components, so the lane stays registry- and presenter-free.
-- **`api/types`** — folded-thread + tool domain types, `AttachedContextItem`, `ToolStreamEvent` (pure types).
+- **The shell contract (`frontend/src/layout/ai/`)** — the app shell owns the small AI state it reads on every
+  page, and this product imports it from there: **`runnerPanelLogic`** (panel view state, `ActiveCreation`),
+  **`attachedContextLogic`** (the context store, see §3), and `attachedContext` (`AttachedContextItem`,
+  `attachedContextItemKey`). The shell must not import this product, so these files import only `kea` and pure
+  types. Never move a stream, interaction or task logic there; those belong in `api/logics`.
+- **`api/types`** — folded-thread + tool domain types, `ToolStreamEvent` (pure types).
 - **`api/tools`** — **`toolRegistry`**, **`ToolRegistryEntry`** (the declaration contract, see §2),
   `lookupToolRenderer`, `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, and the
   diff/exec helpers. Isolated here because importing it pulls the side-effectful registry chunk.
@@ -154,7 +159,7 @@ Supporting modules live in `policy/` (tool policy + permission/question utils) a
 (`streamTypes` = folded thread shapes; `wireTypes` = ACP wire shapes + guards). Wire types are
 loosely typed — guard at the parse boundary with runtime checks; never assume a field is present.
 
-**Context injection (`logics/attachedContextLogic.ts`):** a global registry of on-screen context. A provider
+**Context injection (`~/layout/ai/attachedContextLogic`, shell-owned):** a global registry of on-screen context. A provider
 (a mounted `useAttachedContext` hook / `AttachedContextProvider` component, or a kea logic registering via
 `cache.disposables` — setup dispatches `registerContext(providerId, items)`, cleanup `deregisterContext`,
 with `pauseOnPageHidden: false` since a hide-paused registration would drop context from sends that happen
@@ -218,9 +223,12 @@ ingestion).
 - **A shared presenter renders in both thread skins.** `ThreadView`'s `skin` prop (`'lemon' | 'quill'`) sets
   `ThreadSkinContext`; `quill` is the PostHog Desktop chat layout, on behind the `phai-quill` flag (and `today-rail-nav`).
   `Activity`, `ThreadRow` message and separator rows, `ThreadActivityGroup`, `RunAlertActivity`, `PullRequestCard`, `RunContext` and
-  `TurnFeedbackActions` read `useQuillThread()` and dispatch to their `components/quill/` skin at the top of the
+  `TurnFeedbackActions` and `AssistantFailureMessage` read `useQuillThread()` and dispatch to their `components/quill/` skin at the top of the
   component. Behavior both skins need (open state, group windowing, ratings) lives in a shared hook
   (`useActivityDisclosure`, `useActivityGroup`, `useTurnRating`), never in one skin. Tool renderers never branch on skin.
+  A thread `ThreadView` does not render (Max's legacy thread) enters the skin through `QuillThreadSkin` and draws its
+  messages with the plain-prop `QuillHumanBubble` / `QuillAssistantBubble` (`api/primitives`). A story or test pins a
+  subtree's skin with `ThreadSkinOverrideContext`; product code lets the flags decide.
   Grouping is the one rule that differs by skin, and `ThreadView` picks it.
   The lemon thread folds every activity run (`groupThreadActivity`).
   The quill thread folds only runs of two or more calls, like Desktop (`groupToolRuns`).
@@ -247,8 +255,8 @@ api/                # public API facade — the contract (import api/<module>, n
   runner.ts         #   Tier 1: EmbeddedRunner (lazy TaskTracker product) for inline hosts
   primitives.ts     #   Tier 2: Thread + atoms, ThreadView, QueuedMessageList, presenters, perm/question
   composer.ts       #   Tier 2: Composer + quill composer frame only, for eager surfaces that must not pull the thread
-  logics.ts         #   Tier 3: runStreamLogic, runInteractionLogic, context store + hooks, tool-event bus (headless)
-  types.ts          #   Tier 3: folded-thread + tool domain types, AttachedContextItem, ToolStreamEvent (pure types)
+  logics.ts         #   Tier 3: runStreamLogic, runInteractionLogic, context hooks, tool-event bus (headless)
+  types.ts          #   Tier 3: folded-thread + tool domain types, ToolStreamEvent (pure types)
   tools.ts          #   Tier 4: lookup + declaration contract (registry isolated)
 components/         # RunSurfaceImpl (the RunSurface compound, heavy chunk); ReadonlyRunSurfaceImpl (prepackaged
                     #   read-only layout) + ReadonlyRunSurface (its lazy wrapper, replaces the old RunViewer.tsx);
@@ -259,11 +267,11 @@ components/         # RunSurfaceImpl (the RunSurface compound, heavy chunk); Rea
   tool/             #   tool registry + renderers (built-ins, generic MCP, EditDiffRenderer, diff/exec utils)
     widgets/        #     PostHog product data-tool widgets (insight/dashboard/recordings/notebook/query)
 hooks/              # useAttachedContext, useToolStream — mount-scoped registration wrappers over the logics
-logics/             # runStreamLogic, runInteractionLogic, attachedContextLogic, contextPickerLogic, toolStreamEventsLogic;
+logics/             # runStreamLogic, runInteractionLogic, contextPickerLogic, toolStreamEventsLogic;
                     #   tasksLogic/taskLogic data logics (+ *LogicType.ts)
 policy/             # tool policy + permission/question utils
-types/              # streamTypes (folded thread + ToolStreamEvent), wireTypes (ACP), contextTypes
-                    #   (AttachedContextItem), toolTypes, taskTypes (task/run domain)
+types/              # streamTypes (folded thread + ToolStreamEvent), wireTypes (ACP), toolTypes,
+                    #   taskTypes (task/run domain)
 messages/           # MessageTemplate, MarkdownMessage, ReasoningAnswer, AssistantFailureMessage
 utils/              # thinkingMessages, posthogContextBlock (trusted/untrusted context-block builder)
 lib/                # task/run helpers (parse-logs, task-status, repository, ph-debug, util-functions)

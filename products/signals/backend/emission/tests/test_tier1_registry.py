@@ -19,6 +19,10 @@ TIER1_SOURCES = [
     (ExternalDataSourceType.GITLAB, "issues", "gitlab", "issue"),
     (ExternalDataSourceType.GITEA, "issues", "gitea", "issue"),
     (ExternalDataSourceType.SHORTCUT, "stories", "shortcut", "issue"),
+    (ExternalDataSourceType.CLICKUP, "tasks", "clickup", "issue"),
+    (ExternalDataSourceType.WRIKE, "tasks", "wrike", "issue"),
+    (ExternalDataSourceType.TRELLO, "cards", "trello", "issue"),
+    (ExternalDataSourceType.BUGHERD, "Tasks", "bugherd", "issue"),
     (ExternalDataSourceType.SENTRY, "issues", "sentry", "issue"),
     (ExternalDataSourceType.ROLLBAR, "items", "rollbar", "issue"),
     (ExternalDataSourceType.BUGSNAG, "errors", "bugsnag", "issue"),
@@ -148,7 +152,7 @@ def _mock_record(fields: tuple[str, ...], product: str = "") -> dict:
         name = field.rsplit(" AS ", 1)[-1]
         if product in _SURVEY_ANSWERS and name == _SURVEY_ANSWERS[product][0]:
             record[name] = _SURVEY_ANSWERS[product][1]
-        elif name in ("tags", "labels", "projects"):
+        elif name in ("tags", "labels", "tag_names", "projects"):
             record[name] = '[{"name": "one"}, {"name": "two"}]' if name == "projects" else '["one", "two"]'
         elif name == "column_values":
             record[name] = '[{"id": "a", "type": "text", "text": "some text"}]'

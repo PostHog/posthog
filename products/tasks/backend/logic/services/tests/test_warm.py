@@ -6,6 +6,8 @@ from rest_framework.exceptions import PermissionDenied, Throttled
 
 from posthog.exceptions import QuotaLimitExceeded
 
+from products.tasks.backend.access import PostHogAIAccessDecision
+from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR
 from products.tasks.backend.logic.services.warm import SandboxWarmer, WarmSourceChanged
 from products.tasks.backend.models import Task, TaskRun
 
@@ -21,6 +23,15 @@ def test_code_cloud_warm_pool_caps():
 
 
 class TestSandboxWarmerWarm(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.posthog_ai_access = PostHogAIAccessDecision.GRANDFATHERED
+        access_patcher = patch(
+            f"{WARM}.get_posthog_ai_access_decision", side_effect=lambda *_args, **_kwargs: self.posthog_ai_access
+        )
+        access_patcher.start()
+        self.addCleanup(access_patcher.stop)
+
     def _task(self, *, origin=Task.OriginProduct.POSTHOG_AI, created_by=None) -> Task:
         return Task.objects.create(
             team=self.team,
@@ -78,7 +89,13 @@ class TestSandboxWarmerWarm(APIBaseTest):
 
     def test_rewarms_with_resume_after_terminal_run(self):
         task = self._task()
-        terminal = task.create_run(mode="interactive", extra_state={"snapshot_external_id": "snap-1"})
+        terminal = task.create_run(
+            mode="interactive",
+            extra_state={
+                "snapshot_external_id": "snap-1",
+                "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR,
+            },
+        )
         terminal.status = TaskRun.Status.COMPLETED
         terminal.save(update_fields=["status"])
 
@@ -144,13 +161,26 @@ class TestSandboxWarmerWarm(APIBaseTest):
         assert result.just_created is True
         assert task.runs.count() == 1
 
-    def test_over_quota_raises_and_creates_no_run(self):
+    @parameterized.expand(
+        [
+            ("over_quota", PostHogAIAccessDecision.GRANDFATHERED, True, QuotaLimitExceeded),
+            ("posthog_ai_denied", PostHogAIAccessDecision.BETA_OFF, False, PermissionDenied),
+        ]
+    )
+    def test_refused_warm_creates_no_run(
+        self,
+        _name: str,
+        access: PostHogAIAccessDecision,
+        over_quota: bool,
+        expected_error: type[Exception],
+    ):
+        self.posthog_ai_access = access
         task = self._task()
         with (
             patch(f"{WARM}.execute_task_processing_workflow") as m_workflow,
-            patch(f"{WARM}.is_team_limited", return_value=True),
+            patch(f"{WARM}.is_team_limited", return_value=over_quota),
         ):
-            with self.assertRaises(QuotaLimitExceeded):
+            with self.assertRaises(expected_error):
                 SandboxWarmer(task, user=self.user).warm()
 
         assert task.runs.count() == 0

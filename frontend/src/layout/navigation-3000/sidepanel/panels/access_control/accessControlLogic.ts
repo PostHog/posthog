@@ -10,9 +10,9 @@ import {
     pluralizeResource,
     resourceToApiRoute,
 } from 'lib/utils/accessControlUtils'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { membersLogic } from '~/models/membersLogic'
 import {
     APIScopeObject,
     AccessControlLevel,

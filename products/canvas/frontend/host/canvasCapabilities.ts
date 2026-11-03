@@ -54,6 +54,14 @@ export function assertCanvasCapability(
             }
             return
         }
+        case 'toolRead':
+        case 'toolCall': {
+            const tool = input.tool
+            if (typeof tool !== 'string' || !(capabilities.posthog.tools ?? []).includes(tool)) {
+                throw new Error(`Tool "${typeof tool === 'string' ? tool : ''}" is not allowed by this canvas`)
+            }
+            return
+        }
         case 'agentRequest':
             if (!capabilities.posthog.agentRequests) {
                 throw new Error('Agent requests are not allowed by this canvas')

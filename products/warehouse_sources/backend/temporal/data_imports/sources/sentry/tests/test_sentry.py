@@ -304,6 +304,18 @@ class TestSentryTransport:
         assert error.startswith("Invalid Sentry auth token")
         assert network.requests_log == []
 
+    def test_validate_credentials_rejects_organization_token_with_personal_token_guidance(self) -> None:
+        with scripted_network([]) as network:
+            valid, error = validate_credentials(auth_token="sntrys_fake-org-token", organization_slug="acme")
+
+        assert not valid
+        assert error is not None
+        assert error.startswith("This is a Sentry organization token")
+        assert "Create a personal token" in error
+        for scope in REQUIRED_SENTRY_SCOPES:
+            assert scope in error
+        assert network.requests_log == []
+
     def test_validate_credentials_403_names_required_scopes(self) -> None:
         with scripted_network(always(ScriptedResponse(status=403))):
             valid, error = validate_credentials(auth_token="token", organization_slug="acme")

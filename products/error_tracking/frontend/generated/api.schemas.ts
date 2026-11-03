@@ -645,6 +645,44 @@ export interface PatchedErrorTrackingAssignmentRuleReorderRequestApi {
     orders?: PatchedErrorTrackingAssignmentRuleReorderRequestApiOrders
 }
 
+/**
+ * * `client` - Client
+ * * `server` - Server
+ */
+export type BuiltInFilterEvaluationEnumApi =
+    (typeof BuiltInFilterEvaluationEnumApi)[keyof typeof BuiltInFilterEvaluationEnumApi]
+
+export const BuiltInFilterEvaluationEnumApi = {
+    Client: 'client',
+    Server: 'server',
+} as const
+
+export interface ErrorTrackingBuiltInFilterApi {
+    /** Stable identifier of the built-in filter, for example `web_crawlers`. */
+    readonly key: string
+    /** Display name of the built-in filter. */
+    readonly name: string
+    /** One sentence on which exceptions the filter drops. */
+    readonly description: string
+    /** Where the filter runs. `client` filters also run in the web SDK, which drops matching exceptions before it sends them. `server` filters run only during ingestion.
+     *
+     * * `client` - Client
+     * * `server` - Server */
+    readonly evaluation: BuiltInFilterEvaluationEnumApi
+    /** Whether the filter drops exceptions for this project. */
+    readonly enabled: boolean
+    /**
+     * Set when ingestion turned the filter off because it failed on an event. Turning the filter on again resets it.
+     * @nullable
+     */
+    readonly disabled_reason: string | null
+}
+
+export interface PatchedErrorTrackingBuiltInFilterUpdateRequestApi {
+    /** `true` drops matching exceptions for this project. `false` stops dropping them. */
+    enabled?: boolean
+}
+
 export interface ErrorTrackingBypassRuleApi {
     /** Unique identifier of the bypass rule. */
     readonly id: string
@@ -1736,6 +1774,8 @@ export const ErrorTrackingIssueOrderByEnumApi = {
 } as const
 
 export interface ErrorTrackingIssuesListQueryRequestApi {
+    /** Only include issues first seen strictly after this ISO timestamp or relative date, such as -24h or -7d. Independent of dateRange, which filters occurrences. */
+    firstSeenAfter?: string
     /** Date range for issue aggregates. Defaults to the last 7 days. */
     dateRange?: ErrorTrackingDateRangeApi
     /** Filter by issue status. Defaults to active.
@@ -2204,6 +2244,8 @@ export interface ErrorTrackingSettingsApi {
      * @nullable
      */
     per_issue_rate_limit_bucket_size_minutes?: number | null
+    /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
+    ingestion_enabled?: boolean
 }
 
 export interface PatchedErrorTrackingSettingsApi {
@@ -2231,6 +2273,8 @@ export interface PatchedErrorTrackingSettingsApi {
      * @nullable
      */
     per_issue_rate_limit_bucket_size_minutes?: number | null
+    /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
+    ingestion_enabled?: boolean
 }
 
 /**
@@ -2713,6 +2757,7 @@ export type ErrorTrackingFingerprintsListParams = {
     issue_id?: string
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2777,6 +2822,7 @@ export type ErrorTrackingGitProviderFileLinksResolveGitlabRetrieveParams = {
 export type ErrorTrackingIssuesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2849,6 +2895,7 @@ export const ErrorTrackingRecommendationsSourceMapsExamplesRetrievePlatform = {
 export type ErrorTrackingReleasesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2872,6 +2919,7 @@ export type ErrorTrackingSpikeEventsListParams = {
     issue_ids?: string
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2887,6 +2935,7 @@ export type ErrorTrackingSpikeEventsListParams = {
 export type ErrorTrackingStackFramesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2909,6 +2958,7 @@ export type ErrorTrackingSuppressionRulesListParams = {
 export type ErrorTrackingSymbolSetsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**

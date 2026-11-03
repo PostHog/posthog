@@ -69,22 +69,14 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             "series": [{"kind": "EventsNode"}],
         }
 
-    @parameterized.expand([(None,), (True,)])
-    def test_create_hogql_endpoint(self, native: bool | None):
+    def test_create_hogql_endpoint(self):
         data = {
             "name": "test_query",
             "description": "Test query description",
             "query": self.sample_hogql_query,
         }
 
-        if native is not None:
-            data["query"] = {**self.sample_hogql_query, "modifiers": {"useNewEventsCluster": native}}
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
-        if native:
-            self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
-            self.assertIn("not support native events cluster", str(response.json()))
-            self.assertFalse(Endpoint.objects.filter(team=self.team, name="test_query").exists())
-            return
 
         self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
         response_data = response.json()
@@ -327,8 +319,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
 
-    @parameterized.expand([(None,), (True,)])
-    def test_update_endpoint(self, native: bool | None):
+    def test_update_endpoint(self):
         endpoint = create_endpoint_with_version(
             name="update_test",
             team=self.team,
@@ -337,25 +328,15 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             created_by=self.user,
         )
 
-        updated_query: dict[str, Any] = {"kind": "HogQLQuery", "query": "SELECT 1"}
-        if native is not None:
-            updated_query["modifiers"] = {"useNewEventsCluster": native}
-
         updated_data: dict[str, Any] = {
             "description": "Updated description",
             "is_active": False,
-            "query": updated_query,
+            "query": {"kind": "HogQLQuery", "query": "SELECT 1"},
         }
 
         response = self.client.put(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/", updated_data, format="json"
         )
-
-        if native:
-            self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
-            self.assertIn("not support native events cluster", str(response.json()))
-            self.assertEqual(endpoint.versions.count(), 1)
-            return
 
         response_data = response.json()
         self.assertEqual(status.HTTP_200_OK, response.status_code, response_data)
@@ -1272,9 +1253,10 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         # Update to different data freshness
         updated_data: dict[str, int | None] = {"data_freshness_seconds": 21600}
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/", updated_data, format="json"
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/", updated_data, format="json"
+            )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["data_freshness_seconds"], 21600)
         # The freshness target is part of the throttle's cached snapshot, so the edit drops it.
@@ -1708,11 +1690,13 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
 
         # Change bucket_overrides — should trigger an immediate refresh
         with mock.patch("products.endpoints.backend.logic.crud.materialize_saved_query") as mock_trigger:
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/endpoints/trigger-bucket/",
-                {"bucket_overrides": {"timestamp": "hour"}},
-                format="json",
-            )
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.patch(
+                    f"/api/environments/{self.team.id}/endpoints/trigger-bucket/",
+                    {"bucket_overrides": {"timestamp": "hour"}},
+                    format="json",
+                )
+                mock_trigger.assert_not_called()
             assert response.status_code == status.HTTP_200_OK, response.json()
             version = EndpointVersion.objects.get(endpoint__name="trigger-bucket", endpoint__team=self.team, version=1)
             assert version.bucket_overrides == {"timestamp": "hour"}

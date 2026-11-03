@@ -1,16 +1,19 @@
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
-import { useCallback, useMemo } from 'react'
+import { useActions, useMountedLogic, useValues } from 'kea'
+import { useCallback } from 'react'
 
 import * as panicPng from '@posthog/brand/hoggies/png/panic'
 import * as starPng from '@posthog/brand/hoggies/png/star'
+import { errorTrackingSetupLogic } from '@posthog/products-error-tracking/frontend/emptyState/errorTrackingSetupLogic'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
@@ -54,7 +57,7 @@ const CountColumn = ({ record, columnName }: { record: unknown; columnName: stri
     return <>{humanFriendlyLargeNumber(count)}</>
 }
 
-const baseContext: QueryContext = {
+const issuesContext: QueryContext = {
     extraDataTableQueryFeatures: [QueryFeature.hideLoadNextButton],
     showOpenEditorButton: false,
     showQueryEditor: false,
@@ -79,20 +82,23 @@ const baseContext: QueryContext = {
     },
 }
 
+const emptyIssuesContext: QueryContext = {
+    ...issuesContext,
+    emptyStateIcon: <HedgehogStar className="w-32 mb-2" />,
+    emptyStateHeading: 'No errors found!',
+    emptyStateDetail: 'Keep up the great work!',
+}
+
 export const WebAnalyticsErrorTrackingTile = ({ tile }: { tile: ErrorTrackingTile }): JSX.Element => {
     const { layout, query } = tile
     const to = urls.errorTracking()
     const { addProductIntentForCrossSell } = useActions(teamLogic)
-    const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    useMountedLogic(errorTrackingSetupLogic)
     const { status: errorTrackingStatus } = useValues(
         productSetupStatusLogic({ productKey: ProductKey.ERROR_TRACKING })
     )
     const useTileHeaderV2 = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2] === 'test'
-
-    // An empty table only means good news when exceptions do reach this project: either
-    // some have already been grouped into issues, or autocapture is on and will send them.
-    const errorsAreReported = errorTrackingStatus === 'has-data' || !!currentTeam?.autocapture_exceptions_opt_in
 
     const crossSellToErrorTracking = useCallback((): void => {
         addProductIntentForCrossSell({
@@ -102,48 +108,49 @@ export const WebAnalyticsErrorTrackingTile = ({ tile }: { tile: ErrorTrackingTil
         })
     }, [addProductIntentForCrossSell])
 
-    const context = useMemo((): QueryContext => {
-        if (errorsAreReported) {
-            return {
-                ...baseContext,
-                emptyStateIcon: <HedgehogStar className="w-32 mb-2" />,
-                emptyStateHeading: 'No errors found!',
-                emptyStateDetail: 'Keep up the great work!',
-            }
-        }
-        if (errorTrackingStatus === 'needs-setup') {
-            return {
-                ...baseContext,
-                emptyStateIcon: <HedgehogPanic className="w-32 mb-2" />,
-                emptyStateHeading: 'Error tracking is not set up',
-                emptyStateDetail: (
-                    <>
-                        See the exceptions your visitors hit, grouped by issue and linked to the session they happened
-                        in.
-                        <span className="mt-2 flex justify-center">
-                            <LemonButton
-                                to={to}
-                                onClick={crossSellToErrorTracking}
-                                size="small"
-                                type="primary"
-                                data-attr="web-analytics-error-tracking-setup"
-                            >
-                                Set up error tracking
-                            </LemonButton>
-                        </span>
-                    </>
-                ),
-            }
-        }
-        // Detection is still loading, or it failed. Neither answer is safe to act on, so the
-        // generic copy stands: it promises nothing about whether errors are being reported.
-        return baseContext
-    }, [errorsAreReported, errorTrackingStatus, to, crossSellToErrorTracking])
-
     const viewAllButton = (
         <LemonButton to={to} icon={<IconOpenInNew />} onClick={crossSellToErrorTracking} size="small" type="secondary">
             View all
         </LemonButton>
+    )
+
+    // Without error tracking set up, an empty table says nothing, so skip the query and pitch the product.
+    // While detection is loading the query also waits, so a project without it never pays for the request.
+    // If detection fails (`unknown`) the query runs with generic copy: that makes no claim about setup.
+    const needsSetup = errorTrackingStatus === 'needs-setup'
+    const body = needsSetup ? (
+        <ProductIntroduction
+            thingName="error tracking"
+            titleOverride="Error tracking is not set up"
+            description="See the exceptions your visitors hit, grouped by issue and linked to the session they happened in."
+            actionElementOverride={
+                <LemonButton
+                    to={to}
+                    onClick={crossSellToErrorTracking}
+                    type="primary"
+                    data-attr="web-analytics-error-tracking-setup"
+                >
+                    Set up error tracking
+                </LemonButton>
+            }
+            customHog={HedgehogPanic}
+            hogLayout="vertical"
+            hogClassName="w-24 sm:w-24 lg:w-24 mb-2"
+            className="my-0 p-4"
+        />
+    ) : errorTrackingStatus === 'loading' ? (
+        <LemonSkeleton className="h-40 m-2" />
+    ) : (
+        <Query
+            attachTo={webAnalyticsLogic}
+            query={query}
+            embedded={true}
+            context={
+                errorTrackingStatus === 'has-data' || errorTrackingStatus === 'waiting-for-data'
+                    ? emptyIssuesContext
+                    : issuesContext
+            }
+        />
     )
 
     return (
@@ -160,17 +167,15 @@ export const WebAnalyticsErrorTrackingTile = ({ tile }: { tile: ErrorTrackingTil
                 <div className="border rounded bg-surface-primary flex-1 flex flex-col py-2 px-1">
                     <div className="flex flex-row items-center self-stretch gap-2 min-h-10 px-3 py-2">
                         <h2 className="flex-1 m-0 text-base font-semibold">Error tracking</h2>
-                        {viewAllButton}
+                        {!needsSetup && viewAllButton}
                     </div>
-                    <Query attachTo={webAnalyticsLogic} query={query} embedded={true} context={context} />
+                    {body}
                 </div>
             ) : (
                 <>
                     <h2 className="m-0 mb-3">Error tracking</h2>
-                    <div className="border rounded bg-surface-primary flex-1 flex flex-col py-2 px-1">
-                        <Query attachTo={webAnalyticsLogic} query={query} embedded={true} context={context} />
-                    </div>
-                    <div className="flex flex-row-reverse my-2">{viewAllButton}</div>
+                    <div className="border rounded bg-surface-primary flex-1 flex flex-col py-2 px-1">{body}</div>
+                    {!needsSetup && <div className="flex flex-row-reverse my-2">{viewAllButton}</div>}
                 </>
             )}
         </div>

@@ -17,6 +17,7 @@ common-kafka = { path = "../../common/kafka" }
 common-metrics = { path = "../../common/metrics" }
 common-redis = { path = "../../common/redis" }
 lifecycle = { path = "../../common/lifecycle" }
+posthog-replay-anonymizer = { path = "../../replay-anonymizer", default-features = false }
 replay-core-v4 = { path = "../replay-core-v4" }
 
 aho-corasick = { workspace = true }
@@ -26,6 +27,7 @@ aws-config = { workspace = true }
 aws-sdk-dynamodb = { workspace = true }
 aws-sdk-kms = { workspace = true }
 aws-sdk-s3 = { workspace = true }
+aws-smithy-http-client = { workspace = true }
 axum = { workspace = true }
 brotlic = "0.8"
 chrono = { workspace = true }

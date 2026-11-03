@@ -177,7 +177,7 @@ async fn service_accepts_requests_after_coordination_warmup() {
 async fn unowned_partition_returns_failed_precondition() {
     // Create service + cache directly, no coordination
     let cache = Arc::new(PartitionedCache::new(1 << 20));
-    let (_mock_cluster, kafka_producer) = create_test_kafka().await;
+    let _mock_cluster = create_test_kafka().await;
     // One set for both: a second would fence the first at the broker.
     let fenced =
         common::fenced_producers_acquired(&_mock_cluster.topic, NUM_PARTITIONS as i32).await;
@@ -190,7 +190,7 @@ async fn unowned_partition_returns_failed_precondition() {
         Arc::new(DirtyIndex::new(1_000_000)),
         test_recovery(KAFKA_BOOTSTRAP),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
         Arc::clone(&fenced),
         common::live_authority(),
@@ -263,7 +263,7 @@ async fn unowned_partition_returns_failed_precondition() {
 #[tokio::test]
 async fn missing_partition_metadata_returns_invalid_argument() {
     let cache = Arc::new(PartitionedCache::new(1 << 20));
-    let (_mock_cluster, kafka_producer) = create_test_kafka().await;
+    let _mock_cluster = create_test_kafka().await;
     // One set for both: a second would fence the first at the broker.
     let fenced =
         common::fenced_producers_acquired(&_mock_cluster.topic, NUM_PARTITIONS as i32).await;
@@ -276,7 +276,7 @@ async fn missing_partition_metadata_returns_invalid_argument() {
         Arc::new(DirtyIndex::new(1_000_000)),
         test_recovery(KAFKA_BOOTSTRAP),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
         Arc::clone(&fenced),
         common::live_authority(),
@@ -352,7 +352,7 @@ async fn missing_partition_metadata_returns_invalid_argument() {
 #[tokio::test]
 async fn mismatched_partition_metadata_returns_failed_precondition() {
     let cache = Arc::new(PartitionedCache::new(1 << 20));
-    let (_mock_cluster, kafka_producer) = create_test_kafka().await;
+    let _mock_cluster = create_test_kafka().await;
     // One set for both: a second would fence the first at the broker.
     let fenced =
         common::fenced_producers_acquired(&_mock_cluster.topic, NUM_PARTITIONS as i32).await;
@@ -365,7 +365,7 @@ async fn mismatched_partition_metadata_returns_failed_precondition() {
         Arc::new(DirtyIndex::new(1_000_000)),
         test_recovery(KAFKA_BOOTSTRAP),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
         Arc::clone(&fenced),
         common::live_authority(),
@@ -444,7 +444,7 @@ async fn mismatched_partition_metadata_returns_failed_precondition() {
 #[tokio::test]
 async fn writes_fenced_after_drain_reads_still_served() {
     let cache = Arc::new(PartitionedCache::new(1 << 20));
-    let (_mock_cluster, kafka_producer) = create_test_kafka().await;
+    let _mock_cluster = create_test_kafka().await;
     let inflight = Arc::new(InflightTracker::new());
     let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
     let recovery = test_recovery(KAFKA_BOOTSTRAP);
@@ -461,7 +461,7 @@ async fn writes_fenced_after_drain_reads_still_served() {
         Arc::clone(&dirty_index),
         Arc::clone(&recovery),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
         Arc::clone(&fenced),
         common::live_authority(),
@@ -590,7 +590,7 @@ async fn writes_fenced_after_drain_reads_still_served() {
 #[tokio::test]
 async fn drain_fences_before_waiting_on_inflight() {
     let cache = Arc::new(PartitionedCache::new(1 << 20));
-    let (_mock_cluster, kafka_producer) = create_test_kafka().await;
+    let _mock_cluster = create_test_kafka().await;
     let inflight = Arc::new(InflightTracker::new());
     let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
     let recovery = test_recovery(KAFKA_BOOTSTRAP);
@@ -607,7 +607,7 @@ async fn drain_fences_before_waiting_on_inflight() {
         Arc::clone(&dirty_index),
         Arc::clone(&recovery),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
         Arc::clone(&fenced),
         common::live_authority(),
@@ -924,7 +924,7 @@ async fn update_produces_person_state_to_kafka() {
     const PERSON_ID: i64 = 2;
     let routing_partition: u32 = partition_for_person(1, PERSON_ID, NUM_PARTITIONS);
     assert_eq!(routing_partition, 2, "test key must map to partition 2");
-    let (mock_cluster, kafka_producer) = create_test_kafka_with_partitions(4).await;
+    let mock_cluster = create_test_kafka_with_partitions(4).await;
 
     let cache = Arc::new(PartitionedCache::new(1 << 20));
     let service = PersonHogLeaderService::new(
@@ -936,7 +936,7 @@ async fn update_produces_person_state_to_kafka() {
         Arc::new(DirtyIndex::new(1_000_000)),
         test_recovery(KAFKA_BOOTSTRAP),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
         common::fenced_producers_acquired(&mock_cluster.topic, 4).await,
         common::live_authority(),
@@ -1040,7 +1040,7 @@ async fn update_produces_person_state_to_kafka() {
 #[tokio::test]
 async fn kafka_produce_failure_leaves_cache_unchanged() {
     let cache = Arc::new(PartitionedCache::new(1 << 20));
-    let (mock_cluster, kafka_producer) = create_test_kafka().await;
+    let mock_cluster = create_test_kafka().await;
     let fenced =
         common::fenced_producers_acquired(&mock_cluster.topic, NUM_PARTITIONS as i32).await;
 
@@ -1053,7 +1053,7 @@ async fn kafka_produce_failure_leaves_cache_unchanged() {
         Arc::new(DirtyIndex::new(1_000_000)),
         test_recovery(KAFKA_BOOTSTRAP),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
         Arc::clone(&fenced),
         common::live_authority(),
@@ -1179,7 +1179,6 @@ async fn e2e_update_produces_to_local_kafka() {
     let owned = common::owned_broker_topic(NUM_PARTITIONS as i32).await;
     let topic = owned.topic.clone();
     let cache = Arc::new(PartitionedCache::new(1 << 20));
-    let kafka_producer = create_local_kafka_producer().await;
 
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
@@ -1190,7 +1189,7 @@ async fn e2e_update_produces_to_local_kafka() {
         Arc::new(DirtyIndex::new(1_000_000)),
         test_recovery(KAFKA_BOOTSTRAP),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
         common::fenced_producers_acquired(&topic, NUM_PARTITIONS as i32).await,
         common::live_authority(),
@@ -1510,7 +1509,7 @@ async fn update_triggers_pg_fallback_then_applies_changes() {
 async fn evicted_dirty_person_recovers_from_changelog() {
     const PERSON_ID: i64 = 2;
     let routing_partition: u32 = partition_for_person(1, PERSON_ID, NUM_PARTITIONS);
-    let (mock_cluster, kafka_producer) = create_test_kafka_with_partitions(4).await;
+    let mock_cluster = create_test_kafka_with_partitions(4).await;
 
     let cache = Arc::new(PartitionedCache::new(1 << 20));
     let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
@@ -1527,7 +1526,7 @@ async fn evicted_dirty_person_recovers_from_changelog() {
         Arc::clone(&dirty_index),
         Arc::clone(&recovery),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
         common::fenced_producers_acquired(&mock_cluster.topic, 4).await,
         common::live_authority(),
@@ -1616,7 +1615,7 @@ async fn evicted_dirty_person_recovers_from_changelog() {
 async fn dirty_person_with_failed_recovery_is_unavailable_not_stale() {
     const PERSON_ID: i64 = 2;
     let routing_partition: u32 = partition_for_person(1, PERSON_ID, NUM_PARTITIONS);
-    let (mock_cluster, kafka_producer) = create_test_kafka_with_partitions(4).await;
+    let mock_cluster = create_test_kafka_with_partitions(4).await;
 
     let cache = Arc::new(PartitionedCache::new(1 << 20));
     let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
@@ -1630,7 +1629,7 @@ async fn dirty_person_with_failed_recovery_is_unavailable_not_stale() {
         Arc::clone(&dirty_index),
         Arc::clone(&recovery),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
         common::fenced_producers_acquired(&mock_cluster.topic, 4).await,
         common::live_authority(),
@@ -1728,7 +1727,7 @@ async fn writes_shed_when_dirty_index_is_full() {
         .find(|pid| partition_for_person(1, *pid, NUM_PARTITIONS) == partition)
         .expect("a second person maps to the same partition");
 
-    let (mock_cluster, kafka_producer) = create_test_kafka_with_partitions(4).await;
+    let mock_cluster = create_test_kafka_with_partitions(4).await;
     let cache = Arc::new(PartitionedCache::new(1 << 20));
     // Capacity 1: the first person's mark fills the index.
     let dirty_index = Arc::new(DirtyIndex::new(1));
@@ -1741,7 +1740,7 @@ async fn writes_shed_when_dirty_index_is_full() {
         Arc::clone(&dirty_index),
         test_recovery(&mock_cluster.bootstrap_servers()),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
         common::fenced_producers_acquired(&mock_cluster.topic, 4).await,
         common::live_authority(),
@@ -1827,7 +1826,7 @@ async fn writes_shed_when_dirty_index_is_full() {
 async fn recovery_fails_when_record_version_disagrees_with_the_mark() {
     const PERSON_ID: i64 = 2;
     let routing_partition: u32 = partition_for_person(1, PERSON_ID, NUM_PARTITIONS);
-    let (mock_cluster, kafka_producer) = create_test_kafka_with_partitions(4).await;
+    let mock_cluster = create_test_kafka_with_partitions(4).await;
 
     let cache = Arc::new(PartitionedCache::new(1 << 20));
     let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
@@ -1841,7 +1840,7 @@ async fn recovery_fails_when_record_version_disagrees_with_the_mark() {
         Arc::clone(&dirty_index),
         Arc::clone(&recovery),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
         common::fenced_producers_acquired(&mock_cluster.topic, 4).await,
         common::live_authority(),
@@ -1938,7 +1937,7 @@ async fn recovery_reuses_the_partition_consumer_across_fetches() {
         .find(|pid| partition_for_person(1, *pid, NUM_PARTITIONS) == partition)
         .expect("a second person maps to the same partition");
 
-    let (mock_cluster, kafka_producer) = create_test_kafka_with_partitions(4).await;
+    let mock_cluster = create_test_kafka_with_partitions(4).await;
     let cache = Arc::new(PartitionedCache::new(1 << 20));
     let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
     let recovery = test_recovery(&mock_cluster.bootstrap_servers());
@@ -1951,7 +1950,7 @@ async fn recovery_reuses_the_partition_consumer_across_fetches() {
         Arc::clone(&dirty_index),
         Arc::clone(&recovery),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
         common::fenced_producers_acquired(&mock_cluster.topic, 4).await,
         common::live_authority(),
@@ -2063,7 +2062,8 @@ async fn cancelled_recovery_returns_its_consumer_to_the_pool() {
     use personhog_leader::recovery::{ChangelogRecovery, RecoveryConfig};
     use rdkafka::producer::FutureRecord;
 
-    let (mock_cluster, producer) = create_test_kafka().await;
+    let mock_cluster = create_test_kafka().await;
+    let producer = create_local_kafka_producer().await;
     let mut kafka = test_kafka_config();
     kafka.kafka_hosts = mock_cluster.bootstrap_servers();
     // pool_size 1: a single leaked consumer exhausts the pool.
@@ -2151,7 +2151,7 @@ async fn cancelled_recovery_returns_its_consumer_to_the_pool() {
 async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
     const PERSON_ID: i64 = 9;
     let routing_partition: u32 = partition_for_person(1, PERSON_ID, NUM_PARTITIONS);
-    let (mock_cluster, kafka_producer) = create_test_kafka_with_partitions(4).await;
+    let mock_cluster = create_test_kafka_with_partitions(4).await;
     // This test reads its warnings back, so they must be its own: on a
     // shared topic it would collect whichever two arrived first.
     let warnings_topic = common::owned_broker_topic(1).await;
@@ -2171,11 +2171,11 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
         // Burst 2 so the trim and reject below — same team, same type —
         // both clear the throttle; the third enforcement action then
         // exercises suppression.
-        WarningsProducer::with_throttle(
-            kafka_producer,
-            warnings_topic.topic.clone(),
+        common::local_warnings_producer(
+            &warnings_topic.topic,
             WarningThrottle::new(DEFAULT_THROTTLE_PERIOD, NonZeroU32::new(2).unwrap()),
-        ),
+        )
+        .await,
         Arc::new(DashMap::new()),
         common::fenced_producers_acquired(&mock_cluster.topic, 4).await,
         common::live_authority(),
@@ -2619,7 +2619,7 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
 #[tokio::test]
 async fn an_unresolved_version_is_never_reused() {
     let cache = Arc::new(PartitionedCache::new(1 << 20));
-    let (_mock_cluster, kafka_producer) = create_test_kafka().await;
+    let _mock_cluster = create_test_kafka().await;
     // One set for both: a second would fence the first at the broker.
     let fenced =
         common::fenced_producers_acquired(&_mock_cluster.topic, NUM_PARTITIONS as i32).await;
@@ -2633,7 +2633,7 @@ async fn an_unresolved_version_is_never_reused() {
         Arc::new(DirtyIndex::new(1_000_000)),
         test_recovery(KAFKA_BOOTSTRAP),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
         Arc::clone(&fenced),
         common::live_authority(),
@@ -2702,7 +2702,7 @@ async fn an_unresolved_version_is_never_reused() {
 async fn a_fenced_write_that_bounces_does_not_hand_its_version_back() {
     let topic = format!("fenced_svc_{}", uuid::Uuid::new_v4().simple());
     let cache = Arc::new(PartitionedCache::new(1 << 20));
-    let (_mock_cluster, kafka_producer) = create_test_kafka().await;
+    let _mock_cluster = create_test_kafka().await;
     let fenced = Arc::new(common::test_fenced_producers());
 
     let service = PersonHogLeaderService::new(
@@ -2714,7 +2714,7 @@ async fn a_fenced_write_that_bounces_does_not_hand_its_version_back() {
         Arc::new(DirtyIndex::new(1_000_000)),
         test_recovery(KAFKA_BOOTSTRAP),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
         Arc::clone(&fenced),
         common::live_authority(),
@@ -2826,7 +2826,7 @@ async fn an_unknown_outcome_keeps_its_version(
 ) {
     let topic = format!("fenced_uncertain_{}", uuid::Uuid::new_v4().simple());
     let cache = Arc::new(PartitionedCache::new(1 << 20));
-    let (_mock_cluster, kafka_producer) = create_test_kafka().await;
+    let _mock_cluster = create_test_kafka().await;
     let fenced = Arc::new(common::test_fenced_producers());
     let emitted_versions = Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000));
 
@@ -2839,7 +2839,7 @@ async fn an_unknown_outcome_keeps_its_version(
         Arc::new(DirtyIndex::new(1_000_000)),
         test_recovery(KAFKA_BOOTSTRAP),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
         Arc::clone(&fenced),
         common::live_authority(),
@@ -2918,7 +2918,7 @@ async fn scalar_fields_merge_rather_than_assign() {
     const HOUR_MS: i64 = 3_600_000;
     let topic = format!("scalar_merge_{}", uuid::Uuid::new_v4().simple());
     let cache = Arc::new(PartitionedCache::new(1 << 20));
-    let (_mock_cluster, kafka_producer) = create_test_kafka().await;
+    let _mock_cluster = create_test_kafka().await;
     let emitted_versions = Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000));
 
     let service = PersonHogLeaderService::new(
@@ -2930,7 +2930,7 @@ async fn scalar_fields_merge_rather_than_assign() {
         Arc::new(DirtyIndex::new(1_000_000)),
         test_recovery(KAFKA_BOOTSTRAP),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
         common::fenced_producers_acquired(&topic, NUM_PARTITIONS as i32).await,
         common::live_authority(),

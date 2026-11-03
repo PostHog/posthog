@@ -1,7 +1,7 @@
 import json
 import hashlib
 from collections import Counter
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from typing import Any, cast
 from uuid import UUID
 
@@ -15,12 +15,13 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle, SimpleRateThrottle
+from rest_framework.utils.urls import replace_query_param
 
-from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
+from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
@@ -107,6 +108,8 @@ from products.canvas.backend.presentation.serializers import (
     CanvasStateValueQuerySerializer,
     CanvasStateValueResponseSerializer,
     CanvasSummarySerializer,
+    CanvasToolInvokeSerializer,
+    CanvasToolResultSerializer,
     CanvasUpdateSerializer,
     CanvasValidateRequestSerializer,
     CanvasValidateResponseSerializer,
@@ -272,6 +275,13 @@ class CanvasActionInvokeThrottle(CanvasStateWriteThrottle):
     rate = "60/min"
 
 
+class CanvasToolInvokeThrottle(CanvasStateWriteThrottle):
+    """Shares the action ceiling: a tool call is a real PostHog read or write as the viewer."""
+
+    scope = "canvas_tool_invoke"
+    rate = "60/min"
+
+
 class CanvasConnectorCallThrottle(CanvasStateWriteThrottle):
     scope = "canvas_connector_call"
     rate = "120/min"
@@ -335,6 +345,22 @@ class CanvasAccessMixin(TeamAndOrgViewSetMixin):
 CANVAS_LIST_ORDERINGS = ["-created_at", "-updated_at"]
 
 
+def _state_page_links(request: Request, query: dict[str, Any], result: dict[str, Any]) -> dict[str, str | None]:
+    """The `next` and `previous` URLs of one canvas state page."""
+    url = request.build_absolute_uri()
+    next_link = None
+    if query.get("cursor") is not None and result["next_cursor"] is not None:
+        next_link = replace_query_param(url, "cursor", result["next_cursor"])
+    elif result["next_offset"] is not None:
+        next_link = replace_query_param(url, "offset", result["next_offset"])
+    limit = query.get("limit")
+    offset = query["offset"]
+    previous_link = None
+    if query.get("cursor") is None and limit is not None and offset > 0:
+        previous_link = replace_query_param(url, "offset", max(0, offset - limit))
+    return {"next": next_link, "previous": previous_link}
+
+
 class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
     """Canvases: agent-built sandboxed browser apps, filed into channels.
 
@@ -345,7 +371,12 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
     scope_object = "canvas"
     # The facade reads canvases; the viewset holds no queryset.
     queryset = None
+    path_parameters = {
+        "pk": PathParameter(type=UUID, description="A UUID string identifying this canvas."),
+        "root_comment_id": UUID,
+    }
     serializer_class = CanvasSerializer
+    pagination_class = FacadeLimitOffsetPagination
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
     scope_object_read_actions = [
         "list",
@@ -378,6 +409,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         "request_fix",
         "set_state",
         "invoke_action",
+        "invoke_tool",
         "call_connector",
         "request_agent",
         "publish_layout",
@@ -392,6 +424,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             return [*super().get_throttles(), CanvasStateWriteThrottle()]
         if self.action == "invoke_action":
             return [*super().get_throttles(), CanvasActionInvokeThrottle()]
+        if self.action == "invoke_tool":
+            return [*super().get_throttles(), CanvasToolInvokeThrottle()]
         if self.action == "call_connector":
             return [*super().get_throttles(), CanvasConnectorCallThrottle()]
         return super().get_throttles()
@@ -400,7 +434,11 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         # Invoking a verb writes the target resource, so a scoped credential
         # must hold that resource's scope — canvas:write alone is not consent
         # to create tasks or annotations.
-        if getattr(view, "action", None) != "invoke_action":
+        action = getattr(view, "action", None)
+        if action == "invoke_tool":
+            tool = request.data.get("tool") if isinstance(request.data, dict) else None
+            return canvas_api.tool_required_scopes(tool) if isinstance(tool, str) else None
+        if action != "invoke_action":
             return None
         verb = request.data.get("verb") if isinstance(request.data, dict) else None
         return canvas_api.action_required_scopes(verb) if isinstance(verb, str) else None
@@ -453,21 +491,6 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         self._check_object_access(canvas)
         return canvas
 
-    def _paginated(self, request: Request, fetch: Callable[[int, int], Any], count: int) -> Response:
-        """The standard limit/offset envelope around one facade page."""
-        paginator = cast(LimitOffsetPagination, self.paginator)
-        limit = paginator.get_limit(request)
-        # The default page size always applies, so there is always a limit.
-        if limit is None:
-            limit = count
-        offset = paginator.get_offset(request)
-        paginator.request = request
-        paginator.limit = limit
-        paginator.offset = offset
-        paginator.count = count
-        page = [] if count == 0 or offset > count else fetch(offset, limit)
-        return paginator.get_paginated_response(page)
-
     @extend_schema(
         parameters=[
             OpenApiParameter(
@@ -515,15 +538,10 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         }
         requested_ordering = request.query_params.get("ordering")
         ordering = requested_ordering if requested_ordering in CANVAS_LIST_ORDERINGS else None
-        return self._paginated(
-            request,
-            lambda offset, limit: (
-                CanvasSerializer(
-                    canvas_api.list_canvases(viewer, offset=offset, limit=limit, ordering=ordering, **filters),
-                    many=True,
-                ).data
-            ),
-            canvas_api.count_canvases(viewer, **filters),
+        return facade_page_response(
+            self,
+            lambda page: canvas_api.list_canvases(viewer, page=page, ordering=ordering, **filters),
+            serializer_class=CanvasSerializer,
         )
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -750,10 +768,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
 
     @extend_schema(
         operation_id="canvases_comments_retrieve",
-        parameters=[
-            OpenApiParameter("root_comment_id", UUID, OpenApiParameter.PATH),
-            CanvasCommentDetailQuerySerializer,
-        ],
+        parameters=[CanvasCommentDetailQuerySerializer],
         responses=CanvasCommentDetailSerializer,
     )
     @action(
@@ -762,21 +777,17 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         url_path=r"comments/(?P<root_comment_id>[^/.]+)",
         required_scopes=["canvas:read", "comment:read"],
     )
-    def comment(self, request: Request, *args: Any, root_comment_id: str | None = None, **kwargs: Any) -> Response:
+    def comment(self, request: Request, *args: Any, root_comment_id: UUID, **kwargs: Any) -> Response:
         """One comment thread on this canvas: the root comment and its replies, oldest first."""
         params = CanvasCommentDetailQuerySerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
         canvas = self._canvas()
         try:
-            parsed_comment_id = UUID(str(root_comment_id))
-        except ValueError:
-            raise NotFound()
-        try:
             thread = tasks_facade.retrieve_canvas_comment(
                 team_id=self.team_id,
                 canvas_id=canvas.id,
                 canvas_name=canvas.name,
-                comment_id=parsed_comment_id,
+                comment_id=root_comment_id,
                 limit=params.validated_data["limit"],
                 cursor=params.validated_data.get("cursor"),
                 content_comment_id=params.validated_data.get("comment_id"),
@@ -1791,8 +1802,12 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
     )
     @action(methods=["GET"], detail=False, url_path="actions")
     def actions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """List the action registry: every verb a canvas may declare and invoke."""
-        return Response(CanvasActionsResponseSerializer(instance={"actions": canvas_api.list_actions()}).data)
+        """List the action registry: every verb and PostHog MCP tool a canvas may declare and invoke."""
+        return Response(
+            CanvasActionsResponseSerializer(
+                instance={"actions": canvas_api.list_actions(), "tools": canvas_api.list_tools()}
+            ).data
+        )
 
     @extend_schema(
         operation_id="canvases_actions_invoke",
@@ -1851,6 +1866,74 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         )
         self._report_canvas_action("canvas action invoked", canvas, verb=verb)
         return Response(CanvasActionResultSerializer(instance={"verb": verb, "result": result}).data)
+
+    @extend_schema(
+        operation_id="canvases_tools_invoke",
+        request=CanvasToolInvokeSerializer,
+        responses={
+            200: CanvasToolResultSerializer,
+            400: OpenApiResponse(
+                description="Canvases cannot run the tool, or the tool ran and failed. `detail` holds the tool's error."
+            ),
+            403: OpenApiResponse(
+                description="The tool is not declared in the canvas's capabilities, canvas tools are off for the team, "
+                "or the caller is a sandbox or an impersonated session."
+            ),
+            502: OpenApiResponse(description="The PostHog MCP server could not run the tool."),
+            504: OpenApiResponse(
+                description="A tool that changes data did not answer in time. The change can still apply."
+            ),
+        },
+    )
+    @action(methods=["POST"], detail=True, url_path="tools/invoke")
+    def invoke_tool(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Run one PostHog MCP tool as the viewer.
+
+        The canvas must declare the tool in capabilities.posthog.tools. The
+        tool runs on the MCP server with a token minted for the viewer, so it
+        has the viewer's own permissions, exactly as if they called it from
+        an MCP client.
+        """
+        canvas = self._canvas()
+        user = self._state_actor(request)
+        # A sandbox token authenticates as its user, so the user check alone lets an agent through.
+        if user is None or self._is_sandbox_authenticated(request):
+            return Response(
+                {"detail": "Canvas tools are run by viewers; sandbox tokens cannot use them."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        # A minted token would carry the impersonated user's access past the read-only session rules.
+        if is_impersonated(request):
+            return Response(
+                {"detail": "Canvas tools are not available in an impersonated session."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if canvas_actions_disabled(self.team.uuid) or not canvas_api.canvas_mcp_tools_enabled(self.team.uuid):
+            return Response(
+                {"detail": "Canvas tools are not enabled for this team."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        payload = CanvasToolInvokeSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        tool = payload.validated_data["tool"]
+        try:
+            canvas_api.validate_tool(canvas.head_capabilities, tool)
+            result = canvas_api.call_tool(self.team_id, user.id, tool, payload.validated_data["arguments"])
+        except CanvasRequestRejected as rejection:
+            self._report_canvas_action(
+                "canvas tool invoked", canvas, tool=tool, succeeded=False, status_code=rejection.status_code
+            )
+            return Response(rejection.body, status=rejection.status_code)
+        self._log_canvas_activity(
+            canvas,
+            "tool_invoked",
+            Detail(
+                name=canvas.name,
+                trigger=Trigger(job_type="canvas_tool", job_id=tool, payload={"tool": tool}),
+            ),
+        )
+        self._report_canvas_action("canvas tool invoked", canvas, tool=tool, succeeded=True, status_code=200)
+        return Response(CanvasToolResultSerializer(instance={"tool": tool, "result": result}).data)
 
     @extend_schema(
         operation_id="canvases_connectors_retrieve",
@@ -1985,7 +2068,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             )
         except CanvasRequestRejected as rejection:
             return Response(rejection.body, status=rejection.status_code)
-        return Response(CanvasStateResponseSerializer(result).data)
+        links = _state_page_links(request, query.validated_data, result)
+        return Response(CanvasStateResponseSerializer({**result, **links}).data)
 
     @extend_schema(
         operation_id="canvases_state_value_retrieve",
@@ -2110,20 +2194,3 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             canvas_name=canvas.name or "Canvas",
             canvas_url=canvas_url(canvas),
         )
-
-
-# The viewset holds no model, so drf-spectacular cannot type the id path parameter by itself.
-_CANVAS_ID_PARAMETER = OpenApiParameter(
-    "id", OpenApiTypes.UUID, OpenApiParameter.PATH, description="A UUID string identifying this canvas."
-)
-for _detail_action in [
-    "retrieve",
-    "partial_update",
-    "destroy",
-    *(extra.__name__ for extra in CanvasViewSet.get_extra_actions() if getattr(extra, "detail", False)),
-]:
-    setattr(
-        CanvasViewSet,
-        _detail_action,
-        extend_schema(parameters=[_CANVAS_ID_PARAMETER])(getattr(CanvasViewSet, _detail_action)),
-    )

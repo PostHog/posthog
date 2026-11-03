@@ -22,8 +22,10 @@ from __future__ import annotations
 
 import json
 import uuid
+import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Literal
 
 from django.utils import timezone
 
@@ -33,8 +35,12 @@ from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.report_metrics import ReportMetric
 from products.signals.backend.scout_harness.tools.emit import SOURCE_PRODUCT, SOURCE_TYPE
 from products.signals.backend.scout_report.persistence import ScoutReportSignal
-from products.signals.backend.temporal.report_safety_judge import judge_report_safety
+from products.signals.backend.temporal.llm import LLMRefusalError
+from products.signals.backend.temporal.metrics import increment_scout_report_safety_refusal
+from products.signals.backend.temporal.report_safety_judge import SafetyJudgeResponse, judge_report_safety
 from products.signals.backend.temporal.types import SignalData
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -60,6 +66,21 @@ def resolve_authored_report_status(*, safe: bool, actionability: ActionabilityCh
             return SignalReport.Status.SUPPRESSED
         case _:
             raise ValueError(f"unhandled actionability choice: {actionability}")
+
+
+SAFETY_REFUSAL_EXPLANATION = "The safety model refused to assess this content, so it is treated as unsafe."
+
+
+async def _judge_safety_fail_closed(
+    team_id: int, signals: list[SignalData], *, path: Literal["emit", "edit"]
+) -> SafetyJudgeResponse:
+    """Fail closed when the safety model refuses: a refusal gives no verdict, so the content counts as unsafe."""
+    try:
+        return await judge_report_safety(team_id=team_id, signals=signals)
+    except LLMRefusalError:
+        logger.warning("signals_scout: safety model refused a report", extra={"team_id": team_id, "path": path})
+        increment_scout_report_safety_refusal(path)
+        return SafetyJudgeResponse(choice=False, explanation=SAFETY_REFUSAL_EXPLANATION)
 
 
 def _report_content_signal(title: str, summary: str) -> SignalData:
@@ -291,7 +312,7 @@ async def judge_scout_report(
         *([tags_signal] if tags_signal is not None else []),
         *_to_signal_data(signals),
     ]
-    safety_response = await judge_report_safety(team_id=team_id, signals=safety_input)
+    safety_response = await _judge_safety_fail_closed(team_id, safety_input, path="emit")
     safety = SafetyJudgment(
         choice=safety_response.choice,
         explanation=safety_response.explanation if not safety_response.choice else None,
@@ -358,7 +379,7 @@ async def judge_edited_report_content(
         safety_input.append(tags_signal)
     if not safety_input:
         return SafetyJudgment(choice=True, explanation=None)
-    safety_response = await judge_report_safety(team_id=team_id, signals=safety_input)
+    safety_response = await _judge_safety_fail_closed(team_id, safety_input, path="edit")
     return SafetyJudgment(
         choice=safety_response.choice,
         explanation=safety_response.explanation if not safety_response.choice else None,

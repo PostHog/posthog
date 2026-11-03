@@ -16,14 +16,21 @@ from products.experiments.backend.health.checks.bucketing_changed import bucketi
 from products.experiments.backend.health.checks.conditions_changed import release_conditions_changed_mid_run
 from products.experiments.backend.health.checks.early_significance import early_significance
 from products.experiments.backend.health.checks.exposure_criteria import exposure_criteria_cannot_match
+from products.experiments.backend.health.checks.exposure_filters import exposure_filters
+from products.experiments.backend.health.checks.filtered_exposures import exposures_removed_by_test_account_filter
 from products.experiments.backend.health.checks.flag_change_findings import flag_history_not_readable
 from products.experiments.backend.health.checks.flag_state import flag_state
 from products.experiments.backend.health.checks.flag_variants import flag_variants_mismatch
 from products.experiments.backend.health.checks.forced_variant import forced_variant_release_condition
+from products.experiments.backend.health.checks.metric_all_zero import metric_all_zero
+from products.experiments.backend.health.checks.metric_calculation_failed import metric_calculation_failed
+from products.experiments.backend.health.checks.metric_cannot_compile import metric_cannot_compile
 from products.experiments.backend.health.checks.metric_event_not_ingested import metric_event_not_ingested
+from products.experiments.backend.health.checks.metrics_not_matured import metrics_not_matured
 from products.experiments.backend.health.checks.multiple_variants import multiple_variants_share
 from products.experiments.backend.health.checks.new_flag_no_traffic import new_flag_no_traffic
 from products.experiments.backend.health.checks.no_metric import no_metric
+from products.experiments.backend.health.checks.shared_flag import flag_shared
 from products.experiments.backend.health.checks.split_changed import split_changed_mid_run
 from products.experiments.backend.health.checks.srm import srm
 from products.experiments.backend.health.checks.zero_exposures import zero_exposures
@@ -41,12 +48,17 @@ class HealthCheck:
 EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
     HealthCheck(
         key=ExperimentHealthCheckKey.FLAG_STATE,
-        name="Feature flag rollout",
+        name="Flag state that doesn't match the experiment",
         run=flag_state,
     ),
     HealthCheck(
+        key=ExperimentHealthCheckKey.FLAG_SHARED,
+        name="Other experiments on the same flag",
+        run=flag_shared,
+    ),
+    HealthCheck(
         key=ExperimentHealthCheckKey.FLAG_HISTORY,
-        name="Feature flag history",
+        name="Unreadable flag history",
         run=flag_history_not_readable,
     ),
     HealthCheck(
@@ -56,7 +68,7 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.BUCKETING_CHANGED_MID_RUN,
-        name="Flag key and bucketing changes since launch",
+        name="Variant assignment changes since launch",
         run=bucketing_changed_mid_run,
     ),
     HealthCheck(
@@ -66,7 +78,7 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.FLAG_VARIANTS_MISMATCH,
-        name="Feature flag variants",
+        name="Flag variants not set up",
         run=flag_variants_mismatch,
     ),
     HealthCheck(
@@ -76,38 +88,70 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.NEW_FLAG_NO_TRAFFIC,
-        name="Feature flag traffic",
+        name="Flag calls not received yet",
         run=new_flag_no_traffic,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.NO_METRIC,
-        name="Metrics",
+        name="Metrics not set up",
         run=no_metric,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.METRIC_EVENT_NOT_INGESTED,
-        name="Metric events",
+        name="Metric events not received yet",
         run=metric_event_not_ingested,
     ),
     HealthCheck(
+        key=ExperimentHealthCheckKey.METRIC_CANNOT_COMPILE,
+        name="Invalid metric definitions",
+        run=metric_cannot_compile,
+    ),
+    HealthCheck(
+        key=ExperimentHealthCheckKey.METRIC_CALCULATION_FAILED,
+        name="Failed metric calculations",
+        run=metric_calculation_failed,
+    ),
+    HealthCheck(
+        key=ExperimentHealthCheckKey.METRIC_ALL_ZERO,
+        name="Metrics at zero in every variant",
+        run=metric_all_zero,
+    ),
+    HealthCheck(
         key=ExperimentHealthCheckKey.EXPOSURE_CRITERIA_CANNOT_MATCH,
-        name="Exposure criteria",
+        name="Exposure criteria that can't match",
         run=exposure_criteria_cannot_match,
     ),
     HealthCheck(
+        key=ExperimentHealthCheckKey.EXPOSURE_FILTERS,
+        name="Dynamic cohorts in the exposure criteria",
+        run=exposure_filters,
+    ),
+    HealthCheck(
         key=ExperimentHealthCheckKey.EARLY_SIGNIFICANCE,
-        name="Sample size behind significant results",
+        name="Significance on a small sample",
         run=early_significance,
+    ),
+    HealthCheck(
+        key=ExperimentHealthCheckKey.METRICS_NOT_MATURED,
+        name="Metric windows not complete yet",
+        run=metrics_not_matured,
     ),
 )
 
 # The exposure query runs these on its answer. They must not include the checks above: the exposure answer
-# is cached for a day, and a flag edit would not clear their findings.
+# is cached for a day, and a flag edit would not clear their findings. `srm` reads the verdict of
+# `split_changed_mid_run`, which only a split edit can change, and the variant overrides of the release conditions. The
+# split and the release conditions are part of the exposure query's cache key.
 EXPOSURE_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
     HealthCheck(
         key=ExperimentHealthCheckKey.ZERO_EXPOSURES,
-        name="Exposures",
+        name="Exposures not received since launch",
         run=zero_exposures,
+    ),
+    HealthCheck(
+        key=ExperimentHealthCheckKey.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES,
+        name="Test account filters that leave out most users",
+        run=exposures_removed_by_test_account_filter,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.SRM,

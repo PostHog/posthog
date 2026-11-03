@@ -6,6 +6,8 @@ from posthog.hogql.constants import HogQLDialect, HogQLGlobalSettings
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.timings import HogQLTimings
 
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
+
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
@@ -29,7 +31,7 @@ def parse_direct_source_config(source_impl: _ParseableSource[_ConfigT_co], sourc
     it to a clean user-facing error instead.
     """
     try:
-        return source_impl.parse_config(source.job_inputs or {})
+        return source_impl.parse_config(SourceInputsStore.load(source))
     except (TypeError, ValueError) as error:
         raise ExposedHogQLError("This source is missing its connection configuration.") from error
 

@@ -8,7 +8,8 @@ from typing import Any
 
 from posthog.clickhouse.client import sync_execute
 
-from products.posthog_ai.eval_harness.base import SandboxedPublicEval
+from products.logs.evals.offline_config import offline_suite
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.log_parser import LogParser
@@ -172,8 +173,11 @@ INCIDENT_CASES = [
 
 
 async def eval_agent_observability(ctx: EvalContext) -> None:
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-logs-agent-observability-cli",
+        offline_suite=offline_suite(
+            "logs/eval_agent_observability::eval_agent_observability", metrics=["answer_mentions", "call_budget"]
+        ),
         cases=[
             SandboxedEvalCase(
                 name=name,

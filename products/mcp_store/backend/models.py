@@ -532,7 +532,7 @@ class MCPToolPolicy(TeamScopedRootMixin, UUIDModel):
                 name="uniq_agent_tool_policy",
             ),
             models.CheckConstraint(
-                check=(
+                condition=(
                     Q(scope_type="team", scope_user__isnull=True, scope_service_account__isnull=True)
                     | Q(scope_type="member", scope_user__isnull=False, scope_service_account__isnull=True)
                     | Q(scope_type="agent", scope_user__isnull=True, scope_service_account__isnull=False)

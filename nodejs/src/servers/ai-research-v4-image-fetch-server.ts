@@ -41,7 +41,6 @@ import {
     v4HostLimits,
 } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/lane'
 import { OriginRequestScheduler } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/origin-request-scheduler'
-import { assertUrlPolicyLoaded } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/politeness-key'
 import { createPoolWindowBatchHandler } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/pool-window-batch-handler'
 import {
     AI_RESEARCH_V4_IMAGE_FETCH_PRODUCER,
@@ -55,6 +54,7 @@ import { RetryDelayConsumer } from '~/ingestion/pipelines/sessionreplay/ai-resea
 import { SharedImageFetcher } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/shared-image-fetcher'
 import { ImageFetchTopHogMetrics } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/tophog-metrics'
 import { UrlFetchConsumer } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/url-fetch-consumer'
+import { assertSharedRulesLoaded } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/v4-native'
 import { createWebBotAuthRequestSigner } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/web-bot-auth'
 import { AiResearchV4ConsumerServer } from '~/ingestion/pipelines/sessionreplay/ai-research/server/v4-consumer-server'
 import { TeamMonthKeys } from '~/ingestion/pipelines/sessionreplay/ai-research/v4-keys/team-month-keys'
@@ -105,7 +105,12 @@ function getUrlPolicy(): typeof import('@posthog/ai-research-v4-native') {
     return urlPolicy
 }
 
-export function buildFrontierPublisher(producer: KafkaProducer, maxConcurrentRepublishes: number): FrontierPublisher {
+export function buildFrontierPublisher(
+    producer: KafkaProducer,
+    maxConcurrentRepublishes: number,
+    maxUrlAgeMs: number,
+    maxUrlAgeFromMs: number
+): FrontierPublisher {
     return new FrontierPublisher(producer, {
         frontierTopic: V4_IMAGE_FETCH_LANE.frontier,
         delayTiers: [
@@ -114,6 +119,8 @@ export function buildFrontierPublisher(producer: KafkaProducer, maxConcurrentRep
             { topic: V4_IMAGE_FETCH_LANE.retry1h, delayMs: 3_600_000, metricTopic: 'retry_1h' },
         ],
         maxConcurrentRepublishes,
+        maxUrlAgeMs,
+        maxUrlAgeFromMs,
     })
 }
 
@@ -294,7 +301,7 @@ export class AiResearchV4ImageFetchServer extends AiResearchV4ConsumerServer {
         // Here rather than on the first record. The parser calls into this addon for every URL, and
         // it must answer with a reason rather than raise, so a build that shipped without the addon
         // has to stop the pod at startup instead.
-        assertUrlPolicyLoaded()
+        assertSharedRulesLoaded()
 
         const consumerConfigs = buildImageFetchConsumerConfigs(this.config)
         const dryRun = this.config.AI_RESEARCH_V4_IMAGE_FETCH_DRY_RUN
@@ -362,7 +369,12 @@ export class AiResearchV4ImageFetchServer extends AiResearchV4ConsumerServer {
         this.topHog.start()
         const topHogMetrics = new ImageFetchTopHogMetrics(this.topHog)
         const producer = this.producerRegistry.getProducer(AI_RESEARCH_V4_IMAGE_FETCH_PRODUCER)
-        const publisher = buildFrontierPublisher(producer, this.config.AI_RESEARCH_V4_IMAGE_FETCH_MAX_PENDING_PUBLISHES)
+        const publisher = buildFrontierPublisher(
+            producer,
+            this.config.AI_RESEARCH_V4_IMAGE_FETCH_MAX_PENDING_PUBLISHES,
+            this.config.AI_RESEARCH_V4_IMAGE_FETCH_MAX_URL_AGE_MS,
+            this.config.AI_RESEARCH_V4_IMAGE_FETCH_MAX_URL_AGE_FROM_MS
+        )
         const deadLetterTopic = this.config.AI_RESEARCH_V4_IMAGE_FETCH_DLQ_TOPIC
         const deadLetters = deadLetterTopic
             ? new KafkaFrontierDeadLetterSink(producer, deadLetterTopic, BLOCKED_IMAGE_FETCH_DEAD_LETTER_TOPICS)

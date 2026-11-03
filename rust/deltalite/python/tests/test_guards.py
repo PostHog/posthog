@@ -55,10 +55,11 @@ def test_source_guard_zero_disables_the_ceiling(tmp_path):
     assert stats.rows_inserted == 1
 
 
-def test_source_guard_error_is_a_deltalite_error_subclass():
+@pytest.mark.parametrize("name", ["DeltaLiteSourceTooLargeError", "DeltaLiteTimeoutError"])
+def test_guard_errors_are_deltalite_error_subclasses(name):
     import deltalite
 
-    assert issubclass(deltalite.DeltaLiteSourceTooLargeError, deltalite.DeltaLiteError)
+    assert issubclass(getattr(deltalite, name), deltalite.DeltaLiteError)
 
 
 def test_multipart_forced_upsert_has_merge_parity(tmp_path):
@@ -82,6 +83,15 @@ def test_multipart_forced_upsert_has_merge_parity(tmp_path):
     # run_scenario drives the upsert arm through upsert_path(**kwargs).
     uri_m, uri_u = run_scenario_with_multipart(scenario, tmp_path)
     assert_parity(uri_m, uri_u, "multipart_forced")
+
+    import deltalite
+
+    snapshot = deltalite.limits_snapshot()
+    assert set(snapshot) == {"partitions", "files", "buffer_kb", "fetch_kb"}
+    for name, budget in snapshot.items():
+        assert budget["total"] > 0, name
+        assert budget["available"] == budget["total"], f"an upsert kept {name} permits"
+        assert budget["waiters"] == 0, name
 
 
 def run_scenario_with_multipart(scenario, tmp_path):

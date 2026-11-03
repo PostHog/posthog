@@ -18,6 +18,8 @@ Use `adding-product-alerting` when delivery depends on a threshold, anomaly, bre
 When investigating a subscription whose insight is missing, or changing insight deletion or restoration, read the [insight deletion and related-resource contract](../../../products/product_analytics/AGENTS.md).
 It defines cleanup for subscriptions, alerts, and dashboard tiles, including single and bulk deletion and restore behavior.
 
+For Slack message layout, cards, Markdown, and visual checks, use [formatting-slack-messages](../formatting-slack-messages/SKILL.md).
+
 ## 1. Route the request
 
 | Request                                                              | Primary path                                 |
