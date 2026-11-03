@@ -31,7 +31,7 @@ Query keys (`reportKeys` in `src/api/reports.ts`) carry the host and project id,
 
 ## Connectivity
 
-`src/lib/connectivity.ts` maps Expo Network events to `unknown`, `connected` or `offline`. Unknown states permit reads. The monitor checks state on foreground entry and removes listeners on disposal. It sends no external probes and stores no network names or addresses. Connected state does not confirm backend availability.
+`src/lib/connectivity.ts` maps Expo Network events to `unknown`, `connected` or `offline` and keeps the connection type for prefetch. Unknown states permit reads. The monitor checks state on foreground entry and removes listeners on disposal. It sends no external probes and stores no network names or addresses. Connected state does not confirm backend availability.
 
 - TanStack Query pauses reads offline and resumes them on reconnect. Cached content stays visible. Screens without cached data show an offline message.
 - Report streams resume from the saved cursor. Streams with fatal errors or terminal runs stay stopped.
@@ -90,10 +90,10 @@ The task fills in when it arrives.
 A failed background refetch keeps the cached report on screen.
 
 **Prefetch and refresh.**
-The inbox prefetches the report detail, work log and Today page of the first 40 rows (the first two pages, as they load), and of the rows that scroll into view plus 5 ahead.
+The inbox waits for row visibility, then prefetches report detail, work log and Today page for visible rows plus one ahead. Earlier offscreen rows are excluded, and scrolling replaces queued work. There is no initial page-wide prefetch.
 These are the requests the report screen waits for before its first render; the task and the metric queries load after it opens.
 It also prefetches the signals of a report when the Today page answers 404 or 403, because the signals are the evidence then.
-It works on two reports at a time and skips done and dismissed rows.
+It skips done and dismissed rows and sends one speculative request at a time, without retries. It runs only while the inbox is focused and foregrounded, the device reports a connected Wi-Fi or Ethernet link, and no observed foreground query is fetching. Unknown connection types and cellular links pause prefetch but do not block foreground reads. Pausing, switching project or account, or unmounting cancels only inactive queries started by the prefetcher. Opening a report adopts its shared requests, so cleanup leaves those observed reads running and failures use the foreground observer’s retry policy.
 It uses a 5 minute stale time, so a refresh or a scroll does not fetch a report again within 5 minutes of its prefetch.
 A report the cache dropped while the app was idle is fetched again when its row comes into view.
 The screen and the prefetcher share the query factories in `src/features/report/queries.ts`, so they read and write the same cache entries.
