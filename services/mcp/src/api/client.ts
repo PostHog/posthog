@@ -401,6 +401,17 @@ export class ApiClient {
             const response = await this.fetch(url, fetchOptions)
             if (!response.ok) {
                 const errorText = await response.text()
+                // 429 carries the server's Retry-After, and the typed error puts
+                // it in the message the agent reads; fetchJson's retry loop never
+                // runs here, so the hint is all the caller gets.
+                if (response.status === 429) {
+                    throw new PostHogRateLimitError({
+                        body: errorText,
+                        url,
+                        method: opts.method,
+                        retryAfterSeconds: parseRetryAfterSeconds(response.headers.get('Retry-After')),
+                    })
+                }
                 throw new PostHogApiError({
                     status: response.status,
                     statusText: response.statusText,
@@ -653,8 +664,12 @@ export class ApiClient {
             body: errorText,
             url,
             method,
+            // 429 normally returns above as PostHogRateLimitError; parsing it here
+            // too keeps the hint if a caller ever reaches this with one.
             retryAfterSeconds:
-                response.status === 503 ? parseRetryAfterSeconds(response.headers.get('Retry-After')) : null,
+                response.status === 429 || response.status === 503
+                    ? parseRetryAfterSeconds(response.headers.get('Retry-After'))
+                    : null,
         })
     }
 

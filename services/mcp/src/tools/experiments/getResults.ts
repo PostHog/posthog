@@ -30,12 +30,20 @@ export const getResultsHandler: ToolBase<typeof schema, Result>['handler'] = asy
     })
 
     if (!result.success) {
-        const message = `Failed to get experiment results: ${result.error.message}`
+        let message = `Failed to get experiment results: ${result.error.message}`
         // A 400 from /query/ means the exposure query was built wrong on this side. Dropping
         // the typed cause keeps it out of handleToolError's 4xx short-circuit so it is still
         // captured as an exception. Every other failure keeps its cause: a 404, 403 or 429
         // is the agent's or the caller's to recover from.
         const apiError = findRecoverableApiError(result.error)
+        // October 2026 traces: agents poll with refresh=true in a tight loop and hit
+        // 429s. The server serves a fresh recompute at most once a minute per query
+        // (next_allowed_client_refresh), so the fix is to stop forcing refreshes,
+        // not to retry sooner.
+        if (params.refresh && apiError instanceof PostHogApiError && apiError.status === 429) {
+            message +=
+                ' The server recomputes results at most once a minute per query (next_allowed_client_refresh), so rapid refresh=true polling is rate limited. Call again without refresh to read the latest computed results, or wait at least a minute between refreshes.'
+        }
         const isOwnQueryBug =
             apiError instanceof PostHogValidationError ||
             (apiError instanceof PostHogApiError && apiError.status === 400)

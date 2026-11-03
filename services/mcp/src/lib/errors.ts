@@ -286,7 +286,13 @@ function requestPath(url: string): string {
 }
 
 function buildDefaultApiErrorMessage(options: PostHogApiErrorOptions): string {
-    return `Request failed:\nPath: ${options.method} ${requestPath(options.url)}\nStatus Code: ${options.status} (${options.statusText})\nError Message: ${options.body}`
+    // The server's Retry-After is the one number that tells an agent when the
+    // call will work, so a known value always reaches the message it reads.
+    const retryHint =
+        options.retryAfterSeconds !== null && options.retryAfterSeconds !== undefined
+            ? `\nRetry after ${options.retryAfterSeconds} seconds.`
+            : ''
+    return `Request failed:\nPath: ${options.method} ${requestPath(options.url)}\nStatus Code: ${options.status} (${options.statusText})\nError Message: ${options.body}${retryHint}`
 }
 
 export interface PostHogRateLimitErrorOptions {
