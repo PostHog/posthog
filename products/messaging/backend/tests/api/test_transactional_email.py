@@ -588,10 +588,15 @@ class TestTransactionalEmail(APIBaseTest):
         else:
             assert response.json() == {"message_id": "first-send", "replayed": True}
 
-    def test_two_racing_first_sends_of_a_key_make_one_workflow(self, mock_post, _flag, _capture):
+    @parameterized.expand(
+        [
+            ("below_the_key_limit", transactional_email.TRANSACTIONAL_EMAIL_KEY_LIMIT),
+            ("winner_takes_the_last_key", 1),
+        ]
+    )
+    def test_two_racing_first_sends_of_a_key_make_one_workflow(self, mock_post, _flag, _capture, _name, key_limit):
         self._cdp_accepts(mock_post)
         psak = self._psak_client(["hog_flow:write"])
-        winner = psak.post(self.send_email_url, self._code_send(), format="json")
         lookup = transactional_email.known_key
         lookups: list[str] = []
 
@@ -599,8 +604,10 @@ class TestTransactionalEmail(APIBaseTest):
             lookups.append(key)
             return None if len(lookups) == 1 else lookup(team_id, key)
 
-        with patch.object(transactional_email, "known_key", side_effect=misses_the_winner_once):
-            loser = psak.post(self.send_email_url, self._code_send(), format="json")
+        with patch.object(transactional_email, "TRANSACTIONAL_EMAIL_KEY_LIMIT", key_limit):
+            winner = psak.post(self.send_email_url, self._code_send(), format="json")
+            with patch.object(transactional_email, "known_key", side_effect=misses_the_winner_once):
+                loser = psak.post(self.send_email_url, self._code_send(), format="json")
 
         assert (winner.status_code, loser.status_code) == (status.HTTP_202_ACCEPTED, status.HTTP_202_ACCEPTED)
         first_url, second_url = (call.args[0] for call in mock_post.call_args_list)

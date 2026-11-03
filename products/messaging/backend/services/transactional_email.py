@@ -409,6 +409,10 @@ def _key_workflow_id(team_id: int, key: str) -> UUID:
         known.delete()
     # Two first sends of new keys can both pass this count, so a project can end a few keys over the limit.
     if keys.count() >= TRANSACTIONAL_EMAIL_KEY_LIMIT:
+        # A racing first send of this same key can take the last slot after our lookup missed it.
+        raced = known_key(team_id, key)
+        if raced is not None:
+            return raced.hog_flow_id
         raise TooManyKeys(
             f"This project has reached its limit of {TRANSACTIONAL_EMAIL_KEY_LIMIT} template keys, so it can't "
             "send under a new one. Use one template_key for each type of email, such as `password-reset`, and "
