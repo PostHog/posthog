@@ -23,7 +23,7 @@ import {
     fetchErrorDetail,
     isFetchResponseRetriable,
 } from '../utils/cdp-fetch'
-import { createInvocationResult } from '../utils/invocation-utils'
+import { createInvocationResult, originRoute } from '../utils/invocation-utils'
 import { isNonFailureStatus } from '../utils/non-failure-status-codes'
 import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
 import { mergeSecretHeaders, resolveSecretHeaders } from '../utils/secret-headers'
@@ -179,7 +179,6 @@ export class HogExecutorAsyncService {
                         // the current action's metadata so a throttle retry re-queues under this
                         // send's class rather than the previous email action's.
                         if (invocation.queue === 'email') {
-                            nextInvocation.queueMetadata = invocation.queueMetadata
                             nextInvocation.queuePriority =
                                 EMAIL_QUEUE_PRIORITY[getEmailQueuePriorityClass(nextInvocation.hogFunction.metadata)]
                         }
@@ -208,6 +207,14 @@ export class HogExecutorAsyncService {
             if (result.finished || result.invocation.queueScheduledAt || result.invocation.queue !== invocation.queue) {
                 break
             }
+        }
+
+        // Every step in the loop clones the invocation and drops queueMetadata, and a send that reschedules on the
+        // email queue sets only its own keys. Put the route back on the job, or a later fetch step sends it to the
+        // fallback queue instead of its origin.
+        const route = originRoute(invocation.queueMetadata)
+        if (route && invocation.queue === 'email' && result.invocation.queue === 'email' && !result.finished) {
+            result.invocation.queueMetadata = { ...result.invocation.queueMetadata, ...route }
         }
 
         if (result.finished) {

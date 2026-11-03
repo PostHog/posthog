@@ -22,7 +22,7 @@ import {
     WarehouseWebhookPayload,
 } from '../../types'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
-import { createInvocationResult } from '../../utils/invocation-utils'
+import { createInvocationResult, originRoute } from '../../utils/invocation-utils'
 import {
     COHORT_MEMBERSHIP_CHANGED_EVENT,
     COHORT_MEMBERSHIP_VERSION_PROPERTY,
@@ -75,19 +75,6 @@ const TRIGGER_MISMATCH_EXITS: ReadonlySet<string> = new Set([
     'exit_on_trigger_not_matched',
     'exit_on_trigger_not_matched_or_conversion',
 ])
-
-// teamCapped marks the one send that the team sending cap delayed, and the queue wait metric reads it at send time.
-// The next action is a different send, so it starts without the flag. The email service sets the flag again when
-// the cap also delays that send.
-function withoutPerSendQueueMetadata(
-    queueMetadata: CyclotronJobInvocationHogFlow['queueMetadata']
-): CyclotronJobInvocationHogFlow['queueMetadata'] {
-    if (!queueMetadata) {
-        return queueMetadata
-    }
-    const { teamCapped: _teamCapped, ...carried } = queueMetadata
-    return carried
-}
 
 export function createHogFlowInvocation(
     globals: HogFunctionInvocationGlobals,
@@ -699,8 +686,9 @@ export class HogFlowExecutorService {
         // run whose email action isn't the first action executed.
         const result = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
             queuePriority: invocation.queuePriority,
-            queueMetadata:
-                invocation.queue === 'email' ? withoutPerSendQueueMetadata(invocation.queueMetadata) : undefined,
+            // Only the route back carries over to the next action. Per-send keys such as teamCapped or a push retry
+            // count belong to the action that set them.
+            queueMetadata: invocation.queue === 'email' ? originRoute(invocation.queueMetadata) : undefined,
         })
         result.finished = false // Typically we are never finished unless we error or exit
 
