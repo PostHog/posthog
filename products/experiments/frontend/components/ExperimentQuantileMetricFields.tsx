@@ -7,6 +7,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { metricSourcesToSeries, seriesToMetricSource } from 'scenes/experiments/metricQueryUtils'
 import { commonActionFilterProps } from 'scenes/experiments/Metrics/Selectors'
+import { quantileToPercentile } from 'scenes/experiments/MetricsView/shared/utils'
 import { SeriesActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 
@@ -20,7 +21,7 @@ const MAX_PERCENTILE = 99
 
 type PercentileOption = number | 'custom'
 
-const toPercentile = (quantile: number): number => Math.round(quantile * 100)
+const hasAtMostOneDecimal = (value: number): boolean => Math.abs(Math.round(value * 10) - value * 10) < 1e-9
 
 export function ExperimentQuantileMetricFields({
     metric,
@@ -29,12 +30,12 @@ export function ExperimentQuantileMetricFields({
     metric: ExperimentQuantileMetric
     handleSetMetric: (newMetric: ExperimentQuantileMetric) => void
 }): JSX.Element {
-    const percentile = toPercentile(metric.quantile)
+    const percentile = quantileToPercentile(metric.quantile)
     const [isCustom, setIsCustom] = useState(!PRESET_PERCENTILES.includes(percentile))
     const eventName = metric.source.kind === NodeKind.EventsNode ? metric.source.event : null
 
     const setPercentile = (value: number): void => {
-        handleSetMetric({ ...metric, quantile: value / 100 })
+        handleSetMetric({ ...metric, quantile: Number((value / 100).toFixed(4)) })
     }
 
     return (
@@ -114,12 +115,12 @@ export function ExperimentQuantileMetricFields({
                             size="small"
                             min={MIN_PERCENTILE}
                             max={MAX_PERCENTILE}
-                            step={1}
+                            step={0.1}
                             value={percentile}
                             onChange={(value) => {
                                 if (
                                     typeof value !== 'number' ||
-                                    !Number.isInteger(value) ||
+                                    !hasAtMostOneDecimal(value) ||
                                     value < MIN_PERCENTILE ||
                                     value > MAX_PERCENTILE
                                 ) {

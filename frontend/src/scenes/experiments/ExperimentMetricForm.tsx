@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { IconInfo, IconPencil } from '@posthog/icons'
 import { LemonBanner, LemonInput } from '@posthog/lemon-ui'
 
-import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
+import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
@@ -258,7 +258,22 @@ export function ExperimentMetricForm({
                 const source = sources[0]
                 // A percentile reads event properties, so only an event or action source carries over
                 if (source.kind === NodeKind.EventsNode || source.kind === NodeKind.ActionsNode) {
-                    newMetric.source = { ...source, math: undefined }
+                    // The percentile query reads `properties.<name>` from each event, so a session or
+                    // person property from a mean metric would match no events
+                    const isEventProperty =
+                        source.math_property !== '$session_duration' &&
+                        (source.math_property_type == null ||
+                            source.math_property_type === TaxonomicFilterGroupType.EventProperties ||
+                            source.math_property_type === TaxonomicFilterGroupType.NumericalEventProperties)
+                    newMetric.source = {
+                        ...source,
+                        math: undefined,
+                        math_hogql: undefined,
+                        math_group_type_index: undefined,
+                        math_multiplier: undefined,
+                        math_property_type: undefined,
+                        math_property: isEventProperty ? source.math_property : undefined,
+                    }
                 }
             }
         }

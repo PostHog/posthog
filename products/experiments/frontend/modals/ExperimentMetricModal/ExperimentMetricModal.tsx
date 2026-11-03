@@ -4,10 +4,19 @@ import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonModal } from '@p
 
 import { ExperimentMetricForm } from 'scenes/experiments/ExperimentMetricForm'
 import { exposureCriteriaModalLogic } from 'scenes/experiments/ExperimentView/exposureCriteriaModalLogic'
+import {
+    PERCENTILE_METRIC_SEQUENTIAL_DISABLED_REASON,
+    experimentUsesSequentialTesting,
+} from 'scenes/experiments/ExperimentView/sequential'
 import { resolveFilterTestAccounts, resolvedExposureEvent } from 'scenes/experiments/exposureContract'
 import { getMetricIncompleteReason } from 'scenes/experiments/utils'
+import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsConfigLogic'
 
-import type { ExperimentExposureCriteria, ExperimentMetric } from '~/queries/schema/schema-general'
+import {
+    type ExperimentExposureCriteria,
+    type ExperimentMetric,
+    isExperimentQuantileMetric,
+} from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
 import {
@@ -32,6 +41,7 @@ export function ExperimentMetricModal({
     const { isModalOpen, metric, context, isCreateMode, isEditMode } = useValues(experimentMetricModalLogic)
     const { closeExperimentMetricModal, setMetric: setModalMetric } = useActions(experimentMetricModalLogic)
     const { openExposureCriteriaModal } = useActions(exposureCriteriaModalLogic)
+    const { experimentsConfig } = useValues(experimentsConfigLogic)
 
     if (!isModalOpen || !metric) {
         return null
@@ -40,6 +50,16 @@ export function ExperimentMetricModal({
     // The exposure can change while this modal is open, and the API rejects a metric on another connection or unit
     const warehouseExposure = getWarehouseNativeExposure(exposureCriteria)
     const metricToSave = warehouseExposure ? alignMetricsWithExposure([metric], warehouseExposure)[0] : metric
+    const saveDisabledReason =
+        getWarehouseNativeMetricError(metricToSave) ??
+        getMetricIncompleteReason(metricToSave) ??
+        (isExperimentQuantileMetric(metricToSave) &&
+        experimentUsesSequentialTesting(
+            experiment.stats_config,
+            experimentsConfig?.default_sequential_testing_enabled ?? false
+        )
+            ? PERCENTILE_METRIC_SEQUENTIAL_DISABLED_REASON
+            : undefined)
 
     return (
         <LemonModal
@@ -84,9 +104,9 @@ export function ExperimentMetricModal({
                         <LemonButton
                             form="edit-experiment-metric-form"
                             onClick={() => onSave(metricToSave, context)}
+                            disabledReason={saveDisabledReason}
                             type="primary"
                             data-attr="save-experiment-metric"
-                            disabledReason={getWarehouseNativeMetricError(metricToSave) ?? getMetricIncompleteReason(metricToSave)}
                         >
                             {isCreateMode ? 'Create' : 'Save'}
                         </LemonButton>
