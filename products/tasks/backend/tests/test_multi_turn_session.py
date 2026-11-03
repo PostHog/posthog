@@ -2007,11 +2007,11 @@ class TestCreateTaskAndTriggerForwardsContext:
         assert [written[entry["storage_path"]] for entry in manifest.values()] == [b"Review the PR.", "Ü".encode()]
 
     @pytest.mark.asyncio
-    async def test_codex_options_reach_the_state_the_agent_server_reads(self) -> None:
+    async def test_caller_options_reach_the_state_the_agent_server_reads(self) -> None:
         # The agent server sees only allowlisted state keys, so a dropped key silently keeps the Codex default.
         team, user = await sync_to_async(self._setup_team_and_user)()
         context = CustomPromptSandboxContext(
-            team_id=team.id, user_id=user.id, codex_max_subagents=9, codex_shared_prompt_cache=True
+            team_id=team.id, user_id=user.id, codex_max_subagents=9, codex_shared_prompt_cache=True, disable_skills=True
         )
 
         with patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"):
@@ -2021,6 +2021,7 @@ class TestCreateTaskAndTriggerForwardsContext:
         public_state = _public_task_run_state(persisted.state)
         assert public_state["codex_max_subagents"] == 9
         assert public_state["codex_shared_prompt_cache"] is True
+        assert public_state["disable_skills"] is True
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(("output_schema", "expected_flag"), [({"type": "object"}, True), (None, None)])
@@ -2107,11 +2108,13 @@ class TestMultiTurnSessionStartFallback:
         return session
 
     @pytest.mark.asyncio
-    async def test_salvages_unparseable_text_with_fallback(self):
+    @pytest.mark.parametrize("retry_reply", [None, "Updated conclusion from the second turn."])
+    async def test_salvages_unparseable_text_with_fallback(self, retry_reply: str | None):
         # _Resp requires a JSON object with `value`; prose can't validate, so the fallback
         # builds the model from the raw close-out text instead of failing the run.
         session = self._fake_session()
         prose = "No anomalies this run. Scanned 12 commits, remembered the scan marker."
+        session.send_followup_raw = AsyncMock(return_value=retry_reply)  # type: ignore[method-assign]
 
         with patch.object(MultiTurnSession, "start_raw", new=AsyncMock(return_value=(session, prose))):
             returned_session, parsed = await MultiTurnSession.start(
@@ -2119,10 +2122,11 @@ class TestMultiTurnSessionStartFallback:
                 context=MagicMock(),
                 model=_Resp,
                 fallback_from_text=lambda text: _Resp(value=text),
+                json_retry_prompt="Return JSON" if retry_reply is not None else None,
             )
 
         assert returned_session is session
-        assert parsed == _Resp(value=prose)
+        assert parsed == _Resp(value=retry_reply if retry_reply is not None else prose)
         # A salvaged run is NOT ended as failed — the caller persists the result and ends normally.
         session.end.assert_not_awaited()  # type: ignore[attr-defined]
 
