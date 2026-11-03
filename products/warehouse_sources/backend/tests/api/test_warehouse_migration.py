@@ -319,7 +319,7 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         # The malformed connections are named, and the rest of the batch still applies.
         assert first.status_code == 400
         assert "Connection 1 (no id)" in first.json()["detail"]
-        assert "Connection 2 (['conn_bad']): the field `id` has the wrong type" in first.json()["detail"]
+        assert "Connection 2 (no valid id): the field `id` has the wrong type" in first.json()["detail"]
 
         # The destination came in an earlier batch, so its offset still moves 22:00 to UTC.
         schedule = {"schedule_type": "TIME_OF_DAY", "time_of_day": "22:00"}
@@ -363,6 +363,7 @@ class TestWarehouseMigrationAPI(APIBaseTest):
             ("migration_over_the_total_cap", False, [{"connection": _fivetran_connection("conn_a")}], 100),
             ("deeply_nested_config", False, [{"connection": _fivetran_connection("conn_deep", config=_nested(200))}]),
             ("nul_character", False, [{"connection": _fivetran_connection("conn_nul", config={"host": "db\x00"})}]),
+            ("nul_in_the_account", False, [], 50_000_000, {"account": {"account_name": "Example\x00"}}),
             (
                 "interval_past_float_range",
                 False,
@@ -376,6 +377,7 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         has_vendor_key: bool,
         connections: list[dict[str, Any]],
         max_snapshot_bytes: int = 50_000_000,
+        extra_body: dict[str, Any] | None = None,
     ) -> None:
         migration = WarehouseMigration.objects.for_team(self.team.pk).create(
             team_id=self.team.pk,
@@ -385,7 +387,7 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         )
 
         # Sent as raw JSON, because the test client cannot encode `1e309`.
-        body = json.dumps({"connections": connections}).replace(f'"{_FLOAT_OVERFLOW}"', "1e309")
+        body = json.dumps({"connections": connections, **(extra_body or {})}).replace(f'"{_FLOAT_OVERFLOW}"', "1e309")
         with patch(f"{_SNAPSHOT}.MAX_UPLOADED_SNAPSHOT_BYTES", max_snapshot_bytes):
             response = self.client.post(f"{self.url}{migration.id}/connections/", body, content_type="application/json")
         assert response.status_code == 400, response.content
