@@ -27,6 +27,7 @@ from posthog.utils import safe_cache_delete
 # - `streamlit_app` returns a one-hour OAuth token to connect to a running app.
 # - `webhook:write`, `batch_export:write` and `subscription:write` set up feeds that keep sending after the
 #   policy is revoked. A subscription can send to any email address.
+# - `sharing_configuration` creates and reveals public sharing links, which keep working after the policy is revoked.
 WORKLOAD_TRUST_POLICY_DENIED_SCOPES: frozenset[str] = frozenset(
     {
         "workload_trust_policy:read",
@@ -38,6 +39,8 @@ WORKLOAD_TRUST_POLICY_DENIED_SCOPES: frozenset[str] = frozenset(
         "conversation:read",
         "conversation:write",
         "project:write",
+        "sharing_configuration:read",
+        "sharing_configuration:write",
         "signal_scout:write",
         "streamlit_app:read",
         "streamlit_app:write",
