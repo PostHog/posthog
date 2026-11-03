@@ -60,6 +60,7 @@ import {
     SessionPropertyFilter,
     SessionRecordingType,
     SlackIntegrationScope,
+    SlackIntegrationScopeInReview,
     StepOrderValue,
 } from '~/types'
 
@@ -67,9 +68,9 @@ import { BIVisualizationNode } from './schema-business-intelligence'
 import { integer, numerical_key, positive_integer } from './type-utils'
 
 export { ChartDisplayCategory }
-// Re-exported so the codegen picks it up and emits a matching `StrEnum` in posthog/schema.py.
-// The runtime const lives in `~/types` as `SLACK_INTEGRATION_SCOPES`.
-export { SlackIntegrationScope }
+// Re-exported so the codegen picks them up and emits matching `StrEnum`s in posthog/schema.py.
+// The runtime consts live in `~/types` as `SLACK_INTEGRATION_SCOPES` and `SLACK_INTEGRATION_SCOPES_IN_REVIEW`.
+export { SlackIntegrationScope, SlackIntegrationScopeInReview }
 
 /**
  * PostHog Query Schema definition.
@@ -4170,6 +4171,8 @@ export interface MCPMissingCapabilitiesQueryResponse extends AnalyticsQueryRespo
 export interface MCPMissingCapabilitiesQuery extends DataNode<MCPMissingCapabilitiesQueryResponse> {
     kind: NodeKind.MCPMissingCapabilitiesQuery
     dateRange?: DateRange
+    /** Exclude reports from the project's internal and test users. */
+    filterTestAccounts?: boolean
     /** Case-insensitive substring match over the report text. */
     search?: string
     /** Page size; defaults to 100, capped at 500. */
