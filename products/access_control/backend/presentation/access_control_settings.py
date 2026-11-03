@@ -59,7 +59,6 @@ from products.access_control.backend.facade.user_access_control import (
 )
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
-from products.event_definitions.backend.models import PropertyDefinition
 
 from .access_control import AccessControlSerializer, apply_access_control_rule, upsert_access_control
 from .serializers import (
@@ -593,23 +592,20 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             organization_member_id=organization_member.id if organization_member else None,
             role_id=role.id if role else None,
         )
-        definitions_by_id = {
-            str(pd.id): pd
-            for pd in PropertyDefinition.objects.filter(
-                team_id=team.id, id__in=[rule.property_definition_id for rule in rules]
-            )
-        }
+        labels = access_control_api.get_property_definition_labels(
+            team_id=team.id, property_definition_ids=[rule.property_definition_id for rule in rules]
+        )
 
         results = []
         for rule in rules:
-            pd = definitions_by_id.get(str(rule.property_definition_id))
-            if pd is None:
+            label = labels.get(rule.property_definition_id)
+            if label is None:
                 continue
             results.append(
                 {
-                    "property_definition_id": str(pd.id),
-                    "property": pd.name,
-                    "property_type": "person" if pd.type == pd.Type.PERSON else "event",
+                    "property_definition_id": str(label.id),
+                    "property": label.name,
+                    "property_type": "person" if label.is_person else "event",
                     "access_level": rule.access_level.value,
                 }
             )

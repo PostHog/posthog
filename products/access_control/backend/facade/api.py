@@ -105,6 +105,19 @@ def _to_rule(rule: PropertyAccessControl) -> contracts.PropertyAccessControlRule
     )
 
 
+def get_property_definition_labels(
+    *, team_id: int, property_definition_ids: list[UUID]
+) -> dict[UUID, contracts.PropertyDefinitionLabel]:
+    return {
+        definition.id: contracts.PropertyDefinitionLabel(
+            id=definition.id,
+            name=definition.name,
+            is_person=definition.type == PropertyDefinition.Type.PERSON,
+        )
+        for definition in PropertyDefinition.objects.filter(team_id=team_id, id__in=property_definition_ids)
+    }
+
+
 def _get_property_definition(property_definition_id: str, team_id: int) -> PropertyDefinition:
     # Callers often send the property name. The pk is a UUID, and Django raises its own
     # ValidationError for any other string, which the API would turn into a 500.
