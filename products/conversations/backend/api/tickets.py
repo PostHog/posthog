@@ -237,7 +237,11 @@ class TicketReplyRequestSerializer(serializers.Serializer):
     rich_content = serializers.JSONField(
         required=False,
         allow_null=True,
-        help_text="Optional TipTap rich content JSON for formatted messages.",
+        help_text=(
+            "Optional TipTap rich content JSON for formatted messages. When set, channels deliver this "
+            'instead of message. Images need it: add a node {"type": "image", "attrs": {"src": <url>, '
+            '"alt": <text>}} to the "doc" content. Use the url of an image uploaded to this project.'
+        ),
     )
 
     def validate_message(self, value: str) -> str:

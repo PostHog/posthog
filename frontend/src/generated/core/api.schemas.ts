@@ -7223,6 +7223,7 @@ export type UploadedMediaListPurpose = (typeof UploadedMediaListPurpose)[keyof t
 
 export const UploadedMediaListPurpose = {
     Canvas: 'canvas',
+    Conversations: 'conversations',
     Email: 'email',
     Experiment: 'experiment',
 } as const
@@ -7237,6 +7238,7 @@ export const UploadedMediaCreateBodyPurpose = {
     Email: 'email',
     Canvas: 'canvas',
     Experiment: 'experiment',
+    Conversations: 'conversations',
 } as const
 
 export type UploadedMediaCreateBody = {

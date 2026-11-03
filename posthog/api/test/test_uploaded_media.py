@@ -640,7 +640,7 @@ class TestMediaLibraryAPI(APIBaseTest):
         assert media_location is not None
         return media_id, media_location
 
-    @parameterized.expand([("email",), ("experiment",)])
+    @parameterized.expand([("email",), ("experiment",), ("conversations",)])
     def test_complete_upload_verifies_and_activates_the_pending_upload(self, purpose: str) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
             media_id, media_location = self._start_upload(purpose=purpose)

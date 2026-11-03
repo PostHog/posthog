@@ -32,7 +32,8 @@ class ObjectStorageUnavailable(Exception):
 MEDIA_PURPOSE_EMAIL = "email"
 MEDIA_PURPOSE_CANVAS = "canvas"
 MEDIA_PURPOSE_EXPERIMENT = "experiment"
-MEDIA_PURPOSES = [MEDIA_PURPOSE_EMAIL, MEDIA_PURPOSE_CANVAS, MEDIA_PURPOSE_EXPERIMENT]
+MEDIA_PURPOSE_CONVERSATIONS = "conversations"
+MEDIA_PURPOSES = [MEDIA_PURPOSE_EMAIL, MEDIA_PURPOSE_CANVAS, MEDIA_PURPOSE_EXPERIMENT, MEDIA_PURPOSE_CONVERSATIONS]
 
 # These uploads must never be served through the unauthenticated /uploaded_media route.
 # Their owning product provides an authenticated download endpoint instead.

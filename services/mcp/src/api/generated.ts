@@ -110977,7 +110977,7 @@ export namespace Schemas {
       message: string;
       /** If true, store as an internal note (not sent to the customer). If false, the reply is delivered to the customer over the ticket's channel. */
       is_private?: boolean;
-      /** Optional TipTap rich content JSON for formatted messages. */
+      /** Optional TipTap rich content JSON for formatted messages. When set, channels deliver this instead of message. Images need it: add a node {"type": "image", "attrs": {"src": <url>, "alt": <text>}} to the "doc" content. Use the url of an image uploaded to this project. */
       rich_content?: unknown;
     }
 
@@ -132768,6 +132768,7 @@ export namespace Schemas {
 
     export const UploadedMediaListPurpose = {
       Canvas: 'canvas',
+      Conversations: 'conversations',
       Email: 'email',
       Experiment: 'experiment',
     } as const;
@@ -132782,6 +132783,7 @@ export namespace Schemas {
       Email: 'email',
       Canvas: 'canvas',
       Experiment: 'experiment',
+      Conversations: 'conversations',
     } as const;
 
     export type UploadedMediaCreateBody = {

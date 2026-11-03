@@ -364,7 +364,12 @@ export const ConversationsTicketsReplyCreateBody = () => zod
             .describe(
                 "If true, store as an internal note (not sent to the customer). If false, the reply is delivered to the customer over the ticket's channel."
             ),
-        rich_content: zod.unknown().optional().describe('Optional TipTap rich content JSON for formatted messages.'),
+        rich_content: zod
+            .unknown()
+            .optional()
+            .describe(
+                'Optional TipTap rich content JSON for formatted messages. When set, channels deliver this instead of message. Images need it: add a node {\"type\": \"image\", \"attrs\": {\"src\": <url>, \"alt\": <text>}} to the \"doc\" content. Use the url of an image uploaded to this project.'
+            ),
     })
     .describe('Payload for posting a reply or internal note to a ticket.')
 
