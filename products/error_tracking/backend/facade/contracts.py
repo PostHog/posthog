@@ -129,6 +129,22 @@ class ErrorTrackingFingerprint:
 
 
 @dataclass(frozen=True)
+class ErrorTrackingIssueImpact:
+    id: UUID
+    name: str | None
+    description: str | None
+    severity: str | None
+    is_assigned: bool
+    source: str | None
+    first_seen: datetime
+    last_seen: datetime
+    occurrences: int
+    users: int
+    sessions: int
+    daily_occurrences: tuple[int, ...]
+
+
+@dataclass(frozen=True)
 class ErrorTrackingIssuePreview:
     id: UUID
     status: str
