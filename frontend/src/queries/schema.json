@@ -36549,6 +36549,10 @@
                     "description": "Google Ads search term table for Performance Max campaigns.",
                     "type": "string"
                 },
+                "queryPageTable": {
+                    "description": "Google Search Console table with one row per query and page, used to find the page that ranks for a search.",
+                    "type": "string"
+                },
                 "queryTable": {
                     "description": "Google Search Console table with one row per query, or per query and page.",
                     "type": "string"
