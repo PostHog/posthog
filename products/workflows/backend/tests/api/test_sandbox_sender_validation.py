@@ -135,6 +135,35 @@ class TestSandboxSenderValidation(APIBaseTest):
 
         assert response.status_code == 200, response.json()
 
+    @parameterized.expand(
+        [
+            ("dictionary_input_retyped_as_email", "dictionary", "email"),
+            ("email_value_moved_to_another_input", "native_email", "backup"),
+        ]
+    )
+    def test_stored_sandbox_value_is_not_grandfathered_into_a_different_email_input(
+        self, _name: str, stored_type: str, new_key: str
+    ) -> None:
+        function = HogFunction.objects.create(
+            team=self.team,
+            name="Stored destination",
+            type="destination",
+            hog="return 1;",
+            inputs_schema=[{"key": "email", "type": stored_type}],
+            inputs={"email": {"value": self._email()}},
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function.id}/",
+            {
+                "inputs_schema": [{**self.email_schema[0], "key": new_key}],
+                "inputs": {new_key: {"value": self._email()}},
+            },
+        )
+
+        assert response.status_code == 400, response.json()
+        assert "workflow email steps and test sends" in response.json()["detail"].lower()
+
     def test_destination_with_an_own_rotation_ignores_a_stale_sandbox_fallback(self) -> None:
         own_sender = Integration.objects.create(
             team=self.team,

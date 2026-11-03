@@ -140,6 +140,17 @@ def _sandbox_sender_enabled(team: Team, context: dict[str, Any]) -> bool:
     return flag_cache[team.id]
 
 
+def _stored_email_values(context: dict[str, Any]) -> list[object]:
+    # A workflow step passes its stored email values. A hog function passes them by input key,
+    # so only the value stored under the input being validated counts.
+    stored = list(context.get("existing_email_values") or [])
+    by_key = context.get("existing_email_values_by_key")
+    schema = context.get("schema")
+    if isinstance(by_key, dict) and isinstance(schema, dict) and str(schema.get("key")) in by_key:
+        stored.append(by_key[str(schema.get("key"))])
+    return stored
+
+
 def validate_sandbox_email_sender(email_value: object, context: dict[str, Any]) -> None:
     # Every check returns before any query or flag evaluation while the sandbox settings are empty,
     # and before any integration lookup while the project lacks the flag.
@@ -165,7 +176,7 @@ def validate_sandbox_email_sender(email_value: object, context: dict[str, Any]) 
         raise serializers.ValidationError(
             {"input": "The sandbox sender cannot be used in broadcasts. Select a sender on your own verified domain."}
         )
-    for stored in context.get("existing_email_values") or []:
+    for stored in _stored_email_values(context):
         if (
             isinstance(stored, dict)
             and email_value["from"] == stored.get("from")
