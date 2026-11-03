@@ -121,7 +121,7 @@ function SpaceCell({ item }: { item: AnalyticsItem }): JSX.Element {
         <DropdownMenu>
             <DropdownMenuTrigger render={<Button size="sm" data-attr="analytics-list-row-space" />}>
                 <AnalyticsSpaceGlyph name={item.spaceName} />
-                {item.spaceName}
+                <span>{item.spaceName}</span>
                 <IconChevronDown />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="min-w-60">
@@ -132,7 +132,7 @@ function SpaceCell({ item }: { item: AnalyticsItem }): JSX.Element {
                     data-attr="analytics-list-row-open-space"
                 >
                     <IconFolderOpen />
-                    {`Open "${item.spaceName}"`}
+                    <span>{`Open "${item.spaceName}"`}</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => openShareToSpace(target)} data-attr="analytics-list-row-move">
                     <IconFolderMove />

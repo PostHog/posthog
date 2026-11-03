@@ -858,8 +858,10 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                 // pinned: analytics event name and properties. Renaming them breaks dashboards.
                 posthog.capture('analytics default sort changed', { order_by: orderBy, scope: values.scope })
                 updateDisplay({ default_sort: orderBy })
-                // A sort in the URL is this visit's choice, so only a list on the default sort changes now.
-                if (values.mode === 'feed' && !values.filters.orderBy) {
+                // The person just chose the order, so a sort from a header click or a link gives way to it.
+                if (values.filters.orderBy) {
+                    actions.setFilters({ orderBy: undefined })
+                } else if (values.mode === 'feed') {
                     loadCurrentMode()
                 }
             },

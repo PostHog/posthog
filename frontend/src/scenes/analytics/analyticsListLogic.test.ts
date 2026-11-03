@@ -99,6 +99,20 @@ describe('analyticsListLogic', () => {
         ])
     })
 
+    it('lets a sort chosen in the menu replace a header click', async () => {
+        const logic = analyticsListLogic()
+        logic.mount()
+        await expectLogic(logic, () => router.actions.push(urls.analyticsList())).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.setFilters({ orderBy: 'created_at' })).toFinishAllListeners()
+        expect(logic.values.feedQuery.orderBy).toBe('created_at')
+
+        await expectLogic(logic, () => logic.actions.setDefaultSort('-last_viewed_at')).toFinishAllListeners()
+
+        expect(logic.values.filters.orderBy).toBeUndefined()
+        expect(logic.values.feedQuery.orderBy).toBe('-last_viewed_at')
+        expect(router.values.searchParams.orderBy).toBeUndefined()
+    })
+
     it('opens each list on the Display default sort, and a header click sorts only that visit', async () => {
         userLogic.actions.loadUserSuccess({
             ...userLogic.values.user!,

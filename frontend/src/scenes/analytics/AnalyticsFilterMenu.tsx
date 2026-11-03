@@ -21,6 +21,7 @@ import { membersLogic } from '~/models/membersLogic'
 import { tagsModel } from '~/models/tagsModel'
 import { AnalyticsListDisplayConfiguration } from '~/queries/schema/schema-general'
 
+import { AnalyticsOrderBy } from './analyticsFeed'
 import { analyticsListLogic } from './analyticsListLogic'
 import { AnalyticsOwnerAvatar } from './AnalyticsOwner'
 import { AnalyticsTypeIcon } from './AnalyticsTypeIcon'
@@ -28,10 +29,20 @@ import { ANALYTICS_TYPES, AnalyticsType } from './analyticsUtils'
 
 type AnalyticsSort = NonNullable<AnalyticsListDisplayConfiguration['default_sort']>
 
-const SORT_OPTIONS: FilterOption<AnalyticsSort>[] = [
+const SORT_OPTIONS: FilterOption<AnalyticsOrderBy>[] = [
     { value: '-last_viewed_at', label: 'Last viewed' },
     { value: '-created_at', label: 'Created' },
 ]
+
+// Only a header click or a link reaches these orders, so each shows as a row only while it is in force.
+const OLDEST_FIRST_OPTIONS: Partial<Record<AnalyticsOrderBy, FilterOption<AnalyticsOrderBy>>> = {
+    last_viewed_at: { value: 'last_viewed_at', label: 'Last viewed, oldest first' },
+    created_at: { value: 'created_at', label: 'Created, oldest first' },
+}
+
+function isAnalyticsSort(orderBy: AnalyticsOrderBy): orderBy is AnalyticsSort {
+    return orderBy === '-last_viewed_at' || orderBy === '-created_at'
+}
 
 const TYPE_OPTIONS: FilterOption<AnalyticsType>[] = ANALYTICS_TYPES.map((info) => ({
     value: info.type,
@@ -56,13 +67,15 @@ export function AnalyticsFilterMenu(): JSX.Element {
     const { meFirstMembers, membersLoading } = useValues(membersLogic)
     const { ensureAllMembersLoaded } = useActions(membersLogic)
     const { user } = useValues(userLogic)
+    const sort = filters.orderBy ?? defaultSort
+    const oldestFirstOption = OLDEST_FIRST_OPTIONS[sort]
 
     return (
         <DropdownMenu
             onOpenChange={(open) => {
-                if (open) {
+                // The Created by row names the people picked, so it needs them as soon as the menu shows.
+                if (open && scope === 'all' && filters.createdBy.length > 0) {
                     ensureAllMembersLoaded()
-                    loadTagsIfNeeded()
                 }
             }}
         >
@@ -70,9 +83,13 @@ export function AnalyticsFilterMenu(): JSX.Element {
             <DropdownMenuContent align="start" className="min-w-64">
                 <FilterRadioSubMenu
                     label="Sort by"
-                    options={SORT_OPTIONS}
-                    value={defaultSort}
-                    onChange={setDefaultSort}
+                    options={oldestFirstOption ? [...SORT_OPTIONS, oldestFirstOption] : SORT_OPTIONS}
+                    value={sort}
+                    onChange={(next) => {
+                        if (isAnalyticsSort(next)) {
+                            setDefaultSort(next)
+                        }
+                    }}
                     optionDataAttr="analytics-list-default-sort"
                 />
                 <DropdownMenuSeparator />
@@ -106,6 +123,7 @@ export function AnalyticsFilterMenu(): JSX.Element {
                         loading={membersLoading}
                         searchPlaceholder="Search people"
                         emptyText="No one matches"
+                        onOpen={ensureAllMembersLoaded}
                         dataAttr="analytics-list-created-by"
                         optionDataAttr="analytics-list-created-by-option"
                     />
@@ -120,6 +138,7 @@ export function AnalyticsFilterMenu(): JSX.Element {
                     loading={tagsLoading}
                     searchPlaceholder="Search tags"
                     emptyText="No tag matches"
+                    onOpen={loadTagsIfNeeded}
                     dataAttr="analytics-list-tags"
                     optionDataAttr="analytics-list-tags-option"
                 />
