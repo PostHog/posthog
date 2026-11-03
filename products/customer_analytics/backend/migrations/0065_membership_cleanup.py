@@ -2,9 +2,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("customer_analytics", "0064_custompropertyvalue_active_sort_indexes")
-    ]
+    dependencies = [("customer_analytics", "0064_custompropertyvalue_active_sort_indexes")]
 
     operations = [
         migrations.CreateModel(
@@ -47,9 +45,7 @@ class Migration(migrations.Migration):
                 ("distinct_id", models.TextField()),
                 (
                     "missing_side",
-                    models.CharField(
-                        choices=[("person", "person"), ("group", "group")], max_length=6
-                    ),
+                    models.CharField(choices=[("person", "person"), ("group", "group")], max_length=6),
                 ),
                 ("first_missing_at", models.DateTimeField()),
                 ("last_checked_at", models.DateTimeField()),

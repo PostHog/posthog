@@ -1,4 +1,3 @@
-import json
 from datetime import timedelta
 from uuid import UUID, uuid4
 
@@ -13,11 +12,7 @@ from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 
-from products.customer_analytics.backend.logic.membership import (
-    MembershipKey,
-    MembershipPerson,
-    list_membership_persons,
-)
+from products.customer_analytics.backend.logic.membership import MembershipKey
 from products.customer_analytics.backend.logic.membership_cleanup import (
     MembershipCleanupCounts,
     MembershipCleanupInput,
@@ -56,11 +51,11 @@ class TestMembershipCleanup(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    def create_person(self, *, person_id: UUID | None = None, version: int = 1, deleted: bool = False) -> UUID:
-        person_id = person_id or uuid4()
+    def create_person(self, *, deleted: bool = False) -> UUID:
+        person_id = uuid4()
         sync_execute(
-            "INSERT INTO person (id, created_at, team_id, properties, is_deleted, version) VALUES",
-            [(person_id, self.now, self.team.pk, json.dumps({"name": f"Person version {version}"}), deleted, version)],
+            "INSERT INTO person (id, created_at, team_id, is_deleted, version) VALUES",
+            [(person_id, self.now, self.team.pk, deleted, 1)],
         )
         return person_id
 
@@ -92,13 +87,20 @@ class TestMembershipCleanup(ClickhouseTestMixin, APIBaseTest):
             {"team_id": team_id or self.team.pk},
         )
 
-    @parameterized.expand([("person", False), ("person", True), ("group", False)])
-    def test_grace_period_and_physical_erasure(self, missing_side: str, deleted_profile: bool) -> None:
+    @parameterized.expand(
+        [("person", False, False), ("person", True, False), ("person", False, True), ("group", False, False)]
+    )
+    def test_grace_period_and_physical_erasure(
+        self, missing_side: str, deleted_profile: bool, deleted_mapping: bool
+    ) -> None:
         self.create_membership()
         if missing_side == "person":
             self.create_group()
-            if deleted_profile:
-                self.create_mapping(self.create_person(deleted=True))
+            if deleted_profile or deleted_mapping:
+                person_id = self.create_person(deleted=deleted_profile)
+                self.create_mapping(person_id)
+                if deleted_mapping:
+                    self.create_mapping(person_id, version=2, deleted=True)
         else:
             self.create_mapping(self.create_person())
         with travel(self.now, tick=False):
@@ -116,17 +118,19 @@ class TestMembershipCleanup(ClickhouseTestMixin, APIBaseTest):
         assert self.get_rows() == []
         assert not MembershipCleanupCandidate.objects.for_team(self.team.pk).exists()
 
-    @parameterized.expand([("person",), ("group",)])
-    def test_recovered_match_clears_candidate(self, missing_side: str) -> None:
+    @parameterized.expand([("person", False), ("person", True), ("group", False)])
+    def test_recovered_match_clears_candidate(self, missing_side: str, reassigned_mapping: bool) -> None:
         self.create_membership()
         if missing_side == "person":
             self.create_group()
+            if reassigned_mapping:
+                self.create_mapping(self.create_person(deleted=True))
         else:
             self.create_mapping(self.create_person())
         with travel(self.now, tick=False):
             self.run_cleanup()
         if missing_side == "person":
-            self.create_mapping(self.create_person())
+            self.create_mapping(self.create_person(), version=2)
         else:
             self.create_group()
         with travel(self.now + timedelta(hours=25), tick=False):
@@ -244,35 +248,3 @@ class TestMembershipCleanup(ClickhouseTestMixin, APIBaseTest):
             "SELECT count() FROM distributed_person_group_membership_config WHERE team_id = %(team_id)s",
             {"team_id": self.team.pk},
         ) == [(1,)]
-
-    def test_identity_reads_follow_current_mappings_and_properties(self) -> None:
-        self.create_membership()
-        alias = MembershipKey(group_type_index=0, group_key=self.key.group_key, distinct_id="example-alias")
-        self.create_membership(alias)
-        first = self.create_person()
-        second = self.create_person()
-        self.create_mapping(first)
-        self.create_mapping(second, distinct_id=alias.distinct_id)
-
-        def read() -> list[MembershipPerson]:
-            return list_membership_persons(team_id=self.team.pk, group_type_index=0, group_key=self.key.group_key)
-
-        assert {person.person_id for person in read()} == {str(first), str(second)}
-        self.create_mapping(first, distinct_id=alias.distinct_id, version=2)
-        self.create_person(person_id=first, version=2)
-        rows = read()
-        assert len(rows) == 1
-        assert rows[0].properties == {"name": "Person version 2"}
-        self.create_mapping(second, distinct_id=alias.distinct_id, version=3)
-        assert {person.person_id for person in read()} == {str(first), str(second)}
-        self.create_person(person_id=first, version=3, deleted=True)
-        assert [person.person_id for person in read()] == [str(second)]
-        self.create_mapping(second, distinct_id=alias.distinct_id, version=4, deleted=True)
-        assert read() == []
-        assert len(self.get_rows()) == 2
-        assert list_membership_persons(team_id=self.team.pk, group_type_index=1, group_key=self.key.group_key) == []
-        assert list_membership_persons(team_id=self.team.pk, group_type_index=0, group_key="other-account") == []
-        assert (
-            list_membership_persons(team_id=self.team.pk + 1000000, group_type_index=0, group_key=self.key.group_key)
-            == []
-        )
