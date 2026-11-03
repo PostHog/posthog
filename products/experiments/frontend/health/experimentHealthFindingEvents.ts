@@ -34,7 +34,6 @@ export type ExperimentHealthFindingCode =
     | 'metric_all_zero'
     | 'exposure_criteria_cannot_match'
     | 'exposure_filter_on_dynamic_cohort'
-    | 'exposure_filter_excludes_events'
     | 'forced_variant_release_condition'
     | 'flag_variants_mismatch'
     | 'split_changed_mid_run'

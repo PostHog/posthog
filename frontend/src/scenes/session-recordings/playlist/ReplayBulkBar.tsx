@@ -1,15 +1,17 @@
 import { useActions, useValues } from 'kea'
 
-import { IconEllipsis } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconEllipsis, IconEye } from '@posthog/icons'
+import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@posthog/quill'
 
-import { LemonMenu, LemonMenuItem, LemonMenuItemLeafCallback } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { LemonMenuItem, LemonMenuItemLeafCallback } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { QuillMenuItems } from './QuillMenuItems'
 import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
-import { AddToCollectionModal, BulkScanMenuItem, ConfirmDeleteRecordings } from './SessionRecordingsPlaylistSettings'
+import { AddToCollectionModal, ConfirmDeleteRecordings } from './SessionRecordingsPlaylistSettings'
+import { useBulkScanMenuItems } from './useBulkScanMenuItems'
 
 export function ReplayBulkBar({ type, shortId }: { type: 'filters' | 'collection'; shortId?: string }): JSX.Element {
     const { selectedRecordingsIds } = useValues(sessionRecordingsPlaylistLogic)
@@ -20,6 +22,7 @@ export function ReplayBulkBar({ type, shortId }: { type: 'filters' | 'collection
         handleBulkMarkAsNotViewed,
         handleBulkDeleteFromPlaylist,
     } = useActions(sessionRecordingsPlaylistLogic)
+    const bulkScan = useBulkScanMenuItems()
     const accessControlDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.SessionRecording,
         AccessControlLevel.Editor
@@ -40,7 +43,14 @@ export function ReplayBulkBar({ type, shortId }: { type: 'filters' | 'collection
                   },
               ]
             : []),
-        { key: 'bulk-scan-recordings', label: () => <BulkScanMenuItem />, custom: true },
+        {
+            label: 'Scan these recordings',
+            icon: <IconEye />,
+            items: bulkScan.items,
+            disabledReason: bulkScan.disabledReason,
+            tooltip: bulkScan.tooltip,
+            'data-attr': 'vision-bulk-scan-recordings',
+        },
     ]
 
     const primaryItems: LemonMenuItemLeafCallback[] = [
@@ -65,35 +75,38 @@ export function ReplayBulkBar({ type, shortId }: { type: 'filters' | 'collection
             <span className="font-semibold px-1 shrink-0">{selectedRecordingsIds.length} selected</span>
             <div className="hidden @min-[24rem]/list-header:flex items-center gap-1">
                 {primaryItems.map((item) => (
-                    <LemonButton
+                    <Button
                         key={item['data-attr']}
-                        size="xsmall"
-                        status={item.status}
+                        variant={item.status === 'danger' ? 'destructive-outline' : 'default'}
                         onClick={item.onClick}
                         disabledReason={item.disabledReason}
                         data-attr={item['data-attr']}
                     >
                         {item.label}
-                    </LemonButton>
+                    </Button>
                 ))}
-                <LemonMenu items={moreItems} placement="bottom-end" buttonSize="xsmall">
-                    <LemonButton
-                        size="xsmall"
-                        icon={<IconEllipsis />}
-                        aria-label="More actions"
-                        data-attr="bulk-action-menu"
-                    />
-                </LemonMenu>
+                <DropdownMenu>
+                    <DropdownMenuTrigger
+                        render={<Button size="icon" aria-label="More actions" data-attr="bulk-action-menu" />}
+                    >
+                        <IconEllipsis />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                        <QuillMenuItems items={moreItems} />
+                    </DropdownMenuContent>
+                </DropdownMenu>
             </div>
             <div className="@min-[24rem]/list-header:hidden">
-                <LemonMenu items={[...primaryItems, ...moreItems]} placement="bottom-end" buttonSize="xsmall">
-                    <LemonButton
-                        size="xsmall"
-                        icon={<IconEllipsis />}
-                        aria-label="Bulk actions"
-                        data-attr="bulk-action-menu-narrow"
-                    />
-                </LemonMenu>
+                <DropdownMenu>
+                    <DropdownMenuTrigger
+                        render={<Button size="icon" aria-label="Bulk actions" data-attr="bulk-action-menu-narrow" />}
+                    >
+                        <IconEllipsis />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                        <QuillMenuItems items={[...primaryItems, ...moreItems]} />
+                    </DropdownMenuContent>
+                </DropdownMenu>
             </div>
             <ConfirmDeleteRecordings shortId={shortId} />
             <AddToCollectionModal shortId={shortId} />
