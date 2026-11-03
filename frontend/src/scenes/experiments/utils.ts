@@ -602,13 +602,8 @@ export function experimentHasQuantileMetric(experiment: Experiment): boolean {
     return [
         ...(experiment.metrics ?? []),
         ...(experiment.metrics_secondary ?? []),
-        ...(experiment.saved_metrics ?? []).map((savedMetric: { query?: unknown }) => savedMetric.query),
-    ].some(
-        (metric) =>
-            !!metric &&
-            typeof metric === 'object' &&
-            (metric as { metric_type?: unknown }).metric_type === ExperimentMetricType.QUANTILE
-    )
+        ...(experiment.saved_metrics ?? []).map((savedMetric: { query?: ExperimentMetric }) => savedMetric.query),
+    ].some((metric) => metric?.kind === NodeKind.ExperimentMetric && isExperimentQuantileMetric(metric))
 }
 
 /** The backend rejects an incomplete metric too, but this lets the save button say what is missing first. */

@@ -369,17 +369,16 @@ describe('formatMetricValue', () => {
         expect(formatMetricValue({ sum: 3, denominator_sum: 0 }, ratioMetric)).toBe('—')
     })
 
-    it('formats a quantile metric as the quantile, not as a mean of the below-quantile count', () => {
+    it.each([
+        ['the quantile, not a mean of the below-quantile count', [842.5, 790, 901], '843'],
+        ['"—" without a quantile grid', undefined, '—'],
+    ])('formats a quantile metric as %s', (_, quantileGrid, expected) => {
         expect(
             formatMetricValue(
-                { sum: 450, number_of_samples: 120, denominator_sum: 500, quantile_grid: [842.5, 790, 901] },
+                { sum: 450, number_of_samples: 120, denominator_sum: 500, quantile_grid: quantileGrid },
                 quantileMetric
             )
-        ).toBe('843')
-    })
-
-    it('returns "—" for a quantile metric without a quantile grid', () => {
-        expect(formatMetricValue({ sum: 0, number_of_samples: 120, denominator_sum: 0 }, quantileMetric)).toBe('—')
+        ).toBe(expected)
     })
 
     it('returns "—" when the value is not a number', () => {

@@ -41,14 +41,13 @@ export function resolveSequentialTuningParameter(
     return fallback
 }
 
-export const PERCENTILE_SEQUENTIAL_DISABLED_REASON = "Percentile metrics don't support sequential testing yet"
-export const PERCENTILE_METRIC_SEQUENTIAL_DISABLED_REASON = `${PERCENTILE_SEQUENTIAL_DISABLED_REASON}. Turn off sequential testing in this experiment's statistics settings first.`
+type StatsConfig = { method?: string; frequentist?: SequentialConfig } | null | undefined
+
+const PERCENTILE_SEQUENTIAL_DISABLED_REASON = "Percentile metrics don't support sequential testing yet"
+const PERCENTILE_METRIC_SEQUENTIAL_DISABLED_REASON = `${PERCENTILE_SEQUENTIAL_DISABLED_REASON}. Turn off sequential testing in this experiment's statistics settings first.`
 
 /** Sequential testing applies only to frequentist experiments, and an unset choice follows the team default. */
-export function experimentUsesSequentialTesting(
-    statsConfig: { method?: string; frequentist?: SequentialConfig } | null | undefined,
-    teamDefaultEnabled: boolean
-): boolean {
+export function experimentUsesSequentialTesting(statsConfig: StatsConfig, teamDefaultEnabled: boolean): boolean {
     return (
         statsConfig?.method === ExperimentStatsMethod.Frequentist &&
         resolveSequentialEnabled(statsConfig.frequentist, teamDefaultEnabled)
@@ -58,7 +57,7 @@ export function experimentUsesSequentialTesting(
 /** Why a metric list that includes a percentile metric can't be saved on this experiment, if it can't. */
 export function percentileMetricSequentialReason(
     includesPercentileMetric: boolean,
-    statsConfig: { method?: string; frequentist?: SequentialConfig } | null | undefined,
+    statsConfig: StatsConfig,
     teamDefaultEnabled: boolean
 ): string | undefined {
     return includesPercentileMetric && experimentUsesSequentialTesting(statsConfig, teamDefaultEnabled)
@@ -77,7 +76,7 @@ export interface PercentileSequentialBlocks {
 
 export function percentileSequentialBlocks(
     hasPercentileMetric: boolean,
-    statsConfig: { method?: string; frequentist?: SequentialConfig } | null | undefined,
+    statsConfig: StatsConfig,
     teamDefaultEnabled: boolean
 ): PercentileSequentialBlocks {
     if (!hasPercentileMetric) {
