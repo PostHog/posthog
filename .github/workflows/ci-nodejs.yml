@@ -491,10 +491,13 @@ jobs:
                       shard_count: 1
                     - lane: serial
                       shard: 1
-                      shard_count: 2
+                      shard_count: 3
                     - lane: serial
                       shard: 2
-                      shard_count: 2
+                      shard_count: 3
+                    - lane: serial
+                      shard: 3
+                      shard_count: 3
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -760,7 +763,7 @@ jobs:
                   # jest-junit's outputDir resolves against the jest process cwd, which is the
                   # workspace root for the turbo invocation but `nodejs/` if a shard ever runs
                   # jest directly; cover both.
-                  # Lane-qualified: serial 1/2 and parallel 1/1 are both shard 1, and the
+                  # Lane-qualified: serial 1/3 and parallel 1/1 are both shard 1, and the
                   # artifact list returns one entry per name, so a lane-less name hides one.
                   name: junit-results-nodejs-${{ matrix.lane }}-${{ matrix.shard }}${{ github.run_attempt != '1' && format('-attempt{0}', github.run_attempt) || '' }}
                   path: |
