@@ -324,7 +324,6 @@ export function compressBrotli(data: Buffer, quality: number): Promise<Buffer> {
     return native.compressBrotli(data, quality)
 }
 
-/** The owner and kind of a v3 object, as `replay_core_v4::envelope::Context` names them. */
 export interface FrameContext {
     teamId: number
     sessionId?: string

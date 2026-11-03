@@ -632,7 +632,7 @@ fn compress_brotli_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
     Ok(promise)
 }
 
-/// Seals one v3 AISR03 frame. A context field that is undefined is left out of the authenticated data.
+/// A context field that is undefined is left out of the authenticated data.
 fn seal_frame_ffi(mut cx: FunctionContext) -> JsResult<JsBuffer> {
     let key = cx.argument::<JsBuffer>(0)?;
     let Ok(key) = <[u8; 32]>::try_from(key.as_slice(&cx)) else {
