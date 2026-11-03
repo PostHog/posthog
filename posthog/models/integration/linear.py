@@ -64,7 +64,8 @@ class LinearIntegration:
 
     def authorized_before_webhooks(self) -> bool:
         # A connection without `authorized_at` last authorized before the field existed, so `created_at`
-        # is the only date it has. If it reconnected since, the person reconnects once more to record it.
+        # is the only date it has. One that reconnected after `_WEBHOOKS_AVAILABLE_SINCE` but before this
+        # field existed still shows the banner, and its next reconnect writes `authorized_at`.
         authorized_at = self.integration.config.get("authorized_at")
         last_authorized = datetime.fromtimestamp(authorized_at, UTC) if authorized_at else self.integration.created_at
         return last_authorized < _WEBHOOKS_AVAILABLE_SINCE
