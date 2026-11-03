@@ -2,11 +2,18 @@ import './MCPHowItWorks.scss'
 
 import { type CSSProperties, type ComponentType, type KeyboardEvent, useEffect, useRef, useState } from 'react'
 
+import * as docBrownPng from '@posthog/brand/hoggies/png/doc-brown'
+
+import { pngHoggie } from 'lib/brand/hoggies'
 import type { ProductEmptyStateMode } from 'lib/components/ProductEmptyState/types'
 import { cn } from 'lib/utils/css-classes'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 
+import { MCPHowItWorksAskStage } from './MCPHowItWorksAskStage'
+import { MCPHowItWorksDashboardStage } from './MCPHowItWorksDashboardStage'
 import { MCPHowItWorksWrapStage } from './MCPHowItWorksWrapStage'
+
+const HedgehogDocBrown = pngHoggie(docBrownPng)
 
 type Step = number
 /** 0 is the frame before the first reveal, and the frame a replay restarts from. */
@@ -19,10 +26,14 @@ interface MCPHowItWorksProps {
 
 const STEPS: { step: Step; title: string; Stage: ComponentType<MCPHowItWorksProps> }[] = [
     { step: 1, title: 'Wrap your MCP server', Stage: MCPHowItWorksWrapStage },
+    { step: 2, title: 'Get a dashboard', Stage: MCPHowItWorksDashboardStage },
+    { step: 3, title: 'Ask from anywhere', Stage: MCPHowItWorksAskStage },
 ]
 const LAST_STEP: Step = STEPS.length
 
 const STEP_MS = 4300
+// Covers the hedgehog's walk between two steps (`left` transition and three hops in the stylesheet).
+const WALK_MS = 1300
 
 function isStatic(): boolean {
     return inStorybook() || inStorybookTestRunner() || !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
@@ -36,9 +47,12 @@ function isStatic(): boolean {
 export function MCPHowItWorks({ mode, preview }: MCPHowItWorksProps): JSX.Element {
     const [staticRender] = useState(isStatic)
     const [phase, setPhase] = useState<Phase>(staticRender ? LAST_STEP : 0)
+    const [hogAt, setHogAt] = useState<Step>(staticRender ? LAST_STEP : 1)
     const [replayTo, setReplayTo] = useState<Step | null>(null)
     const [autoplay, setAutoplay] = useState(false)
+    const [walking, setWalking] = useState(false)
     const rootRef = useRef<HTMLDivElement>(null)
+    const walkedFrom = useRef<Step>(hogAt)
     const tabRefs = useRef<(HTMLButtonElement | null)[]>([])
 
     useEffect(() => {
@@ -71,6 +85,22 @@ export function MCPHowItWorks({ mode, preview }: MCPHowItWorksProps): JSX.Elemen
         const timeout = window.setTimeout(() => setPhase(phase + 1), STEP_MS)
         return () => window.clearTimeout(timeout)
     }, [autoplay, phase])
+
+    useEffect(() => {
+        if (phase !== 0) {
+            setHogAt(phase)
+        }
+    }, [phase])
+
+    useEffect(() => {
+        if (staticRender || walkedFrom.current === hogAt) {
+            return
+        }
+        walkedFrom.current = hogAt
+        setWalking(true)
+        const timeout = window.setTimeout(() => setWalking(false), WALK_MS)
+        return () => window.clearTimeout(timeout)
+    }, [hogAt, staticRender])
 
     // A replay holds phase 0 for two frames, so the browser paints the hidden state before the reveal transitions run.
     useEffect(() => {
@@ -126,6 +156,7 @@ export function MCPHowItWorks({ mode, preview }: MCPHowItWorksProps): JSX.Elemen
                     !autoplay && phase !== 0 && 'MCPHowItWorks__diagram--done'
                 )}
                 data-phase={phase}
+                data-hog={hogAt}
                 style={{ '--mcp-how-step-duration': `${STEP_MS}ms` } as CSSProperties}
                 aria-label="MCP analytics in three steps: wrap your MCP server, get a pre-built dashboard, ask questions from anywhere"
             >
@@ -168,6 +199,17 @@ export function MCPHowItWorks({ mode, preview }: MCPHowItWorksProps): JSX.Elemen
                             </div>
                         </div>
                     ))}
+                </div>
+
+                <div className="MCPHowItWorks__track" aria-hidden="true">
+                    <div className="MCPHowItWorks__ground" />
+                    <div className="MCPHowItWorks__fill" />
+                    {STEPS.map(({ step }) => (
+                        <span key={step} className={`MCPHowItWorks__dot MCPHowItWorks__dot--${step}`} />
+                    ))}
+                    <div className={cn('MCPHowItWorks__hog', walking && 'MCPHowItWorks__hog--walking')}>
+                        <HedgehogDocBrown loading="eager" />
+                    </div>
                 </div>
             </section>
         </div>
