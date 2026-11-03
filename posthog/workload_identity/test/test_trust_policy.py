@@ -358,6 +358,13 @@ class TestWorkloadTrustPolicyRequestAPI(APIBaseTest):
         assert body["approval_url"].endswith(f"/project/{self.team.id}/workload-trust-policy-requests/{body['id']}")
         assert not WorkloadTrustPolicy.objects.for_team(self.team.id).exists()
 
+        OAuthApplication.objects.filter(name="Test app").update(
+            name="Renamed app", is_verified=False, is_first_party=False
+        )
+        shown = self.client.get(f"{self.url}{body['id']}/").json()
+
+        assert (shown["requested_via"], shown["requested_via_verified"]) == ("Renamed app", False)
+
     def test_admin_sees_they_can_approve_and_the_risky_scopes(self) -> None:
         self._set_level(OrganizationMembership.Level.ADMIN)
         policy_request = self._create_request(scopes=["organization_member:write", "annotation:write"])

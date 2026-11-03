@@ -17,6 +17,7 @@ from posthog.sync import database_sync_to_async_pool
 
 from products.warehouse_sources.backend.facade.contracts import SharedCredentialsEdit, UnreadableSourceInputsError
 from products.warehouse_sources.backend.logic.credential_auth_types import has_typed_in_credentials
+from products.warehouse_sources.backend.logic.source_credentials import WarehouseSourceCredentialsStore
 from products.warehouse_sources.backend.logic.source_credentials_rollout import (
     assign_credentials_reference,
     shadow_compare,
@@ -143,6 +144,17 @@ class SourceInputsStore:
             SourceInputsStore.assign(source, inputs)
             source.save(force_insert=True)
         return source
+
+    @staticmethod
+    def discard_created(source: ExternalDataSource) -> None:
+        """Delete a source that `create` made when a later step of the same create fails.
+
+        One transaction deletes the source and its credentials row. The row stays when another object
+        uses it. Do not use this for a source that was in use: the store keeps the credentials rows of those.
+        """
+        with transaction.atomic():
+            source.delete()
+            WarehouseSourceCredentialsStore.discard(source)
 
     @staticmethod
     def update_runtime(

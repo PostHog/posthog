@@ -682,10 +682,6 @@ class IDJagAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
     organization_id: str
 
     @classmethod
-    def _extract_token(cls, request: Union[HttpRequest, Request]) -> Optional[str]:
-        return _bearer_token(request)
-
-    @classmethod
     def is_id_jag_token(cls, token: str) -> bool:
         return _is_signed_jwt_of_type(token, cls._ID_JAG_ACCESS_TOKEN_TYPE)
 
@@ -783,7 +779,7 @@ class IDJagAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         with tracer.start_as_current_span("posthog.auth.id_jag"):
-            token = self._extract_token(request)
+            token = _bearer_token(request)
             if not token:
                 return None
             if not self.is_id_jag_token(token):
