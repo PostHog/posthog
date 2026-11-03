@@ -140,6 +140,15 @@ You can find your deployment URL and deploy key in your [Convex Dashboard](https
                 "turn off syncing for this table, then re-enable the sync."
             ),
             "StreamingExportNotEnabled": "Streaming export requires the Convex Professional plan. See https://www.convex.dev/plans to upgrade.",
+            # get_json_schemas fetches every table's schema in one call, so a single table whose
+            # schema has a union of object types fails discovery for the whole deployment, not
+            # just that table. Convex's export API doesn't support this shape at all, so every
+            # retry resubmits the same deployment schema and fails identically - only a schema
+            # change on the Convex side can clear it.
+            "UnsupportedSchemaForExport": (
+                "A table in this Convex deployment has a schema Convex can't export (a union of "
+                "object types). Change that field's type in your Convex schema, then retry."
+            ),
             # A deploy key that cannot be encoded into an Authorization header is rejected before
             # any request leaves PostHog, so every retry rebuilds the same unsendable request. The
             # user has to re-enter the key, which makes this a credential error rather than a blip.

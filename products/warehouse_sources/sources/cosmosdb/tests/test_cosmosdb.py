@@ -8,6 +8,7 @@ import time_machine
 
 from products.warehouse_sources.sources.cosmosdb._config import CosmosDBSourceConfig
 from products.warehouse_sources.sources.cosmosdb.cosmosdb import (
+    FORBIDDEN_MESSAGE,
     CosmosDBResumeConfig,
     CosmosDBRetryableError,
     CosmosDBTsCursor,
@@ -353,6 +354,20 @@ class TestValidateCredentials:
             assert message is not None and expected_fragment in message
         assert network.requests_log[0].path == "/dbs/shop/colls"
         assert network.requests_log[0].headers["authorization"].startswith("type%3Dmaster%26ver%3D1.0%26sig%3D")
+
+    def test_forbidden_probe_does_not_echo_the_azure_error_body(self) -> None:
+        response = ScriptedResponse(
+            status=403,
+            json={
+                "code": "Forbidden",
+                "message": "Request blocked by firewall. ActivityId: 00000000-0000-0000-0000-000000000000",
+            },
+        )
+        with scripted_network([response]):
+            ok, message = validate_credentials(ENDPOINT, ACCOUNT_KEY, "shop", "2018-12-31")
+
+        assert ok is False
+        assert message == FORBIDDEN_MESSAGE
 
     def test_rejects_a_key_that_is_not_base64_without_a_request(self) -> None:
         with scripted_network([]) as network:

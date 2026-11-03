@@ -365,6 +365,10 @@ def _search_stream(
 
         if not has_more or not next_cursor:
             break
+        if not batcher.should_yield(include_incomplete_chunk=True):
+            # Nothing is buffered, so every row before `next_cursor` is already yielded.
+            resumable_source_manager.save_state(NotionResumeConfig(next_cursor=next_cursor))
+            resumable_source_manager.safe_point()
         cursor = next_cursor
 
     if batcher.should_yield(include_incomplete_chunk=True):
@@ -413,6 +417,9 @@ def _cursor_list_stream(
         if batcher.should_yield():
             resumable_source_manager.save_state(NotionResumeConfig(next_cursor=next_cursor))
             yield batcher.get_table()
+        elif not batcher.should_yield(include_incomplete_chunk=True):
+            resumable_source_manager.save_state(NotionResumeConfig(next_cursor=next_cursor))
+            resumable_source_manager.safe_point()
         cursor = next_cursor
 
     if batcher.should_yield(include_incomplete_chunk=True):
@@ -458,7 +465,10 @@ def _permission_groups_stream(
 
 
 def _iter_page_ids(
-    session: requests.Session, logger: FilteringBoundLogger, throttle: Optional["_RateLimiter"] = None
+    session: requests.Session,
+    logger: FilteringBoundLogger,
+    throttle: Optional["_RateLimiter"] = None,
+    resumable_source_manager: ResumableSourceManager[NotionResumeConfig] | None = None,
 ) -> Iterator[str]:
     cursor: str | None = None
     while True:
@@ -482,6 +492,9 @@ def _iter_page_ids(
         if not data.get("has_more") or not data.get("next_cursor"):
             break
         cursor = data["next_cursor"]
+        if resumable_source_manager is not None:
+            # The enumeration buffers page ids, not rows, and stages no state, so a resume restarts it.
+            resumable_source_manager.safe_point()
 
 
 def _iter_block_children(
@@ -564,7 +577,7 @@ def _page_fan_out(
     else:
         # Materialize the full set of page IDs up front so the fan-out position can be persisted as a
         # shrinking queue (a crash during this initial enumeration restarts it, like other sources).
-        page_ids = list(_iter_page_ids(session, logger, throttle))
+        page_ids = list(_iter_page_ids(session, logger, throttle, resumable_source_manager))
 
     last_flush_at = time.monotonic()
     last_empty_stage_at = last_flush_at
