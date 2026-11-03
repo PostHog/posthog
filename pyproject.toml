@@ -628,6 +628,7 @@ ignore_imports = [
     "products.warehouse_sources.sources.sdk -> products.**",
     "products.warehouse_sources.sources.sdk.** -> posthog",
     "products.warehouse_sources.sources.sdk.** -> products.**",
+    "products.warehouse_sources.sources.sdk.testing -> common",
     "products.warehouse_sources.sources.conftest -> products.**",
 ]
 
