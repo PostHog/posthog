@@ -2145,8 +2145,11 @@ describe('CDP API', () => {
             {
                 secret = 'local-dev-workflows-transactional-email-jwt',
                 audience = 'posthog:workflows:send_transactional_email',
-            } = {}
-        ) => jwt.sign({ team_id: teamId, hog_flow_id: hogFlowId }, secret, { audience, expiresIn: '2m' })
+                claims = {},
+            }: { secret?: string; audience?: string; claims?: Record<string, string> } = {}
+        ) => jwt.sign({ team_id: teamId, hog_flow_id: hogFlowId, ...claims }, secret, { audience, expiresIn: '2m' })
+        const tokenFor = (route: string, teamId: number, hogFlowId: string) =>
+            mintToken(teamId, hogFlowId, route.endsWith('/send') ? { claims: { kind: 'code_send' } } : {})
 
         const transactionalFlow = (
             trigger: 'api' | 'schedule',
@@ -2200,7 +2203,7 @@ describe('CDP API', () => {
         const sendAccepted = (flowId: string, payload: Record<string, unknown>) =>
             supertest(app)
                 .post(`/api/projects/${team.id}/hog_flows/${flowId}/transactional_email/send`)
-                .set({ Authorization: `Bearer ${mintToken(team.id, flowId)}` })
+                .set({ Authorization: `Bearer ${tokenFor('transactional_email/send', team.id, flowId)}` })
                 .send(payload)
 
         const sendOn = (
@@ -2307,7 +2310,7 @@ describe('CDP API', () => {
             const sendKeyedOn = (route: 'transactional_email' | 'transactional_email/send', payload: object) =>
                 supertest(app)
                     .post(`/api/projects/${team.id}/hog_flows/${hogFlow.id}/${route}`)
-                    .set({ Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
+                    .set({ Authorization: `Bearer ${tokenFor(route, team.id, hogFlow.id)}` })
                     .send({ ...payload, idempotency_key: keyed.idempotency_key })
             const changedContent = { ...codeSend, content: { ...codeSend.content, subject: 'Your new code' } }
 
@@ -2581,7 +2584,7 @@ describe('CDP API', () => {
                 const refusedBefore = await outcomeCount(code)
                 const stagesBefore = await stageCounts()
                 const keyed = { ...body, ...extra, idempotency_key: `key-${new UUIDT().toString()}` }
-                const headers = { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` }
+                const headers = { Authorization: `Bearer ${tokenFor(route, team.id, hogFlow.id)}` }
 
                 const refused = await sendOn(route, hogFlow.id, headers, keyed)
 
@@ -2609,7 +2612,7 @@ describe('CDP API', () => {
 
             it('replays a keyed send whose workflow stopped being active since it went out', async () => {
                 const keyed = { ...body, ...extra, idempotency_key: `key-${new UUIDT().toString()}` }
-                const headers = { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` }
+                const headers = { Authorization: `Bearer ${tokenFor(route, team.id, hogFlow.id)}` }
                 const first = await sendOn(route, hogFlow.id, headers, keyed)
                 await hub.postgres.query(
                     PostgresUse.COMMON_WRITE,
@@ -2704,7 +2707,7 @@ describe('CDP API', () => {
                 const post = () =>
                     supertest(app)
                         .post(`/api/projects/${team.id}/hog_flows/${unseen.id}/${route}`)
-                        .set({ Authorization: `Bearer ${mintToken(team.id, unseen.id)}` })
+                        .set({ Authorization: `Bearer ${tokenFor(route, team.id, unseen.id)}` })
                         .send(payload)
 
                 expect((await post()).status).toEqual(202)
@@ -2729,12 +2732,22 @@ describe('CDP API', () => {
                         .send({ ...body, send: codeSend })
 
                 expect((await post({})).status).toEqual(401)
-                expect((await post({ Authorization: `Bearer ${mintToken(team.id + 1, hogFlow.id)}` })).status).toEqual(
-                    401
-                )
+                expect(
+                    (await post({ Authorization: `Bearer ${tokenFor(route, team.id + 1, hogFlow.id)}` })).status
+                ).toEqual(401)
                 expect(mockQueueInvocations).not.toHaveBeenCalled()
             }
         )
+
+        it('refuses a template send token on the code send route', async () => {
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/hog_flows/${hogFlow.id}/transactional_email/send`)
+                .set({ Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
+                .send({ ...body, send: codeSend })
+
+            expect(res.status).toEqual(401)
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
 
         it.each([
             ['no token', () => ({})],
