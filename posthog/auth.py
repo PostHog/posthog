@@ -977,6 +977,8 @@ class WorkloadAccessTokenAuthentication(ActivityCredentialMixin, authentication.
 
             verified = self.verify_access_token(token)
             refuse_blocked_account(request, verified.user, call_site="oidc_workload_token", impersonated=False)
+            # The owner the token acts as never minted it, so the owner's staff rights don't carry over.
+            verified.user.withhold_staff_rights()
             self.scopes = verified.scopes
             self.organization_id = verified.organization_id
             self.team_id = verified.team_id

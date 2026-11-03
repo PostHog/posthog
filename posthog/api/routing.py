@@ -387,8 +387,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         except NotImplementedError:
             pass
         else:
-            # A workload token acts as an owner, who may pass a view's own checks (a staff owner passes staff
-            # bypasses), so its policy's scopes and project are enforced whatever chain the view builds.
+            # A workload token acts as an owner, who may pass a view's own checks, so its policy's scopes and
+            # project are enforced whatever chain the view builds.
             workload_token_boundary = (
                 [APIScopePermission()]
                 if isinstance(self.request.successful_authenticator, WorkloadAccessTokenAuthentication)

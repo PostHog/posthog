@@ -23,7 +23,6 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.auth import WorkloadAccessTokenAuthentication
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.full_text_search import build_rank
@@ -141,15 +140,6 @@ def _tiles_without_agent_context(tiles: Any) -> Any:
     ]
 
 
-def _caller_is_staff(request: Request | None) -> bool:
-    # A workload token acts as the organization owner without the owner minting it, so a staff owner's
-    # rights over global templates don't carry over to it.
-    user = getattr(request, "user", None)
-    if not (user and user.is_authenticated and user.is_staff):
-        return False
-    return not isinstance(getattr(request, "successful_authenticator", None), WorkloadAccessTokenAuthentication)
-
-
 class CustomerDashboardTemplateWritePermission(BasePermission):
     """
     Staff: any unsafe method (delegates object rules to has_object_permission).
@@ -166,7 +156,8 @@ class CustomerDashboardTemplateWritePermission(BasePermission):
     def has_object_permission(self, request: Request, view, obj: Any) -> bool:
         if request.method in SAFE_METHODS:
             return True
-        if _caller_is_staff(request):
+        user = request.user
+        if getattr(user, "is_staff", False):
             return True
         if not isinstance(obj, DashboardTemplate):
             return False
@@ -246,6 +237,11 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
             ) from exc
         raise exc
 
+    def _request_user_is_staff(self) -> bool:
+        request = self.context.get("request")
+        user = getattr(request, "user", None) if request else None
+        return bool(user and user.is_authenticated and user.is_staff)
+
     def to_representation(self, instance: DashboardTemplate) -> dict[str, Any]:
         representation = super().to_representation(instance)
         get_team = self.context.get("get_team")
@@ -265,7 +261,9 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
         return detect_non_portable_references(obj.tiles or [])
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        is_staff = _caller_is_staff(self.context.get("request"))
+        request = self.context.get("request")
+        user = getattr(request, "user", None) if request else None
+        is_staff = bool(user and user.is_authenticated and user.is_staff)
         initial = getattr(self, "initial_data", None) or {}
         if not is_staff:
             if self.instance is None:
@@ -377,7 +375,7 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
                 enforce_organization_dashboard_template_limit(organization_id=cast(UUID, org_id))
 
         # Staff: global rows with no team become team-scoped to the project issuing the PATCH.
-        if _caller_is_staff(self.context.get("request")):
+        if self._request_user_is_staff():
             scope_to = validated_data.get("scope")
             if (
                 scope_to in (DashboardTemplate.Scope.ONLY_TEAM, "team")
@@ -389,7 +387,7 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
                     raise ValidationError(detail="Cannot set team scope without a project context.")
                 validated_data["team_id"] = context_team_id
 
-        if not _caller_is_staff(self.context.get("request")):
+        if not self._request_user_is_staff():
             # `scope` is intentionally allowed through (validated as a team <-> organization transition above).
             validated_data.pop("team_id", None)
             validated_data.pop("tiles", None)
@@ -439,8 +437,8 @@ def _pick_unique_template_name_for_copy(*, team_id: int, base_name: str) -> str:
     )
 
 
-def _assert_user_can_read_source_for_copy(*, user: User, source_team: Team, caller_is_staff: bool) -> None:
-    if caller_is_staff:
+def _assert_user_can_read_source_for_copy(*, user: User, source_team: Team) -> None:
+    if user.is_staff:
         return
     up = UserPermissions(user=user)
     if source_team.id not in up.team_ids_visible_for_user:
@@ -607,9 +605,7 @@ class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, views
             raise NotFound()
 
         user = cast(User, request.user)
-        _assert_user_can_read_source_for_copy(
-            user=user, source_team=source_team, caller_is_staff=_caller_is_staff(request)
-        )
+        _assert_user_can_read_source_for_copy(user=user, source_team=source_team)
 
         enforce_organization_dashboard_template_limit(organization_id=target_org_id)
 
