@@ -115,6 +115,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `marketing_analytics` - marketing_analytics
  * * `mcp_analytics` - mcp_analytics
  * * `mcp_registry` - mcp_registry
+ * * `messaging_preference` - messaging_preference
  * * `metrics` - metrics
  * * `notebook` - notebook
  * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -148,6 +149,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `today` - today
  * * `toolbar` - toolbar
  * * `tracing` - tracing
+ * * `transactional_email` - transactional_email
  * * `field_note` - field_note
  * * `uploaded_media` - uploaded_media
  * * `usage_metric` - usage_metric
@@ -238,6 +240,7 @@ export const ScopeObjectEnumApi = {
     MarketingAnalytics: 'marketing_analytics',
     McpAnalytics: 'mcp_analytics',
     McpRegistry: 'mcp_registry',
+    MessagingPreference: 'messaging_preference',
     Metrics: 'metrics',
     Notebook: 'notebook',
     OfflineEvaluationIngestion: 'offline_evaluation_ingestion',
@@ -271,6 +274,7 @@ export const ScopeObjectEnumApi = {
     Today: 'today',
     Toolbar: 'toolbar',
     Tracing: 'tracing',
+    TransactionalEmail: 'transactional_email',
     FieldNote: 'field_note',
     UploadedMedia: 'uploaded_media',
     UsageMetric: 'usage_metric',
@@ -384,6 +388,7 @@ export interface ProjectAccessSourceApi {
      * * `marketing_analytics` - marketing_analytics
      * * `mcp_analytics` - mcp_analytics
      * * `mcp_registry` - mcp_registry
+     * * `messaging_preference` - messaging_preference
      * * `metrics` - metrics
      * * `notebook` - notebook
      * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -417,6 +422,7 @@ export interface ProjectAccessSourceApi {
      * * `today` - today
      * * `toolbar` - toolbar
      * * `tracing` - tracing
+     * * `transactional_email` - transactional_email
      * * `field_note` - field_note
      * * `uploaded_media` - uploaded_media
      * * `usage_metric` - usage_metric
@@ -550,6 +556,7 @@ export interface AccessControlObjectRuleApi {
      * * `marketing_analytics` - marketing_analytics
      * * `mcp_analytics` - mcp_analytics
      * * `mcp_registry` - mcp_registry
+     * * `messaging_preference` - messaging_preference
      * * `metrics` - metrics
      * * `notebook` - notebook
      * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -583,6 +590,7 @@ export interface AccessControlObjectRuleApi {
      * * `today` - today
      * * `toolbar` - toolbar
      * * `tracing` - tracing
+     * * `transactional_email` - transactional_email
      * * `field_note` - field_note
      * * `uploaded_media` - uploaded_media
      * * `usage_metric` - usage_metric
@@ -944,6 +952,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `marketing_analytics` - marketing_analytics
      * * `mcp_analytics` - mcp_analytics
      * * `mcp_registry` - mcp_registry
+     * * `messaging_preference` - messaging_preference
      * * `metrics` - metrics
      * * `notebook` - notebook
      * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -977,6 +986,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `today` - today
      * * `toolbar` - toolbar
      * * `tracing` - tracing
+     * * `transactional_email` - transactional_email
      * * `field_note` - field_note
      * * `uploaded_media` - uploaded_media
      * * `usage_metric` - usage_metric
@@ -1233,6 +1243,7 @@ export interface ResolvedAccessApi {
      * * `marketing_analytics` - marketing_analytics
      * * `mcp_analytics` - mcp_analytics
      * * `mcp_registry` - mcp_registry
+     * * `messaging_preference` - messaging_preference
      * * `metrics` - metrics
      * * `notebook` - notebook
      * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -1266,6 +1277,7 @@ export interface ResolvedAccessApi {
      * * `today` - today
      * * `toolbar` - toolbar
      * * `tracing` - tracing
+     * * `transactional_email` - transactional_email
      * * `field_note` - field_note
      * * `uploaded_media` - uploaded_media
      * * `usage_metric` - usage_metric

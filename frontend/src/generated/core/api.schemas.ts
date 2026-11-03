@@ -5839,20 +5839,9 @@ export interface WorkloadProviderApi {
     condition_claims: WorkloadClaimApi[]
 }
 
-export interface UnsupportedWorkloadProviderApi {
-    /** Stable identifier of the provider. */
-    key: string
-    /** Display name of the provider. */
-    name: string
-    /** Why the provider can't be used. */
-    reason: string
-}
-
 export interface WorkloadProvidersResponseApi {
     /** Providers a policy can trust. */
     supported: WorkloadProviderApi[]
-    /** Known providers that can't be trusted. */
-    unsupported: UnsupportedWorkloadProviderApi[]
     /** Every scope a policy's ceiling may hold. */
     grantable_scopes: string[]
     /** What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care. */

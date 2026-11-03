@@ -38,7 +38,6 @@ from posthog.tasks.email import WorkloadTrustPolicyChange, send_workload_trust_p
 from posthog.workload_identity.providers import (
     WorkloadProvider,
     get_supported_workload_providers,
-    get_unsupported_workload_providers,
     get_workload_provider_by_issuer,
     normalize_issuer,
 )
@@ -299,15 +298,8 @@ class WorkloadProviderSerializer(serializers.Serializer):
     )
 
 
-class UnsupportedWorkloadProviderSerializer(serializers.Serializer):
-    key = serializers.CharField(help_text="Stable identifier of the provider.")
-    name = serializers.CharField(help_text="Display name of the provider.")
-    reason = serializers.CharField(help_text="Why the provider can't be used.")
-
-
 class WorkloadProvidersResponseSerializer(serializers.Serializer):
     supported = WorkloadProviderSerializer(many=True, help_text="Providers a policy can trust.")
-    unsupported = UnsupportedWorkloadProviderSerializer(many=True, help_text="Known providers that can't be trusted.")
     grantable_scopes = serializers.ListField(
         child=serializers.CharField(), help_text="Every scope a policy's ceiling may hold."
     )
@@ -388,7 +380,6 @@ class WorkloadTrustPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         grantable = workload_trust_policy_grantable_scopes()
         payload = {
             "supported": get_supported_workload_providers(),
-            "unsupported": get_unsupported_workload_providers(),
             "grantable_scopes": sorted(grantable),
             "risky_scopes": {scope: warning for scope, warning in RISKY_SCOPE_WARNINGS.items() if scope in grantable},
         }
