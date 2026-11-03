@@ -52,6 +52,19 @@ def platform_takes_new_alert(alert: AlertConfiguration) -> bool:
     return not in_an_environment(alert) and can_move(alert) and has_begun_cutover(alert.team_id)
 
 
+def platform_takes_new_alert_with(
+    *, team_id: int, calculation_interval: str, investigation_agent_enabled: bool
+) -> bool:
+    """Whether `on_created` hands a new alert with these settings to the platform."""
+    return platform_takes_new_alert(
+        AlertConfiguration(
+            team_id=team_id,
+            calculation_interval=calculation_interval,
+            investigation_agent_enabled=investigation_agent_enabled,
+        )
+    )
+
+
 def on_updated(alert: AlertConfiguration, *, snooze_changed: bool) -> None:
     """Writes an edit the insight API saved onto the platform's copy.
 

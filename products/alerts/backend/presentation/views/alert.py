@@ -121,7 +121,7 @@ from products.alerts.backend.facade.platform import (
     moved_alert_check_page,
     moved_alert_fired_checks,
     moved_alert_statuses,
-    platform_takes_new_alert,
+    platform_takes_new_alert_with,
     write_moved_alert_edit,
 )
 from products.alerts.backend.insight_alert_state_machine import (
@@ -2014,12 +2014,12 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def pagerduty_availability(self, request, *args, **kwargs):
         query = AlertPagerDutyAvailabilityQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
-        draft = AlertConfiguration(
-            team=self.team,
+        available = platform_takes_new_alert_with(
+            team_id=self.team_id,
             calculation_interval=query.validated_data["calculation_interval"],
             investigation_agent_enabled=query.validated_data["investigation_agent_enabled"],
         )
-        return Response(AlertPagerDutyAvailabilitySerializer({"available": platform_takes_new_alert(draft)}).data)
+        return Response(AlertPagerDutyAvailabilitySerializer({"available": available}).data)
 
     def _create_destination(
         self,
