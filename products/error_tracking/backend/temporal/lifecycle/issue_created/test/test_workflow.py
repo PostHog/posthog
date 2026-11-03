@@ -10,6 +10,7 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import OperationalError
 from django.test import override_settings
 
 import requests
@@ -408,15 +409,23 @@ class TestRuleAssignmentNotification(BaseTest):
         assignment = ErrorTrackingIssueAssignment.objects.create(issue=self.issue, role_id=role_id)
         return assignment, assignee_property({"type": "role", "id": role_id})
 
-    def _run_activity(self, assignee: str | None, expected_outcome: str) -> None:
-        inputs = dataclasses.replace(
+    def _activity_inputs(self, assignee: str | None) -> IssueCreatedWorkflowInputs:
+        return dataclasses.replace(
             _inputs("fingerprint"), team_id=self.team.id, issue_id=str(self.issue.id), assignee=assignee
         )
+
+    def _run_activity(self, assignee: str | None, expected_outcome: str) -> None:
         before = REGISTRY.get_sample_value(RULE_NOTIFY_COUNTER, {"outcome": expected_outcome}) or 0
         with self.captureOnCommitCallbacks(execute=True):
-            emit_issue_created_internal_event_activity(inputs)
+            emit_issue_created_internal_event_activity(self._activity_inputs(assignee))
         self.produce_created_event.assert_called_once()
         assert REGISTRY.get_sample_value(RULE_NOTIFY_COUNTER, {"outcome": expected_outcome}) == before + 1
+
+    def _assert_sent_nothing(self) -> None:
+        self.create_notification.assert_not_called()
+        self.send_email.delay.assert_not_called()
+        self.produce_assigned_event.assert_not_called()
+        self.capture.assert_not_called()
 
     @parameterized.expand([("user",), ("role",)])
     def test_notifies_the_rule_assignee(self, assignee_type: str) -> None:
@@ -457,19 +466,31 @@ class TestRuleAssignmentNotification(BaseTest):
 
         self._run_activity({"none": None, "current": current, "previous": previous}[reported], expected_outcome)
 
-        self.create_notification.assert_not_called()
-        self.send_email.delay.assert_not_called()
-        self.produce_assigned_event.assert_not_called()
-        self.capture.assert_not_called()
+        self._assert_sent_nothing()
 
-    def test_send_failure_is_counted_and_swallowed(self) -> None:
+    def test_failed_created_event_notifies_nobody(self) -> None:
         _, assignee = self._assign_like_cymbal("user")
-        self.send_email.delay.side_effect = RuntimeError("broker unavailable")
+        self.produce_created_event.side_effect = RuntimeError("kafka unavailable")
+
+        with self.captureOnCommitCallbacks(execute=True), pytest.raises(RuntimeError):
+            emit_issue_created_internal_event_activity(self._activity_inputs(assignee))
+
+        self._assert_sent_nothing()
+
+    @parameterized.expand(
+        [
+            ("reported", RuntimeError("broker unavailable"), True),
+            ("transient_db_error", OperationalError("the connection is closed"), False),
+        ]
+    )
+    def test_send_failure_is_counted_and_swallowed(self, _name: str, error: Exception, reported: bool) -> None:
+        _, assignee = self._assign_like_cymbal("user")
+        self.send_email.delay.side_effect = error
 
         self._run_activity(assignee, "send_failed")
 
         self.produce_assigned_event.assert_called_once()
-        self.capture_exception.assert_called_once()
+        assert self.capture_exception.called is reported
 
 
 @override_settings(ERROR_TRACKING_EVENT_PROPERTIES_REDIS_URL="redis://event-properties")

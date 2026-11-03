@@ -126,7 +126,7 @@ def notify_automatic_assignment(
     """Tell the assignee about an assignment that no person made, and emit `$error_tracking_issue_assigned`.
 
     Raises when the lifecycle event cannot be built or the email cannot be queued, so the caller can count the failure.
-    The in-app notification goes first because it never raises.
+    The in-app notification goes first, so the assignee still gets it when the event or the email raises.
     """
     actor = AssignmentActor.automatic(label)
     dispatch_issue_assigned_realtime(assignment=assignment, assignee=assignee, actor=actor)
