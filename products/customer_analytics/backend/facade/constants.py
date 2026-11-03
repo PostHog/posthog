@@ -6,6 +6,7 @@ stays as the source of truth.
 """
 
 from products.customer_analytics.backend.constants import (
+    ACCOUNT_ACTIVITY_MATRIX_QUERY_STATUS_LABEL_PREFIX,
     ACCOUNT_USERS_QUERY_STATUS_LABEL_PREFIX,
     BILLING_SPEND_INSIGHT_SHORT_IDS,
     BILLING_USAGE_INSIGHT_SHORT_IDS,
@@ -23,6 +24,7 @@ from products.customer_analytics.backend.constants import (
 )
 
 __all__ = [
+    "ACCOUNT_ACTIVITY_MATRIX_QUERY_STATUS_LABEL_PREFIX",
     "ACCOUNT_USERS_QUERY_STATUS_LABEL_PREFIX",
     "BILLING_SPEND_INSIGHT_SHORT_IDS",
     "BILLING_USAGE_INSIGHT_SHORT_IDS",

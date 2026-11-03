@@ -2,9 +2,6 @@ from datetime import date, datetime, timedelta
 from functools import cached_property
 from uuid import UUID
 
-from django.core.exceptions import ValidationError
-from django.db.models import QuerySet
-
 from posthog.schema import (
     AccountActivityMatrixCell,
     AccountActivityMatrixColumn,
@@ -28,7 +25,9 @@ from posthog.models.group_usage_metric import GroupUsageMetric
 from posthog.models.user import User
 from posthog.week_start_day import WeekStartDay
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.customer_analytics.backend.constants import ACCOUNT_ACTIVITY_MATRIX_QUERY_STATUS_LABEL_PREFIX
+from products.customer_analytics.backend.logic.account_activity_access import get_visible_account
 from products.customer_analytics.backend.models import Account
 
 DEFAULT_WEEKS = 8
@@ -45,8 +44,18 @@ class AccountActivityMatrixQueryRunner(AnalyticsQueryRunner[AccountActivityMatri
     cached_response: CachedAccountActivityMatrixQueryResponse
 
     def validate_query_runner_access(self, user: User) -> bool:
-        self._visible_account(user)
+        get_visible_account(team=self.team, user=user, account_id=self.query.accountId)
         return True
+
+    def get_cache_key_variant(self) -> str:
+        try:
+            get_visible_account(team=self.team, user=self.user, account_id=self.query.accountId)
+        except UserAccessControlError:
+            return f"{super().get_cache_key_variant()}_denied"
+        return super().get_cache_key_variant()
+
+    def query_status_labels(self) -> list[str]:
+        return [f"{ACCOUNT_ACTIVITY_MATRIX_QUERY_STATUS_LABEL_PREFIX}{self.query.accountId}"]
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
@@ -91,9 +100,9 @@ class AccountActivityMatrixQueryRunner(AnalyticsQueryRunner[AccountActivityMatri
 
         totals: dict[str, int] = {}
         data: list[AccountActivityMatrixCell] = []
-        for person_id, week, total, *values in response.results or []:
+        for person_id, week, events, *values in response.results or []:
             row = str(person_id)
-            totals[row] = int(total)
+            totals[row] = totals.get(row, 0) + int(events)
             column = week.isoformat() if isinstance(week, date) else str(week)
             for (metric, _), value in zip(metrics, values):
                 if value:
@@ -143,26 +152,9 @@ class AccountActivityMatrixQueryRunner(AnalyticsQueryRunner[AccountActivityMatri
             modifiers=self.modifiers,
         )
 
-    def _visible_account(self, user: User) -> Account:
-        access = UserAccessControl(user=user, team=self.team)
-        access.assert_access_level_for_resource("account", "viewer")
-        visible = access.filter_queryset_by_access_level(Account.objects.for_team(self.team.id), resource="account")
-        account = self._find_account(visible)
-        if account is None:
-            raise UserAccessControlError("account", "viewer", resource_id=self.query.accountId)
-        return account
-
-    def _find_account(self, queryset: QuerySet[Account]) -> Account | None:
-        try:
-            return queryset.filter(id=UUID(self.query.accountId)).only("id", "external_id").first()
-        except (ValidationError, ValueError):
-            return None
-
     @cached_property
     def _account(self) -> Account:
-        if not isinstance(self.user, User):
-            raise UserAccessControlError("account", "viewer", resource_id=self.query.accountId)
-        return self._visible_account(self.user)
+        return get_visible_account(team=self.team, user=self.user, account_id=self.query.accountId)
 
     def _group_identity(self) -> tuple[str | None, int | None]:
         return self._account.external_id or None, self.team.customer_analytics_config.account_group_type_index
@@ -172,7 +164,10 @@ class AccountActivityMatrixQueryRunner(AnalyticsQueryRunner[AccountActivityMatri
         metrics = GroupUsageMetric.objects.filter(team=self.team).only("id", "name", "filters", "math", "math_property")
         if self.query.metricIds is not None:
             metrics = metrics.filter(id__in=[metric_id for metric_id in self.query.metricIds if _is_uuid(metric_id)])
-        return list(metrics.order_by("name", "id"))
+        loaded = list(metrics.order_by("name", "id"))
+        for metric in loaded:
+            metric.team = self.team
+        return loaded
 
     def _split_metrics(self) -> tuple[list[MetricWithFilter], list[GroupUsageMetric]]:
         eligible: list[MetricWithFilter] = []
@@ -241,7 +236,18 @@ class AccountActivityMatrixQueryRunner(AnalyticsQueryRunner[AccountActivityMatri
     def _matrix_query(
         self, external_id: str, group_type_index: int, metrics: list[MetricWithFilter]
     ) -> ast.SelectQuery:
-        weekly = ast.SelectQuery(
+        ranked_persons = ast.SelectQuery(
+            select=[ast.Field(chain=["person_id"])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=self._events_where(external_id, group_type_index, metrics),
+            group_by=[ast.Field(chain=["person_id"])],
+            order_by=[
+                ast.OrderExpr(expr=ast.Call(name="count", args=[]), order="DESC"),
+                ast.OrderExpr(expr=ast.Field(chain=["person_id"]), order="ASC"),
+            ],
+            limit=ast.Constant(value=self._row_limit + 1),
+        )
+        return ast.SelectQuery(
             select=[
                 ast.Field(chain=["person_id"]),
                 ast.Alias(
@@ -254,58 +260,29 @@ class AccountActivityMatrixQueryRunner(AnalyticsQueryRunner[AccountActivityMatri
                         ],
                     ),
                 ),
+                ast.Alias(alias="events", expr=ast.Call(name="count", args=[])),
                 *(
                     ast.Alias(alias=f"s{index}", expr=_metric_value(metric, clone_expr(filter_expr)))
                     for index, (metric, filter_expr) in enumerate(metrics)
                 ),
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=self._events_where(external_id, group_type_index, metrics),
-            group_by=[ast.Field(chain=["person_id"]), ast.Field(chain=["week"])],
-        )
-        ranked = ast.SelectQuery(
-            select=[
-                ast.Field(chain=["person_id"]),
-                ast.Alias(alias="total", expr=ast.Call(name="count", args=[])),
-            ],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=self._events_where(external_id, group_type_index, metrics),
-            group_by=[ast.Field(chain=["person_id"])],
-            order_by=[
-                ast.OrderExpr(expr=ast.Field(chain=["total"]), order="DESC"),
-                ast.OrderExpr(expr=ast.Field(chain=["person_id"]), order="ASC"),
-            ],
-            limit=ast.Constant(value=self._row_limit + 1),
-        )
-        return ast.SelectQuery(
-            select=[
-                ast.Field(chain=["weekly", "person_id"]),
-                ast.Field(chain=["weekly", "week"]),
-                ast.Field(chain=["ranked", "total"]),
-                *(ast.Field(chain=["weekly", f"s{index}"]) for index in range(len(metrics))),
-            ],
-            select_from=ast.JoinExpr(
-                table=weekly,
-                alias="weekly",
-                next_join=ast.JoinExpr(
-                    table=ranked,
-                    alias="ranked",
-                    join_type="INNER JOIN",
-                    constraint=ast.JoinConstraint(
-                        expr=ast.CompareOperation(
-                            op=ast.CompareOperationOp.Eq,
-                            left=ast.Field(chain=["weekly", "person_id"]),
-                            right=ast.Field(chain=["ranked", "person_id"]),
-                        ),
-                        constraint_type="ON",
+            where=ast.And(
+                exprs=[
+                    self._events_where(external_id, group_type_index, metrics),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.In,
+                        left=ast.Field(chain=["person_id"]),
+                        right=ranked_persons,
                     ),
-                ),
+                ]
             ),
+            group_by=[ast.Field(chain=["person_id"]), ast.Field(chain=["week"])],
             order_by=[
-                ast.OrderExpr(expr=ast.Field(chain=["ranked", "total"]), order="DESC"),
-                ast.OrderExpr(expr=ast.Field(chain=["weekly", "person_id"]), order="ASC"),
-                ast.OrderExpr(expr=ast.Field(chain=["weekly", "week"]), order="ASC"),
+                ast.OrderExpr(expr=ast.Field(chain=["person_id"]), order="ASC"),
+                ast.OrderExpr(expr=ast.Field(chain=["week"]), order="ASC"),
             ],
+            limit=ast.Constant(value=(self._row_limit + 1) * len(self._week_starts)),
         )
 
     def _person_labels(self, person_ids: list[str]) -> dict[str, str]:
@@ -325,6 +302,7 @@ class AccountActivityMatrixQueryRunner(AnalyticsQueryRunner[AccountActivityMatri
                 left=ast.Field(chain=["id"]),
                 right=ast.Tuple(exprs=[ast.Constant(value=UUID(person_id)) for person_id in person_ids]),
             ),
+            limit=ast.Constant(value=len(person_ids)),
         )
         response = execute_hogql_query(
             query_type="AccountActivityMatrixPersonLabels",

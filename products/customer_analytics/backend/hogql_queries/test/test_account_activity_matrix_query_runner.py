@@ -1,14 +1,17 @@
+from datetime import date, timedelta
 from typing import Any
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.schema import AccountActivityMatrixEmptyReason, AccountActivityMatrixQuery
+from posthog.schema import AccountActivityMatrixEmptyReason, AccountActivityMatrixQuery, CacheMissResponse, QueryStatus
 
 from posthog.constants import AvailableFeature
+from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
 from posthog.models import OrganizationMembership
 from posthog.models.group_usage_metric import GroupUsageMetric
 from posthog.test.persons import create_person
@@ -25,6 +28,7 @@ from products.customer_analytics.backend.test.factories import create_account
 ANA = "11111111-1111-4111-8111-111111111111"
 BO = "22222222-2222-4222-8222-222222222222"
 CY = "33333333-3333-4333-8333-333333333333"
+DEE = "44444444-4444-4444-8444-444444444444"
 
 
 @time_machine.travel("2026-10-28T18:00:00Z", tick=False)
@@ -56,6 +60,17 @@ class TestAccountActivityMatrixQueryRunner(ClickhouseTestMixin, APIBaseTest):
             person_id=person,
             timestamp=timestamp,
             properties={"$group_0": group_key},
+        )
+
+    def _hide_account(self) -> None:
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="account",
+            resource_id=str(self.account.id),
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(user=self.user, organization=self.organization),
         )
 
     def _run(self, account: Account | None = None, **kwargs: Any) -> Any:
@@ -155,15 +170,7 @@ class TestAccountActivityMatrixQueryRunner(ClickhouseTestMixin, APIBaseTest):
         url = f"/api/projects/{self.team.id}/query/"
         assert self.client.post(url, payload, format="json").status_code == status.HTTP_200_OK
 
-        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
-        self.organization.save()
-        AccessControl.objects.create(
-            team=self.team,
-            resource="account",
-            resource_id=str(self.account.id),
-            access_level="none",
-            organization_member=OrganizationMembership.objects.get(user=self.user, organization=self.organization),
-        )
+        self._hide_account()
         response = self.client.post(url, payload, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
@@ -172,3 +179,45 @@ class TestAccountActivityMatrixQueryRunner(ClickhouseTestMixin, APIBaseTest):
             AccountActivityMatrixQueryRunner(
                 team=self.team, query=AccountActivityMatrixQuery(accountId=str(self.account.id))
             ).calculate()
+
+    def test_cache_only_read_without_a_user_misses_cached_results(self) -> None:
+        self._event(ANA, "insight viewed", "2026-10-26T10:00:00Z")
+        flush_persons_and_events()
+        query = {"kind": "AccountActivityMatrixQuery", "accountId": str(self.account.id)}
+        get_query_runner(query, self.team, user=self.user).run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user)
+
+        response = get_query_runner(query, self.team).run(ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
+
+        assert isinstance(response, CacheMissResponse)
+
+    @parameterized.expand([("visible", False, status.HTTP_200_OK), ("hidden", True, status.HTTP_403_FORBIDDEN)])
+    def test_async_result_retrieval_repeats_the_access_check(self, _name: str, hidden: bool, expected: int) -> None:
+        if hidden:
+            self._hide_account()
+        stored = QueryStatus(
+            id="account-activity-matrix-query",
+            team_id=self.team.id,
+            complete=True,
+            labels=get_query_runner(
+                {"kind": "AccountActivityMatrixQuery", "accountId": str(self.account.id)}, self.team, user=self.user
+            ).query_status_labels(),
+            results={"results": {"rows": [{"key": ANA, "label": "ana@example.com"}]}},
+        )
+
+        with patch("posthog.api.query.get_query_status", return_value=stored):
+            response = self.client.get(f"/api/projects/{self.team.id}/query/account-activity-matrix-query/")
+
+        assert response.status_code == expected, response.content
+
+    def test_returns_every_person_week_past_the_default_row_limit(self) -> None:
+        create_person(team=self.team, uuid=DEE, distinct_ids=[DEE], properties={"email": "dee@example.com"})
+        first_week = date(2026, 5, 3)
+        for person in (ANA, BO, CY, DEE):
+            for week in range(26):
+                self._event(person, "insight viewed", f"{first_week + timedelta(weeks=week, days=1)}T12:00:00Z")
+
+        results = self._run(weeks=26)
+
+        assert len(results.rows) == 4
+        assert len(results.data) == 104
+        assert results.truncated is False

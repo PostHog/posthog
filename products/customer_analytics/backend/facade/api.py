@@ -124,6 +124,7 @@ from products.customer_analytics.backend.logic import (
     relationships as _relationships_logic,
     user_customer_analytics_config as _user_customer_analytics_config_logic,
 )
+from products.customer_analytics.backend.logic.account_activity_access import get_visible_account
 from products.customer_analytics.backend.logic.account_filters import (
     InvalidAccountFilter,
     account_search_q,
@@ -401,6 +402,10 @@ def _resolve_accessible_account(
 def validate_account_users_access(team: Team, user: "User | None", account_id: str) -> None:
     """Raise `UserAccessControlError` unless `user` may read the users of this account."""
     get_account_users_organization_id(team=team, user=user, account_id=account_id)
+
+
+def validate_account_activity_access(team: Team, user: "User | None", account_id: str) -> None:
+    get_visible_account(team=team, user=user, account_id=account_id)
 
 
 def get_account(
