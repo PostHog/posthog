@@ -107,6 +107,7 @@ export function AnalyticsFilterMenu(): JSX.Element {
                         searchPlaceholder="Search people"
                         emptyText="No one matches"
                         dataAttr="analytics-list-created-by"
+                        optionDataAttr="analytics-list-created-by-option"
                     />
                 )}
                 <FilterSearchSubMenu
@@ -120,6 +121,7 @@ export function AnalyticsFilterMenu(): JSX.Element {
                     searchPlaceholder="Search tags"
                     emptyText="No tag matches"
                     dataAttr="analytics-list-tags"
+                    optionDataAttr="analytics-list-tags-option"
                 />
                 <DropdownMenuSeparator />
                 <DropdownMenuCheckboxItem
