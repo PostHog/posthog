@@ -23,6 +23,7 @@ const HEADER_FADE = 24
 export const CHAT_HEADER_HEIGHT = HEADER_TOP + ROW_HEIGHT + HEADER_FADE
 
 interface ChatHeaderProps {
+    compact?: boolean
     webUrl: string | undefined
     blurTarget?: RefObject<View | null>
     onBack: () => void
@@ -32,6 +33,7 @@ interface ChatHeaderProps {
 }
 
 export function ChatHeader({
+    compact = false,
     webUrl,
     blurTarget,
     onBack,
@@ -62,7 +64,14 @@ export function ChatHeader({
         }
     }
     return (
-        <View collapsable={false} style={[styles.header, { paddingTop: insets.top + HEADER_TOP }]} testID="chat-header">
+        <View
+            collapsable={false}
+            style={[
+                styles.header,
+                { paddingTop: insets.top + (compact ? 8 : HEADER_TOP), paddingBottom: compact ? 8 : HEADER_FADE },
+            ]}
+            testID="chat-header"
+        >
             <BlurEdge solid={0.7} blurTarget={blurTarget} />
             <FadeEdge direction="down" solid={0.7} opacity={layout.chromeTint} />
             <Pressable44
@@ -74,14 +83,14 @@ export function ChatHeader({
             >
                 <ChevronLeftIcon size={iconSizes.control} />
             </Pressable44>
-            <PillControl height={ROW_HEIGHT}>
+            <PillControl height={compact ? 44 : ROW_HEIGHT}>
                 <Pressable44
                     onPress={() => (newChatDisabledReason ? toasts.show(newChatDisabledReason) : onNewChat())}
                     accessibilityLabel="New chat"
                     accessibilityState={{ disabled: !!newChatDisabledReason }}
                     accessibilityHint={newChatDisabledReason}
                     pressedBackground={colors.background}
-                    style={styles.button}
+                    style={[styles.button, compact && { height: 44 }]}
                     testID="chat-new"
                 >
                     <ComposeIcon size={iconSizes.control} />
@@ -92,7 +101,7 @@ export function ChatHeader({
                     accessibilityState={{ expanded: menuOpen, disabled: !webUrl && !onArchive }}
                     disabled={!webUrl && !onArchive}
                     pressedBackground={colors.background}
-                    style={styles.button}
+                    style={[styles.button, compact && { height: 44 }]}
                     testID="chat-more"
                 >
                     <MoreIcon size={iconSizes.control} color={webUrl || onArchive ? colors.ink : colors.disabled} />
@@ -100,7 +109,7 @@ export function ChatHeader({
             </PillControl>
             <ChatHeaderMenu
                 visible={menuOpen}
-                top={insets.top + HEADER_TOP + ROW_HEIGHT + 8}
+                top={insets.top + (compact ? 60 : HEADER_TOP + ROW_HEIGHT + 8)}
                 copying={copying}
                 archiving={archive.pending}
                 canCopy={!!webUrl}
