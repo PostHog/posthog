@@ -1,5 +1,4 @@
 import json
-import uuid
 import asyncio
 import datetime as dt
 import dataclasses
@@ -94,14 +93,17 @@ def trino_build_workflow_id(dag_id: str, node_id: str) -> str:
 
 
 def manual_trino_workflow_id(dag_id: str) -> str:
-    """A new id for a Trino run that a person starts by hand.
+    """The fixed id of a Trino run that a person starts by hand.
 
-    Each manual run gets its own id, so manual runs of different models can overlap. The fixed
-    build id of each node keeps two runs from building one model at once. The id shares the
-    `execute-dag-trino-{dag_id}` prefix with the scheduled shadows, so one visibility query
-    finds every Trino run of the DAG.
+    It shares the `execute-dag-trino-{dag_id}` prefix with the scheduled shadows, so one
+    visibility query finds every Trino run of the DAG.
     """
-    return f"execute-dag-trino-{dag_id}-manual-{uuid.uuid4()}"
+    return f"execute-dag-trino-{dag_id}-manual"
+
+
+def trino_runs_of_dag_query(dag_id: str) -> str:
+    prefix = f"execute-dag-trino-{dag_id}"
+    return f'WorkflowId >= "{prefix}" AND WorkflowId < "{prefix}~" AND ExecutionStatus = "Running"'
 
 
 async def _kill_switch_child_limit(team_id: int) -> int:
@@ -682,6 +684,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                     dag_id=inputs.dag_id,
                     engine=DataModelingJobEngine.MANAGED_WAREHOUSE.value,
                     skipped_nodes=skipped_trino_jobs,
+                    run_started_at=start_time.isoformat(),
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
