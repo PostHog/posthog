@@ -6,11 +6,12 @@ import logging
 from collections.abc import Callable, Iterable, Mapping
 from typing import TYPE_CHECKING
 
-from django.db.models import Case, IntegerField, Q, Value, When
+from django.db.models import Case, IntegerField, Value, When
 
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY, GitHubIntegrationBase
-from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, GitHubIntegration, Integration
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, GitHubIntegration
 from posthog.models.integration_repository_cache import GitHubRepositoryFullCache
 from posthog.models.organization import OrganizationMembership
 from posthog.models.repo_routing_rule import RepoRoutingRule
@@ -118,6 +119,11 @@ def _first_user_github_integration(user_ids: Iterable[int]) -> UserIntegration |
     )
 
 
+def _account_type_sort_key(row: IntegrationRecord) -> tuple[bool, str]:
+    account_type = (row.config.get("account") or {}).get("type")
+    return (account_type is None, account_type or "")
+
+
 def resolve_team_github_integration(
     team_id: int, team: Team | None = None, requester_user_id: int | None = None, team_only: bool = False
 ) -> GitHubIntegrationBase | None:
@@ -141,21 +147,36 @@ def resolve_team_github_integration(
     source's repository names are shown to other team members, or when the work runs under the
     team installation's bot identity — a personal connection is a cross-account leak there.
     """
-    integration = (
-        Integration.objects.filter(team_id=team_id, kind="github")
-        # Skip integrations whose installation has been synced and confirmed empty (0 repos)
-        .exclude(repository_cache=[], repository_cache_updated_at__isnull=False)
-        # Skip installs whose token refresh is permanently failing (uninstalled/suspended on
-        # GitHub's side): re-selecting one makes repo discovery storm GitHub with doomed refreshes.
-        .exclude(errors=ERROR_TOKEN_REFRESH_FAILED)
-        .exclude(config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY)
-        # Prioritize orgs vs users (alphabetically), then oldest first
-        .order_by("config__account__type", "created_at", "id")
-        .first()
+    candidates = sorted(
+        (
+            row
+            for row in IntegrationManager.github.oauth.list(team_id)
+            # Skip installs whose token refresh is permanently failing (uninstalled/suspended on
+            # GitHub's side): re-selecting one makes repo discovery storm GitHub with doomed refreshes.
+            if row.errors != ERROR_TOKEN_REFRESH_FAILED and INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY not in row.config
+        ),
+        # Prioritize orgs vs users (alphabetically), then oldest first. `list` is already oldest
+        # first and `sorted` is stable.
+        key=_account_type_sort_key,
+    )
+    # Skip integrations whose installation has been synced and confirmed empty (0 repos). The SDK
+    # defers the repository cache, so check it only until the first match.
+    github = next(
+        (
+            adapter
+            for adapter in (
+                GitHubIntegration(row, source="repo_selection", priority=Priority.CRITICAL) for row in candidates
+            )
+            if not (
+                adapter.integration.repository_cache_updated_at is not None
+                and adapter.integration.repository_cache == []
+            )
+        ),
+        None,
     )
     # Prefer the first GitHub integration from the team
-    if integration is not None:
-        return GitHubIntegration(integration, source="repo_selection", priority=Priority.CRITICAL)
+    if github is not None:
+        return github
 
     if team_only:
         return None
@@ -181,10 +202,9 @@ def resolve_team_github_integration(
 
 
 async def _github_reconnect_required(team_id: int) -> bool:
-    if (
-        await Integration.objects.filter(team_id=team_id, kind="github")
-        .filter(Q(errors=ERROR_TOKEN_REFRESH_FAILED) | Q(config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY))
-        .aexists()
+    if any(
+        row.errors == ERROR_TOKEN_REFRESH_FAILED or INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY in row.config
+        for row in await IntegrationManager.github.oauth.alist(team_id)
     ):
         return True
 
@@ -351,6 +371,8 @@ def _build_repo_selection_prompt(
     # So is `autostart_eligible`: it records how the repo was chosen, which is the caller's fact,
     # not the model's. Offering it would let untrusted context talk the model into vetoing autostart.
     schema.get("properties", {}).pop("autostart_eligible", None)
+    schema.get("properties", {}).pop("research_context", None)
+    schema.get("$defs", {}).pop("ReportResearchContext", None)
     schema_json = json.dumps(schema, indent=2)
     visibility = visibility or {}
     repo_list = "\n".join(
@@ -787,6 +809,7 @@ async def select_repository(
     # A selection this agent made is a candidate-list pick for a caller that asked for one, so it
     # carries full autostart authority no matter what the model emitted.
     result.autostart_eligible = True
+    result.research_context = None
     try:
         if result.repository is not None:
             result.repository = result.repository.strip().lower()

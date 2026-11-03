@@ -13,6 +13,7 @@ import type {
     AddSuppressionRequestApi,
     BulkAddOptOutsRequestApi,
     BulkAddOptOutsResultApi,
+    EmailStatusApi,
     GenerateLinkRequestApi,
     ImportProviderOptionApi,
     MakeTransactionalApi,
@@ -39,8 +40,10 @@ import type {
     SendEmailApi,
     SendTransactionalEmailApi,
     SendTransactionalEmailResponseApi,
+    SetPreferencesApi,
     StartProviderImportApi,
     SupabaseAuthEmailSettingsApi,
+    TopicPreferencesApi,
     WebhookUrlApi,
 } from './api.schemas'
 
@@ -61,12 +64,52 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
+export const getMessagingEmailsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/messaging/emails/${id}/`
+}
+
+/**
+ * Get the status of one transactional email by the `message_id` that the send returned, for 30 days after the send. Needs a project secret API key with the `hog_flow:read` scope.
+ * @summary Get a transactional email's status
+ */
+export const messagingEmailsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<EmailStatusApi> => {
+    return apiMutator<EmailStatusApi>(getMessagingEmailsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMessagingPreferencesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging/preferences/`
+}
+
+/**
+ * Opt one recipient out of topics, or back in, in one call. `all_marketing` applies first, then each topic in order, and the whole change is saved at once. The same change twice ends the same, but a retry that lands after a newer change undoes that change. Workflows sends skip a marketing topic the recipient opted out of. Needs a project secret API key with the `hog_flow:write` scope, which can also send transactional email.
+ * @summary Set a recipient's topic preferences
+ */
+export const messagingPreferencesCreate = async (
+    projectId: string,
+    setPreferencesApi: SetPreferencesApi,
+    options?: RequestInit
+): Promise<TopicPreferencesApi> => {
+    return apiMutator<TopicPreferencesApi>(getMessagingPreferencesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(setPreferencesApi),
+    })
+}
+
 export const getMessagingSendEmailCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/messaging/send/email/`
 }
 
 /**
- * Send one transactional email to one recipient from the template named in `template.id`. The template must be made transactional first. `message_data` fills the template's `{{ variables.* }}` placeholders. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice.
+ * Send one transactional email to one recipient from the template named in `template_id`. The template must be made transactional first. `message_data` fills the template's `{{ variables.* }}` placeholders. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice.
  * @summary Send a transactional email
  */
 export const messagingSendEmailCreate = async (

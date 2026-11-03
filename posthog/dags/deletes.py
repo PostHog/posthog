@@ -63,6 +63,16 @@ from posthog.models.person.sql import (
     PERSON_STATIC_COHORT_TABLE,
     PERSONS_TABLE,
 )
+from posthog.models.raw_sessions.sessions_v2 import (
+    SHARDED_RAW_SESSIONS_DATA_TABLE,
+    TABLE_BASE_NAME as RAW_SESSIONS_TABLE_BASE_NAME,
+)
+from posthog.models.raw_sessions.sessions_v3 import SHARDED_RAW_SESSIONS_TABLE_V3, TABLE_BASE_NAME_V3
+from posthog.models.sessions.sql import (
+    SESSIONS_DATA_TABLE,
+    TABLE_BASE_NAME as SESSIONS_TABLE_BASE_NAME,
+)
+from posthog.run_mode import run_mode
 
 from products.error_tracking.backend.facade.api import (
     DocumentEmbeddingTable,
@@ -166,6 +176,58 @@ class PartitionCleanup:
 @frozen
 class OldEventsCleanupPlan:
     partitions: list[PartitionCleanup]
+
+
+@frozen
+class OldSessionsCleanupPlan:
+    partitions: list[PartitionCleanup]
+
+
+@frozen
+class SessionsPlacement:
+    table: str
+    cluster: ClickhouseCluster
+
+
+# Every sessions table partitions by toYYYYMM of a session timestamp: the first event for v1, the
+# session start from the uuidv7 session id for v2 and v3. A due events month therefore names the
+# same partition here. A v2 or v3 session that starts in a due month keeps no row, even when it
+# continues into the next month.
+SESSIONS_RETENTION_TABLES: tuple[str, ...] = (
+    SESSIONS_DATA_TABLE(),
+    SHARDED_RAW_SESSIONS_DATA_TABLE(),
+    SHARDED_RAW_SESSIONS_TABLE_V3(),
+)
+SATELLITE_SESSIONS_RETENTION_TABLES: tuple[str, ...] = (
+    SESSIONS_TABLE_BASE_NAME,
+    RAW_SESSIONS_TABLE_BASE_NAME,
+    TABLE_BASE_NAME_V3,
+)
+
+
+def _sessions_placements(cluster: ClickhouseCluster) -> list[SessionsPlacement]:
+    placements = [
+        SessionsPlacement(table=table, cluster=cluster)
+        for table in SESSIONS_RETENTION_TABLES
+        if _any_node_has(cluster, table)
+    ]
+    # Deployed cloud keeps every sessions table on the sessions satellite, under its base name.
+    # Other deployments have no such cluster, which is the gate the sessions v3 migrations use.
+    if run_mode().is_deployed_cloud:
+        satellite = cluster.sibling(settings.CLICKHOUSE_SESSIONS_CLUSTER, NodeRole.SESSIONS)
+        placements.extend(
+            SessionsPlacement(table=table, cluster=satellite)
+            for table in SATELLITE_SESSIONS_RETENTION_TABLES
+            if _any_node_has(satellite, table)
+        )
+    return placements
+
+
+def _run_on_every_shard(cluster: ClickhouseCluster, runner: LightweightDeleteMutationRunner) -> None:
+    shard_mutations = cluster.map_one_host_per_shard(runner).result()
+    cluster.map_all_hosts_in_shards(
+        {host.shard_num: mutation.wait for host, mutation in shard_mutations.items() if host.shard_num is not None}
+    ).result()
 
 
 def _yyyymm(moment: datetime) -> int:
@@ -1639,6 +1701,107 @@ def cleanup_old_events_by_partition(
     )
 
 
+@dagster.op(ins={"start_after": dagster.In(dagster.Nothing)})
+def plan_old_sessions_cleanup(
+    context: dagster.OpExecutionContext,
+    config: MonthlyCleanupConfig,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+) -> OldSessionsCleanupPlan:
+    """Find every team with an events retention, and for each month the teams whose sessions in it are all past it."""
+    retention = effective_events_retention()
+    if config.team_ids:
+        if ignored := sorted(set(config.team_ids) - {item.team_id for item in retention}):
+            context.log.info(f"Ignoring teams with no events retention: {ignored}")
+        retention = [item for item in retention if item.team_id in config.team_ids]
+    if not retention:
+        context.log.info("No team has an events retention to enforce")
+        return OldSessionsCleanupPlan(partitions=[])
+
+    now = datetime.now(UTC).replace(tzinfo=None)
+    team_cutoffs = {item.team_id: _yyyymm(whole_month_cutoff(now, item.months)) for item in retention}
+
+    # Each sessions version partitions on a different expression of the session start, so the
+    # month comes from the partition id.
+    partition_filter = "AND toUInt32(_partition_id) IN %(partitions)s" if config.partitions else ""
+    parameters = {
+        "team_ids": sorted(team_cutoffs),
+        "partitions": config.partitions,
+        "cutoff_partition": max(team_cutoffs.values()),
+    }
+    team_months: set[tuple[int, int]] = set()
+    for sessions in _sessions_placements(cluster):
+        query = f"""
+            SELECT DISTINCT team_id, toUInt32(_partition_id) AS partition
+            FROM {sessions.table}
+            WHERE team_id IN %(team_ids)s
+            AND toUInt32(_partition_id) < %(cutoff_partition)s
+            {partition_filter}
+        """
+        results = sessions.cluster.map_one_host_per_shard(Query(query, parameters=parameters)).result()
+        team_months.update((team_id, partition) for rows in results.values() for team_id, partition in rows)
+
+    teams_by_partition: dict[int, list[int]] = defaultdict(list)
+    for team_id, partition in sorted(team_months):
+        if partition < team_cutoffs[team_id]:
+            teams_by_partition[partition].append(team_id)
+
+    plan = OldSessionsCleanupPlan(
+        partitions=[
+            PartitionCleanup(partition=partition, team_ids=team_ids)
+            for partition, team_ids in sorted(teams_by_partition.items(), reverse=True)
+        ]
+    )
+    for partition_cleanup in plan.partitions:
+        context.log.info(f"{partition_cleanup.partition}: teams {partition_cleanup.team_ids}")
+
+    context.add_output_metadata(
+        {
+            "teams": dagster.MetadataValue.int(len(team_cutoffs)),
+            "partitions": dagster.MetadataValue.int(len(plan.partitions)),
+        }
+    )
+    return plan
+
+
+@dagster.op
+def cleanup_old_sessions_by_partition(
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    plan: OldSessionsCleanupPlan,
+) -> None:
+    """Delete each planned month's sessions for the teams the plan lists for that month."""
+    if not plan.partitions:
+        context.log.info("No sessions partitions found to clean up")
+        return
+
+    total_partitions = len(plan.partitions)
+    placements = _sessions_placements(cluster)
+    reuse_floor = _mutation_reuse_floor(cluster)
+
+    for idx, item in enumerate(plan.partitions, 1):
+        context.log.info(f"Deleting sessions {item.partition} for teams {item.team_ids} ({idx}/{total_partitions})")
+        for sessions in placements:
+            delete_mutation_runner = LightweightDeleteMutationRunner(
+                table=sessions.table,
+                predicate="team_id IN %(team_ids)s",
+                parameters={"team_ids": item.team_ids},
+                partition=str(item.partition),
+                settings={"lightweight_deletes_sync": 0},
+                reuse_since=reuse_floor,
+            )
+            _run_on_every_shard(sessions.cluster, delete_mutation_runner)
+        context.log.info(f"Completed sessions deletion for partition {item.partition}")
+
+    context.add_output_metadata(
+        {
+            "partitions_processed": dagster.MetadataValue.int(total_partitions),
+            "team_ids": dagster.MetadataValue.text(
+                ", ".join(str(tid) for tid in sorted({tid for item in plan.partitions for tid in item.team_ids}))
+            ),
+        }
+    )
+
+
 @dagster.job(
     tags={
         "owner": JobOwners.TEAM_CLICKHOUSE.value,
@@ -1646,8 +1809,11 @@ def cleanup_old_events_by_partition(
     }
 )
 def monthly_retention_events_cleanup_job():
-    """Delete events past each team's events retention set in Django admin, a whole month at a time."""
-    cleanup_old_events_by_partition(plan_old_events_cleanup(start_after=ensure_no_concurrent_deletes_run()))
+    """Delete events and sessions past each team's events retention set in Django admin, a whole month at a time."""
+    events_deleted = cleanup_old_events_by_partition(
+        plan_old_events_cleanup(start_after=ensure_no_concurrent_deletes_run())
+    )
+    cleanup_old_sessions_by_partition(plan_old_sessions_cleanup(start_after=events_deleted))
 
 
 @dagster.schedule(

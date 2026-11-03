@@ -2,13 +2,15 @@ import io
 import os
 import csv
 import gzip
+import json
 import tempfile
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from unittest.mock import MagicMock
 
 from django.test import override_settings
 
@@ -34,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     ObjectStoreConfig,
     ObjectStoreProvider,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.csv_types import CsvColumnType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.delta import (
     ObjectStorageDeltaCursor,
     iter_delta_tables,
@@ -573,6 +576,66 @@ class TestJsonl:
             {"id": None, "value": 4},
             {"value": "five"},
         ]
+
+    @parameterized.expand(
+        [
+            (
+                "date",
+                CsvColumnType(name="d", kind="date"),
+                [{"d": "2024-03-01"}, {"d": None}, {"d": "2024-03-02"}],
+                [date(2024, 3, 1), None, date(2024, 3, 2)],
+                0,
+            ),
+            (
+                "datetime_in_utc",
+                CsvColumnType(name="d", kind="datetime"),
+                [{"d": "2024-03-01 10:30:00"}, {"d": "2024-03-01T10:30:00Z"}, {"d": None}],
+                [datetime(2024, 3, 1, 10, 30, tzinfo=UTC)] * 2 + [None],
+                0,
+            ),
+            (
+                "datetime_in_a_time_zone",
+                CsvColumnType(name="d", kind="datetime", timezone="America/New_York"),
+                [{"d": "2024-07-01 10:30:00"}],
+                [datetime(2024, 7, 1, 14, 30, tzinfo=UTC)],
+                0,
+            ),
+            (
+                "bad_values_become_null",
+                CsvColumnType(name="d", kind="date"),
+                [{"d": "2024-03-01"}, {"d": "not a date"}, {"d": "2024-13-45"}],
+                [date(2024, 3, 1), None, None],
+                2,
+            ),
+            (
+                "column_with_only_nulls",
+                CsvColumnType(name="d", kind="date"),
+                [{"d": None}, {"d": None}],
+                [None, None],
+                0,
+            ),
+        ]
+    )
+    def test_stored_date_types_cast_json_text(
+        self, _name: str, column_type: CsvColumnType, rows: list[dict], expected: list, nulled: int
+    ) -> None:
+        content = b"\n".join(json.dumps(row).encode() for row in rows) + b"\n"
+        logger = MagicMock()
+
+        [table] = iter_jsonl_tables(io.BytesIO(content), "x.jsonl", column_types=(column_type,), logger=logger)
+
+        assert table.schema.field("d").type == column_type.arrow_type
+        assert table.column("d").to_pylist() == expected
+        assert logger.warning.called is bool(nulled)
+
+    def test_columns_without_a_stored_type_stay_as_they_are(self) -> None:
+        content = b'{"d": "2024-03-01", "n": 1}\n'
+
+        [table] = iter_jsonl_tables(
+            io.BytesIO(content), "x.jsonl", column_types=(CsvColumnType(name="n", kind="integer"),)
+        )
+
+        assert table.to_pylist() == [{"d": "2024-03-01", "n": 1}]
 
     def test_a_too_deeply_nested_record_is_a_parse_error(self) -> None:
         with pytest.raises(ObjectStorageError, match=FILE_PARSE_ERROR):

@@ -28,6 +28,12 @@ jobs:
         timeout-minutes: 5
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      /.depot/
+                      /.github/actions/
+                      /tools/hogli-commands/hogli_commands/depot_mirrors.py
+                  sparse-checkout-cone-mode: false
             - name: Compare PR diff scope
               env:
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}

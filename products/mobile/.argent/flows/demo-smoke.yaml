@@ -1,0 +1,130 @@
+# Demo walkthrough. Starts and ends on the sign-in screen with demo mode off, so it can run
+# again right away. How to run it: products/mobile/docs/TESTING.md.
+steps:
+    - echo: Restart PostHog. Expect the sign-in screen with demo mode off
+    - launch: com.posthog.code.mobile
+    - await: { visible: { id: try-demo }, timeout: 25000 }
+    - await: { idle: true }
+
+    - echo: On sign-in. Tap Try the demo. Expect the inbox
+    - tap: { id: try-demo }
+    - await: { visible: { id: inbox-screen } }
+    - await: { idle: true }
+
+    - echo: On the inbox. Open Report load time. Expect its report screen
+    - tap: { id: inbox-row-demo-report-load-time }
+    - await: { visible: { id: handoff-picker-button } }
+    - await: { idle: true }
+
+    - echo: On Report load time. Open the hand-off chooser. Expect the hand-off sheet
+    - tap: { id: handoff-picker-button }
+    - await: { visible: { id: handoff-agent-posthog } }
+    - await: { idle: true }
+
+    - echo: Hand-off sheet open. Drag its header down to close it. Expect the sheet to go
+    - swipe: { from: { text: Choose an agent }, direction: down }
+    - await: { hidden: { id: handoff-agent-posthog } }
+
+    - echo: Back on the report. Open Resolve. Expect the resolve sheet
+    - tap: { id: action-resolve }
+    - await: { visible: { id: resolve-sheet-reason-fixed_outside_posthog } }
+    - await: { idle: true }
+
+    - echo: Resolve sheet open. Pick Fixed outside PostHog and confirm. Expect the inbox without the row
+    - tap: { id: resolve-sheet-reason-fixed_outside_posthog }
+    - tap: { id: resolve-sheet-confirm }
+    - await: { hidden: { id: resolve-sheet-confirm } }
+    - await: { visible: { id: inbox-screen } }
+    - await: { idle: true }
+    - await: { hidden: { id: inbox-row-demo-report-load-time } }
+
+    - echo: On the inbox. Open the 3,721 errors report. Expect its pull request and answer action
+    - tap: { id: inbox-row-demo-report-ui-errors }
+    - await: { visible: { id: pr-ready-card } }
+    - tap: { id: decision-request }
+    - await: { visible: { id: decision-option-guard } }
+    - await: { idle: true }
+
+    - echo: Decision card open. Pick Guard the undefined label. Expect the decided card with Undo
+    - tap: { id: decision-option-guard }
+    - await: { visible: { id: decision-undo } }
+    - await: { idle: true }
+
+    - echo: Decided card shows the answer. Tap Undo. Expect the decision card again
+    - tap: { id: decision-undo }
+    - await: { visible: { id: decision-request } }
+    - tap: { id: decision-request }
+    - await: { visible: { id: decision-option-guard } }
+    - await: { hidden: { id: decision-undo } }
+
+    - echo: Question sheet is open. Close it and open Chat. Expect the chat sheet
+    - tap: { id: decision-sheet-back }
+    - await: { hidden: { id: decision-sheet } }
+    - tap: { id: action-chat }
+    - await: { visible: { id: chat-input } }
+    - await: { idle: true }
+
+    - echo: Chat sheet open. Type a question and send it with the return key. Expect the demo reply
+    - type: { into: { id: chat-input }, text: Which deploy caused this? }
+    - await: { visible: { text: This is the demo } }
+    - await: { visible: { text: Which deploy caused this? } }
+
+    - echo: Reply shown. Close the chat. Expect the report again
+    - tap: { id: chat-back }
+    - await: { hidden: { id: chat-back } }
+    - await: { visible: { id: decision-request } }
+    - await: { idle: true }
+
+    - echo: On the report. Go back. Expect the inbox
+    - tap: { id: report-back }
+    - await: { visible: { id: inbox-screen } }
+    - await: { idle: true }
+
+    - echo: On the inbox. Open Chats from the bottom bar. Expect the chats list
+    - tap: { id: inbox-nav-chat }
+    - await: { visible: { id: chats-screen } }
+    - await: { idle: true }
+    - assert: { text: { in: { id: chat-row-session-demo-session-flaky-test }, contains: Fix the flaky checkout test } }
+
+    - echo: On Chats. Open the session Fix the flaky checkout test. Expect the full-screen chat with its action pill and thread
+    - tap: { id: chat-row-session-demo-session-flaky-test }
+    - await: { visible: { id: session-thread } }
+    - await: { idle: true }
+    - assert: { visible: { id: chat-more } }
+    - assert: { visible: { id: session-assistant } }
+
+    - echo: Session open. Close it. Expect the chats list again
+    - tap: { id: chat-back }
+    - await: { visible: { id: chats-screen } }
+    - await: { idle: true }
+
+    - echo: On Chats. Open the session Add dark mode to settings. Expect its decision card
+    - tap: { id: chat-row-session-demo-session-dark-mode }
+    - await: { visible: { id: session-decision } }
+    - await: { idle: true }
+
+    - echo: Decision card open. Close the session. Expect the chats list again
+    - tap: { id: chat-back }
+    - await: { visible: { id: chats-screen } }
+    - await: { idle: true }
+
+    - echo: On Chats. Go to Home from the bottom bar. Expect the inbox
+    - tap: { id: inbox-nav-home }
+    - await: { visible: { id: inbox-screen } }
+    - await: { idle: true }
+
+    - echo: On the inbox. Open the menu. Expect Settings in it
+    - tap: { id: tabs-more }
+    - await: { visible: { id: nav-settings } }
+    - await: { idle: true }
+
+    - echo: Menu open. Open Settings. Expect Exit demo
+    - tap: { id: nav-settings }
+    - scroll-to: { target: { id: settings-exit-demo } }
+    - await: { visible: { id: settings-exit-demo } }
+    - await: { idle: true }
+
+    - echo: On Settings. Tap Exit demo. Expect the sign-in screen
+    - tap: { id: settings-exit-demo }
+    - await: { visible: { id: try-demo }, timeout: 10000 }
+    - await: { hidden: { id: settings-exit-demo } }

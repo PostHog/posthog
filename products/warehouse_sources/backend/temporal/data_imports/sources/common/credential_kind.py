@@ -1,16 +1,21 @@
 """The `Integration` kind that holds a warehouse source's typed-in credentials.
 
-The kind comes from `derive_credential_kind`. The result is frozen in the generated file
-`facade/credential_kinds.py`, because a kind is stored data: renaming a kind after the first row
-exists needs a data migration. `generate_source_field_classification` writes that file, and a test
-fails when it is out of date.
+Each source gives its kind with `credential_kind` on its class. The default comes from
+`default_credential_kind`. The result is frozen in the generated file `facade/credential_kinds.py`,
+because a kind is stored data: renaming a kind after the first row exists needs a data migration.
+`generate_source_field_classification` writes that file, and a test fails when it is out of date.
+
+The generated files are append-only: a new source adds its entry, a removed source keeps its entry,
+and a changed value fails the generation unless `--allow-changed-defaults` is passed.
 """
 
 import re
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 
+from products.warehouse_sources.backend.facade.credential_kinds import CREDENTIAL_KINDS
 from products.warehouse_sources.backend.facade.source_config import (
+    SourceConfig,
     SourceFieldConfig,
     SourceFieldOauthConfig,
     SourceFieldSelectConfig,
@@ -24,59 +29,11 @@ CREDENTIAL_KINDS_PATH = Path(__file__).resolve().parents[4] / "facade" / "creden
 # `Integration.kind` is `CharField(max_length=32)`.
 CREDENTIAL_KIND_MAX_LENGTH = 32
 
-# Sources that have no credential kind. Custom keeps its own `job_inputs` and its OAuth rows are not `Integration` rows.
-CREDENTIAL_KIND_EXCLUDED: frozenset[ExternalDataSourceType] = frozenset({ExternalDataSourceType.CUSTOM})
-
-# A source whose credentials have the same shape as an existing `Integration` kind uses that kind.
-EXISTING_KIND_OVERRIDES: Mapping[ExternalDataSourceType, str] = {
-    ExternalDataSourceType.POSTGRES: "postgresql",
-    ExternalDataSourceType.REDSHIFT: "aws-redshift",
-    ExternalDataSourceType.AMAZONS3: "aws-s3",
-    ExternalDataSourceType.BIGQUERY: "google-cloud-service-account",
-    ExternalDataSourceType.GITLAB: "gitlab",
-    ExternalDataSourceType.APPLESEARCHADS: "apple-ads",
-    ExternalDataSourceType.CUSTOMERIO: "customer-io",
-    ExternalDataSourceType.CLICKUP: "clickup",
-}
-
-# The kebab-case rule splits a one-word brand name at its inner capitals. These names keep the brand spelling.
-BRAND_CASING_OVERRIDES: Mapping[ExternalDataSourceType, str] = {
-    ExternalDataSourceType.MYSQL: "mysql",
-    ExternalDataSourceType.MONGODB: "mongodb",
-    ExternalDataSourceType.CLICKHOUSE: "clickhouse",
-    ExternalDataSourceType.SHAREPOINT: "sharepoint",
-    ExternalDataSourceType.TIKTOKADS: "tiktok-ads",
-    ExternalDataSourceType.YOUTUBEANALYTICS: "youtube-analytics",
-    ExternalDataSourceType.DYNAMODB: "dynamodb",
-    ExternalDataSourceType.COCKROACHDB: "cockroachdb",
-    ExternalDataSourceType.COSMOSDB: "cosmosdb",
-    ExternalDataSourceType.PLANETSCALEMYSQL: "planetscale-mysql",
-    ExternalDataSourceType.PLANETSCALEPOSTGRES: "planetscale-postgres",
-    ExternalDataSourceType.AWSDOCUMENTDB: "aws-documentdb",
-    ExternalDataSourceType.SQLITE: "sqlite",
-    ExternalDataSourceType.GNEWS: "gnews",
-    ExternalDataSourceType.PYPI: "pypi",
-    ExternalDataSourceType.TMDB: "tmdb",
-    ExternalDataSourceType.RB2B: "rb2b",
-    ExternalDataSourceType.E2B: "e2b",
-}
-
 _WORD_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 
 
 def kebab_case(name: str) -> str:
     return _WORD_BOUNDARY.sub("-", name).lower()
-
-
-def derive_credential_kind(source_type: ExternalDataSourceType, oauth_kind: str | None = None) -> str:
-    """The kind for a source. A source with an OAuth field uses the kind that field names, because its rows exist already."""
-    if oauth_kind:
-        return oauth_kind
-    if source_type in EXISTING_KIND_OVERRIDES:
-        return EXISTING_KIND_OVERRIDES[source_type]
-    if source_type in BRAND_CASING_OVERRIDES:
-        return BRAND_CASING_OVERRIDES[source_type]
-    return kebab_case(source_type.value)
 
 
 def _walk(fields: list[SourceFieldConfig]) -> Iterator[SourceFieldConfig]:
@@ -89,36 +46,73 @@ def _walk(fields: list[SourceFieldConfig]) -> Iterator[SourceFieldConfig]:
                 yield from _walk(option.fields or [])
 
 
-def oauth_kind_of(source_type: ExternalDataSourceType) -> str | None:
+def oauth_kind_of(source_config: SourceConfig) -> str | None:
     """The `Integration` kind of the source's OAuth field, at any depth. None when the source has no such field."""
-    for field in _walk(list(SourceRegistry.get_source(source_type).get_source_config.fields)):
+    for field in _walk(list(source_config.fields)):
         if isinstance(field, SourceFieldOauthConfig):
             return field.kind
     return None
 
 
+def default_credential_kind(source_type: ExternalDataSourceType, source_config: SourceConfig) -> str:
+    """A source with an OAuth field uses the kind that field names, because its rows exist already."""
+    return oauth_kind_of(source_config) or kebab_case(source_type.value)
+
+
+class ChangedFrozenValueError(ValueError):
+    """The generation would change a value that rows already store."""
+
+
+def merge_append_only(
+    committed: Mapping[str, str], computed: Mapping[str, str], *, name: str, allow_changed: bool = False
+) -> dict[str, str]:
+    """`committed` with the new keys of `computed`. A key that is gone from `computed` stays.
+
+    Raises `ChangedFrozenValueError` when `computed` changes a committed value, unless `allow_changed`.
+    """
+    changed = {
+        key: (committed[key], value) for key, value in computed.items() if key in committed and committed[key] != value
+    }
+    if changed and not allow_changed:
+        lines = "\n".join(f"  {key}: {old!r} -> {new!r}" for key, (old, new) in sorted(changed.items()))
+        raise ChangedFrozenValueError(
+            f"The generation changes committed {name}, which integration rows store:\n{lines}\n"
+            "Keep the old value in the source class, or write a data migration for the stored rows and "
+            "rerun with --allow-changed-defaults."
+        )
+    return dict(sorted({**committed, **computed}.items()))
+
+
 def compute_credential_kinds() -> dict[str, str]:
     sources = SourceRegistry.get_all_sources()
-    return {
-        source_type.value: derive_credential_kind(source_type, oauth_kind_of(source_type))
+    kinds = {
+        source_type.value: sources[source_type].credential_kind
         for source_type in sorted(sources, key=lambda source_type: source_type.value)
-        if source_type not in CREDENTIAL_KIND_EXCLUDED
     }
+    return {source_type: kind for source_type, kind in kinds.items() if kind is not None}
 
 
-def render_credential_kinds() -> str:
+def frozen_credential_kinds(*, allow_changed: bool = False) -> dict[str, str]:
+    """The committed kinds plus the kinds of new sources. See `merge_append_only`."""
+    return merge_append_only(
+        CREDENTIAL_KINDS, compute_credential_kinds(), name="credential kinds", allow_changed=allow_changed
+    )
+
+
+def render_credential_kinds(*, allow_changed: bool = False) -> str:
     lines = [
         '"""Generated by `python manage.py generate_source_field_classification`. Do not edit by hand.',
         "",
         "The `Integration` kind that holds the typed-in credentials of each warehouse source type, keyed by",
         "source type value. A kind is stored data, so a change to an existing value needs a data migration.",
-        "See `sources/common/credential_kind.py` for the derivation.",
+        "The file is append-only: a removed source keeps its entry. See `sources/common/credential_kind.py`.",
         '"""',
         "",
         "from collections.abc import Mapping",
         "",
         "CREDENTIAL_KINDS: Mapping[str, str] = {",
     ]
-    lines += [f'    "{source_type}": "{kind}",' for source_type, kind in compute_credential_kinds().items()]
+    kinds = frozen_credential_kinds(allow_changed=allow_changed)
+    lines += [f'    "{source_type}": "{kind}",' for source_type, kind in kinds.items()]
     lines += ["}", ""]
     return "\n".join(lines)

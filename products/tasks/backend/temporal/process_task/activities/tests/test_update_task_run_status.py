@@ -119,11 +119,13 @@ class TestUpdateTaskRunStatusActivity:
             run_id=str(test_task_run.id),
             status=TaskRun.Status.FAILED,
             error_message=error_msg,
+            error_type="RepositoryAccessError",
         )
         async_to_sync(activity_environment.run)(update_task_run_status, input_data)
 
         test_task_run.refresh_from_db()
         assert test_task_run.error_message == error_msg
+        assert test_task_run.state["failure_error_type"] == "RepositoryAccessError"
 
     @pytest.mark.django_db(transaction=True)
     def test_timed_out_inactivity_sets_state_marker_without_error_message(self, activity_environment, test_task_run):

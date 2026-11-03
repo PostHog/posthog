@@ -4,11 +4,21 @@ from products.signals.backend.activity_summary.tick import (
     plan_activity_summary_tick_activity,
     update_activity_summary_pair_activity,
 )
+from products.signals.backend.anomaly_scores.refresh import (
+    AnomalyScoringDueListRefreshWorkflow,
+    refresh_anomaly_scoring_due_list_activity,
+)
 from products.signals.backend.anomaly_scores.tick import (
     AnomalyScoringTickWorkflow,
     capture_anomaly_scoring_tick_activity,
     plan_anomaly_scoring_tick_activity,
     score_anomaly_insight_activity,
+)
+from products.signals.backend.personal_ranking.tick import (
+    PersonalRankingTickWorkflow,
+    build_personal_ranking_pair_activity,
+    capture_personal_ranking_tick_activity,
+    plan_personal_ranking_tick_activity,
 )
 from products.signals.backend.ranking.sweep import InboxRankingScoringWorkflow, score_inbox_reports_activity
 from products.signals.backend.temporal.agentic.report import run_agentic_report_activity
@@ -54,7 +64,10 @@ from products.signals.backend.temporal.agentic.scout_trial_evaluation import (
     load_scout_trial_evaluation_activity,
     poll_scout_trial_judge_activity,
 )
-from products.signals.backend.temporal.agentic.select_repository import select_repository_activity
+from products.signals.backend.temporal.agentic.select_repository import (
+    github_optional_pilot_activity,
+    select_repository_activity,
+)
 from products.signals.backend.temporal.backfill_error_tracking import (
     BackfillErrorTrackingWorkflow,
     emit_backfill_signal_activity,
@@ -88,6 +101,11 @@ from products.signals.backend.temporal.inbox_notification import (
     get_inbox_notification_state_activity,
     send_report_github_comments_activity,
     send_report_inbox_notifications_activity,
+)
+from products.signals.backend.temporal.monitoring_assessment import (
+    MonitoringAssessmentWorkflow,
+    exhaust_monitoring_assessment_activity,
+    poll_monitoring_assessment_activity,
 )
 from products.signals.backend.temporal.reingestion import (
     SignalReportReingestionWorkflow,
@@ -136,6 +154,7 @@ from products.signals.backend.temporal.summary import (
 )
 
 WORKFLOWS = [
+    MonitoringAssessmentWorkflow,
     UpdateSignalSpendWorkflow,
     GenerateScoutRubricsWorkflow,
     BackfillErrorTrackingWorkflow,
@@ -160,6 +179,8 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES = [
+    poll_monitoring_assessment_activity,
+    exhaust_monitoring_assessment_activity,
     update_signal_spend_activity,
     confirm_signal_spend_activity,
     load_scout_trial_evaluation_activity,
@@ -234,19 +255,30 @@ ACTIVITIES = [
     report_safety_judge_activity,
     safety_filter_activity,
     select_repository_activity,
+    github_optional_pilot_activity,
     soft_delete_report_signals_activity,
     verify_match_specificity_activity,
     wait_for_signal_in_clickhouse_activity,
 ]
 
 # The temporal-worker-self-driving fleet runs these, not video-export.
-SELF_DRIVING_WORKFLOWS = [InboxRankingScoringWorkflow, ActivitySummaryTickWorkflow, AnomalyScoringTickWorkflow]
+SELF_DRIVING_WORKFLOWS = [
+    InboxRankingScoringWorkflow,
+    ActivitySummaryTickWorkflow,
+    PersonalRankingTickWorkflow,
+    AnomalyScoringTickWorkflow,
+    AnomalyScoringDueListRefreshWorkflow,
+]
 SELF_DRIVING_ACTIVITIES = [
     score_inbox_reports_activity,
     plan_activity_summary_tick_activity,
     update_activity_summary_pair_activity,
     capture_activity_summary_tick_activity,
+    plan_personal_ranking_tick_activity,
+    build_personal_ranking_pair_activity,
+    capture_personal_ranking_tick_activity,
     plan_anomaly_scoring_tick_activity,
     score_anomaly_insight_activity,
     capture_anomaly_scoring_tick_activity,
+    refresh_anomaly_scoring_due_list_activity,
 ]

@@ -18,6 +18,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import {
     getReasonForAccessLevelChangeProhibition,
     membershipLevelToName,
@@ -26,11 +27,10 @@ import {
 import { capitalizeFirstLetter, fullName, fullNameOrEmail } from 'lib/utils/strings'
 import { twoFactorLogic } from 'scenes/authentication/two-factor-setup/twoFactorLogic'
 import { membersExportLogic } from 'scenes/organization/membersExportLogic'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { membersLogic } from '~/models/membersLogic'
 import { AvailableFeature, OrganizationMemberType } from '~/types'
 
 import { accessibleProjects, orderByActivity } from './memberProjectAccess'

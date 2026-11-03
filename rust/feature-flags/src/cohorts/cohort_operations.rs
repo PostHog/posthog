@@ -559,16 +559,14 @@ pub fn apply_cohort_membership_logic<F: Borrow<PropertyFilter>>(
             .get_cohort_id()
             .ok_or(FlagError::CohortFiltersParsingError)?;
         let matches = cohort_matches.get(&cohort_id).copied().unwrap_or(false);
-        let operator = filter.operator.unwrap_or(OperatorType::In);
 
-        // Combine the operator logic directly within this method
-        let membership_match = match operator {
-            OperatorType::In => matches,
-            OperatorType::NotIn => !matches,
-            // Currently supported operators are IN and NOT IN
-            // Any other operator defaults to false
-            _ => false,
-        };
+        // `cohort_operator_is_supported` holds the supported set, so an explanation built from
+        // that helper cannot disagree with the verdict here. An absent operator reads as `in`.
+        let membership_match = filter.cohort_operator_is_supported()
+            && match filter.operator {
+                Some(OperatorType::NotIn) => !matches,
+                _ => matches,
+            };
 
         // If any filter does not match, return false early
         if !membership_match {
