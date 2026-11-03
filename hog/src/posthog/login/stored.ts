@@ -1,3 +1,4 @@
+import { HogError } from '@/core/errors'
 import type { Runtime } from '@/core/runtime'
 import { accessKeyFromStorage, type AccessKey, type AccessKeyStorage, type LogoutOutcome } from '@/posthog/access-key'
 import { FileStore } from '@/posthog/credential-store/file'
@@ -50,22 +51,22 @@ export async function writeLogin(
     runtime: Runtime,
     store: KeychainStore | FileStore,
     key: AccessKey,
-    options: { lastLogin?: boolean; removeIfLate?: boolean } = {}
+    options: { lastLogin?: boolean; removeIfLate?: boolean; keychainLeftover?: boolean } = {}
 ): Promise<void> {
     await store.write(key.host, key.secret(), { removeIfLate: options.removeIfLate })
     const current = await readSettings(runtime)
     const previous = loginFor(current, key.host)
     const record = key.record(store.kind)
     const keychainLeftover =
-        store.kind === 'file' && (previous?.store === 'keychain' || previous?.keychainLeftover === true)
+        store.kind === 'file' &&
+        (options.keychainLeftover === true || previous?.store === 'keychain' || previous?.keychainLeftover === true)
     const settings = withLogin(current, key.host, keychainLeftover ? { ...record, keychainLeftover } : record)
     await writeSettings(runtime, options.lastLogin ? { ...settings, host: key.host } : settings)
 }
 
-// Resolves to false when hog had no login for the host.
-export async function removeLogin(runtime: Runtime, login: StoredLogin): Promise<boolean> {
-    const { host } = login.key
-    const removed = await login.store.remove(host)
+// Resolves to false when the store held nothing for the host.
+export async function removeLogin(runtime: Runtime, host: string, store: KeychainStore | FileStore): Promise<boolean> {
+    const removed = await store.remove(host)
     const settings = withLogin(await readSettings(runtime), host, undefined)
     const lastLogin = settings.host !== undefined && hostKey(settings.host) === hostKey(host)
     await writeSettings(runtime, lastLogin ? { logins: settings.logins } : settings)
@@ -76,18 +77,25 @@ export async function removeLogin(runtime: Runtime, login: StoredLogin): Promise
 // stored copy. Resolves to undefined when hog had no login to remove.
 export async function logout(runtime: Runtime, host: string): Promise<LoggedOut | undefined> {
     const settings = await readSettings(runtime)
+    const record = loginFor(settings, host)
     const login = await readLogin(runtime, settings, host)
     if (!login) {
-        return undefined
+        // The file entry can be gone while the record still names a keychain item left behind.
+        if (!record?.keychainLeftover) {
+            return undefined
+        }
+        await removeLogin(runtime, host, openStore(runtime, record.store))
+        return { revoked: null, revokeUrl: null, keychainLeftover: await removeKeychainLeftover(runtime, host) }
     }
-    const [outcome, removed] = await Promise.all([login.key.logout(runtime), removeLogin(runtime, login)])
+    const [outcome, removed] = await Promise.all([login.key.logout(runtime), removeLogin(runtime, host, login.store)])
     if (!removed) {
         return undefined
     }
-    const leftover = loginFor(settings, host)?.keychainLeftover ? await removeKeychainLeftover(runtime, host) : null
+    const leftover = record?.keychainLeftover ? await removeKeychainLeftover(runtime, host) : null
     return { ...outcome, keychainLeftover: leftover }
 }
 
+// Resolves to why the removal failed, or null once no item is left.
 async function removeKeychainLeftover(runtime: Runtime, host: string): Promise<string | null> {
     try {
         await new KeychainStore(runtime).remove(host)
@@ -97,8 +105,22 @@ async function removeKeychainLeftover(runtime: Runtime, host: string): Promise<s
     }
 }
 
-// Logs this machine out of every host in settings.json or the credentials file, and removes the
-// entries of the credentials file that settings.json doesn't name.
+// For a host settings.json names no keychain item for. A machine without a usable keychain can't
+// hold one, so only a refused or abandoned removal counts as a failure.
+async function sweepKeychain(runtime: Runtime, host: string): Promise<{ removed: boolean; error: string | null }> {
+    try {
+        return { removed: await new KeychainStore(runtime).remove(host), error: null }
+    } catch (error) {
+        if (error instanceof HogError && error.code === 'keychain_unavailable') {
+            return { removed: false, error: null }
+        }
+        return { removed: false, error: error instanceof Error ? error.message : String(error) }
+    }
+}
+
+// Logs this machine out of every host in settings.json or the credentials file. It also removes the
+// entries of the credentials file and the keychain items that settings.json doesn't name, such as a
+// keychain item from before settings.json was lost.
 export async function logoutAll(runtime: Runtime): Promise<LoggedOutHost[]> {
     const settings = await readSettings(runtime)
     const file = new FileStore(runtime)
@@ -111,12 +133,17 @@ export async function logoutAll(runtime: Runtime): Promise<LoggedOutHost[]> {
     }
     const loggedOut: LoggedOutHost[] = []
     for (const host of hosts.values()) {
+        const record = loginFor(settings, host)
         const outcome = await logout(runtime, host)
         const orphan = await file.remove(host)
-        if (outcome || orphan) {
-            loggedOut.push(
-                outcome ? { ...outcome, host } : { host, revoked: null, revokeUrl: null, keychainLeftover: null }
-            )
+        // Logout already handled a keychain login and a marked leftover.
+        const swept =
+            record?.store !== 'keychain' && !record?.keychainLeftover
+                ? await sweepKeychain(runtime, host)
+                : { removed: false, error: null }
+        if (outcome || orphan || swept.removed || swept.error) {
+            const base = outcome ?? { revoked: null, revokeUrl: null, keychainLeftover: null }
+            loggedOut.push({ ...base, keychainLeftover: base.keychainLeftover ?? swept.error, host })
         }
     }
     return loggedOut
