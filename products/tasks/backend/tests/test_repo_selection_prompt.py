@@ -120,6 +120,7 @@ def test_select_repository_renders_team_rules_and_visibility_into_prompt() -> No
             candidate_repos=["acme/a", "acme/b"],
         )
 
+    assert start.call_args.kwargs["context"].disable_skills is True
     assert selected.repository == "acme/b"
     prompt = start.call_args.kwargs["prompt"]
     assert "Team routing rules" in prompt
