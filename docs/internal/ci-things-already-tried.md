@@ -470,6 +470,9 @@ The Dagster path validator also uses a sparse checkout of every internal Python 
 `ci-rust.yml` also uses it on the build and test jobs, but that came before this PR.
 The large Python and frontend test jobs do not use it. Their checkout is complete.
 
+Desktop agent release verification keeps the standalone `packages/agent/` workspace, its build action, `.nvmrc`, and the desktop lockfile used for caching.
+Validate its frozen install, workspace build, and agent tests from the sparse tree when changing those inputs.
+
 The HCL schema guard checks out `posthog/clickhouse/hcl/`, which contains its scripts, manifest, layers, golden dumps, and generated SQL.
 Keep the full directory so every environment and role remains available to validation and drift checks.
 
