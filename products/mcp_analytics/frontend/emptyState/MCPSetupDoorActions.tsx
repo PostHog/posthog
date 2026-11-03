@@ -5,8 +5,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
 import type { ProductEmptyStateMode } from 'lib/components/ProductEmptyState/types'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
