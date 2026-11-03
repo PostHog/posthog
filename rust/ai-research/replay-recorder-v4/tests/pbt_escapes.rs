@@ -7,8 +7,11 @@ use hegel::generators as gs;
 use hegel::TestCase;
 use replay_core_v4::inspect::session::{BlockInspection, SessionInspector};
 use replay_core_v4::inspect::stats::BlockStats;
+use replay_core_v4::refs::UrlAsset;
 use replay_core_v4::scan::message::read_message;
+use replay_core_v4::seal::image_url_key;
 use replay_recorder_v4::batch::{Block, Origin, SessionKey, Tp};
+use replay_recorder_v4::urls::url_reference;
 use replay_recorder_v4::write::{write_block, WriterCounts};
 use serde_json::{json, Value};
 
@@ -16,6 +19,8 @@ use serde_json::{json, Value};
 const SECRET: &str = "pbtsecret";
 /// The host label of every accepted URL. No other part of a generated page holds it.
 const ACCEPTED: &str = "pbt-ok";
+const TEAM_KEY: [u8; 32] = [6; 32];
+const KEY_MONTH: &str = "2026-10";
 
 const HOSTS: &[&str] = &[
     "cdn.example.com",
@@ -24,7 +29,10 @@ const HOSTS: &[&str] = &[
 ];
 const REFUSALS: &[&str] = &["?token=", "?X-Amz-Signature=", "?sig="];
 
-#[derive(Debug, Clone, Copy)]
+/// Past the 1,024 levels of JSON that the inspector reads, as each node takes two.
+const DEEP_NODES: usize = 600;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum Slot {
     ImgSrc,
     Srcset,
@@ -32,9 +40,12 @@ enum Slot {
     StyleSheet,
     FontFace(&'static str),
     ImageSet,
+    CrossFade { in_image_set: bool },
     StyleRule,
     StyleChange,
     StyleObjectChange,
+    StyleText,
+    PictureSource,
 }
 
 const SLOTS: &[Slot] = &[
@@ -45,14 +56,34 @@ const SLOTS: &[Slot] = &[
     Slot::FontFace("Brand"),
     Slot::FontFace("Roboto"),
     Slot::ImageSet,
+    Slot::CrossFade {
+        in_image_set: false,
+    },
+    Slot::CrossFade { in_image_set: true },
     Slot::StyleRule,
     Slot::StyleChange,
     Slot::StyleObjectChange,
+    Slot::StyleText,
+    Slot::PictureSource,
 ];
 
 impl Slot {
     fn is_css(self) -> bool {
-        !matches!(self, Slot::ImgSrc | Slot::Srcset)
+        !matches!(self, Slot::ImgSrc | Slot::Srcset | Slot::PictureSource)
+    }
+
+    /// The bundled font's reference names no URL.
+    fn names_its_url(self) -> bool {
+        self != Slot::FontFace("Roboto")
+    }
+
+    /// A set keeps its candidate as the page wrote it, so it cannot keep an escaped one, or one that another image function holds.
+    fn drops_its_block(self, written: &str) -> bool {
+        match self {
+            Slot::ImageSet => written.contains('\\'),
+            Slot::CrossFade { in_image_set } => in_image_set,
+            _ => false,
+        }
     }
 }
 
@@ -60,8 +91,15 @@ impl Slot {
 struct Placed {
     slot: Slot,
     written: String,
-    escaped: bool,
     copies: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Shape {
+    /// The block holds no full snapshot, as after a restart, so the inspector does not know the nodes that its incremental snapshots name.
+    restart: bool,
+    compressed: bool,
+    deep: bool,
 }
 
 fn draw_index(tc: &TestCase, len: usize) -> usize {
@@ -82,6 +120,39 @@ fn draw_url(tc: &TestCase, index: usize, refused: bool) -> String {
         String::new()
     };
     format!("{scheme}{host}/{path}{query}")
+}
+
+/// `url` as the URL parser reads it the same: the scheme and host in any letter case, the default port, a dot segment in the path, or the first letter of the host percent-encoded.
+fn parsed_alike(tc: &TestCase, url: &str) -> String {
+    let (scheme, rest) = url.split_once("//").unwrap();
+    let (host, path) = rest.split_once('/').unwrap();
+    let scheme = if scheme.is_empty() {
+        ""
+    } else {
+        ["https:", "HTTPS:", "hTtPs:"][draw_index(tc, 3)]
+    };
+    let mut host: String = match draw_index(tc, 3) {
+        0 => host.to_owned(),
+        1 => host.to_ascii_uppercase(),
+        _ => host
+            .chars()
+            .enumerate()
+            .map(|(at, ch)| {
+                if at % 2 == 0 {
+                    ch.to_ascii_uppercase()
+                } else {
+                    ch
+                }
+            })
+            .collect(),
+    };
+    if draw_index(tc, 4) == 0 {
+        let first = host.remove(0);
+        host.insert_str(0, &format!("%{:02X}", first as u32));
+    }
+    let port = if draw_index(tc, 4) == 0 { ":443" } else { "" };
+    let dots = ["", "", "./", "x/../"][draw_index(tc, 4)];
+    format!("{scheme}//{host}{port}/{dots}{path}")
 }
 
 /// `url` with CSS escapes in the part before its query, so the secret stays readable as plain text.
@@ -107,15 +178,11 @@ fn css_escaped(tc: &TestCase, url: &str) -> String {
 }
 
 /// `url` as an HTML attribute can hold it and a browser still loads it: the URL parser drops tabs and line breaks
-/// anywhere, reads a backslash after the scheme as a slash, and takes the scheme in any letter case.
+/// anywhere, and reads a backslash as a slash.
 fn html_spelled(tc: &TestCase, url: &str) -> String {
     let mut out = url.to_owned();
-    if out.starts_with("https://") && tc.draw(gs::booleans()) {
-        out = out.replacen(
-            "https://",
-            ["HTTPS://", "https:\\\\", "https:/\\"][draw_index(tc, 3)],
-            1,
-        );
+    if tc.draw(gs::booleans()) {
+        out = out.replacen("//", ["\\\\", "/\\", "\\/"][draw_index(tc, 3)], 1);
     }
     let query_at = out.find('?').unwrap_or(out.len());
     for _ in 0..draw_index(tc, 3) {
@@ -127,20 +194,71 @@ fn html_spelled(tc: &TestCase, url: &str) -> String {
     out
 }
 
+/// `url` with the C0 controls and spaces that the URL parser strips from both ends. CSS reads a NUL as U+FFFD and ends a string at a line break, so a CSS slot takes neither.
+fn with_stripped_ends(tc: &TestCase, slot: Slot, url: &str) -> String {
+    let ends: &[char] = if slot.is_css() {
+        &[' ', '\t', '\u{1}', '\u{1f}']
+    } else {
+        &[' ', '\t', '\n', '\u{c}', '\u{0}', '\u{1}', '\u{1f}']
+    };
+    let end = || {
+        if draw_index(tc, 4) == 0 {
+            ends[draw_index(tc, ends.len())].to_string()
+        } else {
+            String::new()
+        }
+    };
+    let start = end();
+    format!("{start}{url}{}", end())
+}
+
+/// A spelling of `url` that a browser loads from the same place in `slot`, and that spelling with its CSS escapes decoded.
+fn draw_spelling(tc: &TestCase, slot: Slot, url: &str) -> (String, String) {
+    if !tc.draw(gs::booleans()) {
+        return (url.to_owned(), url.to_owned());
+    }
+    let parsed = parsed_alike(tc, url);
+    let mut spelled = parsed.clone();
+    let css_escapes = slot.is_css() && tc.draw(gs::booleans());
+    if css_escapes {
+        spelled = css_escaped(tc, &spelled);
+    } else if slot == Slot::ImgSrc && tc.draw(gs::booleans()) {
+        spelled = html_spelled(tc, &spelled);
+    }
+    let written = with_stripped_ends(tc, slot, &spelled);
+    let decoded = if !css_escapes {
+        written.clone()
+    } else {
+        let start = &written[..written.find(&spelled).unwrap()];
+        let end = &written[start.len() + spelled.len()..];
+        format!("{start}{parsed}{end}")
+    };
+    (written, decoded)
+}
+
+/// `url` as the URL parser writes it, which is what a script reads back from a slot.
+fn serialized(url: &str) -> String {
+    let (_, rest) = url.split_once("//").unwrap();
+    let (host, tail) = rest.split_once('/').unwrap();
+    format!("https://{}/{tail}", host.to_ascii_lowercase())
+}
+
 /// The CSS `url()` of `written`, quoted or not, under any spelling of its name. A comment can follow a quoted string.
 /// One before it makes a bad URL, which a browser never loads.
 fn url_function(tc: &TestCase, written: &str) -> String {
     let name = ["url", "URL", "\\75 rl", "u\\72l"][draw_index(tc, 4)];
     let comment = if tc.draw(gs::booleans()) { "/*c*/" } else { "" };
     let space = if tc.draw(gs::booleans()) { " " } else { "" };
+    let needs_quotes =
+        written.contains(['(', ')', '"', '\'', '\\']) || written.contains(|ch: char| ch <= ' ');
     match draw_index(tc, 3) {
-        0 if !written.contains([' ', '(', ')', '"', '\'', '\\']) => format!("{name}({written})"),
+        0 if !needs_quotes => format!("{name}({written})"),
         1 => format!("{name}({space}\"{written}\"{comment})"),
         _ => format!("{name}({space}'{written}'{comment})"),
     }
 }
 
-/// `data` as posthog-js sends a compressed snapshot: gzip bytes, one per character.
+/// `data` as posthog-js sends a compressed snapshot or list: gzip bytes, one per character.
 fn compressed(data: &Value) -> String {
     replay_core_v4::compression::gzip(data.to_string().as_bytes())
         .unwrap()
@@ -149,42 +267,65 @@ fn compressed(data: &Value) -> String {
         .collect()
 }
 
-/// `json` with some of its slashes written as `\/`, which JSON reads as a slash. Every slash here is inside a string.
-fn with_escaped_slashes(tc: &TestCase, json: &str) -> String {
-    json.chars()
-        .map(|ch| {
-            if ch == '/' && draw_index(tc, 4) == 0 {
-                "\\/".to_owned()
-            } else {
-                ch.to_string()
+/// `json` with some slashes and letters of its strings escaped. A draw for each character would make a large page too many choices, so one drawn seed decides them.
+fn with_json_escapes(tc: &TestCase, json: &str) -> String {
+    let rate = [0, 4, 16][draw_index(tc, 3)];
+    let mut state = tc.draw(gs::integers::<u64>()) | 1;
+    let mut escape = || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        rate != 0 && state.is_multiple_of(rate)
+    };
+    let mut out = String::with_capacity(json.len());
+    let mut in_string = false;
+    let mut chars = json.chars();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '"' => {
+                in_string = !in_string;
+                out.push(ch);
             }
-        })
-        .collect()
+            '\\' => {
+                out.push(ch);
+                let escaped = chars.next().unwrap();
+                out.push(escaped);
+                if escaped == 'u' {
+                    out.extend(chars.by_ref().take(4));
+                }
+            }
+            '/' if in_string && escape() => out.push_str("\\/"),
+            _ if in_string && ch.is_ascii_alphabetic() && escape() => {
+                out.push_str(&format!("\\u{:04x}", ch as u32))
+            }
+            _ => out.push(ch),
+        }
+    }
+    out
 }
 
-fn draw_placed(tc: &TestCase, index: usize, refused: bool) -> Placed {
-    let slot = SLOTS[draw_index(tc, SLOTS.len())];
-    let url = draw_url(tc, index, refused);
-    let written = if !tc.draw(gs::booleans()) {
-        url.clone()
-    } else if slot.is_css() {
-        css_escaped(tc, &url)
-    } else if matches!(slot, Slot::ImgSrc) {
-        html_spelled(tc, &url)
-    } else {
-        url.clone()
-    };
-    let escaped = written != url;
+/// A copy takes a spelling that the inspector records for the URL: as the page wrote it in the slot, as CSS decodes it, or as the URL parser writes it.
+fn draw_placed(tc: &TestCase, slots: &[Slot], url: String, refused: bool) -> Placed {
+    let slot = slots[draw_index(tc, slots.len())];
+    let (written, decoded) = draw_spelling(tc, slot, &url);
     let copies = if refused {
-        tc.draw(gs::vecs(gs::sampled_from(vec![url, written.clone()])).max_size(2))
+        let spellings = vec![written.clone(), decoded, serialized(&url)];
+        tc.draw(gs::vecs(gs::sampled_from(spellings)).max_size(2))
     } else {
         Vec::new()
     };
     Placed {
         slot,
         written,
-        escaped,
         copies,
+    }
+}
+
+fn draw_shape(tc: &TestCase) -> Shape {
+    Shape {
+        restart: tc.draw(gs::booleans()),
+        compressed: tc.draw(gs::booleans()),
+        deep: draw_index(tc, 16) == 0,
     }
 }
 
@@ -193,82 +334,164 @@ fn element(id: &mut i64, tag: &str, attributes: Value) -> Value {
     json!({"type": 2, "tagName": tag, "attributes": attributes, "childNodes": [], "id": *id})
 }
 
-/// A full snapshot with each URL in its slot and each copy in an `alt` attribute or a text node, then a style rule
-/// event for each URL whose slot is one.
-fn events(tc: &TestCase, placed: &[Placed]) -> String {
+fn mutation(lists: Value) -> Value {
+    let mut data = json!({"source": 0, "adds": [], "removes": [], "texts": [], "attributes": []});
+    for (name, list) in lists.as_object().unwrap() {
+        data[name] = list.clone();
+    }
+    json!({"type": 3, "timestamp": 2, "data": data})
+}
+
+/// The page's events. Each URL is in its slot and each copy in an `alt` attribute or a text node. A full snapshot
+/// holds the nodes, or after a restart a mutation adds them under a node that the inspector does not know.
+fn events(tc: &TestCase, placed: &[Placed], shape: Shape) -> String {
     let mut id = 1;
-    let mut nodes = Vec::new();
-    let mut rules = Vec::new();
+    let mut added = Vec::new();
+    let mut known = Vec::new();
+    let mut incremental = Vec::new();
     for Placed {
         slot,
         written,
         copies,
-        ..
     } in placed
     {
         let function = || url_function(tc, written);
         match slot {
-            Slot::ImgSrc => nodes.push(element(&mut id, "img", json!({"src": written}))),
-            Slot::Srcset => nodes.push(element(
+            Slot::ImgSrc => added.push(element(&mut id, "img", json!({"src": written}))),
+            Slot::Srcset => added.push(element(
                 &mut id,
                 "img",
                 json!({"srcset": format!("{written} 1x, https://cdn.example.com/other.png 2x")}),
             )),
-            Slot::StyleAttribute => nodes.push(element(
+            Slot::StyleAttribute => added.push(element(
                 &mut id,
                 "div",
                 json!({"style": format!("background-image:{}", function())}),
             )),
-            Slot::StyleSheet => nodes.push(element(
+            Slot::StyleSheet => added.push(element(
                 &mut id,
                 "style",
                 json!({"_cssText": format!(".a{{background:{}}}", function())}),
             )),
-            Slot::FontFace(family) => nodes.push(element(
+            Slot::FontFace(family) => added.push(element(
                 &mut id,
                 "style",
                 json!({"_cssText": format!("@font-face{{font-family:{family};src:{}}}", function())}),
             )),
-            Slot::ImageSet => nodes.push(element(
+            Slot::ImageSet => added.push(element(
                 &mut id,
                 "div",
                 json!({"style": format!("background-image:image-set({} 1x)", function())}),
             )),
-            Slot::StyleRule => rules.push(json!({"type": 3, "timestamp": 2, "data": {"source": 8, "id": 3,
+            Slot::CrossFade { in_image_set } => {
+                let fade = format!(
+                    "-webkit-cross-fade({}, url(https://cdn.example.com/other.png), 50%)",
+                    function()
+                );
+                let image = if *in_image_set {
+                    format!("image-set({fade} 1x)")
+                } else {
+                    fade
+                };
+                added.push(element(
+                    &mut id,
+                    "div",
+                    json!({"style": format!("background-image:{image}")}),
+                ));
+            }
+            Slot::StyleRule => incremental.push(json!({"type": 3, "timestamp": 2, "data": {"source": 8, "id": 3,
                 "replaceSync": format!(".r{{background:{}}}", function())}})),
             Slot::StyleChange => {
-                nodes.push(element(&mut id, "div", json!({})));
-                rules.push(json!({"type": 3, "timestamp": 2, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
-                    "attributes": [{"id": id, "attributes": {"style": format!("background-image:{}", function())}}]}}));
+                known.push(element(&mut id, "div", json!({})));
+                incremental.push(mutation(json!({"attributes": [{"id": id,
+                    "attributes": {"style": format!("background-image:{}", function())}}]})));
             }
             Slot::StyleObjectChange => {
-                nodes.push(element(&mut id, "div", json!({})));
-                rules.push(json!({"type": 3, "timestamp": 2, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
-                    "attributes": [{"id": id, "attributes": {"style": {"background-image": function()}}}]}}));
+                known.push(element(&mut id, "div", json!({})));
+                incremental.push(mutation(json!({"attributes": [{"id": id,
+                    "attributes": {"style": {"background-image": function()}}}]})));
+            }
+            Slot::StyleText => {
+                let mut style = element(&mut id, "style", json!({}));
+                id += 1;
+                style["childNodes"] =
+                    json!([{"type": 3, "textContent": "", "isStyle": true, "id": id}]);
+                known.push(style);
+                incremental.push(mutation(json!({"texts": [{"id": id,
+                    "value": format!(".t{{background:{}}}", function())}]})));
+            }
+            Slot::PictureSource => {
+                known.push(element(&mut id, "picture", json!({})));
+                let parent = id;
+                let source = element(
+                    &mut id,
+                    "source",
+                    json!({"srcset": format!("{written} 1x")}),
+                );
+                incremental.push(mutation(
+                    json!({"adds": [{"parentId": parent, "nextId": null, "node": source}]}),
+                ));
             }
         }
         for copy in copies {
             if tc.draw(gs::booleans()) {
-                nodes.push(element(&mut id, "img", json!({"alt": copy})));
+                added.push(element(&mut id, "img", json!({"alt": copy})));
             } else {
                 id += 1;
-                nodes.push(json!({"type": 3, "textContent": copy, "id": id}));
+                added.push(json!({"type": 3, "textContent": copy, "id": id}));
             }
         }
     }
-    let mut events =
-        vec![json!({"type": 4, "timestamp": 1, "data": {"href": "https://app.example.com/page"}})];
-    let snapshot = json!({"node": {"type": 0, "id": 1, "childNodes": nodes}});
-    events.push(if tc.draw(gs::booleans()) {
-        json!({"type": 2, "timestamp": 1, "cv": "2024-10", "data": compressed(&snapshot)})
+    if shape.deep {
+        added = (0..DEEP_NODES).fold(added, |children, _| {
+            let mut parent = element(&mut id, "div", json!({}));
+            parent["childNodes"] = Value::Array(children);
+            vec![parent]
+        });
+    }
+    let mut events = Vec::new();
+    if shape.restart {
+        let adds: Vec<Value> = added
+            .into_iter()
+            .map(|node| json!({"parentId": 1, "nextId": null, "node": node}))
+            .collect();
+        events.push(if shape.compressed {
+            json!({"type": 3, "timestamp": 1, "cv": "2024-10", "data": {"source": 0, "adds": compressed(&json!(adds)),
+                "removes": compressed(&json!([])), "texts": compressed(&json!([])), "attributes": compressed(&json!([]))}})
+        } else {
+            mutation(json!({"adds": adds}))
+        });
     } else {
-        json!({"type": 2, "timestamp": 1, "data": snapshot})
-    });
-    events.extend(rules);
-    with_escaped_slashes(tc, &Value::Array(events).to_string())
+        events.push(
+            json!({"type": 4, "timestamp": 1, "data": {"href": "https://app.example.com/page"}}),
+        );
+        known.extend(added);
+        let snapshot = json!({"node": {"type": 0, "id": 1, "childNodes": known}});
+        events.push(if shape.compressed {
+            json!({"type": 2, "timestamp": 1, "cv": "2024-10", "data": compressed(&snapshot)})
+        } else {
+            json!({"type": 2, "timestamp": 1, "data": snapshot})
+        });
+    }
+    events.extend(incremental);
+    with_json_escapes(tc, &Value::Array(events).to_string())
 }
 
-fn block_of(events: &str) -> Block {
+fn drop_reasons(placed: &[Placed], shape: Shape) -> Vec<&'static str> {
+    let mut reasons = Vec::new();
+    if placed
+        .iter()
+        .any(|placed| placed.slot.drops_its_block(&placed.written))
+    {
+        reasons.push("unplaced_slot");
+    }
+    if shape.deep {
+        reasons.extend(["too_deep_json", "unreadable_message"]);
+    }
+    reasons
+}
+
+fn block_of(events: &str) -> Option<Block> {
     let inner = format!(
         r#"{{"event":"$snapshot_items","properties":{{"$session_id":"s","$window_id":"w1","$snapshot_items":{events}}}}}"#
     );
@@ -277,12 +500,12 @@ fn block_of(events: &str) -> Block {
             .to_string()
             .into_bytes(),
     )
-    .unwrap();
+    .ok()?;
     let mut inspector = SessionInspector::default();
     let mut inspection = BlockInspection::default();
     inspector.observe_message(&mut inspection, &message);
     let found = inspection.finish();
-    Block {
+    Some(Block {
         session: SessionKey {
             team_id: 7,
             session_id: "s".to_owned(),
@@ -307,49 +530,83 @@ fn block_of(events: &str) -> Block {
         unplaced: found.unplaced,
         visited_urls: Vec::new(),
         captured_at_ms: None,
+    })
+}
+
+/// The stored lines, or why the block is not stored. The recorder skips a message it cannot read.
+fn stored(tc: &TestCase, events: &str) -> Result<String, &'static str> {
+    let Some(block) = block_of(events) else {
+        tc.event("unreadable_message");
+        return Err("unreadable_message");
+    };
+    let (lines, _, counts): (Vec<u8>, _, WriterCounts) =
+        write_block(&block, &TEAM_KEY, KEY_MONTH, || Ok(Vec::new())).unwrap();
+    tc.event(counts.dropped.unwrap_or("stored"));
+    match counts.dropped {
+        Some(reason) => Err(reason),
+        None => Ok(String::from_utf8(lines).unwrap()),
     }
 }
 
-/// The stored lines, or `None` when the writer drops the block.
-fn stored(tc: &TestCase, events: &str) -> Option<String> {
-    let block = block_of(events);
-    let (lines, _, counts): (Vec<u8>, _, WriterCounts) =
-        write_block(&block, &[6; 32], "2026-10", || Ok(Vec::new())).unwrap();
-    tc.event(counts.dropped.unwrap_or("stored"));
-    counts
-        .dropped
-        .is_none()
-        .then(|| String::from_utf8(lines).unwrap())
+/// `lines` with each JSON line written again, so that an escape in a string does not hide what the string holds.
+fn decoded(lines: &str) -> String {
+    lines
+        .lines()
+        .map(|line| {
+            serde_json::from_str::<Value>(line)
+                .map_or_else(|_| line.to_owned(), |value| value.to_string())
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
-fn draw_page(tc: &TestCase) -> (Vec<Placed>, String) {
+struct Page {
+    placed: Vec<Placed>,
+    shape: Shape,
+    events: String,
+}
+
+fn draw_page(tc: &TestCase) -> Page {
     let refused = tc.draw(gs::integers::<usize>().min_value(0).max_value(3));
     let accepted = tc.draw(gs::integers::<usize>().min_value(0).max_value(2));
     let placed: Vec<Placed> = (0..refused)
-        .map(|index| draw_placed(tc, index, true))
-        .chain((0..accepted).map(|index| draw_placed(tc, index, false)))
+        .map(|index| (index, true))
+        .chain((0..accepted).map(|index| (index, false)))
+        .map(|(index, refused)| {
+            let url = draw_url(tc, index, refused);
+            draw_placed(tc, SLOTS, url, refused)
+        })
         .collect();
-    let events = events(tc, &placed);
-    (placed, events)
+    let shape = draw_shape(tc);
+    let events = events(tc, &placed, shape);
+    Page {
+        placed,
+        shape,
+        events,
+    }
 }
 
 #[hegel::test]
 #[ignore = "a search for bugs, run on demand"]
 fn a_stored_block_holds_no_refused_url(tc: TestCase) {
-    let (_, events) = draw_page(&tc);
-    if let Some(lines) = stored(&tc, &events) {
-        assert!(!lines.contains(SECRET), "{events}\n---\n{lines}");
+    let page = draw_page(&tc);
+    if let Ok(lines) = stored(&tc, &page.events) {
+        assert!(
+            !decoded(&lines).contains(SECRET),
+            "{}\n---\n{lines}",
+            page.events
+        );
     }
 }
 
 #[hegel::test]
 #[ignore = "a search for bugs, run on demand"]
 fn each_stored_line_is_a_window_and_an_event(tc: TestCase) {
-    let (_, events) = draw_page(&tc);
-    if let Some(lines) = stored(&tc, &events) {
+    let page = draw_page(&tc);
+    if let Ok(lines) = stored(&tc, &page.events) {
         for line in lines.lines() {
             let parsed: Value = serde_json::from_str(line)
-                .unwrap_or_else(|error| panic!("{error}: {line}\n---\n{events}"));
+                .unwrap_or_else(|error| panic!("{error}: {line}\n---\n{}", page.events));
             assert!(
                 parsed.as_array().is_some_and(|line| line.len() == 2),
                 "{line}"
@@ -361,20 +618,66 @@ fn each_stored_line_is_a_window_and_an_event(tc: TestCase) {
 #[hegel::test]
 #[ignore = "a search for bugs, run on demand"]
 fn a_stored_block_holds_no_accepted_url_in_an_image_slot(tc: TestCase) {
-    let (_, events) = draw_page(&tc);
-    if let Some(lines) = stored(&tc, &events) {
-        assert!(!lines.contains(ACCEPTED), "{events}\n---\n{lines}");
+    let page = draw_page(&tc);
+    if let Ok(lines) = stored(&tc, &page.events) {
+        assert!(
+            !decoded(&lines).to_ascii_lowercase().contains(ACCEPTED),
+            "{}\n---\n{lines}",
+            page.events
+        );
     }
 }
 
 #[hegel::test]
 #[ignore = "a search for bugs, run on demand"]
-fn drops_a_block_only_for_an_escaped_image_set_candidate(tc: TestCase) {
-    let (placed, events) = draw_page(&tc);
-    let reason = placed
-        .iter()
-        .any(|placed| matches!(placed.slot, Slot::ImageSet) && placed.escaped);
-    if !reason {
-        assert!(stored(&tc, &events).is_some(), "{events}");
+fn drops_a_block_only_for_a_reason_the_page_holds(tc: TestCase) {
+    let page = draw_page(&tc);
+    if let Err(reason) = stored(&tc, &page.events) {
+        assert!(
+            drop_reasons(&page.placed, page.shape).contains(&reason),
+            "{reason}: {}",
+            page.events
+        );
     }
+}
+
+#[hegel::test]
+#[ignore = "a search for bugs, run on demand"]
+fn each_spelling_of_a_url_gets_the_reference_its_fetch_job_names(tc: TestCase) {
+    let url = draw_url(&tc, 0, false);
+    let slots: Vec<Slot> = SLOTS
+        .iter()
+        .copied()
+        .filter(|slot| !slot.drops_its_block(""))
+        .collect();
+    let count = tc.draw(gs::integers::<usize>().min_value(2).max_value(4));
+    let placed: Vec<Placed> = (0..count)
+        .map(|_| draw_placed(&tc, &slots, url.clone(), false))
+        .collect();
+    let shape = Shape {
+        deep: false,
+        ..draw_shape(&tc)
+    };
+    let events = events(&tc, &placed, shape);
+    let Ok(lines) = stored(&tc, &events) else {
+        return;
+    };
+    let (_, reference) = url_reference(
+        &url,
+        UrlAsset::Image,
+        7,
+        KEY_MONTH,
+        &image_url_key(&TEAM_KEY),
+    )
+    .unwrap();
+    let hash = reference.rsplit(':').next().unwrap();
+    let naming = placed
+        .iter()
+        .filter(|placed| placed.slot.names_its_url())
+        .count();
+    assert_eq!(
+        decoded(&lines).matches(hash).count(),
+        naming,
+        "{events}\n---\n{lines}"
+    );
 }
