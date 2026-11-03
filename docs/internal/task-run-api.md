@@ -149,6 +149,16 @@ A successful mobile run start, resume, user message, or permission response also
 Reads, presence updates, configuration changes, and failed actions do not enable notifications.
 This choice persists when the user returns to the web app.
 
+New-engine PostHog AI chats use the same mobile eligibility rules.
+These pushes cover completed turns, completed runs, failures, and input requests.
+They use generic text without a chat title or reply preview, and open the chat in the mobile app.
+Other participants do not receive these pushes, even if they continued the chat on mobile.
+Archived or deleted chats and cancelled runs do not send these notifications.
+The delivery worker also suppresses a queued push when the creator has active task presence before delivery.
+The existing `mobile_push_tasks_enabled` and `mobile_push_enabled` preferences apply.
+Web-created chats still require the creator to continue them on mobile before they can notify.
+This mobile delivery path does not add browser presence, browser notifications, or a separate PostHog AI preference.
+
 Continuing a task on mobile stops that user's automatic Slack mentions and proactive private-thread updates.
 Shared replies and answers to direct Slack requests remain available.
 This includes replies that restart a completed task.

@@ -80,7 +80,15 @@ def mobile_push_delivery_allowed(user: User, data: dict[str, Any] | None) -> boo
         task_mobile_push_delivery_allowed,  # noqa: PLC0415 — keep product imports lazy
     )
 
-    return task_mobile_push_delivery_allowed(task_id=str(payload["taskId"]), team_id=project_id, user_id=user.id)
+    task_run_id = payload.get("taskRunId")
+    notification_kind = payload.get("notificationKind")
+    return task_mobile_push_delivery_allowed(
+        task_id=str(payload["taskId"]),
+        team_id=project_id,
+        user_id=user.id,
+        task_run_id=task_run_id if isinstance(task_run_id, str) else None,
+        notification_kind=notification_kind if isinstance(notification_kind, str) else None,
+    )
 
 
 def send_push_to_user(

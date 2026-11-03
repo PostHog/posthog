@@ -21,6 +21,7 @@ from products.tasks.backend.metrics import (
     observe_wizard_run_unbound,
 )
 from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.push_dispatcher import notify_task_run_failed
 from products.tasks.backend.temporal.metrics import record_run_token_usage
 from products.tasks.backend.temporal.observability import log_with_activity_context
 
@@ -140,6 +141,14 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
             non_retryable=True,
             type="TaskRunDeletedError",
         )
+
+    if (
+        input.status == TaskRun.Status.FAILED
+        and old_status != input.status
+        and task_run.task.origin_product == Task.OriginProduct.POSTHOG_AI
+        and not (task_run.state or {}).get("await_user_message")
+    ):
+        notify_task_run_failed(task_run)
 
     if input.status == TaskRun.Status.FAILED:
         input = replace(input, error_type=(task_run.state or {}).get("failure_error_type") or input.error_type)

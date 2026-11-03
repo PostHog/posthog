@@ -12712,8 +12712,16 @@ def task_mobile_push_taken_over(*, task_id: str, team_id: int, user_id: int) -> 
     return task is not None and user_id in mobile_push_user_ids(task)
 
 
-def task_mobile_push_delivery_allowed(*, task_id: str, team_id: int, user_id: int) -> bool:
+def task_mobile_push_delivery_allowed(
+    *,
+    task_id: str,
+    team_id: int,
+    user_id: int,
+    task_run_id: str | None = None,
+    notification_kind: str | None = None,
+) -> bool:
     from products.tasks.backend.mobile_push import (
+        posthog_ai_push_delivery_allowed,
         task_mobile_push_eligible,  # noqa: PLC0415 — keep notification helpers off the facade import path
     )
 
@@ -12724,6 +12732,10 @@ def task_mobile_push_delivery_allowed(*, task_id: str, team_id: int, user_id: in
         .first()
     )
     if task is None or not task_mobile_push_eligible(task, user_id):
+        return False
+    if task.origin_product == Task.OriginProduct.POSTHOG_AI and not posthog_ai_push_delivery_allowed(
+        task, user_id=user_id, task_run_id=task_run_id, notification_kind=notification_kind
+    ):
         return False
     user = User.objects.filter(id=user_id, is_active=True).first()
     return user is not None and UserAccessControl(user=user, team=task.team).check_access_level_for_resource(

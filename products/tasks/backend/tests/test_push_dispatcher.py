@@ -1,4 +1,6 @@
+from collections.abc import Callable
 from contextlib import nullcontext
+from datetime import timedelta
 from uuid import uuid4
 
 import time_machine
@@ -6,6 +8,7 @@ from unittest.mock import Mock, patch
 
 from django.db import InterfaceError, OperationalError, transaction
 from django.test import TestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -20,7 +23,7 @@ from products.signals.backend.models import SignalReport
 from products.signals.backend.task_run_artefacts import append_task_run_artefact
 from products.tasks.backend.awaiting_input import dispatch_awaiting_input
 from products.tasks.backend.mobile_push import mobile_push_user_ids, record_mobile_pickup
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import Channel, Task, TaskPresence, TaskRun, TaskThreadMessage
 from products.tasks.backend.push_dispatcher import (
     notify_task_handoff,
     notify_task_pull_request_outcome,
@@ -29,6 +32,7 @@ from products.tasks.backend.push_dispatcher import (
     notify_task_run_completed,
     notify_task_run_failed,
     notify_task_run_turn_completed,
+    notify_task_thread_message,
 )
 from products.tasks.backend.redis import get_tasks_cache
 
@@ -91,6 +95,135 @@ class TestPushDispatcher(TestCase):
             notify_task_run_completed(self.task_run)
 
         mock_delay.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("completed", notify_task_run_completed, "PostHog AI finished your chat"),
+            ("failed", notify_task_run_failed, "PostHog AI stopped because of an error"),
+            ("awaiting", notify_task_run_awaiting_input, "PostHog AI needs your input"),
+            ("turn_completed", notify_task_run_turn_completed, "PostHog AI finished your chat"),
+        ]
+    )
+    @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
+    @patch("posthog.push_notifications.requests.post")
+    def test_mobile_ai_chat_notifies_only_creator_with_generic_text(
+        self, kind: str, notify: Callable[[TaskRun], bool | None], body: str, mock_post: Mock, mock_delay: Mock
+    ) -> None:
+        picked_up = User.objects.create_and_join(self.organization, "picked-up@example.com", None)
+        self.task.origin_product = Task.OriginProduct.POSTHOG_AI
+        self.task.state = {"mobile_push_user_ids": [picked_up.id, self.user.id]}
+        self.task.channel = Channel.objects.for_team(self.team.id).create(team=self.team, name="AI test chats")
+        self.task.save(update_fields=["origin_product", "state", "channel"])
+        UserPushToken.objects.create(user=self.user, token="ExponentPushToken[ai-creator]", platform="ios")
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"data": [{"status": "ok"}]}
+
+        with self.captureOnCommitCallbacks(execute=True):
+            notify(self.task_run)
+
+        mock_delay.assert_called_once()
+        self.assertEqual(mock_delay.call_args.args[:3], (self.user.id, "PostHog", body))
+        data = mock_delay.call_args.args[3]
+        self.assertEqual(data["notificationKind"], kind)
+        self.assertEqual(data["taskId"], str(self.task.id))
+        self.assertEqual(data["taskRunId"], str(self.task_run.id))
+        self.assertEqual(data["projectId"], self.team.id)
+        send_user_push(*mock_delay.call_args.args)
+        self.assertEqual(mock_post.call_args.kwargs["json"][0]["body"], body)
+
+    @parameterized.expand(["cancelled", "handoff", "thread_message", "pr_outcome", "archived", "deleted", "no_creator"])
+    @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
+    def test_ai_chat_skips_irrelevant_updates(self, scenario: str, mock_delay: Mock) -> None:
+        self.task.origin_product = Task.OriginProduct.POSTHOG_AI
+        self.task.state = {"created_on_mobile": True, "mobile_push_user_ids": [self.user.id]}
+        if scenario == "archived":
+            self.task.archived = True
+        if scenario == "deleted":
+            self.task.deleted = True
+        if scenario == "no_creator":
+            self.task.created_by = None
+        self.task.save()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            if scenario == "cancelled":
+                notify_task_run_cancelled(self.task_run)
+            elif scenario == "handoff":
+                notify_task_handoff(self.task, recipient=self.user, actor=self.user, message_id=uuid4())
+            elif scenario == "thread_message":
+                message = TaskThreadMessage.objects.for_team(self.team.id).create(
+                    task=self.task, team=self.team, content="Example reply"
+                )
+                notify_task_thread_message(message, [self.user.id])
+            elif scenario == "pr_outcome":
+                notify_task_pull_request_outcome(
+                    task_id=str(self.task.id),
+                    run_id=str(self.task_run.id),
+                    team_id=self.team.id,
+                    pr_url="https://github.com/example/project/pull/1",
+                    merged=True,
+                )
+            else:
+                notify_task_run_completed(self.task_run)
+        mock_delay.assert_not_called()
+
+    @parameterized.expand(
+        [
+            "cancelled",
+            "archived",
+            "deleted",
+            "presence",
+            "mobile_push_enabled",
+            "mobile_push_tasks_enabled",
+            "owner_changed",
+            "no_run",
+            "other_run",
+            "inactive",
+            "lost_membership",
+        ]
+    )
+    @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
+    @patch("posthog.tasks.push_notifications.send_push_to_user")
+    def test_ai_chat_rechecks_queued_push(self, scenario: str, mock_send: Mock, mock_delay: Mock) -> None:
+        self.task.origin_product = Task.OriginProduct.POSTHOG_AI
+        self.task.state = {"created_on_mobile": True}
+        self.task.save(update_fields=["origin_product", "state"])
+        with self.captureOnCommitCallbacks(execute=True):
+            notify_task_run_turn_completed(self.task_run)
+        mock_delay.assert_called_once()
+
+        if scenario == "cancelled":
+            TaskRun.objects.filter(id=self.task_run.id).update(status=TaskRun.Status.CANCELLED)
+        elif scenario in {"archived", "deleted"}:
+            Task.objects.filter(id=self.task.id).update(**{scenario: True})
+        elif scenario == "presence":
+            TaskPresence.objects.for_team(self.team.id).create(
+                task=self.task,
+                team=self.team,
+                user=self.user,
+                push_token=UserPushToken.objects.create(
+                    user=self.user, token="ExponentPushToken[viewing-chat]", platform="ios"
+                ),
+                expires_at=timezone.now() + timedelta(minutes=1),
+            )
+        elif scenario in {"mobile_push_enabled", "mobile_push_tasks_enabled"}:
+            self.user.partial_notification_settings = {scenario: False}
+            self.user.save(update_fields=["partial_notification_settings"])
+
+        args = list(mock_delay.call_args.args)
+        if scenario == "owner_changed":
+            Task.objects.filter(id=self.task.id).update(created_by=None)
+        elif scenario == "no_run":
+            args[3] = {key: value for key, value in args[3].items() if key != "taskRunId"}
+        elif scenario == "other_run":
+            other_task = Task.objects.create(team=self.team, created_by=self.user, title="Another chat")
+            other_run = TaskRun.objects.create(task=other_task, team=self.team)
+            args[3] = {**args[3], "taskRunId": str(other_run.id)}
+        elif scenario == "inactive":
+            User.objects.filter(id=self.user.id).update(is_active=False)
+        elif scenario == "lost_membership":
+            OrganizationMembership.objects.filter(user=self.user, organization=self.organization).delete()
+        send_user_push(*args)
+        mock_send.assert_not_called()
 
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
     def test_cooldown_collapses_duplicates(self, mock_delay):
@@ -278,6 +411,7 @@ class TestPushDispatcher(TestCase):
             ("web", {}, Task.OriginProduct.USER_CREATED),
             ("web_later_run_mobile", {"created_on_mobile": False}, Task.OriginProduct.USER_CREATED),
             ("slack", {"created_on_mobile": True}, Task.OriginProduct.SLACK),
+            ("ai_web", {}, Task.OriginProduct.POSTHOG_AI),
         ]
     )
     @patch("posthog.push_notifications.posthoganalytics.feature_enabled", return_value=False)
@@ -300,11 +434,19 @@ class TestPushDispatcher(TestCase):
             notify_task_handoff(self.task, recipient=self.user, actor=self.user, message_id=uuid4())
         mock_delay.assert_not_called()
 
-    @parameterized.expand([("mobile_push_enabled",), ("mobile_push_tasks_enabled",)])
+    @parameterized.expand(
+        [
+            (key, origin)
+            for key in ("mobile_push_enabled", "mobile_push_tasks_enabled")
+            for origin in (Task.OriginProduct.USER_CREATED, Task.OriginProduct.POSTHOG_AI)
+        ]
+    )
     @patch("posthog.push_notifications.posthoganalytics.feature_enabled", return_value=False)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
     @patch("posthog.tasks.push_notifications.send_push_to_user")
-    def test_preferences_stop_new_and_queued_pushes(self, key, mock_send, mock_delay, _flag):
+    def test_preferences_stop_new_and_queued_pushes(self, key, origin, mock_send, mock_delay, _flag):
+        self.task.origin_product = origin
+        self.task.save(update_fields=["origin_product"])
         self.user.partial_notification_settings = {key: False}
         self.user.save(update_fields=["partial_notification_settings"])
         with self.captureOnCommitCallbacks(execute=True):
@@ -321,6 +463,8 @@ class TestPushDispatcher(TestCase):
             ("web_inactive", Task.OriginProduct.USER_CREATED, False),
             ("slack_active", Task.OriginProduct.SLACK, True),
             ("slack_inactive", Task.OriginProduct.SLACK, False),
+            ("ai_active", Task.OriginProduct.POSTHOG_AI, True),
+            ("ai_inactive", Task.OriginProduct.POSTHOG_AI, False),
         ]
     )
     @patch("posthog.push_notifications.posthoganalytics.feature_enabled", return_value=False)
