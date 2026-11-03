@@ -98,7 +98,7 @@ test.each([null, 'task-1'])('shows the regional AI incident for chat %s', (taskI
     const { session } = mockReadyChat()
     session.taskId = taskId
     render(<ChatScreen source={{ entry: 'compose', origin: null }} onBack={jest.fn()} />)
-    expect(screen.getByRole('link', { name: 'PostHog AI incident (monitoring) · Elevated latency' })).toBeTruthy()
+    expect(screen.getByLabelText('PostHog AI incident (monitoring) · Elevated latency')).toBeTruthy()
 })
 
 describe('chat send preparation', () => {
