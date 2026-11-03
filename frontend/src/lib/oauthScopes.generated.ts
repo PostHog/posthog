@@ -214,6 +214,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'toolbar:write',
     'tracing:read',
     'tracing:write',
+    'transactional_email:read',
+    'transactional_email:write',
     'field_note:read',
     'field_note:write',
     'uploaded_media:read',
@@ -268,4 +270,5 @@ export const OAUTH_SCOPES_HIDDEN = [
 export const LEGACY_SCOPE_FALLBACKS: ReadonlyMap<string, string> = new Map([
     ['inbox', 'task'],
     ['messaging_preference', 'hog_flow'],
+    ['transactional_email', 'hog_flow'],
 ])

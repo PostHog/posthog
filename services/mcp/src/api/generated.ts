@@ -820,6 +820,7 @@ export namespace Schemas {
      * * `today` - today
      * * `toolbar` - toolbar
      * * `tracing` - tracing
+     * * `transactional_email` - transactional_email
      * * `field_note` - field_note
      * * `uploaded_media` - uploaded_media
      * * `usage_metric` - usage_metric
@@ -944,6 +945,7 @@ export namespace Schemas {
       Today: 'today',
       Toolbar: 'toolbar',
       Tracing: 'tracing',
+      TransactionalEmail: 'transactional_email',
       FieldNote: 'field_note',
       UploadedMedia: 'uploaded_media',
       UsageMetric: 'usage_metric',
@@ -1068,6 +1070,7 @@ export namespace Schemas {
        * * `today` - today
        * * `toolbar` - toolbar
        * * `tracing` - tracing
+       * * `transactional_email` - transactional_email
        * * `field_note` - field_note
        * * `uploaded_media` - uploaded_media
        * * `usage_metric` - usage_metric
@@ -1315,6 +1318,7 @@ export namespace Schemas {
        * * `today` - today
        * * `toolbar` - toolbar
        * * `tracing` - tracing
+       * * `transactional_email` - transactional_email
        * * `field_note` - field_note
        * * `uploaded_media` - uploaded_media
        * * `usage_metric` - usage_metric
@@ -1728,6 +1732,7 @@ export namespace Schemas {
        * * `today` - today
        * * `toolbar` - toolbar
        * * `tracing` - tracing
+       * * `transactional_email` - transactional_email
        * * `field_note` - field_note
        * * `uploaded_media` - uploaded_media
        * * `usage_metric` - usage_metric
@@ -64825,6 +64830,7 @@ export namespace Schemas {
        * * `today` - today
        * * `toolbar` - toolbar
        * * `tracing` - tracing
+       * * `transactional_email` - transactional_email
        * * `field_note` - field_note
        * * `uploaded_media` - uploaded_media
        * * `usage_metric` - usage_metric
