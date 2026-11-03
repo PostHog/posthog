@@ -65,10 +65,13 @@ export interface PulseChange {
     unit: '%' | 'pp'
 }
 
+const RATE_SCALES: Record<string, number> = { percentage: 1, percentage_scaled: 100 }
+
 export function pulseChange(metric: HighlightMetricApi): PulseChange {
-    const previous = metric.previous_value
-    if (metric.value_format?.format === 'percentage') {
-        return { value: previous === null || previous === 0 ? null : metric.value - previous, unit: 'pp' }
+    const scale = RATE_SCALES[metric.value_format?.format ?? '']
+    if (scale) {
+        const previous = metric.previous_value
+        return { value: previous === null ? null : (metric.value - previous) * scale, unit: 'pp' }
     }
     return { value: metric.change_pct, unit: '%' }
 }

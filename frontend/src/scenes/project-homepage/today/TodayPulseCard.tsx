@@ -1,3 +1,5 @@
+import './Today.scss'
+
 import { useState } from 'react'
 
 import { IconArrowRight, IconHide, IconInfo } from '@posthog/icons'

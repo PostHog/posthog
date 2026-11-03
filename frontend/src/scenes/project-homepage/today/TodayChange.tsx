@@ -17,11 +17,9 @@ export function TodayChange({
     const text =
         unit === 'pp'
             ? `${rounded > 0 ? '+' : rounded < 0 ? '−' : ''}${Math.abs(rounded)} pp`
-            : rounded >= 1000
-              ? `${Math.round(1 + change / 100)}×`
-              : rounded === 0
-                ? '0%'
-                : `${rounded > 0 ? '+' : '−'}${Math.abs(rounded)}%`
+            : rounded === 0
+              ? '0%'
+              : `${rounded > 0 ? '+' : '−'}${Math.abs(rounded).toLocaleString('en-US')}%`
     return (
         <span
             className="TodayChange"
