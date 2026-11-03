@@ -14,6 +14,7 @@ import {
     appendToolCallChunk,
     describeError,
     escapeMarkdownInline,
+    findPromptModel,
     llmPlaygroundRunLogic,
     mergeUsage,
 } from './llmPlaygroundRunLogic'
@@ -34,6 +35,30 @@ function mockStreamWithRetryContract(
             onRetry()
         }
     }
+}
+
+function useSystemOneKeyMocks(): void {
+    useMocks({
+        get: {
+            '/api/environments/:team_id/llm_analytics/provider_keys/': {
+                results: [{ id: 'key-s1', provider: 'system_one', name: 'System One', state: 'ok' }],
+            },
+            '/api/llm_proxy/models/': ({ request }) => [
+                200,
+                new URL(request.url).searchParams.get('provider_key_id')
+                    ? [
+                          {
+                              id: 'jev-1',
+                              name: 'jev-1',
+                              provider: 'System One',
+                              supports_decisions: true,
+                              supports_chat: false,
+                          },
+                      ]
+                    : [{ id: 'gpt-5-mini', name: 'GPT-5 Mini', provider: 'OpenAI', description: '' }],
+            ],
+        },
+    })
 }
 
 function setPlaygroundAccessLevel(level: AccessControlLevel): void {
@@ -131,27 +156,7 @@ describe('llmPlaygroundRunLogic', () => {
     })
 
     it('carries the conversation into the System One input and sends it to the decision endpoint', async () => {
-        useMocks({
-            get: {
-                '/api/environments/:team_id/llm_analytics/provider_keys/': {
-                    results: [{ id: 'key-s1', provider: 'system_one', name: 'System One', state: 'ok' }],
-                },
-                '/api/llm_proxy/models/': ({ request }) => [
-                    200,
-                    new URL(request.url).searchParams.get('provider_key_id')
-                        ? [
-                              {
-                                  id: 'jev-1',
-                                  name: 'jev-1',
-                                  provider: 'System One',
-                                  supports_decisions: true,
-                                  supports_chat: false,
-                              },
-                          ]
-                        : [{ id: 'gpt-5-mini', name: 'GPT-5 Mini', provider: 'OpenAI', description: '' }],
-                ],
-            },
-        })
+        useSystemOneKeyMocks()
         const result = {
             model: 'jev-1.13',
             answers: {
@@ -184,6 +189,9 @@ describe('llmPlaygroundRunLogic', () => {
         expect(llmPlaygroundPromptsLogic.values.promptConfigs[0].decisionInput).toBe(
             'user: Tell me about {{topic}}\n\nassistant: They swim.'
         )
+        // The input alone makes a System One panel runnable, so the Run button must not wait for messages.
+        llmPlaygroundPromptsLogic.actions.setMessages([])
+        expect(logic.values.hasRunnablePrompts).toBe(true)
         llmPlaygroundPromptsLogic.actions.setDecisionQuestions([question])
         llmPlaygroundVariablesLogic.actions.setVariableValue('topic', 'penguins')
         llmPlaygroundRunLogic.actions.submitPrompt()
@@ -208,6 +216,40 @@ describe('llmPlaygroundRunLogic', () => {
         logic.unmount()
         createSpy.mockRestore()
         streamSpy.mockRestore()
+    })
+
+    it('shows the rate limit banner when the decision endpoint throttles', async () => {
+        useSystemOneKeyMocks()
+        const createSpy = jest
+            .spyOn(api, 'create')
+            .mockRejectedValue(new ApiError('Throttled', 429, new Headers({ 'Retry-After': '30' })))
+
+        const logic = llmPlaygroundRunLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        llmPlaygroundPromptsLogic.actions.setModel('jev-1', 'key-s1')
+        llmPlaygroundPromptsLogic.actions.setDecisionInput('user: hello')
+        llmPlaygroundPromptsLogic.actions.setDecisionQuestions([
+            { id: 'q1', type: 'noul', instructions: 'Is it a greeting?', options: [] },
+        ])
+        llmPlaygroundRunLogic.actions.submitPrompt()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.rateLimitedUntil).not.toBeNull()
+
+        logic.unmount()
+        createSpy.mockRestore()
+    })
+
+    it('picks the model entry of the selected key when two connections share a model id', () => {
+        const prompt = createPromptConfig({ model: 'jev-1', selectedProviderKeyId: 'key-s1' })
+        const options = [
+            { id: 'jev-1', name: 'jev-1', provider: 'OpenRouter', description: '', providerKeyId: 'key-or' },
+            { id: 'jev-1', name: 'jev-1', provider: 'System One', description: '', providerKeyId: 'key-s1' },
+        ]
+
+        expect(findPromptModel(prompt, options)?.provider).toBe('System One')
     })
 
     it('normalizes a display-name provider to its enum value in the completion payload', async () => {

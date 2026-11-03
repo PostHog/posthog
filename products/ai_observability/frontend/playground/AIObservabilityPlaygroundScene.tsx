@@ -62,7 +62,7 @@ import {
     type MessageRole,
     type PromptConfig,
 } from './llmPlaygroundPromptsLogic'
-import { llmPlaygroundRunLogic, type ComparisonItem, type UsageSummary } from './llmPlaygroundRunLogic'
+import { findPromptModel, llmPlaygroundRunLogic, type ComparisonItem, type UsageSummary } from './llmPlaygroundRunLogic'
 import { llmPlaygroundVariablesLogic } from './llmPlaygroundVariablesLogic'
 import { MessageToolCallsEditor } from './MessageToolCallsEditor'
 import { PlaygroundDecisionAnswers } from './PlaygroundDecisionAnswers'
@@ -138,9 +138,9 @@ export function AIObservabilityPlaygroundScene(): JSX.Element {
 }
 
 function PlaygroundHeaderActions(): JSX.Element {
-    const { hasRunnablePrompts, promptConfigs } = useValues(llmPlaygroundPromptsLogic)
+    const { promptConfigs } = useValues(llmPlaygroundPromptsLogic)
     const { addPromptConfig, resetPlayground } = useActions(llmPlaygroundPromptsLogic)
-    const { submitting: playgroundSubmitting } = useValues(llmPlaygroundRunLogic)
+    const { submitting: playgroundSubmitting, hasRunnablePrompts } = useValues(llmPlaygroundRunLogic)
     const { submitPrompt, abortRun } = useActions(llmPlaygroundRunLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const firstPromptId = promptConfigs[0]?.id
@@ -565,7 +565,7 @@ function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element 
         return <LemonSkeleton className="h-10" />
     }
 
-    const selectedModel = runnableModelOptions.find((m) => m.id === prompt.model)
+    const selectedModel = findPromptModel(prompt, runnableModelOptions)
     const groups = [
         ...(hasByokKeys ? playgroundByokProviderModelGroups : playgroundProviderModelGroups),
         ...playgroundSystemOneModelGroups,

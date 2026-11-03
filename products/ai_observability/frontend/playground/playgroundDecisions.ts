@@ -46,8 +46,17 @@ export interface DecisionQuestionPayload {
 /** Turns a conversation into System One input text, so a trace opened in the playground carries over. */
 export function messagesToDecisionInput(messages: Message[]): string {
     return messages
-        .filter((message) => message.content.trim())
-        .map((message) => `${message.role}: ${message.content.trim()}`)
+        .map((message) => {
+            const role = message.toolCallId ? `${message.role} (result of ${message.toolCallId})` : message.role
+            const lines = [
+                ...(message.content.trim() ? [message.content.trim()] : []),
+                ...(message.toolCalls ?? []).map(
+                    (toolCall) => `tool call ${toolCall.id}: ${toolCall.name}(${toolCall.arguments})`
+                ),
+            ]
+            return lines.length > 0 ? `${role}: ${lines.join('\n')}` : null
+        })
+        .filter((block): block is string => block !== null)
         .join('\n\n')
 }
 
@@ -76,8 +85,11 @@ export function decisionQuestionsDisabledReason(questions: PlaygroundQuestion[])
         if (!question.instructions.trim()) {
             return 'Write every question before running'
         }
+        if (question.type === 'noul') {
+            continue
+        }
         const names = question.options.map((option) => option.name.trim())
-        if (question.type !== 'noul' && names.some((name) => !name)) {
+        if (names.some((name) => !name)) {
             return question.type === 'choice' ? 'Name every option' : 'Name every level of the scale'
         }
         if (new Set(names).size !== names.length) {

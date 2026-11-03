@@ -24,7 +24,6 @@ import { getApiErrorDetail } from '../prompts/utils'
 import { normalizeLLMProvider } from '../settings/llmProviderKeysLogic'
 import { isOTelPartsMessage, normalizeRole } from '../utils'
 import { type PlaygroundQuestion, createPlaygroundQuestion } from './playgroundDecisions'
-import { isMessageSendable } from './playgroundMessageMapping'
 import { isTraceLikeSelection } from './playgroundModelMatching'
 import { type PlaygroundModelConfig, parsePlaygroundConfig, serializePlaygroundConfig } from './playgroundPromptConfig'
 import { type RawMessage, appendRawMessage, flattenOutputMessages } from './playgroundTraceImport'
@@ -228,7 +227,6 @@ export interface llmPlaygroundPromptsLogicValues {
         promptId: string
         type: 'message' | 'response_format' | 'system' | 'tools'
     } | null
-    hasRunnablePrompts: boolean
     linkedSource: {
         evaluationId: string | null
         evaluationName: string | null
@@ -555,7 +553,6 @@ export interface llmPlaygroundPromptsLogicMeta {
             promptVersion: number | null
             type: 'evaluation' | 'prompt' | null
         }
-        hasRunnablePrompts: (promptConfigs: PromptConfig[]) => boolean
     }
 }
 
@@ -1114,11 +1111,6 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                     evaluationName: first.sourceEvaluationName,
                 }
             },
-        ],
-        hasRunnablePrompts: [
-            (s) => [s.promptConfigs],
-            (promptConfigs: PromptConfig[]): boolean =>
-                promptConfigs.some((prompt) => prompt.messages.some(isMessageSendable)),
         ],
     }),
 

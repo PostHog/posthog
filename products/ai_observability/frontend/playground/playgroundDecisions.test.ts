@@ -1,6 +1,7 @@
 import {
     type PlaygroundQuestion,
     decisionQuestionsDisabledReason,
+    messagesToDecisionInput,
     toDecisionQuestionsPayload,
 } from './playgroundDecisions'
 
@@ -27,9 +28,27 @@ describe('playgroundDecisions', () => {
             [question({ type: 'score', options: options('calm') })],
             'A rating question needs 2 to 10 levels',
         ],
+        ['a yes/no question with hidden blank options', [question({ options: options('', '') })], null],
         ['valid questions', [question({}), question({ type: 'score', options: options('calm', 'angry') })], null],
     ])('blocks a run with %s', (_name, questions, reason) => {
         expect(decisionQuestionsDisabledReason(questions)).toBe(reason)
+    })
+
+    it('keeps tool calls and tool results when a conversation becomes input', () => {
+        expect(
+            messagesToDecisionInput([
+                { role: 'user', content: 'Weather in Paris?' },
+                {
+                    role: 'assistant',
+                    content: '',
+                    toolCalls: [{ id: 'call_1', name: 'weather', arguments: '{"city":"Paris"}' }],
+                },
+                { role: 'tool', content: 'Sunny', toolCallId: 'call_1' },
+                { role: 'assistant', content: ' ' },
+            ])
+        ).toBe(
+            'user: Weather in Paris?\n\nassistant: tool call call_1: weather({"city":"Paris"})\n\ntool (result of call_1): Sunny'
+        )
     })
 
     it('keys questions by id and sends option descriptions only for multiple choice', () => {
