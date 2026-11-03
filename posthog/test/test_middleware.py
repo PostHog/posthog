@@ -492,7 +492,8 @@ class TestAutoProjectMiddleware(APIBaseTest):
         # no signed-BAA annotation, so the AI training lock costs one more indexed lookup.
         # +5: the app context also serializes the team's five extension configs, and each
         # request reads them on its own Team instance, one primary-key lookup each.
-        cls.base_app_num_queries = 61
+        # -1: the app context leaves out frontend apps, so a page load reads no plugin configs.
+        cls.base_app_num_queries = 60
         # Create another team that the user does have access to
         cls.second_team = create_team(organization=cls.organization, name="Second Life")
         # A page load creates any missing config row, which adds an insert per config to its first
