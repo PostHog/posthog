@@ -11,7 +11,14 @@ ENDPOINTS = (
     "NPS_Responses",
     "Custom_Objects",
     "Messages",
+    "Admins",
+    "Meetings",
+    "Project_Templates",
+    "Project_Categories",
 )
+
+# Rows of these endpoints carry no documented `createdAt`, so they skip the `created_at` partition.
+UNPARTITIONED_ENDPOINTS = ("Admins", "Meetings")
 
 # Prefix used for schemas that sync the *instances* of a Vitally custom object.
 # The `Custom_Objects` static endpoint syncs the definitions; one schema per object
