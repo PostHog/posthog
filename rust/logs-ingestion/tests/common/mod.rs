@@ -17,8 +17,11 @@ pub fn modules_dir() -> PathBuf {
     repo_path("nodejs/src/logs/parity/fixtures/modules")
 }
 
+/// `PARITY_SCENARIOS_DIR` points the corpus test at other fixtures, such as recorded bench workloads.
 pub fn scenarios_dir() -> PathBuf {
-    repo_path("nodejs/src/logs/parity/fixtures/scenarios")
+    std::env::var_os("PARITY_SCENARIOS_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| repo_path("nodejs/src/logs/parity/fixtures/scenarios"))
 }
 
 pub fn load_json(path: &PathBuf) -> JsValue {
