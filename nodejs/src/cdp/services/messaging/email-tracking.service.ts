@@ -460,11 +460,9 @@ export class EmailTrackingService {
             return { status: 200, message: 'ok' }
         }
 
-        // Keyed by the SNS message id, so a redelivery of one notification lands on the partition
-        // that already took it. That is what a later dedupe on the message id would need.
-        const messageId = (body as { MessageId?: unknown })?.MessageId
+        // No partition key: nothing downstream depends on which partition a notification takes.
         await this.outputs.produce(SES_WEBHOOKS_OUTPUT, {
-            key: typeof messageId === 'string' ? Buffer.from(messageId) : null,
+            key: null,
             value: Buffer.from(JSON.stringify(body)),
         })
 
