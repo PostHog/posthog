@@ -202,6 +202,10 @@ def get_json_schemas(deploy_url: str, deploy_key: str) -> dict[str, Any]:
             error_data = response.json()
         except ValueError:
             error_data = {}
+        # A 400 body can parse as valid JSON that isn't an object (e.g. a bare string or array),
+        # which has no .get - treat it the same as an unparseable body rather than crashing.
+        if not isinstance(error_data, dict):
+            error_data = {}
         # A plain HTTPError's message never carries the response body, so without this the
         # StreamingExportNotEnabled entry in get_non_retryable_errors can never match here -
         # it only matched by accident via validate_credentials' own body parsing below.
@@ -210,8 +214,9 @@ def get_json_schemas(deploy_url: str, deploy_key: str) -> dict[str, Any]:
             raise StreamingExportNotEnabledError(
                 "StreamingExportNotEnabled: streaming export requires the Convex Professional plan."
             )
-        if code:
-            raise ConvexApiError(f"{code}: {error_data.get('message', '')}".rstrip(": "), response=response)
+        message = error_data.get("message") or ""
+        if code or message:
+            raise ConvexApiError(f"{code}: {message}".rstrip(": ") if code else message, response=response)
     response.raise_for_status()
     return response.json()
 
