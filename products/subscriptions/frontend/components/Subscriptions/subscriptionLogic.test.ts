@@ -108,7 +108,8 @@ describe('subscriptionLogic', () => {
             .mockRejectedValueOnce(new ApiError('refused', 400, undefined, { code: 'owner_left_organization' }))
             .mockResolvedValueOnce(fixtureSubscriptionResponse(1, { enabled: false }))
         const dialogSpy = jest.spyOn(takeOwnership, 'openTakeOwnershipDialog').mockResolvedValue(false)
-        await expectLogic(existingLogic).toDispatchActions(['loadSubscriptionSuccess'])
+        existingLogic.actions.loadSubscription()
+        await expectLogic(existingLogic).toFinishListeners()
 
         existingLogic.actions.setSubscriptionValues({ enabled: true, target_value: 'kept@example.com' })
         existingLogic.actions.submitSubscription()
