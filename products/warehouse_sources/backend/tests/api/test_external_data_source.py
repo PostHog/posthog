@@ -4952,7 +4952,13 @@ class TestExternalDataSource(APIBaseTest):
         mock_add_table.assert_called_once()
         assert mock_add_table.call_args.args[1:] == ("analytics", "events")
 
-    @parameterized.expand([("masked_primary_key", ["id"]), ("malformed_mask", "id")])
+    @parameterized.expand(
+        [
+            ("masked_primary_key", {"masked_columns": ["id"]}),
+            ("malformed_mask", {"masked_columns": "id"}),
+            ("incremental_table_without_a_cursor", {"sync_type": "incremental", "incremental_field": None}),
+        ]
+    )
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_source.base.is_cdc_enabled_for_team",
         return_value=True,
@@ -4966,10 +4972,10 @@ class TestExternalDataSource(APIBaseTest):
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.get_primary_key_columns")
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.cdc_pg_connection")
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
-    def test_create_postgres_cdc_refused_mask_drops_the_replication_slot(
+    def test_create_postgres_cdc_refused_table_drops_the_replication_slot(
         self,
         _name,
-        masked_columns,
+        schema_extra,
         mock_get_source,
         mock_cdc_pg_connection,
         mock_get_primary_key_columns,
@@ -4983,7 +4989,7 @@ class TestExternalDataSource(APIBaseTest):
             mock_cdc_pg_connection,
             mock_get_primary_key_columns,
             mock_setup_cdc_resources,
-            schema_extra={"masked_columns": masked_columns},
+            schema_extra=schema_extra,
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
