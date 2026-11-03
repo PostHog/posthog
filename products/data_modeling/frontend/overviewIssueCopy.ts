@@ -1,3 +1,5 @@
+import { dayjs } from 'lib/dayjs'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { pluralize } from 'lib/utils/strings'
 import { CADENCE_LABELS } from 'scenes/data-warehouse/saved_queries/SyncFrequencySelect'
 
@@ -6,13 +8,24 @@ import { DataQualityOverviewCheckApi } from 'products/data_quality/frontend/gene
 
 import type { AttentionSubject, MaterializationProblem } from './modelsOverviewLogic'
 import type { AttentionModel } from './modelsSceneLogic'
+import { servingSuspension } from './suspension'
 
 export type IssueTone = 'danger' | 'warning'
 
+export type IssueKind = MaterializationProblem['kind'] | 'checks'
+
 export interface IssueStatus {
+    kind: IssueKind
     label: string
     tone: IssueTone
     tooltip: string
+}
+
+export const ISSUE_LABELS: Record<IssueKind, string> = {
+    suspended: 'Suspended',
+    failed: 'Refresh failed',
+    behind: 'Stale',
+    checks: 'Checks failing',
 }
 
 /** Not run statuses: these say whether anything will retry on its own, which is why suspension sorts first. */
@@ -28,18 +41,24 @@ function cadenceOf(problem: Extract<MaterializationProblem, { kind: 'behind' }>)
 export function materializationStatus(problem: MaterializationProblem): IssueStatus {
     if (problem.kind === 'behind') {
         return {
-            label: 'Stale',
+            kind: 'behind',
+            label: ISSUE_LABELS.behind,
             tone: 'warning',
             tooltip: `Nothing failed, but this model has gone more than twice its ${cadenceOf(problem)} refresh interval without a run. Its schedule may have stopped.`,
         }
     }
-    const label = problem.attention.problem
-    return { label, tone: label === 'Suspended' ? 'warning' : 'danger', tooltip: PROBLEM_TOOLTIPS[label] }
+    return {
+        kind: problem.kind,
+        label: ISSUE_LABELS[problem.kind],
+        tone: problem.kind === 'suspended' ? 'danger' : 'warning',
+        tooltip: PROBLEM_TOOLTIPS[problem.attention.problem],
+    }
 }
 
 export function failingChecksStatus(checks: DataQualityOverviewCheckApi[]): IssueStatus {
     return {
-        label: pluralize(checks.length, 'failing check'),
+        kind: 'checks',
+        label: `${pluralize(checks.length, 'check')} failing`,
         tone: 'danger',
         tooltip: checks.map(checkDisplayName).join(', '),
     }
@@ -75,10 +94,48 @@ export function subjectImpact(subject: AttentionSubject): string | null {
     return parts.length > 0 ? parts.join(', ') : null
 }
 
+function earliestFailingSince(checks: DataQualityOverviewCheckApi[]): string | null {
+    const times = checks.flatMap((check) => (check.failing_since ? [check.failing_since] : []))
+    return times.sort()[0] ?? null
+}
+
+function startedAt(subject: AttentionSubject): string | null | undefined {
+    const { materialization, failingChecks } = subject
+    if (materialization?.kind === 'suspended') {
+        return servingSuspension(materialization.attention.node.suspended)?.at
+    }
+    if (materialization?.kind === 'failed') {
+        return materialization.attention.node.last_run_at
+    }
+    return earliestFailingSince(failingChecks)
+}
+
+export interface SubjectSince {
+    label: string
+    exactTime: string | null
+}
+
+export function subjectSince(subject: AttentionSubject): SubjectSince | null {
+    const { materialization } = subject
+    if (materialization?.kind === 'behind') {
+        return {
+            label: `${humanFriendlyDuration(materialization.behind.overdueSeconds, { maxUnits: 1 })} overdue`,
+            exactTime: null,
+        }
+    }
+    const time = startedAt(subject)
+    return time ? { label: dayjs(time).fromNow(), exactTime: dayjs(time).format('MMM D, YYYY HH:mm') } : null
+}
+
 const NEXT_STEP_LABELS: Record<MaterializationProblem['kind'], string> = {
     suspended: 'Fix and resume',
     failed: 'View error',
     behind: 'Check schedule',
+}
+
+export const REFRESH_LABELS: Record<Exclude<MaterializationProblem['kind'], 'suspended'>, string> = {
+    failed: 'Retry',
+    behind: 'Run now',
 }
 
 export function nextStepLabel(subject: AttentionSubject): string {

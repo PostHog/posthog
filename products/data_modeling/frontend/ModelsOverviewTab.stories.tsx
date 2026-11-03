@@ -27,6 +27,31 @@ function savedQueryMocks(rows: { id: string; name: string }[]): Mocks['get'] {
     }
 }
 
+const SUSPENDED_EVERY = 4
+const FAILED_RUN_TIMES = ['2026-09-14T22:10:00Z', '2026-09-14T09:30:00Z', '2026-09-12T15:00:00Z']
+
+function attentionState(index: number): Record<string, unknown> {
+    if (index % SUSPENDED_EVERY === 0) {
+        return {
+            last_run_status: 'Failed',
+            last_run_at: '2026-09-13T04:00:00Z',
+            last_run_error: 'Memory limit exceeded while building the result.',
+            suspended: {
+                clickhouse: {
+                    at: '2026-09-13T04:00:00Z',
+                    reason: 'Memory limit exceeded while building the result.',
+                    job_id: `job-${index}`,
+                },
+            },
+        }
+    }
+    return {
+        last_run_status: 'Failed',
+        last_run_at: FAILED_RUN_TIMES[index % FAILED_RUN_TIMES.length],
+        last_run_error: "Unknown column 'plan_tier' in the query.",
+    }
+}
+
 const nodes = ['attention', 'behind'].flatMap((group) =>
     Array.from({ length: 12 }, (_, index) => ({
         id: `${group}-${index + 1}`,
@@ -35,23 +60,42 @@ const nodes = ['attention', 'behind'].flatMap((group) =>
         created_at: '2026-01-01T00:00:00Z',
         updated_at: '2026-01-01T00:00:00Z',
         last_run_at: '2026-09-14T00:00:00Z',
-        last_run_status: group === 'attention' ? 'Failed' : 'Completed',
-        last_run_error: group === 'attention' ? 'Example refresh failed.' : null,
+        last_run_status: 'Completed',
+        last_run_error: null,
         sync_interval: '1hour',
         upstream_count: 0,
         downstream_count: 0,
         saved_query_id: `query-${group}-${index + 1}`,
+        ...(group === 'attention' ? attentionState(index) : {}),
     }))
 )
-const checks = Array.from({ length: 12 }, (_, index) => ({
-    id: `check-${index + 1}`,
-    name: `Example check ${index + 1}`,
-    check_type: 'not_null',
-    subject_type: 'view',
-    subject_name: `example_view_${index + 1}`,
-    subject_node_id: `attention-${index + 1}`,
-    last_status: 'failed',
+const edges = ['behind-1', 'behind-2', 'behind-3'].map((target, index) => ({
+    id: `edge-${index}`,
+    source_id: 'attention-2',
+    target_id: target,
 }))
+const checks = [
+    ...[1, 2, 5].map((nodeIndex) => ({
+        id: `check-${nodeIndex}`,
+        name: `Example check ${nodeIndex}`,
+        check_type: 'not_null',
+        subject_type: 'view',
+        subject_name: `attention_model_${nodeIndex}`,
+        subject_node_id: `attention-${nodeIndex}`,
+        last_status: 'failed',
+        failing_since: '2026-09-13T00:00:00Z',
+    })),
+    ...['row_count_drop', 'freshness'].map((name) => ({
+        id: `check-${name}`,
+        name,
+        check_type: 'not_null',
+        subject_type: 'posthog_table',
+        subject_name: 'events',
+        subject_node_id: null,
+        last_status: 'failed',
+        failing_since: '2026-09-14T18:00:00Z',
+    })),
+]
 
 const healthyNodes = Array.from({ length: 3 }, (_, index) => ({
     id: `healthy-${index + 1}`,
@@ -193,10 +237,11 @@ const meta: Meta<typeof ModelsOverviewTab> = {
             mocks: {
                 get: {
                     [NODES_URL]: { results: nodes, count: nodes.length },
-                    '/api/environments/:team_id/data_modeling_edges/': { results: [], count: 0 },
+                    '/api/environments/:team_id/data_modeling_edges/': { results: edges, count: edges.length },
                     ...savedQueryMocks(nodes),
                     [CHECKS_URL]: { results: checks, count: checks.length },
                     '/api/projects/:team_id/data_quality_checks/health/': [],
+                    '/api/projects/:team_id/data_quality_checks/schedules/': [],
                 },
             },
         },
@@ -214,10 +259,10 @@ export const Narrow: Story = {
 export const PartialLastPage: Story = {
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await canvas.findByText('1–10 of 24')
+        await canvas.findByText('1–10 of 25')
         const table = canvasElement.querySelector<HTMLElement>('[data-attr="models-overview-attention"]')!
         const initialHeight = table.offsetHeight
-        while (!within(table).queryByText('21–24 of 24')) {
+        while (!within(table).queryByText('21–25 of 25')) {
             fireEvent.click(within(table).getByRole('button', { name: 'Go to next page' }))
             await waitFor(() => within(table).getByRole('button', { name: 'Go to next page' }))
         }
@@ -314,4 +359,12 @@ export const FirstView: Story = {
 export const FirstViewNarrow: Story = {
     ...FirstView,
     decorators: [inMainContent('w-128')],
+}
+
+export const FilteredToStale: Story = {
+    play: async ({ canvasElement }) => {
+        const filter = await within(canvasElement).findByRole('group', { name: 'Show problems' })
+        fireEvent.click(within(filter).getByText('Stale'))
+        await within(canvasElement).findByText('1–10 of 12')
+    },
 }

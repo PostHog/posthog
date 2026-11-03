@@ -26,6 +26,9 @@ export function ModelsOverviewTab(): JSX.Element {
 
     return (
         <div data-quill className="flex flex-col gap-6">
+            <div ref={attentionRef} tabIndex={-1}>
+                <ModelsOverviewIssues />
+            </div>
             {featureFlags[FEATURE_FLAGS.WAREHOUSE_SUGGESTIONS] && (
                 <SuggestedModelsPreview
                     onAccepted={() => {
@@ -35,9 +38,6 @@ export function ModelsOverviewTab(): JSX.Element {
                     emptyFocusRef={attentionRef}
                 />
             )}
-            <div ref={attentionRef} tabIndex={-1}>
-                <ModelsOverviewIssues />
-            </div>
         </div>
     )
 }

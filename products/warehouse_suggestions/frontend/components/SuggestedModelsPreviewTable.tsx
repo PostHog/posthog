@@ -138,7 +138,7 @@ const COLUMNS: DataTableProps<WarehouseSuggestionApi, unknown>['columns'] = [
                 <Button
                     variant="link"
                     size="inline"
-                    className="self-start"
+                    className="self-start font-medium text-foreground"
                     render={<LinkPrimitive to={subjectUrl(row.original)} target="_blank" />}
                 >
                     <span className="truncate">{row.original.payload.subject_name}</span>

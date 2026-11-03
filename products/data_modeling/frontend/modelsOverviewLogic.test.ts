@@ -124,6 +124,47 @@ describe('modelsOverviewLogic', () => {
         ])
     })
 
+    it('narrows the table to one problem, and shows every row again once that problem is gone', async () => {
+        await mountLoaded()
+
+        logic.actions.setAttentionFilter('failed')
+        expect(logic.values.filteredAttentionSubjects.map(({ key }) => key)).toEqual(['node-broken'])
+
+        useMocks({
+            get: {
+                [NODES_URL]: {
+                    count: NODES.length,
+                    results: NODES.map((node) =>
+                        node.id === 'broken' ? { ...node, last_run_status: 'Running' } : node
+                    ),
+                },
+            },
+        })
+        await expectLogic(lineageDataLogic, () => logic.actions.loadNodes()).toDispatchActions(['loadNodesSuccess'])
+
+        expect(logic.values.activeAttentionFilter).toEqual('all')
+        expect(logic.values.filteredAttentionSubjects).toHaveLength(3)
+    })
+
+    it.each<[string, number, string[]]>([
+        ['keeps the button disabled after a refresh starts', 200, ['query-broken']],
+        ['re-enables the button when the refresh fails to start', 500, []],
+    ])('%s', async (_case, status, expectedStarted) => {
+        useMocks({
+            post: {
+                '/api/environments/:team_id/warehouse_saved_queries/:id/run/': () => [status, {}],
+                '/api/projects/:team_id/warehouse_saved_queries/:id/run/': () => [status, {}],
+            },
+        })
+        await mountLoaded()
+
+        await expectLogic(logic, () => logic.actions.runDataWarehouseSavedQuery('query-broken')).toDispatchActions([
+            status === 200 ? 'runDataWarehouseSavedQuerySuccess' : 'runDataWarehouseSavedQueryFailure',
+        ])
+
+        expect(logic.values.startedRefreshSavedQueryIds).toEqual(expectedStarted)
+    })
+
     it('never reports a healthy overview when checks fail to load', async () => {
         useMocks({ get: { [CHECKS_URL]: () => [500, {}] } })
         router.actions.push(urls.models())

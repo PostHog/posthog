@@ -1,3 +1,6 @@
+import { dayjs } from 'lib/dayjs'
+import { pluralize } from 'lib/utils/strings'
+
 import { CHECKS_LIMIT, OverviewChecksStatus } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 
 const MODELS_CLAUSE = 'No failed, suspended or late models.'
@@ -12,4 +15,17 @@ const CHECKS_CLAUSES: Record<OverviewChecksStatus, string | null> = {
 export function healthyMessage(checksStatus: OverviewChecksStatus, checksTruncated: boolean): string {
     const checksClause = checksTruncated ? TRUNCATED_CHECKS_CLAUSE : CHECKS_CLAUSES[checksStatus]
     return checksClause ? `${MODELS_CLAUSE} ${checksClause}` : MODELS_CLAUSE
+}
+
+export interface RefreshSummary {
+    materializedCount: number
+    lastRefreshAt: string | null
+}
+
+export function refreshEvidence({ materializedCount, lastRefreshAt }: RefreshSummary): string | null {
+    if (materializedCount === 0) {
+        return null
+    }
+    const models = `${pluralize(materializedCount, 'materialized model')}.`
+    return lastRefreshAt ? `${models} Last refresh ${dayjs(lastRefreshAt).fromNow()}.` : models
 }

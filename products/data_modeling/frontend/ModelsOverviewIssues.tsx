@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
+import { IconClock, IconPauseFilled, IconWarning, IconXCircle } from '@posthog/icons'
 import {
     Badge,
     Button,
@@ -21,21 +22,23 @@ import {
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import { subjectDetailUrl } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
-
-import { nodeEndpointModel, nodeEndpointUrl } from './endpointModelName'
+import { nodeEndpointModel } from './endpointModelName'
+import { ModelsOverviewAttentionFilter } from './ModelsOverviewAttentionFilter'
 import { ModelsOverviewEmptyState } from './ModelsOverviewEmptyState'
 import { AttentionSubject, modelsOverviewLogic } from './modelsOverviewLogic'
+import { ModelsOverviewNextStep } from './ModelsOverviewNextStep'
 import {
+    IssueKind,
     IssueStatus,
     IssueTone,
     failingChecksStatus,
     materializationStatus,
-    nextStepLabel,
     subjectDetail,
     subjectImpact,
     subjectName,
+    subjectSince,
 } from './overviewIssueCopy'
+import { subjectHref } from './subjectHref'
 import { useHoldTallestHeight } from './useHoldTallestHeight'
 
 const WIDE_ONLY = 'hidden @min-[40rem]/main-content:inline'
@@ -56,35 +59,11 @@ const BADGE_VARIANTS: Record<IssueTone, 'destructive' | 'warning'> = {
     warning: 'warning',
 }
 
-function subjectHref(subject: AttentionSubject): string | null {
-    if (subject.node) {
-        return nodeEndpointModel(subject.node) ? nodeEndpointUrl(subject.node) : urls.nodeDetail(subject.node.id)
-    }
-    const [check] = subject.failingChecks
-    return check ? subjectDetailUrl(check) : null
-}
-
-function nextStepHref(subject: AttentionSubject): string | null {
-    const { node, materialization } = subject
-    if (node && nodeEndpointModel(node)) {
-        return nodeEndpointUrl(node)
-    }
-    if (node) {
-        return urls.nodeDetail(node.id, materialization ? 'materialization' : 'data-quality')
-    }
-    return subjectHref(subject)
-}
-
-function NextStepButton({ subject }: { subject: AttentionSubject }): JSX.Element | null {
-    const href = nextStepHref(subject)
-    if (!href) {
-        return null
-    }
-    return (
-        <Button variant="outline" size="sm" render={<LinkPrimitive to={href} />} data-attr="models-overview-next-step">
-            {nextStepLabel(subject)}
-        </Button>
-    )
+const ISSUE_ICONS: Record<IssueKind, typeof IconClock> = {
+    suspended: IconPauseFilled,
+    failed: IconXCircle,
+    behind: IconClock,
+    checks: IconWarning,
 }
 
 function subjectLabel(subject: AttentionSubject): string {
@@ -102,14 +81,20 @@ function subjectStatuses(subject: AttentionSubject): IssueStatus[] {
 function ProblemBadges({ subject }: { subject: AttentionSubject }): JSX.Element {
     return (
         <div className="flex flex-wrap gap-1">
-            {subjectStatuses(subject).map(({ label, tone, tooltip }) => (
-                <Tooltip key={label}>
-                    <TooltipTrigger delay={0} render={<span className="inline-flex" />}>
-                        <Badge variant={BADGE_VARIANTS[tone]}>{label}</Badge>
-                    </TooltipTrigger>
-                    <TooltipContent>{tooltip}</TooltipContent>
-                </Tooltip>
-            ))}
+            {subjectStatuses(subject).map(({ kind, label, tone, tooltip }) => {
+                const Icon = ISSUE_ICONS[kind]
+                return (
+                    <Tooltip key={kind}>
+                        <TooltipTrigger delay={0} render={<span className="inline-flex" />}>
+                            <Badge variant={BADGE_VARIANTS[tone]}>
+                                <Icon aria-hidden />
+                                {label}
+                            </Badge>
+                        </TooltipTrigger>
+                        <TooltipContent>{tooltip}</TooltipContent>
+                    </Tooltip>
+                )
+            })}
         </div>
     )
 }
@@ -121,7 +106,12 @@ function NameLink({ subject }: { subject: AttentionSubject }): JSX.Element {
         return <Text size="xs">{label}</Text>
     }
     return (
-        <Button variant="link" size="inline" className="self-start" render={<LinkPrimitive to={href} />}>
+        <Button
+            variant="link"
+            size="inline"
+            className="self-start font-medium text-foreground"
+            render={<LinkPrimitive to={href} />}
+        >
             {label}
         </Button>
     )
@@ -129,30 +119,43 @@ function NameLink({ subject }: { subject: AttentionSubject }): JSX.Element {
 
 function DetailText({ subject }: { subject: AttentionSubject }): JSX.Element {
     const detail = subjectDetail(subject)
+    const impact = subjectImpact(subject)
     return (
-        <Text size="xs" variant="muted" className="line-clamp-1" title={detail ?? undefined}>
-            {detail ?? '-'}
-        </Text>
+        <div className="flex min-w-0 flex-col">
+            {detail && (
+                <Text size="xs" variant="muted" className="line-clamp-1" title={detail}>
+                    {detail}
+                </Text>
+            )}
+            {impact && (
+                <Text size="xs" variant="muted" className="line-clamp-1">
+                    {impact}
+                </Text>
+            )}
+        </div>
     )
 }
 
-function ImpactText({ impact }: { impact: string }): JSX.Element {
+function SinceText({ subject }: { subject: AttentionSubject }): JSX.Element | null {
+    const since = subjectSince(subject)
+    if (!since) {
+        return null
+    }
     return (
-        <Text size="xs" variant="muted" className="whitespace-nowrap">
-            {impact}
+        <Text size="xs" variant="muted" className="whitespace-nowrap" title={since.exactTime ?? undefined}>
+            {since.label}
         </Text>
     )
 }
 
 function NarrowLines({ subject }: { subject: AttentionSubject }): JSX.Element {
-    const impact = subjectImpact(subject)
     return (
         <div className={`${NARROW_ONLY} flex flex-col gap-1`}>
             <ProblemBadges subject={subject} />
             <DetailText subject={subject} />
-            {impact && <ImpactText impact={impact} />}
+            <SinceText subject={subject} />
             <div className="pt-1">
-                <NextStepButton subject={subject} />
+                <ModelsOverviewNextStep subject={subject} />
             </div>
         </div>
     )
@@ -192,13 +195,12 @@ const COLUMNS: DataTableProps<AttentionSubject, unknown>['columns'] = [
         ),
     },
     {
-        id: 'impact',
-        header: () => <span className={WIDE_ONLY}>Impact</span>,
+        id: 'since',
+        header: () => <span className={WIDE_ONLY}>Since</span>,
         enableSorting: false,
-        meta: { align: 'right' },
         cell: ({ row }: SubjectCellContext) => (
             <span className={WIDE_ONLY}>
-                <ImpactText impact={subjectImpact(row.original) ?? '-'} />
+                <SinceText subject={row.original} />
             </span>
         ),
     },
@@ -209,7 +211,7 @@ const COLUMNS: DataTableProps<AttentionSubject, unknown>['columns'] = [
         meta: { align: 'right' },
         cell: ({ row }: SubjectCellContext) => (
             <span className={WIDE_ONLY}>
-                <NextStepButton subject={row.original} />
+                <ModelsOverviewNextStep subject={row.original} />
             </span>
         ),
     },
@@ -255,6 +257,7 @@ function SubjectTable({ subjects }: { subjects: AttentionSubject[] }): JSX.Eleme
 export function ModelsOverviewIssues(): JSX.Element {
     const {
         attentionSubjects,
+        filteredAttentionSubjects,
         nothingToReport,
         modelsFailed,
         overviewError,
@@ -262,12 +265,18 @@ export function ModelsOverviewIssues(): JSX.Element {
         checksTruncated,
         modelsFirstLoading,
         checksFirstLoading,
+        refreshSummary,
     } = useValues(modelsOverviewLogic)
     const { loadNodes, loadDataWarehouseSavedQueries, loadOverview } = useActions(modelsOverviewLogic)
 
     if (nothingToReport) {
         return (
-            <ModelsOverviewEmptyState variant="healthy" checksStatus={checksStatus} checksTruncated={checksTruncated} />
+            <ModelsOverviewEmptyState
+                variant="healthy"
+                checksStatus={checksStatus}
+                checksTruncated={checksTruncated}
+                refreshSummary={refreshSummary}
+            />
         )
     }
 
@@ -312,6 +321,7 @@ export function ModelsOverviewIssues(): JSX.Element {
                     data.
                 </Text>
             </div>
+            <ModelsOverviewAttentionFilter />
             {modelsFailed && (
                 <ErrorCallout
                     message="Your models could not be loaded, so this page cannot say which ones need attention."
@@ -331,7 +341,7 @@ export function ModelsOverviewIssues(): JSX.Element {
             )}
             {loading &&
                 Array.from({ length: SKELETON_ROWS }, (_, index) => <Skeleton key={index} className="h-8 w-full" />)}
-            {attentionSubjects.length > 0 && <SubjectTable subjects={attentionSubjects} />}
+            {filteredAttentionSubjects.length > 0 && <SubjectTable subjects={filteredAttentionSubjects} />}
         </section>
     )
 }

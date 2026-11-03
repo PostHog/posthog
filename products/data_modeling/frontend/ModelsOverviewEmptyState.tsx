@@ -23,7 +23,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { OverviewChecksStatus } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 
-import { healthyMessage } from './healthyMessage'
+import { RefreshSummary, healthyMessage, refreshEvidence } from './healthyMessage'
 
 const HedgehogFloat = pngHoggie(float)
 const HEADING_ID = 'models-overview-empty-state-heading'
@@ -61,6 +61,7 @@ export interface ModelsOverviewEmptyStateProps {
     variant: ModelsOverviewEmptyStateVariant
     checksStatus: OverviewChecksStatus
     checksTruncated?: boolean
+    refreshSummary?: RefreshSummary
 }
 
 function DataModelingSteps(): JSX.Element {
@@ -90,8 +91,10 @@ export function ModelsOverviewEmptyState({
     variant,
     checksStatus,
     checksTruncated = false,
+    refreshSummary,
 }: ModelsOverviewEmptyStateProps): JSX.Element {
     const firstView = variant === 'first-view'
+    const evidence = !firstView && refreshSummary ? refreshEvidence(refreshSummary) : null
 
     return (
         <Card
@@ -109,6 +112,11 @@ export function ModelsOverviewEmptyState({
                         <Text size="xs" variant="muted" render={<p className="m-0" />}>
                             {firstView ? FIRST_VIEW_DESCRIPTION : healthyMessage(checksStatus, checksTruncated)}
                         </Text>
+                        {evidence && (
+                            <Text size="xs" variant="muted" render={<p className="m-0" />}>
+                                {evidence}
+                            </Text>
+                        )}
                         <div className="flex flex-wrap gap-2 pt-2">
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.WarehouseObjects}
