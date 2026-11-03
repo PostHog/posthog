@@ -831,17 +831,31 @@ mod tests {
             )),
             "{lines}"
         );
-        // A URL too long to fetch gets no reference and holds no credential, so the block keeps it as it is.
+        // A refused URL that is too long to fetch, or that the URL parser does not read, keeps none of its text, and
+        // neither does a link that is too long to read with a credential in it.
         let long = format!("https://cdn.example.com/{}", "a".repeat(16 * 1024 - 24));
-        let long_lines = stored_lines(
-            &json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
-                "attributes": [{"id": 99, "attributes": {"src": long}}]}}])
-            .to_string(),
-        );
-        assert!(
-            long_lines.contains(&format!(r#""src":"{long}""#)),
-            "{long_lines}"
-        );
+        let long_link = format!("{long}?token=abc123");
+        for (attributes, marker) in [
+            (
+                json!({"src": long}),
+                r#""src":"imageurl:v4:declined:too_long""#,
+            ),
+            (
+                json!({"src": "https://cdn.example.com:99999/a.png?token=abc123"}),
+                r#""src":"imageurl:v4:declined:not_absolute""#,
+            ),
+            (
+                json!({"data-src": long_link}),
+                r#""data-src":"imageurl:v4:declined:too_long""#,
+            ),
+        ] {
+            let lines = stored_lines(
+                &json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
+                    "attributes": [{"id": 99, "attributes": attributes}]}}])
+                .to_string(),
+            );
+            assert!(lines.contains(marker), "{marker} in {lines}");
+        }
         // Keys written with escapes hide no URL.
         let escaped = events
             .replace(r#""src""#, r#""\u0073rc""#)
@@ -870,7 +884,8 @@ mod tests {
         // Such a node's text may not be CSS, so an accepted URL in it gets no reference.
         let accepted = ".a{background:url(https://cdn.example.com/a.png)}";
         let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "removes": [], "attributes": [],
-            "texts": [{"id": 99, "value": format!(".a{{background:url({signed})}}")}, {"id": 96, "value": accepted}],
+            "texts": [{"id": 99, "value": format!(".a{{background:url({signed})}}")}, {"id": 96, "value": accepted},
+                {"id": 95, "value": format!("@import \"{signed}\";")}],
             "adds": [{"parentId": 98, "node": {"type": 2, "tagName": "source", "attributes": {"srcset": format!("{signed} 1x")}, "childNodes": [], "id": 97}}]}}])
         .to_string();
         let lines = stored_lines(&events);

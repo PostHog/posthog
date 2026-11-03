@@ -24,7 +24,7 @@ use url::Url;
 mod redact;
 mod shopify;
 
-pub use redact::without_credentials;
+pub use redact::{needs_redaction, redaction, without_credentials, Redaction};
 
 const VOLATILE_PARAMS: &[&str] = &["cb", "nocache", "rnd"];
 

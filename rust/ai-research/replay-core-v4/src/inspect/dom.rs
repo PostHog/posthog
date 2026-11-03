@@ -10,7 +10,7 @@ use url::Url;
 
 use crate::bytescan::{self as scan, Span};
 use crate::fonts::{bundled_font, is_fetched_font_url};
-use crate::url_policy::{is_fetched_image_type, is_remote, without_credentials, MAX_URL_LEN};
+use crate::url_policy::{is_fetched_image_type, is_remote, needs_redaction, MAX_URL_LEN};
 
 use super::css::{self, CssEditBuilder, CssUrl, Resolver};
 use super::edits::{Buffers, Edit, LinkForm, Slot};
@@ -474,7 +474,7 @@ impl Walk<'_> {
     }
 
     fn record_url(&mut self, bytes: &[u8], value: Span, url: &str) {
-        if is_remote(url.trim()) || without_credentials(url).is_some() {
+        if is_remote(url.trim()) || needs_redaction(url) {
             let edit_budget = self.resolver.edit_budget();
             self.image_urls
                 .record(&self.buffers, (bytes, value), Slot::Url, edit_budget);
@@ -491,17 +491,13 @@ impl Walk<'_> {
             return;
         };
         let holds_credential = match form {
-            LinkForm::Url => without_credentials(&text).is_some(),
+            LinkForm::Url => needs_redaction(&text),
             LinkForm::Srcset => {
                 let mut holds = false;
-                for_each_srcset_candidate(&text, |url, _| {
-                    holds |= without_credentials(url).is_some()
-                });
+                for_each_srcset_candidate(&text, |url, _| holds |= needs_redaction(url));
                 holds
             }
-            LinkForm::Urls => text
-                .split_ascii_whitespace()
-                .any(|url| without_credentials(url).is_some()),
+            LinkForm::Urls => text.split_ascii_whitespace().any(needs_redaction),
         };
         if holds_credential {
             let edit_budget = self.resolver.edit_budget();

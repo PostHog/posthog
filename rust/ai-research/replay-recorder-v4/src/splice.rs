@@ -9,9 +9,11 @@ use replay_core_v4::inspect::css::{in_css_string, write_css_edit, CssEdit};
 use replay_core_v4::inspect::dom::{for_each_srcset_candidate, RemoteKind};
 use replay_core_v4::inspect::edits::{Edit, EditSource, EventEdits, LinkForm, Slot};
 use replay_core_v4::inspect::srcset::{shown_candidate, SrcsetSlot};
-use replay_core_v4::refs::{declined_url_ref, UrlAsset};
+use replay_core_v4::refs::{declined_url_ref, unnamed_url, UrlAsset};
 use replay_core_v4::seal::image_url_key;
-use replay_core_v4::url_policy::{checked_url, is_remote, without_credentials, Decline};
+use replay_core_v4::url_policy::{
+    checked_url, is_remote, redaction, Decline, Redaction, MAX_URL_LEN,
+};
 use replay_core_v4::v4_image_refs::{bundled_font_ref, ImageDecline, IMAGE_DECLINED_PREFIX};
 
 use crate::urls::url_reference;
@@ -34,7 +36,7 @@ fn kind_label(kind: RemoteKind) -> &'static str {
 
 /// `url` without its credentials, or as it is when it holds none.
 fn kept(url: &str) -> String {
-    without_credentials(url).unwrap_or_else(|| url.to_owned())
+    unnamed_url(url, UrlAsset::Image).unwrap_or_else(|| url.to_owned())
 }
 
 #[derive(Clone)]
@@ -166,15 +168,22 @@ impl<'b> Splicer<'b> {
                 text: reference,
                 decline: None,
             },
-            // A redacted URL that the policy still refuses is one the two read differently, so the slot keeps none of it.
-            (_, Err(Decline::Credential)) => Named {
-                text: without_credentials(url)
-                    .filter(|kept| checked_url(kept).err() != Some(Decline::Credential))
-                    .unwrap_or_else(|| declined_url_ref(asset, Decline::Credential)),
-                decline: Some(Decline::Credential.label()),
-            },
+            // The slot keeps none of a URL that the redaction cannot read, that is too long to read, or that the policy
+            // still refuses as a credential once redacted, because the policy and the redaction read it differently.
             (_, Err(decline)) => Named {
-                text: kept(url),
+                text: match redaction(url) {
+                    Redaction::Clean
+                        if !matches!(decline, Decline::Credential | Decline::TooLong) =>
+                    {
+                        url.to_owned()
+                    }
+                    Redaction::Redacted(kept)
+                        if checked_url(&kept).err() != Some(Decline::Credential) =>
+                    {
+                        kept
+                    }
+                    _ => declined_url_ref(asset, decline),
+                },
                 decline: Some(decline.label()),
             },
         };
@@ -188,7 +197,10 @@ impl<'b> Splicer<'b> {
             .url_rewrites
             .entry((kind_label(kind), outcome, named.decline.unwrap_or("none")))
             .or_default() += 1;
-        self.named.insert((url.to_owned(), kind), named.clone());
+        // A URL past the fetcher's limit becomes a marker, and caching it would hold the whole URL until the block ends.
+        if url.len() <= MAX_URL_LEN {
+            self.named.insert((url.to_owned(), kind), named.clone());
+        }
         named
     }
 
@@ -199,12 +211,12 @@ impl<'b> Splicer<'b> {
                 if is_remote(url) {
                     Some(self.named(url, RemoteKind::Image).text)
                 } else {
-                    self.redacted(without_credentials(text))
+                    self.redacted(unnamed_url(text, UrlAsset::Image))
                 }
             }
             Slot::Srcset(slot) => self.rebuilt_srcset(text, *slot),
             Slot::Css(edit) => Some(self.written_css(text, edit)),
-            Slot::Link(LinkForm::Url) => self.redacted(without_credentials(text)),
+            Slot::Link(LinkForm::Url) => self.redacted(unnamed_url(text, UrlAsset::Image)),
             Slot::Link(LinkForm::Srcset) => self.redacted(Some(links_without_credentials(text))),
             Slot::Link(LinkForm::Urls) => self.redacted(Some(
                 text.split_ascii_whitespace()

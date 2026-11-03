@@ -14,9 +14,10 @@ use url::Url;
 
 use super::dom::{RemoteKind, RemoteUrl};
 use crate::fonts::bundled_font;
+use crate::refs::{unnamed_url, UrlAsset};
 use crate::url_policy::{
-    as_parsed, is_fetched_image_type, is_protocol_relative, is_remote, parsed_start,
-    try_canonicalize, without_credentials, MAX_URL_LEN,
+    as_parsed, is_fetched_image_type, is_protocol_relative, is_remote, needs_redaction,
+    parsed_start, try_canonicalize, MAX_URL_LEN,
 };
 
 /// Each resolution copies the page's origin, so one event resolves at most this many relative URLs.
@@ -217,7 +218,7 @@ fn may_hold_url(value: &str) -> bool {
 fn link_urls(value: &str, edit_budget: Option<&AtomicUsize>, found: &mut impl FnMut(CssUrl<'_>)) {
     let mut unresolving = Resolver::new(None, None).with_edit_budget(edit_budget);
     value_urls(value, &mut unresolving, &mut |url| match url {
-        CssUrl::Image(url) | CssUrl::Unshown(url) if without_credentials(url).is_some() => {
+        CssUrl::Image(url) | CssUrl::Unshown(url) if needs_redaction(url) => {
             found(CssUrl::Link(url))
         }
         CssUrl::Rewrite {
@@ -227,7 +228,7 @@ fn link_urls(value: &str, edit_budget: Option<&AtomicUsize>, found: &mut impl Fn
             let holds_credential = rewrite
                 .resolved
                 .as_ref()
-                .is_none_or(|url| without_credentials(&url.url).is_some());
+                .is_none_or(|url| needs_redaction(&url.url));
             if holds_credential {
                 if let Some(resolved) = &mut rewrite.resolved {
                     resolved.kind = RemoteKind::Link;
@@ -252,7 +253,7 @@ fn import_string(prelude: &str, found: &mut impl FnMut(CssUrl<'_>)) {
     input.skip_whitespace();
     let start = input.position();
     if let Ok(Token::QuotedString(url)) = input.next() {
-        if let Some(kept) = without_credentials(url) {
+        if let Some(kept) = unnamed_url(url, UrlAsset::Image) {
             found(redacted(input.slice_from(start), &kept));
         }
     }
@@ -263,6 +264,19 @@ fn import_string(prelude: &str, found: &mut impl FnMut(CssUrl<'_>)) {
 pub fn text_link_urls(text: &str, resolver: &mut Resolver<'_>, found: &mut impl FnMut(CssUrl<'_>)) {
     if may_hold_url(text) {
         link_urls(text, resolver.edit_budget(), found);
+    }
+    // An `@import` names its sheet with a string, which holds no `(`, and its keyword can hold an escape.
+    let may_import = text.contains('\\')
+        || text
+            .as_bytes()
+            .windows(7)
+            .any(|at| at.eq_ignore_ascii_case(b"@import"));
+    if may_import {
+        for declaration in &declarations(text).found {
+            if declaration.kind == DeclarationKind::Import {
+                import_string(&text[declaration.start..declaration.end], found);
+            }
+        }
     }
 }
 
@@ -643,7 +657,7 @@ fn url_function_urls(
                 function,
             });
         }
-        None if is_root_relative(source) => match without_credentials(source) {
+        None if is_root_relative(source) => match unnamed_url(source, UrlAsset::Image) {
             Some(kept) => found(redacted(function, &kept)),
             None => found(CssUrl::Unresolved(function)),
         },
@@ -688,7 +702,7 @@ fn escaped_url_function_urls(
     else {
         if is_remote(written) {
             found(CssUrl::Unplaced);
-        } else if let Some(kept) = without_credentials(written) {
+        } else if let Some(kept) = unnamed_url(written, UrlAsset::Image) {
             found(redacted(function, &kept));
         }
         return;
@@ -795,7 +809,7 @@ fn image_set_urls(
         if is_remote(source) {
             found(CssUrl::Unshown(source));
             dropped.push(source.to_owned());
-        } else if without_credentials(source).is_some() {
+        } else if needs_redaction(source) {
             found(CssUrl::Link(source));
         }
     }
@@ -883,9 +897,8 @@ fn image_set_candidates<'i>(
                 }
                 if let Some(source) = candidate.source.filter(|source| is_remote(source)) {
                     found(CssUrl::Unshown(source));
-                } else if let Some(source) = candidate
-                    .source
-                    .filter(|source| without_credentials(source).is_some())
+                } else if let Some(source) =
+                    candidate.source.filter(|source| needs_redaction(source))
                 {
                     found(CssUrl::Link(source));
                 }
@@ -945,7 +958,7 @@ fn image_set_candidate<'i>(input: &mut Parser<'i>) -> Option<ImageSetCandidate<'
     // A set keeps a candidate as the page wrote it, so an escaped remote URL, or an escaped relative one with a credential, which the block does not hold as a browser reads it, has no place.
     let escaped_remote = source.as_ref().is_some_and(|source| {
         let url = source.url.trim();
-        source.escaped && (is_remote(url) || without_credentials(url).is_some())
+        source.escaped && (is_remote(url) || needs_redaction(url))
     });
     let source = source
         .as_ref()
@@ -1036,7 +1049,7 @@ impl CssUrl<'_> {
             | CssUrl::Unshown(url)
             | CssUrl::Font { url, .. }
             | CssUrl::Link(url) => {
-                if is_remote(url.trim()) || without_credentials(url).is_some() {
+                if is_remote(url.trim()) || needs_redaction(url) {
                     piece + url.len()
                 } else {
                     0
@@ -1102,7 +1115,7 @@ impl<'c> CssEditBuilder<'c> {
             _ if is_remote(url) => kind,
             _ => RemoteKind::Link,
         };
-        if kind == RemoteKind::Link && without_credentials(url).is_none() {
+        if kind == RemoteKind::Link && !needs_redaction(url) {
             return;
         }
         let named = RemoteUrl {

@@ -9,7 +9,7 @@ use url::{form_urlencoded, Url};
 
 use super::{
     as_parsed, decoded_lowercase_path, has_credential_path, has_credential_query,
-    is_credential_param, path_tokens, PathToken,
+    is_credential_param, path_tokens, PathToken, MAX_URL_LEN,
 };
 
 /// The URL parser reads these with an authority, and a backslash in them as a slash. A URL with no scheme resolves
@@ -20,42 +20,80 @@ const SPECIAL_SCHEMES: &[&str] = &["http", "https", "ws", "wss", "ftp", "file"];
 static RELATIVE_BASE: LazyLock<Url> =
     LazyLock::new(|| Url::parse("https://relative.invalid/").expect("a valid base"));
 
-/// `raw` without its userinfo, the credential parameters of its query and fragment, and the path segments that hold a
-/// token. The rest stays as the page wrote it, apart from the tabs, line breaks and outer spaces that the URL parser
-/// drops. `None` when the policy reads no credential in `raw`. When the policy still reads one after those cuts, as in
-/// a path that hides a token behind a dot segment, only the URL's origin stays.
-pub fn without_credentials(raw: &str) -> Option<String> {
-    // A `data:` URI can be tens of megabytes, so its scheme is read before anything else.
-    if !is_hierarchical(raw) {
-        return None;
-    }
-    let url = as_parsed(raw);
-    if !may_hold_credential(&url) || !holds_credential(&url) {
-        return None;
-    }
-    let parts = Parts::of(&url)?;
-    let cut = parts.without_credentials(&url);
-    if !holds_credential(&cut) {
-        return Some(cut);
-    }
-    Some(parts.origin(&url))
+/// What the redaction makes of a URL.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Redaction {
+    /// The policy reads no credential in the URL.
+    Clean,
+    /// The URL without its credentials.
+    Redacted(String),
+    /// The URL can hold a credential, but it is longer than [`MAX_URL_LEN`] or the URL parser does not read it, so the
+    /// redaction cannot tell what the policy would read in it.
+    Unread,
 }
 
-/// Whether the policy reads a credential in `url`, with the checks that make it refuse a URL as a credential.
-fn holds_credential(url: &str) -> bool {
-    // The policy parses a URL with a scheme on its own, where `https:host` names a host.
-    let Ok(parsed) = Url::parse(url).or_else(|_| RELATIVE_BASE.join(url)) else {
-        return false;
+/// `raw` without its userinfo, the credential parameters of its query and fragment, and the path segments that hold a
+/// token. The rest stays as the page wrote it, apart from the tabs, line breaks and outer spaces that the URL parser
+/// drops. When the policy still reads a credential after those cuts, as in a path that hides a token behind a dot
+/// segment, only the URL's origin stays.
+pub fn redaction(raw: &str) -> Redaction {
+    // A `data:` URI can be tens of megabytes, so its scheme is read before anything else.
+    if !is_hierarchical(raw) {
+        return Redaction::Clean;
+    }
+    if raw.len() > MAX_URL_LEN {
+        return if may_hold_credential(raw) {
+            Redaction::Unread
+        } else {
+            Redaction::Clean
+        };
+    }
+    let url = as_parsed(raw);
+    if !may_hold_credential(&url) {
+        return Redaction::Clean;
+    }
+    let (Some(parsed), Some(parts)) = (parsed_as_the_policy_does(&url), Parts::of(&url)) else {
+        return Redaction::Unread;
     };
+    if !holds_credential(&parsed) {
+        return Redaction::Clean;
+    }
+    let cut = parts.without_credentials(&url);
+    if parsed_as_the_policy_does(&cut).is_some_and(|cut| !holds_credential(&cut)) {
+        return Redaction::Redacted(cut);
+    }
+    Redaction::Redacted(parts.origin(&url))
+}
+
+/// Whether a block keeps `raw` otherwise than as the page wrote it.
+pub fn needs_redaction(raw: &str) -> bool {
+    redaction(raw) != Redaction::Clean
+}
+
+/// The URL that [`redaction`] makes of `raw`, or `None` when it makes none.
+pub fn without_credentials(raw: &str) -> Option<String> {
+    match redaction(raw) {
+        Redaction::Redacted(kept) => Some(kept),
+        Redaction::Clean | Redaction::Unread => None,
+    }
+}
+
+/// The policy parses a URL with a scheme on its own, where `https:host` names a host.
+fn parsed_as_the_policy_does(url: &str) -> Option<Url> {
+    Url::parse(url).or_else(|_| RELATIVE_BASE.join(url)).ok()
+}
+
+/// Whether the policy reads a credential in `parsed`, with the checks that make it refuse a URL as a credential.
+fn holds_credential(parsed: &Url) -> bool {
     if !parsed.username().is_empty() || parsed.password().is_some() {
         return true;
     }
-    if has_credential_query(&parsed).unwrap_or(true) {
+    if has_credential_query(parsed).unwrap_or(true) {
         return true;
     }
     let host = parsed.host_str().unwrap_or_default();
     let host = host.strip_suffix('.').unwrap_or(host);
-    match decoded_lowercase_path(&parsed) {
+    match decoded_lowercase_path(parsed) {
         Ok(path) if has_credential_path(&path, host) => return true,
         Ok(_) => {}
         Err(_) => return true,
@@ -457,6 +495,19 @@ mod tests {
             );
             assert!(!kept.contains("secret") && !kept.contains("abc"), "{kept}");
         }
+    }
+
+    #[test]
+    fn reads_no_credential_url_past_the_fetchers_limit() {
+        let long = format!(
+            "https://cdn.example.com{}?token=abc",
+            "/a".repeat(16 * 1024 * 1024)
+        );
+        assert_eq!(redaction(&long), Redaction::Unread);
+        assert_eq!(
+            redaction("https://cdn.example.com:99999/a.png?token=abc"),
+            Redaction::Unread
+        );
     }
 
     #[test]
