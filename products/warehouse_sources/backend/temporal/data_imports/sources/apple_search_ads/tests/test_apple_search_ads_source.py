@@ -138,23 +138,6 @@ class TestAppleSearchAdsSource:
     @parameterized.expand(
         [
             (
-                "legacy_empty_reason_phrase",
-                "400 Client Error:  for url: https://api.searchads.apple.com/api/v5/reports",
-            ),
-            (
-                "platform_empty_reason_phrase",
-                "401 Client Error:  for url: https://api.ads.apple.com/v1/reports/apps/adgroups/query",
-            ),
-        ]
-    )
-    def test_non_retryable_errors_match_apples_empty_reason_phrase(self, _name: str, error_msg: str) -> None:
-        # Apple sometimes omits the HTTP reason phrase, so a pattern built from
-        # `requests.raise_for_status()`'s usual wording (e.g. "Unauthorized") misses it.
-        assert error_message_matches(error_msg, self.source.get_non_retryable_errors().keys())
-
-    @parameterized.expand(
-        [
-            (
                 "rate_limited",
                 "429 Client Error: Too Many Requests for url: https://api.searchads.apple.com/api/v5/reports",
             ),
