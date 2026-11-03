@@ -34,7 +34,12 @@ from products.slack_app.backend.temporal.attachments import (
     prepare_slack_file_artifacts,
     prepare_slack_thread_file_artifacts,
 )
-from products.slack_app.backend.temporal.helpers import block_if_team_over_quota, safe_react, safe_unreact
+from products.slack_app.backend.temporal.helpers import (
+    block_if_ai_processing_not_approved,
+    block_if_team_over_quota,
+    safe_react,
+    safe_unreact,
+)
 from products.slack_app.backend.temporal.types import (
     SLACK_APP_PROCESSING_REACTION,
     PostHogCodeSlackMentionWorkflowInputs,
@@ -651,6 +656,16 @@ def create_posthog_code_task_for_repo_activity(
 
     # Refuse before the :eyes: reaction or the permalink fetch: a denied
     # mention should not first ack-react and then refuse a second later.
+    if block_if_ai_processing_not_approved(
+        integration=integration,
+        slack=slack,
+        channel=channel,
+        thread_ts=thread_ts,
+        slack_user_id=slack_user_id,
+        context="task_create",
+    ):
+        return
+
     if block_if_team_over_quota(
         integration=integration,
         slack=slack,
@@ -1046,6 +1061,16 @@ def forward_posthog_code_followup_activity(
                 plan_name=plan.plan_name if (plan := tasks_facade.get_run_plan(task_run.state)) else None,
             )
             return True
+
+    if block_if_ai_processing_not_approved(
+        integration=integration,
+        slack=slack,
+        channel=channel,
+        thread_ts=thread_ts,
+        slack_user_id=slack_user_id,
+        context="followup",
+    ):
+        return True
 
     if block_if_team_over_quota(
         integration=integration,

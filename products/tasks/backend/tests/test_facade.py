@@ -28,6 +28,7 @@ from products.tasks.backend.facade import (
     contracts,
     warm as warm_facade,
 )
+from products.tasks.backend.facade.access import PostHogAIAccessDecision
 from products.tasks.backend.facade.profiles import (
     Repository,
     SourceKind,
@@ -1154,7 +1155,11 @@ class TestFacadeReadsAndMappers(TestCase):
 
     @patch("products.tasks.backend.logic.services.warm.execute_task_processing_workflow")
     @patch("products.tasks.backend.logic.services.warm.is_team_limited", return_value=False)
-    def test_warm_task_run_returns_contract(self, _mock_quota, mock_workflow):
+    @patch(
+        "products.tasks.backend.logic.services.warm.get_posthog_ai_access_decision",
+        return_value=PostHogAIAccessDecision.GRANDFATHERED,
+    )
+    def test_warm_task_run_returns_contract(self, _mock_access, _mock_quota, mock_workflow):
         task = self._make_task(origin_product=Task.OriginProduct.POSTHOG_AI)
 
         with self.captureOnCommitCallbacks(execute=True):
@@ -1889,7 +1894,7 @@ class TestFacadeReadsAndMappers(TestCase):
         # When a client pastes text (stored as an attachment), it sends the pasted content as
         # naming_source so the title reads well, while description stays the bare prompt the
         # agent — and the reload transcript dedup — expect.
-        mock_title.side_effect = lambda text: f"title:{text}"
+        mock_title.side_effect = lambda text, **_: f"title:{text}"
         dto = facade.create_task(
             team_id=self.team.id,
             user_id=self.user.id,
@@ -1903,11 +1908,11 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(task.description, "Attached files: pasted-text.txt")
         self.assertEqual(task.title, "title:Deploy blocks on a stale lockfile")
         self.assertFalse(task.title_manually_set)
-        mock_title.assert_called_once_with("Deploy blocks on a stale lockfile")
+        mock_title.assert_called_once_with("Deploy blocks on a stale lockfile", distinct_id=self.user.distinct_id)
 
     @patch("products.tasks.backend.logic.services.title_generator.generate_task_title")
     def test_create_task_falls_back_to_description_without_naming_source(self, mock_title):
-        mock_title.side_effect = lambda text: f"title:{text}"
+        mock_title.side_effect = lambda text, **_: f"title:{text}"
         dto = facade.create_task(
             team_id=self.team.id,
             user_id=self.user.id,
@@ -1918,7 +1923,7 @@ class TestFacadeReadsAndMappers(TestCase):
         )
         task = Task.objects.get(id=dto.id)
         self.assertEqual(task.title, "title:Fix the login redirect")
-        mock_title.assert_called_once_with("Fix the login redirect")
+        mock_title.assert_called_once_with("Fix the login redirect", distinct_id=self.user.distinct_id)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_persists_dispatch_params_for_reconcile(self, _mock_workflow):

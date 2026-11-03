@@ -36,7 +36,7 @@ jobs:
               uses: ./.github/actions/setup-uv
 
             - name: Install python dependencies
-              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --no-dev --package hogli
 
             - name: Lint workflows
               run: ./bin/hogli lint:workflows

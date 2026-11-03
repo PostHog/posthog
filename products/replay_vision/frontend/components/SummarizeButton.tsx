@@ -6,8 +6,9 @@ import { IconChevronDown, IconLogomark, IconNotebook } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonMenuItem, LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 
 import type { ReplayScannerApi } from '../generated/api.schemas'
 import { observationsDockLogic } from '../logics/observationsDockLogic'

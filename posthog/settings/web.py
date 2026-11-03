@@ -211,7 +211,7 @@ MIDDLEWARE = [
     "posthog.middleware.EnvironmentsRewriteMiddleware",
     "posthog.middleware.CsrfOrKeyViewMiddleware",
     "posthog.middleware.QueryTimeCountingMiddleware",
-    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "posthog.middleware.AuthenticationMiddleware",
     # Must run immediately after AuthenticationMiddleware so downstream middleware
     # (activity logging, structlog binding, etc.) sees the swapped staff user on /admin/* paths.
     "posthog.middleware.AdminImpersonationMiddleware",
@@ -559,7 +559,7 @@ EMAIL_VERIFICATION_SKIP_FOR_DOMAINS = [
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": ["posthog.auth.SessionAuthentication"],
-    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.LimitOffsetPagination",
+    "DEFAULT_PAGINATION_CLASS": "posthog.api.pagination.DefaultLimitOffsetPagination",
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
     "DEFAULT_RENDERER_CLASSES": ["posthog.renderers.SafeJSONRenderer"],
     "PAGE_SIZE": 100,
@@ -652,6 +652,9 @@ SPECTACULAR_SETTINGS = {
             # Matches the shared alerts skeleton's PlatformAlert.State.
             "BillingAlertConfigurationStateEnum": "products.billing_alerts.backend.models.BillingAlertConfiguration.State",
             "LogsPatternsSourceEnum": ["stored_patterns", "body_mining"],
+            # Dashboard filters and data catalog metric runs both take the query schema's IntervalType,
+            # a plain enum no class can carry.
+            "IntervalTypeEnum": ["second", "minute", "hour", "day", "week", "month", "quarter", "year"],
             # The anomaly and explain bodies keep this name; the metrics query clause's own
             # aggregation adds 'none' and is named by its MetricQueryAggregation class.
             "AggregationEnum": ["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],

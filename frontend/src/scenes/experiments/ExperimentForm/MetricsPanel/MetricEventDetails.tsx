@@ -4,6 +4,7 @@ import { IconArrowRight } from '@posthog/icons'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
+import { isActionsNode, isDataWarehouseNode, isEventsNode } from '~/queries/schema/node-guards'
 import type { ExperimentMetric } from '~/queries/schema/schema-general'
 import type {
     ExperimentFunnelMetric,
@@ -16,7 +17,6 @@ import {
     isExperimentMeanMetric,
     isExperimentRatioMetric,
 } from '~/queries/schema/schema-general'
-import { isActionsNode, isDataWarehouseNode, isEventsNode } from '~/queries/utils'
 
 const getSourceName = (source: ExperimentMetricSource): string =>
     match(source)
