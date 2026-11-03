@@ -487,14 +487,17 @@ describe('hog auth login', () => {
         }
     )
 
-    test('logout revokes an OAuth login in PostHog before it removes it', async () => {
+    test.each([
+        ['revokes an OAuth login in PostHog before it removes it', 200, true],
+        ['says when PostHog could not revoke the login, and still removes it', 503, false],
+    ])('logout %s', async (_name, status, revoked) => {
         const result = await runHog(['auth', 'logout'], {
             env: { CLAUDECODE: '1' },
             ...OAUTH_LOGIN,
-            respond: deviceFlow(0),
+            respond: () => ({ status, body: {} }),
         })
 
-        expect(result.json()).toMatchObject({ status: 'logged_out', revoked: true, revokeUrl: null })
+        expect(result.json()).toMatchObject({ status: 'logged_out', revoked, revokeUrl: null })
         expect(result.requests).toEqual([
             {
                 method: 'POST',
