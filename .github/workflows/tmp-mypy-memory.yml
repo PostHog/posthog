@@ -1,0 +1,85 @@
+name: tmp mypy memory experiment
+on:
+    pull_request:
+        paths:
+            - .github/workflows/tmp-mypy-memory.yml
+
+permissions:
+    contents: read
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+    mypy-memory:
+        name: mypy ${{ matrix.variant.name }}
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 50
+        strategy:
+            fail-fast: false
+            matrix:
+                variant:
+                    - { name: fg-w2, flags: '--cache-fine-grained', workers: '2' }
+                    - { name: nofg-w2, flags: '', workers: '2' }
+                    - { name: nofg-w1, flags: '', workers: '1' }
+                    - { name: nofg-w0, flags: '', workers: '0' }
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 1
+
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: 3.14.7
+
+            - name: Install uv
+              id: setup-uv
+              uses: ./.github/actions/setup-uv
+
+            - name: Install SAML (python3-saml) dependencies
+              if: steps.setup-uv.outputs.cache-hit != 'true'
+              run: |
+                  sudo rm -f /etc/apt/sources.list.d/*twingate*
+                  sudo apt-get update
+                  sudo apt-get install libxml2-dev libxmlsec1 libxmlsec1-dev libxmlsec1-openssl
+
+            - name: Install Python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Download GeoIP database
+              run: ./bin/download-mmdb
+
+            - name: Machine
+              run: |
+                  nproc
+                  free -m
+                  swapon --show || true
+
+            - name: Cold and warm mypy
+              timeout-minutes: 40
+              env:
+                  MYPY_NUM_WORKERS: ${{ matrix.variant.workers }}
+                  FLAGS: ${{ matrix.variant.flags }}
+                  VARIANT: ${{ matrix.variant.name }}
+              run: |
+                  sample() { while sleep 1; do free -b | awk '/^Mem:/{print $3}'; done > "$1"; }
+                  peak() { sort -n "$1" | tail -1 | awk '{printf "%.2f", $1/2^30}'; }
+                  run() {
+                      local label=$1 log=mem-$1.txt
+                      sample "$log" & local sampler=$!
+                      local start=$SECONDS
+                      local code=0
+                      read -ra flags <<< "$FLAGS"
+                      timeout 18m mypy "${flags[@]}" . > "out-$label.txt" 2>&1 || code=$?
+                      local secs=$((SECONDS - start))
+                      kill $sampler
+                      tail -1 "out-$label.txt"
+                      echo "| $VARIANT | $label | $code | $secs s | $(peak "$log") GiB | $(du -sh .mypy_cache | cut -f1) |" >> "$GITHUB_STEP_SUMMARY"
+                  }
+                  echo "| variant | run | exit | wall | peak used | cache |" >> "$GITHUB_STEP_SUMMARY"
+                  echo "|---|---|---|---|---|---|" >> "$GITHUB_STEP_SUMMARY"
+                  run cold
+                  echo "" >> posthog/models/team/team.py
+                  run warm-team-edit
