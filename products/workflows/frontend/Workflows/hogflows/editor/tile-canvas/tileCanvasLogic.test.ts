@@ -238,6 +238,15 @@ describe('tileCanvasLogic', () => {
                 source: 'quick add',
                 add: (): void => logic.actions.addStepAt(delayStep, logic.values.workflow.edges[0]),
             },
+            {
+                source: 'drag',
+                add: (): void => {
+                    logic.actions.openCommandPalette('d')
+                    logic.actions.startDraggingNewStep(delayStep)
+                    logic.actions.dropAt(logic.values.workflow.edges[0])
+                    logic.actions.endDraggingNewStep()
+                },
+            },
         ])('counts a step added from the $source', ({ source, add }) => {
             const capture = jest.spyOn(posthog, 'capture')
 
@@ -245,6 +254,47 @@ describe('tileCanvasLogic', () => {
 
             expect(capture).toHaveBeenCalledWith('workflows tile canvas step added', { source, step_type: 'delay' })
         })
+
+        it.each([
+            { outcome: 'lands on a +', fromAddWindow: false, drop: true, dragEnds: true, stillOpen: false },
+            // The drop replaces the arrow of the + that opened the add window, so the window and its dragend go away.
+            {
+                outcome: 'lands on the + that opened it',
+                fromAddWindow: true,
+                drop: true,
+                dragEnds: false,
+                stillOpen: false,
+            },
+            { outcome: 'lets go elsewhere', fromAddWindow: false, drop: false, dragEnds: true, stillOpen: true },
+        ])(
+            'closes the palette only when a step dragged out of it $outcome',
+            async ({ fromAddWindow, drop, dragEnds, stillOpen }) => {
+                const stepsBefore = logic.values.workflow.actions.length
+                const edge = logic.values.workflow.edges[0]
+                if (fromAddWindow) {
+                    logic.actions.openQuickAdd(getEdgeId(edge))
+                } else {
+                    logic.actions.openCommandPalette('d')
+                }
+                logic.actions.startDraggingNewStep(delayStep)
+                if (drop) {
+                    logic.actions.dropAt(edge)
+                }
+
+                await expectLogic(logic, () => {
+                    if (dragEnds) {
+                        logic.actions.endDraggingNewStep()
+                    }
+                }).toMatchValues({
+                    nodeToBeAdded: null,
+                    isDraggingNewStep: false,
+                })
+                expect(logic.values.commandPaletteQuery !== null || logic.values.quickAddEdgeKey !== null).toBe(
+                    stillOpen
+                )
+                expect(logic.values.workflow.actions).toHaveLength(stepsBefore + (drop ? 1 : 0))
+            }
+        )
 
         it.each(['startMovingNode', 'startCopyingNode'] as const)(
             'drops a pending %s when someone starts adding a step',
