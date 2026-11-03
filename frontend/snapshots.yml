@@ -15650,6 +15650,14 @@ snapshots:
         hash: v1.k794b7964.125683bfe67f38e8705abf402d5dc17fa355dcde157e710e6daad85fcb20c02e.tbzNEa9x9B-PU_UNEPOo_dbiVJhxDnFAwzBgH3ka36g
     scenes-app-settings-organization--settings-organization-startup-program--light:
         hash: v1.k794b7964.a7050dc508b37c55eba7ba4cb783a4567e0fff3cab6924ce3ca79ebb07664e79.moDmbGJ1e6J9sEvpXxnMKAsIi8rTMxsH9b_IWAaWCWE
+    scenes-app-settings-organization-member-offboarding--no-resources--dark:
+        hash: v1.k794b7964.d2feb6e0abcdf2a80e53fc9ef2c654ae59371898447d11098a34a28cc828396b.LTgmr0g4aUgaG8KmbEmRDxt8SDyIzAgIejRrTMQdfKk
+    scenes-app-settings-organization-member-offboarding--no-resources--light:
+        hash: v1.k794b7964.5858a7f6b0058141bee9134870d3438e8564148e3ac5c2ae2879c551a60ea6cf.xFY9ivLhVV1pKN5UWMjkzXHzhaYFapC3vvRtwtsqro4
+    scenes-app-settings-organization-member-offboarding--review-resources--dark:
+        hash: v1.k794b7964.50bb969851a42d76c08213d73bafd818dedf3ceee60b7585b9dfb528937872c1.Wol4-lN5gN_e_Rh1jJB4Y1xOR6zq6UOHaoE3TAOKkrE
+    scenes-app-settings-organization-member-offboarding--review-resources--light:
+        hash: v1.k794b7964.cda1cc2e98b958fb6272e514adbd5d9931ce274f0749671d2ac44ef91cfbc03e.MtNTKzbSL7vKj77Bg-fyrRVOxUqhDBwRLOeJ0u1ELGY
     scenes-app-settings-project--settings-project-access-control--dark:
         hash: v1.k794b7964.7554b77bd6b1d3fdc411385eff866e2fb0e442e33459268f37d116561aaa50c0.tNvJl7_UinwSpilEuRCVIkSFxqIAQY4x5_6QfXAm0hM
     scenes-app-settings-project--settings-project-access-control--light:
