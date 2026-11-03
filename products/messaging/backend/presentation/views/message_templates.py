@@ -82,6 +82,7 @@ from products.messaging.backend.facade.transactional_email import (
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
 from products.workflows.backend.facade.api import WorkflowAccessDenied, WorkflowNotFound
+from products.workflows.backend.facade.transactional_emails import EMAIL_FROM_CODE_FLAG
 from products.workflows.backend.facade.workflows import get_workflow
 
 logger = structlog.get_logger(__name__)
@@ -404,7 +405,6 @@ IDEMPOTENCY_KEY_PARAMETER = OpenApiParameter(
 
 
 TRANSACTIONAL_EMAIL_API_FLAG = "workflows-transactional-email-api"
-EMAIL_FROM_CODE_FLAG = "workflows-email-from-code"
 
 
 DISTINCT_ID_HELP_TEXT = (
@@ -479,7 +479,7 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         required=False,
         help_text="Sender of the email your code rendered, as `security@example.com` or "
         "`Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from "
-        "the project's default sender.",
+        "the project's default sender, or from its only verified sender when it has no default.",
     )
     reply_to = serializers.ListField(
         child=serializers.EmailField(),
@@ -518,7 +518,10 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         return _within_body_limit(value, "The plain text body")
 
     def validate_from(self, value: str) -> str:
-        _name, address = parseaddr(value)
+        try:
+            _name, address = parseaddr(value)
+        except RecursionError:
+            address = ""
         if not _is_sender_address(address):
             raise serializers.ValidationError("Enter an address, such as `Example <security@example.com>`.")
         return value
@@ -646,15 +649,26 @@ def require_email_from_code(team: Any) -> None:
     _require_flag(team, EMAIL_FROM_CODE_FLAG)
 
 
-def _require_flag(team: Any, flag: str) -> None:
-    if not posthoganalytics.feature_enabled(
-        flag,
-        str(team.uuid),
-        groups={"organization": str(team.organization_id)},
-        group_properties={"organization": {"id": str(team.organization_id)}},
-        send_feature_flag_events=False,
-    ):
+def require_email_status_read(team: Any) -> None:
+    if not (_flag_enabled(team, TRANSACTIONAL_EMAIL_API_FLAG) or _flag_enabled(team, EMAIL_FROM_CODE_FLAG)):
         raise NotFound()
+
+
+def _require_flag(team: Any, flag: str) -> None:
+    if not _flag_enabled(team, flag):
+        raise NotFound()
+
+
+def _flag_enabled(team: Any, flag: str) -> bool:
+    return bool(
+        posthoganalytics.feature_enabled(
+            flag,
+            str(team.uuid),
+            groups={"organization": str(team.organization_id)},
+            group_properties={"organization": {"id": str(team.organization_id)}},
+            send_feature_flag_events=False,
+        )
+    )
 
 
 def transactional_email_throttles() -> list[BaseThrottle]:

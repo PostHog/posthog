@@ -679,7 +679,10 @@ class WorkflowRef:
     variables: list[dict[str, Any]] | None
     # Read from the published steps, not the draft.
     has_email_step: bool
+    origin_product: str | None
 
+
+EMAIL_FROM_CODE_FLAG: Final[str] = "workflows-email-from-code"
 
 # Engagement tracking and message assets key on this id, so it stays stable across versions.
 TRANSACTIONAL_EMAIL_ACTION_ID: Final[str] = "transactional_email"
@@ -715,6 +718,10 @@ class TransactionalEmailSender:
 
 class TransactionalEmailSenderUnavailable(Exception):
     """No verified email sender: neither the requested one nor the project's default."""
+
+
+class TransactionalEmailSenderRequired(Exception):
+    """The project has several verified email senders and no default, so the send has to name one."""
 
 
 class TransactionalEmailContentInvalid(Exception):

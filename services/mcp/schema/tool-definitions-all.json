@@ -807,6 +807,22 @@
         },
         "feature_flag": "aeo-citation-tracking"
     },
+    "aeo-prompts-overview-get": {
+        "description": "Get set-level totals for AI citation tracking over the last `days` days (default 30, at most 90, in the project's timezone) without writing SQL. `prompts_tracked` is how many prompts are on. `current` and `previous` compare the window with the one before it: `checks`, `failed`, `cited`, `mentioned` (answers that name the brand), `citation_rate` and `mention_rate` (shares of answered checks, 0-1), `prompts` that ran and `prompts_cited` (prompts minus prompts_cited is how many prompts were never cited). `engines` splits the current window per answer engine: Claude (`claude-web-search`), ChatGPT/OpenAI (`openai-web-search`) and Exa (`exa-answer`). `topics` splits it per prompt topic with the same counts, rates and the number of active prompts, so you can rank topics by citation or mention rate. `top_domains` lists the sites the engines cite most across all answers, with `is_target` marking the project's own domains. Use it to answer \"how are we doing overall\", \"which topics or engines mention or cite us least\", \"how many prompts are never cited\" and \"which sites do the engines cite instead of us\". For one prompt, use `aeo-prompts-stats-get`.",
+        "category": "AI citation tracking",
+        "feature": "aeo",
+        "summary": "Get the AI citation overview of the whole prompt set",
+        "title": "Get the AI citation overview of the whole prompt set",
+        "required_scopes": ["web_analytics:read"],
+        "api_operations": ["GET /api/projects/{project_id}/aeo_prompts/overview/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "aeo-citation-tracking"
+    },
     "aeo-prompts-stats-get": {
         "description": "Get citation stats for one AI citation tracking prompt. `engines` has one row per answer engine over the prompt's whole history: `checks`, `cited`, `mentioned` (answers that name the brand), `failed`, `citation_rate` and `mention_rate` (shares of answered checks, 0-1, failed checks left out), and the first and last check times. `daily` has counts per day and engine for the last 30 days (`daily_from` to `daily_to`, in the project's timezone); days without a check are left out. Over the same 30 days, `consensus` says how many of each engine's answers cited each of the ten most cited domains, `sentiment` counts positive, neutral and negative answers toward the brand per engine (`unscored` answers name the brand but are not scored yet), and `top_words` lists the most used words of the web searches the engines ran. `brand_names` are the words an answer must contain to count as a mention; use them to filter `answer_text` in a HogQL query over `system.aeo_citation_checks`. Use it to compare engines, to see whether a prompt's citations are trending up or down, and to find which sources the engines agree on.",
         "category": "AI citation tracking",
@@ -8032,7 +8048,7 @@
         "feature": "signals",
         "summary": "List inbox ranking outcomes",
         "title": "List inbox ranking outcomes",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/signals/reports/ranking_outcomes/"],
         "annotations": {
             "destructiveHint": false,
@@ -8047,7 +8063,7 @@
         "feature": "signals",
         "summary": "List a report's agent run actions",
         "title": "List a report's agent run actions",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/signals/reports/{id}/actions/"],
         "annotations": {
             "destructiveHint": false,
@@ -8064,7 +8080,7 @@
         "feature": "signals",
         "summary": "Run a report action as an agent task",
         "title": "Run a report action as an agent task",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write", "task:write"],
         "api_operations": ["POST /api/projects/{project_id}/signals/reports/{id}/actions/run/"],
         "annotations": {
             "destructiveHint": true,
@@ -8081,7 +8097,7 @@
         "feature": "signals",
         "summary": "Append an artefact to a report",
         "title": "Append an artefact to a report",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write", "task:write"],
         "api_operations": ["POST /api/projects/{project_id}/signals/reports/{report_id}/artefacts/"],
         "annotations": {
             "destructiveHint": false,
@@ -8096,7 +8112,7 @@
         "feature": "signals",
         "summary": "Delete an artefact",
         "title": "Delete an artefact",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write", "task:write"],
         "api_operations": ["DELETE /api/projects/{project_id}/signals/reports/{report_id}/artefacts/{id}/"],
         "annotations": {
             "destructiveHint": true,
@@ -8111,7 +8127,7 @@
         "feature": "signals",
         "summary": "List a report's artefacts",
         "title": "List a report's artefacts",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/signals/reports/{report_id}/artefacts/"],
         "annotations": {
             "destructiveHint": false,
@@ -8126,7 +8142,7 @@
         "feature": "signals",
         "summary": "Get a single artefact",
         "title": "Get a single artefact",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/signals/reports/{report_id}/artefacts/{id}/"],
         "annotations": {
             "destructiveHint": false,
@@ -8141,7 +8157,7 @@
         "feature": "signals",
         "summary": "Replace an artefact's content",
         "title": "Replace an artefact's content",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write", "task:write"],
         "api_operations": ["PATCH /api/projects/{project_id}/signals/reports/{report_id}/artefacts/{id}/"],
         "annotations": {
             "destructiveHint": false,
@@ -8171,7 +8187,7 @@
         "feature": "signals",
         "summary": "List a report's checks",
         "title": "List a report's checks",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/signals/reports/{report_id}/checks/"],
         "annotations": {
             "destructiveHint": false,
@@ -8186,7 +8202,7 @@
         "feature": "signals",
         "summary": "Replace a metric follow-up check",
         "title": "Replace a metric follow-up check",
-        "required_scopes": ["task:write", "query:read"],
+        "required_scopes": ["inbox:write", "query:read"],
         "api_operations": ["POST /api/projects/{project_id}/signals/reports/{report_id}/checks/{id}/replace/"],
         "annotations": {
             "destructiveHint": true,
@@ -8203,7 +8219,7 @@
         "feature": "signals",
         "summary": "Get a single check",
         "title": "Get a single check",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/signals/reports/{report_id}/checks/{id}/"],
         "annotations": {
             "destructiveHint": false,
@@ -8218,7 +8234,7 @@
         "feature": "signals",
         "summary": "Update a report's suggested reviewers",
         "title": "Update a report's suggested reviewers",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write", "task:write"],
         "api_operations": ["PUT /api/projects/{project_id}/signals/reports/{id}/reviewers/"],
         "annotations": {
             "destructiveHint": false,
@@ -8233,7 +8249,7 @@
         "feature": "signals",
         "summary": "Resolve, dismiss, or snooze inbox reports in bulk",
         "title": "Resolve, dismiss, or snooze inbox reports in bulk",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "api_operations": ["POST /api/projects/{project_id}/signals/reports/bulk-state/"],
         "annotations": {
             "destructiveHint": true,
@@ -8248,7 +8264,7 @@
         "feature": "signals",
         "summary": "Update work on an inbox report",
         "title": "Update work on an inbox report",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write", "task:write"],
         "api_operations": ["POST /api/projects/{project_id}/signals/reports/{id}/claim/"],
         "annotations": {
             "destructiveHint": true,
@@ -8263,7 +8279,7 @@
         "feature": "signals",
         "summary": "Rate an inbox report",
         "title": "Rate an inbox report",
-        "required_scopes": ["task:read", "signal_scout:write", "llm_skill:write"],
+        "required_scopes": ["inbox:read", "signal_scout:write", "llm_skill:write"],
         "api_operations": ["POST /api/projects/{project_id}/signals/reports/{id}/feedback/"],
         "annotations": {
             "destructiveHint": false,
@@ -8278,7 +8294,7 @@
         "feature": "signals",
         "summary": "Get your personal ranked inbox",
         "title": "Get your personal ranked inbox",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/signals/reports/for_me/"],
         "annotations": {
             "destructiveHint": false,
@@ -8294,7 +8310,7 @@
         "feature": "signals",
         "summary": "Step off a report's suggested reviewers",
         "title": "Step off a report's suggested reviewers",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write", "task:write"],
         "api_operations": ["POST /api/projects/{project_id}/signals/reports/{id}/reviewers/me/"],
         "annotations": {
             "destructiveHint": false,
@@ -8309,7 +8325,7 @@
         "feature": "signals",
         "summary": "List inbox reports",
         "title": "List inbox reports",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/signals/reports/"],
         "annotations": {
             "destructiveHint": false,
@@ -8324,7 +8340,7 @@
         "feature": "signals",
         "summary": "Merge duplicate reports into one",
         "title": "Merge duplicate reports into one",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "api_operations": ["POST /api/projects/{project_id}/signals/reports/{id}/merge/"],
         "annotations": {
             "destructiveHint": true,
@@ -8339,7 +8355,7 @@
         "feature": "signals",
         "summary": "Get inbox report",
         "title": "Get inbox report",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/signals/reports/{id}/"],
         "annotations": {
             "destructiveHint": false,
@@ -8354,7 +8370,7 @@
         "feature": "signals",
         "summary": "Resolve, dismiss, or snooze an inbox report",
         "title": "Resolve, dismiss, or snooze an inbox report",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "api_operations": ["POST /api/projects/{project_id}/signals/reports/{id}/state/"],
         "annotations": {
             "destructiveHint": true,
@@ -8369,7 +8385,7 @@
         "feature": "signals",
         "summary": "Edit an inbox report's title or summary",
         "title": "Edit an inbox report's title or summary",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write", "task:write"],
         "api_operations": ["PATCH /api/projects/{project_id}/signals/reports/{id}/"],
         "annotations": {
             "destructiveHint": false,
@@ -8384,7 +8400,7 @@
         "feature": "signals",
         "summary": "Stay off automatic reviewer selection in an area",
         "title": "Stay off automatic reviewer selection in an area",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "api_operations": ["POST /api/projects/{project_id}/signals/reviewer_exclusions/"],
         "annotations": {
             "destructiveHint": false,
@@ -8400,7 +8416,7 @@
         "feature": "signals",
         "summary": "Get one of your reviewer exclusions",
         "title": "Get one of your reviewer exclusions",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/signals/reviewer_exclusions/{id}/"],
         "annotations": {
             "destructiveHint": false,
@@ -8416,7 +8432,7 @@
         "feature": "signals",
         "summary": "List your reviewer exclusions",
         "title": "List your reviewer exclusions",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/signals/reviewer_exclusions/"],
         "annotations": {
             "destructiveHint": false,
@@ -8432,7 +8448,7 @@
         "feature": "signals",
         "summary": "Revoke one of your reviewer exclusions",
         "title": "Revoke one of your reviewer exclusions",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "api_operations": ["POST /api/projects/{project_id}/signals/reviewer_exclusions/{id}/revoke/"],
         "annotations": {
             "destructiveHint": false,
@@ -8448,7 +8464,7 @@
         "feature": "signals",
         "summary": "Change one of your reviewer exclusions",
         "title": "Change one of your reviewer exclusions",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "api_operations": ["PATCH /api/projects/{project_id}/signals/reviewer_exclusions/{id}/"],
         "annotations": {
             "destructiveHint": false,
@@ -8464,7 +8480,7 @@
         "feature": "signals",
         "summary": "Create inbox source config",
         "title": "Create inbox source config",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "api_operations": ["POST /api/projects/{project_id}/signals/source_configs/"],
         "annotations": {
             "destructiveHint": false,
@@ -8479,7 +8495,7 @@
         "feature": "signals",
         "summary": "List inbox source configs",
         "title": "List inbox source configs",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/signals/source_configs/"],
         "annotations": {
             "destructiveHint": false,
@@ -8494,7 +8510,7 @@
         "feature": "signals",
         "summary": "Update inbox source config",
         "title": "Update inbox source config",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "api_operations": ["PATCH /api/projects/{project_id}/signals/source_configs/{id}/"],
         "annotations": {
             "destructiveHint": false,
@@ -8509,7 +8525,7 @@
         "feature": "signals",
         "summary": "Get inbox source config",
         "title": "Get inbox source config",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/signals/source_configs/{id}/"],
         "annotations": {
             "destructiveHint": false,
@@ -8524,7 +8540,7 @@
         "feature": "signals",
         "summary": "Replace inbox source config",
         "title": "Replace inbox source config",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "api_operations": ["PUT /api/projects/{project_id}/signals/source_configs/{id}/"],
         "annotations": {
             "destructiveHint": false,
@@ -8539,7 +8555,7 @@
         "feature": "signals",
         "summary": "Get Self-driving steering instructions",
         "title": "Get Self-driving steering instructions",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/signals/config/"],
         "annotations": {
             "destructiveHint": false,
@@ -8554,7 +8570,7 @@
         "feature": "signals",
         "summary": "Update Self-driving steering instructions",
         "title": "Update Self-driving steering instructions",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write", "task:write"],
         "api_operations": ["POST /api/projects/{project_id}/signals/config/"],
         "annotations": {
             "destructiveHint": false,
@@ -9304,7 +9320,7 @@
         }
     },
     "llma-evaluation-create": {
-        "description": "Create an evaluation. 'llm_judge': set evaluation_config.prompt and model_configuration with provider and model; provider_key_id may be null when no key is pinned. 'hog': evaluation_config.source (Hog returning a boolean, a finite number, or category keys). For 'hog' and 'llm_judge', choose output_type='boolean', 'numeric', or 'categorical'; numeric output_config accepts min, max, step, allows_na, and passing_rule; categorical output_config accepts options, selection_mode, allows_na, and passing_rule. 'sentiment': output_type='sentiment', omit model_configuration, optional evaluation_config.source='user_messages'. To tag or classify generations into labels (what taggers used to do), use output_type='categorical' with selection_mode='multiple'. `target` accepts 'generation' (default), 'trace', or 'session'. A session target runs once per `$ai_session_id` and defaults to the 'inactivity' settle strategy. Pass `enabled` as a boolean (true to start scoring new $ai_generation events immediately, false to create it paused). To organize the evaluation, pass a `directory_id` returned by llma-evaluation-directory-list. Omit `directory_id` or pass null to keep it at the top level. Results are '$ai_evaluation' events. An evaluation only scores data that arrives after it is enabled, so once it is enabled, offer the user a backfill over past data with llma-evaluation-backfill-estimate.",
+        "description": "Create an evaluation. 'llm_judge': set evaluation_config.prompt and model_configuration with provider and model; provider_key_id may be null when no key is pinned. An llm_judge runs on one of the team's own AI provider keys, and keys can't be added through MCP. Check llma-evaluation-config-get and llma-provider-key-list first: pin an ok-state key with provider_key_id when one exists. With no usable key, still create the judge with enabled=false, and tell the user it starts scoring once a project admin adds a key in Settings > AI observability > Bring your own key (BYOK) and enables it. 'hog': evaluation_config.source (Hog returning a boolean, a finite number, or category keys). For 'hog' and 'llm_judge', choose output_type='boolean', 'numeric', or 'categorical'; numeric output_config accepts min, max, step, allows_na, and passing_rule; categorical output_config accepts options, selection_mode, allows_na, and passing_rule. 'sentiment': output_type='sentiment', omit model_configuration, optional evaluation_config.source='user_messages'. To tag or classify generations into labels (what taggers used to do), use output_type='categorical' with selection_mode='multiple'. `target` accepts 'generation' (default), 'trace', or 'session'. A session target runs once per `$ai_session_id` and defaults to the 'inactivity' settle strategy. Pass `enabled` as a boolean (true to start scoring new $ai_generation events immediately, false to create it paused). To organize the evaluation, pass a `directory_id` returned by llma-evaluation-directory-list. Omit `directory_id` or pass null to keep it at the top level. Results are '$ai_evaluation' events. An evaluation only scores data that arrives after it is enabled, so once it is enabled, offer the user a backfill over past data with llma-evaluation-backfill-estimate.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create evaluation",
@@ -13768,12 +13784,12 @@
         }
     },
     "scout-runs-emission-reports": {
-        "description": "For a `SignalScoutRun`, return each emitted finding paired with the inbox report its signal grouped into — the reverse lookup from a scout's emission to the `SignalReport` it actually produced. One row per emission with its `finding_id`, the deterministic `source_id` (`run:<run_id>:finding:<finding_id>`), and the linked `report` (`id`, `title`, `status`) or `null` when the finding never matched a report (or the report was deleted/suppressed). Use this to see *which* findings turned into actionable reports, not just what a run surfaced (`scout-runs-emissions-list`). Requires `task:read` on top of `signal_scout:read` because it exposes report titles. Strictly team-scoped — a run UUID belonging to another team returns 404.",
+        "description": "For a `SignalScoutRun`, return each emitted finding paired with the inbox report its signal grouped into — the reverse lookup from a scout's emission to the `SignalReport` it actually produced. One row per emission with its `finding_id`, the deterministic `source_id` (`run:<run_id>:finding:<finding_id>`), and the linked `report` (`id`, `title`, `status`) or `null` when the finding never matched a report (or the report was deleted/suppressed). Use this to see *which* findings turned into actionable reports, not just what a run surfaced (`scout-runs-emissions-list`). Requires `inbox:read` on top of `signal_scout:read` because it exposes report titles. Strictly team-scoped — a run UUID belonging to another team returns 404.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List the inbox reports a scout run's findings linked to",
         "title": "List the inbox reports a scout run's findings linked to",
-        "required_scopes": ["signal_scout:read", "task:read"],
+        "required_scopes": ["signal_scout:read", "inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/signals/scout/runs/{run_id}/emissions/reports/"],
         "annotations": {
             "destructiveHint": false,
@@ -14307,7 +14323,7 @@
         "feature": "signals",
         "summary": "List the inbox reports a scout run's findings linked to (deprecated)",
         "title": "List the inbox reports a scout run's findings linked to (deprecated)",
-        "required_scopes": ["signal_scout:read", "task:read"],
+        "required_scopes": ["signal_scout:read", "inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/signals/scout/runs/{run_id}/emissions/reports/"],
         "annotations": {
             "destructiveHint": false,
@@ -16299,7 +16315,7 @@
         "feature": "replay_vision",
         "summary": "List observation's inbox reports",
         "title": "List observation's inbox reports",
-        "required_scopes": ["replay_scanner:read", "session_recording:read", "task:read"],
+        "required_scopes": ["replay_scanner:read", "session_recording:read", "inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/vision/observations/{id}/signal_reports/"],
         "annotations": {
             "destructiveHint": false,
@@ -16744,7 +16760,7 @@
         "feature": "replay_vision",
         "summary": "Get scanner scout report",
         "title": "Get scanner scout report",
-        "required_scopes": ["replay_scanner:read", "session_recording:read", "task:read"],
+        "required_scopes": ["replay_scanner:read", "session_recording:read", "inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/vision/scanners/{scanner_id}/scout_reports/{id}/"],
         "annotations": {
             "destructiveHint": false,
@@ -16759,7 +16775,7 @@
         "feature": "replay_vision",
         "summary": "List scanner scout reports",
         "title": "List scanner scout reports",
-        "required_scopes": ["replay_scanner:read", "session_recording:read", "task:read"],
+        "required_scopes": ["replay_scanner:read", "session_recording:read", "inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/vision/scanners/{scanner_id}/scout_reports/"],
         "annotations": {
             "destructiveHint": false,
@@ -16805,7 +16821,7 @@
         "feature": "replay_vision",
         "summary": "Get scanner's self-driving outcomes",
         "title": "Get scanner's self-driving outcomes",
-        "required_scopes": ["replay_scanner:read", "task:read"],
+        "required_scopes": ["replay_scanner:read", "inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/vision/scanners/{id}/self_driving_stats/"],
         "annotations": {
             "destructiveHint": false,
@@ -17291,7 +17307,7 @@
         }
     },
     "warehouse-suggestions-accept-execute": {
-        "description": "Step 2 of 2 for accept warehouse suggestion. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Accept a proposed warehouse suggestion. Certify and deprecate suggestions mark the view or table as certified or deprecated in the data catalog. Accepting a deprecate suggestion on a materialized view also stops its refreshes and deletes its stored table, so the view is computed when read; pass keep_materialized=true to keep it refreshing. The view stays materialized when other views read from it or its refreshes feed person properties, a destination or a workflow; `created_asset.stopped_materialization` says whether refreshes stopped. Unmaterialize suggestions turn a rarely read materialized view back into a plain view: its refreshes stop, its stored table is deleted, and each read computes the view, taking about `read_seconds`. A 409 means the view changed since the suggestion was made, for example another view now reads from it or it now refreshes incrementally. Materialize suggestions turn on materialization for the view on the proposed schedule, which adds a recurring compute cost; pass refresh_interval_seconds to use another schedule. They also apply the payload's refresh_mode: incremental refreshes read only new rows by incremental_key and update rows by unique_key, full refreshes rebuild the whole table. The payload is a starting point. To change it, pass any of refresh_interval_seconds, refresh_mode, incremental_key, unique_key and lookback_seconds; an omitted field keeps the suggested value. Check keys the person chose with view-check-incremental first. A 400 names the field the server refused and why. A 409 means the view changed since the suggestion was made and its suggested keys no longer apply. Requires human typed confirmation.",
+        "description": "Step 2 of 2 for accept warehouse suggestion. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Accept a proposed warehouse suggestion. Certify and deprecate suggestions mark the view or table as certified or deprecated in the data catalog. Accepting a deprecate suggestion on a materialized view also stops its refreshes and deletes its stored table, so the view is computed when read; pass keep_materialized=true to keep it refreshing. The view stays materialized when other views read from it or its refreshes feed person properties, a destination or a workflow; `created_asset.stopped_materialization` says whether refreshes stopped. A deprecate suggestion can be about a plain view too, with no refresh cost. Pass delete_view=true on a deprecate suggestion to delete the view instead of marking it deprecated; this cannot be undone. A 409 means another view, a sync, a destination or a workflow now reads from it, or it now reads a direct-connection source, whose reads are not logged. A 400 means some days in the read window have no read data, so only marking it deprecated is allowed. Unmaterialize suggestions turn a rarely read materialized view back into a plain view: its refreshes stop, its stored table is deleted, and each read computes the view, taking about `read_seconds`. A 409 means the view changed since the suggestion was made, for example another view now reads from it or it now refreshes incrementally. Materialize suggestions turn on materialization for the view on the proposed schedule, which adds a recurring compute cost; pass refresh_interval_seconds to use another schedule. They also apply the payload's refresh_mode: incremental refreshes read only new rows by incremental_key and update rows by unique_key, full refreshes rebuild the whole table. The payload is a starting point. To change it, pass any of refresh_interval_seconds, refresh_mode, incremental_key, unique_key and lookback_seconds; an omitted field keeps the suggested value. Check keys the person chose with view-check-incremental first. A 400 names the field the server refused and why. A 409 means the view changed since the suggestion was made and its suggested keys no longer apply. Requires human typed confirmation.",
         "category": "Warehouse suggestions",
         "feature": "warehouse_suggestions",
         "summary": "Accept a warehouse suggestion (execute)",
@@ -17299,7 +17315,7 @@
         "required_scopes": ["warehouse_objects:write", "data_catalog_approval:write", "warehouse_view:write"],
         "api_operations": ["POST /api/projects/{project_id}/warehouse_suggestions/{id}/accept/"],
         "annotations": {
-            "destructiveHint": false,
+            "destructiveHint": true,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
@@ -17307,7 +17323,7 @@
         "feature_flag": "warehouse-suggestions"
     },
     "warehouse-suggestions-accept-prepare": {
-        "description": "Step 1 of 2 for accept warehouse suggestion. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Accept a proposed warehouse suggestion. Certify and deprecate suggestions mark the view or table as certified or deprecated in the data catalog. Accepting a deprecate suggestion on a materialized view also stops its refreshes and deletes its stored table, so the view is computed when read; pass keep_materialized=true to keep it refreshing. The view stays materialized when other views read from it or its refreshes feed person properties, a destination or a workflow; `created_asset.stopped_materialization` says whether refreshes stopped. Unmaterialize suggestions turn a rarely read materialized view back into a plain view: its refreshes stop, its stored table is deleted, and each read computes the view, taking about `read_seconds`. A 409 means the view changed since the suggestion was made, for example another view now reads from it or it now refreshes incrementally. Materialize suggestions turn on materialization for the view on the proposed schedule, which adds a recurring compute cost; pass refresh_interval_seconds to use another schedule. They also apply the payload's refresh_mode: incremental refreshes read only new rows by incremental_key and update rows by unique_key, full refreshes rebuild the whole table. The payload is a starting point. To change it, pass any of refresh_interval_seconds, refresh_mode, incremental_key, unique_key and lookback_seconds; an omitted field keeps the suggested value. Check keys the person chose with view-check-incremental first. A 400 names the field the server refused and why. A 409 means the view changed since the suggestion was made and its suggested keys no longer apply. Requires human typed confirmation.",
+        "description": "Step 1 of 2 for accept warehouse suggestion. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Accept a proposed warehouse suggestion. Certify and deprecate suggestions mark the view or table as certified or deprecated in the data catalog. Accepting a deprecate suggestion on a materialized view also stops its refreshes and deletes its stored table, so the view is computed when read; pass keep_materialized=true to keep it refreshing. The view stays materialized when other views read from it or its refreshes feed person properties, a destination or a workflow; `created_asset.stopped_materialization` says whether refreshes stopped. A deprecate suggestion can be about a plain view too, with no refresh cost. Pass delete_view=true on a deprecate suggestion to delete the view instead of marking it deprecated; this cannot be undone. A 409 means another view, a sync, a destination or a workflow now reads from it, or it now reads a direct-connection source, whose reads are not logged. A 400 means some days in the read window have no read data, so only marking it deprecated is allowed. Unmaterialize suggestions turn a rarely read materialized view back into a plain view: its refreshes stop, its stored table is deleted, and each read computes the view, taking about `read_seconds`. A 409 means the view changed since the suggestion was made, for example another view now reads from it or it now refreshes incrementally. Materialize suggestions turn on materialization for the view on the proposed schedule, which adds a recurring compute cost; pass refresh_interval_seconds to use another schedule. They also apply the payload's refresh_mode: incremental refreshes read only new rows by incremental_key and update rows by unique_key, full refreshes rebuild the whole table. The payload is a starting point. To change it, pass any of refresh_interval_seconds, refresh_mode, incremental_key, unique_key and lookback_seconds; an omitted field keeps the suggested value. Check keys the person chose with view-check-incremental first. A 400 names the field the server refused and why. A 409 means the view changed since the suggestion was made and its suggested keys no longer apply. Requires human typed confirmation.",
         "category": "Warehouse suggestions",
         "feature": "warehouse_suggestions",
         "summary": "Accept a warehouse suggestion (prepare)",

@@ -102,6 +102,10 @@ class SenderNotVerified(TransactionalEmailError):
     code = "sender_not_verified"
 
 
+class SenderRequired(TransactionalEmailError):
+    code = "sender_required"
+
+
 class TooManyKeys(TransactionalEmailError):
     code = "too_many_keys"
 
