@@ -906,6 +906,24 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             actions.loadLastDelivery()
         },
         submitSubscriptionSuccess: ({ subscription }) => {
+            const pendingTakeover = cache.takeOwnershipAfterSave
+            if (pendingTakeover) {
+                cache.takeOwnershipAfterSave = undefined
+                void openTakeOwnershipDialog({
+                    resourceLabel: 'subscription',
+                    resourceId: pendingTakeover.id,
+                    owner: pendingTakeover.owner,
+                    cause: pendingTakeover.cause,
+                    takeOwnership: async () => {
+                        await subscriptionsTakeOwnershipCreate(String(getCurrentTeamId()), String(pendingTakeover.id))
+                    },
+                }).then((taken) => {
+                    if (taken) {
+                        actions.loadSubscription()
+                        subscriptionsLogic.findMounted(props)?.actions.loadAllSubscriptions()
+                    }
+                })
+            }
             if (subscription?.target_type === 'slack' && subscription.target_value && subscription.integration_id) {
                 recordRecentSlackChannel(subscription.integration_id, slackChannelId(subscription.target_value))
             }
@@ -993,6 +1011,12 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             actions.setSubscriptionValues({ ai_prompt_config: { ...config, window } })
         },
         submitSubscriptionFailure: ({ error }) => {
+            const isResubmit = cache.takeOwnershipAfterSave !== undefined
+            if (isResubmit) {
+                // The save that was to precede the takeover failed, so put the switch back as the user left it.
+                cache.takeOwnershipAfterSave = undefined
+                actions.setSubscriptionValue('enabled', true)
+            }
             // Not every error has a field that can render it, so name the section instead.
             if (error instanceof Error && error.message === 'Validation Failed') {
                 const fields = invalidFieldNames(values.subscriptionAllErrors)
@@ -1005,22 +1029,12 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 return
             }
             const cause = ownerUnavailableCause(error)
-            if (props.id !== 'new' && cause) {
-                const id = props.id
-                // Taking ownership enables the subscription, so the rest of the edits are saved by a second submit.
-                void openTakeOwnershipDialog({
-                    resourceLabel: 'subscription',
-                    resourceId: id,
-                    owner: values.subscription.created_by ?? null,
-                    cause,
-                    takeOwnership: async () => {
-                        await subscriptionsTakeOwnershipCreate(String(getCurrentTeamId()), String(id))
-                    },
-                }).then((taken) => {
-                    if (taken) {
-                        actions.submitSubscription()
-                    }
-                })
+            if (props.id !== 'new' && cause && !isResubmit) {
+                // Enabling delivers at once, so the other edits are saved first, with the subscription still
+                // disabled, and the takeover that enables it is offered once they are in.
+                cache.takeOwnershipAfterSave = { id: props.id, cause, owner: values.subscription.created_by ?? null }
+                actions.setSubscriptionValue('enabled', false)
+                actions.submitSubscription()
                 return
             }
             const message = subscriptionSaveErrorMessage(error)

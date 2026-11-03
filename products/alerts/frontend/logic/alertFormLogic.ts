@@ -566,7 +566,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
         ],
     })),
 
-    forms(({ props, values, actions }) => ({
+    forms(({ props, values, actions, cache }) => ({
         alertForm: {
             defaults: props.alert
                 ? alertToFormType(props.alert, props.insightId)
@@ -695,21 +695,15 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         : await api.alerts.update(existingAlertId, payload)
                 } catch (error: unknown) {
                     const cause = ownerUnavailableCause(error)
-                    if (cause && existingAlertId !== undefined) {
-                        // Taking ownership enables the alert, so the rest of the edits are saved by a second submit.
-                        void openTakeOwnershipDialog({
-                            resourceLabel: 'alert',
-                            resourceId: existingAlertId,
-                            owner: alert.created_by ?? props.alert?.created_by ?? null,
+                    if (cause && existingAlertId !== undefined && !cache.takeOwnershipAfterSave) {
+                        // The other edits are saved first, with the alert still disabled, so the takeover that
+                        // enables it checks with the saved subscribers. The failure listener resubmits.
+                        cache.takeOwnershipAfterSave = {
+                            id: existingAlertId,
                             cause,
-                            takeOwnership: async () => {
-                                await alertsTakeOwnershipCreate(String(getCurrentTeamId()), existingAlertId)
-                            },
-                        }).then((taken) => {
-                            if (taken) {
-                                actions.submitAlertForm()
-                            }
-                        })
+                            owner: alert.created_by ?? props.alert?.created_by ?? null,
+                            resubmitted: false,
+                        }
                         throw error
                     }
                     // `AlertViewSet` is a standard DRF ModelViewSet, so validation errors arrive as
@@ -907,7 +901,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
         ],
     })),
 
-    listeners(({ props, values, actions }) => {
+    listeners(({ props, values, actions, cache }) => {
         const discardSimulation = (): void => {
             actions.clearSimulation()
             getParentLogic()?.actions.clearSimulationAnomalyPoints()
@@ -976,6 +970,21 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     actions.setClearSnoozeLoading(false)
                 }
             },
+            submitAlertFormFailure: () => {
+                const pendingTakeover = cache.takeOwnershipAfterSave
+                if (!pendingTakeover) {
+                    return
+                }
+                if (pendingTakeover.resubmitted) {
+                    // The save that was to precede the takeover failed, so put the switch back as the user left it.
+                    cache.takeOwnershipAfterSave = undefined
+                    actions.setAlertFormValue('enabled', true)
+                    return
+                }
+                pendingTakeover.resubmitted = true
+                actions.setAlertFormValue('enabled', false)
+                actions.submitAlertForm()
+            },
             submitAlertForm: () => {
                 actions.setAlertFormSubmitAttempted()
                 const validationErrors = Object.values(values.alertFormValidationErrors).filter(
@@ -987,6 +996,23 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 }
             },
             submitAlertFormSuccess: async () => {
+                const pendingTakeover = cache.takeOwnershipAfterSave
+                if (pendingTakeover) {
+                    cache.takeOwnershipAfterSave = undefined
+                    void openTakeOwnershipDialog({
+                        resourceLabel: 'alert',
+                        resourceId: pendingTakeover.id,
+                        owner: pendingTakeover.owner,
+                        cause: pendingTakeover.cause,
+                        takeOwnership: async () => {
+                            await alertsTakeOwnershipCreate(String(getCurrentTeamId()), pendingTakeover.id)
+                        },
+                    }).then((taken) => {
+                        if (taken) {
+                            getParentLogic()?.actions.loadAlerts()
+                        }
+                    })
+                }
                 // Background sync to pick up any server-side changes
                 getParentLogic()?.actions.loadAlerts()
             },
