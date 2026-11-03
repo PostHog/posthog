@@ -749,7 +749,6 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             },
         ],
 
-        // The uncached sources listing reports a deletion as soon as it happens, before any block is read.
         recordingDeletedError: [
             (s) => [s.snapshotSourcesLoadError, s.snapshotLoadError],
             (sourcesError: Error | null, blocksError: Error | null): RecordingDeletedError | null => {
