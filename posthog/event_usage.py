@@ -4,7 +4,7 @@ Module to centralize event reporting on the server-side.
 
 import re
 from enum import StrEnum
-from typing import TYPE_CHECKING, NotRequired, Optional, Required, TypedDict
+from typing import TYPE_CHECKING, Literal, NotRequired, Optional, Required, TypedDict
 from urllib.parse import urlparse
 
 from django.contrib.auth.models import AnonymousUser
@@ -21,7 +21,13 @@ from posthog.models.team import Team
 from posthog.oauth_provenance import get_oauth_client_id, is_first_party_oauth_client, is_interactive_desktop_grant
 from posthog.settings import SITE_URL
 from posthog.synthetic_user import SyntheticUser
-from posthog.temporal.oauth import POSTHOG_AI_OAUTH_APP_CLIENT_IDS, SIGNALS_OAUTH_APP_CLIENT_IDS, WEBMCP_APP_CLIENT_ID
+from posthog.temporal.oauth import (
+    POSTHOG_AI_OAUTH_APP_CLIENT_IDS,
+    POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_EU,
+    POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_US,
+    SIGNALS_OAUTH_APP_CLIENT_IDS,
+    WEBMCP_APP_CLIENT_ID,
+)
 from posthog.utils import get_instance_realm, get_instance_region
 
 if TYPE_CHECKING:
@@ -206,7 +212,7 @@ def report_user_identity_change_refused(user: User, *, field: str, reason: str) 
     )
 
 
-def report_user_updated(user: User, updated_attrs: list[str]) -> None:
+def report_user_updated(user: User, updated_attrs: list[str], *, request: Optional["Request"] = None) -> None:
     """
     Reports a user has been updated. This includes current_team, current_organization & password.
     """
@@ -217,7 +223,11 @@ def report_user_updated(user: User, updated_attrs: list[str]) -> None:
     posthoganalytics.capture(
         distinct_id=user.distinct_id,
         event="user updated",
-        properties={"updated_attrs": updated_attrs, "$set": user.get_analytics_metadata()},
+        properties={
+            **(get_request_analytics_properties(request) if request is not None else {}),
+            "updated_attrs": updated_attrs,
+            "$set": user.get_analytics_metadata(),
+        },
         groups=groups(user.current_organization, user.current_team),
     )
 
@@ -427,6 +437,12 @@ AnalyticsProps = TypedDict(
     "AnalyticsProps",
     {
         "source": Required[EventSource],
+        "client_surface": NotRequired[str],
+        "client_os": NotRequired[str],
+        "client_action_id": NotRequired[str],
+        "app_version": NotRequired[str],
+        "app_build": NotRequired[str],
+        "update_id": NotRequired[str],
         "$current_url": NotRequired[str | None],
         "$host": NotRequired[str | None],
         "$pathname": NotRequired[str | None],
@@ -512,6 +528,8 @@ def get_event_source(request) -> EventSource:
     # declares the posthog-code MCP consumer. Only the application it minted under separates it.
     if client_id in SIGNALS_OAUTH_APP_CLIENT_IDS:
         return EventSource.SELF_DRIVING
+    if client_id in {POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_US, POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_EU}:
+        return EventSource.MOBILE
     if client_id == WEBMCP_APP_CLIENT_ID:
         return EventSource.WEBMCP
     user_agent = request.headers.get("user-agent", "") or ""
@@ -543,6 +561,8 @@ def get_event_source(request) -> EventSource:
         return EventSource.CLI
     if "posthog/mcp-server" in user_agent or request.headers.get("X-Posthog-Client") == "mcp":
         return _resolve_mcp_surface(request)
+    if request.headers.get("X-PostHog-Client-Platform") == "mobile":
+        return EventSource.MOBILE
     # DRF sets successful_authenticator during view dispatch; before that
     # (e.g. in middleware), fall back to checking the Django session cookie
     # which is available after Django's AuthenticationMiddleware runs.
@@ -596,6 +616,29 @@ def get_mcp_properties(request) -> McpProps:
     }
 
 
+def get_request_client_context(request: "Request") -> AnalyticsProps:
+    """Bounded attribution metadata, safe to retain with asynchronous work. Never an authorization check."""
+    source = get_event_source(request)
+    properties: AnalyticsProps = {"source": source, "client_surface": source.value}
+    headers: tuple[
+        tuple[str, Literal["$session_id", "client_action_id", "app_version", "app_build", "update_id"]], ...
+    ] = (
+        ("X-Posthog-Session-Id", "$session_id"),
+        ("X-PostHog-Client-Action-Id", "client_action_id"),
+        ("X-PostHog-App-Version", "app_version"),
+        ("X-PostHog-App-Build", "app_build"),
+        ("X-PostHog-Update-Id", "update_id"),
+    )
+    for header, key in headers:
+        value = sanitize_header_value(request.headers.get(header))
+        if value is not None and re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", value):
+            properties[key] = value
+    client_os = request.headers.get("X-PostHog-Client-OS")
+    if client_os in {"ios", "android", "web"}:
+        properties["client_os"] = client_os
+    return properties
+
+
 def get_request_analytics_properties(request) -> AnalyticsProps:
     """Extract standard analytics properties from a request."""
     current_url = request.headers.get("Referer")
@@ -611,7 +654,7 @@ def get_request_analytics_properties(request) -> AnalyticsProps:
     # (personal_api_key, oauth, id_jag, ...); session auth leaves it unset.
     access_method = get_query_tag_value("access_method")
     return {
-        "source": get_event_source(request),
+        **get_request_client_context(request),
         "$current_url": current_url,
         "$host": host,
         "$pathname": pathname,

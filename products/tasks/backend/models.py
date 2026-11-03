@@ -28,7 +28,7 @@ from django.utils import timezone as django_timezone
 import structlog
 import posthoganalytics
 
-from posthog.event_usage import groups
+from posthog.event_usage import AnalyticsProps, groups
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.integrations import IntegrationManager
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY
@@ -42,6 +42,7 @@ from posthog.storage import object_storage
 from posthog.temporal.oauth import PosthogMcpScopes
 from posthog.uuidt import uuid7
 
+from products.tasks.backend.client_analytics import run_client_properties, task_creation_properties
 from products.tasks.backend.constants import (
     DEFAULT_TRUSTED_DOMAINS,
     GITHUB_PR_URL_PREFIX,
@@ -748,6 +749,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 str(self.created_by.distinct_id) if self.created_by_id and self.created_by else str(self.team.uuid)
             )
             all_properties = {
+                "client_surface": "backend",
+                **task_creation_properties(self.state or {}),
                 "task_id": str(self.id),
                 "team_id": self.team_id,
                 "title": self.title,
@@ -777,7 +780,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
     def _track_task_created(self) -> None:
         self.capture_event(
             "task_created",
-            {"has_json_schema": self.json_schema is not None},
+            {"has_json_schema": self.json_schema is not None, **(self.state or {}).get("creation_client_context", {})},
         )
 
     @staticmethod
@@ -3066,11 +3069,14 @@ class TaskRun(models.Model):
         """
         return bool(_read_pending_followup_messages(self.state))
 
-    def record_pending_followup_message(self, message_id: str, content: str, *, accepted_at: datetime) -> None:
+    def record_pending_followup_message(
+        self, message_id: str, content: str, *, accepted_at: datetime, client_context: AnalyticsProps | None = None
+    ) -> None:
         record = {
             "id": message_id[:MAX_PENDING_FOLLOWUP_MESSAGE_ID_CHARS],
             "content": content[:MAX_PENDING_FOLLOWUP_CONTENT_CHARS],
             "ts": accepted_at.isoformat(),
+            **({"client_context": client_context} if client_context else {}),
         }
 
         def _mutator(state: dict[str, Any]) -> None:
@@ -3221,6 +3227,8 @@ class TaskRun(models.Model):
     def analytics_properties(self) -> dict:
         """Run context shared by run events and GitHub PR attribution."""
         return {
+            "client_surface": "backend",
+            **run_client_properties(self.task.state or {}, self.state or {}),
             "task_id": str(self.task_id),
             "run_id": str(self.id),
             "team_id": self.team_id,

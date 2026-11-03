@@ -5,7 +5,7 @@ import asyncio
 from collections.abc import AsyncGenerator, Iterable
 from datetime import datetime
 from time import perf_counter
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 from urllib.parse import parse_qs, quote, urlparse
 from uuid import UUID
 
@@ -46,7 +46,7 @@ from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.event_usage import groups
+from posthog.event_usage import get_request_client_context, groups, report_user_action
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import User
 from posthog.models.integration.codex import CodexAuthError, CodexReauthRequired
@@ -240,6 +240,18 @@ from products.tasks.backend.presentation.task_review_serializers import TaskRevi
 from products.tasks.backend.presentation.views.artifact_preview import create_artifact_preview_url
 
 from ee.hogai.utils.aio import async_to_sync
+
+
+def _request_actor_kind(request: Request) -> Literal["user", "task", "agent"]:
+    if is_sandbox_oauth_request(request) or request.headers.get("X-PostHog-Task-Id"):
+        return "task"
+    if (
+        is_mcp_built_in_agent_oauth_request(request)
+        or request.headers.get("X-Posthog-Mcp-Client-Name")
+        or request.headers.get("X-PostHog-Client", "").strip().lower() == "mcp"
+    ):
+        return "agent"
+    return "user"
 
 
 class OctetStreamParser(BaseParser):
@@ -838,9 +850,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def create(self, request, **kwargs):
         serializer = self._write_serializer(request.data, serializer_class=TaskCreateSerializer)
         validated_data = dict(serializer.validated_data)
-        validated_data["state"] = {"created_on_mobile": request.headers.get("X-PostHog-Client-Platform") == "mobile"}
+        client_context = get_request_client_context(request)
+        validated_data["state"] = {
+            "created_on_mobile": request.headers.get("X-PostHog-Client-Platform") == "mobile",
+            "creation_client_context": client_context,
+        }
         start_run = validated_data.pop("start_run", False)
         run_data = validated_data.pop("run_data", {})
+        run_data["client_context"] = client_context
         origin_product = validated_data.get("origin_product", tasks_facade.TaskOriginProduct.USER_CREATED)
         relationship = serializer.validated_data.get("signal_report_task_relationship")
 
@@ -1047,6 +1064,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         if task is None:
             raise NotFound()
+        if "archived" in serializer.validated_data:
+            report_user_action(
+                request.user,
+                "task_archived" if serializer.validated_data["archived"] else "task_unarchived",
+                {"task_id": str(pk), "actor_kind": _request_actor_kind(request)},
+                team=self.team,
+                request=request,
+            )
         return Response(TaskSerializer(task).data)
 
     @extend_schema(responses={204: None})
@@ -1572,6 +1597,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 validated_data={
                     **request.validated_data,
                     **sandbox_run_data,
+                    "client_context": get_request_client_context(request),
                     "client_platform": "mobile"
                     if request.headers.get("X-PostHog-Client-Platform") == "mobile"
                     else None,
@@ -3657,6 +3683,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def command(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
         method = request.validated_data["method"]
+        client_context = get_request_client_context(request)
+        actor_kind = _request_actor_kind(request)
         if method not in {"cancel", "close", "credential_response"}:
             self._ensure_subscription_owner(task_id, pk)
         if method == "credential_response":
@@ -3756,6 +3784,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     actor_user_id=request.user.id,
                     message_id=str(request_id) if request_id is not None else None,
                     steer=command_params.get("steer", False),
+                    client_context=get_request_client_context(request),
                 )
             except ComputeBillingLimitExceeded as error:
                 return compute_quota_limit_response(error.reason)
@@ -3775,6 +3804,19 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
             if request.headers.get("X-PostHog-Client-Platform") == "mobile":
                 tasks_facade.record_task_mobile_pickup(task_id=task_id, team_id=self.team_id, user_id=self._user_id())
+
+            tasks_facade.capture_relay_command_telemetry(
+                pk,
+                task_id,
+                self.team_id,
+                method=method,
+                params=command_params,
+                success=True,
+                client_context=client_context,
+                actor_distinct_id=request.user.distinct_id,
+                actor_kind=actor_kind,
+                command_id=str(request_id) if request_id is not None else None,
+            )
 
             # A warm Run has now received a human message — drop the warm flag so the warm-pool cap
             # (see products/tasks/backend/logic/services/warm.py) stops counting it. No-op for Runs
@@ -3928,7 +3970,16 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     pk, task_id, self.team_id, status_code=agent_response.status_code, data=response_data
                 )
             tasks_facade.capture_relay_command_telemetry(
-                pk, task_id, self.team_id, method=method, params=params, success=success
+                pk,
+                task_id,
+                self.team_id,
+                method=method,
+                params=params,
+                success=success,
+                client_context=client_context,
+                actor_distinct_id=request.user.distinct_id,
+                actor_kind=actor_kind,
+                command_id=str(request_id) if request_id is not None else None,
             )
             if (
                 success
@@ -3958,7 +4009,16 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         except tasks_facade.PermissionResponseUnavailable as error:
             tasks_facade.capture_relay_command_telemetry(
-                pk, task_id, self.team_id, method=method, params=params, success=False
+                pk,
+                task_id,
+                self.team_id,
+                method=method,
+                params=params,
+                success=False,
+                client_context=client_context,
+                actor_distinct_id=request.user.distinct_id,
+                actor_kind=actor_kind,
+                command_id=str(request_id) if request_id is not None else None,
             )
             return Response(
                 TaskRunErrorResponseSerializer({"code": error.code, "error": str(error)}).data,
@@ -3967,7 +4027,16 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except http_requests.ConnectionError:
             logger.warning(f"Agent server unreachable for task run {pk}")
             tasks_facade.capture_relay_command_telemetry(
-                pk, task_id, self.team_id, method=method, params=params, success=False
+                pk,
+                task_id,
+                self.team_id,
+                method=method,
+                params=params,
+                success=False,
+                client_context=client_context,
+                actor_distinct_id=request.user.distinct_id,
+                actor_kind=actor_kind,
+                command_id=str(request_id) if request_id is not None else None,
             )
             return Response(
                 TaskRunErrorResponseSerializer({"error": "Agent server is not reachable"}).data,
@@ -3976,7 +4045,16 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except http_requests.Timeout:
             logger.warning(f"Agent server request timed out for task run {pk}")
             tasks_facade.capture_relay_command_telemetry(
-                pk, task_id, self.team_id, method=method, params=params, success=False
+                pk,
+                task_id,
+                self.team_id,
+                method=method,
+                params=params,
+                success=False,
+                client_context=client_context,
+                actor_distinct_id=request.user.distinct_id,
+                actor_kind=actor_kind,
+                command_id=str(request_id) if request_id is not None else None,
             )
             return Response(
                 TaskRunErrorResponseSerializer({"error": "Agent server request timed out"}).data,
@@ -3985,7 +4063,16 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except Exception:
             logger.exception(f"Failed to proxy command to agent server for task run {pk}")
             tasks_facade.capture_relay_command_telemetry(
-                pk, task_id, self.team_id, method=method, params=params, success=False
+                pk,
+                task_id,
+                self.team_id,
+                method=method,
+                params=params,
+                success=False,
+                client_context=client_context,
+                actor_distinct_id=request.user.distinct_id,
+                actor_kind=actor_kind,
+                command_id=str(request_id) if request_id is not None else None,
             )
             return Response(
                 TaskRunErrorResponseSerializer({"error": "Failed to send command to agent server"}).data,

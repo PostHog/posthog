@@ -8,6 +8,7 @@ from unittest.mock import patch
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
 from posthog.auth import OAuthAccessTokenAuthentication
@@ -16,6 +17,7 @@ from posthog.event_usage import (
     EventSource,
     get_event_source,
     get_mcp_properties,
+    get_request_client_context,
     is_wizard_self_driving_program,
     report_organization_deleted,
     report_organization_deletion_initiated,
@@ -27,6 +29,8 @@ from posthog.models.oauth import OAuthAccessToken
 from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
     POSTHOG_AI_APP_CLIENT_ID_DEV,
+    POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_EU,
+    POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_US,
     SIGNALS_APP_CLIENT_ID_DEV,
     WEBMCP_APP_CLIENT_ID,
 )
@@ -60,6 +64,7 @@ class TestReportUserAction(BaseTest):
                 None,
                 {
                     "source": "api",
+                    "client_surface": "api",
                     "$current_url": "http://app.posthog.com/insights",
                     "$host": "app.posthog.com",
                     "$pathname": "/insights",
@@ -84,6 +89,7 @@ class TestReportUserAction(BaseTest):
                 None,
                 {
                     "source": "api",
+                    "client_surface": "api",
                     "$current_url": "http://app.posthog.com/insights",
                     "$host": "app.posthog.com",
                     "$pathname": "/insights",
@@ -109,6 +115,7 @@ class TestReportUserAction(BaseTest):
                 None,
                 {
                     "source": "api",
+                    "client_surface": "api",
                     "$current_url": None,
                     "$host": None,
                     "$pathname": None,
@@ -129,6 +136,7 @@ class TestReportUserAction(BaseTest):
                 {"key": "val"},
                 {
                     "source": "api",
+                    "client_surface": "api",
                     "$current_url": "http://app.posthog.com/insights",
                     "$host": "app.posthog.com",
                     "$pathname": "/insights",
@@ -150,6 +158,7 @@ class TestReportUserAction(BaseTest):
                 {"source": "terraform", "$current_url": "override"},
                 {
                     "source": "terraform",
+                    "client_surface": "api",
                     "$current_url": "override",
                     "$host": "app.posthog.com",
                     "$pathname": "/insights",
@@ -170,6 +179,7 @@ class TestReportUserAction(BaseTest):
                 {"key": "val"},
                 {
                     "source": "api",
+                    "client_surface": "api",
                     "$current_url": None,
                     "$host": None,
                     "$pathname": None,
@@ -296,6 +306,37 @@ class TestReportUserAction(BaseTest):
 
 
 class TestGetEventSource(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("header", None, EventSource.MOBILE),
+            ("mobile_us", POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_US, EventSource.MOBILE),
+            ("mobile_eu", POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_EU, EventSource.MOBILE),
+            ("sandbox_wins_over_header", SIGNALS_APP_CLIENT_ID_DEV, EventSource.SELF_DRIVING),
+        ]
+    )
+    def test_mobile_request_context_keeps_surface_session_and_operation(
+        self, _name: str, client_id: str | None, expected: EventSource
+    ) -> None:
+        request = SimpleNamespace(
+            META={},
+            headers={
+                **({"X-PostHog-Client-Platform": "mobile"} if client_id in {None, SIGNALS_APP_CLIENT_ID_DEV} else {}),
+                "X-PostHog-Client-OS": "ios",
+                "X-Posthog-Session-Id": "session-a",
+                "X-PostHog-Client-Action-Id": "action-a",
+                "X-PostHog-App-Version": "1.2.3",
+            },
+            successful_authenticator=_oauth_authenticator(client_id) if client_id else None,
+        )
+        assert get_request_client_context(cast(Request, request)) == {
+            "source": expected,
+            "client_surface": expected.value,
+            "client_os": "ios",
+            "$session_id": "session-a",
+            "client_action_id": "action-a",
+            "app_version": "1.2.3",
+        }
+
     @parameterized.expand(
         [
             ("terraform", "posthog/terraform-provider 1.0", EventSource.TERRAFORM),

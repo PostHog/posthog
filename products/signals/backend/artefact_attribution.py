@@ -6,9 +6,13 @@ import it without dragging in the models module. Re-exported from `models.py` fo
 
 from __future__ import annotations
 
-from typing import Literal
+from dataclasses import field
+from typing import TYPE_CHECKING, Literal
 
 from posthog.dataclasses import frozen
+
+if TYPE_CHECKING:
+    from posthog.event_usage import AnalyticsProps
 
 
 @frozen
@@ -27,6 +31,7 @@ class ArtefactAttribution:
     task_id: str | None = None
     # The external coding client, such as Codex, paired with its user principal.
     agent_name: str | None = None
+    client_context: AnalyticsProps | None = field(default=None, compare=False, hash=False, repr=False)
 
     def __post_init__(self) -> None:
         match self.kind:
