@@ -605,6 +605,7 @@ export const visionScannersCreateBodyTagsMax = 32
 
 export const visionScannersCreateBodyGoalMax = 2000
 
+export const visionScannersCreateBodyEntryPointRegExp = new RegExp('^[a-z0-9_]{1,64}$')
 export const visionScannersCreateBodySamplingRateMin = 0
 export const visionScannersCreateBodySamplingRateMax = 1
 
@@ -661,6 +662,13 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Set with `enabled: true` to turn on a scanner whose creator can no longer view recordings. The caller becomes the scanner's creator, and scheduled scans then run as the caller. Without it, that request fails with code `scanner_creator_lost_access`."
+            ),
+        entry_point: zod
+            .string()
+            .regex(visionScannersCreateBodyEntryPointRegExp)
+            .nullish()
+            .describe(
+                'The in-app surface the creator started from, as a lowercase slug such as `replay_filters` or `error_tracking`. Reported to product analytics at creation, so each entry point can be measured by the scanners it produces, and not stored on the scanner. Only the app can answer this, so a request from anywhere else reports none. Ignored on update.'
             ),
         scanner_config: zod
             .unknown()
@@ -766,6 +774,7 @@ export const visionScannersPartialUpdateBodyTagsMax = 32
 
 export const visionScannersPartialUpdateBodyGoalMax = 2000
 
+export const visionScannersPartialUpdateBodyEntryPointRegExp = new RegExp('^[a-z0-9_]{1,64}$')
 export const visionScannersPartialUpdateBodySamplingRateMin = 0
 export const visionScannersPartialUpdateBodySamplingRateMax = 1
 
@@ -824,6 +833,13 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Set with `enabled: true` to turn on a scanner whose creator can no longer view recordings. The caller becomes the scanner's creator, and scheduled scans then run as the caller. Without it, that request fails with code `scanner_creator_lost_access`."
+            ),
+        entry_point: zod
+            .string()
+            .regex(visionScannersPartialUpdateBodyEntryPointRegExp)
+            .nullish()
+            .describe(
+                'The in-app surface the creator started from, as a lowercase slug such as `replay_filters` or `error_tracking`. Reported to product analytics at creation, so each entry point can be measured by the scanners it produces, and not stored on the scanner. Only the app can answer this, so a request from anywhere else reports none. Ignored on update.'
             ),
         scanner_config: zod
             .unknown()
