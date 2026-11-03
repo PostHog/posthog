@@ -205,8 +205,8 @@ impl DeclinedSpellings {
         let mut patterns = Vec::new();
         let mut owners = Vec::new();
         for (owner, &index) in declined.iter().enumerate() {
-            let url = &targets[index].url;
-            let slash = slash_before_host(url);
+            let url = targets[index].url.replace('\\', "/");
+            let slash = slash_before_host(&url);
             let tail = &url[slash..];
             patterns.push(tail.to_owned());
             if slash > 0 {
@@ -215,7 +215,7 @@ impl DeclinedSpellings {
             }
             owners.resize(patterns.len(), owner);
         }
-        let urls = declined_matcher(patterns.iter().map(|pattern| pattern.replace('\\', "/")))?;
+        let urls = declined_matcher(&patterns)?;
         let json_urls =
             declined_matcher(patterns.iter().map(|pattern| json_string_contents(pattern)))?;
         let replaced = declined
