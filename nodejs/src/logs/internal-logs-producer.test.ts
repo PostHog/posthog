@@ -86,6 +86,7 @@ describe('InternalLogsProducer', () => {
             source: 'hog_flow',
             billed: false,
             teamRules: false,
+            serviceName: 'posthog-internal-workflows',
         })
 
         const body = parseJSON(options!.body as string) as any
