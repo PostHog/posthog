@@ -24,7 +24,7 @@ from products.ai_observability.backend.llm.errors import (
     ProviderConnectionError,
     ProviderRequestRejectedError,
     QuotaExceededError,
-    RateLimitError,
+    RetryableRateLimitError,
     StructuredOutputParseError,
     stream_error_chunk,
 )
@@ -169,7 +169,7 @@ class GeminiAdapter:
             if status_code == 429 or "rate limit" in error_message or "resource exhausted" in error_message:
                 if "quota" in error_message or "billing" in error_message:
                     return QuotaExceededError(str(error))
-                return RateLimitError(str(error))
+                return RetryableRateLimitError(str(error))
             # Google returns a 404-class error (often with "no longer available") when a
             # model is retired/deprecated. Map it so call_llm_judge disables the eval
             # gracefully instead of burning Temporal retries on an unhandled exception.

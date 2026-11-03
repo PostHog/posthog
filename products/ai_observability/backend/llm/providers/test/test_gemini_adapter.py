@@ -10,7 +10,7 @@ from products.ai_observability.backend.llm.errors import (
     ModelNotFoundError,
     ModelPermissionError,
     ProviderConnectionError,
-    RateLimitError,
+    RetryableRateLimitError,
 )
 from products.ai_observability.backend.llm.providers.gemini import GeminiAdapter, GeminiConfig
 from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest, OutputSchema
@@ -39,7 +39,7 @@ class TestGeminiAdapterErrorMapping:
             ),
             ("403_permission", 403, "PERMISSION_DENIED", "permission denied", ModelPermissionError),
             ("401_auth", 401, "UNAUTHENTICATED", "invalid api key", AuthenticationError),
-            ("429_rate_limit", 429, "RESOURCE_EXHAUSTED", "rate limit exceeded", RateLimitError),
+            ("429_rate_limit", 429, "RESOURCE_EXHAUSTED", "rate limit exceeded", RetryableRateLimitError),
             # A cancelled call is retryable, so it shares the transport lane. Without this the
             # per-occurrence message files a new error tracking issue on every cancellation.
             ("499_cancelled", 499, "CANCELLED", "The operation was cancelled.", ProviderConnectionError),

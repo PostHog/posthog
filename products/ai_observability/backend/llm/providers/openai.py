@@ -31,7 +31,7 @@ from products.ai_observability.backend.llm.errors import (
     OutputTokenLimitError,
     ProviderConnectionError,
     QuotaExceededError,
-    RateLimitError,
+    RetryableRateLimitError,
     StructuredOutputParseError,
     is_context_window_error_message,
     is_output_limit_error_message,
@@ -272,7 +272,7 @@ class OpenAIAdapter:
             error_code = error_body.get("code", "") or error_body.get("error", {}).get("code", "")
             if error_code == "insufficient_quota":
                 return QuotaExceededError(str(error))
-            return RateLimitError(str(error))
+            return RetryableRateLimitError(str(error), error.response.headers.get("Retry-After"))
         if isinstance(error, openai.APIConnectionError):
             # Transient transport failure (connection reset, read timeout). Map to a quiet
             # retryable error so the caller retries silently instead of spamming error tracking.

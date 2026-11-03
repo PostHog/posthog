@@ -28,7 +28,7 @@ from products.ai_observability.backend.llm.errors import (
     ProviderConfigurationError,
     ProviderConnectionError,
     QuotaExceededError,
-    RateLimitError,
+    RetryableRateLimitError,
     StructuredOutputParseError,
     error_field_for_message,
     is_context_window_error_message,
@@ -334,7 +334,7 @@ class AnthropicAdapter:
         if isinstance(error, anthropic.RateLimitError):
             if _is_quota_or_billing_error(error):
                 return QuotaExceededError(str(error))
-            return RateLimitError(str(error))
+            return RetryableRateLimitError(str(error), error.response.headers.get("Retry-After"))
         if isinstance(error, anthropic.APIConnectionError):
             # Transient transport failure (connection reset, read timeout). Map to a quiet
             # retryable error so the caller retries silently instead of spamming error tracking.
