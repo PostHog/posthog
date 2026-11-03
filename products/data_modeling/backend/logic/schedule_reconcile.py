@@ -52,18 +52,21 @@ from products.data_modeling.backend.logic.freshness import (
     ClampedCadence,
     InvalidTarget,
     UnsupportedFrequencyTargetError,
-    clamp_to_source_floor,
-    compute_effective_cadences,
     find_invalid_targets,
     format_cadence,
     validate_declared_target,
+    validate_pin,
 )
 from products.data_modeling.backend.logic.node_frequency import (
     FrequencyGraph,
     build_frequency_graph,
+    get_declared_pin,
+    get_declared_target,
     persist_seed_targets,
+    scheduled_cadences,
     seed_targets,
     set_declared_anchor,
+    set_declared_pin,
     set_declared_target,
 )
 from products.data_modeling.backend.models.dag import DAG
@@ -133,7 +136,10 @@ def _warn_on_invalid_targets(dag: DAG, graph: FrequencyGraph | None = None) -> N
     if graph is None:
         graph = build_frequency_graph(dag)
     for invalid in find_invalid_targets(
-        edges=graph.edges, declared_targets=graph.declared_targets, source_intervals=graph.source_intervals
+        edges=graph.edges,
+        declared_targets=graph.declared_targets,
+        source_intervals=graph.source_intervals,
+        pinned=graph.pinned,
     ):
         logger.warning(
             "Declared freshness target outside its legal range",
@@ -151,6 +157,8 @@ def apply_saved_query_frequency_target(
     *,
     reconcile: bool = True,
     visible_names: Mapping[str, str] | None = None,
+    pinned: bool | None = None,
+    keep_target: bool = False,
 ) -> int:
     """Write a frequency target through to the DAG node(s) carrying this saved query.
 
@@ -169,6 +177,13 @@ def apply_saved_query_frequency_target(
     of a node they may not read. Callers holding a per-user map (the saved-query surfaces) pass it
     and get the better message; everything left out falls back to generic prose.
 
+    `pinned` sets or clears the pin alongside the target; None leaves the stored pin as it is. A pin
+    lets the target sit slower than the node's consumers. `keep_target` ignores `target` and leaves
+    each node's stored target as it is, read after the row lock so a pin written on its own never
+    overwrites a cadence that committed in the meantime. Unpinning without changing the target is
+    not validated, because the target was legal when it was pinned and the scheduler only uses it
+    as a floor for consumer demand once unpinned.
+
     Atomic because a saved query can still carry nodes in several DAGs while duplicates are being
     consolidated away: without it, a target rejected by the third node stays written on the first
     two, and their reconciles are already queued. One node per saved query is the end state, which
@@ -176,6 +191,12 @@ def apply_saved_query_frequency_target(
     """
     written = 0
     with transaction.atomic():
+        # Validating a pin reads other nodes' targets, so two writes on different nodes of one DAG
+        # must not validate against each other's stale state: each could pass and the pair strand a
+        # consumer. Taking the DAG row first, in id order, makes them take turns.
+        dag_ids = Node.objects.filter(team=saved_query.team, saved_query=saved_query).values_list("dag_id", flat=True)
+        locked_dags = DAG.objects.select_for_update(no_key=True).filter(team_id=saved_query.team_id, pk__in=dag_ids)
+        list(locked_dags.order_by("pk").values_list("pk", flat=True))
         # target and anchor share one JSON field and each setter rewrites the whole blob, so an
         # unlocked read-modify-write racing the anchor path would silently drop the other's key
         for node in (
@@ -183,19 +204,38 @@ def apply_saved_query_frequency_target(
             .filter(team=saved_query.team, saved_query=saved_query)
             .select_related("dag", "dag__team")
         ):
-            if target is None:
+            node_target = get_declared_target(node) if keep_target else target
+            if node_target is None:
+                if keep_target and pinned:
+                    raise ValueError("a node needs a declared target before it can be pinned")
                 set_declared_target(node, None)
             else:
-                graph = build_frequency_graph(node.dag)
-                validate_declared_target(
-                    node_id=str(node.id),
-                    target=target,
-                    edges=graph.edges,
-                    declared_targets=graph.declared_targets,
-                    source_intervals=graph.source_intervals,
-                    names=visible_names or {},
-                )
-                set_declared_target(node, target)
+                node_id = str(node.id)
+                pin = get_declared_pin(node) if pinned is None else pinned
+                if pinned is not False or node_target != get_declared_target(node):
+                    graph = build_frequency_graph(node.dag)
+                    validate_declared_target(
+                        node_id=node_id,
+                        target=node_target,
+                        edges=graph.edges,
+                        declared_targets=graph.declared_targets,
+                        source_intervals=graph.source_intervals,
+                        names=visible_names or {},
+                        pinned=(graph.pinned - {node_id}) | ({node_id} if pin else set()),
+                    )
+                    if pin:
+                        validate_pin(
+                            node_id=node_id,
+                            target=node_target,
+                            edges=graph.edges,
+                            declared_targets=graph.declared_targets,
+                            source_intervals=graph.source_intervals,
+                            pinned=graph.pinned,
+                            names=visible_names or {},
+                        )
+                set_declared_target(node, node_target)
+                if pinned is not None:
+                    set_declared_pin(node, pinned)
             written += 1
             if reconcile:
                 maybe_reconcile_dag(node.dag)
@@ -220,6 +260,7 @@ def check_saved_query_frequency_target(
             declared_targets=graph.declared_targets,
             source_intervals=graph.source_intervals,
             names=visible_names or {},
+            pinned=graph.pinned,
         )
 
 
@@ -259,10 +300,7 @@ def reconcile_dag_schedules(dag: DAG, *, graph: FrequencyGraph | None = None) ->
     team = dag.team
     if graph is None:
         graph = build_frequency_graph(dag)
-    effective = compute_effective_cadences(
-        nodes=graph.nodes, edges=graph.edges, declared_targets=graph.declared_targets
-    )
-    effective, _clamped = clamp_to_source_floor(effective, edges=graph.edges, source_intervals=graph.source_intervals)
+    effective, _clamped = scheduled_cadences(graph)
     desired_tiers = bucket_into_cadence_tiers(effective, graph.declared_anchors)
     _apply_reconciliation(
         dag_id=str(dag.id),
@@ -314,8 +352,7 @@ def preview_dag_schedules(dag: DAG, *, seed: bool = False) -> DagSchedulePreview
     """
     graph = build_frequency_graph(dag)
     declared = {**seed_targets(dag), **graph.declared_targets} if seed else graph.declared_targets
-    effective = compute_effective_cadences(nodes=graph.nodes, edges=graph.edges, declared_targets=declared)
-    effective, clamped = clamp_to_source_floor(effective, edges=graph.edges, source_intervals=graph.source_intervals)
+    effective, clamped = scheduled_cadences(graph, declared_targets=declared)
     desired_tiers = bucket_into_cadence_tiers(effective, graph.declared_anchors)
     existing_ids = list_existing_schedule_ids(str(dag.id))
     plan = plan_schedule_reconciliation(str(dag.id), desired_tiers, existing_ids)
@@ -326,7 +363,7 @@ def preview_dag_schedules(dag: DAG, *, seed: bool = False) -> DagSchedulePreview
         best_effort_source_ids=graph.best_effort_source_ids,
         clamped=clamped,
         invalid_targets=find_invalid_targets(
-            edges=graph.edges, declared_targets=declared, source_intervals=graph.source_intervals
+            edges=graph.edges, declared_targets=declared, source_intervals=graph.source_intervals, pinned=graph.pinned
         ),
         unsupported_tiers=sorted({tier.interval for tier in desired_tiers if tier.interval not in SCHEDULABLE_BUCKETS}),
         seeded=seed,
