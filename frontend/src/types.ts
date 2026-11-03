@@ -5714,13 +5714,21 @@ export enum SlackIntegrationScope {
 
 export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
 
-// Nothing is pending Slack app-directory review right now, so there is no in-review list.
-// To stage a scope that Slack hasn't approved yet, reintroduce a `SlackIntegrationScopeInReview`
-// enum here holding only the pending entries, re-export it from schema-general.ts, and have
-// `POSTHOG_SLACK_SCOPE` (posthog/models/integration/oauth.py) and `useSlackRequiredScopes` append it on
-// DEV/local only — requesting an unapproved scope anywhere else fails with `invalid_scope`.
-// The enum cannot be left empty between rounds: JSON Schema rejects a zero-length `enum`, so
-// `hogli build:schema` fails on it.
+// Scopes that wait on Slack app review. Only DEV and local development request them, because the
+// US and EU apps reject them with `invalid_scope`. Move a scope to SlackIntegrationScope when Slack approves it.
+/** @schemaEnum */
+export enum SlackIntegrationScopeInReview {
+    CANVASES_READ = 'canvases:read',
+    CHANNELS_JOIN = 'channels:join',
+}
+
+export const SLACK_INTEGRATION_SCOPES_IN_REVIEW = Object.values(SlackIntegrationScopeInReview)
+
+export function slackRequestedScopes(includeInReview: boolean): string[] {
+    return includeInReview
+        ? [...SLACK_INTEGRATION_SCOPES, ...SLACK_INTEGRATION_SCOPES_IN_REVIEW]
+        : [...SLACK_INTEGRATION_SCOPES]
+}
 
 export interface IntegrationType {
     id: number
