@@ -25,6 +25,8 @@ const retentionMocks = (
 ): ReturnType<typeof mswDecorator> => {
     const organization: OrganizationEventsRetentionApi = {
         organization_retention_months: organizationMonths,
+        default_retention_months: 36,
+        default_is_grandfathered: true,
         plan_retention_months: 36,
         min_retention_months: 1,
         max_retention_months: 36,
