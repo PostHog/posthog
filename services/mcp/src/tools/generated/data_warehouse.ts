@@ -342,9 +342,6 @@ const viewCreate = (): ToolBase<
         if (params.sync_frequency !== undefined) {
             body['sync_frequency'] = params.sync_frequency
         }
-        if (params.sync_frequency_pinned !== undefined) {
-            body['sync_frequency_pinned'] = params.sync_frequency_pinned
-        }
         if (params.folder_id !== undefined) {
             body['folder_id'] = params.folder_id
         }
@@ -547,9 +544,6 @@ const viewUnmaterialize = (): ToolBase<
         if (params.sync_frequency !== undefined) {
             body['sync_frequency'] = params.sync_frequency
         }
-        if (params.sync_frequency_pinned !== undefined) {
-            body['sync_frequency_pinned'] = params.sync_frequency_pinned
-        }
         if (params.folder_id !== undefined) {
             body['folder_id'] = params.folder_id
         }
@@ -609,9 +603,6 @@ const viewUpdate = (): ToolBase<
         }
         if (params.sync_frequency !== undefined) {
             body['sync_frequency'] = params.sync_frequency
-        }
-        if (params.sync_frequency_pinned !== undefined) {
-            body['sync_frequency_pinned'] = params.sync_frequency_pinned
         }
         if (params.folder_id !== undefined) {
             body['folder_id'] = params.folder_id
