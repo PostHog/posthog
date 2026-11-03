@@ -128,14 +128,12 @@ export const resolveEmailSendingVersion = (invocation: CyclotronJobInvocationHog
         : undefined
 }
 
-export const resolveEmailCaptureChoice = (
-    invocation: Pick<CyclotronJobInvocationHogFunction, 'state'>
-): boolean | undefined => invocation.state?.send?.tracking.captureEngagement
-
 export const resolveEmailTrackingDistinctId = (
     invocation: Pick<CyclotronJobInvocationHogFunction, 'state' | 'hogFunction'>
 ): string | undefined => {
-    return resolveEmailCaptureChoice(invocation) === false ? undefined : resolveEmailEngagementDistinctId(invocation)
+    return invocation.state?.send?.tracking.captureEngagement === false
+        ? undefined
+        : resolveEmailEngagementDistinctId(invocation)
 }
 
 // HTML attribute values arrive entity-encoded (e.g. `&amp;`, `&#38;`). Decode before
