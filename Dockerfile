@@ -1,3 +1,4 @@
+# Test only: triggers the PR image build to check the shared-services ECR push. Do not merge.
 #
 # This Dockerfile is used for self-hosted production builds.
 #
