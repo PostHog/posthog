@@ -130,6 +130,7 @@ import {
     ExternalDataSourceRevenueAnalyticsConfig,
     ExternalDataSourceSchema,
     ExternalDataSourceSyncSchema,
+    type ExternalDataSourceType,
     FeatureFlagType,
     FileSystemDeleteResponse,
     GoogleAdsConversionActionType,
@@ -242,10 +243,7 @@ import type {
     TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi,
     TaskRunCreateRequestSchemaApi,
 } from 'products/tasks/frontend/generated/api.schemas'
-import type {
-    ExternalDataSourceTypeEnumApi,
-    SourceConfigMapResponseApi,
-} from 'products/warehouse_sources/frontend/generated/api.schemas'
+import type { SourceConfigMapResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 import type { HogFlowPublishResponseApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 import type { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
@@ -343,6 +341,13 @@ export class RecordingDeletedError extends Error {
         super('Recording has been permanently deleted')
         this.name = 'RecordingDeletedError'
     }
+}
+
+function asRecordingDeletedError(e: unknown): unknown {
+    if (e instanceof ApiError && e.status === 410 && e.data?.error === 'recording_deleted') {
+        return new RecordingDeletedError(e.data?.deleted_at ?? null, e.data?.deleted_by ?? null)
+    }
+    return e
 }
 
 const CSRF_COOKIE_NAME = 'posthog_csrftoken'
@@ -4383,7 +4388,11 @@ const api = {
             recordingId: SessionRecordingType['id'],
             headers: Record<string, string> = {}
         ): Promise<SessionRecordingSnapshotResponse> {
-            return await new ApiRequest().recording(recordingId).withAction('snapshots').get({ headers })
+            try {
+                return await new ApiRequest().recording(recordingId).withAction('snapshots').get({ headers })
+            } catch (e) {
+                throw asRecordingDeletedError(e)
+            }
         },
 
         async getSnapshots(
@@ -4399,10 +4408,7 @@ const api = {
                     .withQueryString(params)
                     .getResponse({ headers })
             } catch (e) {
-                if (e instanceof ApiError && e.status === 410 && e.data?.error === 'recording_deleted') {
-                    throw new RecordingDeletedError(e.data?.deleted_at ?? null, e.data?.deleted_by ?? null)
-                }
-                throw e
+                throw asRecordingDeletedError(e)
             }
 
             const contentBuffer = new Uint8Array(await response.arrayBuffer())
@@ -5678,7 +5684,7 @@ const api = {
             return await new ApiRequest().externalDataSource(sourceId).update({ data })
         },
         async database_schema(
-            source_type: ExternalDataSourceTypeEnumApi,
+            source_type: ExternalDataSourceType,
             payload: Record<string, any>
         ): Promise<ExternalDataSourceSyncSchema[]> {
             return await new ApiRequest()
@@ -5690,7 +5696,7 @@ const api = {
             return await new ApiRequest().externalDataSources().withAction('wizard').get()
         },
         async source_prefix(
-            source_type: ExternalDataSourceTypeEnumApi,
+            source_type: ExternalDataSourceType,
             prefix: string
         ): Promise<ExternalDataSourceSyncSchema[]> {
             return await new ApiRequest()
@@ -5700,7 +5706,7 @@ const api = {
         },
         async check_cdc_prerequisites(
             payload: {
-                source_type: ExternalDataSourceTypeEnumApi
+                source_type: ExternalDataSourceType
                 cdc_management_mode: 'posthog' | 'self_managed'
                 tables?: string[]
                 cdc_slot_name?: string | null
