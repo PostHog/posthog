@@ -16,7 +16,7 @@ import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { assertRouterTargetsTestDatabase } from '~/tests/helpers/database-guard'
 import { createEmailLimiterRedis, createEmailSender, insertEmailWorkflowsConfig } from '~/tests/helpers/email'
-import { LocalSes, LocalSesAwsEnvironment } from '~/tests/helpers/ses'
+import { LocalSes, useLocalSesAwsEnvironment } from '~/tests/helpers/ses'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { Hub } from '../../types'
@@ -67,7 +67,6 @@ describe('CdpCyclotronWorkerEmail', () => {
         let limiter: RateLimiterService
         let flow: HogFlow
         let invocation: CyclotronJobInvocation
-        let environment: LocalSesAwsEnvironment | undefined
 
         const roundTrip = (item: CyclotronJobInvocation): CyclotronJobInvocation => {
             const job = invocationToV2JobInit(item)
@@ -133,8 +132,7 @@ describe('CdpCyclotronWorkerEmail', () => {
         beforeEach(async () => {
             await assertRouterTargetsTestDatabase(hub.postgres, PostgresUse.COMMON_WRITE)
             jest.spyOn(Math, 'random').mockReturnValue(0)
-            environment = new LocalSesAwsEnvironment()
-            environment.configure()
+            useLocalSesAwsEnvironment()
             ses = new LocalSes()
             await ses.start()
             redis = createEmailLimiterRedis(hub)
@@ -227,7 +225,6 @@ describe('CdpCyclotronWorkerEmail', () => {
             // The worker does not own the injected pool, and RedisV2 has no close, so quit its one client here.
             await redis?.useClient({ name: 'email-round-trip-test-close' }, (client) => client.quit())
             await ses?.stop()
-            environment?.restore()
             jest.restoreAllMocks()
             mockFetch.mockClear()
         })

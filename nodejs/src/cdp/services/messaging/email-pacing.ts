@@ -14,18 +14,12 @@ const workflowEmailRateLimitedTotal = new Counter({
 
 // The metadata blob is the flow action's config plus flow-level keys stamped in by
 // HogFlowFunctionsService.buildHogFunction; parse defensively since it is untyped.
-export function parseWorkflowEmailRateLimit(
-    metadata: HogFunctionType['metadata']
-): HogFlowEmailSendingRateLimit | null {
-    const raw = metadata?.email_sending_rate_limit
-    if (!raw) {
-        return null
-    }
-    const parsed = HogFlowEmailSendingRateLimitSchema.safeParse(raw)
+function parseWorkflowEmailRateLimit(metadata: HogFunctionType['metadata']): HogFlowEmailSendingRateLimit | null {
+    const parsed = HogFlowEmailSendingRateLimitSchema.safeParse(metadata?.email_sending_rate_limit)
     return parsed.success ? parsed.data : null
 }
 
-export function pickTokenBucketRetryDelayMs(refillPerSecond: number): number {
+function pickTokenBucketRetryDelayMs(refillPerSecond: number): number {
     // Wake around when the next token accrues. The 1x-2x jitter spreads a queued backlog's
     // retries so they don't all re-dequeue (and re-claim against one token) at the same instant.
     // Clamped so second-scale limits don't churn the queue and hour-scale limits still wake
@@ -53,11 +47,7 @@ const emailReservedParkMs = new Histogram({
     buckets: [1_000, 5_000, 15_000, 60_000, 300_000, 900_000, 1_800_000, 3_600_000],
 })
 
-export function pickReservedRetryDelayMs(
-    retryAfterMs: number | null,
-    refillPerSecond: number,
-    reserved: boolean
-): number {
+function pickReservedRetryDelayMs(retryAfterMs: number | null, refillPerSecond: number, reserved: boolean): number {
     // No horizon means the limiter itself failed, not that the bucket was empty.
     // Wake on the short token-bucket cadence, not on a cap that paces in hours.
     if (retryAfterMs === null) {
@@ -233,9 +223,6 @@ export class TeamSendingCap {
             ? this.config.teamEmailTierDailyCaps
             : DEFAULT_TEAM_EMAIL_TIER_DAILY_CAPS
         const topTier = Math.min(hourlyCaps.length, dailyCaps.length) - 1
-        if (topTier < 0) {
-            return null
-        }
         const tier = Math.min(Math.max(teamTier, 0), topTier)
 
         const buckets = teamEmailCapBuckets(invocation.teamId, hourlyCaps[tier], dailyCaps[tier])

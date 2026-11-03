@@ -45,7 +45,7 @@ import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
-import { LocalSes, LocalSesAwsEnvironment } from '~/tests/helpers/ses'
+import { LocalSes, useLocalSesAwsEnvironment } from '~/tests/helpers/ses'
 import { createTeam, getFirstTeam, resetBehavioralCohortsDatabase, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../src/types'
@@ -2887,7 +2887,6 @@ describe('Workflows E2E (email queue)', () => {
     let cyclotronPool: Pool
     let deps: ReturnType<typeof createCdpConsumerDeps>
     let ses: LocalSes | undefined
-    let sesEnvironment: LocalSesAwsEnvironment | undefined
 
     beforeAll(() => {
         cyclotronPool = new Pool({ connectionString: CYCLOTRON_NODE_DB_URL })
@@ -3007,10 +3006,7 @@ describe('Workflows E2E (email queue)', () => {
         emailWorker?.emailService.sesV2Client?.destroy()
         await ses?.stop()
         ses = undefined
-        if (sesEnvironment) {
-            sesEnvironment.restore()
-            sesEnvironment = undefined
-        }
+        jest.restoreAllMocks()
         await kafkaProducer.disconnect()
         await closeHub(hub)
         mockProducerObserver.resetKafkaProducer()
@@ -3040,7 +3036,6 @@ describe('Workflows E2E (email queue)', () => {
         }
     }
 
-    // AppMetricsAggregator dedupes in memory, so sum `count` because counting messages would hide a double emit.
     function sumCounts(filter: (message: DecodedKafkaMessage) => boolean): number {
         return mockProducerObserver
             .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
@@ -3199,8 +3194,7 @@ describe('Workflows E2E (email queue)', () => {
 
     it('returns the workflow to its origin queue and priority after SES throttles the email', async () => {
         const sesThrottledSends = 2
-        sesEnvironment = new LocalSesAwsEnvironment()
-        sesEnvironment.configure()
+        useLocalSesAwsEnvironment()
         ses = new LocalSes()
         await ses.start()
         ses.throttleNextRequests(sesThrottledSends)

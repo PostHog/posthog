@@ -12,9 +12,9 @@ import { EmailTrackingCodeSigner } from '~/cdp/services/messaging/helpers/tracki
 import { MessageAssetsService } from '~/cdp/services/messaging/message-assets.service'
 import { RateLimiterService } from '~/cdp/services/rate-limiter/rate-limiter.service'
 import { CyclotronJobInvocationHogFunction, HogFunctionType, IntegrationType } from '~/cdp/types'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { PostgresUse } from '~/common/utils/db/postgres'
+import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 import { Hub } from '~/types'
 
 export type EmailInvocation = CyclotronJobInvocationHogFunction & {
@@ -101,7 +101,6 @@ export class EmailInvocationFixture {
 
 type EmailServiceOverrides = {
     sesConfig?: Partial<EmailServiceConfig>
-    teamWorkflowsConfigService?: TeamWorkflowsConfigService
     emailStatusService?: EmailStatusService | null
     messageAssetsService?: MessageAssetsService
     workflowEmailRateLimiter?: RateLimiterService | null
@@ -134,7 +133,7 @@ export class EmailServiceFixture {
         const service = new EmailService(
             { ...this.sesConfig, ...overrides.sesConfig },
             this.hub.integrationManager,
-            overrides.teamWorkflowsConfigService ?? this.workflowsConfig,
+            this.workflowsConfig,
             this.hub.ENCRYPTION_SALT_KEYS,
             this.hub.SITE_URL,
             new EmailTrackingCodeSigner(this.hub.ENCRYPTION_SALT_KEYS, this.hub.CDP_EMAIL_TRACKING_URL),
@@ -150,7 +149,6 @@ export class EmailServiceFixture {
         return service
     }
 
-    /** Builds a service whose SES `send` is spied and accepts every email by default. */
     createWithSendSpy(overrides: EmailServiceOverrides = {}): { service: EmailService; send: jest.SpyInstance } {
         const service = this.create(overrides)
         if (!service.sesV2Client) {
@@ -181,16 +179,7 @@ export function createEmailLimiterRedis(hub: Hub): RedisV2 {
 }
 
 export function createMessageAssetsService(): MessageAssetsService {
-    return new MessageAssetsService(
-        new IngestionOutputs({
-            message_assets: {
-                produce: jest.fn().mockResolvedValue(undefined),
-                queueMessages: jest.fn().mockResolvedValue(undefined),
-                checkHealth: jest.fn().mockResolvedValue(undefined),
-                checkTopicExists: jest.fn().mockResolvedValue(undefined),
-            },
-        })
-    )
+    return new MessageAssetsService(createMockIngestionOutputs<'message_assets'>())
 }
 
 export async function insertEmailWorkflowsConfig(hub: Hub, teamId: number): Promise<void> {
