@@ -292,7 +292,6 @@ def send_accepted_transactional_email(
 ) -> requests.Response:
     return internal_requests.post(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/transactional_email/send",
-        # As UTF-8, not ASCII escapes, so a body within its documented size stays within the CDP service's limit.
         data=json.dumps(payload, ensure_ascii=False).encode(),
         headers={
             "Content-Type": "application/json",

@@ -60320,7 +60320,7 @@ export namespace Schemas {
        * * `active` - Active
        * * `archived` - Archived */
       status?: HogFlowStateEnum;
-      /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.
+      /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow, and never to `transactional_email_keys`: the email send API sets that one. Filter the list with `?origin_product=`.
        *
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts

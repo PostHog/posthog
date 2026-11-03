@@ -391,7 +391,6 @@ def _cohort_conditions_rolled_out(user: Any, organization_id: str) -> bool:
         return False
 
 
-# A code send's workflow never lists, so the list filter does not offer its origin.
 LISTED_ORIGIN_PRODUCTS: list[str] = [
     origin for origin in HogFlowOriginProduct.values if origin != HogFlowOriginProduct.TRANSACTIONAL_EMAIL_KEYS
 ]
@@ -3352,7 +3351,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         required=False,
         allow_null=True,
         help_text="Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when "
-        "creating a workflow. Filter the list with `?origin_product=`.",
+        "creating a workflow, and never to `transactional_email_keys`: the email send API sets that one. "
+        "Filter the list with `?origin_product=`.",
     )
     source_record = serializers.RegexField(
         r"^[a-z_]+:[A-Za-z0-9_-]+$",
@@ -5476,7 +5476,6 @@ class HogFlowViewSet(
             team_id=self.team_id,
             function_kind="hog_flow",
             function_id=str(hog_flow.id),
-            # The CDP worker skips a stored run that carries an email sent from code unless this is true.
             payload={**serializer.data, "replay_code_sends": _code_sends_rolled_out(self.team)},
         )
 

@@ -456,7 +456,6 @@ CODE_SEND_FIELDS = (
     "capture_engagement",
     *CODE_SEND_EXTRA_FIELDS,
 )
-# The CDP service accepts a body of at most 20 MiB, and a send carries both bodies, so one body over this is refused.
 CODE_BODY_MAX_BYTES = 5 * 1024 * 1024
 
 
