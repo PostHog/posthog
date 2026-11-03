@@ -1,0 +1,325 @@
+from posthog.test.base import (
+    APIBaseTest,
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    flush_persons_and_events,
+    materialized,
+)
+
+from parameterized import parameterized
+
+from posthog.schema import HogQLQueryModifiers
+
+from posthog.hogql.constants import HogQLDialect
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer.utils import prepare_and_print_ast
+from posthog.hogql.property_access_types import RestrictedProperty
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.test.utils import pretty_print_in_tests
+
+from posthog.clickhouse.client.escape import substitute_params
+from posthog.models import PropertyDefinition
+
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.event_definitions.backend.models.property_definition import PropertyType
+
+STAR_EVENTS = "(SELECT * FROM events)"
+EMAIL_MAP = "map('email', JSONExtractRaw(events.properties, 'email'))"
+
+
+def _modifiers(on: bool) -> HogQLQueryModifiers:
+    return HogQLQueryModifiers(narrowSubqueryProperties=on, optimizeProjections=True)
+
+
+class TestExportedProperties(BaseTest):
+    maxDiff = None
+
+    def _print(
+        self,
+        select: str,
+        *,
+        on: bool = True,
+        native: bool = False,
+        restricted: set[RestrictedProperty] | None = None,
+        dialect: HogQLDialect = "clickhouse",
+    ) -> str:
+        context = HogQLContext(
+            team_id=self.team.pk, enable_select_queries=True, modifiers=_modifiers(on), use_new_events_schema=native
+        )
+        if restricted is not None:
+            context.restricted_properties = restricted
+        query, _ = prepare_and_print_ast(parse_select(select), context, dialect)
+        return pretty_print_in_tests(substitute_params(query, context.values), self.team.pk)
+
+    @parameterized.expand(
+        [
+            (
+                "one_level",
+                f"SELECT properties.email FROM {STAR_EVENTS}",
+                f"{EMAIL_MAP} AS properties",
+                "JSONExtractRaw(properties['email'])",
+            ),
+            (
+                "passed_through_two_levels",
+                f"SELECT properties.email FROM (SELECT * FROM {STAR_EVENTS})",
+                f"SELECT properties AS properties FROM (SELECT {EMAIL_MAP} AS properties",
+                "JSONExtractRaw(properties['email'])",
+            ),
+            (
+                "aliased_passthrough",
+                "SELECT p.email FROM (SELECT properties AS p FROM events)",
+                f"{EMAIL_MAP} AS p",
+                "JSONExtractRaw(p['email'])",
+            ),
+            (
+                "cte",
+                f"WITH e AS {STAR_EVENTS} SELECT properties.email FROM e",
+                f"WITH e AS (SELECT {EMAIL_MAP} AS properties",
+                "JSONExtractRaw(e.properties['email'])",
+            ),
+            (
+                "union_branches",
+                "SELECT properties.email FROM (SELECT properties FROM events UNION ALL SELECT properties FROM events)",
+                f"{EMAIL_MAP} AS properties FROM events WHERE equals(events.team_id, 99999) UNION ALL SELECT {EMAIL_MAP} AS properties",
+                "JSONExtractRaw(properties['email'])",
+            ),
+            (
+                "keys_read_at_two_levels",
+                f"SELECT properties.email FROM (SELECT * FROM {STAR_EVENTS} WHERE properties.utm_source = 'g')",
+                "map('email', JSONExtractRaw(events.properties, 'email'), 'utm_source', JSONExtractRaw(events.properties, 'utm_source')) AS properties",
+                "JSONExtractRaw(properties['utm_source'])",
+            ),
+            (
+                "nested_key",
+                "SELECT properties.a.b FROM (SELECT properties FROM events)",
+                "map('a', JSONExtractRaw(events.properties, 'a')) AS properties",
+                "JSONExtractRaw(properties['a'], 'b')",
+            ),
+            (
+                "left_join_on_the_subquery",
+                f"SELECT e.properties.email, s.n FROM {STAR_EVENTS} AS e LEFT JOIN (SELECT event AS ev, count() AS n FROM events GROUP BY ev) AS s ON s.ev = e.event",
+                f"{EMAIL_MAP} AS properties",
+                "JSONExtractRaw(e.properties['email'])",
+            ),
+            (
+                "read_inside_a_lambda",
+                "SELECT arrayMap(x -> properties.email, [1]) FROM (SELECT properties FROM events)",
+                f"{EMAIL_MAP} AS properties",
+                "x -> replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties['email'])",
+            ),
+            (
+                "unread_blob",
+                "SELECT count() FROM (SELECT properties FROM events)",
+                "accurateCast(map(), 'Map(String, Nullable(String))') AS properties",
+                "count()",
+            ),
+        ]
+    )
+    def test_exports_only_the_keys_read(self, _name: str, select: str, exported: str, read: str) -> None:
+        printed = self._print(select)
+        assert exported in printed, printed
+        assert read in printed, printed
+        assert "events.properties AS properties" not in printed, printed
+
+    @parameterized.expand(
+        [
+            ("blob_and_key", "SELECT properties, properties.email FROM (SELECT properties FROM events)"),
+            ("json_function_on_the_blob", "SELECT JSONHas(properties, 'x') FROM (SELECT properties FROM events)"),
+            ("distinct_inner", "SELECT properties.email FROM (SELECT DISTINCT properties FROM events)"),
+            (
+                "grouped_inner",
+                "SELECT properties.email FROM (SELECT properties, count() AS c FROM events GROUP BY properties)",
+            ),
+            ("inner_order_by_alias", "SELECT p.email FROM (SELECT properties AS p FROM events ORDER BY p)"),
+            ("query_output", "SELECT properties FROM (SELECT properties FROM events)"),
+            ("read_by_position", f"SELECT properties.arr[1] FROM {STAR_EVENTS}"),
+            ("native_flag_map", "SELECT properties.$feature_flags FROM (SELECT properties FROM events)", True),
+        ]
+    )
+    def test_keeps_the_blob_when_a_reader_needs_it(self, _name: str, select: str, native: bool = False) -> None:
+        assert self._print(select, native=native) == self._print(select, on=False, native=native)
+
+    def test_saved_view_exports_only_the_keys_read(self) -> None:
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="pageviews",
+            query={"query": "SELECT event, properties FROM events WHERE event = '$pageview'"},
+            columns={"event": "String", "properties": "String"},
+        )
+        printed = self._print("SELECT properties.email FROM pageviews")
+        assert f"{EMAIL_MAP} AS properties" in printed, printed
+        assert "JSONExtractRaw(pageviews.properties['email'])" in printed, printed
+
+    def test_native_export_reads_one_subcolumn(self) -> None:
+        printed = self._print(f"SELECT properties.utm_source FROM {STAR_EVENTS}", native=True)
+        assert "map('utm_source', " in printed, printed
+        assert "toJSONString(events.properties.utm_source)" in printed, printed
+        assert "JSONExtractKeysAndValuesRaw" not in printed, printed
+
+    @parameterized.expand([("legacy", False), ("native", True)])
+    def test_restricted_key_stays_masked(self, _name: str, native: bool) -> None:
+        printed = self._print(
+            f"SELECT properties.email, properties.utm_source FROM {STAR_EVENTS}",
+            native=native,
+            restricted={RestrictedProperty(name="email", property_type=PropertyDefinition.Type.EVENT)},
+        )
+        assert "JSONExtractRaw(properties['email'])" in printed, printed
+        assert "JSONExtractRaw(events.properties, 'email')" not in printed, printed
+        assert "events.properties.email" not in printed, printed
+
+    def test_string_parser_still_gets_the_text(self) -> None:
+        PropertyDefinition.objects.create(
+            team=self.team, name="amount", property_type=PropertyType.Numeric, type=PropertyDefinition.Type.EVENT
+        )
+        printed = self._print(f"SELECT sum(toFloatOrZero(properties.amount)) FROM {STAR_EVENTS}")
+        assert "toFloat64OrZero(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties['amount'])" in printed, printed
+        assert "'Float64'" not in printed, printed
+
+    @parameterized.expand([("modifier_off", False, "clickhouse"), ("hogql_dialect", True, "hogql")])
+    def test_leaves_the_blob_exported(self, _name: str, on: bool, dialect: HogQLDialect) -> None:
+        printed = self._print(f"SELECT properties.email FROM {STAR_EVENTS}", on=on, dialect=dialect)
+        assert "map(" not in printed, printed
+
+
+class TestExportedPropertiesExecution(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        PropertyDefinition.objects.create(
+            team=self.team, name="amount", property_type=PropertyType.Numeric, type=PropertyDefinition.Type.EVENT
+        )
+        rows = [
+            ("2024-01-02T10:00:00", "$pageview", {"utm_source": "google", "amount": 2, "email": "a@example.com"}),
+            ("2024-01-02T11:00:00", "$pageview", {"utm_source": "", "amount": "7.5", "email": None}),
+            ("2024-01-03T10:00:00", "$pageview", {"amount": None, "nested": {"a": {"b": "deep"}}}),
+            ("2024-01-03T11:00:00", "signup", {"utm_source": "bing", "n": 1.50, "t": True}),
+            ("2024-01-03T12:00:00", "signup", {"utm_source": 'say "hi"\\now', "email": "b@example.com"}),
+            (
+                "2024-01-03T13:00:00",
+                "signup",
+                {"$feature/test": "true", "$feature_flags": {"test": "true"}, "$active_feature_flags": ["test"]},
+            ),
+            ("2023-12-31T23:59:59", "$pageview", {"utm_source": "google", "amount": 100, "a.b": "dotted"}),
+            ("2024-01-04T10:00:00", "$pageview", {}),
+        ]
+        for index, (timestamp, event, properties) in enumerate(rows):
+            _create_event(
+                team=self.team, event=event, distinct_id=f"u{index}", timestamp=timestamp, properties=properties
+            )
+        flush_persons_and_events()
+
+    def _assert_same_rows(self, select: str) -> None:
+        on = execute_hogql_query(select, team=self.team, modifiers=_modifiers(True)).results
+        off = execute_hogql_query(select, team=self.team, modifiers=_modifiers(False)).results
+        assert on == off, f"on={on} off={off}"
+        assert on, "the query must match some rows for the comparison to mean anything"
+
+    @parameterized.expand(
+        [
+            (
+                "keys_and_filter",
+                f"SELECT properties.email, event FROM {STAR_EVENTS} WHERE properties.utm_source = 'google' ORDER BY 1, 2",
+            ),
+            (
+                "counts_and_key_reads",
+                f"SELECT count(), countIf(coalesce(properties.utm_source, '') != ''), uniq(person_id) FROM {STAR_EVENTS} "
+                "WHERE event = '$pageview' AND timestamp >= '2024-01-01'",
+            ),
+            (
+                "grouped_key_read",
+                f"SELECT properties.utm_source AS src, count() FROM {STAR_EVENTS} WHERE timestamp >= '2024-01-01' GROUP BY src ORDER BY src",
+            ),
+            (
+                "string_parser_on_numeric_property",
+                f"SELECT sum(toFloatOrZero(properties.amount)), arraySort(groupArray(properties.amount)) FROM {STAR_EVENTS} WHERE event = '$pageview'",
+            ),
+            (
+                "escaped_string_value",
+                f"SELECT properties.utm_source FROM {STAR_EVENTS} WHERE event = 'signup' ORDER BY 1",
+            ),
+            (
+                "empty_null_number_and_bool_values",
+                f"SELECT properties.utm_source, properties.email, properties.n, properties.t FROM {STAR_EVENTS} ORDER BY 1, 2, 3, 4",
+            ),
+            (
+                "nested_and_dotted_keys",
+                f"SELECT properties.nested.a.b, properties.`a.b` FROM {STAR_EVENTS} WHERE event = '$pageview' ORDER BY 1, 2",
+            ),
+            (
+                "passed_through_two_levels",
+                f"SELECT properties.email FROM (SELECT * FROM {STAR_EVENTS} WHERE properties.utm_source = 'google') ORDER BY 1",
+            ),
+            (
+                "aliased_passthrough",
+                "SELECT p.email FROM (SELECT properties AS p FROM events) ORDER BY 1",
+            ),
+            (
+                "cte",
+                f"WITH e AS {STAR_EVENTS} SELECT properties.email FROM e ORDER BY 1",
+            ),
+            (
+                "union_branches",
+                "SELECT properties.email FROM (SELECT properties FROM events UNION ALL SELECT properties FROM events) ORDER BY 1",
+            ),
+            (
+                "left_join_on_the_subquery",
+                f"SELECT e.properties.email, s.n FROM {STAR_EVENTS} AS e LEFT JOIN (SELECT event AS ev, count() AS n FROM events GROUP BY ev) AS s ON s.ev = e.event ORDER BY 1, 2",
+            ),
+            (
+                "unread_blob",
+                "SELECT count() FROM (SELECT properties FROM events)",
+            ),
+            (
+                "rebuilt_flag_reads",
+                f"SELECT properties.`$feature/test`, properties.$active_feature_flags FROM {STAR_EVENTS} WHERE event = 'signup' ORDER BY 1, 2",
+            ),
+            (
+                "flag_map_read",
+                f"SELECT count() FROM {STAR_EVENTS} WHERE properties.$feature_flags IS NULL",
+            ),
+            (
+                "enclosing_query_over_the_narrowed_one",
+                f"SELECT src, count() FROM (SELECT properties.utm_source AS src FROM {STAR_EVENTS} WHERE event = '$pageview') "
+                "WHERE src != '' GROUP BY src ORDER BY src",
+            ),
+            (
+                "filled_rows_read_as_missing",
+                "SELECT d, event, properties.email FROM (SELECT toDate(timestamp) AS d, event, properties FROM events ORDER BY d WITH FILL) "
+                "WHERE event = '$pageview' ORDER BY d, event, 3",
+            ),
+        ]
+    )
+    def test_narrowing_returns_the_same_rows(self, _name: str, select: str) -> None:
+        self._assert_same_rows(select)
+
+    @parameterized.expand(
+        [
+            (
+                "string_empty_value",
+                "utm_source",
+                False,
+                None,
+                f"SELECT count() FROM {STAR_EVENTS} WHERE properties.utm_source = ''",
+            ),
+            (
+                "nullable_string_escapes",
+                "utm_source",
+                True,
+                None,
+                f"SELECT properties.utm_source FROM {STAR_EVENTS} WHERE event = 'signup' ORDER BY 1",
+            ),
+            (
+                "float_under_a_string_parser",
+                "amount",
+                False,
+                "Float64",
+                f"SELECT sum(toFloatOrZero(properties.amount)), arraySort(groupArray(properties.amount)) FROM {STAR_EVENTS} WHERE event = '$pageview'",
+            ),
+        ]
+    )
+    def test_narrowing_ignores_a_materialized_column(
+        self, _name: str, property_name: str, is_nullable: bool, column_type: str | None, select: str
+    ) -> None:
+        with materialized("events", property_name, is_nullable=is_nullable, column_type=column_type):
+            self._assert_same_rows(select)

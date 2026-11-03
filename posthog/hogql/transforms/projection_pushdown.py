@@ -1,21 +1,43 @@
 from collections import defaultdict
+from dataclasses import field
 from typing import cast
 
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.transforms.exported_properties import narrow_exported_properties
 from posthog.hogql.visitor import TraversingVisitor
+
+from posthog.dataclasses import frozen
+
+SubqueryNode = ast.SelectQuery | ast.SelectSetQuery
+
+# Demand flows top-down, but a CTE's reader can be visited after the CTE, so one pass can leave a column's readers
+# incomplete. Each pass adds what the last one learned; the walk stops when a pass adds nothing.
+_MAX_COLLECTION_PASSES = 5
+
+
+@frozen(frozen=False)
+class ColumnReads:
+    """How the readers of one subquery column use it. `whole` is set by any read of the column itself; `keys` are the
+    first keys of `column.<key>` reads, with the reads themselves in `sites`, by the hidden alias the resolver wraps
+    every field in."""
+
+    whole: bool = False
+    keys: set[str] = field(default_factory=set)
+    sites: dict[int, tuple[ast.Alias, ast.Field]] = field(default_factory=dict)
 
 
 class ProjectionPushdownOptimizer(TraversingVisitor):
     """
-    Top-down projection pushdown optimizer that prunes unused asterisk-expanded columns from subqueries.
+    Top-down projection pushdown optimizer that prunes unused asterisk-expanded columns from subqueries, and records
+    how each subquery column is read so `exported_properties` can export only the keys read of a properties blob.
 
     Algorithm Overview:
     ──────────────────
-    This optimizer makes two top-down passes through the query tree: the first only collects
-    demands, the second prunes with the complete demand set. A CTE can be consumed by nodes
-    visited after it — notably sibling UNION branches — so pruning must wait for the full walk.
+    This optimizer makes several top-down passes through the query tree: the collecting passes only gather demands,
+    repeated until a pass learns nothing new, and the final pass prunes with the complete demand set. A CTE can be
+    consumed by nodes visited after it — notably sibling UNION branches — so pruning must wait for the full walk.
 
     Each pass runs these phases per query:
 
@@ -23,21 +45,52 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
     Phase 2 - Collect: Gather column demands from WHERE/GROUP BY/ORDER BY/etc
     Phase 3 - Propagate: For demanded columns, visit their source to propagate to child queries
     Phase 4 - Recurse: Visit child subqueries (repeat phases 1-4)
-    Phase 5 - Prune: Remove unreferenced asterisk columns from this query (second pass only)
+    Phase 5 - Prune: Remove unreferenced asterisk columns from this query (final pass only)
+
+    A column that a query exports as it is (`SELECT properties FROM sub`) is not a read of it: how the column is used
+    is its own readers' business, so phase 3 hands their reads down to the child column instead.
     """
 
-    def __init__(self):
+    def __init__(self, context: HogQLContext | None = None):
         super().__init__()
+        self.context = context
         self.demands: dict[int, set[str]] = defaultdict(set)
-        self.subquery_map: dict[int, ast.SelectQuery | ast.SelectSetQuery] = {}
-        # True during the first pass; gates pruning to the second (see class docstring)
+        self.reads: dict[tuple[int, str], ColumnReads] = defaultdict(ColumnReads)
+        self.subquery_map: dict[int, SubqueryNode] = {}
+        # Selects whose columns are the query's output, and selects whose columns must line up with sibling branches
+        self.roots: set[int] = set()
+        self.union_branches: set[int] = set()
+        # True during the collecting passes; gates pruning to the final one (see class docstring)
         self.collecting: bool = False
+        self._alias_stack: list[ast.Alias] = []
+        self._alias_references: set[int] = set()
 
-    def optimize(self, node: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery | ast.SelectSetQuery:
+    def optimize(self, node: SubqueryNode) -> SubqueryNode:
+        self.roots = self._root_ids(node)
         self.collecting = True
-        self.visit(node)
+        signature: object = None
+        for _ in range(_MAX_COLLECTION_PASSES):
+            self.visit(node)
+            new_signature = self._demand_signature()
+            if new_signature == signature:
+                break
+            signature = new_signature
         self.collecting = False
-        return cast(ast.SelectQuery | ast.SelectSetQuery, self.visit(node))
+        return cast(SubqueryNode, self.visit(node))
+
+    def _root_ids(self, node: SubqueryNode) -> set[int]:
+        if isinstance(node, ast.SelectSetQuery):
+            ids = {id(node)}
+            for query in self.union_queries(node):
+                ids |= self._root_ids(query)
+            return ids
+        return {id(node)}
+
+    def _demand_signature(self) -> object:
+        return (
+            tuple(sorted((key, tuple(sorted(names))) for key, names in self.demands.items())),
+            tuple(sorted((key, reads.whole, tuple(sorted(reads.keys))) for key, reads in self.reads.items())),
+        )
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         # Phase 1: Register subqueries and CTEs for demand tracking
@@ -47,9 +100,20 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
             self._register_subqueries(node.select_from)
 
         # Phase 2: Collect column demands from query clauses
+        enclosing_alias_references = self._alias_references
+        self._alias_references = set()
         for expr in node.select:
-            if not self._is_from_asterisk(expr):
+            if self._is_from_asterisk(expr):
+                continue
+            passthrough = self._passthrough_source(expr)
+            if passthrough is None:
                 self.visit(expr)
+            else:
+                child, child_name = passthrough
+                self.demands[id(child)].add(child_name)
+                if node.distinct:
+                    # DISTINCT compares the column's values, so the child must keep them as they are
+                    self.reads[(id(child), child_name)].whole = True
 
         if node.where:
             self.visit(node.where)
@@ -60,6 +124,8 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
                 self.visit(expr)
         if node.having:
             self.visit(node.having)
+        if node.qualify:
+            self.visit(node.qualify)
         if node.order_by:
             for expr in node.order_by:
                 self.visit(expr)
@@ -67,9 +133,30 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
             self.visit(node.limit)
         if node.offset:
             self.visit(node.offset)
+        if node.limit_by:
+            self.visit(node.limit_by)
+        if node.array_join_list:
+            for expr in node.array_join_list:
+                self.visit(expr)
+        if node.window_exprs:
+            for window_expr in node.window_exprs.values():
+                self.visit(window_expr)
 
         if node.select_from:
             self._collect_join_constraint_column_demands(node.select_from)
+
+        # A clause that names a select column by its alias (`ORDER BY p`) reads the column's value itself
+        for expr in node.select:
+            if expr.type is not None and id(expr.type) in self._alias_references:
+                passthrough = self._passthrough_source(expr)
+                if passthrough is not None:
+                    child, child_name = passthrough
+                    self.reads[(id(child), child_name)].whole = True
+                else:
+                    col_name = self._get_column_name(expr)
+                    if col_name is not None:
+                        self.reads[(id(node), col_name)].whole = True
+        self._alias_references = enclosing_alias_references
 
         # Phase 3: Propagate parent demands down to child subqueries
         self._propagate_demands_to_children(node)
@@ -80,7 +167,7 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         if node.select_from:
             self.visit(node.select_from)
 
-        # Phase 5: Prune unreferenced asterisk columns from this query and CTEs (second pass only)
+        # Phase 5: Prune unreferenced asterisk columns from this query and CTEs (final pass only)
         if not self.collecting:
             self._prune_columns(node)
             if node.ctes:
@@ -96,6 +183,9 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         1. Propagate parent demands to all branches uniformly
         2. Visit each branch to apply pruning
         """
+        for query in self.union_queries(node):
+            self.union_branches.add(id(query))
+
         # Propagate parent demands to all branches uniformly
         self._propagate_demands_to_union_branches(node)
 
@@ -106,6 +196,9 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
 
         return node
 
+    def union_queries(self, node: ast.SelectSetQuery) -> list[SubqueryNode]:
+        return [node.initial_select_query, *(set_node.select_query for set_node in node.subsequent_select_queries)]
+
     def _is_from_asterisk(self, expr: ast.Expr) -> bool:
         """Check if an expression was expanded from asterisk"""
         if isinstance(expr, ast.Alias):
@@ -114,28 +207,103 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
             return expr.from_asterisk
         return False
 
+    def _passthrough_source(self, expr: ast.Expr) -> tuple[SubqueryNode, str] | None:
+        """The child query and column name behind a select column that exports a subquery or CTE column as it is."""
+        source = self._unwrap_aliases(expr)
+        if not isinstance(source, ast.Field) or not isinstance(source.type, ast.FieldType):
+            return None
+        child = self.child_for(source.type.table_type)
+        if child is None:
+            return None
+        return child, source.type.name
+
+    def _unwrap_aliases(self, expr: ast.Expr) -> ast.Expr:
+        while isinstance(expr, ast.Alias):
+            expr = expr.expr
+        return expr
+
     def _propagate_demands_to_children(self, node: ast.SelectQuery) -> None:
         """
         Propagate parent demands to child subqueries.
 
         When a parent query demands a column from us, we need to visit that column's
-        source expression to propagate the demand down to our child subqueries.
+        source expression to propagate the demand down to our child subqueries. A column
+        exported as it is hands the parent's reads of it down to the child column.
 
-        If there are no parent demands but we have asterisk columns,
-        this query defines the output. Visit all asterisk columns to preserve them.
+        A query without parent demands is either the query's output, which needs every
+        column as it is, or a subquery nobody reads a column of, which only has to keep
+        its rows.
         """
         demanded_from_this = self.demands.get(id(node))
         if not demanded_from_this:
-            for expr in node.select:
-                if self._is_from_asterisk(expr):
-                    self.visit(expr)
+            self._keep_unread_subquery_rows(node)
             return
 
         for col_name in demanded_from_this:
             for expr in node.select:
-                if self._get_column_name(expr) == col_name:
+                if self._get_column_name(expr) != col_name:
+                    continue
+                passthrough = self._passthrough_source(expr)
+                if passthrough is None:
                     self.visit(expr)
                     break
+                child, child_name = passthrough
+                self.demands[id(child)].add(child_name)
+                parent_reads = self.reads.get((id(node), col_name))
+                if parent_reads is not None:
+                    child_reads = self.reads[(id(child), child_name)]
+                    child_reads.whole = child_reads.whole or parent_reads.whole
+                    child_reads.keys.update(parent_reads.keys)
+                break
+
+    def _keep_unread_subquery_rows(self, node: ast.SelectQuery) -> None:
+        if id(node) in self.roots or id(node) not in self._registered_ids():
+            for expr in node.select:
+                self._read_whole(expr)
+            return
+        if node.distinct or id(node) in self.union_branches:
+            # Every asterisk column stays: DISTINCT counts them, and UNION branches must line up
+            for expr in node.select:
+                if self._is_from_asterisk(expr):
+                    self.visit(expr)
+            return
+        # Nobody reads a column, so the asterisk columns would only be computed and dropped. An explicit column keeps
+        # the rows; without one, the cheapest asterisk column does, and a JSON blob is the most expensive to compute.
+        explicit_columns = [expr for expr in node.select if not self._is_from_asterisk(expr)]
+        asterisk_columns = [expr for expr in node.select if self._is_from_asterisk(expr)]
+        if explicit_columns:
+            col_name = self._get_column_name(explicit_columns[0])
+            if col_name is not None:
+                self.demands[id(node)].add(col_name)
+            return
+        if not asterisk_columns:
+            return
+        keep = next((expr for expr in asterisk_columns if not self._is_json_blob(expr)), asterisk_columns[0])
+        col_name = self._get_column_name(keep)
+        if col_name is not None:
+            self.demands[id(node)].add(col_name)
+        self._read_whole(keep)
+
+    def _registered_ids(self) -> set[int]:
+        return {id(query) for query in self.subquery_map.values()}
+
+    def _read_whole(self, expr: ast.Expr) -> None:
+        passthrough = self._passthrough_source(expr)
+        if passthrough is None:
+            self.visit(expr)
+            return
+        child, child_name = passthrough
+        self.demands[id(child)].add(child_name)
+        self.reads[(id(child), child_name)].whole = True
+
+    def _is_json_blob(self, expr: ast.Expr) -> bool:
+        source = self._unwrap_aliases(expr)
+        if not isinstance(source, ast.Field) or source.type is None or self.context is None:
+            return False
+        try:
+            return isinstance(source.type.resolve_constant_type(self.context), ast.StringJSONType)
+        except Exception:
+            return False
 
     def _propagate_demands_to_union_branches(self, node: ast.SelectSetQuery) -> None:
         """
@@ -148,11 +316,15 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         if not demanded_from_this:
             return
 
-        all_queries = [node.initial_select_query] + [sn.select_query for sn in node.subsequent_select_queries]
-
-        for query in all_queries:
-            if isinstance(query, ast.SelectQuery | ast.SelectSetQuery):
-                self.demands[id(query)].update(demanded_from_this)
+        for query in self.union_queries(node):
+            self.demands[id(query)].update(demanded_from_this)
+            for col_name in demanded_from_this:
+                parent_reads = self.reads.get((id(node), col_name))
+                if parent_reads is None:
+                    continue
+                branch_reads = self.reads[(id(query), col_name)]
+                branch_reads.whole = branch_reads.whole or parent_reads.whole
+                branch_reads.keys.update(parent_reads.keys)
 
     def _register_subqueries(self, from_clause: ast.JoinExpr) -> None:
         """Register all subqueries in FROM clause before collecting demands"""
@@ -197,42 +369,72 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
             if type_annotation.types:
                 self.subquery_map[id(type_annotation.types[0])] = union_query
 
-    def _get_subquery(self, table_type: ast.Type) -> ast.SelectQuery | ast.SelectSetQuery | None:
+    def _get_subquery(self, table_type: ast.Type) -> SubqueryNode | None:
         """Retrieve subquery by type"""
         return self.subquery_map.get(id(table_type))
 
-    def visit_field(self, node: ast.Field) -> ast.Field:
-        """Record demand when field references subquery or CTE column"""
-        field_type = node.type
-        # A property read (`col.some_key`) still demands its base blob column. Its node type is a
-        # PropertyType wrapping the base FieldType, so unwrap to that base — otherwise the column is
-        # never recorded as demanded and gets pruned from an asterisk-expanded subquery/CTE, leaving a
-        # dangling reference that later blows up property lowering.
-        if isinstance(field_type, ast.PropertyType):
-            field_type = field_type.field_type
-
-        # Handle both FieldType and ExpressionFieldType
-        if not isinstance(field_type, ast.FieldType | ast.ExpressionFieldType):
-            return node
-
-        table_type = field_type.table_type
-
+    def child_for(self, table_type: ast.Type) -> SubqueryNode | None:
+        """The registered subquery or CTE query a field's table type refers to, if any"""
         if isinstance(table_type, ast.SelectQueryType | ast.SelectQueryAliasType | ast.SelectSetQueryType):
-            subquery = self._get_subquery(table_type)
-            if subquery:
-                self.demands[id(subquery)].add(field_type.name)
-        elif isinstance(table_type, ast.CTETableType | ast.CTETableAliasType):
+            return self._get_subquery(table_type)
+        if isinstance(table_type, ast.CTETableType | ast.CTETableAliasType):
             # For CTE types, get the underlying SelectQueryType and demand from it
             cte_select_query_type = (
                 table_type.cte_table_type.select_query_type
                 if isinstance(table_type, ast.CTETableAliasType)
                 else table_type.select_query_type
             )
-            cte_query = self._get_subquery(cte_select_query_type)
-            if cte_query:
-                self.demands[id(cte_query)].add(field_type.name)
+            return self._get_subquery(cte_select_query_type)
+        return None
 
+    def visit_alias(self, node: ast.Alias) -> None:
+        self._alias_stack.append(node)
+        try:
+            super().visit_alias(node)
+        finally:
+            self._alias_stack.pop()
+
+    def visit_field(self, node: ast.Field) -> ast.Field:
+        """Record demand when field references subquery or CTE column"""
+        field_type = node.type
+        if isinstance(field_type, ast.FieldAliasType):
+            self._alias_references.add(id(field_type))
+            return node
+
+        # A property read (`col.some_key`) still demands its base blob column. Its node type is a
+        # PropertyType wrapping the base FieldType, so unwrap to that base — otherwise the column is
+        # never recorded as demanded and gets pruned from an asterisk-expanded subquery/CTE, leaving a
+        # dangling reference that later blows up property lowering.
+        property_type: ast.PropertyType | None = None
+        if isinstance(field_type, ast.PropertyType):
+            property_type = field_type
+            field_type = field_type.field_type
+
+        # Handle both FieldType and ExpressionFieldType
+        if not isinstance(field_type, ast.FieldType | ast.ExpressionFieldType):
+            return node
+
+        child = self.child_for(field_type.table_type)
+        if child is None:
+            return node
+        self.demands[id(child)].add(field_type.name)
+        reads = self.reads[(id(child), field_type.name)]
+        if self._is_key_read(property_type, node):
+            assert property_type is not None
+            reads.keys.add(cast(str, property_type.chain[0]))
+            reads.sites[id(self._alias_stack[-1])] = (self._alias_stack[-1], node)
+        else:
+            reads.whole = True
         return node
+
+    def _is_key_read(self, property_type: ast.PropertyType | None, node: ast.Field) -> bool:
+        """A `column.<key>` read the resolver wrapped in a hidden alias, which `exported_properties` can re-point.
+        A read of the JSON text itself, or of a position, needs the blob."""
+        if property_type is None or property_type.as_json or not property_type.chain:
+            return False
+        if not isinstance(property_type.chain[0], str):
+            return False
+        return bool(self._alias_stack) and self._alias_stack[-1].expr is node
 
     def _collect_join_constraint_column_demands(self, from_clause: ast.JoinExpr) -> None:
         """Collect demands from JOIN constraints"""
@@ -306,9 +508,13 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
                 self._prune_columns(cte.expr)
 
 
-def pushdown_projections(node: _T_AST, context: HogQLContext) -> _T_AST:
-    """Prune unused columns from asterisk expansions in subqueries"""
+def pushdown_projections(node: _T_AST, context: HogQLContext, *, narrow_properties: bool = False) -> _T_AST:
+    """Prune unused columns from asterisk expansions in subqueries. With `narrow_properties`, a subquery that exports
+    the events `properties` blob exports only the keys its readers read (see `exported_properties`)."""
     if not isinstance(node, (ast.SelectQuery, ast.SelectSetQuery)):
         return node
-    optimizer = ProjectionPushdownOptimizer()
-    return cast(_T_AST, optimizer.optimize(node))
+    optimizer = ProjectionPushdownOptimizer(context)
+    result = optimizer.optimize(node)
+    if narrow_properties:
+        narrow_exported_properties(optimizer, context)
+    return cast(_T_AST, result)

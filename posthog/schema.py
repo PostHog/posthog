@@ -6358,6 +6358,15 @@ class HogQLQueryModifiers(BaseModel):
             " one UNION ALL join, so their scans overlap"
         ),
     )
+    narrowSubqueryProperties: bool | None = Field(
+        default=None,
+        description=(
+            "A subquery that exports the events `properties` column exports only the"
+            " keys its readers read, as a map, so the native events table reads those"
+            " subcolumns instead of rebuilding every row's document. Unset means on;"
+            " `false` turns it off."
+        ),
+    )
     negatedPersonFiltersNotIn: bool | None = Field(
         default=None,
         description=(

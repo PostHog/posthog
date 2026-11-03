@@ -118,6 +118,22 @@ class TestProjectionPushdown(BaseTest):
 
         assert optimized.to_hogql() == self.snapshot
 
+    @parameterized.expand(
+        [
+            ("asterisk", "SELECT count() FROM (SELECT * FROM events) AS sub", ["uuid"]),
+            ("explicit_and_asterisk", "SELECT count() FROM (SELECT *, 1 AS one FROM events) AS sub", ["one"]),
+            ("distinct_asterisk", "SELECT count() FROM (SELECT DISTINCT * FROM events) AS sub", None),
+        ]
+    )
+    def test_unread_subquery_keeps_only_what_holds_its_rows(self, _name, query, expected_columns):
+        optimized = self._optimize(query)
+        inner_query = optimized.select_from.table
+        column_names = [self._col_name(col) for col in inner_query.select]
+        if expected_columns is None:
+            assert len(column_names) > 1
+        else:
+            assert column_names == expected_columns
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_prewhere_clause(self):
         """PREWHERE clause columns should be preserved"""

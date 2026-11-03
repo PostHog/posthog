@@ -34,6 +34,7 @@ from posthog.hogql.printer.snowflake import SnowflakePrinter
 from posthog.hogql.resolver import ResolverFactory, resolve_types, swapping_flag_calls_in_views
 from posthog.hogql.transforms.events_predicate_pushdown import apply_events_predicate_pushdown, events_pushdown_enabled
 from posthog.hogql.transforms.events_read_in_order import order_events_reads_by_sort_key
+from posthog.hogql.transforms.exported_properties import narrow_subquery_properties_enabled
 from posthog.hogql.transforms.flag_calls_from_flag_evaluations import resolve_flag_calls_from_flag_evaluations
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.json_property_pushdown import (
@@ -336,7 +337,11 @@ def prepare_ast_for_printing(
 
     if context.modifiers.optimizeProjections:
         with context.timings.measure("projection_pushdown"):
-            node = pushdown_projections(node, context)
+            node = pushdown_projections(
+                node,
+                context,
+                narrow_properties=dialect == "clickhouse" and narrow_subquery_properties_enabled(context.modifiers),
+            )
         # Pushdown mutates SelectQueryType.columns, staling cached CTE tables. Drop them so a
         # wrongly pruned column fails loudly at compile time instead of emitting broken SQL.
         context.cte_database_table_cache.clear()
