@@ -64,6 +64,7 @@ export interface snapshotDataLogicValues {
     recordingDeletedBy: string | null
     recordingDeletedError: RecordingDeletedError | null
     replayProxyToken: string | null
+    blockToken: string | null
     seekTarget: SeekTarget | null
     snapshotLoadError: Error | null
     snapshotLoadErrorKind: SnapshotLoadErrorKind | null
@@ -170,6 +171,9 @@ export interface snapshotDataLogicActions {
     setReplayProxyToken: (token: string | null) => {
         token: string | null
     }
+    setBlockToken: (token: string | null) => {
+        token: string | null
+    }
     setSnapshots: (snapshots: RecordingSnapshot[]) => {
         snapshots: RecordingSnapshot[]
     }
@@ -249,6 +253,33 @@ export type snapshotDataLogicType = MakeLogicType<
 >
 
 // Reactivity note (#53893): `cache.store` (SnapshotStore) lives outside Kea, so any listener that mutates it (markFetched, setSources) MUST dispatch `storeUpdated()` afterwards, and any selector reading it MUST depend on `storeVersion`.
+// Reads a batch straight from recording-api when the listing gave every block a url, so the browser caches each
+// block. Returns null to use the snapshots endpoint instead, which serves every recording.
+async function loadBlocksDirectly(
+    sources: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>[],
+    listedSources: SessionRecordingSnapshotSource[] | null,
+    token: string | null,
+    onTokenExpired: () => void
+): Promise<Uint8Array | null> {
+    const urlsByKey = new Map((listedSources ?? []).map((s) => [s.blob_key, s.url]))
+    const urls = sources.map((s) => urlsByKey.get(s.blob_key))
+    if (!token || urls.some((url) => !url)) {
+        return null
+    }
+    try {
+        return await api.recordings.getBlocksDirectly(urls as string[], token)
+    } catch (e) {
+        if (e instanceof RecordingDeletedError) {
+            throw e
+        }
+        if (e instanceof ApiError && e.status === 401) {
+            // Listing the sources again gets a new token for the next batch.
+            onTokenExpired()
+        }
+        return null
+    }
+}
+
 export const snapshotDataLogic = kea<snapshotDataLogicType>([
     path((key) => ['scenes', 'session-recordings', 'snapshotLogic', key]),
     props({} as SnapshotLogicProps),
@@ -287,12 +318,19 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         // dispatch after any mutation to cache.store — it lives outside Kea's reactivity and needs explicit invalidation
         storeUpdated: true,
         setReplayProxyToken: (token: string | null) => ({ token }),
+        setBlockToken: (token: string | null) => ({ token }),
     }),
     reducers(() => ({
         replayProxyToken: [
             null as string | null,
             {
                 setReplayProxyToken: (_, { token }) => token,
+            },
+        ],
+        blockToken: [
+            null as string | null,
+            {
+                setBlockToken: (_, { token }) => token,
             },
         ],
         storeUpdateCount: [
@@ -376,6 +414,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     }
                     // Each listing mints a new token, so polling the sources keeps the proxy token fresh.
                     actions.setReplayProxyToken(response.replay_proxy_token ?? null)
+                    actions.setBlockToken(response.block_token ?? null)
                     const anyBlobV2 = response.sources.some((s) => s.source === SnapshotSourceType.blob_v2)
 
                     if (anyBlobV2) {
@@ -418,11 +457,15 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                         headers.Authorization = `Bearer ${props.accessToken}`
                     }
 
-                    const response = await api.recordings.getSnapshots(
-                        props.sessionRecordingId,
-                        { decompress: false, ...params },
-                        headers
-                    )
+                    const response =
+                        (await loadBlocksDirectly(sources, values.snapshotSources, values.blockToken, () =>
+                            actions.loadSnapshotSources()
+                        )) ??
+                        (await api.recordings.getSnapshots(
+                            props.sessionRecordingId,
+                            { decompress: false, ...params },
+                            headers
+                        ))
 
                     breakpoint()
 

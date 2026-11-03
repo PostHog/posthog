@@ -4433,6 +4433,37 @@ const api = {
             return []
         },
 
+        /**
+         * Fetches blocks straight from recording-api, one request per block so the browser caches each one. Returns
+         * the same length-prefixed bytes as getSnapshots with decompress=false.
+         */
+        async getBlocksDirectly(urls: string[], token: string): Promise<Uint8Array> {
+            const blocks = await Promise.all(
+                urls.map(async (url) => {
+                    const response = await fetch(url, {
+                        headers: { Authorization: `Bearer ${token}` },
+                        credentials: 'omit',
+                    })
+                    if (!response.ok) {
+                        const data = await response.json().catch(() => null)
+                        throw asRecordingDeletedError(
+                            new ApiError(`Block fetch failed`, response.status, undefined, data)
+                        )
+                    }
+                    return new Uint8Array(await response.arrayBuffer())
+                })
+            )
+            const framed = new Uint8Array(blocks.reduce((total, block) => total + 4 + block.length, 0))
+            const view = new DataView(framed.buffer)
+            let offset = 0
+            for (const block of blocks) {
+                view.setUint32(offset, block.length)
+                framed.set(block, offset + 4)
+                offset += 4 + block.length
+            }
+            return framed
+        },
+
         async listPlaylists(params: string): Promise<SavedSessionRecordingPlaylistsResult> {
             return await new ApiRequest().recordingPlaylists().withQueryString(params).get()
         },
