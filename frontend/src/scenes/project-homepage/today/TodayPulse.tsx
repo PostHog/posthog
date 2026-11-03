@@ -65,6 +65,10 @@ function metricFormatter(metric: HighlightMetricApi, currency: CurrencyCode): (v
     return (value) => formatAggregationAxisValue(trendsFilter, value, currency)
 }
 
+function cardNumber(value: number): string {
+    return humanFriendlyNumber(value, Math.abs(value) >= 100 ? 0 : 2)
+}
+
 const REORDER_MS = 220
 
 function useSettleOnReorder(listRef: RefObject<HTMLUListElement>, order: string): void {
@@ -206,7 +210,7 @@ export function TodayPulse({ metrics, slots }: { metrics: HighlightMetricApi[]; 
                                 <TodayPulseCard
                                     metric={metric}
                                     tone={tone}
-                                    formatValue={metric.value_format ? formatValue : humanFriendlyNumber}
+                                    formatValue={metric.value_format ? formatValue : cardNumber}
                                     onOpen={() => pulseMetricOpened(metric, position)}
                                     onHide={() => hidePulseMetric(metric, position)}
                                 />

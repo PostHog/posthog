@@ -248,13 +248,29 @@ html[data-today-transition]::view-transition-new(root) {
     flex-direction: column;
     gap: 2px;
     min-width: 0;
-    padding: 4px 8px;
-    margin: -4px -8px;
+    padding: 6px 10px;
+    margin: -6px -10px;
     color: inherit;
-    border-radius: var(--radius-md, 6px);
+    border-radius: 8px;
 
     &:hover,
     &:focus-visible {
+        background: var(--fill-hover);
+    }
+
+    @container main-content (max-width: 600px) {
+        padding: 0;
+        margin: 0;
+
+        &:hover,
+        &:focus-visible {
+            background: none;
+        }
+    }
+}
+
+.TodayPulse__metric:has(.TodayPulse__link:hover, .TodayPulse__link:focus-visible) {
+    @container main-content (max-width: 600px) {
         background: var(--fill-hover);
     }
 }

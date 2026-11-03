@@ -9,7 +9,7 @@ export function TodayPulseMovers({ movers }: { movers: HighlightMoverApi[] }): J
                 <li key={mover.label} className="flex min-w-0 items-baseline justify-between gap-3 py-1 text-xs">
                     <span className="truncate">{mover.label}</span>
                     <span className="shrink-0 text-muted-foreground tabular-nums">
-                        <TodayChange change={mover.change_pct} tone="neutral" />
+                        {mover.change_pct === null ? 'New' : <TodayChange change={mover.change_pct} tone="neutral" />}
                     </span>
                 </li>
             ))}

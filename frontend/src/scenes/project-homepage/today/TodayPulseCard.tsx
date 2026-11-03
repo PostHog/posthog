@@ -13,24 +13,15 @@ import {
     TooltipTrigger,
 } from '@posthog/quill'
 
-import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
-
-import { TodayHoverCardFact } from '~/layout/today/TodayHoverCardFact'
 
 import type { HighlightMetricApi } from 'products/today/frontend/generated/api.schemas'
 
 import { TodayChange } from './TodayChange'
 import { TodayPulseMovers } from './TodayPulseMovers'
-import { pulsePeak, pulsePeriodCaption, pulseWhy } from './todayPulseFacts'
+import { pulseComparison, pulsePeakNote, pulseWhy } from './todayPulseFacts'
 import { pulseOpenHandlers } from './todayPulseOpenHandlers'
 import type { TodayTone } from './todayTone'
-
-const PERIOD_FORMATS: Record<HighlightMetricApi['interval'], string> = {
-    day: 'ddd, D MMM',
-    week: '[week of] D MMM',
-    month: 'MMMM YYYY',
-}
 
 function openLabel(metric: HighlightMetricApi): string {
     if (metric.dashboard_id !== null || metric.reason === 'dashboard') {
@@ -53,8 +44,7 @@ export function TodayPulseCard({
     onHide: () => void
 }): JSX.Element {
     const [whyOpen, setWhyOpen] = useState(false)
-    const previous = metric.previous_value
-    const peak = pulsePeak(metric)
+    const peakNote = pulsePeakNote(metric, formatValue)
     const why = pulseWhy(metric)
     return (
         <div className="flex flex-col" data-attr="today-pulse-card">
@@ -71,30 +61,15 @@ export function TodayPulseCard({
                             <TodayChange change={metric.change_pct} tone={tone} />
                         </span>
                     </div>
-                    <Text size="xs" variant="muted" render={<span />} className="mt-1.5 opacity-75">
-                        {pulsePeriodCaption(metric)}
+                    <Text size="xs" variant="muted" render={<span />} className="mt-1.5">
+                        {pulseComparison(metric, formatValue)}
                     </Text>
+                    {peakNote && (
+                        <Text size="xs" variant="muted" render={<span />} className="mt-0.5 opacity-75">
+                            {peakNote}
+                        </Text>
+                    )}
                 </div>
-                {(previous !== null || peak !== null) && (
-                    <div className="flex flex-col gap-1">
-                        {previous !== null && (
-                            <TodayHoverCardFact label="Before">
-                                <span className="tabular-nums">{formatValue(previous)}</span>
-                            </TodayHoverCardFact>
-                        )}
-                        {peak !== null && (
-                            <TodayHoverCardFact label={peak.label}>
-                                <span className="tabular-nums">
-                                    {formatValue(peak.value)}
-                                    <span className="text-muted-foreground">
-                                        {' '}
-                                        · {peak.latest ?? dayjs(peak.start).format(PERIOD_FORMATS[metric.interval])}
-                                    </span>
-                                </span>
-                            </TodayHoverCardFact>
-                        )}
-                    </div>
-                )}
                 {metric.movers.length > 1 && (
                     <div className="flex flex-col gap-1">
                         <Text size="xs" variant="muted" render={<span />} className="opacity-75">
@@ -157,7 +132,7 @@ export function TodayPulseCard({
                     </div>
                 </div>
                 {why && (
-                    <CollapsibleContent className="px-0 pb-0">
+                    <CollapsibleContent className="px-0 pb-2">
                         <Text size="xs" variant="muted" className="m-0 pt-1">
                             {why}
                         </Text>

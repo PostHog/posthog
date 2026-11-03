@@ -6,6 +6,12 @@ export function TodayChange({ change, tone }: { change: number | null; tone: Tod
         return null
     }
     const rounded = Math.round(change)
+    const text =
+        rounded >= 1000
+            ? `${Math.round(1 + change / 100)}×`
+            : rounded === 0
+              ? '0%'
+              : `${rounded > 0 ? '+' : '−'}${Math.abs(rounded)}%`
     return (
         <span
             className="TodayChange"
@@ -13,7 +19,7 @@ export function TodayChange({ change, tone }: { change: number | null; tone: Tod
             // eslint-disable-next-line react/forbid-dom-props
             style={tone === 'neutral' ? undefined : { color: palette[tone] }}
         >
-            {rounded === 0 ? '0%' : `${rounded > 0 ? '+' : '−'}${Math.abs(rounded)}%`}
+            {text}
         </span>
     )
 }

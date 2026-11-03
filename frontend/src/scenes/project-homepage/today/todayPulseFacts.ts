@@ -85,3 +85,38 @@ export function pulseWhy(metric: HighlightMetricApi, today: dayjs.Dayjs = dayjs(
     }
     return `You opened ${subject} on ${metric.opened_days} of the last 14 days, most recently ${when}.${suffix}`
 }
+
+const PERIOD_NAMES: Record<HighlightMetricApi['interval'], string> = {
+    day: 'Last 7 days',
+    week: 'Last week',
+    month: 'Last month',
+}
+
+export function pulseComparison(metric: HighlightMetricApi, formatValue: (value: number) => string): string {
+    const period = PERIOD_NAMES[metric.interval]
+    const previous = metric.previous_value
+    if (previous === null) {
+        return period
+    }
+    if (metric.value === previous) {
+        return `${period}, same as the period before`
+    }
+    return `${period}, ${metric.value > previous ? 'up' : 'down'} from ${formatValue(previous)}`
+}
+
+const PEAK_DATE_FORMATS: Record<HighlightMetricApi['interval'], string> = {
+    day: 'ddd, D MMM',
+    week: '[the week of] D MMM',
+    month: 'MMMM YYYY',
+}
+
+export function pulsePeakNote(metric: HighlightMetricApi, formatValue: (value: number) => string): string | null {
+    const peak = pulsePeak(metric)
+    if (peak === null || metric.series.length < 3) {
+        return null
+    }
+    if (peak.latest) {
+        return `Best ${metric.interval} in ${metric.series.length} ${metric.interval}s`
+    }
+    return `Best ${metric.interval} was ${dayjs(peak.start).format(PEAK_DATE_FORMATS[metric.interval])}, at ${formatValue(peak.value)}`
+}
