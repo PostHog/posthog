@@ -56,26 +56,43 @@ def _is_continue_on_error(job: Job) -> bool:
 
 
 CHECK_POSTING = re.compile(r"check-runs|check_runs|checks\.create|createCheckRun")
+# A check name is passed as a quoted literal or assigned to a name-ish variable.
+QUOTED_LITERAL = re.compile(r"[\"'][^\"'\n]+[\"']")
+ASSIGNED_NAME = re.compile(r"(?i)\bname=(\"[^\"\n]*\"|'[^'\n]*'|[^\s'\"]+)")
 
 
-def _posting_texts(page: list[Workflow]) -> list[str]:
-    """The own texts of each step that posts a check through the checks API."""
-    texts: list[str] = []
+def _posted_names(page: list[Workflow]) -> set[str]:
+    """The check names a posting step can actually post, as whole names.
+
+    Two things matter for correctness here. Only steps that call the checks API
+    count, so a comment or an `echo` elsewhere in the tree cannot claim a check.
+    And the name has to be the *whole* value, not a substring: the block used to be
+    joined and searched with `name in blob`, so a check renamed to
+    `Test results v2` still satisfied `Test results` and the rename guard passed on
+    a missing producer.
+
+    Step `env:` values count because that is where the name is usually built
+    (`GATE_CHECK: Some Posted Check`, then `-f name="$GATE_CHECK"`). `with:` inputs
+    deliberately do not: a posting step's action inputs are telemetry about the
+    check (`status-job:`), and counting them let a renamed job keep the rule green
+    on an input that merely mentioned its old name.
+    """
+    names: set[str] = set()
     for wf in page:
         for job in wf.jobs:
             for step in job.steps:
                 if not (step.run and CHECK_POSTING.search(step.run)):
                     continue
-                texts.append(step.run)
-                for block in (step.with_, step.raw.get("env")):
-                    if isinstance(block, dict):
-                        texts.extend(str(value) for value in block.values())
-    return texts
+                env = step.raw.get("env")
+                if isinstance(env, dict):
+                    names.update(str(value).strip() for value in env.values())
+                names.update(match.group(0)[1:-1] for match in QUOTED_LITERAL.finditer(step.run))
+                names.update(match.group(1) for match in ASSIGNED_NAME.finditer(step.run))
+    return {name for name in names if name}
 
 
-def _contexts_named_in(texts: list[str], wanted: list[str]) -> set[str]:
-    blob = "\n".join(texts)
-    return {name for name in wanted if name in blob}
+def _contexts_named_in(posted: set[str], wanted: list[str]) -> set[str]:
+    return {name for name in wanted if name in posted}
 
 
 def _producers(root: Path, github_workflows: list[Workflow]) -> dict[str, tuple[str, Job]]:
@@ -117,7 +134,7 @@ class RequiredStatusChecksCheck(WorkflowCheck):
         pages = [workflows]
         if (root / DEPOT_WORKFLOWS).is_dir():
             pages.append(list(read_workflows(root / DEPOT_WORKFLOWS)))
-        posted = _contexts_named_in([text for page in pages for text in _posting_texts(page)], required)
+        posted = _contexts_named_in(set().union(*(_posted_names(page) for page in pages)), required)
 
         for name in required:
             if name not in producers and name not in posted:

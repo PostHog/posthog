@@ -51,7 +51,13 @@ def _triggers(wf: Workflow) -> set[str]:
 
 
 def _declares_permissions(wf: Workflow) -> bool:
-    return "permissions" in wf.raw or any("permissions" in job.raw for job in wf.jobs)
+    # Every job the caller can reach must declare its own scopes. `any` let a callee
+    # with one declared job and one bare job through, and the bare job inherited the
+    # repository default. A job that is itself a reusable call is skipped: its own
+    # permissions are the responsibility of its own callee.
+    if "permissions" in wf.raw:
+        return True
+    return all(job.is_reusable_call or "permissions" in job.raw for job in wf.jobs)
 
 
 def _local_callee(uses: str, workflows: list[Workflow]) -> Workflow | None:
@@ -85,6 +91,13 @@ class ExplicitPermissionsCheck(WorkflowCheck):
             if "permissions" in wf.raw:
                 continue
             for job in wf.jobs:
+                # A job that declares its own scopes passes whether or not it calls a
+                # reusable workflow: GitHub applies the caller job's permissions to the
+                # callee, so the callee inheriting the repository default is not a risk
+                # here. Test this before the reusable-call branch, or a caller that does
+                # the right thing is failed for its callee's silence.
+                if "permissions" in job.raw:
+                    continue
                 if job.is_reusable_call:
                     callee = _local_callee(job.uses or "", workflows)
                     if callee is not None and not _declares_permissions(callee):
@@ -99,8 +112,6 @@ class ExplicitPermissionsCheck(WorkflowCheck):
                                 file=str(wf.path),
                             )
                         )
-                    continue
-                if "permissions" in job.raw:
                     continue
                 result.issues.append(
                     Issue(

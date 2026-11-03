@@ -2920,6 +2920,39 @@ class TestExplicitPermissionsCheck:
         _write(tmp_path, "wf.yml", _perm_workflow("push", ""))
         assert ExplicitPermissionsCheck().run(_read_all(tmp_path)).issues == []
 
+    def test_passes_when_the_caller_job_declares_permissions(self, tmp_path: Path) -> None:
+        # GitHub applies the calling job's permissions to the callee, so a caller that
+        # declares them is safe and must not be failed for the callee's silence.
+        wf_dir = tmp_path / ".github" / "workflows"
+        wf_dir.mkdir(parents=True)
+        _write(
+            wf_dir,
+            "caller.yml",
+            "name: T\non: pull_request_target\njobs:\n  act:\n    permissions:\n      contents: read\n"
+            "    uses: ./.github/workflows/callee.yml\n",
+        )
+        _write(wf_dir, "callee.yml", "name: C\non: workflow_call\njobs:\n  run:\n    runs-on: ubuntu-24.04\n")
+        assert ExplicitPermissionsCheck().run(_read_all(wf_dir)).issues == []
+
+    def test_fails_when_only_one_callee_job_declares_permissions(self, tmp_path: Path) -> None:
+        # `any(...)` let a partially-declared callee through, so its bare job inherited
+        # the repository default. Every reachable job has to declare.
+        wf_dir = tmp_path / ".github" / "workflows"
+        wf_dir.mkdir(parents=True)
+        _write(
+            wf_dir,
+            "caller.yml",
+            "name: T\non: pull_request_target\njobs:\n  act:\n    uses: ./.github/workflows/callee.yml\n",
+        )
+        _write(
+            wf_dir,
+            "callee.yml",
+            "name: C\non: workflow_call\njobs:\n  a:\n    permissions:\n      contents: read\n"
+            "    runs-on: ubuntu-24.04\n  b:\n    runs-on: ubuntu-24.04\n",
+        )
+        issues = ExplicitPermissionsCheck().run(_read_all(wf_dir)).issues
+        assert len(issues) == 1, [i.render() for i in issues]
+
     def test_fails_when_the_called_workflow_declares_no_permissions(self, tmp_path: Path) -> None:
         wf_dir = tmp_path / ".github" / "workflows"
         wf_dir.mkdir(parents=True)
@@ -2994,6 +3027,29 @@ class TestUntrustedTriggerCheckoutCheck:
             tmp_path, "wf.yml", _checkout_workflow("pull_request_target", "${{ github.event.pull_request.base.sha }}")
         )
         assert UntrustedTriggerCheckoutCheck().run(_read_all(tmp_path)).issues == []
+
+    @pytest.mark.parametrize("trigger", ["pull_request_review", "pull_request_review_comment"])
+    def test_fails_on_head_ref_under_review_events(self, tmp_path: Path, trigger: str) -> None:
+        # Review events carry base-repo context and expose pull_request.head.*, the same
+        # escape as pull_request_target. WF015 already lists both as untrusted.
+        _write(tmp_path, "wf.yml", _checkout_workflow(trigger, "${{ github.event.pull_request.head.sha }}"))
+        issues = UntrustedTriggerCheckoutCheck().run(_read_all(tmp_path)).issues
+        assert len(issues) == 1, [i.render() for i in issues]
+
+    def test_follows_a_local_reusable_workflow(self, tmp_path: Path) -> None:
+        # The callee has no trigger of its own, so filtering workflows by trigger alone
+        # exempted it entirely while the caller reached it.
+        wf_dir = tmp_path / ".github" / "workflows"
+        wf_dir.mkdir(parents=True)
+        _write(
+            wf_dir,
+            "caller.yml",
+            "name: T\non: pull_request_target\njobs:\n  act:\n    uses: ./.github/workflows/callee.yml\n",
+        )
+        _write(wf_dir, "callee.yml", _checkout_workflow("workflow_call", "${{ github.event.pull_request.head.sha }}"))
+        issues = UntrustedTriggerCheckoutCheck().run(_read_all(wf_dir)).issues
+        assert len(issues) == 1, [i.render() for i in issues]
+        assert "reusable workflow" in issues[0].message
 
     def test_ignores_head_ref_on_plain_pull_request(self, tmp_path: Path) -> None:
         _write(tmp_path, "wf.yml", _checkout_workflow("pull_request", "${{ github.event.pull_request.head.sha }}"))
@@ -3075,6 +3131,33 @@ class TestRequiredStatusChecksCheck:
 
     def test_does_not_accept_a_name_that_only_appears_in_a_script(self, tmp_path: Path) -> None:
         workflow = _REQUIRED_WF.replace("      - run: echo hi", "      - run: echo Posting Some Posted Check")
+        wfs = _repo_with_snapshot(tmp_path, "Some Posted Check\n", workflow)
+        issues = [i for i in RequiredStatusChecksCheck().run(wfs).issues if "Some Posted Check" in i.message]
+        assert len(issues) == 1, [i.render() for i in issues]
+
+    def test_does_not_accept_a_renamed_check_sharing_a_prefix(self, tmp_path: Path) -> None:
+        # `name in blob` accepted `Test results v2` as a producer of `Test results`.
+        posting = (
+            "      - name: Post\n"
+            "        env:\n"
+            "          GATE_CHECK: Some Posted Check v2\n"
+            '        run: gh api "repos/$REPO/check-runs" --method POST -f name="$GATE_CHECK"'
+        )
+        workflow = _REQUIRED_WF.replace("      - run: echo hi", posting)
+        wfs = _repo_with_snapshot(tmp_path, "Some Posted Check\n", workflow)
+        issues = [i for i in RequiredStatusChecksCheck().run(wfs).issues if "Some Posted Check" in i.message]
+        assert len(issues) == 1, [i.render() for i in issues]
+
+    def test_does_not_accept_a_telemetry_input_of_a_posting_step(self, tmp_path: Path) -> None:
+        # A posting step's action input can mention another check for telemetry; that is
+        # not a producer. Only the name the call actually posts counts.
+        posting = (
+            "      - name: Post\n"
+            "        with:\n"
+            "          status-job: Some Posted Check\n"
+            '        run: gh api "repos/$REPO/check-runs" --method POST -f name="Other Check"'
+        )
+        workflow = _REQUIRED_WF.replace("      - run: echo hi", posting)
         wfs = _repo_with_snapshot(tmp_path, "Some Posted Check\n", workflow)
         issues = [i for i in RequiredStatusChecksCheck().run(wfs).issues if "Some Posted Check" in i.message]
         assert len(issues) == 1, [i.render() for i in issues]

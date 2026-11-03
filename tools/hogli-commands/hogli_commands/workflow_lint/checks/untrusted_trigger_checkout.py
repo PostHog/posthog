@@ -18,11 +18,26 @@ plumb one stays on the reader.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 from ..check import CheckResult, Issue, WorkflowCheck
 from ..model import Workflow
 
-TRUSTED_CONTEXT_TRIGGERS = frozenset({"pull_request_target", "issue_comment", "workflow_run", "issues"})
+TRUSTED_CONTEXT_TRIGGERS = frozenset(
+    {
+        "pull_request_target",
+        "issue_comment",
+        "issues",
+        "workflow_run",
+        # Review events run in the base repository with the base token and expose
+        # `pull_request.head.*`, so a checkout there reaches the fork head just as
+        # `pull_request_target` does. WF015 already lists both as untrusted.
+        "pull_request_review",
+        "pull_request_review_comment",
+        "discussion",
+        "discussion_comment",
+    }
+)
 
 HEAD_REF = re.compile(
     r"github\.event\.pull_request\.head\.(sha|ref|label)"
@@ -30,14 +45,16 @@ HEAD_REF = re.compile(
     r"|github\.head_ref"
     r"|github\.event\.issue\.pull_request"
     r"|github\.event\.workflow_run\.(head_sha|head_branch|head_repository|pull_requests)"
-    r"|refs/pull/[\w.${{ }}\[\]-]*/(head|merge)"
+    r"|refs/pull/[\w.${{ }}\[\]-]*/(head|merge)",
+    re.IGNORECASE,
 )
 
 # A checkout of another repository's ref runs that repository's code, so pointing
 # one at the fork's head is the same escape as a head `ref:`.
 FORK_REPOSITORY = re.compile(
     r"github\.event\.workflow_run\.head_repository"
-    r"|github\.event\.pull_request\.head\.repo"
+    r"|github\.event\.pull_request\.head\.repo",
+    re.IGNORECASE,
 )
 
 
@@ -48,6 +65,32 @@ def _triggers(wf: Workflow) -> set[str]:
     if isinstance(triggers, (list, dict)):
         return {t for t in triggers if isinstance(t, str)}
     return set()
+
+
+def _reachable_jobs(wf: Workflow, workflows: list[Workflow]) -> list[tuple[object, list, str | None]]:
+    """Every (job, steps, called_from) this workflow can execute, following local calls."""
+    reached: list[tuple[object, list, str | None]] = []
+    for job in wf.jobs:
+        reached.append((job, job.steps, None))
+        if not job.is_reusable_call:
+            continue
+        callee = _local_callee(job.uses or "", workflows)
+        if callee is None:
+            continue
+        for callee_job in callee.jobs:
+            reached.append((job, callee_job.steps, callee.path.name))
+    return reached
+
+
+def _local_callee(uses: str, workflows: list[Workflow]) -> Workflow | None:
+    """The parsed callee of a `./.github/workflows/x.yml` call, if it is in this page."""
+    if not uses.startswith("./"):
+        return None
+    target = Path(uses[2:]).as_posix()
+    for candidate in workflows:
+        if candidate.path.as_posix().endswith(target):
+            return candidate
+    return None
 
 
 class UntrustedTriggerCheckoutCheck(WorkflowCheck):
@@ -67,8 +110,12 @@ class UntrustedTriggerCheckoutCheck(WorkflowCheck):
         for wf in workflows:
             if not (_triggers(wf) & TRUSTED_CONTEXT_TRIGGERS):
                 continue
-            for job in wf.jobs:
-                for step in job.steps:
+            # A trusted-trigger workflow reaches a checkout two ways: directly, or
+            # through a local reusable workflow it calls. The callee has no trigger of
+            # its own (`workflow_call`), so it never matches the filter above and would
+            # otherwise escape the rule. Follow the call and inspect its steps too.
+            for job, steps, via in _reachable_jobs(wf, workflows):
+                for step in steps:
                     uses = (step.uses or "").lower()
                     if "checkout" not in uses:
                         continue
@@ -81,6 +128,8 @@ class UntrustedTriggerCheckoutCheck(WorkflowCheck):
                         message = f"checkout repository resolves to the contributor's fork: {repository.strip()}"
                     else:
                         continue
+                    if via is not None:
+                        message = f"{message} (in the reusable workflow {via} this job calls)"
                     result.issues.append(
                         Issue(
                             workflow=wf.path.name,
