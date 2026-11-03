@@ -1644,6 +1644,11 @@
         "params": ["categoryTab"],
         "scope": "project"
     },
+    "slackAppWorkspaceSetup": {
+        "template": "/integrations/slack/{integrationId}/setup",
+        "params": ["integrationId"],
+        "scope": "project"
+    },
     "slackTaskContext": {
         "template": "/slack-task-context",
         "params": [],

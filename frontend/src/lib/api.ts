@@ -345,6 +345,13 @@ export class RecordingDeletedError extends Error {
     }
 }
 
+function asRecordingDeletedError(e: unknown): unknown {
+    if (e instanceof ApiError && e.status === 410 && e.data?.error === 'recording_deleted') {
+        return new RecordingDeletedError(e.data?.deleted_at ?? null, e.data?.deleted_by ?? null)
+    }
+    return e
+}
+
 const CSRF_COOKIE_NAME = 'posthog_csrftoken'
 
 export function getCookie(name: string): string | null {
@@ -4383,7 +4390,11 @@ const api = {
             recordingId: SessionRecordingType['id'],
             headers: Record<string, string> = {}
         ): Promise<SessionRecordingSnapshotResponse> {
-            return await new ApiRequest().recording(recordingId).withAction('snapshots').get({ headers })
+            try {
+                return await new ApiRequest().recording(recordingId).withAction('snapshots').get({ headers })
+            } catch (e) {
+                throw asRecordingDeletedError(e)
+            }
         },
 
         async getSnapshots(
@@ -4399,10 +4410,7 @@ const api = {
                     .withQueryString(params)
                     .getResponse({ headers })
             } catch (e) {
-                if (e instanceof ApiError && e.status === 410 && e.data?.error === 'recording_deleted') {
-                    throw new RecordingDeletedError(e.data?.deleted_at ?? null, e.data?.deleted_by ?? null)
-                }
-                throw e
+                throw asRecordingDeletedError(e)
             }
 
             const contentBuffer = new Uint8Array(await response.arrayBuffer())

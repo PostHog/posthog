@@ -901,6 +901,68 @@ class SharingTokenReplayThrottle(SimpleRateThrottle):
         return False
 
 
+class _SnapshotUserRateThrottle(SimpleRateThrottle):
+    """Per-user cap on blob fetches from a browser session or an OAuth token.
+
+    The view checks it only for blob fetches, not through throttle_classes, so listing sources never uses quota.
+    It does not reuse the shared user-bucket throttle, because that one counts every refusal in the global
+    rate_limit_exceeded metrics, which log-only mode would fill with requests it never blocked.
+    """
+
+    scope: str
+    rate_setting: str
+
+    def __init__(self) -> None:
+        # Read at instantiation so override_settings takes effect.
+        self.rate = getattr(settings, self.rate_setting)
+        super().__init__()
+
+    def get_cache_key(self, request, view) -> str | None:
+        if not request.user or not request.user.is_authenticated:
+            return None
+        return self.cache_format % {"scope": self.scope, "ident": request.user.pk}
+
+    def allow_request(self, request, view) -> bool:
+        try:
+            return self._allow_request(request, view)
+        except Exception as e:
+            # The quota protects storage, not access, so a cache outage must not stop playback.
+            capture_exception(e, {"location": "snapshot_user_rate_throttle", "scope": self.scope})
+            return True
+
+    def _allow_request(self, request, view) -> bool:
+        if not is_rate_limit_enabled(round(time.time() / 60)):
+            return True
+        team_id = PersonalApiKeyRateThrottle.safely_get_team_id_from_view(view)
+        if team_id is not None and team_is_allowed_to_bypass_throttle(team_id):
+            return True
+        if super().allow_request(request, view):
+            return True
+        enforced = settings.SNAPSHOT_USER_RATE_LIMIT_ENFORCED
+        location = self.scope if enforced else f"{self.scope}_log_only"
+        _count_session_recording_throttled(location=location, auth_type=_request_auth_type(request))
+        # A client over the limit stays over it for every later request, so log once a minute per user, not per request.
+        if cache.add(f"{self.scope}_logged:{request.user.pk}", 1, timeout=60):
+            logger.info(
+                "snapshot_user_rate_limit_exceeded",
+                scope=self.scope,
+                enforced=enforced,
+                user_id=request.user.pk,
+                team_id=team_id,
+            )
+        return not enforced
+
+
+class SnapshotsUserBurstRateThrottle(_SnapshotUserRateThrottle):
+    scope = "snapshots_user_burst"
+    rate_setting = "SNAPSHOT_USER_RATE_BURST"
+
+
+class SnapshotsUserSustainedRateThrottle(_SnapshotUserRateThrottle):
+    scope = "snapshots_user_sustained"
+    rate_setting = "SNAPSHOT_USER_RATE_SUSTAINED"
+
+
 def _length_prefix_blocks(blocks: list[bytes]) -> bytes:
     chunks = []
     for block in blocks:
@@ -1569,6 +1631,12 @@ class SessionRecordingViewSet(
         try:
             response: Response | HttpResponse
             if source == "blob_v2" and "min_blob_key" in validated_data:
+                # The tier limits cover only personal API keys, so cap browser sessions and OAuth agents here. Exports and
+                # ID-JAG tokens also resolve to a real user, but they must not share that user's quota.
+                if isinstance(request.successful_authenticator, SessionAuthentication | OAuthAccessTokenAuthentication):
+                    for throttle in (SnapshotsUserBurstRateThrottle(), SnapshotsUserSustainedRateThrottle()):
+                        if not throttle.allow_request(request, self):
+                            raise Throttled(wait=throttle.wait())
                 response = self._stream_blob_v2_to_client(
                     recording,
                     timer,
@@ -1581,7 +1649,7 @@ class SessionRecordingViewSet(
 
             response.headers["Server-Timing"] = timer.to_header_string()
             return response
-        except NotFound:
+        except (NotFound, Throttled):
             raise
         except RecordingDeletedError as e:
             logger.info(
@@ -1678,7 +1746,8 @@ class SessionRecordingViewSet(
 
         with _OTEL_PLAYBACK.timed_histogram_twin(GATHER_RECORDING_SOURCES_HISTOGRAM, {"blob_version": "v2"}):
             with timer("list_blocks__gather_session_recording_sources"):
-                blocks = list_blocks(recording)
+                # Uncached, so a recording deleted a moment ago fails here before the player asks for any block.
+                blocks = list_blocks(recording, use_cache=False)
 
             for i, block in enumerate(blocks):
                 sources.append(
