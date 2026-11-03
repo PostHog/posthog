@@ -8,6 +8,7 @@ import {
 } from '~/ingestion/pipelines/sessionreplay'
 
 import { AdmittedBatch } from './batch-stages'
+import { SessionRecordingIngesterMetrics } from './metrics'
 import { splitByDecodedBytes } from './parse-message-step'
 import { BatchCommitter, StagedBatchRunner } from './staged-batch'
 
@@ -33,7 +34,11 @@ export class SessionReplayPipelineRunner implements StagedBatchRunner {
     public run(messages: Message[], batch: AdmittedBatch<void>, committer: BatchCommitter): Promise<void> {
         return batch
             .stage('ingest', async () => {
-                for (const part of splitByDecodedBytes(messages, this.maxDecodedBytesPerWrite)) {
+                const parts = splitByDecodedBytes(messages, this.maxDecodedBytesPerWrite)
+                if (this.maxDecodedBytesPerWrite > 0) {
+                    SessionRecordingIngesterMetrics.observeKafkaBatchWriteParts(parts.length)
+                }
+                for (const part of parts) {
                     await committer.commit((recorder) =>
                         runSessionReplayPipeline(this.pipeline, part, recorder, this.scheduler)
                     )
