@@ -3,6 +3,8 @@ import {
     MonthlySaving,
     SavingHighlight,
     MainSavingKind,
+    SavingSplit,
+    SummarySavings,
     UNKNOWN_SOURCES_CAVEAT,
     dataAgeLabel,
     materializeHighlight,
@@ -11,6 +13,7 @@ import {
     savingSentence,
     suggestedScheduleHint,
     summarySavings,
+    unmaterializeHighlight,
     todayAgeLabel,
 } from './suggestionCopy'
 
@@ -92,7 +95,7 @@ describe('suggestionCopy', () => {
                 amount: '~2 hours',
                 detail: 'less waiting',
                 narrowLabel: 'less waiting a month',
-                tooltip: ['Refreshing costs ~1 hour of background work a month', '~3.20 TB less scanned a month'],
+                tooltip: ['~1 hour more background work a month', '~3.20 TB less scanned a month'],
             },
         ],
         [
@@ -145,14 +148,51 @@ describe('suggestionCopy', () => {
         }
     )
 
-    it('leads the summary with waiting and lists the other savings without adding them up', () => {
-        expect(
-            summarySavings({ views: 2, saving: { seconds: 11 * HOUR, bytes: 3.2 * TB }, waitingSeconds: 2 * HOUR })
-        ).toEqual({
-            waiting: '~2 hours',
-            headline: null,
-            detail: 'Also ~9 hours less background work and ~3.20 TB less scanned, across 2 views',
-        })
+    it.each<[string, SavingSplit, number, SummarySavings]>([
+        [
+            'both kinds of time are saved',
+            { waiting: 2 * HOUR, background: 9 * HOUR },
+            3.2 * TB,
+            {
+                waiting: '~2 hours',
+                headline: null,
+                detail: 'Also ~9 hours less background work and ~3.20 TB less scanned, across 2 views',
+            },
+        ],
+        [
+            'refreshes cost more background time than they save',
+            { waiting: 2 * HOUR, background: -3 * HOUR },
+            0,
+            { waiting: '~2 hours', headline: null, detail: 'Also ~3 hours more background work, across 2 views' },
+        ],
+        [
+            'stopping a materialization adds more waiting than the rest saves',
+            { waiting: -10 * 60, background: 2 * HOUR },
+            0,
+            {
+                waiting: null,
+                headline: '~10 minutes more waiting and ~2 hours less background work a month',
+                detail: 'Across 2 views',
+            },
+        ],
+    ])('states each kind of time in the summary on its own when %s', (_name, split, bytes, expected) => {
+        expect(summarySavings({ views: 2, saving: { seconds: 0, bytes }, split })).toEqual(expected)
+    })
+
+    it('names the read time a stopped materialization adds as a sentence of its own', () => {
+        const stop = {
+            subject_name: 'orders',
+            refresh_seconds_per_month: 5400,
+            refresh_bytes_per_month: 4 * TB,
+            live_seconds_per_month: 900,
+            live_bytes_per_month: TB,
+            read_seconds: 3.6,
+        }
+
+        expect(unmaterializeHighlight(stop).tooltip).toEqual([
+            '~3.00 TB less scanned a month',
+            'Without the stored copy, reads would take ~15 minutes a month',
+        ])
     })
 
     it.each<[Parameters<typeof suggestedScheduleHint>[0], string]>([

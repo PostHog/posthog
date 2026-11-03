@@ -543,7 +543,7 @@ describe('warehouseSuggestionsLogic', () => {
         expect(logic.values.savingsSummary).toEqual({
             views: 3,
             saving: { seconds: 3000, bytes: 5e12 },
-            waitingSeconds: null,
+            split: null,
         })
     })
 

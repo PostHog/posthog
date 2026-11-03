@@ -55,7 +55,12 @@ export interface SurfaceSegment {
 export interface SavingsSummary {
     views: number
     saving: MonthlySaving
-    waitingSeconds: number | null
+    split: SavingSplit | null
+}
+
+export interface SavingSplit {
+    waiting: number
+    background: number
 }
 
 export interface BannerSaving {
@@ -113,8 +118,16 @@ export function materializeSaving(payload: WarehouseSuggestionMaterializePayload
     return { seconds: payload.saves_seconds_per_month, bytes: payload.saves_bytes_per_month }
 }
 
-export function waitingSaving(payload: WarehouseSuggestionApi['payload']): number | null {
-    return isMaterializePayload(payload) ? (payload.waiting_seconds_saved_per_month ?? null) : 0
+export function savingSplit(payload: WarehouseSuggestionApi['payload']): SavingSplit | null {
+    if (isUnmaterializePayload(payload)) {
+        return { waiting: -payload.live_seconds_per_month, background: payload.refresh_seconds_per_month }
+    }
+    if (!isMaterializePayload(payload)) {
+        return null
+    }
+    const waiting = payload.waiting_seconds_saved_per_month
+    const background = payload.background_seconds_saved_per_month
+    return waiting == null || background == null ? null : { waiting, background }
 }
 
 export function unmaterializeSaving(payload: WarehouseSuggestionUnmaterializePayloadApi): MonthlySaving {
@@ -216,7 +229,7 @@ export function materializeHighlight(payload: WarehouseSuggestionMaterializePayl
     }
     return headlineHighlight(
         main,
-        MAIN_SAVING_KINDS.filter((kind) => kind !== main.kind).map((kind) => notes[kind])
+        MAIN_SAVING_KINDS.filter((kind) => kind !== main.kind).map((kind) => perMonth(notes[kind]))
     )
 }
 
@@ -224,9 +237,9 @@ export function unmaterializeHighlight(payload: WarehouseSuggestionUnmaterialize
     const saving = unmaterializeSaving(payload)
     const main = timeOrBytes(saving, 'background')
     return headlineHighlight(main, [
-        main.kind === 'scanned' ? backgroundText(saving.seconds) : scannedText(saving.bytes),
+        perMonth(main.kind === 'scanned' ? backgroundText(saving.seconds) : scannedText(saving.bytes)),
         payload.live_seconds_per_month >= MIN_SECONDS_WORTH_NAMING
-            ? `Reads would take ~${spokenDuration(payload.live_seconds_per_month, 1)} without the stored copy`
+            ? `Without the stored copy, reads would take ~${spokenDuration(payload.live_seconds_per_month, 1)} a month`
             : null,
     ])
 }
@@ -237,26 +250,23 @@ export function materializeSavingLines(payload: WarehouseSuggestionMaterializePa
 }
 
 export function summarySavings(summary: SavingsSummary): SummarySavings | null {
-    if (summary.waitingSeconds === null) {
+    if (!summary.split) {
         return null
     }
-    const waiting = waitingText(summary.waitingSeconds) ? `~${spokenDuration(summary.waitingSeconds, 1)}` : null
-    const others = [
-        backgroundText(Math.max(0, summary.saving.seconds - summary.waitingSeconds)),
-        scannedText(summary.saving.bytes),
-    ].filter(isNotNil)
-    if (!waiting && others.length === 0) {
-        return null
-    }
+    const { waiting, background } = summary.split
     const views = countOf(summary.views, 'view', 'views')
-    if (!waiting) {
-        return { waiting: null, headline: `${others.join(' and ')} a month`, detail: `Across ${views}` }
+    const others = [backgroundText(background), scannedText(summary.saving.bytes)].filter(isNotNil)
+    if (waiting >= MIN_SECONDS_WORTH_NAMING) {
+        return {
+            waiting: `~${spokenDuration(waiting, 1)}`,
+            headline: null,
+            detail: others.length > 0 ? `Also ${others.join(' and ')}, across ${views}` : `Across ${views}`,
+        }
     }
-    return {
-        waiting,
-        headline: null,
-        detail: others.length > 0 ? `Also ${others.join(' and ')}, across ${views}` : `Across ${views}`,
-    }
+    const parts = [waitingText(waiting), ...others].filter(isNotNil)
+    return parts.length > 0
+        ? { waiting: null, headline: `${parts.join(' and ')} a month`, detail: `Across ${views}` }
+        : null
 }
 
 export function bannerSavings(summary: SavingsSummary): BannerSaving[] {
@@ -291,22 +301,27 @@ function headlineHighlight(main: MainSaving, notes: (string | null)[]): SavingHi
         amount: `~${amount}`,
         detail: label,
         narrowLabel: `${label} a month`,
-        tooltip: notes.filter(isNotNil).map((note) => `${note} a month`),
+        tooltip: notes.filter(isNotNil),
     }
+}
+
+function perMonth(text: string | null): string | null {
+    return text && `${text} a month`
 }
 
 function waitingText(seconds: number): string | null {
-    return seconds >= MIN_SECONDS_WORTH_NAMING ? `~${spokenDuration(seconds, 1)} less waiting` : null
+    return changeText(seconds, 'waiting')
 }
 
 function backgroundText(seconds: number): string | null {
-    if (seconds >= MIN_SECONDS_WORTH_NAMING) {
-        return `~${spokenDuration(seconds, 1)} less background work`
+    return changeText(seconds, 'background work')
+}
+
+function changeText(seconds: number, noun: string): string | null {
+    if (Math.abs(seconds) < MIN_SECONDS_WORTH_NAMING) {
+        return null
     }
-    if (seconds <= -MIN_SECONDS_WORTH_NAMING) {
-        return `Refreshing costs ~${spokenDuration(-seconds, 1)} of background work`
-    }
-    return null
+    return `~${spokenDuration(Math.abs(seconds), 1)} ${seconds > 0 ? 'less' : 'more'} ${noun}`
 }
 
 function scannedText(bytes: number): string | null {

@@ -54,7 +54,7 @@ import {
     mainSaving,
     monthlySaving,
     notNowCondition,
-    waitingSaving,
+    savingSplit,
 } from './suggestionCopy'
 
 export type StripState = 'loading' | 'error' | 'hidden' | 'warming_up' | 'not_eligible' | 'active' | 'all_done'
@@ -631,16 +631,22 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                 (open: WarehouseSuggestionApi[]): SavingsSummary => {
                     const savings = open.flatMap(({ payload }) => {
                         const saving = monthlySaving(payload)
-                        return saving ? [{ saving, waiting: waitingSaving(payload) }] : []
+                        return saving ? [{ saving, split: savingSplit(payload) }] : []
                     })
-                    const waiting = savings.map((entry) => entry.waiting)
+                    const splits = savings.map((entry) => entry.split).filter(isNotNil)
                     return {
                         views: savings.length,
                         saving: {
                             seconds: sum(savings.map((entry) => entry.saving.seconds)),
                             bytes: sum(savings.map((entry) => entry.saving.bytes)),
                         },
-                        waitingSeconds: waiting.includes(null) ? null : sum(waiting.filter(isNotNil)),
+                        split:
+                            splits.length === savings.length
+                                ? {
+                                      waiting: sum(splits.map((split) => split.waiting)),
+                                      background: sum(splits.map((split) => split.background)),
+                                  }
+                                : null,
                     }
                 },
             ],
