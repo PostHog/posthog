@@ -150,6 +150,9 @@ Both runners skip the dimensional tables when the rows cannot match the live res
 - The current or compare period does not start on a UTC hour boundary, or ends inside an hour before now.
 - Either period starts at or before the events retention floor.
 - The team has custom channel rules and the query breaks down or filters by channel type.
+- The request overrides a bounce or session modifier (`DIMENSIONAL_SEMANTIC_MODIFIER_FIELDS`) with a value the team's builds do not use.
+
+The jobs' identity includes the team's values of those modifiers. A change to the team's bounce or session settings gives new jobs, so reads fall back until the writer rebuilds the window.
 
 The dimensional tables subclass `EventsRetentionTable`, as `events` does. The printer floors every read of them at the events retention floor on `period_bucket`, so a direct HogQL query cannot read rows past retention either. A new table that stores aggregates of events should subclass it too.
 

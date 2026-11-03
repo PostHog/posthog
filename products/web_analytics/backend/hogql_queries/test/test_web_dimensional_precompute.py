@@ -140,6 +140,28 @@ class TestWebDimensionalPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert jobs_after_second == jobs_after_first
         assert set(second.job_ids) == set(first.job_ids)
 
+    @parameterized.expand(
+        [
+            ("bounce_duration", {"bounceRateDurationSeconds": 30}),
+            ("bounce_page_view_mode", {"bounceRatePageViewMode": "uniq_urls"}),
+            ("sessions_join_mode", {"sessionsV2JoinMode": "string"}),
+        ]
+    )
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
+    def test_a_team_settings_change_misses_the_existing_jobs(self, _name: str, team_modifiers: dict):
+        self._seed_two_sessions()
+        built = ensure_web_bounces_dimensional_precomputed(self.team, WINDOW_START, WINDOW_END)
+        assert built.ready
+
+        self.team.modifiers = team_modifiers
+        self.team.save()
+        after_change = ensure_web_bounces_dimensional_precomputed(
+            self.team, WINDOW_START, WINDOW_END, run_inserts=False
+        )
+
+        assert not after_change.ready
+        assert after_change.job_ids == []
+
     @parameterized.expand([("UTC",), ("Pacific/Honolulu",), ("Asia/Tokyo",)])
     def test_current_utc_day_refreshes_hourly_in_any_team_timezone(self, timezone: str):
         # 16:00 UTC is after local midnight in both non-UTC zones, so team-timezone TTL bands would

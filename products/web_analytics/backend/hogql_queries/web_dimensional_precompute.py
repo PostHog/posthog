@@ -22,6 +22,7 @@ Parity with v2 is intentional, with two deliberate deviations:
     NULL, so they fit the non-nullable Int64 columns deterministically.
 """
 
+import json
 from datetime import datetime
 from uuid import UUID
 
@@ -345,8 +346,9 @@ DIMENSIONAL_INSERT_SETTINGS: dict[str, int | str] = {
 DIMENSIONAL_SESSION_BUFFER_MINUTES = 25 * 60
 
 
-# Modifier fields that change what the INSERTs store. Modifiers are not part of the job identity,
-# so a read whose values differ from the build's cannot use these jobs.
+# Modifier fields that change what the INSERTs store. The executor leaves modifiers out of the job
+# hash, so `dimensional_cache_key_context` adds these values to it: a team settings change gives new
+# jobs, and the old ones stop matching. A read whose values differ from the team's cannot use the jobs.
 DIMENSIONAL_SEMANTIC_MODIFIER_FIELDS: tuple[str, ...] = (
     "bounceRateDurationSeconds",
     "bounceRatePageViewMode",
@@ -361,6 +363,15 @@ def dimensional_insert_modifiers(team: Team) -> HogQLQueryModifiers:
     )
 
 
+def dimensional_cache_key_context(modifiers: HogQLQueryModifiers) -> dict[str, str]:
+    dump = modifiers.model_dump(mode="json")
+    return {
+        "semantic_modifiers": json.dumps(
+            {field: dump.get(field) for field in DIMENSIONAL_SEMANTIC_MODIFIER_FIELDS}, sort_keys=True
+        )
+    }
+
+
 def ensure_web_stats_dimensional_precomputed(
     team: Team,
     time_range_start: datetime,
@@ -368,6 +379,7 @@ def ensure_web_stats_dimensional_precomputed(
     run_inserts: bool = True,
     stale_while_revalidate_seconds: float | None = None,
 ) -> LazyComputationResult:
+    modifiers = dimensional_insert_modifiers(team)
     return ensure_precomputed(
         team=team,
         insert_query=STATS_INSERT_TEMPLATE,
@@ -382,7 +394,8 @@ def ensure_web_stats_dimensional_precomputed(
         run_inserts=run_inserts,
         stale_while_revalidate_seconds=stale_while_revalidate_seconds,
         insert_settings=DIMENSIONAL_INSERT_SETTINGS,
-        modifiers=dimensional_insert_modifiers(team),
+        modifiers=modifiers,
+        cache_key_context=dimensional_cache_key_context(modifiers),
     )
 
 
@@ -393,6 +406,7 @@ def ensure_web_bounces_dimensional_precomputed(
     run_inserts: bool = True,
     stale_while_revalidate_seconds: float | None = None,
 ) -> LazyComputationResult:
+    modifiers = dimensional_insert_modifiers(team)
     return ensure_precomputed(
         team=team,
         insert_query=BOUNCES_INSERT_TEMPLATE,
@@ -407,7 +421,8 @@ def ensure_web_bounces_dimensional_precomputed(
         run_inserts=run_inserts,
         stale_while_revalidate_seconds=stale_while_revalidate_seconds,
         insert_settings=DIMENSIONAL_INSERT_SETTINGS,
-        modifiers=dimensional_insert_modifiers(team),
+        modifiers=modifiers,
+        cache_key_context=dimensional_cache_key_context(modifiers),
     )
 
 
