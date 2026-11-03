@@ -1,6 +1,7 @@
 import { HogError } from '@/core/errors'
 import type { Runtime } from '@/core/runtime'
 import { USER_AGENT } from '@/posthog/api'
+import { hostUrl } from '@/posthog/host'
 import type { KeySession } from '@/posthog/key-session'
 
 import { contentHash } from './container'
@@ -151,10 +152,11 @@ export class SymbolSetClient {
         this.throttle = new Throttle(runtime, RATE_LIMIT_PER_MINUTE)
     }
 
-    // Project-scoped API URL, resolved the way posthog-cli's `Url::join` does.
+    // Project-scoped API URL. hostUrl keeps the path a self-hosted PostHog sits under, which
+    // posthog-cli's `Url::join` drops, and gives the same URL for a host without one.
     projectUrl(path: string): URL {
         const { projectId, host } = this.session.current
-        return new URL(path, new URL(`api/projects/${projectId}/`, host))
+        return new URL(path, hostUrl(host, `api/projects/${projectId}/`))
     }
 
     async api(method: 'GET' | 'POST', path: string, body?: unknown): Promise<unknown> {
