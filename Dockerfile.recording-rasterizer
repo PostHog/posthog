@@ -51,7 +51,9 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ENV BUILD_LIBRDKAFKA=0 \
     PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
-RUN npm install -g corepack@0.36.0
+# The base image ships standalone Yarn 1 links that block corepack's own yarn shims.
+RUN rm -rf /usr/local/bin/yarn /usr/local/bin/yarnpkg /opt/yarn-v* && \
+    npm install -g corepack@0.36.0
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
     corepack enable && \
     NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/nodejs... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
