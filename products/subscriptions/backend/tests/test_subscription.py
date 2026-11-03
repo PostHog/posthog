@@ -18,6 +18,7 @@ from rest_framework import status
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.constants import SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY, AvailableFeature
+from posthog.integrations import SOURCE_MARKER_CONFIG_KEY
 from posthog.models import Team
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
@@ -957,8 +958,14 @@ class TestSubscriptionTemporal(APILicensedTest):
         )
         assert res.status_code == status.HTTP_201_CREATED
 
-    def test_cannot_create_slack_subscription_with_non_slack_integration(self):
-        integration = Integration.objects.create(team=self.team, kind="hubspot", config={})
+    @parameterized.expand(
+        [
+            ("non_slack_kind", "hubspot", {}),
+            ("warehouse_source_row", "slack", {SOURCE_MARKER_CONFIG_KEY: "Slack"}),
+        ]
+    )
+    def test_cannot_create_slack_subscription_with_unusable_integration(self, _name, kind, config):
+        integration = Integration.objects.create(team=self.team, kind=kind, config=config)
 
         response = self._create_subscription(
             target_type="slack",
@@ -966,7 +973,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             integration_id=integration.id,
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "require a Slack integration" in response.json()["detail"]
+        assert "does not exist or does not belong to your team" in response.json()["detail"]
 
     def test_can_create_teams_subscription_with_a_webhook_url(self):
         response = self._create_subscription(target_type="teams", target_value=VALID_TEAMS_WEBHOOK_URL)
@@ -2813,6 +2820,22 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         back = self.client.get(body2["previous"])
         assert back.status_code == status.HTTP_200_OK
         assert [row["id"] for row in back.json()["results"]] == [row["id"] for row in body["results"]]
+
+        # Rows that share the cursor value need a stable order, or a page boundary skips or repeats them.
+        self._create_delivery(idempotency_key="page-d")
+        self._create_delivery(idempotency_key="page-e")
+        SubscriptionDelivery.objects.filter(subscription=self.subscription).update(
+            created_at=datetime(2024, 1, 1, tzinfo=UTC)
+        )
+        pages = [self.client.get(base).json()]
+        # Bounded, so a cursor that never advances fails instead of hanging.
+        while pages[-1]["next"] and len(pages) <= 5:
+            pages.append(self.client.get(pages[-1]["next"]).json())
+        assert [page["count"] for page in pages] == [5, 5, 5]
+        listed = [row["id"] for page in pages for row in page["results"]]
+        assert sorted(listed) == sorted(
+            str(d.id) for d in SubscriptionDelivery.objects.filter(subscription=self.subscription)
+        )
 
     def test_summaries_list_completed_summaries_across_subscriptions_on_the_source(self):
         second_subscription = Subscription.objects.create(

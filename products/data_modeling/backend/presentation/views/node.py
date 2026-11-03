@@ -10,8 +10,8 @@ from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema
 from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied
-from rest_framework.pagination import PageNumberPagination
 
+from posthog.api.pagination import BoundedPageNumberPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
@@ -399,7 +399,7 @@ def _log_cadence_change(
     )
 
 
-class NodePagination(PageNumberPagination):
+class NodePagination(BoundedPageNumberPagination):
     page_size = 1000
 
 

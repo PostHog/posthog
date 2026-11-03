@@ -71,7 +71,6 @@ import { EmailTrackingService } from './services/messaging/email-tracking.servic
 import { EmailValidationService } from './services/messaging/email-validation.service'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
-import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
 import {
     HogWatcherService,
     HogWatcherState,
@@ -203,7 +202,6 @@ export class CdpApi {
     private emailSuppressionService: EmailSuppressionService
     private emailValidationService: EmailValidationService
     private teamWorkflowsConfigService: TeamWorkflowsConfigService
-    private hogFunctionMonitoringService: HogFunctionMonitoringService
     private emailStatusService: EmailStatusService
     private resumeBatchJwt: ScopedServiceJwt
 
@@ -245,7 +243,6 @@ export class CdpApi {
             jobQueues,
             new IdempotencyKeys(deps.idempotencyValkey ?? null, 'workflow-webhook')
         )
-        this.hogFunctionMonitoringService = services.hogFunctionMonitoringService
         this.emailTrackingService = new EmailTrackingService(
             this.hogFunctionManager,
             this.hogFlowManager,
@@ -1181,6 +1178,17 @@ export class CdpApi {
             stages.start('validate')
             const parsed = TransactionalEmailRequestSchema.safeParse(req.body)
             if (!parsed.success) {
+                const issues = parsed.error.issues
+                // Signup accepts some addresses this check refuses, and no retry can fix an address.
+                if (issues.every((issue) => issue.path[0] === 'to' && issue.code === 'invalid_format')) {
+                    return reply('recipient_unreachable', 422, { error: 'recipient_unreachable' })
+                }
+                // Paths and codes only: the values include the recipient's address.
+                logger.warn('⚠️', 'Transactional email request failed validation', {
+                    team_id: req.params.team_id,
+                    hog_flow_id: req.params.id,
+                    issues: issues.map((issue) => ({ path: issue.path.join('.'), code: issue.code })),
+                })
                 return reply('invalid_request', 400, { error: parsed.error.message })
             }
             const { to, distinct_id: distinctId, variables, idempotency_key: idempotencyKey } = parsed.data
@@ -1221,6 +1229,9 @@ export class CdpApi {
             const filterGlobals = convertToHogFunctionFilterGlobal({ event, person: undefined, groups: {}, variables })
 
             const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
+            // The run skips the trigger pipeline that counts runs for event-triggered workflows, so the email
+            // worker counts it instead.
+            invocation.state.triggerMetricPending = true
             // Straight to the email queue: the flow's only step is the email, so a hop through the
             // workflow queue would only add latency to a password reset or a verification code.
             const priorityClass: EmailQueuePriorityClass = 'fast'
@@ -1282,24 +1293,15 @@ export class CdpApi {
             }
             stages.start('metrics_flush')
             this.emailStatusService.queue({ teamId: team.id, messageId: invocation.id, status: 'queued' })
-            // Flushed together, and bounded, so the best-effort status row can't hold up the 202.
-            await Promise.all([
-                this.invocationResultsService.invocationResultsRowsService.flush(),
-                this.emailStatusService.flush(),
-            ])
-            // The run skips the trigger pipeline that counts runs for event-triggered workflows.
-            this.hogFunctionMonitoringService.queueAppMetric(
-                {
-                    team_id: team.id,
-                    app_source_id: hogFlow.id,
-                    metric_kind: 'other',
-                    metric_name: 'triggered',
-                    count: 1,
-                    app_source_version: { id: hogFlow.id, version: hogFlow.version },
-                },
-                'hog_flow'
-            )
-            await this.hogFunctionMonitoringService.flush()
+            // Best-effort rows, so the 202 waits for the hand-off to Kafka (flushed on shutdown) but not the acks.
+            const warnTelemetryFlushFailed = (error: unknown) =>
+                logger.warn('⚠️', 'Transactional email telemetry flush failed', {
+                    error: error instanceof Error ? error.message : String(error),
+                    invocation_id: invocation.id,
+                })
+            void this.emailStatusService.flush().catch(warnTelemetryFlushFailed)
+            const { produced } = await this.invocationResultsService.invocationResultsRowsService.handOffQueuedRows()
+            void produced.catch(warnTelemetryFlushFailed)
 
             return reply('queued', 202, { status: 'queued', invocation_id: invocation.id, replayed: false })
         } catch (e) {

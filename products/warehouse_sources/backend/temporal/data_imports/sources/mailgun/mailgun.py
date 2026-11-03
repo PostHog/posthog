@@ -1,3 +1,4 @@
+import re
 import time
 import dataclasses
 from collections import Counter
@@ -84,6 +85,12 @@ LOGS_PAGE_SIZE = 100
 # Mailgun keeps logs for its plan's event retention, at most 30 days on standard plans, so a
 # full refresh asks for the longest window any account can still hold.
 LOGS_LOOKBACK_DAYS = 30
+# Plans with shorter retention reject a window starting before it with a 400 naming the earliest
+# time the account still holds, so the window is narrowed to that time instead of failing the sync.
+# The time uses Go's default format, which adds fractional seconds only when they are non-zero.
+LOGS_RETENTION_ERROR_PATTERN = re.compile(
+    r"before log retention time (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})(\.\d+)? ([+-]\d{4})"
+)
 
 
 class MailgunRetryableError(Exception):
@@ -668,6 +675,22 @@ def _logs_request_body(start: datetime, end: datetime, token: Optional[str]) -> 
     }
 
 
+def _logs_retention_start(error: requests.HTTPError) -> Optional[datetime]:
+    response = error.response
+    if response is None or response.status_code != 400:
+        return None
+    match = LOGS_RETENTION_ERROR_PATTERN.search(response.text)
+    if match is None:
+        return None
+    whole_seconds, fraction, offset = match.groups()
+    retention_start = datetime.strptime(f"{whole_seconds} {offset}", "%Y-%m-%d %H:%M:%S %z").astimezone(UTC)
+    # The request sends whole seconds, so a fractional retention time rounds up. Rounding down would
+    # send a start just before the retention time, and Mailgun would reject it again.
+    if fraction:
+        retention_start += timedelta(seconds=1)
+    return retention_start
+
+
 def get_logs_rows(
     api_key: str,
     region: str,
@@ -699,7 +722,20 @@ def get_logs_rows(
     seen_tokens: set[str] = set()
 
     while start < end:
-        data = _fetch_page(url, api_key, logger, json_body=_logs_request_body(start, end, token))
+        try:
+            data = _fetch_page(url, api_key, logger, json_body=_logs_request_body(start, end, token))
+        except requests.HTTPError as error:
+            retention_start = _logs_retention_start(error)
+            # Requiring the start to move forward means a repeated rejection can't loop forever.
+            if retention_start is None or retention_start <= start:
+                raise
+            logger.info(
+                f"Mailgun: narrowing {LOGS_ENDPOINT} to the account's log retention, starting at {retention_start}"
+            )
+            # A page token only belongs to the window that issued it.
+            start, token = min(retention_start, end), None
+            seen_tokens.clear()
+            continue
         items = data.get("items") or []
         next_token = (data.get("pagination") or {}).get("next")
         if token is not None:

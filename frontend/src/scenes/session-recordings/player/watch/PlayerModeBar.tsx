@@ -25,10 +25,11 @@ import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSett
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { PlayerShareMenu } from 'scenes/session-recordings/player/share/PlayerShareMenu'
 import { playerSidebarLogic } from 'scenes/session-recordings/player/sidebar/playerSidebarLogic'
+import { useLinkedIssuesAvailable } from 'scenes/session-recordings/player/sidebar/useLinkedIssuesAvailable'
 
 import { SessionRecordingSidebarTab } from '~/types'
 
-import { DEBUG_TAB_KEYS } from './DebugTabBar'
+import { debugTabKeys } from './DebugTabBar'
 
 type PlayerMode = 'watch' | 'debug'
 
@@ -41,13 +42,14 @@ export function PlayerModeBar(): JSX.Element {
     const { activeTab } = useValues(playerSidebarLogic)
     const { setTab } = useActions(playerSidebarLogic)
     const chromeItems = usePlayerChromeMenuItems()
+    const debugTabs = debugTabKeys(useLinkedIssuesAvailable())
     const { ref, size } = useResizeBreakpoints({ 0: 'small', 600: 'normal' })
 
     const mode: PlayerMode = debugMode ? 'debug' : 'watch'
     const setMode = (next: PlayerMode): void => {
         posthog.capture('session recording mode changed', { mode: next })
         setDebugMode(next === 'debug')
-        if (next === 'debug' && !DEBUG_TAB_KEYS.includes(activeTab)) {
+        if (next === 'debug' && !debugTabs.includes(activeTab)) {
             setTab(SessionRecordingSidebarTab.INSPECTOR)
         }
     }

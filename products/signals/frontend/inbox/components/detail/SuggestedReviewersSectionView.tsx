@@ -22,22 +22,30 @@ export function SuggestedReviewersSectionView({
     claim?: ReviewerClaim
 }): JSX.Element {
     return (
-        <DetailSection icon={<IconPeople />} title="Suggested reviewers" collapsible>
+        <DetailSection
+            icon={<IconPeople />}
+            title="Suggested reviewers"
+            collapsible
+            afterTitle={
+                <Tooltip title="PostHog uses these suggestions to route the report. Add reviewers on the pull request to request a GitHub review.">
+                    {/* The header is the collapse toggle, so a click on the icon must not collapse the section. */}
+                    <span
+                        className="flex cursor-help items-center text-sm text-tertiary"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <IconInfo />
+                    </span>
+                </Tooltip>
+            }
+        >
             {reviewers.length === 0 ? (
                 <p className="m-0 text-xs text-tertiary">No suggested reviewers yet.</p>
             ) : (
                 <SuggestedReviewersList reviewers={reviewers} disabled={disabled} onRemove={onRemove} claim={claim} />
             )}
-            <div className="mt-3 flex items-center justify-between gap-2">
-                <Tooltip title="PostHog uses these suggestions to route the report. Add reviewers on the pull request to request a GitHub review.">
-                    <span className="flex cursor-help items-center text-base text-tertiary">
-                        <IconInfo />
-                    </span>
-                </Tooltip>
-                <div className="flex items-center gap-2">
-                    {disabled && <Spinner className="size-3" />}
-                    {addControl}
-                </div>
+            <div className="mt-3 flex items-center justify-end gap-2">
+                {disabled && <Spinner className="size-3" />}
+                {addControl}
             </div>
         </DetailSection>
     )

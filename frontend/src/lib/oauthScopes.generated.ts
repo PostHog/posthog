@@ -190,6 +190,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'sharing_configuration:write',
     'signal_scout:read',
     'signal_scout:write',
+    'signal_usage:read',
+    'signal_usage:write',
     'stamphog:read',
     'stamphog:write',
     'streamlit_app:read',

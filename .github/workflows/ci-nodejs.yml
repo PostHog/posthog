@@ -77,13 +77,16 @@ jobs:
             test_reason: ${{ steps.select-tests.outputs.reason }}
             test_file_count: ${{ steps.select-tests.outputs.file_count }}
         steps:
-            # For pull requests it's not necessary to checkout the code, but we
-            # also want this to run on master so we need to checkout
+            # Only the filter action is read from the tree. The change set itself comes from the
+            # pull-request files API, so this step needs no history: reading the whole tree with
+            # full history here measured 75s (median of 12 runs) of an 80s job, and every job in
+            # this workflow waits on it.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
                   filter: blob:none
-                  fetch-depth: 0
+                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout-cone-mode: false
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
@@ -158,6 +161,7 @@ jobs:
                         - 'proto/**'
                         - '.github/rust-images.yml'
                         - '.github/actions/rust-compute-affected/**'
+                        - '.github/scripts/resolve-changed-files.sh'
                       # Node sources jest can resolve. Their paths feed --findRelatedTests.
                       node_src:
                         - 'nodejs/**/*.ts'
@@ -184,6 +188,38 @@ jobs:
                         - '.github/workflows/ci-nodejs.yml'
                         - '.github/actions/setup-uv/**'
 
+            # Affected-crate detection is the only step below that reads the tree, and only a
+            # rust/ or proto/ change reaches it. The resolver supplies the merge base and
+            # complete change set, so this checkout needs no history.
+            # The cone is a superset of the tree ci-rust.yml's affected job gives the same binary.
+            - name: Check out the Rust tree for affected-crate detection
+              if: github.event_name != 'push' && github.event_name != 'schedule' && steps.filter.outputs.rust == 'true'
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  clean: false
+                  fetch-depth: 1
+                  filter: blob:none
+                  sparse-checkout: |
+                      .github/
+                      proto/
+                      rust/
+                  sparse-checkout-cone-mode: false
+
+            - name: Resolve the Rust changed files
+              id: rust-changed-files
+              if: github.event_name != 'push' && github.event_name != 'schedule' && steps.filter.outputs.rust == 'true'
+              continue-on-error: true
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+                  REPOSITORY: ${{ github.repository }}
+                  MERGE_TARGET: ${{ github.event.pull_request.base.ref }}
+              run: |
+                  if [ -f .github/scripts/resolve-changed-files.sh ]; then
+                      bash .github/scripts/resolve-changed-files.sh
+                  else
+                      echo 'resolved=false' >> "$GITHUB_OUTPUT"
+                  fi
+
             - name: Install rust for affected-crate detection
               # Not needed on schedule either: the decision step below already returns
               # nodejs=true there without consulting the affected-crate set.
@@ -202,6 +238,9 @@ jobs:
                   event-name: ${{ github.event_name }}
                   pr-base-sha: ${{ github.event.pull_request.base.sha }}
                   push-before-sha: ${{ github.event.before }}
+                  base-ref: ${{ steps.rust-changed-files.outputs.merge_base }}
+                  changed-files: ${{ runner.temp }}/changed-files.txt
+                  rebuild-all: ${{ (steps.rust-changed-files.outcome != 'success' || steps.rust-changed-files.outputs.resolved != 'true') && 'true' || 'false' }}
 
             - name: Decide whether Node.js checks should run
               id: nodejs-changes
@@ -1054,6 +1093,16 @@ jobs:
               with:
                   ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
                   fetch-depth: 1
+                  filter: blob:none
+                  sparse-checkout: |
+                      .github/actions/report-jest-timings
+                      .github/scripts/report_test_timings.py
+                      bin/report-jest-timings
+                      packages/owners-yaml
+                      tools/owners
+                      **/owners.yaml
+                      **/product.yaml
+                  sparse-checkout-cone-mode: false
             - name: Check for trusted test reporter
               id: test-reporter
               shell: bash
