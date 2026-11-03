@@ -9,6 +9,7 @@ import { getRedisHost } from '~/common/utils/db/redis'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
 import { TeamManager } from '~/common/utils/team-manager'
+import { InternalLogsProducer, InternalLogsProducerConfig } from '~/logs/internal-logs-producer'
 
 import type { CommonConfig } from '../common/config'
 import { InternalCaptureService } from '../common/services/internal-capture'
@@ -46,6 +47,7 @@ import { RecipientTokensService } from './services/messaging/recipient-tokens.se
 import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
 import { HogInvocationResultsService } from './services/monitoring/hog-invocation-results.service'
 import { HogWatcherService } from './services/monitoring/hog-watcher.service'
+import { WorkflowsActivationReporter } from './services/monitoring/workflows-activation-reporter'
 import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
 import { RateLimiterService } from './services/rate-limiter/rate-limiter.service'
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
@@ -105,6 +107,7 @@ export interface CdpCoreServices {
     cohortMembershipRepository: CohortMembershipRepository
     hogFlowExecutor: HogFlowExecutorService
     hogFunctionMonitoringService: HogFunctionMonitoringService
+    workflowsActivationReporter: WorkflowsActivationReporter
     cdpUsageReporter: CdpUsageReporterService
     capturedEventsService: CapturedEventsService
     /** Per-invocation lifecycle row producer for the new runs/invocations UI + rerun path. */
@@ -165,6 +168,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS'
         | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS'
         | 'CDP_HOGFLOW_AWAITED_STEPS_ENABLED'
+        | 'CDP_INTERNAL_LOGS_SOURCES'
         | 'SES_ACCESS_KEY_ID'
         | 'SES_SECRET_ACCESS_KEY'
         | 'SES_REGION'
@@ -200,7 +204,8 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_DLQ_BATCH_FAIL_RATIO'
         | 'CDP_EVENTS_DLQ_TOPIC'
         | 'CDP_EVENTS_DLQ_PRODUCER'
-    >
+    > &
+    InternalLogsProducerConfig
 
 export interface CdpCoreServicesDeps {
     postgres: PostgresRouter
@@ -450,6 +455,7 @@ export function createCdpCoreServices(
     })
     const recipientsManager = new RecipientsManagerService(deps.postgres)
     const personsManager = new PersonsManagerService(deps.teamManager, deps.personRepository, config.SITE_URL)
+    const workflowsActivationReporter = new WorkflowsActivationReporter(deps.teamManager)
     // Per-workflow send pacing rides the SES Valkey pool, which is only populated on pods that
     // execute email actions — exactly where the limit is enforced. Null elsewhere disables it.
     const workflowEmailRateLimiter = deps.emailValidationValkey
@@ -480,6 +486,7 @@ export function createCdpCoreServices(
         emailSuppressionService,
         recipientsManager,
         emailStatusService,
+        workflowsActivationReporter,
         messageAssetsService,
         workflowEmailRateLimiter,
         teamEmailRateLimiter
@@ -571,7 +578,16 @@ export function createCdpCoreServices(
         { awaitedStepsEnabled: config.CDP_HOGFLOW_AWAITED_STEPS_ENABLED }
     )
 
-    const hogFunctionMonitoringService = new HogFunctionMonitoringService(outputs)
+    const internalLogsSources = new Set(
+        config.CDP_INTERNAL_LOGS_SOURCES.split(',')
+            .map((source) => source.trim())
+            .filter(Boolean)
+    )
+    const hogFunctionMonitoringService = new HogFunctionMonitoringService(
+        outputs,
+        internalLogsSources.size > 0 ? new InternalLogsProducer(config, deps.teamManager) : undefined,
+        internalLogsSources
+    )
     const hogInvocationResultsService = new HogInvocationResultsService(outputs, config)
     const warehouseWebhooksService = new WarehouseWebhooksService(outputs)
     const capturedEventsService = new CapturedEventsService(deps.internalCaptureService, deps.teamManager)
@@ -612,6 +628,7 @@ export function createCdpCoreServices(
         cohortMembershipRepository,
         hogFlowExecutor,
         hogFunctionMonitoringService,
+        workflowsActivationReporter,
         cdpUsageReporter,
         capturedEventsService,
         hogInvocationResultsService,
