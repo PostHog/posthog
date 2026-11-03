@@ -99,14 +99,27 @@ function rankAccounts(accounts: SearchItem[], query: string): RankedItem[] {
 
 const IDENTITY_GROUPS = ['accounts', 'persons']
 const PRODUCT_TIER_BOOST = 3
+const UNCURATED_ACCOUNT_TIER_PENALTY = 3
+// Ties go to products, then saved objects and settings, then accounts and persons.
+const TYPE_ORDER: Record<string, number> = { products: 0, accounts: 2, persons: 2 }
 
 const displayName = (item: SearchItem): string => String(item.displayName || item.name)
 
+const typePriorFor = (groupKey: string, query: string): number =>
+    isIdentityQuery(query) ? Number(!IDENTITY_GROUPS.includes(groupKey)) : (TYPE_ORDER[groupKey] ?? 1)
+
+function tierBoostFor(item: SearchItem, groupKey: string, query: string): number {
+    if (groupKey === 'products') {
+        return PRODUCT_TIER_BOOST
+    }
+    const uncuratedAccount = groupKey === 'accounts' && !item.isCurated
+    return uncuratedAccount && !isIdentityQuery(query) ? -UNCURATED_ACCOUNT_TIER_PENALTY : 0
+}
+
 function candidateFor(item: SearchItem, groupKey: string, query: string, picks: Map<string, number>): RankCandidate {
-    const typePrior = isIdentityQuery(query) ? !IDENTITY_GROUPS.includes(groupKey) : groupKey !== 'products'
     const common = {
         name: displayName(item),
-        typePrior: Number(typePrior),
+        typePrior: typePriorFor(groupKey, query),
         identity: item.identityFields,
         picked: picks.get(item.id),
     }
@@ -116,7 +129,7 @@ function candidateFor(item: SearchItem, groupKey: string, query: string, picks: 
             aliases: item.searchKeywords,
             context: item.parentName ? [item.parentName] : [],
             indirect: !!item.parentName,
-            tierBoost: groupKey === 'products' ? PRODUCT_TIER_BOOST : 0,
+            tierBoost: tierBoostFor(item, groupKey, query),
             matchesQuery: IDENTITY_GROUPS.includes(groupKey),
         }
     }
