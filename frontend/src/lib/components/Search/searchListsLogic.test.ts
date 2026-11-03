@@ -189,9 +189,7 @@ describe('searchListsLogic', () => {
                 [expectedName, 'Project settings'],
             ])
             const gated = filterSearchItems(logic.values.settingsItems, 'zebra').map((item) => item.href)
-            expect(gated).toEqual(
-                expectsGatedSetting ? ['/settings/project-task-agents#task-comments-slack-dm'] : []
-            )
+            expect(gated).toEqual(expectsGatedSetting ? ['/settings/project-task-agents#task-comments-slack-dm'] : [])
         }
     )
 })

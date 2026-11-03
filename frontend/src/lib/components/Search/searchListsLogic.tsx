@@ -66,15 +66,15 @@ export interface searchListsLogicValues {
     billingEntryUrl: string | null // billingLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
     organizationIntegrations: IntegrationType[] | null // organizationIntegrationsLogic
+    currentOrganization: OrganizationType | null // organizationLogic
+    isAdminOrOwner: boolean | null // organizationLogic
     isCloudOrDev: boolean | undefined // preflightLogic
     isDev: boolean | undefined // preflightLogic
     preflight: PreflightStatus | null // preflightLogic
-    currentOrganization: OrganizationType | null // organizationLogic
-    isAdminOrOwner: boolean | null // organizationLogic
     cachedStarred: FileSystemEntry[] // projectTreeDataLogic
     treeGroupItems: FileSystemImport[] // projectTreeDataLogic
     sceneLogViewsByRef: Record<string, string> // recentItemsModel
-    currentTeam: TeamType | TeamPublicType | null // teamLogic
+    currentTeam: TeamPublicType | TeamType | null // teamLogic
     user: UserType | null // userLogic
     actionItems: SearchItem[]
     dataManagementItems: SearchItem[]
@@ -127,7 +127,7 @@ export interface searchListsLogicMeta {
             featureFlags: FeatureFlagsSet,
             isCloudOrDev: boolean | undefined,
             preflight: PreflightStatus | null,
-            currentTeam: TeamType | TeamPublicType | null,
+            currentTeam: TeamPublicType | TeamType | null,
             currentOrganization: OrganizationType | null,
             hasOrganizationIntegrations: boolean,
             billingEntryUrl: string | null,
