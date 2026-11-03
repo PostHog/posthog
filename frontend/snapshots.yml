@@ -12522,6 +12522,10 @@ snapshots:
         hash: v1.k794b7964.5d3b14a70ad66dedc5721197efa5c943c48fc310a9478e0c6503d83512a54e4e.ngvR1B3bnYaXytKq3W2S1ZkF6WGbJG_ckRXFK-UDhTo
     scenes-app-inbox-scene--settings--light:
         hash: v1.k794b7964.72906ad9972deb6b3c3492dfd2f655779c81c807116713eefa82b5ff46adc1ae.mnAqR8rp5r7-h801X12KN_IpMZSXFLHI4eqOjyW0xVI
+    scenes-app-inbox-scene--settings-with-spend-billing--dark:
+        hash: v1.k794b7964.3e2f424c3480f69bee0fb88191947c7c3b71bc1af88a1ef208a184678bc82e81.DhqsusHMA0QTNhHQ59_NCqo1s_aEOUanAys8GEgmz_s
+    scenes-app-inbox-scene--settings-with-spend-billing--light:
+        hash: v1.k794b7964.de208520e04a3a8219564ef860b191fdecfd86e0e54d06b517eea8c9cf00f5ed.yy14wo8-JDJN6t02r9vyPWIHDkG7Owj73ZIV1kChzHc
     scenes-app-inbox-scene--triage--dark:
         hash: v1.k794b7964.77e43b36fdcd81befecf4de80e489050f525840924ec6ddef37c23a9179dbe8a.B3qkZFYBncFaPn2EBg4cBoYu_LIwW29imNwBdLXF5eo
     scenes-app-inbox-scene--triage--light:
