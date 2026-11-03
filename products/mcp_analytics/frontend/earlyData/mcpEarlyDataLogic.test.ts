@@ -138,9 +138,9 @@ describe('mcpEarlyDataLogic', () => {
     })
 
     it.each([
-        ['loads', false],
-        ['fails to load', true],
-    ])('holds the card until the alert list %s, then reports it once', async (_label, listFails) => {
+        ['loads', false, ['intent', 'notification']],
+        ['fails to load', true, ['intent']],
+    ])('holds the card until the alert list %s, then reports it once', async (_label, listFails, expectedSteps) => {
         logic.unmount()
         let settleList!: () => void
         const list = new Promise<Awaited<ReturnType<typeof api.hogFunctions.list>>>((resolve, reject) => {
@@ -162,7 +162,7 @@ describe('mcpEarlyDataLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(eventsNamed('mcp analytics next steps shown').map((properties: any) => properties.step_keys)).toEqual([
-            ['intent', 'notification'],
+            expectedSteps,
         ])
     })
 

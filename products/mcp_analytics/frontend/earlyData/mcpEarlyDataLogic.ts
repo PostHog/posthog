@@ -45,6 +45,8 @@ import { EarlyStats, NextStep, NextStepInteraction, NextStepKey, buildNextSteps 
 
 export type { EarlyStats, NextStep } from './nextSteps'
 
+export type NotificationsLoad = 'pending' | 'loaded' | 'failed'
+
 export interface EarlyToolRow {
     tool: string
     calls: number
@@ -89,7 +91,7 @@ export interface mcpEarlyDataLogicValues {
     modelRows: ModelRow[]
     modelRowsLoading: boolean
     nextSteps: NextStep[] | null
-    notificationsResolved: boolean
+    notificationsLoad: NotificationsLoad
     overview: MCPActivityOverviewApi | null
     overviewLoading: boolean
     refreshDelayMs: number
@@ -226,11 +228,14 @@ export interface mcpEarlyDataLogicMeta {
         stats: (overview: MCPActivityOverviewApi | null) => EarlyStats
         topTools: (overview: MCPActivityOverviewApi | null) => EarlyToolRow[]
         summary: (signals: MCPOnboardingSignals | null, stats: EarlyStats, topTools: EarlyToolRow[]) => ActivitySummary
-        hasFailureNotification: (notificationsResolved: boolean, notifications: HogFunctionType[]) => boolean | null
+        hasFailureNotification: (
+            notificationsLoad: NotificationsLoad,
+            notifications: HogFunctionType[]
+        ) => boolean | null
         nextSteps: (
             overview: MCPActivityOverviewApi | null,
             stats: EarlyStats,
-            notificationsResolved: boolean,
+            notificationsLoad: NotificationsLoad,
             hasFailureNotification: boolean | null
         ) => NextStep[] | null
         hasModelData: (modelRows: ModelRow[]) => boolean
@@ -285,8 +290,12 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
     reducers({
         activityQuery: [DEFAULT_MCP_ACTIVITY_QUERY, { setActivityQuery: (_, { query }) => query }],
         // The list defaults to empty before its first load, which would read as "no alert set up".
-        // A failed load also resolves it, so the card never waits forever on a list that will not arrive.
-        notificationsResolved: [false, { loadNotificationsSuccess: () => true, loadNotificationsFailure: () => true }],
+        // A failed load also releases the card, so it never waits forever on a list that will not arrive,
+        // but leaves the alert question unanswered rather than reading the empty default as "no alert".
+        notificationsLoad: [
+            'pending' as NotificationsLoad,
+            { loadNotificationsSuccess: () => 'loaded', loadNotificationsFailure: () => 'failed' },
+        ],
         inputSinceRefresh: [false, { noteUserInput: () => true, refreshOnSchedule: () => false }],
         refreshesWithoutInput: [
             0,
@@ -380,20 +389,20 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
         ],
         // A paused alert notifies nobody, so only enabled ones count as "set up".
         hasFailureNotification: [
-            (s) => [s.notificationsResolved, s.notifications],
-            (resolved: boolean, notifications: HogFunctionType[]): boolean | null =>
-                resolved ? notifications.some((notification) => notification.enabled) : null,
+            (s) => [s.notificationsLoad, s.notifications],
+            (notificationsLoad: NotificationsLoad, notifications: HogFunctionType[]): boolean | null =>
+                notificationsLoad === 'loaded' ? notifications.some((notification) => notification.enabled) : null,
         ],
         // Null until the overview and the notification list both resolve, so steps never reorder under the reader.
         nextSteps: [
-            (s) => [s.overview, s.stats, s.notificationsResolved, s.hasFailureNotification],
+            (s) => [s.overview, s.stats, s.notificationsLoad, s.hasFailureNotification],
             (
                 overview: MCPActivityOverviewApi | null,
                 stats: EarlyStats,
-                notificationsResolved: boolean,
+                notificationsLoad: NotificationsLoad,
                 hasFailureNotification: boolean | null
             ): NextStep[] | null =>
-                overview && notificationsResolved ? buildNextSteps(stats, hasFailureNotification) : null,
+                overview && notificationsLoad !== 'pending' ? buildNextSteps(stats, hasFailureNotification) : null,
         ],
         hasModelData: [
             (s) => [s.modelRows],
