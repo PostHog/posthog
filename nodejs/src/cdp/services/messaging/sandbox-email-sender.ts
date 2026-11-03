@@ -3,6 +3,7 @@ import { type DefaultTreeAdapterMap, defaultTreeAdapter, parse, parseFragment, s
 
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
 import { RedisV2 } from '~/common/redis/redis-v2'
+import { RedisConnectionConfig, RedisPoolConfig } from '~/common/utils/db/redis'
 import { logger } from '~/common/utils/logger'
 import { captureTeamEvent } from '~/common/utils/posthog'
 import { TeamManager } from '~/common/utils/team-manager'
@@ -217,6 +218,15 @@ function appendHtmlFooter(html: string, footer: string, preheader?: string): str
         }
     }
     return serialized
+}
+
+export function sandboxBlockedEventRedisConfig(connection: RedisConnectionConfig): RedisPoolConfig {
+    return {
+        // Blocked events are optional telemetry, so a store that refuses these connections must not stop the worker.
+        connection: { ...connection, exitOnRepeatedErrors: false },
+        poolMinSize: 0,
+        poolMaxSize: MAX_OPEN_STORE_CALLS,
+    }
 }
 
 export class SandboxEmailSender {
