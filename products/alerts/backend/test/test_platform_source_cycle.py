@@ -1021,3 +1021,17 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         investigation = InsightAlertInvestigation.objects.for_team(self.team.id).get()
         assert (investigation.kind, investigation.status) == (InsightAlertInvestigation.Kind.METRICS, status)
         assert investigation.summary == ("queue.depth moved up." if error is None else None)
+
+    def test_a_skipped_check_of_a_firing_alert_asks_for_no_investigation(self) -> None:
+        _alert, configuration = self._investigated_alert(investigation_gates_notifications=True)
+        record_outcomes(self.team.id, (self._fire(configuration),), CUTOFF)
+        with team_scope(self.team.id):
+            platform_testing.set_due_at(configuration.id, CUTOFF - timedelta(minutes=1))
+
+        outcome, _ = self._evaluate(
+            configuration, result=AlertEvaluationResult(value=None, breaches=[], skipped_reason="not enough data")
+        )
+
+        assert outcome is not None
+        assert outcome.skipped
+        assert requested_investigation(outcome) is None

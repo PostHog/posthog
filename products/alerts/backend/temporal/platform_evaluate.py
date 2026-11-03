@@ -394,6 +394,7 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         # From the workflow's clock, so a retried plan reuses the expiry and gets its slots back. A
         # check releases its slot only while the slot still carries this expiry.
         expires_at = (workflow.now() + source_evaluation_timeout(SourceKind.INSIGHT)).timestamp()
+        self._investigating: list[asyncio.Task[None]] = []
         if workflow.patched(_PATCH_READMISSION) and workflow.patched(_PATCH_RECORD_AS_FINISHED):
             return await self._evaluate_and_record_in_rounds(inputs, expires_at)
         if workflow.patched(_PATCH_READMISSION):
@@ -431,6 +432,7 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         if not outcomes:
             return 0
         await self._record(inputs, evaluations, chunked=workflow.patched(_PATCH_CHUNKED_RECORD))
+        await asyncio.gather(*self._investigating)
         return len(outcomes)
 
     async def _with_charts(
@@ -623,6 +625,7 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
                     continue
                 recorded += await self._record_waiting(inputs, waiting, last_chance=True)
                 await asyncio.gather(*stopping, return_exceptions=True)
+                await asyncio.gather(*self._investigating)
                 return recorded
             running = [task for task in unrecorded.values() if not task.done()]
             if not running:
@@ -779,10 +782,13 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         await start_deliveries([delivery for delivery in deliveries if delivery.configuration_id in recorded])
         investigated = tuple(outcome for outcome in chunk if requested_investigation(outcome) is not None)
         if workflow.patched(_PATCH_INVESTIGATIONS) and investigated:
-            # After the chunk's own deliveries, so a slow claim holds back only the firings it holds.
-            claims = await self._claim_investigations(inputs, investigated)
-            await asyncio.gather(*(self._start_investigation(start) for start in claims.starts))
-            await start_deliveries(list(claims.deliveries))
+            # A task, so a slow claim holds back only the firings it holds, not the next record or round.
+            self._investigating.append(asyncio.create_task(self._investigate(inputs, investigated)))
+
+    async def _investigate(self, inputs: SourceEvaluationInputs, outcomes: tuple[PlatformAlertOutcome, ...]) -> None:
+        claims = await self._claim_investigations(inputs, outcomes)
+        await asyncio.gather(*(self._start_investigation(start) for start in claims.starts))
+        await start_deliveries(list(claims.deliveries))
 
     async def _claim_investigations(
         self, inputs: SourceEvaluationInputs, outcomes: tuple[PlatformAlertOutcome, ...]

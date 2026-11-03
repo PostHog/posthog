@@ -63,6 +63,9 @@ logger = structlog.get_logger(__name__)
 _CLAIM_LOCK_SQL: Final = "SELECT pg_advisory_xact_lock(hashtext(%s))"
 HOLD_REASON: Final = "investigation"
 _EVALUATED_KEYS: Final = ("anomaly_scores", "triggered_points", "triggered_dates", "interval", "triggered_metadata")
+# A verdict-change follow-up is recorded under the key of the firing it follows up plus this suffix,
+# so it gets a delivery of its own.
+_VERDICT_CHANGE_KEY_SUFFIX: Final = "#verdict"
 
 
 @frozen
@@ -70,6 +73,16 @@ class InvestigationClaim:
     investigation_id: UUID
     # False when an investigation in flight or inside the cooldown refused it.
     claimed: bool
+
+
+def verdict_change_evaluation_key(evaluation_key: str) -> str:
+    """The key the verdict-change follow-up of an investigated firing is recorded under."""
+    return f"{evaluation_key}{_VERDICT_CHANGE_KEY_SUFFIX}"
+
+
+def investigated_evaluation_key(verdict_change_key: str) -> str:
+    """The key of the firing a verdict-change follow-up follows up."""
+    return verdict_change_key.removesuffix(_VERDICT_CHANGE_KEY_SUFFIX)
 
 
 def decide_investigation(
@@ -146,7 +159,8 @@ def with_investigation(check: PlatformAlertCheckInput, evaluation: SourceBatchEv
     if not check.owned_by_platform or check.legacy_configuration_id is None or len(evaluation.outcomes) != 1:
         return evaluation
     outcome = evaluation.outcomes[0]
-    if len(outcome.groups) != 1 or outcome.groups[0].new_state != AlertState.FIRING.value:
+    # A skipped check keeps a firing alert's state without evaluating it, so it has nothing to investigate.
+    if outcome.skipped or len(outcome.groups) != 1 or outcome.groups[0].new_state != AlertState.FIRING.value:
         return evaluation
     alert = (
         AlertConfiguration.objects.select_related("insight")
