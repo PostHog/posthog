@@ -382,11 +382,21 @@ const settingsItem = (
     ...fields,
 })
 
+type SettingSummary = SettingsSectionSummary['settings'][number]
+
+const settingTerms = (setting: SettingSummary): string[] => [
+    setting.titleString ?? sentenceCaseId(setting.id),
+    sentenceCaseId(setting.id),
+    ...(setting.keywords ?? []),
+    setting.descriptionString ?? '',
+]
+
 const sectionSearchItems = (section: SettingsSectionSummary, billingEntryUrl: string | null): SearchItem[] => {
     const levelName = levelSettingsName(section.level)
     const title = section.titleString ?? sentenceCaseId(section.id)
+    const context = `${levelName} ${title}`
     const ownsSettings = !section.to
-    const isOwnItem = (setting: SettingsSectionSummary['settings'][number]): boolean =>
+    const isOwnItem = (setting: SettingSummary): boolean =>
         ownsSettings && !!setting.titleString && setting.titleString.toLowerCase() !== title.toLowerCase()
     const folded = section.settings.filter((setting) => !isOwnItem(setting))
     const sectionItem = settingsItem(
@@ -396,12 +406,13 @@ const sectionSearchItems = (section: SettingsSectionSummary, billingEntryUrl: st
         { level: section.level, sectionId: section.id },
         {
             parentName: levelName,
-            searchKeywords: [...(section.keywords ?? []), ...folded.flatMap((setting) => setting.keywords ?? [])],
-            hiddenSearchText: folded
-                .flatMap((setting) => [
-                    setting.titleString ?? sentenceCaseId(setting.id),
-                    setting.descriptionString ?? '',
-                ])
+            searchKeywords: [
+                context,
+                ...(section.keywords ?? []),
+                ...folded.flatMap((setting) => [sentenceCaseId(setting.id), ...(setting.keywords ?? [])]),
+            ],
+            hiddenSearchText: [context, ...(section.keywords ?? []), ...folded.flatMap(settingTerms)]
+                .filter(Boolean)
                 .join(' '),
         }
     )
@@ -415,8 +426,8 @@ const sectionSearchItems = (section: SettingsSectionSummary, billingEntryUrl: st
                 { level: section.level, sectionId: section.id, settingId: setting.id },
                 {
                     parentName: `${levelName} › ${title}`,
-                    searchKeywords: setting.keywords,
-                    hiddenSearchText: setting.descriptionString ?? undefined,
+                    searchKeywords: [context, sentenceCaseId(setting.id), ...(setting.keywords ?? [])],
+                    hiddenSearchText: [context, ...settingTerms(setting)].filter(Boolean).join(' '),
                 }
             )
         ),

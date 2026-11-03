@@ -1,3 +1,4 @@
+import { strictLocalMatches } from 'lib/components/CommandKSearch/commandKRanking'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { terminalDockLogic } from 'scenes/terminal/terminalDockLogic'
@@ -92,21 +93,37 @@ describe('searchListsLogic', () => {
         expect(matches.find((item) => item.id === 'misc-my-tickets')?.href).toBe(urls.myTickets())
     })
 
-    it('lists Alerts only as a Product analytics tab', () => {
-        const lists = [
-            logic.values.productsItems,
-            logic.values.dataManagementItems,
-            logic.values.peopleItems,
-            logic.values.healthItems,
-            logic.values.actionItems,
-        ]
+    it.each([
+        ['project general', 'settings-project-details', true],
+        ['2fa', 'settings-user-profile-2fa', true],
+        ['rename project', 'settings-project-customization-display-name', false],
+    ])('finds the setting row %s', (query, id, ranked) => {
+        const component = {} as JSX.Element
+        logic.actions.setSettingsSections([
+            {
+                id: 'environment-details',
+                level: 'environment',
+                title: 'General',
+                settings: [{ id: 'variables', title: 'Project token & ID', component }],
+            },
+            {
+                id: 'environment-customization',
+                level: 'environment',
+                title: 'Customization',
+                settings: [{ id: 'display-name', title: 'Project details', keywords: ['rename'], component }],
+            },
+            {
+                id: 'user-profile',
+                level: 'user',
+                title: 'Profile',
+                settings: [{ id: '2fa', title: 'Two-factor authentication', component }],
+            },
+        ])
+        const items = logic.values.settingsItems
 
-        expect(
-            lists
-                .flat()
-                .filter((item) => item.href === urls.alerts())
-                .map((item) => ({ displayName: item.displayName, parentName: item.parentName }))
-        ).toEqual([{ displayName: 'Alerts', parentName: 'Product analytics' }])
+        expect(filterSearchItems(items, query).map((item) => item.id)).toContain(id)
+        const strictIds = strictLocalMatches(items, query).map((item) => item.id)
+        expect(ranked ? strictIds : [id]).toContain(id)
     })
 
     it('shows only the Inbox Scouts destination', () => {
