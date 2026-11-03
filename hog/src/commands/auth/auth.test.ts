@@ -127,7 +127,14 @@ describe('hog auth login', () => {
         // The keychain keeps only the secret. What isn't secret is in settings.json.
         expect(JSON.parse(result.keychain['https://eu.posthog.com'] ?? '{}')).toEqual({ apiKey: 'phx_secret' })
         expect(JSON.parse(result.files[SETTINGS_FILE] ?? '{}')).toEqual({
-            logins: { 'https://eu.posthog.com': { store: 'keychain', type: 'personal_api_key', projectId: '42' } },
+            logins: {
+                'https://eu.posthog.com': {
+                    store: 'keychain',
+                    type: 'personal_api_key',
+                    projectId: '42',
+                    host: 'https://eu.posthog.com',
+                },
+            },
             host: 'https://eu.posthog.com',
         })
         expect(result.files[LEGACY_CLI_FILE]).toBeUndefined()
@@ -244,7 +251,14 @@ describe('hog auth login', () => {
     const KEYCHAIN_LOGIN = {
         files: {
             [SETTINGS_FILE]: JSON.stringify({
-                logins: { 'https://eu.posthog.com': { store: 'keychain', type: 'personal_api_key', projectId: '42' } },
+                logins: {
+                    'https://eu.posthog.com': {
+                        store: 'keychain',
+                        type: 'personal_api_key',
+                        projectId: '42',
+                        host: 'https://eu.posthog.com',
+                    },
+                },
                 host: 'https://eu.posthog.com',
             }),
         },
@@ -333,8 +347,18 @@ describe('hog auth login', () => {
             {
                 [SETTINGS_FILE]: JSON.stringify({
                     logins: {
-                        'https://eu.posthog.com': { store: 'keychain', type: 'personal_api_key', projectId: '42' },
-                        'https://us.posthog.com': { store: 'keychain', type: 'personal_api_key', projectId: '42' },
+                        'https://eu.posthog.com': {
+                            store: 'keychain',
+                            type: 'personal_api_key',
+                            projectId: '42',
+                            host: 'https://eu.posthog.com',
+                        },
+                        'https://us.posthog.com': {
+                            store: 'keychain',
+                            type: 'personal_api_key',
+                            projectId: '42',
+                            host: 'https://us.posthog.com',
+                        },
                     },
                     host: 'https://us.posthog.com',
                 }),

@@ -12,6 +12,9 @@ export interface LoginRecord {
     store: StoreChoice
     type: 'personal_api_key'
     projectId: string
+    // The host the login was made for, with the path a self-hosted PostHog sits under. The login is
+    // keyed by origin, so a posthog.json path on the same origin can't send it elsewhere.
+    host: string
 }
 
 // What `hog auth login` decided, kept so later runs don't decide again. Nothing in it is secret.
@@ -28,14 +31,16 @@ function settingsPath(runtime: Runtime): string {
 }
 
 // A record hog doesn't recognize, such as one a later version wrote, reads as no login.
-function parseLoginRecord(value: unknown): LoginRecord | undefined {
+function parseLoginRecord(origin: string, value: unknown): LoginRecord | undefined {
     const item = value as Record<string, unknown> | null
     if (
         (item?.store === 'keychain' || item?.store === 'file') &&
         item.type === 'personal_api_key' &&
-        typeof item.projectId === 'string'
+        typeof item.projectId === 'string' &&
+        typeof item.host === 'string' &&
+        hostKey(item.host) === hostKey(origin)
     ) {
-        return { store: item.store, type: item.type, projectId: item.projectId }
+        return { store: item.store, type: item.type, projectId: item.projectId, host: item.host }
     }
     return undefined
 }
@@ -62,7 +67,7 @@ export async function readSettings(runtime: Runtime): Promise<HogSettings> {
     const logins: Partial<Record<HostKey, LoginRecord>> = {}
     if (typeof raw.logins === 'object' && raw.logins !== null) {
         for (const [host, value] of Object.entries(raw.logins)) {
-            const record = parseLoginRecord(value)
+            const record = parseLoginRecord(host, value)
             if (record) {
                 logins[hostKey(host)] = record
             }
