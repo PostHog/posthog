@@ -15866,6 +15866,30 @@ snapshots:
         hash: v1.k794b7964.6778108ade1085efcddf4ffe0b16a297e741e790672a3b33bc5d986f28a21ab2.i3oD4nY4Kcn08ehCHaLXHi7UVGVBK6MvVyfBqq-sJ8s
     scenes-app-signals-scratchpadpanel--populated-narrow--light:
         hash: v1.k794b7964.d816589bb55d55a5f400231ca5e2a0cd6b5a64ce1beb6e78287eca1c3b96e455.2bMTo4YcmA5wtKhveMZguqN_MUW1x_sYovK_8HWwfWs
+    scenes-app-slack-app-workspace-setup--ai-consent--dark:
+        hash: v1.k794b7964.3562512c74ded2a4ccfd488e554f397f86de3610fc0ccaace833062b8638e156.ZLfNbt9W6swUW-oRW0zOw-OWetfVoA1bxzIzxBIWByI
+    scenes-app-slack-app-workspace-setup--ai-consent--light:
+        hash: v1.k794b7964.3c0f11fae0537febc2f7836b28b4307bf499068de4a8852c305a33befd5ddfcb.B-PKcVO9GT_AMVvjbBa2mQ1aHvWrV-y6pUHzCFil2oo
+    scenes-app-slack-app-workspace-setup--channels--dark:
+        hash: v1.k794b7964.eacb39c776002b200eb9a9e406344359d7cfa40e5ed9e74a602eec6e7cee8ece.LYJBtNg-6_QZllgrxIoZPYIvR9ArCcsA_gqphYV3bJc
+    scenes-app-slack-app-workspace-setup--channels--light:
+        hash: v1.k794b7964.5816cbd03786c8232ab2930e08309204fc69395a5d1aa34715e48630868b57b3.g27e0kl61_440b2EyayJJ7iResN5h0aWqPyFELUlZpE
+    scenes-app-slack-app-workspace-setup--channels-without-welcome--dark:
+        hash: v1.k794b7964.e918166a865ed8306cda2f0f5eb9a642b77f1d7d71e1afaa7952f7c8d5ee50c6.ZBFyJZeVbTCYJEOZEyg5IxDcGLaN0k7KRn0-SFtqxzg
+    scenes-app-slack-app-workspace-setup--channels-without-welcome--light:
+        hash: v1.k794b7964.03399474d4150ef279e3ab35528b75278dff4821af6ea6dc01df23f36a492a88.PjlXa1GAqecJhkRH3eXhqbouqWqOGv5FCE8GQ0yLYKU
+    scenes-app-slack-app-workspace-setup--default-project--dark:
+        hash: v1.k794b7964.c2ce24a9a14ef3d096bca60e839a487803bdfe4d5676f0b3ab9077906e1e58e5.EehyzZM8JOj_rzxWZjQBpXrrLnLPm4giy9Gs5236OiU
+    scenes-app-slack-app-workspace-setup--default-project--light:
+        hash: v1.k794b7964.0d44c29790c73b07928bd7e79a6d7bc028e69f5ea40f584a7c7928b425c6a33f.dDQBZafMBLPtu5E7gdTuubqwtwR2Mg_05_HvMIjGfz4
+    scenes-app-slack-app-workspace-setup--done--dark:
+        hash: v1.k794b7964.2dac189f18d8495b4e7ff319ea987051f4f27df06b3590500b6366778537d2d1.geVF0sn736hDd-gGiuJ3J6yemktjXP2VnbhXPIQNhOU
+    scenes-app-slack-app-workspace-setup--done--light:
+        hash: v1.k794b7964.8f5c3b1700cd81b4482899dea9f2a2b8e87855a09237a302939fa59e83274db4._bbA72Xv3JiOG7QOuUVwTcswqM78AN8XkfObnX82-2U
+    scenes-app-slack-app-workspace-setup--done-from-settings--dark:
+        hash: v1.k794b7964.e63dca0640c9531e301e436c81f47fded633e05f46b9a1bd9b04b05bab392527.8Wot76c-chwAyrANL5OXm4Ytw8wbBqa0mP54QtWPNJc
+    scenes-app-slack-app-workspace-setup--done-from-settings--light:
+        hash: v1.k794b7964.36ed36daab731e6b5dff3560bfb3becf79684c6c6cd9dc8fe4ea08f88f05fb1c.914SoPzQ8leWnBnjLf_macALBulhwY4LAGcSEWkCLec
     scenes-app-stamphog-digests--digest-expanded--dark:
         hash: v1.k794b7964.c37367d7ed65cc0d69dfa67eaa60a4857d0583997d7c46ac61624a459ca66430.LN5ob34i8KQC7FZRnu7UEBIT50kaufpYjSW8Q6z4Gy0
     scenes-app-stamphog-digests--digest-expanded--light:
