@@ -1289,7 +1289,8 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             "mirrors to exactly one Slack thread: re-calling with the same channel returns the "
             "existing mirror; a different channel is a 400 naming the existing one. 409 while a "
             "concurrent send is in flight. 404 when the feature is not enabled for the team. "
-            "Ticket discussions cannot go to a channel shared with another Slack workspace (400). "
+            "Only the person who started a ticket discussion can send it (403), and it cannot go to "
+            "a channel shared with another Slack workspace (400). "
             "429 when the Slack integration has made too many channel lookups in the last minute."
         ),
     )
@@ -1308,8 +1309,13 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             # A Slack channel has no observation access check, in either direction.
             raise exceptions.ValidationError("Replay Vision observation notes cannot be sent to Slack")
         is_ticket_discussion = comment.scope in TICKET_COMMENT_SCOPES
-        if is_ticket_discussion and is_scout_sandbox_request(request):
-            raise exceptions.PermissionDenied("Scouts can't send ticket discussions to Slack.")
+        if is_ticket_discussion:
+            if is_scout_sandbox_request(request):
+                raise exceptions.PermissionDenied("Scouts can't send ticket discussions to Slack.")
+            if comment.created_by_id != request.user.pk:
+                raise exceptions.PermissionDenied(
+                    "Only the person who started this discussion can send it to Slack. Ask them to send it."
+                )
 
         params = SendCommentToSlackSerializer(data=request.data)
         params.is_valid(raise_exception=True)
