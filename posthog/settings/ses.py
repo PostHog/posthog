@@ -36,6 +36,19 @@ WORKFLOWS_SES_EVENTS_SNS_TOPIC_ARNS: list[str] = [
     arn.strip() for arn in os.getenv("WORKFLOWS_SES_EVENTS_SNS_TOPIC_ARNS", "").split(",") if arn.strip()
 ]
 
+# Dead-letter queues of the SNS subscriptions that post SES delivery, bounce, complaint, open and
+# click events to the CDP webhook. SNS moves a notification here when the webhook still fails after
+# its retries, and the replay command and admin page post it again.
+SES_EVENTS_DLQ_URLS: list[str] = [url.strip() for url in os.getenv("SES_EVENTS_DLQ_URLS", "").split(",") if url.strip()]
+
+# The in-cluster address of the CDP SES webhook. The replay calls it directly, so it does not depend
+# on the public ingress that SNS uses. Empty outside dev and test, so replay refuses to run until it
+# is set.
+SES_EVENTS_REPLAY_WEBHOOK_URL: str = os.getenv(
+    "SES_EVENTS_REPLAY_WEBHOOK_URL",
+    "http://localhost:6738/public/m/ses_webhook" if TEST or DEBUG else "",
+)
+
 # Automatic per-workflow email pause. The detector sweeps every workflow's spam-complaint and
 # hard-bounce rates and pauses the ones that breach a threshold, because all workflow email shares
 # one SES account and one bad workflow drags deliverability down for every customer.
