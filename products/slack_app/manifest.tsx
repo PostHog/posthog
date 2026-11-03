@@ -11,11 +11,11 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
-        '/slack/setup/:integrationId': ['SlackAppWorkspaceSetup', 'slackAppWorkspaceSetup'],
+        '/integrations/slack/:integrationId/setup': ['SlackAppWorkspaceSetup', 'slackAppWorkspaceSetup'],
     },
     redirects: {},
     urls: {
-        slackAppWorkspaceSetup: (integrationId: number | string): string => `/slack/setup/${integrationId}`,
+        slackAppWorkspaceSetup: (integrationId: number | string): string => `/integrations/slack/${integrationId}/setup`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],
