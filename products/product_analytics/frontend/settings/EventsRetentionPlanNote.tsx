@@ -30,10 +30,7 @@ function planSummary(plan: EventsRetentionPlan, billingPlan: BillingPlan | null)
     const yourPlan = billingPlan ? `You're on the ${BILLING_PLAN_NAMES[billingPlan]} plan, which` : 'Your plan'
     const longest = retentionPeriodLabel(plan.plan_retention_months)
     const byDefault = retentionPeriodLabel(plan.default_retention_months)
-    if (plan.default_is_grandfathered) {
-        return `${yourPlan} allows up to ${longest} for custom events retention policies. It predates the current default, so its default retention period stays at ${byDefault}.`
-    }
-    if (plan.default_retention_months < plan.plan_retention_months) {
+    if (plan.default_is_grandfathered || plan.default_retention_months < plan.plan_retention_months) {
         return `${yourPlan} allows up to ${longest} for custom events retention policies. The default retention period for this plan is ${byDefault}.`
     }
     return `${yourPlan} has ${longest} of events data retention.`
