@@ -1,9 +1,18 @@
 //! Image URLs in CSS: the `url()`s of an image property, or of a custom property that reaches one through `var()`.
+//! Font URLs are the `url()`s in the `src` descriptor of an `@font-face` rule. `cssparser` tokenizes as CSS Syntax 3 does, so a name, an escape, a comment or a bad URL reads here as the renderer reads it.
 
+use std::borrow::Cow;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use cssparser::{
+    match_ignore_ascii_case, AtRuleParser, CowRcStr, DeclarationParser, Delimiter, ParseError,
+    Parser, ParserState, QualifiedRuleParser, RuleBodyItemParser, RuleBodyParser, SourcePosition,
+    Token,
+};
 use url::Url;
 
+use super::dom::{RemoteKind, RemoteUrl};
+use crate::fonts::bundled_font;
 use crate::url_policy::{
     is_fetched_image_type, is_protocol_relative, is_remote, try_canonicalize, MAX_URL_LEN,
 };
@@ -17,11 +26,18 @@ const MAX_IMAGE_SET_CANDIDATES: usize = 32;
 pub enum CssUrl<'a> {
     Image(&'a str),
     Unshown(&'a str),
-    /// A resolved root-relative URL. The block holds only the relative text, which its rewrite replaces.
+    /// A URL that the block holds only as other text, root-relative or written with CSS escapes, which its rewrite replaces.
     Resolved(&'a str),
     /// A root-relative `url()` that did not resolve. Its text keeps no rewrite, which another window would apply here.
     Unresolved(&'a str),
     Rewrite(CssRewrite),
+    /// A `src` URL of an `@font-face` rule, with the raw value of that rule's `font-family` descriptor.
+    Font {
+        url: &'a str,
+        family: Option<&'a str>,
+    },
+    /// A [`CssUrl::Resolved`] font URL of a family that the renderer does not ship.
+    ResolvedFont(&'a str),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,8 +45,8 @@ pub struct CssRewrite {
     pub text: String,
     pub replacement: String,
     pub dropped: Vec<String>,
-    /// The URL that `replacement` holds in place of a relative one, for the writer to replace with its reference.
-    pub resolved: Option<String>,
+    /// The URL that `replacement` holds in place of a relative one, for the writer to replace with the reference of its kind.
+    pub resolved: Option<RemoteUrl>,
 }
 
 /// The origin that a root-relative URL on `page_url` resolves against, as `https` because the fetcher loads nothing else.
@@ -97,59 +113,96 @@ pub fn rewrite_functions(
     css: &str,
     replacement: &mut impl FnMut(&str) -> Option<String>,
 ) -> Option<String> {
-    let bytes = css.as_bytes();
     let mut out: Option<String> = None;
     let mut copied_to = 0;
-    let mut position = 0;
-    while position < bytes.len() {
-        if starts_with(bytes, position, b"/*") {
-            position = skip_comment(bytes, position).unwrap_or(bytes.len());
-            continue;
+    each_function(&mut Parser::new(css), &mut |input, start, opened| {
+        if !matches!(opened, Opened::UnquotedUrl(_)) {
+            skip_block(input);
         }
-        if bytes[position] == b'\\' {
-            position = skip_escape(bytes, position);
-            continue;
-        }
-        if matches!(bytes[position], b'\'' | b'"') {
-            position = skip_quoted(bytes, position).unwrap_or(bytes.len());
-            continue;
-        }
-        let image_set = if function_at(bytes, position, b"image-set") {
-            Some(b"image-set".len())
-        } else if function_at(bytes, position, b"-webkit-image-set") {
-            Some(b"-webkit-image-set".len())
-        } else {
-            None
-        };
-        let end = if let Some(name_len) = image_set {
-            // The inspector stops at an unterminated set, and each later opener would scan to the end again.
-            let Some(end) = matching_paren(bytes, position + name_len) else {
-                break;
-            };
-            end
-        } else if function_at(bytes, position, b"url") {
-            scan_url_function(css, position).0
-        } else {
-            position += 1;
-            continue;
-        };
-        if let Some(replaced) = replacement(&css[position..end]) {
+        let start = start.byte_index();
+        let end = input.position().byte_index();
+        if let Some(replaced) = replacement(&css[start..end]) {
             let out = out.get_or_insert_with(|| String::with_capacity(css.len()));
-            out.push_str(&css[copied_to..position]);
+            out.push_str(&css[copied_to..start]);
             out.push_str(&replaced);
             copied_to = end;
         }
-        position = end;
+    });
+    let mut out = out?;
+    out.push_str(&css[copied_to..]);
+    Some(out)
+}
+
+pub fn rewrite_font_src_functions(
+    css: &str,
+    replacement: &mut impl FnMut(&str) -> Option<String>,
+) -> Option<String> {
+    let mut out: Option<String> = None;
+    let mut copied_to = 0;
+    for declaration in declarations(css) {
+        if !matches!(declaration.kind, DeclarationKind::FontSrc(_)) {
+            continue;
+        }
+        let value = &css[declaration.start..declaration.end];
+        if let Some(rewritten) = rewrite_functions(value, replacement) {
+            let out = out.get_or_insert_with(|| String::with_capacity(css.len()));
+            out.push_str(&css[copied_to..declaration.start]);
+            out.push_str(&rewritten);
+            copied_to = declaration.end;
+        }
     }
     let mut out = out?;
     out.push_str(&css[copied_to..]);
     Some(out)
 }
 
-/// Calls `found` with each image URL and rewrite in `css`: a `style` attribute, `<style>` text or `_cssText`.
-pub fn image_urls(css: &str, resolver: &mut Resolver<'_>, found: &mut impl FnMut(CssUrl<'_>)) {
-    for (start, end) in image_value_ranges(css) {
-        value_urls(&css[start..end], resolver, found);
+/// Calls `found` with each URL and rewrite in `css`: a `style` attribute, `<style>` text or `_cssText`.
+pub fn urls(css: &str, resolver: &mut Resolver<'_>, found: &mut impl FnMut(CssUrl<'_>)) {
+    let declarations = declarations(css);
+    let mut families: Vec<Option<&str>> = Vec::new();
+    for declaration in &declarations {
+        if let DeclarationKind::FontFamily(face) = declaration.kind {
+            if families.len() <= face {
+                families.resize(face + 1, None);
+            }
+            families[face] = Some(&css[declaration.start..declaration.end]);
+        }
+    }
+    for declaration in &declarations {
+        let value = &css[declaration.start..declaration.end];
+        match declaration.kind {
+            DeclarationKind::Image => value_urls(value, resolver, EscapedSources::Skipped, found),
+            DeclarationKind::FontSrc(face) => {
+                let family = families.get(face).copied().flatten();
+                let resolved_kind = match family.and_then(bundled_font) {
+                    Some(slug) => RemoteKind::BundledFont(slug),
+                    None => RemoteKind::Font,
+                };
+                value_urls(
+                    value,
+                    resolver,
+                    EscapedSources::Decoded,
+                    &mut |url| match url {
+                        CssUrl::Image(url) => found(CssUrl::Font { url, family }),
+                        CssUrl::Resolved(url) if resolved_kind == RemoteKind::Font => {
+                            found(CssUrl::ResolvedFont(url))
+                        }
+                        CssUrl::Rewrite(mut rewrite) => {
+                            if let Some(resolved) = &mut rewrite.resolved {
+                                resolved.kind = resolved_kind;
+                            }
+                            found(CssUrl::Rewrite(rewrite));
+                        }
+                        CssUrl::Unresolved(text) => found(CssUrl::Unresolved(text)),
+                        CssUrl::Resolved(_)
+                        | CssUrl::Unshown(_)
+                        | CssUrl::Font { .. }
+                        | CssUrl::ResolvedFont(_) => {}
+                    },
+                );
+            }
+            DeclarationKind::FontFamily(_) => {}
+        }
     }
 }
 
@@ -160,7 +213,7 @@ pub fn declaration_image_urls(
     found: &mut impl FnMut(CssUrl<'_>),
 ) {
     if can_hold_image(property.trim()) {
-        value_urls(value, resolver, found);
+        value_urls(value, resolver, EscapedSources::Skipped, found);
     }
 }
 
@@ -188,175 +241,295 @@ fn can_hold_image(property: &str) -> bool {
     property.starts_with("--") || is_image_property(property)
 }
 
-fn image_value_ranges(css: &str) -> Vec<(usize, usize)> {
-    let bytes = css.as_bytes();
-    let mut ranges: Vec<(usize, usize)> = Vec::new();
-    // Where the text of the current declaration starts, after the whitespace that leads it.
-    let mut segment_start: Option<usize> = None;
-    let mut brace_depth = 0usize;
-    let mut paren_depth = 0usize;
-    let mut bracket_depth = 0usize;
-    let mut position = 0;
-    while position < bytes.len() {
-        if segment_start.is_none() && !bytes[position].is_ascii_whitespace() {
-            segment_start = Some(position);
-        }
-        if starts_with(bytes, position, b"/*") {
-            position = skip_comment(bytes, position).unwrap_or(bytes.len());
-            continue;
-        }
-        if bytes[position] == b'\\' {
-            position = skip_escape(bytes, position);
-            continue;
-        }
-        if matches!(bytes[position], b'\'' | b'"') {
-            position = skip_quoted(bytes, position).unwrap_or(bytes.len());
-            continue;
-        }
-        match bytes[position] {
-            b'(' => paren_depth += 1,
-            b')' => paren_depth = paren_depth.saturating_sub(1),
-            b'[' => bracket_depth += 1,
-            b']' => bracket_depth = bracket_depth.saturating_sub(1),
-            b'{' if paren_depth == 0 && bracket_depth == 0 => {
-                brace_depth += 1;
-                segment_start = None;
-            }
-            b'}' if paren_depth == 0 && bracket_depth == 0 => {
-                brace_depth = brace_depth.saturating_sub(1);
-                segment_start = None;
-            }
-            b';' if paren_depth == 0 && bracket_depth == 0 => segment_start = None,
-            // A colon in a custom property value, as in `--link: https://…`, is not a new declaration.
-            b':' if paren_depth == 0
-                && bracket_depth == 0
-                && ranges.last().is_none_or(|previous| position >= previous.1) =>
-            {
-                // Each colon trims only the whitespace before it, so a long selector list stays linear.
-                let property = css[segment_start.unwrap_or(position)..position].trim_end();
-                if can_hold_image(property) {
-                    ranges.push((
-                        position + 1,
-                        declaration_end(bytes, position + 1, brace_depth),
-                    ));
-                }
-            }
-            _ => {}
-        }
-        position += 1;
-    }
-    ranges
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DeclarationKind {
+    Image,
+    FontSrc(usize),
+    FontFamily(usize),
 }
 
-fn declaration_end(bytes: &[u8], start: usize, brace_depth: usize) -> usize {
-    let mut position = start;
-    let mut paren_depth = 0usize;
-    let mut bracket_depth = 0usize;
-    while position < bytes.len() {
-        if starts_with(bytes, position, b"/*") {
-            position = skip_comment(bytes, position).unwrap_or(bytes.len());
-            continue;
-        }
-        if bytes[position] == b'\\' {
-            position = skip_escape(bytes, position);
-            continue;
-        }
-        if matches!(bytes[position], b'\'' | b'"') {
-            position = skip_quoted(bytes, position).unwrap_or(bytes.len());
-            continue;
-        }
-        match bytes[position] {
-            b'(' => paren_depth += 1,
-            b')' => paren_depth = paren_depth.saturating_sub(1),
-            b'[' => bracket_depth += 1,
-            b']' => bracket_depth = bracket_depth.saturating_sub(1),
-            b';' if paren_depth == 0 && bracket_depth == 0 => return position,
-            b'}' if paren_depth == 0 && bracket_depth == 0 && brace_depth > 0 => return position,
-            _ => {}
-        }
-        position += 1;
-    }
-    bytes.len()
+struct Declaration {
+    start: usize,
+    end: usize,
+    kind: DeclarationKind,
 }
 
-/// The longest name [`is_image_property`] accepts, so that a longer text is not lowercased.
-const MAX_IMAGE_PROPERTY_LEN: usize = "-webkit-mask-box-image-source".len();
+#[derive(Clone, Copy)]
+enum Block {
+    Style,
+    FontFace(usize),
+}
+
+/// The text can be a style attribute, a style sheet or one rule, so its top level reads as a rule body, which holds declarations and rules alike.
+fn declarations(css: &str) -> Vec<Declaration> {
+    let mut declarations = Declarations {
+        found: Vec::new(),
+        font_faces: 0,
+        block: Block::Style,
+    };
+    declarations.read_block(&mut Parser::new(css), Block::Style);
+    declarations.found
+}
+
+struct Declarations {
+    found: Vec<Declaration>,
+    font_faces: usize,
+    block: Block,
+}
+
+impl Declarations {
+    fn read_block(&mut self, input: &mut Parser<'_>, block: Block) {
+        let outer = std::mem::replace(&mut self.block, block);
+        let body: RuleBodyParser<'_, '_, Self, (), ()> = RuleBodyParser::new(input, self);
+        for _ in body {}
+        self.block = outer;
+    }
+}
+
+impl<'i> DeclarationParser<'i> for Declarations {
+    type Declaration = ();
+    type Error = ();
+
+    /// A value that holds a `{}` block is a nested rule, as `a:hover{…}` is, unless the property is a custom one.
+    fn parse_value(
+        &mut self,
+        name: CowRcStr<'i>,
+        input: &mut Parser<'i>,
+        _: &ParserState,
+    ) -> Result<(), ParseError<()>> {
+        let start = input.position();
+        let custom = name.starts_with("--");
+        while let Ok(token) = input.next() {
+            if !custom && matches!(token, Token::CurlyBracketBlock) {
+                return Err(ParseError::unexpected_token());
+            }
+        }
+        let kind = match self.block {
+            Block::FontFace(face) => font_descriptor(&name, face),
+            Block::Style => can_hold_image(&name).then_some(DeclarationKind::Image),
+        };
+        if let Some(kind) = kind {
+            self.found.push(Declaration {
+                start: start.byte_index(),
+                end: input.position().byte_index(),
+                kind,
+            });
+        }
+        Ok(())
+    }
+}
+
+impl<'i> AtRuleParser<'i> for Declarations {
+    type Prelude = Block;
+    type AtRule = ();
+    type Error = ();
+
+    fn parse_prelude(
+        &mut self,
+        name: CowRcStr<'i>,
+        input: &mut Parser<'i>,
+    ) -> Result<Block, ParseError<()>> {
+        let font_face = name.eq_ignore_ascii_case("font-face") && input.is_exhausted();
+        while input.next().is_ok() {}
+        if !font_face {
+            return Ok(Block::Style);
+        }
+        self.font_faces += 1;
+        Ok(Block::FontFace(self.font_faces - 1))
+    }
+
+    fn rule_without_block(&mut self, _: Block, _: &ParserState) -> Result<(), ()> {
+        Ok(())
+    }
+
+    fn parse_block(
+        &mut self,
+        block: Block,
+        _: &ParserState,
+        input: &mut Parser<'i>,
+    ) -> Result<(), ParseError<()>> {
+        self.read_block(input, block);
+        Ok(())
+    }
+}
+
+impl<'i> QualifiedRuleParser<'i> for Declarations {
+    type Prelude = ();
+    type QualifiedRule = ();
+    type Error = ();
+
+    fn parse_prelude(&mut self, input: &mut Parser<'i>) -> Result<(), ParseError<()>> {
+        while input.next().is_ok() {}
+        Ok(())
+    }
+
+    fn parse_block(
+        &mut self,
+        _: (),
+        _: &ParserState,
+        input: &mut Parser<'i>,
+    ) -> Result<(), ParseError<()>> {
+        self.read_block(input, Block::Style);
+        Ok(())
+    }
+}
+
+impl<'i> RuleBodyItemParser<'i, (), ()> for Declarations {
+    fn parse_declarations(&self) -> bool {
+        true
+    }
+
+    fn parse_qualified(&self) -> bool {
+        matches!(self.block, Block::Style)
+    }
+}
+
+fn font_descriptor(descriptor: &str, face: usize) -> Option<DeclarationKind> {
+    if descriptor.eq_ignore_ascii_case("src") {
+        Some(DeclarationKind::FontSrc(face))
+    } else if descriptor.eq_ignore_ascii_case("font-family") {
+        Some(DeclarationKind::FontFamily(face))
+    } else {
+        None
+    }
+}
 
 fn is_image_property(property: &str) -> bool {
-    property.len() <= MAX_IMAGE_PROPERTY_LEN
-        && matches!(
-            property.to_ascii_lowercase().as_str(),
-            "background"
-                | "background-image"
-                | "border-image"
-                | "border-image-source"
-                | "content"
-                | "cursor"
-                | "list-style"
-                | "list-style-image"
-                | "mask"
-                | "mask-border"
-                | "mask-border-source"
-                | "mask-image"
-                | "shape-outside"
-                | "symbols"
-                | "-webkit-border-image"
-                | "-webkit-border-image-source"
-                | "-webkit-box-reflect"
-                | "-webkit-mask"
-                | "-webkit-mask-box-image"
-                | "-webkit-mask-box-image-source"
-                | "-webkit-mask-image"
-        )
+    match_ignore_ascii_case! { property,
+        "background"
+        | "background-image"
+        | "border-image"
+        | "border-image-source"
+        | "content"
+        | "cursor"
+        | "list-style"
+        | "list-style-image"
+        | "mask"
+        | "mask-border"
+        | "mask-border-source"
+        | "mask-image"
+        | "shape-outside"
+        | "symbols"
+        | "-webkit-border-image"
+        | "-webkit-border-image-source"
+        | "-webkit-box-reflect"
+        | "-webkit-mask"
+        | "-webkit-mask-box-image"
+        | "-webkit-mask-box-image-source"
+        | "-webkit-mask-image" => true,
+        _ => false,
+    }
 }
 
-fn value_urls(value: &str, resolver: &mut Resolver<'_>, found: &mut impl FnMut(CssUrl<'_>)) {
-    let bytes = value.as_bytes();
-    let mut position = 0;
-    while position < bytes.len() {
-        if starts_with(bytes, position, b"/*") {
-            position = skip_comment(bytes, position).unwrap_or(bytes.len());
-            continue;
-        }
-        if bytes[position] == b'\\' {
-            position = skip_escape(bytes, position);
-            continue;
-        }
-        if matches!(bytes[position], b'\'' | b'"') {
-            position = skip_quoted(bytes, position).unwrap_or(bytes.len());
-            continue;
-        }
-        let image_set = if function_at(bytes, position, b"image-set") {
-            Some(b"image-set".len())
-        } else if function_at(bytes, position, b"-webkit-image-set") {
-            Some(b"-webkit-image-set".len())
-        } else {
-            None
-        };
-        if let Some(name_len) = image_set {
-            let Some(end) = matching_paren(bytes, position + name_len) else {
-                return;
-            };
-            image_set_urls(&value[position..end], name_len, resolver, found);
-            position = end;
-            continue;
-        }
-        if function_at(bytes, position, b"url") {
-            let (resume_at, source) = scan_url_function(value, position);
-            if let Some(source) = source.as_deref().and_then(collectable) {
-                url_function_urls(&value[position..resume_at], source, resolver, found);
+/// An image source that holds a CSS escape is skipped, as v3 skips it. A font has no v3 to match, and its URL must not stay.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum EscapedSources {
+    Skipped,
+    Decoded,
+}
+
+enum Opened<'i> {
+    UnquotedUrl(CowRcStr<'i>),
+    UrlFunction,
+    ImageSet,
+}
+
+/// Calls `each` at each `url()` and `image-set()` in `input`, at any depth. A block deeper than `cssparser`'s nesting limit reads as flat tokens, to keep the stack bounded.
+fn each_function<'i>(
+    input: &mut Parser<'i>,
+    each: &mut impl FnMut(&mut Parser<'i>, SourcePosition, Opened<'i>),
+) {
+    loop {
+        let start = input.position();
+        let opened = match input.next_including_whitespace_and_comments() {
+            Err(_) => return,
+            Ok(Token::UnquotedUrl(url)) => Opened::UnquotedUrl(url.clone()),
+            Ok(Token::Function(name)) if name.eq_ignore_ascii_case("url") => Opened::UrlFunction,
+            Ok(Token::Function(name)) if is_image_set(name) => Opened::ImageSet,
+            Ok(
+                Token::Function(_)
+                | Token::ParenthesisBlock
+                | Token::SquareBracketBlock
+                | Token::CurlyBracketBlock,
+            ) => {
+                let _ = input.parse_nested_block(|input| {
+                    each_function(input, each);
+                    Ok::<_, ParseError<()>>(())
+                });
+                continue;
             }
-            position = resume_at;
-            continue;
-        }
-        position += 1;
+            Ok(_) => continue,
+        };
+        each(input, start, opened);
     }
+}
+
+fn is_image_set(name: &str) -> bool {
+    name.eq_ignore_ascii_case("image-set") || name.eq_ignore_ascii_case("-webkit-image-set")
+}
+
+fn skip_block(input: &mut Parser<'_>) {
+    let _ = input.parse_nested_block(|_| Ok::<_, ParseError<()>>(()));
+}
+
+fn value_urls(
+    value: &str,
+    resolver: &mut Resolver<'_>,
+    escaped: EscapedSources,
+    found: &mut impl FnMut(CssUrl<'_>),
+) {
+    each_function(&mut Parser::new(value), &mut |input, start, opened| {
+        let source = match opened {
+            Opened::ImageSet => return image_set_urls(input, start, resolver, found),
+            Opened::UnquotedUrl(url) => Some(unquoted_url_source(url, input.slice_from(start))),
+            Opened::UrlFunction => quoted_url_source(input),
+        };
+        let Some(source) = source else { return };
+        let function = input.slice_from(start);
+        match collectable(&source) {
+            Some(url) => url_function_urls(function, url, resolver, found),
+            None if source.escaped && escaped == EscapedSources::Decoded => {
+                escaped_url_function_urls(function, &source.url, resolver, found)
+            }
+            None => {}
+        }
+    });
+}
+
+struct UrlSource<'i> {
+    url: CowRcStr<'i>,
+    escaped: bool,
+}
+
+/// The name before the `(` can be escaped, as in `\75 rl(`, and still read as `url`, so only the text after it counts.
+fn unquoted_url_source<'i>(url: CowRcStr<'i>, token: &str) -> UrlSource<'i> {
+    let contents = token
+        .split_once('(')
+        .map_or(token, |(_, contents)| contents);
+    UrlSource {
+        escaped: contents.contains('\\'),
+        url,
+    }
+}
+
+fn quoted_url_source<'i>(input: &mut Parser<'i>) -> Option<UrlSource<'i>> {
+    input
+        .parse_nested_block(|input| {
+            input.skip_whitespace();
+            let start = input.position();
+            let url = input.expect_string_cloned()?;
+            Ok::<_, ParseError<()>>(UrlSource {
+                escaped: input.slice_from(start).contains('\\'),
+                url,
+            })
+        })
+        .ok()
 }
 
 /// v3 collects neither a fragment nor a source with an escape in it.
-fn collectable(source: &str) -> Option<&str> {
-    let source = source.trim();
-    (!source.starts_with('#') && !source.contains('\\')).then_some(source)
+fn collectable<'s>(source: &'s UrlSource<'_>) -> Option<&'s str> {
+    let url = source.url.trim();
+    (!source.escaped && !url.is_empty() && !url.starts_with('#')).then_some(url)
 }
 
 fn url_function_urls(
@@ -372,12 +545,51 @@ fn url_function_urls(
                 text: function.to_owned(),
                 replacement: url_function(&absolute),
                 dropped: Vec::new(),
-                resolved: Some(absolute),
+                resolved: Some(RemoteUrl {
+                    url: absolute,
+                    kind: RemoteKind::Image,
+                }),
             }));
         }
         None if is_root_relative(source) => found(CssUrl::Unresolved(function)),
         None => found(CssUrl::Image(source)),
     }
+}
+
+/// The block does not hold the URL a browser reads from an escaped source, so the rewrite replaces the whole `url()`.
+fn escaped_url_function_urls(
+    function: &str,
+    decoded: &str,
+    resolver: &mut Resolver<'_>,
+    found: &mut impl FnMut(CssUrl<'_>),
+) {
+    let decoded = decoded.trim();
+    if is_root_relative(decoded) {
+        return url_function_urls(function, decoded, resolver, found);
+    }
+    let decoded = if is_protocol_relative(decoded) {
+        Cow::Owned(format!("https:{decoded}"))
+    } else {
+        Cow::Borrowed(decoded)
+    };
+    // A serialized URL percent-encodes `"` and holds no backslash, so the quotes of the rewrite hold it.
+    let Some(absolute) = Url::parse(&decoded)
+        .ok()
+        .filter(|url| matches!(url.scheme(), "http" | "https"))
+        .map(String::from)
+    else {
+        return;
+    };
+    found(CssUrl::Resolved(&absolute));
+    found(CssUrl::Rewrite(CssRewrite {
+        text: function.to_owned(),
+        replacement: url_function(&absolute),
+        dropped: Vec::new(),
+        resolved: Some(RemoteUrl {
+            url: absolute,
+            kind: RemoteKind::Image,
+        }),
+    }));
 }
 
 fn is_root_relative(source: &str) -> bool {
@@ -392,37 +604,23 @@ fn url_function(url: &str) -> String {
 /// A renderer picks the candidate for its pixel ratio and fails offline on any the fetcher did not take, so the set keeps
 /// one: the highest resolution of a stored type. Fetching one candidate per set limits the load on the image's host.
 fn image_set_urls(
-    function: &str,
-    name_len: usize,
+    input: &mut Parser<'_>,
+    start: SourcePosition,
     resolver: &mut Resolver<'_>,
     found: &mut impl FnMut(CssUrl<'_>),
 ) {
-    let contents = &function[name_len + 1..function.len() - 1];
-    let mut candidates = Vec::new();
-    let mut count = 0;
-    let mut readable = true;
-    let split = split_image_set(contents, &mut |text| {
-        count += 1;
-        if count <= MAX_IMAGE_SET_CANDIDATES {
-            match image_set_candidate(text) {
-                Some(candidate) => candidates.push(candidate),
-                None => readable = false,
-            }
-        }
-    });
-    if split.is_none() || !readable {
+    let opening = input.slice_from(start);
+    let name = &opening[..opening.len() - 1];
+    let candidates = input
+        .parse_nested_block(|input| {
+            Ok::<_, ParseError<()>>(image_set_candidates(input, &mut *found))
+        })
+        .ok()
+        .flatten();
+    let function = input.slice_from(start);
+    let Some(candidates) = candidates else {
         return;
-    }
-    if count > MAX_IMAGE_SET_CANDIDATES {
-        split_image_set(contents, &mut |text| {
-            if let Some(source) = image_set_candidate(text).and_then(|candidate| candidate.source) {
-                if is_remote(&source) {
-                    found(CssUrl::Unshown(&source));
-                }
-            }
-        });
-        return;
-    }
+    };
     let loads = |source: &str| {
         is_data_url(source)
             || (is_remote(source) && try_canonicalize(source).is_ok())
@@ -473,9 +671,12 @@ fn image_set_urls(
     if !holds_data_url && (candidates.len() > 1 || resolved.is_some()) {
         found(CssUrl::Rewrite(CssRewrite {
             text: function.to_owned(),
-            replacement: format!("{}({candidate})", &function[..name_len]),
+            replacement: format!("{name}({candidate})"),
             dropped,
-            resolved,
+            resolved: resolved.map(|url| RemoteUrl {
+                url,
+                kind: RemoteKind::Image,
+            }),
         }));
     }
 }
@@ -493,224 +694,120 @@ struct ImageSetCandidate<'a> {
     resolution_dppx: Option<f64>,
 }
 
-fn split_image_set<'a>(contents: &'a str, each: &mut impl FnMut(&'a str)) -> Option<()> {
-    let bytes = contents.as_bytes();
-    let mut start = 0;
-    let mut position = 0;
-    let mut depth = 0usize;
-    while position <= bytes.len() {
-        if position == bytes.len() || (bytes[position] == b',' && depth == 0) {
-            each(&contents[start..position]);
-            start = position + 1;
-            position += 1;
-            continue;
+/// `None` when a candidate is empty, or when the set lists more than [`MAX_IMAGE_SET_CANDIDATES`]. Then each remote candidate is reported as unshown, as the set is read, so that a long set is never held.
+fn image_set_candidates<'i>(
+    input: &mut Parser<'i>,
+    found: &mut impl FnMut(CssUrl<'_>),
+) -> Option<Vec<ImageSetCandidate<'i>>> {
+    let mut candidates = Vec::new();
+    let mut count = 0;
+    let mut readable = true;
+    loop {
+        let candidate = input
+            .parse_until_before(Delimiter::Comma, |input| {
+                Ok::<_, ParseError<()>>(image_set_candidate(input))
+            })
+            .ok()
+            .flatten();
+        count += 1;
+        if count <= MAX_IMAGE_SET_CANDIDATES {
+            match candidate {
+                Some(candidate) => candidates.push(candidate),
+                None => readable = false,
+            }
+        } else if readable {
+            let held = std::mem::take(&mut candidates);
+            for source in held.into_iter().chain(candidate).filter_map(|c| c.source) {
+                if is_remote(&source) {
+                    found(CssUrl::Unshown(&source));
+                }
+            }
         }
-        if bytes[position] == b'\\' {
-            position = skip_escape(bytes, position);
-            continue;
+        if input.next().is_err() {
+            break;
         }
-        if starts_with(bytes, position, b"/*") {
-            position = skip_comment(bytes, position)?;
-            continue;
-        }
-        if matches!(bytes[position], b'\'' | b'"') {
-            position = skip_quoted(bytes, position)?;
-            continue;
-        }
-        match bytes[position] {
-            b'(' => depth += 1,
-            b')' => depth = depth.saturating_sub(1),
-            _ => {}
-        }
-        position += 1;
     }
-    Some(())
+    (readable && count <= MAX_IMAGE_SET_CANDIDATES).then_some(candidates)
 }
 
-fn image_set_candidate(candidate: &str) -> Option<ImageSetCandidate<'_>> {
-    let candidate = candidate.trim();
-    if candidate.is_empty() {
-        return None;
-    }
-    let bytes = candidate.as_bytes();
-    let (source, descriptors) = if function_at(bytes, 0, b"url") {
-        let (resume_at, source) = scan_url_function(candidate, 0);
-        (source, &candidate[resume_at..])
-    } else if matches!(bytes[0], b'\'' | b'"') {
-        let end = skip_quoted(bytes, 0)?;
-        (Some(candidate[1..end - 1].to_owned()), &candidate[end..])
-    } else {
-        (None, "")
+enum CandidateStart<'i> {
+    Url(CowRcStr<'i>),
+    String(CowRcStr<'i>),
+    UrlFunction,
+    Other,
+}
+
+fn image_set_candidate<'i>(input: &mut Parser<'i>) -> Option<ImageSetCandidate<'i>> {
+    input.skip_whitespace();
+    let start = input.position();
+    let first = match input.next() {
+        Err(_) => return None,
+        Ok(Token::UnquotedUrl(url)) => CandidateStart::Url(url.clone()),
+        Ok(Token::QuotedString(url)) => CandidateStart::String(url.clone()),
+        Ok(Token::Function(name)) if name.eq_ignore_ascii_case("url") => {
+            CandidateStart::UrlFunction
+        }
+        Ok(_) => CandidateStart::Other,
     };
+    let source = match first {
+        CandidateStart::Url(url) => Some(unquoted_url_source(url, input.slice_from(start))),
+        CandidateStart::String(url) => Some(UrlSource {
+            escaped: input.slice_from(start).contains('\\'),
+            url,
+        }),
+        CandidateStart::UrlFunction => quoted_url_source(input),
+        CandidateStart::Other => None,
+    };
+    let source_end = input.position();
+    let resolution_dppx = parse_descriptors(input);
     Some(ImageSetCandidate {
-        text: candidate,
-        source: source.as_deref().and_then(collectable).map(str::to_owned),
-        descriptors,
-        resolution_dppx: parse_descriptors(descriptors),
+        text: input.slice_from(start).trim_end(),
+        source: source.as_ref().and_then(collectable).map(str::to_owned),
+        descriptors: input.slice(source_end..input.position()),
+        resolution_dppx,
     })
 }
 
-fn parse_descriptors(descriptors: &str) -> Option<f64> {
-    let bytes = descriptors.as_bytes();
+enum Descriptor {
+    Resolution(f64),
+    Type,
+}
+
+fn parse_descriptors(input: &mut Parser<'_>) -> Option<f64> {
     let mut resolution = None;
-    let mut position = 0;
+    let mut readable = true;
     loop {
-        skip_whitespace(bytes, &mut position);
-        if position == bytes.len() {
-            break;
-        }
-        if function_at(bytes, position, b"type") {
-            let end = matching_paren(bytes, position + 4)?;
-            let media_type = descriptors[position + 5..end - 1]
-                .trim()
-                .trim_matches(['"', '\'']);
-            if !is_fetched_image_type(media_type) {
-                return None;
+        let descriptor = match input.next() {
+            Err(_) => break,
+            Ok(Token::Dimension { value, unit, .. }) => {
+                resolution_dppx(f64::from(*value), unit).map(Descriptor::Resolution)
             }
-            position = end;
-            continue;
-        }
-        let token_end = bytes[position..]
-            .iter()
-            .position(u8::is_ascii_whitespace)
-            .map_or(bytes.len(), |length| position + length);
-        if resolution
-            .replace(parse_resolution(&descriptors[position..token_end])?)
-            .is_some()
-        {
-            return None;
-        }
-        position = token_end;
+            Ok(Token::Function(name)) if name.eq_ignore_ascii_case("type") => {
+                Some(Descriptor::Type)
+            }
+            Ok(_) => None,
+        };
+        readable &= match descriptor {
+            Some(Descriptor::Resolution(dppx)) => resolution.replace(dppx).is_none(),
+            Some(Descriptor::Type) => input
+                .parse_nested_block(|input| {
+                    Ok::<_, ParseError<()>>(is_fetched_image_type(input.expect_string()?.trim()))
+                })
+                .unwrap_or(false),
+            None => false,
+        };
     }
     let value = resolution.unwrap_or(1.0);
-    (value.is_finite() && value > 0.0).then_some(value)
+    (readable && value.is_finite() && value > 0.0).then_some(value)
 }
 
-fn parse_resolution(token: &str) -> Option<f64> {
-    if let Some(value) = token.strip_suffix("dppx") {
-        value.parse::<f64>().ok()
-    } else if let Some(value) = token.strip_suffix("dpi") {
-        value.parse::<f64>().ok().map(|value| value / 96.0)
-    } else if let Some(value) = token.strip_suffix("dpcm") {
-        value.parse::<f64>().ok().map(|value| value * 2.54 / 96.0)
-    } else {
-        token.strip_suffix('x')?.parse::<f64>().ok()
+fn resolution_dppx(value: f64, unit: &str) -> Option<f64> {
+    match_ignore_ascii_case! { unit,
+        "x" | "dppx" => Some(value),
+        "dpi" => Some(value / 96.0),
+        "dpcm" => Some(value * 2.54 / 96.0),
+        _ => None,
     }
-}
-
-fn scan_url_function(value: &str, start: usize) -> (usize, Option<String>) {
-    let bytes = value.as_bytes();
-    let Some(resume_at) = matching_paren(bytes, start + 3) else {
-        return (bytes.len(), None);
-    };
-    let contents_end = resume_at - 1;
-    let mut position = start + 4;
-    skip_whitespace(bytes, &mut position);
-    let source = if matches!(bytes.get(position), Some(b'\'' | b'"')) {
-        let content_start = position + 1;
-        let Some(end) = skip_quoted(bytes, position) else {
-            return (resume_at, None);
-        };
-        position = end;
-        skip_whitespace(bytes, &mut position);
-        if position != contents_end {
-            return (resume_at, None);
-        }
-        &value[content_start..end - 1]
-    } else {
-        &value[position..contents_end]
-    };
-    let source = source.trim();
-    (
-        resume_at,
-        (!source.is_empty() && !source.contains('\\')).then(|| source.to_owned()),
-    )
-}
-
-fn function_at(bytes: &[u8], start: usize, name: &[u8]) -> bool {
-    bytes
-        .get(start..start + name.len())
-        .is_some_and(|candidate| candidate.eq_ignore_ascii_case(name))
-        && bytes.get(start + name.len()) == Some(&b'(')
-        && (start == 0
-            || !matches!(bytes[start - 1], b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_' | b'-'))
-}
-
-fn matching_paren(bytes: &[u8], open: usize) -> Option<usize> {
-    if bytes.get(open) != Some(&b'(') {
-        return None;
-    }
-    let mut position = open + 1;
-    let mut depth = 1usize;
-    while position < bytes.len() {
-        if starts_with(bytes, position, b"/*") {
-            position = skip_comment(bytes, position)?;
-            continue;
-        }
-        if bytes[position] == b'\\' {
-            position = skip_escape(bytes, position);
-            continue;
-        }
-        if matches!(bytes[position], b'\'' | b'"') {
-            position = skip_quoted(bytes, position)?;
-            continue;
-        }
-        match bytes[position] {
-            b'(' => depth += 1,
-            b')' => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(position + 1);
-                }
-            }
-            _ => {}
-        }
-        position += 1;
-    }
-    None
-}
-
-fn skip_quoted(bytes: &[u8], start: usize) -> Option<usize> {
-    let quote = *bytes.get(start)?;
-    let mut position = start + 1;
-    while position < bytes.len() {
-        match bytes[position] {
-            b'\\' => position += 2,
-            value if value == quote => return Some(position + 1),
-            _ => position += 1,
-        }
-    }
-    None
-}
-
-/// The position after the escape at `start` and the character it escapes, so that an escaped quote, bracket or
-/// parenthesis does not count as one.
-fn skip_escape(bytes: &[u8], start: usize) -> usize {
-    let width = match bytes.get(start + 1) {
-        Some(0xf0..) => 4,
-        Some(0xe0..) => 3,
-        Some(0xc0..) => 2,
-        _ => 1,
-    };
-    (start + 1 + width).min(bytes.len())
-}
-
-fn skip_comment(bytes: &[u8], start: usize) -> Option<usize> {
-    let relative = bytes
-        .get(start + 2..)?
-        .windows(2)
-        .position(|pair| pair == b"*/")?;
-    Some(start + 2 + relative + 2)
-}
-
-fn skip_whitespace(bytes: &[u8], position: &mut usize) {
-    while bytes.get(*position).is_some_and(u8::is_ascii_whitespace) {
-        *position += 1;
-    }
-}
-
-fn starts_with(bytes: &[u8], start: usize, needle: &[u8]) -> bool {
-    bytes.get(start..start + needle.len()) == Some(needle)
 }
 
 #[cfg(test)]
@@ -720,7 +817,7 @@ mod tests {
     fn found(css: &str, page_url: Option<&str>) -> Vec<String> {
         let base = page_url.and_then(page_base);
         let mut found = Vec::new();
-        image_urls(css, &mut Resolver::new(base.as_ref(), None), &mut |url| {
+        urls(css, &mut Resolver::new(base.as_ref(), None), &mut |url| {
             found.push(match url {
                 CssUrl::Image(url) => format!("image {url}"),
                 CssUrl::Unshown(url) => format!("unshown {url}"),
@@ -730,20 +827,69 @@ mod tests {
                     "rewrite {} => {} dropping {:?}",
                     rewrite.text, rewrite.replacement, rewrite.dropped
                 ),
+                CssUrl::Font { url, family } => format!("font {url} {family:?}"),
+                CssUrl::ResolvedFont(url) => format!("resolved font {url}"),
             })
         });
         found
     }
 
     #[test]
+    fn reports_each_font_face_src_url_with_its_rules_family() {
+        let css = concat!(
+            "/* fonts */@FONT-FACE{font-family:'Brand Sans';src:url(https://cdn.example.com/brand.woff2) format('woff2'),local(Arial),url(\"https://cdn.example.com/brand.woff\")}",
+            "@media print{@font-face{src:url(https://cdn.example.com/print.woff2);font-family:Print}}",
+            "@font-face{src:url(https://cdn.example.com/nameless.woff2)}",
+            "@font-face{font-family:Self;src:url(/fonts/self.woff2)}",
+            ".a{font-family:Inter;src:url(https://cdn.example.com/not-a-face.woff2);background:url(https://cdn.example.com/a.png)}",
+            ".\\@font-face{src:url(https://cdn.example.com/escaped.woff2);background:url(https://cdn.example.com/escaped.png)}",
+            "@font-face/* trailing */{font-family:Trail;src:url(https://cdn.example.com/trail.woff2)}",
+            "@\\66 ont-face{font-family:Keyword;src:url(https://cdn.example.com/keyword.woff2)}",
+            "@font-face{font-family:Descriptor;\\73 rc:url(https://cdn.example.com/descriptor.woff2)}",
+            "@font-face{font-family:Function;src:\\75 rl(https://cdn.example.com/function.woff2)}",
+            "@font-face{font-family:Source;src:url(https://cdn.example.com/source\\2e woff2)}",
+            "@font-face{font-family:Relative;src:url(//cdn.example.com/relative\\2e woff2)}",
+            "@font-face{font-family:Continued;src:url(\"https://cdn.example.com/continued.\\\nwoff2\")}",
+            "@font-face{font-family:Broken;src:url(https://cdn.example.com/broken.\\\nwoff2)}",
+            "@font-face{font-family:Commented;/* lead */src/**/:url(\"https://cdn.example.com/commented.woff2\"/* tail */)}",
+        );
+        assert_eq!(
+            found(css, Some("https://app.example.com/")),
+            [
+                "font https://cdn.example.com/brand.woff2 Some(\"'Brand Sans'\")",
+                "font https://cdn.example.com/brand.woff Some(\"'Brand Sans'\")",
+                "font https://cdn.example.com/print.woff2 Some(\"Print\")",
+                "font https://cdn.example.com/nameless.woff2 None",
+                "resolved font https://app.example.com/fonts/self.woff2",
+                "rewrite url(/fonts/self.woff2) => url(\"https://app.example.com/fonts/self.woff2\") dropping []",
+                "image https://cdn.example.com/a.png",
+                "image https://cdn.example.com/escaped.png",
+                "font https://cdn.example.com/trail.woff2 Some(\"Trail\")",
+                "font https://cdn.example.com/keyword.woff2 Some(\"Keyword\")",
+                "font https://cdn.example.com/descriptor.woff2 Some(\"Descriptor\")",
+                "font https://cdn.example.com/function.woff2 Some(\"Function\")",
+                "resolved font https://cdn.example.com/source.woff2",
+                "rewrite url(https://cdn.example.com/source\\2e woff2) => url(\"https://cdn.example.com/source.woff2\") dropping []",
+                "resolved font https://cdn.example.com/relative.woff2",
+                "rewrite url(//cdn.example.com/relative\\2e woff2) => url(\"https://cdn.example.com/relative.woff2\") dropping []",
+                "resolved font https://cdn.example.com/continued.woff2",
+                "rewrite url(\"https://cdn.example.com/continued.\\\nwoff2\") => url(\"https://cdn.example.com/continued.woff2\") dropping []",
+                "font https://cdn.example.com/commented.woff2 Some(\"Commented\")",
+            ]
+        );
+    }
+
+    #[test]
     fn reads_past_escapes_outside_strings() {
         // Tailwind escapes brackets, parentheses and quotes in its arbitrary value class names.
-        let css = r".bg-\[url\(\'\/hero\.png\'\)\]{background-image:url('/hero.png')}.a{background:url(https://cdn.example.com/a.png)}";
+        let css = r".bg-\[url\(\'\/hero\.png\'\)\]{background-image:url('/hero.png')}.a{background:url(https://cdn.example.com/a.png)}.p{background-\69mage:url(https://cdn.example.com/p.png)}.f{background:\75 rl(https://cdn.example.com/f.png)}";
         assert_eq!(
             found(css, None),
             [
                 "unresolved url('/hero.png')",
-                "image https://cdn.example.com/a.png"
+                "image https://cdn.example.com/a.png",
+                "image https://cdn.example.com/p.png",
+                "image https://cdn.example.com/f.png",
             ]
         );
     }
@@ -777,6 +923,10 @@ mod tests {
                 vec!["image ../img/a.png"],
             ),
             (
+                ".a{/* lead */background/**/:url(\"https://cdn.example.com/c.png\"/* tail */)}",
+                vec!["image https://cdn.example.com/c.png"],
+            ),
+            (
                 r#".a{background-image:image-set("https://cdn.example.com/1x.png" 1x, url(https://cdn.example.com/2x.png) 2x)}"#,
                 vec![
                     "unshown https://cdn.example.com/1x.png",
@@ -795,6 +945,14 @@ mod tests {
                 ".a{background:image-set(url(https://cdn.example.com/a.png))}",
                 vec!["image https://cdn.example.com/a.png"],
             ),
+            (
+                ".a{background:url(https://cdn.example.com/unclosed.png",
+                vec!["image https://cdn.example.com/unclosed.png"],
+            ),
+            (
+                ".a{background:url(https://cdn.example.com/a(1).png)}",
+                vec![],
+            ),
         ] {
             assert_eq!(found(css, page), expected, "{css}");
         }
@@ -802,7 +960,7 @@ mod tests {
         let base = page_base("https://app.example.com/shop/item");
         let budget = AtomicUsize::new("https://app.example.com/img/a.png".len());
         let mut named = Vec::new();
-        image_urls(
+        urls(
             ".a{background:url(/img/a.png)} .b{background:url(/img/b.png)}",
             &mut Resolver::new(base.as_ref(), Some(&budget)),
             &mut |url| {

@@ -30,6 +30,7 @@ import { ImageFetchProcessingMetrics } from './processing-metrics'
 import type { ResponseUrlBinder } from './response-url-binding'
 import { ImageFetchTopHogMetrics } from './tophog-metrics'
 import { urlHistoryExpiresAtMs, urlHistoryStorageExpiresAtMs } from './url-history-expiry'
+import { urlAssetOf } from './v4-url-ref'
 
 export type ShedReason =
     | 'breaker_open'
@@ -558,6 +559,7 @@ export class FetchRunner implements FetchPass {
                 : undefined
         const fetched = await ImageFetchProcessingMetrics.measure('candidate_fetch', () =>
             this.fetcher.fetch(candidate.currentUrl, {
+                asset: urlAssetOf(candidate.originalRef),
                 sourcePartitions: candidate.sourcePartitions,
                 maxBytes: this.options.maxBytes,
                 timeoutMs: this.options.requestTimeoutMs,

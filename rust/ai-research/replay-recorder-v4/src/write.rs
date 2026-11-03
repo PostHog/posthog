@@ -192,9 +192,17 @@ fn prepare_block(
 /// block is kept without a URL nobody checked.
 fn first_fallback(block: &Block) -> Fallback {
     match block.url_limit {
+        // Past the font budget the inspector still named every URL it reads except font sources, so links and text keep theirs.
+        Some(limit) if limit.is_font_budget() => Fallback {
+            overwrite_declined: true,
+            scrub: Scrub::Nothing,
+            scrub_font_sources: true,
+            reason: Some(limit.label()),
+        },
         Some(limit) => Fallback {
             overwrite_declined: true,
             scrub: Scrub::AllRemote,
+            scrub_font_sources: false,
             reason: Some(limit.label()),
         },
         None => Fallback::default(),
@@ -217,6 +225,7 @@ fn second_fallback(first: &Fallback, report: &RewriteReport) -> Fallback {
     Fallback {
         overwrite_declined: true,
         scrub,
+        scrub_font_sources: first.scrub_font_sources,
         reason: first.reason.or(Some(reason)),
     }
 }
@@ -716,7 +725,10 @@ mod tests {
 
     use super::*;
     use crate::batch::{Origin, Tp};
-    use replay_core_v4::inspect::dom::MAX_BLOCK_REMOTE_URLS;
+    use replay_core_v4::inspect::dom::{
+        RemoteKind, RemoteUrl, MAX_BLOCK_FONT_URLS, MAX_BLOCK_REMOTE_URLS,
+    };
+    use replay_core_v4::refs::UrlAsset;
 
     #[derive(Default)]
     struct MemoryStore {
@@ -784,6 +796,7 @@ mod tests {
             stats: BlockStats::default(),
             moments: Vec::new(),
             image_urls: Vec::new(),
+            font_urls: Vec::new(),
             remote_urls: Vec::new(),
             url_limit: None,
             srcsets: Vec::new(),
@@ -820,7 +833,10 @@ mod tests {
         inspected.css_rewrites = found.css_rewrites;
         inspected
             .remote_urls
-            .extend(extra.iter().map(|url| (*url).to_owned()));
+            .extend(extra.iter().map(|url| RemoteUrl {
+                url: (*url).to_owned(),
+                kind: RemoteKind::Image,
+            }));
         let (lines, _, counts) =
             write_block(&inspected, &[6; 32], "2026-10", || Ok(Vec::new())).unwrap();
         if counts.dropped.is_some() {
@@ -842,6 +858,7 @@ mod tests {
         let lines = stored_lines(&events, &[]);
         let reference = crate::urls::url_reference(
             public,
+            replay_core_v4::refs::UrlAsset::Image,
             7,
             "2026-10",
             &replay_core_v4::seal::image_url_key(&[6; 32]),
@@ -914,36 +931,93 @@ mod tests {
             "{lines}"
         );
         assert!(!stored_lines(&event, &[public]).is_empty());
-        // A declined URL that a longer URL also holds is overwritten there too, and the block is kept.
-        let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
-            "attributes": [{"id": 99, "attributes": {"src": signed, "alt": format!("{signed}&size=2")}}]}}])
-        .to_string();
-        let lines = stored_lines(&events, &[]);
-        assert!(
-            !lines.is_empty() && !lines.contains("X-Amz-Signature"),
-            "{lines}"
-        );
+        // A declined URL that a longer URL also holds is overwritten there too, and the block is kept, also for a bundled font, which names no URL.
+        let bundled_font = json!({"parentId": 1, "node": {"type": 2, "tagName": "style",
+            "attributes": {"_cssText": format!("@font-face{{font-family:Roboto;src:url({signed})}}")}, "childNodes": [], "id": 5}});
+        for (adds, attributes) in [
+            (
+                json!([]),
+                json!({"src": signed, "alt": format!("{signed}&size=2")}),
+            ),
+            (
+                json!([bundled_font]),
+                json!({"alt": format!("{signed}&size=2")}),
+            ),
+        ] {
+            let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": adds, "removes": [], "texts": [],
+                "attributes": [{"id": 99, "attributes": attributes}]}}])
+            .to_string();
+            let lines = stored_lines(&events, &[]);
+            assert!(
+                !lines.is_empty() && !lines.contains("X-Amz-Signature"),
+                "{lines}"
+            );
+        }
     }
 
     #[test]
     fn keeps_a_block_past_the_url_limit_without_a_url_it_did_not_check() {
-        let urls = MAX_BLOCK_REMOTE_URLS + 1;
-        let nodes: Vec<_> = (0..urls)
+        let images: Vec<_> = (0..=MAX_BLOCK_REMOTE_URLS)
             .map(|i| json!({"type": 2, "tagName": "img", "attributes": {"src": format!("https://cdn.example.com/{i}.png")}, "childNodes": [], "id": i + 2}))
             .collect();
-        let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": nodes}}}]).to_string();
-        let lines = stored_lines(&events, &[]);
-        // The inspector named the first URLs, which keep their references; the fallback scrubbed the rest.
-        assert!(
-            lines.contains("imageurl:v4:7:2026-10:"),
-            "named URLs keep their references"
-        );
-        assert!(lines.contains("imageurl:v4:declined:unchecked"));
-        assert!(!lines.contains("https://"));
+        let faces: String = (0..=MAX_BLOCK_FONT_URLS)
+            .map(|i| format!("@font-face{{font-family:Brand{i};src:url(https://fonts.example.com/{i}.woff2)}}"))
+            .collect();
+        let link = "https://app.example.com/pricing";
+        let fonts = vec![
+            json!({"type": 2, "tagName": "style", "attributes": {"_cssText": faces}, "childNodes": [], "id": 2}),
+            json!({"type": 2, "tagName": "a", "attributes": {"href": link}, "childNodes": [], "id": 3}),
+            json!({"type": 2, "tagName": "style", "attributes": {"_cssText": "@\\66 ont-face{font-family:Escaped;src:url(https://fonts.example.com/escaped.woff2)}"}, "childNodes": [], "id": 4}),
+        ];
+        // Each escaped URL takes a rewrite, so past the rewrite budget its URL is not named.
+        let escaped_faces: String = (0..=MAX_BLOCK_REMOTE_URLS)
+            .map(|i| format!("@font-face{{font-family:Escaped{i};src:url(https://fonts.example.com/{i}\\2e woff2)}}"))
+            .collect();
+        let escaped_fonts = vec![
+            json!({"type": 2, "tagName": "style", "attributes": {"_cssText": escaped_faces}, "childNodes": [], "id": 2}),
+            json!({"type": 2, "tagName": "a", "attributes": {"href": link}, "childNodes": [], "id": 3}),
+        ];
+        use posthog_replay_anonymizer::v4_image_refs::{
+            FONT_URL_UNCHECKED_MARKER, URL_UNCHECKED_MARKER,
+        };
+        for (nodes, named, marker, other_marker) in [
+            (
+                images,
+                "imageurl:v4:7:2026-10:",
+                URL_UNCHECKED_MARKER,
+                FONT_URL_UNCHECKED_MARKER,
+            ),
+            (
+                fonts,
+                "fonturl:v4:7:2026-10:",
+                FONT_URL_UNCHECKED_MARKER,
+                URL_UNCHECKED_MARKER,
+            ),
+            (
+                escaped_fonts,
+                "fonturl:v4:7:2026-10:",
+                FONT_URL_UNCHECKED_MARKER,
+                URL_UNCHECKED_MARKER,
+            ),
+        ] {
+            let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": nodes}}}]).to_string();
+            let lines = stored_lines(&events, &[]);
+            assert!(lines.contains(named), "named URLs keep their references");
+            assert!(
+                lines.contains(marker) && !lines.contains(other_marker),
+                "{marker}"
+            );
+            assert!(!lines.contains("https://cdn.") && !lines.contains("https://fonts."));
+            assert_eq!(
+                lines.contains(link),
+                marker == FONT_URL_UNCHECKED_MARKER,
+                "only the font budget keeps links"
+            );
+        }
     }
 
     #[test]
-    fn leaves_css_only_images_an_offline_render_can_load() {
+    fn leaves_css_only_images_and_fonts_an_offline_render_can_load() {
         let compressed: String = replay_core_v4::compression::gzip(
             json!([{"rule": ".a{background:url(/img/a.png)} .q{content:\"url(/img/a.png)\"} .b{background-image:image-set(url(https://cdn.example.com/1x.png) 1x, url(https://cdn.example.com/2x.png) 2x)} .c{background:url(/c.png?X-Amz-Signature=abc123)} .bg-\\[url\\(https\\:\\/\\/cdn\\.example\\.com\\/t\\.png\\)\\]{background-image:url(https://cdn.example.com/t.png)} .s-\\[url\\(https\\:\\/\\/cdn\\.example\\.com\\/s\\.png\\?X-Amz-Signature\\=abc123\\)\\]{background-image:url(https://cdn.example.com/s.png?X-Amz-Signature=abc123)}", "index": 0}])
                 .to_string()
@@ -958,11 +1032,13 @@ mod tests {
             {"type": 3, "timestamp": 2, "cv": "2024-10", "data": {"source": 8, "id": 3, "adds": compressed}},
             {"type": 3, "timestamp": 3, "data": {"source": 0, "adds": [], "removes": [], "texts": [], "attributes": [{"id": 9, "attributes": {"class": "bg-[url(/img/a.png)]"}}, {"id": 10, "attributes": {"class": "bg-[url(https://cdn.example.com/t.png)]"}}]}},
             {"type": 3, "timestamp": 4, "data": {"source": 8, "id": 3, "replaceSync": ".\\/\\/cdn\\.example\\.com\\/p\\.png\\?X-Amz-Signature\\=abc123{background:url(//cdn.example.com/p.png?X-Amz-Signature=abc123)}"}},
+            {"type": 3, "timestamp": 5, "data": {"source": 8, "id": 4, "replaceSync": "@font-face{font-family:Brand;src:url(/fonts/brand.woff2)}@font-face{font-family:Roboto;src:url(/fonts/roboto.woff2)}@font-face{font-family:Escaped;src:url(https://fonts.example.com/escaped\\2e woff2)}"}},
         ]);
         let lines = stored_lines(&events.to_string(), &[]);
         let reference = |url: &str| {
             crate::urls::url_reference(
                 url,
+                UrlAsset::Image,
                 7,
                 "2026-10",
                 &replay_core_v4::seal::image_url_key(&[6; 32]),
@@ -980,6 +1056,31 @@ mod tests {
                 reference("https://cdn.example.com/2x.png")
             ),
             r#"url(\"imageurl:v4:declined:credential\")"#.to_owned(),
+            format!(
+                r#"src:url(\"{}\")"#,
+                crate::urls::url_reference(
+                    "https://app.example.com/fonts/brand.woff2",
+                    UrlAsset::Font,
+                    7,
+                    "2026-10",
+                    &replay_core_v4::seal::image_url_key(&[6; 32]),
+                )
+                .unwrap()
+                .1
+            ),
+            r#"src:url(\"fonturl:v4:bundled:roboto\")"#.to_owned(),
+            format!(
+                r#"src:url(\"{}\")"#,
+                crate::urls::url_reference(
+                    "https://fonts.example.com/escaped.woff2",
+                    UrlAsset::Font,
+                    7,
+                    "2026-10",
+                    &replay_core_v4::seal::image_url_key(&[6; 32]),
+                )
+                .unwrap()
+                .1
+            ),
         ] {
             assert!(lines.contains(&expected), "{expected} in {lines}");
         }
@@ -996,7 +1097,14 @@ mod tests {
         ] {
             assert!(lines.contains(&expected), "{expected} in {lines}");
         }
-        for gone in [":url(/img/a.png)", "1x.png", "1x,", "Signature"] {
+        for gone in [
+            ":url(/img/a.png)",
+            "1x.png",
+            "1x,",
+            "Signature",
+            "/fonts/",
+            "fonts.example.com",
+        ] {
             assert!(!lines.contains(gone), "{gone} in {lines}");
         }
     }
@@ -1115,6 +1223,7 @@ mod tests {
         let reference = |url: &str| {
             crate::urls::url_reference(
                 url,
+                replay_core_v4::refs::UrlAsset::Image,
                 7,
                 "2026-10",
                 &replay_core_v4::seal::image_url_key(&[6; 32]),
@@ -1196,6 +1305,7 @@ mod tests {
         let lines = stored_lines(&both, &[]);
         let reference = crate::urls::url_reference(
             "https://cdn.example.com/a.png",
+            replay_core_v4::refs::UrlAsset::Image,
             7,
             "2026-10",
             &replay_core_v4::seal::image_url_key(&[6; 32]),
@@ -1249,10 +1359,27 @@ mod tests {
             "https://cdn.example.com/a.png",
             "https://cdn.example.com/a.png?token=secret",
         );
-        let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"attributes": {"src": fetched, "srcset": format!("{declined} 2x")}}}}]);
+        let (font, bundled, public) = (
+            "https://fonts.example.com/brand.woff2",
+            "https://fonts.example.com/inter.woff2",
+            "https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Mu4mxK.woff2",
+        );
+        let css = format!("@font-face{{font-family:Brand;src:url({font})}}@font-face{{font-family:Inter;src:url({bundled})}}@font-face{{font-family:Brand Display;src:url({public})}}");
+        let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"attributes": {"src": fetched, "srcset": format!("{declined} 2x"), "_cssText": css}}}}]);
         let mut block = block("kept", events);
         block.image_urls = vec![fetched.to_owned()];
-        block.remote_urls = vec![fetched.to_owned(), declined.to_owned()];
+        block.font_urls = vec![font.to_owned(), public.to_owned()];
+        let remote = |url: &str, kind| RemoteUrl {
+            url: url.to_owned(),
+            kind,
+        };
+        block.remote_urls = vec![
+            remote(fetched, RemoteKind::Image),
+            remote(declined, RemoteKind::Image),
+            remote(font, RemoteKind::Font),
+            remote(bundled, RemoteKind::BundledFont("inter")),
+            remote(public, RemoteKind::Font),
+        ];
         let mut keys = FlushKeys::default();
         let (id, key) = session_key("kept");
         keys.sessions.insert(id, key);
@@ -1260,15 +1387,35 @@ mod tests {
         let mut stats = BlockStats::default();
         let jobs = crate::urls::fetch_jobs([(&block, &mut stats)], &keys, "2026-10", 1, &|_| false);
         let (lines, _, _) = write_block(&block, &[6; 32], "2026-10", || Ok(Vec::new())).unwrap();
-
         let lines = String::from_utf8(lines).unwrap();
-        let reference = jobs["example.com"][0]["originalRef"].as_str().unwrap();
-        assert!(
-            lines.contains(&format!(r#""src":"{reference}""#)),
-            "{lines}"
+        let references: Vec<_> = jobs
+            .iter()
+            .flat_map(|((_, asset), jobs)| {
+                jobs.iter()
+                    .map(move |job| (*asset, job["originalRef"].as_str().unwrap()))
+            })
+            .collect();
+        let [(UrlAsset::Image, image_reference), (UrlAsset::Font, font_reference), (UrlAsset::Font, public_reference)] =
+            references.as_slice()
+        else {
+            panic!("a job each for the image and the fetched fonts, none for the bundled font: {references:?}");
+        };
+        assert!(font_reference.starts_with("fonturl:v4:7:2026-10:"));
+        assert_eq!(
+            *public_reference,
+            "fonturl:v4:public:I6bjVBXgjPcaYLPITibNM4"
         );
-        assert!(lines.contains(r#""srcset":"imageurl:v4:declined:credential 2x""#));
-        assert!(!lines.contains("cdn.example.com"));
+        for expected in [
+            format!(r#""src":"{image_reference}""#),
+            r#""srcset":"imageurl:v4:declined:credential 2x""#.to_owned(),
+            format!("src:url({font_reference})"),
+            "src:url(fonturl:v4:bundled:inter)".to_owned(),
+            format!("src:url({public_reference})"),
+        ] {
+            assert!(lines.contains(&expected), "{expected} in {lines}");
+        }
+        assert!(!lines.contains("example.com/"), "{lines}");
+        assert!(!lines.contains("gstatic.com/"), "{lines}");
     }
 
     fn session_key(session: &str) -> (SessionId, Key) {

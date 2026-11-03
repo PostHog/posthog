@@ -1,4 +1,4 @@
-import { createHmac, hkdfSync } from 'node:crypto'
+import { createHash, createHmac, hkdfSync } from 'node:crypto'
 
 import type {
     TeamMonthKey,
@@ -23,6 +23,7 @@ export interface ResponseUrlBinder {
  * Binds cached validators to the URL that issued them without storing that URL, which can hold personal data. The
  * binding is the HMAC of the URL under the image URL key of the reference's team month, so it compares only within
  * that team month. A reference with no live key has no binding, and its fetch sends no validators.
+ * A public font's URL holds no personal data, so its binding is the unkeyed hash that its reference uses.
  */
 export class TeamMonthResponseUrlBinder implements ResponseUrlBinder {
     constructor(private readonly keys: Pick<TeamMonthKeys, 'get'>) {}
@@ -31,6 +32,9 @@ export class TeamMonthResponseUrlBinder implements ResponseUrlBinder {
         const ref = parseV4UrlRef(originalRef)
         if (!ref) {
             return undefined
+        }
+        if (ref.scope === 'public') {
+            return (url) => createHash('sha256').update(url).digest('base64url').slice(0, HASH_CHARS)
         }
         let key: TeamMonthKey
         try {

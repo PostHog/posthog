@@ -27,6 +27,14 @@ describe('v4 keys', () => {
             vector.imageUrl.frame,
         ],
         [
+            'a fetched font under the team month key',
+            vector.teamMonthKey,
+            vector.fontUrl.context,
+            vector.fontUrl.bytes,
+            vector.fontUrl.nonce,
+            vector.fontUrl.frame,
+        ],
+        [
             'a fetched image whose context sets its absent fields to undefined',
             vector.teamMonthKey,
             { ...vector.imageUrl.context, sessionId: undefined },

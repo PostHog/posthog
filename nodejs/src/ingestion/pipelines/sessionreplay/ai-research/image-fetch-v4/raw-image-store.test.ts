@@ -9,7 +9,11 @@ import type { ImageFetchResult } from './image-fetcher'
 import { RawImageStore } from './raw-image-store'
 
 const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from('png body')])
+const WOFF2 = Buffer.from('wOF2 body')
 const REF = 'imageurl:v4:7:2026-10:abcdefghijklmnopqrstuv'
+const FONT_REF = 'fonturl:v4:7:2026-10:abcdefghijklmnopqrstuv'
+const PUBLIC_FONT_URL = 'https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Mu4mxK.woff2'
+const PUBLIC_FONT_REF = 'fonturl:v4:public:I6bjVBXgjPcaYLPITibNM4'
 const KEY = Buffer.alloc(32, 9)
 const STORED: TeamMonthKey = { status: 'ok', key: KEY }
 
@@ -53,45 +57,69 @@ const candidate = (ref = REF): FetchCandidate => ({
     republishCount: 0,
     lastRepublishReason: null,
 })
-const fetched = (bytes = PNG): ImageFetchResult => ({
+const fetched = (bytes = PNG, contentType = 'image/png'): ImageFetchResult => ({
     outcome: 'ok',
     redirects: 0,
     currentUrl: IMAGE_URL,
     status: 200,
     bytes,
-    contentType: 'image/png',
+    contentType,
 })
 
 describe('RawImageStore', () => {
-    it('stores the image sealed under its team month key, over any earlier object of its reference', async () => {
-        const { sink, puts } = store(STORED)
-        await sink.publishImage(candidate(), fetched())
+    it.each([
+        ['image', REF, fetched(), PNG, 'images/url', 'image-url'],
+        ['font', FONT_REF, fetched(WOFF2, 'font/woff2'), WOFF2, 'fonts/url', 'font-url'],
+    ])(
+        'stores the %s sealed under its team month key, over any earlier object of its reference',
+        async (_asset, ref, result, bytes, prefix, kind) => {
+            const { sink, puts } = store(STORED)
+            await sink.publishImage(candidate(ref), result)
 
-        expect(puts).toHaveLength(1)
-        expect(puts[0]).toBeInstanceOf(PutObjectCommand)
-        const { Bucket, Key, IfNoneMatch, Body, ContentType } = (puts[0] as PutObjectCommand).input
-        expect([Bucket, Key, IfNoneMatch]).toEqual([
-            'images-v4',
-            'images/url/month=2026-10/7/abcdefghijklmnopqrstuv',
-            undefined,
+            expect(puts).toHaveLength(1)
+            expect(puts[0]).toBeInstanceOf(PutObjectCommand)
+            const { Bucket, Key, IfNoneMatch, Body, ContentType } = (puts[0] as PutObjectCommand).input
+            expect([Bucket, Key, IfNoneMatch]).toEqual([
+                'images-v4',
+                `${prefix}/month=2026-10/7/abcdefghijklmnopqrstuv`,
+                undefined,
+            ])
+            const { aad, body } = open(Body as Buffer)
+            expect(body).toEqual(bytes)
+            expect(aad).toEqual({
+                v: 4,
+                context: { teamId: 7, keyMonth: '2026-10', kind, codec: 'none', ref },
+            })
+
+            // The refresh copies the object onto itself, which resets the creation time the lifecycle counts from.
+            await expect(sink.refreshImage(candidate(ref))).resolves.toBe(true)
+            expect(puts[1]).toBeInstanceOf(CopyObjectCommand)
+            expect((puts[1] as CopyObjectCommand).input).toEqual({
+                Bucket,
+                Key,
+                CopySource: `images-v4/${prefix}/month%3D2026-10/7/abcdefghijklmnopqrstuv`,
+                MetadataDirective: 'REPLACE',
+                ContentType,
+            })
+        }
+    )
+
+    it('stores a public font once and unsealed, with no team key, and refreshes that one object', async () => {
+        const keyReads = jest.fn(() => Promise.resolve(STORED))
+        const puts: (PutObjectCommand | CopyObjectCommand)[] = []
+        const s3 = { send: jest.fn((command: PutObjectCommand | CopyObjectCommand) => puts.push(command)) }
+        const sink = new RawImageStore({ get: keyReads }, s3 as any, 'images-v4', 10)
+        const job = { ...candidate(PUBLIC_FONT_REF), currentUrl: PUBLIC_FONT_URL }
+
+        await sink.publishImage(job, fetched(WOFF2, 'font/woff2'))
+        await expect(sink.refreshImage(job)).resolves.toBe(true)
+
+        expect(keyReads).not.toHaveBeenCalled()
+        expect(puts.map((command) => [command.constructor.name, command.input.Key])).toEqual([
+            ['PutObjectCommand', 'fonts/url/public/I6bjVBXgjPcaYLPITibNM4'],
+            ['CopyObjectCommand', 'fonts/url/public/I6bjVBXgjPcaYLPITibNM4'],
         ])
-        const { aad, body } = open(Body as Buffer)
-        expect(body).toEqual(PNG)
-        expect(aad).toEqual({
-            v: 4,
-            context: { teamId: 7, keyMonth: '2026-10', kind: 'image-url', codec: 'none', ref: REF },
-        })
-
-        // The refresh copies the object onto itself, which resets the creation time the lifecycle counts from.
-        await expect(sink.refreshImage(candidate())).resolves.toBe(true)
-        expect(puts[1]).toBeInstanceOf(CopyObjectCommand)
-        expect((puts[1] as CopyObjectCommand).input).toEqual({
-            Bucket,
-            Key,
-            CopySource: 'images-v4/images/url/month%3D2026-10/7/abcdefghijklmnopqrstuv',
-            MetadataDirective: 'REPLACE',
-            ContentType,
-        })
+        expect((puts[0] as PutObjectCommand).input.Body).toEqual(WOFF2)
     })
 
     it('resolves to false when it refreshes a reference that has no object', async () => {
@@ -109,6 +137,12 @@ describe('RawImageStore', () => {
             STORED,
             candidate('imageurl:v3:7:2026-10:abcdefghijklmnopqrstuv'),
             fetched(),
+        ],
+        [
+            'a public font reference whose job ended on another URL, such as a redirect target',
+            STORED,
+            candidate(PUBLIC_FONT_REF),
+            fetched(WOFF2, 'font/woff2'),
         ],
     ] as const)('resolves without a new object for %s', async (_name, key, job, result) => {
         const { sink, puts } = store(key)

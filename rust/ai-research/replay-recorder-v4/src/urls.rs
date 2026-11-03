@@ -1,12 +1,11 @@
-//! Fetch jobs for the remote images a flush's blocks referenced, in the v3 fetch topic's job shape.
+//! Fetch jobs for the remote images and fonts a flush's blocks referenced, in the v3 fetch topic's job shape.
 
 use std::collections::{BTreeMap, HashSet};
 use std::time::Duration;
 
 use metrics::counter;
-use posthog_replay_anonymizer::v4_image_refs::image_url_ref;
 use replay_core_v4::keys::batch::{FlushKeys, SessionId};
-use replay_core_v4::refs::reference_hash;
+use replay_core_v4::refs::{public_font_url_ref, reference_hash, url_ref, UrlAsset};
 use replay_core_v4::seal::image_url_key;
 use replay_core_v4::url_policy::{
     is_public_host, is_tracking_beacon, try_canonicalize, CanonicalUrl, Decline,
@@ -23,16 +22,18 @@ const MAX_RECORD_BYTES: usize = 512 * 1024;
 /// How many redirects a job may follow, as in v3.
 const REMAINING_HOPS: u32 = 10;
 
-/// Builds one job per new remote image URL, grouped by registrable domain, the topic's key. Counts each block's URLs
-/// in the stats paired with it. `already_sent` names references this process sent today.
+/// Grouped by asset as well as by domain, the topic's key, because a fetcher that cannot parse one reference dead-letters the whole record.
+pub type FetchJobs = BTreeMap<(String, UrlAsset), Vec<Value>>;
+
+/// Builds one job per new remote image or font URL, and counts each block's image URLs in its stats. `already_sent` names references this process sent today.
 pub fn fetch_jobs<'b>(
     blocks: impl IntoIterator<Item = (&'b Block, &'b mut BlockStats)>,
     keys: &FlushKeys,
     key_month: &str,
     now_ms: i64,
     already_sent: &dyn Fn(&str) -> bool,
-) -> BTreeMap<String, Vec<Value>> {
-    let mut jobs: BTreeMap<String, Vec<Value>> = BTreeMap::new();
+) -> FetchJobs {
+    let mut jobs = FetchJobs::new();
     let mut seen = HashSet::new();
     for (block, stats) in blocks {
         let id = SessionId {
@@ -46,27 +47,33 @@ pub fn fetch_jobs<'b>(
             continue;
         };
         let url_key = image_url_key(team_key);
-        for raw in &block.image_urls {
+        let images = block.image_urls.iter().map(|url| (url, UrlAsset::Image));
+        let fonts = block.font_urls.iter().map(|url| (url, UrlAsset::Font));
+        for (raw, asset) in images.chain(fonts) {
             let Ok((url, reference)) =
-                url_reference(raw, block.session.team_id, key_month, &url_key)
+                url_reference(raw, asset, block.session.team_id, key_month, &url_key)
             else {
                 continue;
             };
-            stats.image_urls += 1;
+            if asset == UrlAsset::Image {
+                stats.image_urls += 1;
+            }
             if already_sent(&reference) || !seen.insert(reference.clone()) {
                 continue;
             }
-            jobs.entry(url.domain.clone()).or_default().push(json!({
-                "sessionId": block.session.session_id,
-                "originalRef": reference,
-                "currentUrl": url.fetch,
-                "remainingHops": REMAINING_HOPS,
-                "notBeforeMs": 0,
-                "firstSeenAtMs": now_ms,
-                "fetchCount": 0,
-                "republishCount": 0,
-                "lastRepublishReason": null,
-            }));
+            jobs.entry((url.domain.clone(), asset))
+                .or_default()
+                .push(json!({
+                    "sessionId": block.session.session_id,
+                    "originalRef": reference,
+                    "currentUrl": url.fetch,
+                    "remainingHops": REMAINING_HOPS,
+                    "notBeforeMs": 0,
+                    "firstSeenAtMs": now_ms,
+                    "fetchCount": 0,
+                    "republishCount": 0,
+                    "lastRepublishReason": null,
+                }));
         }
     }
     jobs
@@ -76,6 +83,7 @@ pub fn fetch_jobs<'b>(
 /// the URL. `url_key` is the team's URL key for `key_month`.
 pub fn url_reference(
     raw: &str,
+    asset: UrlAsset,
     team_id: i64,
     key_month: &str,
     url_key: &[u8; 32],
@@ -90,21 +98,28 @@ pub fn url_reference(
     if is_tracking_beacon(&url.host, &path) {
         return Err(Decline::TrackingBeacon);
     }
-    let reference = image_url_ref(
-        team_id,
-        key_month,
-        &reference_hash(url_key, url.dedup.as_bytes()),
-    );
+    let public = match asset {
+        UrlAsset::Font => public_font_url_ref(&url),
+        UrlAsset::Image => None,
+    };
+    let reference = public.unwrap_or_else(|| {
+        url_ref(
+            asset,
+            team_id,
+            key_month,
+            &reference_hash(url_key, url.dedup.as_bytes()),
+        )
+    });
     Ok((url, reference))
 }
 
-/// Splits each domain's jobs into records the fetcher accepts. Returns (key, payload, references) per record.
+/// Splits each group of jobs into records the fetcher accepts. Returns (domain, payload, references) per record.
 /// The fetcher rejects a whole record whose value exceeds its byte limit, so a job too large for any record is dropped.
-pub fn records(jobs: BTreeMap<String, Vec<Value>>) -> Vec<(String, Vec<u8>, Vec<String>)> {
+pub fn records(jobs: FetchJobs) -> Vec<(String, Vec<u8>, Vec<String>)> {
     let empty_bytes = payload(Vec::new()).len();
     let mut records = Vec::new();
     let mut oversized = 0u64;
-    for (domain, domain_jobs) in jobs {
+    for ((domain, _), domain_jobs) in jobs {
         let mut batch: Vec<Value> = Vec::new();
         let mut bytes = empty_bytes;
         for job in domain_jobs {
@@ -206,6 +221,7 @@ mod tests {
             stats: BlockStats::default(),
             moments: Vec::new(),
             image_urls: urls.iter().map(|u| (*u).to_owned()).collect(),
+            font_urls: Vec::new(),
             remote_urls: Vec::new(),
             url_limit: None,
             srcsets: Vec::new(),
@@ -233,7 +249,7 @@ mod tests {
                 .dedup
                 .as_bytes(),
         );
-        let sent = image_url_ref(7, "2026-10", &sent_hash);
+        let sent = url_ref(UrlAsset::Image, 7, "2026-10", &sent_hash);
 
         let jobs = fetch_jobs(
             [(&block, &mut stats)],
@@ -242,9 +258,9 @@ mod tests {
             1_000,
             &|reference| reference == sent,
         );
-        let domains: Vec<_> = jobs.keys().cloned().collect();
-        assert_eq!(domains, ["example.com"]);
-        let fetched: Vec<_> = jobs["example.com"]
+        let images = ("example.com".to_owned(), UrlAsset::Image);
+        assert_eq!(jobs.keys().collect::<Vec<_>>(), [&images]);
+        let fetched: Vec<_> = jobs[&images]
             .iter()
             .map(|j| j["currentUrl"].as_str().unwrap().to_owned())
             .collect();
@@ -255,7 +271,7 @@ mod tests {
                 "https://img2.cdn.example.com/b.png"
             ]
         );
-        let job = &jobs["example.com"][0];
+        let job = &jobs[&images][0];
         assert!(job["originalRef"]
             .as_str()
             .unwrap()
@@ -268,19 +284,30 @@ mod tests {
         assert_eq!(stats.image_urls, 4);
     }
 
+    fn jobs_of(asset: UrlAsset, jobs: Vec<Value>) -> FetchJobs {
+        BTreeMap::from([(("example.com".to_owned(), asset), jobs)])
+    }
+
     #[test]
-    fn splits_a_domains_jobs_at_the_fetchers_record_limit() {
-        let jobs = BTreeMap::from([(
-            "example.com".to_owned(),
+    fn splits_a_domains_jobs_at_the_fetchers_record_limit_and_by_asset() {
+        let mut jobs = jobs_of(
+            UrlAsset::Image,
             (0..2500)
                 .map(|i| json!({"originalRef": format!("r{i}")}))
                 .collect(),
-        )]);
-        let sizes: Vec<_> = records(jobs)
+        );
+        jobs.extend(jobs_of(
+            UrlAsset::Font,
+            vec![json!({"originalRef": "font"})],
+        ));
+        let records = records(jobs);
+        let sizes: Vec<_> = records
             .iter()
             .map(|(_, _, references)| references.len())
             .collect();
-        assert_eq!(sizes, [1000, 1000, 500]);
+        assert_eq!(sizes, [1000, 1000, 500, 1]);
+        assert_eq!(records[3].2, ["font"]);
+        assert!(records.iter().all(|(domain, _, _)| domain == "example.com"));
     }
 
     fn padded(reference: &str, pad: usize) -> Value {
@@ -294,10 +321,10 @@ mod tests {
         // Two jobs and a comma that fill the record value to the exact limit.
         let first = MAX_RECORD_BYTES - empty - 2 * bare - 1 - 10;
         for (extra, expected) in [(0, vec![2]), (1, vec![1, 1])] {
-            let jobs = BTreeMap::from([(
-                "example.com".to_owned(),
+            let jobs = jobs_of(
+                UrlAsset::Image,
                 vec![padded("a", first), padded("b", 10 + extra)],
-            )]);
+            );
             let records = records(jobs);
             let sizes: Vec<_> = records.iter().map(|(_, _, r)| r.len()).collect();
             assert_eq!(sizes, expected, "extra {extra}");
@@ -311,14 +338,14 @@ mod tests {
     #[test]
     fn drops_only_a_job_too_large_for_any_record() {
         let room = MAX_RECORD_BYTES - payload(Vec::new()).len() - padded("a", 0).to_string().len();
-        let jobs = BTreeMap::from([(
-            "example.com".to_owned(),
+        let jobs = jobs_of(
+            UrlAsset::Image,
             vec![
                 padded("fits", 0),
                 padded("a", room + 1),
                 padded("full", room - 3),
             ],
-        )]);
+        );
         let records = records(jobs);
         let references: Vec<_> = records.iter().map(|(_, _, r)| r.clone()).collect();
         assert_eq!(
