@@ -34,7 +34,6 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import StringJSONDatabaseField
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.util.null_sentinels import null_if_sentinels
-from posthog.hogql.transforms.clickhouse_property_resolution import stored_key_json_text
 from posthog.hogql.visitor import clone_expr
 
 if TYPE_CHECKING:
@@ -70,6 +69,9 @@ def _key_json_text(source: ast.Field, key: str, context: HogQLContext) -> ast.Ex
     """The key's JSON text as `JSONExtractRaw(blob, key)` returns it, read from the events table (module docstring), or
     None when the native table has no single stored column for it."""
     if context.uses_new_events_schema():
+        # Deferred: the resolution pass imports the printer, which imports the pruner and so this module.
+        from posthog.hogql.transforms.clickhouse_property_resolution import stored_key_json_text  # noqa: PLC0415
+
         field_type = source.type
         assert isinstance(field_type, ast.FieldType)
         return stored_key_json_text(field_type, key, context)

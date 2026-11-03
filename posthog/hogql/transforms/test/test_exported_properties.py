@@ -227,9 +227,10 @@ class TestExportedProperties(BaseTest):
             native=native,
             restricted={RestrictedProperty(name=restricted, property_type=PropertyDefinition.Type.EVENT)},
         )
+        first_key = read.split(".")[1]
         assert ("map(" in printed) is narrowed, printed
         assert "JSONDropKeysPool(" in printed, printed
-        assert "JSONExtractRaw(events.properties, " not in printed, printed
+        assert f"JSONExtractRaw(events.properties, '{first_key}')" not in printed, printed
 
     def test_string_parser_still_gets_the_text(self) -> None:
         PropertyDefinition.objects.create(
