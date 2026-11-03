@@ -94,7 +94,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         super().setUp()
         self.cutoff = datetime(2026, 9, 16, 10, tzinfo=UTC)
         # A backfilled copy delivers to the logs alert it came from, so its destinations name that id.
-        self._legacy_ids: dict[UUID, UUID | None] = {}
+        self._legacy_ids: dict[UUID, UUID] = {}
         redis.get_client().delete(INFLIGHT_KEY)
 
     def _legacy_alert(self, source_config: dict[str, Any], **fields: Any) -> LogsAlertConfiguration:
@@ -119,7 +119,8 @@ class TestLogsAlertEvaluation(APIBaseTest):
         defaults.update(overrides)
         with team_scope(self.team.id):
             configuration = platform_testing.create_configuration(**defaults)
-        self._legacy_ids[configuration.id] = defaults["legacy_configuration_id"]
+        if defaults["legacy_configuration_id"] is not None:
+            self._legacy_ids[configuration.id] = defaults["legacy_configuration_id"]
         return configuration
 
     def _run(
@@ -148,7 +149,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
             return evaluate_logs_batch(self.team.id, slot, now), query
 
     def _add_incident_destination(self, configuration: PlatformConfigurationSnapshot) -> None:
-        if self._legacy_ids[configuration.id] is None:
+        if configuration.id not in self._legacy_ids:
             with team_scope(self.team.id):
                 create_alert_destinations(
                     team_id=self.team.id,
@@ -221,7 +222,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         ]
         # The event a PagerDuty destination subscribes to, so the trigger reaches it.
         assert evaluation.deliveries[0].event_ids_by_incident_action["trigger"] == "$logs_alert_incident_opened"
-        public_id = self._legacy_ids[configuration.id] or configuration.id
+        public_id = self._legacy_ids.get(configuration.id, configuration.id)
         assert evaluation.deliveries[0].destination_alert_id == str(public_id)
         source_alert_url = evaluation.deliveries[0].source_alert_url
         assert source_alert_url is not None
