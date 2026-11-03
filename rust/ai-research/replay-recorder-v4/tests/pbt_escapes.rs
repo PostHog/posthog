@@ -304,12 +304,22 @@ fn with_json_escapes(tc: &TestCase, json: &str) -> String {
     out
 }
 
-/// A copy takes a spelling that the inspector records for the URL: as the page wrote it in the slot, as CSS decodes it, or as the URL parser writes it.
+/// `text` as a JSON string holds it, the way a network body or a console log copies a slot's value.
+fn json_text(text: &str) -> String {
+    let quoted = serde_json::to_string(text).unwrap();
+    quoted[1..quoted.len() - 1].to_owned()
+}
+
+/// A copy takes a spelling that the inspector records for the URL: as the page wrote it in the slot, as CSS decodes it, or as the URL parser writes it. A JSON copy holds the slot's spelling within its escaped ends.
 fn draw_placed(tc: &TestCase, slots: &[Slot], url: String, refused: bool) -> Placed {
     let slot = slots[draw_index(tc, slots.len())];
     let (written, decoded) = draw_spelling(tc, slot, &url);
     let copies = if refused {
-        let spellings = vec![written.clone(), decoded, serialized(&url)];
+        let mut spellings = vec![written.clone(), decoded, serialized(&url)];
+        let core = written.trim_matches(|ch: char| ch <= ' ');
+        if json_text(core) == core {
+            spellings.push(json_text(&written));
+        }
         tc.draw(gs::vecs(gs::sampled_from(spellings)).max_size(2))
     } else {
         Vec::new()
