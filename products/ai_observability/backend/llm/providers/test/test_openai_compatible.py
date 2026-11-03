@@ -14,6 +14,7 @@ from temporalio.exceptions import CancelledError
 
 from posthog.security.pinned_requests import SSRFBlockedError
 from posthog.security.url_validation import UNRESOLVED_HOST_REASON, PinnedUrlVerdict
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
@@ -185,7 +186,7 @@ class TestOpenAICompatibleAdapter:
     def test_complete_reports_an_unresolved_host_as_retryable(self):
         adapter = OpenAICompatibleAdapter(base_url="https://llm.example.com/v1")
 
-        with patch("posthog.security.url_validation.resolve_host_ips", return_value=set()):
+        with mock_anti_ssrf_dns_lookup(resolves_to=[]):
             with pytest.raises(ProviderHostUnresolvedError):
                 adapter.complete(_completion_request(), "test-key", AnalyticsContext())
 

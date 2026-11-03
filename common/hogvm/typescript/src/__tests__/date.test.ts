@@ -111,9 +111,17 @@ describe('date-like string grammar', () => {
         expect(toDateTime(input as any)).toBeNull()
     })
 
-    test('an ambiguous local time takes the first of the DST fold', () => {
-        // 01:30 happens twice on 2024-11-03 in New York; Rust's `LocalResult::Ambiguous(dt, _)` and
-        // luxon take the first (-04:00). Pinned because pytz's `localize` defaults to the second.
-        expect(toUnixTimestamp('2024-11-03 01:30:00', 'America/New_York')).toBe(1730611800)
-    })
+    test.each(['2026-07-01T12:00:00Z', '2026-12-01T12:00:00Z'])(
+        'an ambiguous local time takes the first of the DST fold when now is %s',
+        (now) => {
+            jest.useFakeTimers().setSystemTime(new Date(now))
+            try {
+                expect(toUnixTimestamp('2024-11-03 01:30:00', 'America/New_York')).toBe(1730611800)
+                expect(toDateTime('2024-11-03 01:30:00', 'America/New_York')!.dt).toBe(1730611800)
+                expect(toUnixTimestamp('2024-11-03T01:30:00-05:00', 'America/New_York')).toBe(1730615400)
+            } finally {
+                jest.useRealTimers()
+            }
+        }
+    )
 })

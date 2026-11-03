@@ -6,6 +6,7 @@ import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { safeClickhouseString } from '~/common/utils/db/utils'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
+import type { InternalLogsProducer } from '~/logs/internal-logs-producer'
 
 import {
     CyclotronJobInvocationHogFlow,
@@ -33,6 +34,12 @@ export const hogFunctionExecutionTimeSummary = new Histogram({
 const hogFunctionMonitoringPendingMessages = new Gauge({
     name: 'cdp_hog_function_monitoring_pending_messages',
     help: 'Number of log entries queued and waiting to be flushed to Kafka. App-metric backlog is tracked separately by app_metrics_aggregator_queued_total / app_metrics_aggregator_flushed_total. High values indicate accumulation and potential memory leak.',
+})
+
+const hogFunctionMonitoringFlushDuration = new Histogram({
+    name: 'cdp_hog_function_monitoring_flush_duration_seconds',
+    help: 'Wall time of one flush of queued app metrics and log entries',
+    buckets: [0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
 })
 
 export type MonitoringOutput = AppMetricsOutput | LogEntriesOutput
@@ -63,25 +70,41 @@ export const isHogFlowResult = (
     return 'hogFlow' in result.invocation
 }
 
+// Bounded so that shutdown still fits inside the pod's termination grace period.
+const INTERNAL_LOGS_DRAIN_TIMEOUT_MS = 10_000
+
 export class HogFunctionMonitoringService {
     queuedLogMessages: LogEntrySerialized[] = []
 
     private appMetricsAggregator: AppMetricsAggregator
 
-    constructor(private outputs: IngestionOutputs<MonitoringOutput>) {
+    constructor(
+        private outputs: IngestionOutputs<MonitoringOutput>,
+        private internalLogsProducer?: InternalLogsProducer,
+        private internalLogsSources: ReadonlySet<string> = new Set()
+    ) {
         this.appMetricsAggregator = new AppMetricsAggregator(outputs)
     }
 
-    // Required by ResultSink. This sink holds nothing of its own: it writes through the shared
-    // Kafka outputs, which the server disconnects separately on shutdown.
+    // Required by ResultSink. This sink writes through the shared Kafka outputs, which the server
+    // disconnects separately on shutdown.
     async stop(): Promise<void> {
-        return Promise.resolve()
+        await this.internalLogsProducer?.drain(INTERNAL_LOGS_DRAIN_TIMEOUT_MS)
     }
 
     async flush() {
+        const end = hogFunctionMonitoringFlushDuration.startTimer()
         const messages = [...this.queuedLogMessages]
         this.queuedLogMessages = []
         hogFunctionMonitoringPendingMessages.set(0)
+
+        // Only starts the sends. Delivery runs in the background, so a slow capture-logs cannot hold up the Kafka flush.
+        // The catch makes sure a producer bug can never stop the log_entries write below.
+        try {
+            this.internalLogsProducer?.flush()
+        } catch (error) {
+            captureException(error)
+        }
 
         await Promise.all([
             this.appMetricsAggregator.flush().catch((error) => {
@@ -107,7 +130,7 @@ export class HogFunctionMonitoringService {
                         captureException(error)
                     })
             }),
-        ])
+        ]).finally(end)
     }
 
     queueAppMetric(metric: MinimalAppMetric, source: MetricLogSource) {
@@ -144,17 +167,21 @@ export class HogFunctionMonitoringService {
     }
 
     queueLogs(logEntries: LogEntry[], source: MetricLogSource) {
-        const logs = fixLogDeduplication(
-            logEntries.map((logEntry) => ({
-                ...logEntry,
-                log_source: source,
-            }))
-        )
+        const sourcedLogEntries = logEntries.map((logEntry) => ({
+            ...logEntry,
+            log_source: source,
+        }))
+        // Sorts its input and moves equal timestamps apart in place, so `sourcedLogEntries` carries the same timestamps as `logs`.
+        const logs = fixLogDeduplication(sourcedLogEntries)
 
         logs.forEach((logEntry) => {
             this.queuedLogMessages.push(logEntry)
         })
         hogFunctionMonitoringPendingMessages.set(this.queuedLogMessages.length)
+
+        if (this.internalLogsSources.has(source)) {
+            this.internalLogsProducer?.enqueue(source, sourcedLogEntries)
+        }
     }
 
     queueInvocationResults(results: CyclotronJobInvocationResult[]): void {

@@ -41,7 +41,6 @@ import {
     v4HostLimits,
 } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/lane'
 import { OriginRequestScheduler } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/origin-request-scheduler'
-import { assertUrlPolicyLoaded } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/politeness-key'
 import { createPoolWindowBatchHandler } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/pool-window-batch-handler'
 import {
     AI_RESEARCH_V4_IMAGE_FETCH_PRODUCER,
@@ -55,6 +54,7 @@ import { RetryDelayConsumer } from '~/ingestion/pipelines/sessionreplay/ai-resea
 import { SharedImageFetcher } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/shared-image-fetcher'
 import { ImageFetchTopHogMetrics } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/tophog-metrics'
 import { UrlFetchConsumer } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/url-fetch-consumer'
+import { assertSharedRulesLoaded } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/v4-native'
 import { createWebBotAuthRequestSigner } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/web-bot-auth'
 import { AiResearchV4ConsumerServer } from '~/ingestion/pipelines/sessionreplay/ai-research/server/v4-consumer-server'
 import { TeamMonthKeys } from '~/ingestion/pipelines/sessionreplay/ai-research/v4-keys/team-month-keys'
@@ -301,7 +301,7 @@ export class AiResearchV4ImageFetchServer extends AiResearchV4ConsumerServer {
         // Here rather than on the first record. The parser calls into this addon for every URL, and
         // it must answer with a reason rather than raise, so a build that shipped without the addon
         // has to stop the pod at startup instead.
-        assertUrlPolicyLoaded()
+        assertSharedRulesLoaded()
 
         const consumerConfigs = buildImageFetchConsumerConfigs(this.config)
         const dryRun = this.config.AI_RESEARCH_V4_IMAGE_FETCH_DRY_RUN

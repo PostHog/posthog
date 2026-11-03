@@ -2374,6 +2374,10 @@ export class AgentServer {
         runtimeAdapter !== "codex" && claudeSubscriptionToken !== null
           ? { oauthToken: claudeSubscriptionToken }
           : undefined,
+      claudeModelsGatewayUrl:
+        runtimeAdapter !== "codex" && claudeSubscriptionToken !== null
+          ? gatewayEnv.anthropicBaseUrl
+          : undefined,
       codexOptions:
         runtimeAdapter === "codex"
           ? {
@@ -2481,6 +2485,7 @@ export class AgentServer {
         taskOriginProduct: launch.originProduct,
       }),
       ...(launch.endRunWhenDone && { endRunWhenDone: true }),
+      ...(launch.callerEndsRun && { callerEndsRun: true }),
       ...(launch.disableRepoHooks && { disableRepoHooks: true }),
       ...(this.config.baseBranch && { baseBranch: this.config.baseBranch }),
       ...(runtimeAdapter === "claude" &&

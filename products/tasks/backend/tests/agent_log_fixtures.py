@@ -169,3 +169,4 @@ class FakeTaskRun:
     status: str = "running"
     error_message: str | None = None
     state: dict[str, object] | None = None
+    finish_report: str | None = None

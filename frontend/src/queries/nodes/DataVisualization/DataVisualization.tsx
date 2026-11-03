@@ -8,6 +8,7 @@ import { IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { createXAxisTickCallback } from '@posthog/quill-charts'
 
+import 'lib/components/Cards/InsightCard/InsightCard.scss'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { getResultMenuPoint, isResultMenuContextMenu, replayAsClick } from 'lib/components/ResultMenu/resultMenuTrigger'
 import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'

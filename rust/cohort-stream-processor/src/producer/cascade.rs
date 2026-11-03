@@ -19,6 +19,8 @@ use crate::partitions::partitioner::merge_partition_key;
 use crate::producer::kafka::AlwaysHealthy;
 use crate::producer::merge::Capture;
 
+/// `produce` must enqueue every message before its future first returns `Pending`, for the reason
+/// [`MembershipSink`](crate::producer::MembershipSink) gives.
 #[async_trait]
 pub trait CascadeSink: Send + Sync {
     async fn produce(&self, messages: Vec<CascadeMessage>) -> Vec<Result<(), KafkaProduceError>>;
