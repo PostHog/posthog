@@ -1,7 +1,5 @@
 /**
- * The rules this lane shares with the recorder, reached through the v4 native addon rather than
- * reimplemented here: the URL policy, the crawl history rule, the image URL references and the
- * frame of a fetched image.
+ * The rules this lane shares with the recorder, reached through the v4 native addon rather than reimplemented here.
  *
  * The addon is a native library, and `index.ts` imports every server whatever mode the pod runs.
  * This loads the addon on first use rather than at import, so only a pod in this lane pays for it.
@@ -29,12 +27,7 @@ function addon(): typeof import('@posthog/ai-research-v4-native') {
     return cached
 }
 
-/**
- * Load the addon now and run a probe through each shared rule, so a stale `index.node` stops the pod at startup.
- *
- * The lane calls into it for every URL, history row and stored image. A stale addon must stop the pod before it reads
- * a batch.
- */
+/** Runs a probe through each shared rule, so a stale `index.node` stops the pod at startup rather than in its first batch. */
 export function assertSharedRulesLoaded(): void {
     const verdict = addon().tryCanonicalizeUrl('https://example.com/probe.png')
     if (!verdict.ok) {
