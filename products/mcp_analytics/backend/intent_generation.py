@@ -19,7 +19,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.llm.gateway_client import build_gemini_client, build_openai_client, openai_gateway_configured
+from posthog.llm.gateway_client import build_gemini_client, build_openai_client, resolve_ai_gateway_config
 from posthog.models.team.team import Team
 
 from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
@@ -105,7 +105,7 @@ def summarize_intents(intents: list[str], team: Team) -> str:
     has not approved AI data processing, or the request fails, so the endpoint can answer
     with a clean 503 rather than a 500.
     """
-    _ensure_llm_available(team, configured=openai_gateway_configured())
+    _ensure_llm_available(team, configured=resolve_ai_gateway_config() is not None)
 
     distinct_id = f"team/{team.id}/mcp-analytics-session-intent"
     client = build_openai_client(

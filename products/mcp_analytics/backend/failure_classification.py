@@ -14,7 +14,7 @@ from openai import OpenAI
 from pydantic import BaseModel, ValidationError
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.llm.gateway_client import GatewayNotConfiguredError, build_openai_client
+from posthog.llm.gateway_client import build_openai_client, resolve_ai_gateway_config
 from posthog.models.team.team import Team
 
 logger = structlog.get_logger(__name__)
@@ -214,15 +214,14 @@ def classify_fingerprints(messages_by_fingerprint: dict[str, str], team: Team) -
     if not team.organization.is_ai_data_processing_approved:
         raise FailureClassificationUnavailable("AI data processing is not approved for this organization")
 
-    try:
-        client = build_openai_client(
-            "django",
-            ai_product="mcp_analytics",
-            properties={"ai_feature": "failure-classification"},
-            distinct_id=f"team/{team.id}/mcp-analytics-failure-classifier",
-        )
-    except GatewayNotConfiguredError as e:
-        raise FailureClassificationUnavailable("AI gateway is not configured") from e
+    if resolve_ai_gateway_config() is None:
+        raise FailureClassificationUnavailable("AI gateway is not configured")
+    client = build_openai_client(
+        "django",
+        ai_product="mcp_analytics",
+        properties={"ai_feature": "failure-classification"},
+        distinct_id=f"team/{team.id}/mcp-analytics-failure-classifier",
+    )
     items = list(messages_by_fingerprint.items())
     result: dict[str, str] = {}
     with tags_context(

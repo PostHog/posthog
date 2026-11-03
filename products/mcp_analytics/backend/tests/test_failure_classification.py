@@ -9,6 +9,8 @@ import json
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
 
 from products.mcp_analytics.backend.failure_classification import (
@@ -68,6 +70,7 @@ def _classification_payload(fingerprints: list[str], failure_class: str) -> str:
     )
 
 
+@override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="phs_test")
 class TestClassifyFingerprints(BaseTest):
     def setUp(self) -> None:
         super().setUp()
