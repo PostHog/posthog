@@ -20,6 +20,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_destination import ExternalDataSourceDestination
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -676,10 +677,15 @@ class TestMergeDuplicateSources(_MigrationTest):
         self._migrate()
         # Earlier runs keyed each source by its credential row, so equal keys in separate rows made a source each.
         for i, table in enumerate(tables):
-            credential = DataWarehouseCredential.objects.get(pk=table.credential_id)
+            credential = table.credential
+            assert credential is not None
             credential.access_key = "AKIAFIRST"
             credential.save()
             source = _schema_for(table).source
+            inputs = SourceInputsStore.load(source)
+            SourceInputsStore.save(
+                source, {key: "AKIAFIRST" if value == f"AKIATEMP{i}" else value for key, value in inputs.items()}
+            )
             ExternalDataSource.objects.filter(pk=source.pk).update(
                 created_at=datetime(2024, 1, 1 + i, tzinfo=UTC),
                 connection_metadata={
@@ -737,6 +743,9 @@ class TestMergeDuplicateSources(_MigrationTest):
             ("job_ran", "a sync already ran for the source"),
             ("table_adopted", "the table 'table_1' is already adopted by a source"),
             ("name_taken_in_kept_source", "the kept source already has a table named 'table_1'"),
+            ("source_has_rules", "the kept or the duplicate source has its own access rules"),
+            ("other_destinations", "the kept and the duplicate source send data to different destinations"),
+            ("inputs_edited", "the kept and the duplicate source connect with different settings"),
         ]
     )
     def test_a_duplicate_that_is_not_safe_to_move_is_skipped(self, case: str, reason: str) -> None:
@@ -750,8 +759,17 @@ class TestMergeDuplicateSources(_MigrationTest):
             self._job(tables[1], ExternalDataJobStatus.FAILED)
         elif case == "table_adopted":
             DataWarehouseTable.raw_objects.filter(pk=tables[1].pk).update(external_data_source=unsafe.source)
-        else:
+        elif case == "name_taken_in_kept_source":
             ExternalDataSchema.objects.create(name="table_1", team=self.team, source=kept)
+        elif case == "source_has_rules":
+            AccessControl.objects.create(
+                team=self.team, resource="external_data_source", resource_id=str(unsafe.source_id), access_level="none"
+            )
+        elif case == "other_destinations":
+            ExternalDataSourceDestination.objects.for_team(self.team.pk).filter(source_id=unsafe.source_id).delete()
+        else:
+            source = unsafe.source
+            SourceInputsStore.save(source, {**SourceInputsStore.load(source), "file_format": "csv"})
 
         outcomes = {o.source_id: o for o in merge_duplicate_sources(team_id=self.team.pk, live_run=True)}
 

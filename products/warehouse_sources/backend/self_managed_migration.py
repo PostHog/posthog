@@ -288,17 +288,16 @@ def _source_fingerprints(sources: Sequence[ExternalDataSource]) -> dict[uuid.UUI
             legacy[source.pk] = (source.team_id, uuid.UUID(str(marker.get("credential_id"))))
         except ValueError:
             continue
-    if legacy:
-        credentials = {
-            (credential.team_id, credential.pk): credential
-            for credential in DataWarehouseCredential.objects.filter(
-                pk__in={credential_id for _, credential_id in legacy.values()},
-                team_id__in={team_id for team_id, _ in legacy.values()},
-            )
-        }
-        for source_id, key in legacy.items():
-            if (credential := credentials.get(key)) is not None:
-                fingerprints[source_id] = _credential_fingerprint(_self_managed_credential(credential))
+    credential_ids_by_team: dict[int, set[uuid.UUID]] = defaultdict(set)
+    for team_id, credential_id in legacy.values():
+        credential_ids_by_team[team_id].add(credential_id)
+    credentials: dict[tuple[int, uuid.UUID], DataWarehouseCredential] = {}
+    for team_id, credential_ids in credential_ids_by_team.items():
+        for credential in DataWarehouseCredential.objects.filter(team_id=team_id, pk__in=credential_ids):
+            credentials[(team_id, credential.pk)] = credential
+    for source_id, key in legacy.items():
+        if (credential := credentials.get(key)) is not None:
+            fingerprints[source_id] = _credential_fingerprint(_self_managed_credential(credential))
     return fingerprints
 
 
@@ -943,15 +942,37 @@ def _merge_refusal(
     )
     if adopted is not None:
         return f"the table '{adopted}' is already adopted by a source"
-    taken = set(
-        ExternalDataSchema.objects.filter(team_id=kept.team_id, source_id=kept.pk)
+    if object_ids_with_rules(team_id=kept.team_id, resource="external_data_source") & {
+        str(kept.pk),
+        str(duplicate.pk),
+    }:
+        # A moved schema would take the kept source's rules, so the duplicate's rules would stop applying.
+        return "the kept or the duplicate source has its own access rules"
+    if _destination_ids(kept) != _destination_ids(duplicate):
+        return "the kept and the duplicate source send data to different destinations"
+    if SourceInputsStore.load(kept) != SourceInputsStore.load(duplicate):
+        # The marker stays when a user edits the connection, so the inputs are the real check.
+        return "the kept and the duplicate source connect with different settings"
+    clash = (
+        ExternalDataSchema.objects.filter(
+            team_id=kept.team_id, source_id=kept.pk, name__in=[schema.name for schema in schemas]
+        )
         .exclude(deleted=True)
+        .order_by("name")
         .values_list("name", flat=True)
+        .first()
     )
-    clashes = sorted(taken & {schema.name for schema in schemas})
-    if clashes:
-        return f"the kept source already has a table named '{clashes[0]}'"
+    if clash is not None:
+        return f"the kept source already has a table named '{clash}'"
     return None
+
+
+def _destination_ids(source: ExternalDataSource) -> set[Any]:
+    return set(
+        ExternalDataSourceDestination.objects.for_team(source.team_id)
+        .filter(source_id=source.pk)
+        .values_list("destination_id", flat=True)
+    )
 
 
 def _merge_source(
@@ -980,7 +1001,12 @@ def _merge_source(
     try:
         with transaction.atomic():
             _lock_group(*group)
-            if ExternalDataSource.objects.filter(pk__in=[kept.pk, duplicate.pk], deleted=False).count() != 2:
+            if (
+                ExternalDataSource.objects.filter(
+                    team_id=duplicate.team_id, pk__in=[kept.pk, duplicate.pk], deleted=False
+                ).count()
+                != 2
+            ):
                 return outcome("skipped", reason="the kept or the duplicate source was deleted during the run")
             schemas = live_schemas(lock=True)
             refusal = _merge_refusal(kept, duplicate, schemas)
