@@ -4,7 +4,10 @@ import { HogError } from '@/core/errors'
 import type { Secrets } from '@/core/runtime'
 import { fakeRuntime, type FakeRuntime } from '@/testing'
 
-import { FileStore, KeychainStore, MemoryStore, type CredentialStore, type StoredSecret } from './credential-store'
+import { FileStore } from './file'
+import { KeychainStore } from './keychain'
+import { MemoryStore } from './memory'
+import type { CredentialStore, StoredSecret } from './types'
 
 const EU = 'https://eu.posthog.com'
 const US = 'https://us.posthog.com'

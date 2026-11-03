@@ -50,7 +50,7 @@ describe('resolveCredentials', () => {
         ],
     ] as const)('%s', async (_name, env, files, dotenvFile, host, apiKey, projectId, expectedHost) => {
         const credentials = await resolveCredentials(fakeRuntime({ env, files }), { dotenvFile, host })
-        expect(credentials.credential).toMatchObject({ token: apiKey, projectId, host: expectedHost })
+        expect(credentials).toMatchObject({ key: { apiKey, projectId, host: expectedHost } })
     })
 
     test.each([
@@ -106,35 +106,35 @@ describe('resolveCredentials', () => {
             settings(EU, { [EU]: 'keychain' }),
             { [EU]: login('phx_eu') },
             {},
-            { credential: { token: 'phx_eu', host: EU }, source: 'store', store: 'keychain' },
+            { key: { apiKey: 'phx_eu', host: EU }, source: 'store', store: 'keychain' },
         ],
         [
             'a self-hosted login keeps the path PostHog sits under',
             settings('https://example.com/posthog/', { 'https://example.com': 'keychain' }),
             { 'https://example.com': login('phx_self') },
             {},
-            { credential: { token: 'phx_self', host: 'https://example.com/posthog' } },
+            { key: { apiKey: 'phx_self', host: 'https://example.com/posthog' } },
         ],
         [
             'posthog.json picks the stored login for its host',
             settings(US, { [EU]: 'keychain', [US]: 'keychain' }),
             { [EU]: login('phx_eu'), [US]: login('phx_us') },
             { configHost: `${EU}/` },
-            { credential: { token: 'phx_eu', host: EU } },
+            { key: { apiKey: 'phx_eu', host: EU } },
         ],
         [
             '--host picks the stored login for that host',
             settings(US, { [EU]: 'keychain', [US]: 'keychain' }),
             { [EU]: login('phx_eu'), [US]: login('phx_us') },
             { host: EU },
-            { credential: { token: 'phx_eu', host: EU } },
+            { key: { apiKey: 'phx_eu', host: EU } },
         ],
         [
             'a later file login to another host keeps the keychain login',
             settings(US, { [EU]: 'keychain', [US]: 'file' }),
             { [EU]: login('phx_eu') },
             { configHost: EU },
-            { credential: { token: 'phx_eu', host: EU }, store: 'keychain' },
+            { key: { apiKey: 'phx_eu', host: EU }, store: 'keychain' },
         ],
         [
             'a login in the file store',
@@ -145,7 +145,7 @@ describe('resolveCredentials', () => {
             {},
             {},
             {
-                credential: { token: 'phx_file' },
+                key: { apiKey: 'phx_file' },
                 source: 'store',
                 store: 'file',
                 path: '/home/test/.config/hog/credentials.json',

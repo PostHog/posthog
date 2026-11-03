@@ -1,6 +1,6 @@
 import type { Context } from '@/core/context'
 import { HogError } from '@/core/errors'
-import type { StoreChoice } from '@/posthog/credential-store'
+import type { StoreChoice } from '@/posthog/credential-store/types'
 
 import { ApiError } from './api'
 import type { CredentialSource } from './credentials'
@@ -45,9 +45,9 @@ export async function checkAuthStatus(ctx: Context): Promise<AuthStatus> {
         }
         throw error
     }
-    const { credential, source, store, path } = credentials
-    const { host, projectId } = credential
-    const { kind, scopes, expiresAt, rejected } = credential.status()
+    const { key, source } = credentials
+    const { host, projectId } = key
+    const { kind, scopes, expiresAt, rejected } = key.status()
     const api = await ctx.posthog()
     const [user, project] = await Promise.allSettled([
         api.get<{ email: string; first_name?: string }>('/api/users/@me/'),
@@ -76,8 +76,8 @@ export async function checkAuthStatus(ctx: Context): Promise<AuthStatus> {
         projectName: project.status === 'fulfilled' ? project.value.name : null,
         kind,
         source,
-        store: store ?? null,
-        credentialsPath: path ?? null,
+        store: credentials.source === 'store' ? credentials.store : null,
+        credentialsPath: credentials.source === 'env' ? null : credentials.path,
         scopes,
         expiresAt: expiresAt === null ? null : new Date(expiresAt).toISOString(),
         user: user.status === 'fulfilled' ? { email: user.value.email, name: user.value.first_name || null } : null,

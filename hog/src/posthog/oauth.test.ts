@@ -50,8 +50,8 @@ describe('OAuth credentials', () => {
 
         const credentials = await resolveCredentials(runtime, {})
 
-        expect(credentials.credential).toMatchObject({ token: 'pha_new', projectId: '42' })
-        expect(credentials.credential.status()).toMatchObject({ kind: 'oauth', scopes: ['openid'] })
+        expect(credentials.key).toMatchObject({ token: 'pha_new', projectId: '42' })
+        expect(credentials.key.status()).toMatchObject({ kind: 'oauth', scopes: ['openid'] })
         expect(tokenRequests(runtime).map((request) => request.body)).toEqual([
             { grant_type: 'refresh_token', refresh_token: 'phr_old', client_id: HOG_CLIENT_ID },
         ])
@@ -79,7 +79,7 @@ describe('OAuth credentials', () => {
 
         const credentials = await resolveCredentials(runtime, {})
 
-        expect(credentials.credential).toMatchObject({ token: 'pha_new' })
+        expect(credentials.key).toMatchObject({ token: 'pha_new' })
         expect(tokenRequests(runtime)).toHaveLength(2)
         expect(JSON.parse(runtime.keychain[EU] ?? '{}')).toEqual({ accessToken: 'pha_new', refreshToken: 'phr_new' })
     })
@@ -89,7 +89,7 @@ describe('OAuth credentials', () => {
             ...stored('pha_old', 3_600_000),
         })
 
-        expect((await resolveCredentials(runtime, {})).credential).toMatchObject({ token: 'pha_old' })
+        expect((await resolveCredentials(runtime, {})).key).toMatchObject({ token: 'pha_old' })
         expect(runtime.requests).toEqual([])
     })
 
@@ -115,7 +115,7 @@ describe('OAuth credentials', () => {
 
         const credentials = await resolveCredentials(runtime, {})
 
-        expect(credentials.credential).toMatchObject({ token: 'pha_theirs' })
+        expect(credentials.key).toMatchObject({ token: 'pha_theirs' })
         expect(tokenRequests(runtime)).toEqual([])
         expect(runtime.files[lock]).toBeUndefined()
         expect(runtime.now() - START).toBeGreaterThan(minimumWaitMs)

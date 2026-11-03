@@ -1,7 +1,7 @@
 import type { ApiToolLibrary } from '@posthog/mcp/src/cli/library-types'
 
 import { PostHogApi } from '@/posthog/api'
-import { resolveCredentials, type ResolvedCredentials } from '@/posthog/credentials'
+import { resolveCredentials, type Credentials } from '@/posthog/credentials'
 
 import type { Mode } from './agent'
 import type { CommandTree } from './command'
@@ -15,7 +15,7 @@ import { Telemetry } from './telemetry'
 // purpose: `run` returns data, and the command's `human` and `agent` views print it.
 export class Context {
     private api?: PostHogApi
-    private resolved?: Promise<ResolvedCredentials>
+    private credentialsRequest?: Promise<Credentials>
     private loaded?: Promise<LoadedConfig | undefined>
     private tools?: Promise<ApiToolLibrary>
 
@@ -40,7 +40,7 @@ export class Context {
     // The PostHog API client. Credentials resolve on first use, so commands that never call
     // the API work without them.
     async posthog(): Promise<PostHogApi> {
-        this.api ??= new PostHogApi((await this.credentials()).credential, this.runtime.fetch)
+        this.api ??= new PostHogApi((await this.credentials()).key, this.runtime.fetch)
         return this.api
     }
 
@@ -57,15 +57,15 @@ export class Context {
     }
 
     // Throws `not_authenticated` when there are none.
-    credentials(): Promise<ResolvedCredentials> {
-        this.resolved ??= this.config().then((loaded) =>
+    credentials(): Promise<Credentials> {
+        this.credentialsRequest ??= this.config().then((loaded) =>
             resolveCredentials(this.runtime, { ...this.globals, configHost: loaded?.config.host })
         )
-        return this.resolved
+        return this.credentialsRequest
     }
 
     // The credentials the command already asked for, so telemetry doesn't read the keychain a second time.
-    get resolvedCredentials(): Promise<ResolvedCredentials> | undefined {
-        return this.resolved
+    get requestedCredentials(): Promise<Credentials> | undefined {
+        return this.credentialsRequest
     }
 }

@@ -4,10 +4,11 @@ import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import { escapeControls } from '@/core/output'
 import type { Prompts } from '@/core/prompts'
-import { PersonalApiKey, type Credential } from '@/posthog/credential'
-import { trimHost, type StoreChoice } from '@/posthog/credential-store'
+import { PersonalAPIKey, type AccessKey } from '@/posthog/access-key'
+import type { StoreChoice } from '@/posthog/credential-store/types'
 import { checkApiKey, checkHost, checkProjectId } from '@/posthog/credentials'
-import { loginFlow, loginWait, saveLogin, type LoggedIn } from '@/posthog/login'
+import { trimHost } from '@/posthog/host'
+import { loginFlow, loginWait, saveLogin, type LoggedIn } from '@/posthog/login/flow'
 
 const REGIONS = { us: 'https://us.posthog.com', eu: 'https://eu.posthog.com' } as const
 
@@ -67,15 +68,16 @@ function loggedInResult(loggedIn: LoggedIn): LoginResult {
     }
 }
 
-async function finish(ctx: Context, credential: Credential): Promise<LoginResult> {
-    return loggedInResult(await saveLogin(ctx.runtime, credential))
+async function finish(ctx: Context, key: AccessKey): Promise<LoginResult> {
+    return loggedInResult(await saveLogin(ctx.runtime, key))
 }
 
 async function keyLogin(ctx: Context, prompts: Prompts): Promise<LoginResult> {
     const host = await prompts.text('PostHog host', { initialValue: REGIONS.us, validate: checkHost })
     const projectId = await prompts.text('Project ID, the number in your project URL', { validate: checkProjectId })
     const apiKey = await prompts.password('Personal API key', { validate: checkApiKey })
-    return loggedInResult(await saveLogin(ctx.runtime, new PersonalApiKey(trimHost(host), projectId, apiKey)))
+    const key = new PersonalAPIKey({ host: trimHost(host), projectId, apiKey })
+    return loggedInResult(await saveLogin(ctx.runtime, key))
 }
 
 export default defineCommand({

@@ -2,8 +2,8 @@ import { clearPending } from '@/core/approval'
 import { defineCommand } from '@/core/command'
 import { escapeControls } from '@/core/output'
 import { PERSONAL_API_KEY_ENV_VAR } from '@/posthog/credentials'
-import { LOGIN_COMMAND } from '@/posthog/login'
-import { logout } from '@/posthog/logins'
+import { LOGIN_COMMAND } from '@/posthog/login/flow'
+import { logout } from '@/posthog/login/stored'
 import { readSettings } from '@/posthog/settings'
 
 interface LogoutResult {

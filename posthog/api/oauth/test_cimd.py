@@ -1273,6 +1273,12 @@ class TestCIMDVerificationRejectedCaptureEvent(APIBaseTest):
 class TestCIMDDeviceIntegration(APIBaseTest):
     FORM = "application/x-www-form-urlencoded"
 
+    def _register_and_verify(self) -> None:
+        body = urlencode({"client_id": VALID_CIMD_URL, "scope": "insight:read"})
+        refused = self.client.post("/oauth/device-authorization/", body, content_type=self.FORM)
+        self.assertEqual(refused.json()["error"], "unauthorized_client", refused.content)
+        OAuthApplication.objects.filter(client_id=VALID_CIMD_URL).update(is_verified=True)
+
     def _device_login(self, clock: time_machine.Traveller) -> dict:
         started = self.client.post(
             "/oauth/device-authorization/",
@@ -1311,6 +1317,7 @@ class TestCIMDDeviceIntegration(APIBaseTest):
         metadata = _make_metadata(grant_types=[DEVICE_CODE_GRANT_TYPE, "refresh_token"])
         del metadata["redirect_uris"]
         mock_get.return_value = _mock_response(metadata)
+        self._register_and_verify()
 
         with time_machine.travel("2026-03-02 10:00:00", tick=False) as clock:
             token = self._device_login(clock)
@@ -1324,6 +1331,7 @@ class TestCIMDDeviceIntegration(APIBaseTest):
         metadata = _make_metadata(grant_types=[DEVICE_CODE_GRANT_TYPE, "refresh_token"])
         del metadata["redirect_uris"]
         mock_get.return_value = _mock_response(metadata)
+        self._register_and_verify()
 
         with time_machine.travel("2026-03-02 10:00:00", tick=False) as clock:
             laptop = self._device_login(clock)
