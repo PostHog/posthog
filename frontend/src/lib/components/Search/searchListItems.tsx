@@ -40,7 +40,7 @@ interface FixedSearchItem extends SearchItem {
 }
 
 const CATEGORY_SEARCH_KEYWORDS: Record<string, string[]> = {
-    CDP: ['data pipelines', 'data pipeline', 'pipeline'],
+    CDP: ['data pipelines', 'data pipeline', 'pipeline', 'cdp'],
 }
 
 const fixedItem = (
