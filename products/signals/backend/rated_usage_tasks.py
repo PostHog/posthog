@@ -1,4 +1,5 @@
 from datetime import UTC, date, datetime, time, timedelta
+from itertools import batched
 from uuid import UUID
 
 from django.db.models import Q
@@ -8,11 +9,54 @@ from django.utils import timezone
 from celery import shared_task
 
 from posthog.celery_queues import CeleryQueue
+from posthog.models import Organization
 from posthog.scoping_audit import skip_team_scope_audit
 
 from products.signals.backend.models import SignalSpend
-from products.signals.backend.rated_usage import SignalsRatedUsageReporter
 from products.signals.backend.rated_usage_models import SignalRatedUsage
+from products.signals.backend.spend_billing import get_signals_spend_billing_credits_by_team
+
+from ee.billing.billing_manager import BillingManager
+
+
+def _report_day(organization_id: UUID, day: date) -> None:
+    if day >= timezone.now().date():
+        raise ValueError("Rated usage requires a closed UTC day")
+    organization = Organization.objects.filter(id=organization_id).first()
+    if organization is None:
+        return
+    begin = datetime.combine(day, time.min, UTC)
+    credits = get_signals_spend_billing_credits_by_team(
+        begin, begin + timedelta(days=1), organization_id=organization_id
+    )
+    SignalRatedUsage.objects.unscoped().bulk_create(
+        [
+            SignalRatedUsage(team_id=team_id, organization_id=organization_id, day=day, cents=cents)
+            for team_id, cents in credits
+        ],
+        ignore_conflicts=True,
+    )
+    # Snapshot the customer and amount before POST so retries survive project moves.
+    deliveries = (
+        SignalRatedUsage.objects.unscoped()
+        .filter(organization_id=organization_id, day=day)
+        .order_by("team_id")
+        .values_list("team_id", "cents")
+    )
+    # Grant allocation belongs to the trial integration. This path reports all metered usage as billable.
+    items: list[dict[str, str | int]] = [
+        {"team_id": team_id, "product": "inbox_usage", "day": day.isoformat(), "cents": cents}
+        for team_id, cents in deliveries
+    ]
+    manager = BillingManager(None)
+    for batch in batched(items, 1000, strict=False):
+        manager.record_rated_usage(organization, list(batch))
+        SignalRatedUsage.objects.unscoped().filter(
+            organization_id=organization_id,
+            day=day,
+            team_id__in=[item["team_id"] for item in batch],
+            reported_at__isnull=True,
+        ).update(reported_at=timezone.now())
 
 
 @shared_task(
@@ -26,7 +70,7 @@ from products.signals.backend.rated_usage_models import SignalRatedUsage
 )
 @skip_team_scope_audit
 def report_signals_rated_usage(organization_id: str, day: str) -> None:
-    SignalsRatedUsageReporter().report_day(UUID(organization_id), date.fromisoformat(day))
+    _report_day(UUID(organization_id), date.fromisoformat(day))
 
 
 @shared_task(

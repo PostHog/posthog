@@ -40,9 +40,7 @@ class Migration(migrations.Migration):
                     ),
                 ],
                 "constraints": [
-                    models.UniqueConstraint(
-                        fields=("team_id", "day"), name="signals_rated_usage_team_day"
-                    )
+                    models.UniqueConstraint(fields=("team_id", "day"), name="signals_rated_usage_team_day")
                 ],
             },
         ),
