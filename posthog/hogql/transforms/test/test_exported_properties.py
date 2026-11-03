@@ -20,6 +20,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.escape import substitute_params
 from posthog.models import PropertyDefinition
+from posthog.models.instance_setting import override_instance_config
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.event_definitions.backend.models.property_definition import PropertyType
@@ -40,11 +41,15 @@ class TestExportedProperties(BaseTest):
         select: str,
         *,
         native: bool = False,
+        pruning: bool = True,
         restricted: set[RestrictedProperty] | None = None,
         dialect: HogQLDialect = "clickhouse",
     ) -> str:
         context = HogQLContext(
-            team_id=self.team.pk, enable_select_queries=True, modifiers=_modifiers(True), use_new_events_schema=native
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            modifiers=_modifiers(pruning),
+            use_new_events_schema=native,
         )
         if restricted is not None:
             context.restricted_properties = restricted
@@ -204,6 +209,18 @@ class TestExportedProperties(BaseTest):
         printed = self._print("SELECT properties.email FROM pageviews")
         assert f"{EMAIL_MAP} AS properties" in printed, printed
         assert "JSONExtractRaw(pageviews.properties['email'])" in printed, printed
+
+    @parameterized.expand([("legacy", False), ("native", True)])
+    def test_global_kill_switch_overrides_query_modifier(self, _name: str, native: bool) -> None:
+        select = f"SELECT properties.email FROM {STAR_EVENTS}"
+        unoptimized = self._print(select, native=native, pruning=False)
+        with override_instance_config("HOGQL_PROJECTION_OPTIMIZATION_ENABLED", False):
+            assert self._print(select, native=native) == unoptimized
+        with override_instance_config("HOGQL_PROJECTION_OPTIMIZATION_ENABLED", True):
+            optimized = self._print(select, native=native)
+            assert "map('email', " in optimized, optimized
+            assert "events.distinct_id AS distinct_id" not in optimized, optimized
+            assert self._print(select, native=native, pruning=False) == unoptimized
 
     def test_native_export_reads_one_subcolumn(self) -> None:
         printed = self._print(f"SELECT properties.utm_source FROM {STAR_EVENTS}", native=True)
