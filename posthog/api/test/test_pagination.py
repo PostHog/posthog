@@ -6,7 +6,6 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 from rest_framework import serializers
-from rest_framework.exceptions import NotFound
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.filters import OrderingFilter
 from rest_framework.generics import GenericAPIView
