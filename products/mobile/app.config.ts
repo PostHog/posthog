@@ -154,6 +154,7 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
             ],
             ['./plugins/withAndroidLoopbackNetworking', { allowLoopback: variant !== 'production' }],
             './plugins/withAndroidAdaptiveIconInsets',
+            './plugins/withAndroidNotificationIntents',
             './plugins/withIosSceneLifecycle',
             '@bacons/apple-targets',
         ],
