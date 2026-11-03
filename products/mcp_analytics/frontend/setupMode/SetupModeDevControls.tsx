@@ -82,8 +82,9 @@ function SetupModeDevControlsContent(): JSX.Element | null {
     }
 
     return (
-        <div className="fixed bottom-2 right-2 z-[9999] flex items-center gap-1 rounded border bg-surface-primary p-1 text-xs shadow-md">
-            <span className="px-1 font-semibold">Dev</span>
+        // Bottom center, clear of toasts (bottom right) and the wizard sync debug panel (bottom left).
+        <div className="fixed bottom-2 left-1/2 z-[9999] -translate-x-1/2 flex items-center gap-1 rounded border bg-surface-primary p-1 text-xs shadow-md">
+            <span className="px-1 font-semibold">Dev: advance setup</span>
             {(Object.keys(DEV_EVENTS) as DevEventKind[]).map((kind) => (
                 <LemonButton
                     key={kind}
