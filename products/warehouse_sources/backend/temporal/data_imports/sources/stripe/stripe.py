@@ -123,6 +123,9 @@ if TYPE_CHECKING:
 
 LOGGER = get_logger(__name__)
 DEFAULT_LIMIT = 100
+# Stripe's v2 Money Management list endpoints (V2_LIST_PATHS) cap `limit` at 50, unlike the v1
+# lists' 100 — requesting DEFAULT_LIMIT against one raises "Limit must be between 1 and 50".
+V2_LIST_PAGE_LIMIT = 50
 # Subscriptions are fetched with two levels of `expand` (subscription discounts and per-line-item
 # discounts), so each object is far larger than a typical Stripe resource. A full page of 100 such
 # objects can grow past the size that reliably transfers intact, and the response then arrives
@@ -1073,7 +1076,10 @@ def get_rows(
         # A v2 page token cannot be saved as a v1 `starting_after` cursor, so these full-refresh tables
         # save no resume state. An interrupted sync reads the list again and overwrites the table.
         yield from _batch_and_yield(
-            _iter_cleaning_errors(_call_stripe(resource.method, params=default_params).auto_paging_iter()), batcher
+            _iter_cleaning_errors(
+                _call_stripe(resource.method, params={"limit": V2_LIST_PAGE_LIMIT}).auto_paging_iter()
+            ),
+            batcher,
         )
         return
 

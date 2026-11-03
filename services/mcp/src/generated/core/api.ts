@@ -371,6 +371,8 @@ export const organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCap
 
 export const organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCapWindowDaysMax = 30
 
+export const organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCapHoldHoursMax = 168
+
 export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedHostsItemMax = 2000
 
 export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedHostsMax = 1000
@@ -2917,6 +2919,14 @@ export const OrganizationsProjectsCreateBody = () => zod
                     .describe(
                         'Length of the rolling frequency cap window in days. Set this together with marketing_frequency_cap_max_messages. Set both to null to turn the cap off.'
                     ),
+                marketing_frequency_cap_hold_hours: zod
+                    .number()
+                    .min(1)
+                    .max(organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCapHoldHoursMax)
+                    .nullish()
+                    .describe(
+                        'How many hours a marketing message over the frequency cap waits for a free slot before it is skipped. Null skips it right away.'
+                    ),
             })
             .optional(),
         feature_flag_policy_config: zod
@@ -3245,6 +3255,8 @@ export const organizationsProjectsPartialUpdateBodyWorkflowsConfigReplayVisionSc
 export const organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequencyCapMaxMessagesMax = 1000
 
 export const organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequencyCapWindowDaysMax = 30
+
+export const organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequencyCapHoldHoursMax = 168
 
 export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedHostsItemMax = 2000
 
@@ -5805,6 +5817,14 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .nullish()
                     .describe(
                         'Length of the rolling frequency cap window in days. Set this together with marketing_frequency_cap_max_messages. Set both to null to turn the cap off.'
+                    ),
+                marketing_frequency_cap_hold_hours: zod
+                    .number()
+                    .min(1)
+                    .max(organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequencyCapHoldHoursMax)
+                    .nullish()
+                    .describe(
+                        'How many hours a marketing message over the frequency cap waits for a free slot before it is skipped. Null skips it right away.'
                     ),
             })
             .optional(),

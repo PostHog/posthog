@@ -777,6 +777,28 @@ export interface UpsertWizardSessionRequestApi {
 }
 
 /**
+ * * `Redshift` - Redshift
+ * * `Snowflake` - Snowflake
+ * * `BigQuery` - BigQuery
+ * * `Postgres` - Postgres
+ * * `Databricks` - Databricks
+ * * `AzureBlob` - Azure Blob
+ * * `S3` - S3
+ */
+export type UserCreatableDestinationTypeEnumApi =
+    (typeof UserCreatableDestinationTypeEnumApi)[keyof typeof UserCreatableDestinationTypeEnumApi]
+
+export const UserCreatableDestinationTypeEnumApi = {
+    Redshift: 'Redshift',
+    Snowflake: 'Snowflake',
+    BigQuery: 'BigQuery',
+    Postgres: 'Postgres',
+    Databricks: 'Databricks',
+    AzureBlob: 'AzureBlob',
+    S3: 'S3',
+} as const
+
+/**
  * * `in-cli` - In the terminal
  * * `deep-link` - In the app
  */
@@ -811,6 +833,16 @@ export interface WizardCatalogToolApi {
      * @nullable
      */
     warehouse_source_type: string | null
+    /** Warehouse destination PostHog can send data to when the tool is that warehouse, or null for any other tool.
+     *
+     * * `Redshift` - Redshift
+     * * `Snowflake` - Snowflake
+     * * `BigQuery` - BigQuery
+     * * `Postgres` - Postgres
+     * * `Databricks` - Databricks
+     * * `AzureBlob` - Azure Blob
+     * * `S3` - S3 */
+    warehouse_destination_type: UserCreatableDestinationTypeEnumApi | null
     /** How the wizard sets up the source: in the terminal or in the app. Null for a tool with no warehouse source.
      *
      * * `in-cli` - In the terminal

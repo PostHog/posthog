@@ -1,6 +1,4 @@
-//! The references and decline markers that stand in for an image in a v4 replay block. A captured
-//! page can hold text that looks like a reference, so [`parse`] accepts only the exact strings the
-//! v4 recorder writes.
+//! The references and decline markers that stand in for an image or a web font in a v4 replay block. A captured page can hold text that looks like a reference, so [`parse`] accepts only the exact strings the v4 recorder writes.
 
 use std::fmt;
 
@@ -10,13 +8,19 @@ use crate::url_policy::Decline;
 pub const IMAGE_PREFIX: &str = "image:v4:";
 /// Starts a reference whose hash names the image URL. The image fetcher stores the bytes.
 pub const IMAGE_URL_PREFIX: &str = "imageurl:v4:";
+/// Starts a reference whose hash names the URL of a font file in an `@font-face` `src`. The image fetcher stores the bytes.
+pub const FONT_URL_PREFIX: &str = "fonturl:v4:";
 /// The length v3 truncates a reference hash to: 132 bits of the HMAC, in URL-safe base64.
 pub const HASH_CHARS: usize = 22;
 /// What a remote URL becomes when the recorder replaces it without a check by the URL policy.
 pub const URL_UNCHECKED_MARKER: &str = "imageurl:v4:declined:unchecked";
+/// What a remote URL in an `@font-face` `src` becomes when the recorder replaces it without a check by the URL policy.
+pub const FONT_URL_UNCHECKED_MARKER: &str = "fonturl:v4:declined:unchecked";
 pub const IMAGE_DECLINED_PREFIX: &str = "image:v4:declined:";
 
 const DECLINED: &str = "declined:";
+const BUNDLED: &str = "bundled:";
+const PUBLIC: &str = "public:";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ImageDecline {
@@ -60,13 +64,17 @@ impl ImageDecline {
 pub enum RefKind {
     Image,
     ImageUrl,
+    FontUrl,
 }
 
 impl RefKind {
+    const ALL: [RefKind; 3] = [RefKind::Image, RefKind::ImageUrl, RefKind::FontUrl];
+
     pub const fn prefix(self) -> &'static str {
         match self {
             RefKind::Image => IMAGE_PREFIX,
             RefKind::ImageUrl => IMAGE_URL_PREFIX,
+            RefKind::FontUrl => FONT_URL_PREFIX,
         }
     }
 }
@@ -81,18 +89,24 @@ pub struct Ref<'a> {
     pub hash: &'a str,
 }
 
-/// A marker for an image that the dataset does not keep. No bytes stand behind it.
+/// A marker for an image or a font that the dataset does not keep. No bytes stand behind it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Declined {
     Image(ImageDecline),
     Url(Decline),
     UrlUnchecked,
+    FontUrl(Decline),
+    FontUrlUnchecked,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Parsed<'a> {
     Ref(Ref<'a>),
     Declined(Declined),
+    /// A font family that the renderer ships, by its slug. No bytes stand behind it.
+    BundledFont(&'a str),
+    /// A font file that one public URL serves to every team, by an unkeyed hash of that URL. The image fetcher stores it once.
+    PublicFont(&'a str),
 }
 
 impl fmt::Display for Ref<'_> {
@@ -114,6 +128,8 @@ impl fmt::Display for Declined {
             Declined::Image(reason) => f.write_str(reason.marker()),
             Declined::Url(reason) => write!(f, "{IMAGE_URL_PREFIX}{DECLINED}{}", reason.label()),
             Declined::UrlUnchecked => f.write_str(URL_UNCHECKED_MARKER),
+            Declined::FontUrl(reason) => write!(f, "{FONT_URL_PREFIX}{DECLINED}{}", reason.label()),
+            Declined::FontUrlUnchecked => f.write_str(FONT_URL_UNCHECKED_MARKER),
         }
     }
 }
@@ -123,6 +139,8 @@ impl fmt::Display for Parsed<'_> {
         match self {
             Parsed::Ref(reference) => reference.fmt(f),
             Parsed::Declined(declined) => declined.fmt(f),
+            Parsed::BundledFont(slug) => write!(f, "{FONT_URL_PREFIX}{BUNDLED}{slug}"),
+            Parsed::PublicFont(hash) => write!(f, "{FONT_URL_PREFIX}{PUBLIC}{hash}"),
         }
     }
 }
@@ -147,8 +165,30 @@ pub fn image_url_ref(team_id: i64, key_month: &str, hash: &str) -> String {
     .to_string()
 }
 
+pub fn font_url_ref(team_id: i64, key_month: &str, hash: &str) -> String {
+    Ref {
+        kind: RefKind::FontUrl,
+        team_id,
+        key_month,
+        hash,
+    }
+    .to_string()
+}
+
 pub fn url_declined_marker(reason: Decline) -> String {
     Declined::Url(reason).to_string()
+}
+
+pub fn font_url_declined_marker(reason: Decline) -> String {
+    Declined::FontUrl(reason).to_string()
+}
+
+pub fn bundled_font_ref(slug: &str) -> String {
+    Parsed::BundledFont(slug).to_string()
+}
+
+pub fn public_font_ref(hash: &str) -> String {
+    Parsed::PublicFont(hash).to_string()
 }
 
 /// Reads a reference or a marker. Any other string is `None`, also one that differs from a string
@@ -157,10 +197,17 @@ pub fn parse(s: &str) -> Option<Parsed<'_>> {
     if let Some(declined) = parse_declined(s) {
         return Some(Parsed::Declined(declined));
     }
-    let (kind, rest) = match s.strip_prefix(IMAGE_PREFIX) {
-        Some(rest) => (RefKind::Image, rest),
-        None => (RefKind::ImageUrl, s.strip_prefix(IMAGE_URL_PREFIX)?),
-    };
+    if let Some(rest) = s.strip_prefix(FONT_URL_PREFIX) {
+        if let Some(slug) = rest.strip_prefix(BUNDLED) {
+            return is_slug(slug).then_some(Parsed::BundledFont(slug));
+        }
+        if let Some(hash) = rest.strip_prefix(PUBLIC) {
+            return is_hash(hash).then_some(Parsed::PublicFont(hash));
+        }
+    }
+    let (kind, rest) = RefKind::ALL
+        .into_iter()
+        .find_map(|kind| Some((kind, s.strip_prefix(kind.prefix())?)))?;
     let mut fields = rest.split(':');
     let (team_id, key_month, hash) = (fields.next()?, fields.next()?, fields.next()?);
     if fields.next().is_some() || !is_key_month(key_month) || !is_hash(hash) {
@@ -178,17 +225,34 @@ fn parse_declined(s: &str) -> Option<Declined> {
     if s == URL_UNCHECKED_MARKER {
         return Some(Declined::UrlUnchecked);
     }
+    if s == FONT_URL_UNCHECKED_MARKER {
+        return Some(Declined::FontUrlUnchecked);
+    }
     if let Some(reason) = ImageDecline::ALL
         .into_iter()
         .find(|reason| reason.marker() == s)
     {
         return Some(Declined::Image(reason));
     }
-    let label = s.strip_prefix(IMAGE_URL_PREFIX)?.strip_prefix(DECLINED)?;
+    let (declined, label): (fn(Decline) -> Declined, _) = match s.strip_prefix(IMAGE_URL_PREFIX) {
+        Some(rest) => (Declined::Url, rest),
+        None => (Declined::FontUrl, s.strip_prefix(FONT_URL_PREFIX)?),
+    };
+    let label = label.strip_prefix(DECLINED)?;
     Decline::ALL
         .into_iter()
         .find(|reason| reason.label() == label)
-        .map(Declined::Url)
+        .map(declined)
+}
+
+/// Lowercase ASCII words joined by single `-`, as the recorder makes a slug from a family name.
+fn is_slug(slug: &str) -> bool {
+    slug.split('-').all(|word| {
+        !word.is_empty()
+            && word
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+    })
 }
 
 /// Digits alone, as `i64` writes a positive number: no sign and no leading zero.
@@ -234,6 +298,7 @@ mod tests {
         };
         let image = |reason| Parsed::Declined(Declined::Image(reason));
         let url = |reason| Parsed::Declined(Declined::Url(reason));
+        let font_url = |reason| Parsed::Declined(Declined::FontUrl(reason));
         let vectors = [
             (
                 "image:v4:7:2026-10:AbCdEfGhIjKlMnOpQr-_09",
@@ -281,6 +346,26 @@ mod tests {
                 "imageurl:v4:declined:tracking_beacon",
                 url(Decline::TrackingBeacon),
             ),
+            (
+                "fonturl:v4:7:2026-10:AbCdEfGhIjKlMnOpQr-_09",
+                reference(RefKind::FontUrl),
+            ),
+            (
+                "fonturl:v4:declined:unchecked",
+                Parsed::Declined(Declined::FontUrlUnchecked),
+            ),
+            (
+                "fonturl:v4:declined:credential",
+                font_url(Decline::Credential),
+            ),
+            (
+                "fonturl:v4:bundled:source-sans-3",
+                Parsed::BundledFont("source-sans-3"),
+            ),
+            (
+                "fonturl:v4:public:AbCdEfGhIjKlMnOpQr-_09",
+                Parsed::PublicFont(HASH),
+            ),
         ];
         for (written, parsed) in vectors {
             assert_eq!(parse(written), Some(parsed), "{written}");
@@ -288,17 +373,35 @@ mod tests {
         }
         assert_eq!(image_ref(7, "2026-10", HASH), vectors[0].0);
         assert_eq!(image_url_ref(7, "2026-10", HASH), vectors[1].0);
+        assert_eq!(
+            font_url_ref(7, "2026-10", HASH),
+            format!("fonturl:v4:7:2026-10:{HASH}")
+        );
+        assert_eq!(
+            bundled_font_ref("source-sans-3"),
+            "fonturl:v4:bundled:source-sans-3"
+        );
+        assert_eq!(public_font_ref(HASH), format!("fonturl:v4:public:{HASH}"));
+        for reason in Decline::ALL {
+            assert_eq!(
+                parse(&font_url_declined_marker(reason)),
+                Some(font_url(reason))
+            );
+        }
 
         let every_marker: HashSet<String> = ImageDecline::ALL
             .map(Declined::Image)
             .into_iter()
             .chain(Decline::ALL.map(Declined::Url))
-            .chain([Declined::UrlUnchecked])
+            .chain([Declined::UrlUnchecked, Declined::FontUrlUnchecked])
             .map(|declined| declined.to_string())
             .collect();
         let vector_markers: HashSet<String> = vectors
             .iter()
-            .filter(|(_, parsed)| matches!(parsed, Parsed::Declined(_)))
+            // The loop above covers every font URL decline.
+            .filter(|(_, parsed)| {
+                matches!(parsed, Parsed::Declined(declined) if !matches!(declined, Declined::FontUrl(_)))
+            })
             .map(|(written, _)| written.to_string())
             .collect();
         assert_eq!(every_marker, vector_markers);
@@ -352,6 +455,23 @@ mod tests {
             "imageurl:v4:declined:credential:x".to_owned(),
             "imageurl:v4:declined:session_token".to_owned(),
             "imageurl:v3:declined:credential".to_owned(),
+            format!("Fonturl:v4:7:2026-10:{HASH}"),
+            format!("fonturl:v4:07:2026-10:{HASH}"),
+            "fonturl:v4:declined:avif".to_owned(),
+            "fonturl:v4:declined:Unchecked".to_owned(),
+            "fonturl:v4:bundled:".to_owned(),
+            "fonturl:v4:bundled:Roboto".to_owned(),
+            "fonturl:v4:bundled:open sans".to_owned(),
+            "fonturl:v4:bundled:open--sans".to_owned(),
+            "fonturl:v4:bundled:-roboto".to_owned(),
+            "fonturl:v4:bundled:roboto-".to_owned(),
+            "fonturl:v4:bundled:roboto:x".to_owned(),
+            "imageurl:v4:bundled:roboto".to_owned(),
+            "fonturl:v4:public:".to_owned(),
+            format!("fonturl:v4:public:{}", &HASH[1..]),
+            format!("fonturl:v4:public:{HASH}:x"),
+            format!("fonturl:v4:Public:{HASH}"),
+            format!("imageurl:v4:public:{HASH}"),
         ];
         for near_miss in near_misses {
             assert_eq!(parse(&near_miss), None, "{near_miss:?}");

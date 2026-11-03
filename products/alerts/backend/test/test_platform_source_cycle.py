@@ -22,13 +22,18 @@ from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded
 from posthog.models.scoping import team_scope
+from posthog.query_cache.single_flight import query_single_flight_skipped
 from posthog.redis import get_client
 from posthog.schema_enums import AlertCalculationInterval
 from posthog.tasks.alerts.utils import AlertEvaluationResult, RenderedInsightChart, next_check_time
 from posthog.temporal.alerts.admission import admit_evaluation_slots, inflight_alert_ids, release_evaluation_slot
 from posthog.temporal.alerts.retry_policy import ALERT_EVALUATE_RETRY_POLICY
 
-from products.alerts.backend.evaluation.contract import AlertExtractionError
+from products.alerts.backend.evaluation.contract import (
+    CREATOR_LEFT_DISABLE_REASON,
+    AlertExtractionError,
+    AlertOwnerAccessError,
+)
 from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, SeriesEvaluation
 from products.alerts.backend.judge.contract import (
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
@@ -97,7 +102,10 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         self.organization.save()
 
     def _alert(self, **overrides: Any) -> AlertConfiguration:
-        return create_insight_alert(self.team, **{"next_check_at": CUTOFF - timedelta(minutes=1), **overrides})
+        # Production always writes an owner, and an alert with none counts as one whose owner was deleted.
+        return create_insight_alert(
+            self.team, **{"next_check_at": CUTOFF - timedelta(minutes=1), "created_by": self.user, **overrides}
+        )
 
     def _copy(self, alert: AlertConfiguration | None, **overrides: Any) -> PlatformConfigurationSnapshot:
         with team_scope(self.team.id):
@@ -213,7 +221,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         slot = slot_of(configuration.next_check_at, CUTOFF)
         expires_at = time.time() + 3600
         assert plan_insight_batch(self.team.id, slot, CUTOFF, expires_at=expires_at) == (str(configuration.id),)
-        side_effect = result if isinstance(result, Exception | list) else None
+        side_effect = None if isinstance(result, AlertEvaluationResult) else result
         returned = result if isinstance(result, AlertEvaluationResult) else None
         with patch(f"{_MODULE}.check_alert_for_insight", side_effect=side_effect, return_value=returned) as query:
             evaluation = evaluate_insight_check(
@@ -432,9 +440,16 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         before = AlertConfiguration.objects.values("state", "next_check_at", "last_checked_at").get(id=alert.id)
         configuration = self._copy(alert)
 
-        outcome, _ = self._evaluate(configuration, result=AlertEvaluationResult(value=150.0, breaches=["above 100"]))
+        skipped_during_query: list[bool] = []
+
+        def query(*args: Any, **kwargs: Any) -> AlertEvaluationResult:
+            skipped_during_query.append(query_single_flight_skipped())
+            return AlertEvaluationResult(value=150.0, breaches=["above 100"])
+
+        outcome, _ = self._evaluate(configuration, result=query)
         assert outcome is not None
         assert get_query_tags().ch_user == ClickHouseUser.ALERTS_PLATFORM_INSIGHT
+        assert skipped_during_query == [True]
         record_outcomes(self.team.id, (outcome,), CUTOFF)
 
         assert (outcome.groups[0].kind, outcome.groups[0].value, outcome.evaluation_key) == (
@@ -703,6 +718,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         [
             ("bad_query_shape", AlertExtractionError("bad query shape")),
             ("ai_consent_withdrawn", LLMDetectorMisconfiguredError("consent withdrawn")),
+            ("owner_left_or_lost_access", AlertOwnerAccessError(CREATOR_LEFT_DISABLE_REASON)),
         ]
     )
     def test_an_alert_production_cannot_evaluate_as_configured_errors_and_is_disabled(
@@ -844,7 +860,8 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
         assert retried is not None and over_the_limit is None
         assert inflight_alert_ids(INFLIGHT_KEY) == {str(held.id)}
-        assert inflight_alert_ids(QUERY_INFLIGHT_KEY) == set()
+        # The kill may not have landed, so the timed-out query stays counted until its thread frees it.
+        assert inflight_alert_ids(QUERY_INFLIGHT_KEY) == {"run:1:1"}
         cancel.assert_any_call(self.team.id, "alerts-platform-insight:run:1:1")
 
     @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHECKS=1)
