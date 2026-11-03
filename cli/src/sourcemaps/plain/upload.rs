@@ -13,10 +13,10 @@ use tracing::{debug, info, warn};
 
 /// Sibling-JS size below which an empty sourcemap is treated as a harmless
 /// bundler-generated wrapper (e.g. Turbopack App Router page entries,
-/// webpack re-export shims). Next.js Turbopack server page stubs reach about
-/// 3 KiB after chunk-id injection (#70235), and each layout file on a route
-/// makes its stub larger. Every empty map is skipped whatever its size, so
-/// this cutoff only picks the log message and which of the
+/// webpack re-export shims). Turbopack page entries reach about 3 KiB after
+/// chunk-id injection (#70235), and every layout, loading or error file on the
+/// route makes the entry larger. Every empty map is skipped whatever its size,
+/// so this cutoff only picks the log message and which of the
 /// `empty_skipped_wrapper` and `empty_skipped_suspect` telemetry counts the
 /// map adds to. A bundler that drops maps for a whole build also writes empty
 /// maps for chunks well above 4 KiB, so the summary still reports it.
@@ -171,8 +171,8 @@ pub fn upload_pairs(
     let (empty_pairs, valid_pairs): (Vec<_>, Vec<_>) = pairs
         .into_iter()
         .partition(|pair| pair.sourcemap.is_empty());
-    let empty_counts = report_empty_pairs(&empty_pairs);
     let empty_skipped = empty_pairs.len();
+    let empty_skipped_suspect = report_empty_pairs(&empty_pairs);
 
     let uploads = prepare_uploads(valid_pairs, args.release_mode)?;
 
@@ -185,8 +185,11 @@ pub fn upload_pairs(
             ("file_count", json!(file_count)),
             ("total_bytes", json!(total_bytes)),
             ("empty_skipped", json!(empty_skipped)),
-            ("empty_skipped_wrapper", json!(empty_counts.wrapper)),
-            ("empty_skipped_suspect", json!(empty_counts.suspect)),
+            (
+                "empty_skipped_wrapper",
+                json!(empty_skipped - empty_skipped_suspect),
+            ),
+            ("empty_skipped_suspect", json!(empty_skipped_suspect)),
         ],
     );
 
@@ -282,20 +285,13 @@ fn select_uploadable_pairs(pairs: Vec<SourcePair>) -> Vec<SourcePair> {
     uploadable
 }
 
-struct EmptyPairCounts {
-    wrapper: usize,
-    suspect: usize,
-}
-
-fn report_empty_pairs(empty_pairs: &[SourcePair]) -> EmptyPairCounts {
-    let mut empty_skipped_wrapper = 0usize;
+fn report_empty_pairs(empty_pairs: &[SourcePair]) -> usize {
     let mut empty_skipped_suspect = 0usize;
     let mut suspect_paths: Vec<String> = Vec::new();
     for pair in empty_pairs {
         let js_size = pair.source.inner.content.len();
         let map_path = pair.sourcemap.inner.path.display();
         if js_size < WRAPPER_JS_SIZE_THRESHOLD_BYTES {
-            empty_skipped_wrapper += 1;
             debug!(
                 "Skipping {}: sourcemap is empty and sibling JS is {} bytes — bundler-generated wrapper, nothing to symbolicate",
                 map_path, js_size
@@ -326,10 +322,7 @@ fn report_empty_pairs(empty_pairs: &[SourcePair]) -> EmptyPairCounts {
             rest
         );
     }
-    EmptyPairCounts {
-        wrapper: empty_skipped_wrapper,
-        suspect: empty_skipped_suspect,
-    }
+    empty_skipped_suspect
 }
 
 /// Build the upload payloads for `pairs`, at most one per chunk id. Event mode derives the id
@@ -716,9 +709,7 @@ mod tests {
         let pairs = read_dir_pairs(dir.path());
         assert_eq!(pairs.len(), 3);
 
-        let counts = report_empty_pairs(&pairs);
-
-        assert_eq!((counts.wrapper, counts.suspect), (2, 1));
+        assert_eq!(report_empty_pairs(&pairs), 1);
     }
 
     #[test]
