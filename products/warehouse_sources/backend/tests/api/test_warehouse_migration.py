@@ -273,11 +273,13 @@ class TestWarehouseMigrationAPI(APIBaseTest):
             connections=[
                 {"connection": _envelope(_fivetran_connection("conn_a")), "schema_config": None},
                 {"connection": {"service": "hubspot"}},
+                {"connection": _fivetran_connection("conn_bad", id=["conn_bad"])},
             ],
         )
-        # The malformed connection is named, and the rest of the batch still applies.
+        # The malformed connections are named, and the rest of the batch still applies.
         assert first.status_code == 400
         assert "Connection 1 (no id)" in first.json()["detail"]
+        assert "Connection 2 (['conn_bad']): the field `id` has the wrong type" in first.json()["detail"]
 
         # The destination came in an earlier batch, so its offset still moves 22:00 to UTC.
         schedule = {"schedule_type": "TIME_OF_DAY", "time_of_day": "22:00"}

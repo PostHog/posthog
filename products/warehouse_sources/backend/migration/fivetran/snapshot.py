@@ -1,6 +1,9 @@
 import json
+import dataclasses
 from collections.abc import Mapping, Sequence
 from typing import Any
+
+from pydantic import TypeAdapter, ValidationError
 
 from posthog.dataclasses import frozen
 
@@ -72,6 +75,10 @@ class UploadedSnapshot:
 
 
 MAX_UPLOADED_CONNECTION_BYTES = 1_000_000
+# The parsers trust the vendor's field types. An agent upload can carry any JSON, so it is checked after parsing.
+_DESTINATION_ADAPTER: TypeAdapter[VendorDestination] = TypeAdapter(VendorDestination)
+_CONNECTION_ADAPTER: TypeAdapter[VendorConnection] = TypeAdapter(VendorConnection)
+_READ_ERRORS = (KeyError, TypeError, ValueError, AttributeError)
 
 
 def merge_upload(
@@ -90,8 +97,10 @@ def merge_upload(
     for index, raw in enumerate(destinations):
         raw = _unwrap(raw)
         try:
-            destination = parse_destination(raw, name=raw.get("name") or raw["id"])
-        except (KeyError, TypeError, ValueError, AttributeError) as error:
+            destination = _DESTINATION_ADAPTER.validate_python(
+                dataclasses.asdict(parse_destination(raw, name=raw.get("name") or raw["id"]))
+            )
+        except _READ_ERRORS as error:
             errors.append(f"Destination {index} ({raw.get('id') or 'no id'}): {_read_error(error)}")
             continue
         stored_destinations[destination.id] = destination
@@ -104,13 +113,14 @@ def merge_upload(
         label = f"Connection {index} ({raw.get('id') or 'no id'})"
         schema_config = _unwrap(upload.schema_config) if upload.schema_config is not None else None
         if len(json.dumps([raw, schema_config])) > MAX_UPLOADED_CONNECTION_BYTES:
-            errors.append(f"{label}: larger than 1 MB. Upload it alone, or migrate this account with an API key.")
+            errors.append(f"{label}: larger than 1 MB, so it cannot be uploaded. Migrate this account with an API key.")
             continue
         try:
-            connection = parse_connection(
+            parsed = parse_connection(
                 raw, schema_config, utc_offset_hours=utc_offsets.get(raw.get("group_id") or "", 0)
             )
-        except (KeyError, TypeError, ValueError, AttributeError) as error:
+            connection = _CONNECTION_ADAPTER.validate_python(dataclasses.asdict(parsed))
+        except _READ_ERRORS as error:
             errors.append(f"{label}: {_read_error(error)}")
             continue
         stored_connections[connection.id] = connection
@@ -121,7 +131,7 @@ def merge_upload(
         snapshot=VendorSnapshot(
             provider=MigrationProvider.FIVETRAN,
             account_id=str(account_info.get("account_id") or (previous.account_id if previous else "")),
-            account_name=account_info.get("account_name") or (previous.account_name if previous else None),
+            account_name=_text(account_info.get("account_name")) or (previous.account_name if previous else None),
             destinations=tuple(stored_destinations.values()),
             connections=tuple(stored_connections.values()),
         ),
@@ -136,9 +146,16 @@ def _unwrap(raw: Mapping[str, Any]) -> Mapping[str, Any]:
     return data if "code" in raw and isinstance(data, Mapping) else raw
 
 
+def _text(value: Any) -> str | None:
+    return value if isinstance(value, str) else None
+
+
 def _read_error(error: Exception) -> str:
     if isinstance(error, KeyError):
         return f"the field `{error.args[0]}` is missing. Upload the Fivetran response unchanged."
+    if isinstance(error, ValidationError):
+        field = ".".join(str(part) for part in error.errors()[0]["loc"])
+        return f"the field `{field}` has the wrong type. Upload the Fivetran response unchanged."
     return "this is not a Fivetran response PostHog can read. Upload the Fivetran response unchanged."
 
 
