@@ -54,6 +54,8 @@ from posthog.workload_identity.providers import (
     normalize_issuer,
 )
 
+from products.access_control.backend.facade.subject_access_control import restricted_visible_membership_ids
+
 # A policy matches claim values exactly, so a character that reads as a pattern is refused rather than
 # taken literally: an admin who types `acme/*` expects every workload under `acme` to match, and none would.
 WILDCARD_CHARACTERS = frozenset("*?[]")
@@ -609,6 +611,10 @@ class WorkloadTrustPolicyRequestViewSet(
                 .select_related("user")
                 .order_by("-level", "joined_at")
             )
+            # Name only the admins this reader could see in the members list, when the organization hides it.
+            visible_membership_ids = restricted_visible_membership_ids(self.organization, cast(User, self.request.user))
+            if visible_membership_ids is not None:
+                memberships = memberships.filter(id__in=visible_membership_ids)
             return [membership.user.get_full_name() or membership.user.email for membership in memberships]
 
         context["approvers"] = approvers
