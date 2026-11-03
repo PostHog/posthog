@@ -3800,6 +3800,16 @@ export namespace Schemas {
         response?: (Record<string, unknown> | null) | undefined;
         version?: (number | null) | undefined;
     };
+    export type ExperimentWarehouseNativeUnitBinding = {
+        /**
+         * Which ids represent that unit, such as `billing_customer_id`.
+         */
+        id_namespace: string;
+        /**
+         * What was randomized, as a stable project-scoped label such as `customer` or `account`.
+         */
+        unit_type: string;
+    };
     export type ExperimentWarehouseNativeExposureConfig = {
         /**
          * The direct-query source (an ExternalDataSource id) the SQL is written for.
@@ -3811,6 +3821,7 @@ export namespace Schemas {
          */
         query: string;
         response?: (Record<string, unknown> | null) | undefined;
+        unit: ExperimentWarehouseNativeUnitBinding;
         version?: (number | null) | undefined;
     };
     export type MultipleVariantHandling = "exclude" | "first_seen";
@@ -3919,6 +3930,7 @@ export namespace Schemas {
          */
         query: string;
         response?: (Record<string, unknown> | null) | undefined;
+        unit: ExperimentWarehouseNativeUnitBinding;
         version?: (number | null) | undefined;
     };
     export type ExperimentMeanMetric = {
@@ -20284,6 +20296,7 @@ export namespace Schemas {
         default_email_integration_id: number | null;
         marketing_frequency_cap_max_messages: number | null;
         marketing_frequency_cap_window_days: number | null;
+        marketing_frequency_cap_hold_hours: number | null;
     }>;
     export type TeamFeatureFlagPolicyConfig = Partial<{
         require_tags: boolean;
@@ -22661,6 +22674,7 @@ export namespace Endpoints {
                 active: "STALE" | "false" | "true";
                 archived: "false" | "true";
                 created_by_id: string;
+                deleted: "false" | "true";
                 eligible_for_experiment: "true";
                 evaluation_runtime: "all" | "client" | "server";
                 excluded_properties: string;
