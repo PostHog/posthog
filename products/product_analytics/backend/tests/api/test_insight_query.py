@@ -15,9 +15,7 @@ from products.product_analytics.backend.facade.models import Insight
 from products.product_analytics.backend.presentation.insight import (
     AUTO_WRAPPED_INSIGHT_QUERY_KINDS,
     BARE_RENDERED_INSIGHT_VIZ_SOURCE_KINDS,
-    METRICS_VARIABLE_VALUES_MESSAGE,
     MCPInsightSerializer,
-    _reject_metrics_variable_values,
 )
 
 from ee.api.test.base import LicensedTestMixin
@@ -156,39 +154,6 @@ class TestMCPInsightSerializer(SimpleTestCase):
         assert query.chartSettings.boxPlot.medianColumn == "median"
 
 
-_PROMQL_WITH_VARIABLE = {"kind": "MetricsQuery", "clauses": [], "language": "promql", "promql": 'up{job=~"$job"}'}
-_JOB_VALUES = {"job": {"values": ["api"]}}
-
-
-class TestRejectMetricsVariableValues(SimpleTestCase):
-    @parameterized.expand(
-        [
-            ("without_values", _PROMQL_WITH_VARIABLE, False),
-            ("with_empty_values", {**_PROMQL_WITH_VARIABLE, "variables": {}}, False),
-            ("with_values", {**_PROMQL_WITH_VARIABLE, "variables": _JOB_VALUES}, True),
-            (
-                "histogram_with_values",
-                {"kind": "MetricsHistogramQuery", "metricName": "latency", "variables": _JOB_VALUES},
-                True,
-            ),
-            (
-                "hogql_variables_are_not_metrics_values",
-                {
-                    "kind": "DataVisualizationNode",
-                    "source": {"kind": "HogQLQuery", "query": "select 1", "variables": {"v": {"code_name": "v"}}},
-                },
-                False,
-            ),
-        ]
-    )
-    def test_metrics_variable_values(self, _name: str, query: dict[str, Any], rejected: bool) -> None:
-        if rejected:
-            with self.assertRaises(serializers.ValidationError):
-                _reject_metrics_variable_values(query)
-        else:
-            _reject_metrics_variable_values(query)
-
-
 class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatchingTest):
     maxDiff = None
 
@@ -325,17 +290,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             {"name": "Insight with events query", "query": "not a valid query"},
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
-
-    @parameterized.expand([("app", {}), ("mcp", {"HTTP_X_POSTHOG_CLIENT": "mcp"})])
-    def test_create_rejects_metrics_variable_values(self, _name: str, headers: dict[str, str]) -> None:
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/insights/",
-            {"name": "Metrics insight", "query": {**_PROMQL_WITH_VARIABLE, "variables": _JOB_VALUES}},
-            format="json",
-            **headers,
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert METRICS_VARIABLE_VALUES_MESSAGE in str(response.json())
 
     def test_cannot_save_invalid_persons_table_query_to_an_insight(self) -> None:
         self.dashboard_api.create_insight(

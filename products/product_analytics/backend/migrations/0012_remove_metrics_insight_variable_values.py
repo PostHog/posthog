@@ -45,8 +45,6 @@ def remove_metrics_variable_values(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    atomic = False
-
     dependencies = [
         ("product_analytics", "0011_insight_viewed_context_fields"),
         ("alerts", "0015_insight_alert_investigation"),
