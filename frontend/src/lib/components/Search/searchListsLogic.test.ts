@@ -4,9 +4,39 @@ import { terminalDockLogic } from 'scenes/terminal/terminalDockLogic'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
+import { ActivityTab } from '~/types'
 
-import { searchListsLogic } from './searchListsLogic'
+import { searchListsLogic, searchListsLogicValues } from './searchListsLogic'
 import { filterSearchItems } from './utils'
+
+type DestinationList = keyof Pick<
+    searchListsLogicValues,
+    'productsItems' | 'dataManagementItems' | 'peopleItems' | 'healthItems'
+>
+
+const TOP_LEVEL_DESTINATIONS: [DestinationList, string, string][] = [
+    ['productsItems', 'Activity', urls.activity(ActivityTab.ExploreEvents)],
+    ['productsItems', 'Subscriptions', urls.subscriptions()],
+    ['productsItems', 'Exports', urls.exports()],
+    ['productsItems', 'Product analytics', urls.insights()],
+    ['productsItems', 'Dashboards', urls.dashboards()],
+    ['productsItems', 'Notebooks', urls.notebooks()],
+    ['productsItems', 'SQL editor', urls.sqlEditor()],
+    ['productsItems', 'Toolbar', urls.toolbarLaunch()],
+    ['productsItems', 'Heatmaps', urls.heatmaps()],
+    ['productsItems', 'Early access features', urls.earlyAccessFeatures()],
+    ['productsItems', 'Endpoints', urls.endpoints()],
+    ['productsItems', 'Annotations', urls.annotations()],
+    ['productsItems', 'Actions', urls.actions()],
+    ['productsItems', 'Destinations', urls.destinations()],
+    ['productsItems', 'Transformations', urls.transformations()],
+    ['productsItems', 'Models', urls.models()],
+    ['dataManagementItems', 'Property definitions', urls.propertyDefinitions()],
+    ['peopleItems', 'Persons', urls.persons()],
+    ['peopleItems', 'Cohorts', urls.cohorts()],
+    ['healthItems', 'Health', urls.health()],
+    ['healthItems', 'Pipeline status', urls.pipelineStatus()],
+]
 
 describe('searchListsLogic', () => {
     let logic: ReturnType<typeof searchListsLogic.build>
@@ -33,6 +63,12 @@ describe('searchListsLogic', () => {
         })
 
         expect(logic.values.productsItems.some((item) => item.id === 'product-Data warehouse')).toBe(visible)
+    })
+
+    it.each(TOP_LEVEL_DESTINATIONS)('%s includes %s', (list, name, href) => {
+        const items = logic.values[list].filter((item) => !item.parentName)
+
+        expect(items.filter((item) => item.href === href).map((item) => item.displayName)).toEqual([name])
     })
 
     it('lists each product destination once', () => {

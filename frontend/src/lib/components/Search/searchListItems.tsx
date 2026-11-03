@@ -174,12 +174,28 @@ const newItemDisplayName = (path: string): string => {
     return suffix === 'data' ? `New ${rest.join(' ')}` : `New ${rest.join(' ')} ${suffix}`
 }
 
-const ACTIVITY_ITEM = fixedItem('product-activity', 'Activity', 'tools', {
-    href: urls.activity(ActivityTab.ExploreEvents),
-    icon: <IconClock />,
-    sceneKey: 'Activity',
-    record: { type: 'activity' },
-})
+const APP_PRODUCT_ITEMS = [
+    fixedItem('product-activity', 'Activity', 'tools', {
+        href: urls.activity(ActivityTab.ExploreEvents),
+        icon: <IconClock />,
+        sceneKey: 'Activity',
+        record: { type: 'activity' },
+    }),
+    fixedItem('product-exports', 'Exports', 'tools', {
+        href: urls.exports(),
+        icon: <IconDownload />,
+        searchKeywords: ['downloads'],
+        sceneKey: 'Exports',
+        record: { type: 'exports' },
+    }),
+    fixedItem('product-subscriptions', 'Subscriptions', 'tools', {
+        href: urls.subscriptions(),
+        icon: <IconNotification />,
+        searchKeywords: ['subscribe'],
+        sceneKey: 'Subscriptions',
+        record: { type: 'subscriptions' },
+    }),
+]
 
 // Blank SQL query in a new browser tab (inheriting the active warehouse connection when
 // triggered from within the SQL editor). Scoped to the command palette: it relies on
@@ -197,6 +213,12 @@ const NEW_SQL_QUERY_ITEM = fixedItem('new-sql-query-tab', 'New SQL query', 'crea
 })
 
 const HEALTH_ITEMS = [
+    fixedItem('health-overview', 'Health', 'health', {
+        href: urls.health(),
+        itemType: 'health',
+        sceneKey: 'Health',
+        record: { type: 'health', iconType: 'health' },
+    }),
     fixedItem('health-pipeline-status', 'Pipeline status', 'health', {
         href: urls.pipelineStatus(),
         itemType: 'pipeline_status',
@@ -220,23 +242,11 @@ const terminalItem = (toggleTerminal: () => void): FixedSearchItem =>
     })
 
 const MISC_ITEMS = [
-    fixedItem('misc-exports', 'Exports', 'misc', {
-        href: urls.exports(),
-        icon: <IconDownload />,
-        sceneKey: 'Exports',
-        record: { type: 'exports' },
-    }),
     fixedItem('misc-alerts', 'Alerts', 'misc', {
         href: urls.alerts(),
         icon: <IconBell />,
         sceneKey: 'SavedInsights',
         record: { type: 'alerts' },
-    }),
-    fixedItem('misc-subscriptions', 'Subscriptions', 'misc', {
-        href: urls.subscriptions(),
-        icon: <IconNotification />,
-        sceneKey: 'Subscriptions',
-        record: { type: 'subscriptions' },
     }),
     // The user's own tickets with PostHog. The Support product holds tickets from their customers.
     fixedItem('misc-my-tickets', 'Your tickets', 'misc', {
@@ -285,7 +295,7 @@ export const productSearchItems = (
         category: 'tools',
         featureFlags,
         sceneViews,
-        extraItems: [withLastViewed(ACTIVITY_ITEM, sceneViews)],
+        extraItems: APP_PRODUCT_ITEMS.map((item) => withLastViewed(item, sceneViews)),
     })
 }
 
