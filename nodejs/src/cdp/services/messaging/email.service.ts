@@ -475,7 +475,7 @@ function sandboxRecipientsOf(params: CyclotronInvocationQueueParametersEmailType
     return [params.to.email.trim(), ...sandboxAddressList(params.cc), ...sandboxAddressList(params.bcc)]
 }
 
-type SandboxRecipientBlockReason = Exclude<SandboxEmailBlockReason, 'switch_off'>
+type SandboxRecipientBlockReason = Exclude<SandboxEmailBlockReason, 'switch_off' | 'paused' | 'organization_blocked'>
 
 type SesRoute = {
     tenantName: string
@@ -512,6 +512,15 @@ const SANDBOX_RECIPIENT_BLOCK_COPY: Record<
         guidance: 'Verify your own domain to send more.',
     },
 }
+
+const SANDBOX_ORGANIZATION_BLOCKED_MESSAGE =
+    'Skipping send: the sandbox sender is turned off for this organization. Contact support to find out why.'
+
+const SANDBOX_PAUSE_SKIP_MESSAGES = {
+    paused: 'Skipping send: the sandbox sender is paused right now. Verify your own domain to keep sending.',
+    check_failed:
+        'Skipping send: could not check whether the sandbox sender is paused. Try again later, or verify your own domain to keep sending.',
+} as const
 
 const SANDBOX_CAP_SKIP_MESSAGES = {
     project_cap_reached:
@@ -691,6 +700,9 @@ export class EmailService {
                     'sending_suspended'
                 )
                 await this.sandboxSender?.captureBlocked(invocation.teamId, isTest, 'switch_off', 0)
+                return result
+            }
+            if (isSandbox && !(await this.passesSandboxPauseGate(result, isTest))) {
                 return result
             }
 
@@ -920,9 +932,9 @@ export class EmailService {
                     if (!capGrant) {
                         return result
                     }
-                    const deliverTo = await this.checkSandboxRecipients(result, deliveryRecipients, isTest, {
-                        fresh: true,
-                    })
+                    const deliverTo = (await this.passesSandboxPauseGate(result, isTest))
+                        ? await this.checkSandboxRecipients(result, deliveryRecipients, isTest, { fresh: true })
+                        : null
                     if (!deliverTo) {
                         await this.sandboxSender!.returnDailyCaps(capGrant)
                         return result
@@ -1200,8 +1212,9 @@ export class EmailService {
     }
 
     // Runs once before the send is prepared and again right before delivery, because a member can
-    // leave the organization while the send waits on suppression checks and rate limits. The check
-    // right before delivery passes `fresh`, so it reads membership again instead of the cached snapshot.
+    // leave the organization, or staff can block it, while the send waits on suppression checks and
+    // rate limits. The check right before delivery passes `fresh`, so it reads membership and the block
+    // again instead of the cached snapshot.
     // Returns the stored address of each recipient, in order, or null when the send is skipped.
     private async checkSandboxRecipients(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
@@ -1213,13 +1226,15 @@ export class EmailService {
         let blockedRecipients: string[]
         let reason: SandboxRecipientBlockReason
         let deliverTo: string[] = []
+        let organizationBlocked = false
         try {
             if (!this.organizationMembers) {
                 throw new Error('Organization member checks are not configured')
             }
             const check = await this.organizationMembers.checkRecipients(teamId, recipients, { fresh })
-            const blocked = check.blocked
-            deliverTo = check.deliverTo
+            organizationBlocked = check.organizationBlocked
+            const blocked = check.organizationBlocked ? [] : check.blocked
+            deliverTo = check.organizationBlocked ? [] : check.deliverTo
             blockedRecipients = blocked.map(({ address }) => address)
             reason = blocked.every(({ unverifiedMember }) => unverifiedMember)
                 ? 'recipient_unverified'
@@ -1232,11 +1247,29 @@ export class EmailService {
                 error: error instanceof Error ? error.message : 'Unknown error',
             })
         }
+        if (organizationBlocked) {
+            this.skipSandboxSend(result, isTest, SANDBOX_ORGANIZATION_BLOCKED_MESSAGE, 'sending_suspended')
+            await this.sandboxSender?.captureBlocked(teamId, isTest, 'organization_blocked', 0)
+            return null
+        }
         if (!blockedRecipients.length) {
             return deliverTo
         }
         await this.blockSandboxRecipients(result, blockedRecipients, reason, isTest)
         return null
+    }
+
+    private async passesSandboxPauseGate(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        isTest: boolean
+    ): Promise<boolean> {
+        const gate = await this.sandboxSender!.pauseGate()
+        if (gate === 'open') {
+            return true
+        }
+        this.skipSandboxSend(result, isTest, SANDBOX_PAUSE_SKIP_MESSAGES[gate], 'sending_suspended')
+        await this.sandboxSender!.captureBlocked(result.invocation.teamId, isTest, gate, 0)
+        return false
     }
 
     private async blockSandboxRecipients(

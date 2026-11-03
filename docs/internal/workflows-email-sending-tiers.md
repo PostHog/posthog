@@ -29,14 +29,14 @@ Only workflows that send email are subject to the tiers; SMS, push, and webhook 
 The `workflows-sandbox-sender` flag enables a PostHog-managed email integration per project through `POST /api/projects/:project_id/integrations/email_sandbox_sender/`.
 The endpoint requires `integration:write` and project membership. Repeated requests keep the same integration and refresh its display name from the organization name.
 Staff turn the sandbox sender off for one organization by adding a `SandboxSenderOrganizationBlock` row in the Django admin, and lift the block by deleting the row.
-While the block exists, the endpoint returns 404 for the organization's projects. Existing sandbox senders stay.
+While the block exists, the endpoint returns 404 for the organization's projects. Existing sandbox senders stay, but their sends skip.
 Set `WORKFLOWS_SANDBOX_SENDER_DOMAIN`, `SES_SANDBOX_FROM_ADDRESS`, and `SES_SANDBOX_TENANT_NAME` in Django; any empty value leaves the endpoint unavailable and lets every team register any domain as before.
 The worker sends from the same `SES_SANDBOX_FROM_ADDRESS`, so set it once for Django and the worker. The address the UI shows is then the address the worker sends from.
 With the flag on, opening the Channels page creates the sender and shows it in its own row.
 Workflow email steps offer it as a sender. It replaces any other selected sender and has no Reply-To or custom sender. Broadcasts and other email surfaces do not offer it.
 Users cannot edit, verify, or remove the managed integration, make it the project default, use it for transactional email, or register their own integration on the shared domain.
 The managed integration is excluded from project SES tenant migration, identity cleanup, data suggestions, and the reputation page's domain breakdown.
-Configure the shared SES route, then enable `WORKFLOWS_SANDBOX_SENDER_ENABLED` on the worker and CDP API. Enable `workflows-sandbox-sender` last, and only for test projects until the tenant pause and organization block ship.
+Configure the shared SES route, then enable `WORKFLOWS_SANDBOX_SENDER_ENABLED` on the worker and CDP API. Enable `workflows-sandbox-sender` last, and only for test projects until the worker reads the tenant pause and organization block in every region.
 
 ### Sending tiers
 
@@ -112,10 +112,15 @@ A reached allowance skips the send instead of delaying it. A limiter error, or a
 The worker checks members after the claim and gives the claim back when that check skips the send.
 An SES throttle response also gives the claim back before the delivery retry. Returns are deduplicated, and Valkey ignores a return that arrives more than five minutes after it was issued.
 Test sends run inline in the CDP API, so a sandbox-enabled CDP API opens the SES Valkey pool (`SES_RATE_LIMITER_VALKEY_*`) for the allowances. Without it, every sandbox test send skips.
+Every sandbox send, test sends included, skips while the shared sandbox SES tenant is paused (`DISABLED`), or when the pause state cannot be read. A tenant Django has never synced counts as open, and SES enforces its own state.
+The worker checks the pause again after the daily allowance claim and gives the claim back when the pause blocks delivery.
 Django mirrors the tenant named by `SES_SANDBOX_TENANT_NAME` into `SandboxSenderTenantState` from the SES tenant-state webhook and the daily reconciliation, without emailing project admins. Set the same `SES_SANDBOX_TENANT_NAME` on Django web, Celery, and the worker.
-A committed state change reaches the workers through the `reload-sandbox-sender-state` message.
+A committed state change reaches the workers through the `reload-sandbox-sender-state` message. Own-sender sends do not read this state.
+A blocked organization's sandbox sends skip with the reason `organization_blocked`.
+The worker reads the block with the organization members, so a block and its removal reach the workers within one minute. Own-sender sends do not read it.
 Each delivered send emits a `workflows sandbox email sent` event.
 Live workflow sends record `email_sent`, so workflow reports count them, and also `email_sandbox_sent`, so the sending tier and the sending allowance can leave them out; test sends record neither.
 The sending tier leaves `email_sandbox_sent` out of its volume and its rate denominators, and the sending allowance leaves it out too, floored at zero per day and per workflow.
 While `WORKFLOWS_SANDBOX_SENDER_DOMAIN`, `SES_SANDBOX_FROM_ADDRESS`, or `SES_SANDBOX_TENANT_NAME` is empty, both read only `email_sent`, as before.
 Bounces and complaints of sandbox sends still count, so the exclusion can only raise a rate.
+The CDP API's SES webhook captures `workflows sandbox email delivered` for a delivery on `SES_SANDBOX_CONFIGURATION_SET`, test sends included. Without that setting on the CDP API, the event never fires.

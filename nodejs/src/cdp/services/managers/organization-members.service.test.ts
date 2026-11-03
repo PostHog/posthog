@@ -2,10 +2,17 @@ import { PostgresRouter } from '~/common/utils/db/postgres'
 
 import { OrganizationMembersService } from './organization-members.service'
 
-const routerFor = (select: jest.Mock): PostgresRouter =>
+const blockQueryTag = 'fetch-sandbox-team-organization-blocks'
+
+const routerFor = (select: jest.Mock, blockedTeamIds: () => number[] = () => []): PostgresRouter =>
     ({
         transaction: (_usage: unknown, _tag: string, run: (tx: unknown) => Promise<unknown>) => run({}),
-        query: (_tx: unknown, sql: string) => (sql.startsWith('SET LOCAL') ? Promise.resolve({ rows: [] }) : select()),
+        query: (_tx: unknown, sql: string, _params: unknown, tag: string) =>
+            sql.startsWith('SET LOCAL')
+                ? Promise.resolve({ rows: [] })
+                : tag === blockQueryTag
+                  ? Promise.resolve({ rows: blockedTeamIds().map((team_id) => ({ team_id })) })
+                  : select(),
     }) as unknown as PostgresRouter
 
 describe('OrganizationMembersService', () => {
@@ -14,6 +21,12 @@ describe('OrganizationMembersService', () => {
         email,
         is_email_verified: true,
     })
+    const allowed = { organizationBlocked: false, blocked: [], deliverTo: ['member@example.com'] }
+    const memberBlocked = {
+        organizationBlocked: false,
+        blocked: [{ address: 'member@example.com', unverifiedMember: false }],
+        deliverTo: [],
+    }
 
     it('fails closed when every member lookup outlasts its one-minute decision', async () => {
         let now = 0
@@ -65,8 +78,10 @@ describe('OrganizationMembersService', () => {
         try {
             let recovered = false
             const waitingForConnection: (() => void)[] = []
-            const query = jest.fn((_tx: unknown, sql: string) =>
-                Promise.resolve({ rows: sql.startsWith('SET LOCAL') ? [] : [memberRow('member@example.com')] })
+            const query = jest.fn((_tx: unknown, sql: string, _params: unknown, tag: string) =>
+                Promise.resolve({
+                    rows: sql.startsWith('SET LOCAL') || tag === blockQueryTag ? [] : [memberRow('member@example.com')],
+                })
             )
             const pool = {
                 transaction: (_usage: unknown, _tag: string, run: (tx: unknown) => Promise<unknown>) =>
@@ -94,10 +109,8 @@ describe('OrganizationMembersService', () => {
             await jest.advanceTimersByTimeAsync(0)
             expect(query).not.toHaveBeenCalled()
 
-            await expect(service.checkRecipients(1, ['member@example.com'], { fresh: true })).resolves.toMatchObject({
-                blocked: [],
-            })
-            expect(query).toHaveBeenCalledTimes(2)
+            await expect(service.checkRecipients(1, ['member@example.com'], { fresh: true })).resolves.toEqual(allowed)
+            expect(query).toHaveBeenCalledTimes(3)
         } finally {
             jest.useRealTimers()
         }
@@ -109,29 +122,37 @@ describe('OrganizationMembersService', () => {
         const query = jest.fn(() => Promise.resolve({ rows: [memberRow(member)] }))
         const service = new OrganizationMembersService(routerFor(query), () => now)
 
-        expect((await service.checkRecipients(1, ['member@example.com'])).blocked).toEqual([])
-        expect((await service.checkRecipients(1, ['member@example.com'])).blocked).toEqual([])
+        expect(await service.checkRecipients(1, ['member@example.com'])).toEqual(allowed)
+        expect(await service.checkRecipients(1, ['member@example.com'])).toEqual(allowed)
         expect(query).toHaveBeenCalledTimes(1)
 
         now = 60_001
         member = 'new-member@example.com'
-        expect((await service.checkRecipients(1, ['member@example.com'])).blocked).toEqual([
-            { address: 'member@example.com', unverifiedMember: false },
-        ])
+        expect(await service.checkRecipients(1, ['member@example.com'])).toEqual(memberBlocked)
         expect(query).toHaveBeenCalledTimes(2)
     })
 
-    it('reloads members for a fresh check inside the minute', async () => {
+    it.each([
+        ['the member is removed', memberBlocked],
+        ['the organization is blocked', { organizationBlocked: true }],
+    ])('reloads a fresh check inside the minute when %s', async (change, expected) => {
         let member = 'member@example.com'
+        let blockedTeamIds: number[] = []
         const query = jest.fn(() => Promise.resolve({ rows: [memberRow(member)] }))
-        const service = new OrganizationMembersService(routerFor(query), () => 0)
+        const service = new OrganizationMembersService(
+            routerFor(query, () => blockedTeamIds),
+            () => 0
+        )
 
-        expect((await service.checkRecipients(1, ['member@example.com'])).blocked).toEqual([])
-        member = 'new-member@example.com'
+        expect(await service.checkRecipients(1, ['member@example.com'])).toEqual(allowed)
+        if (change === 'the member is removed') {
+            member = 'new-member@example.com'
+        } else {
+            blockedTeamIds = [1]
+        }
 
-        expect((await service.checkRecipients(1, ['member@example.com'], { fresh: true })).blocked).toEqual([
-            { address: 'member@example.com', unverifiedMember: false },
-        ])
+        expect(await service.checkRecipients(1, ['member@example.com'])).toEqual(allowed)
+        expect(await service.checkRecipients(1, ['member@example.com'], { fresh: true })).toEqual(expected)
         expect(query).toHaveBeenCalledTimes(2)
     })
 
@@ -151,8 +172,8 @@ describe('OrganizationMembersService', () => {
         const freshCheck = service.checkRecipients(1, ['member@example.com'], { fresh: true })
         finishEarlierLookup({ rows: [memberRow('member@example.com')] })
 
-        expect((await earlierCheck).blocked).toEqual([])
-        expect((await freshCheck).blocked).toEqual([{ address: 'member@example.com', unverifiedMember: false }])
+        expect(await earlierCheck).toEqual(allowed)
+        expect(await freshCheck).toEqual(memberBlocked)
         expect(query).toHaveBeenCalledTimes(2)
     })
 })

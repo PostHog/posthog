@@ -7,17 +7,20 @@ type OrganizationMemberSnapshot = {
     // Normalized address to the address as the user stored it.
     verifiedEmails: ReadonlyMap<string, string>
     unverifiedEmails: ReadonlySet<string>
+    sandboxSenderBlocked: boolean
     expiresAt: number
 }
 
 export type BlockedRecipient = { readonly address: string; readonly unverifiedMember: boolean }
 
 // `deliverTo` holds the stored address of each allowed recipient, in the order the recipients came in.
-export type RecipientCheck = { readonly blocked: BlockedRecipient[]; readonly deliverTo: string[] }
+export type RecipientCheck =
+    | { readonly organizationBlocked: true }
+    | { readonly organizationBlocked: false; readonly blocked: BlockedRecipient[]; readonly deliverTo: string[] }
 
 const MAX_SNAPSHOT_AGE_MS = 60_000
 const REFRESH_AGE_MS = MAX_SNAPSHOT_AGE_MS - 1_000
-// The lookup is one indexed join. A stalled one fails the check here instead of holding up every other
+// The lookup is two indexed queries. A stalled one fails the check here instead of holding up every other
 // send in the worker's batch, which waits for this invocation to finish. The deadline counts the wait for
 // a pooled connection too; the statement timeout also stops the query on the server.
 const LOOKUP_TIMEOUT_MS = 3_000
@@ -26,6 +29,7 @@ const LOOKUP_TIMEOUT_MS = 3_000
 const MAX_OPEN_LOOKUPS = 5
 
 type MemberRow = { team_id: number; email: string; is_email_verified: boolean }
+type TeamLookup = { members: MemberRow[]; blockedTeamIds: ReadonlySet<string> }
 
 const normalizeEmail = (email: string): string => email.trim().toLowerCase()
 
@@ -46,9 +50,9 @@ export class OrganizationMembersService {
         })
     }
 
-    // `fresh` runs its own lookup, for the check right before delivery: a member removed while the
-    // send was prepared must not receive it, so neither the cached snapshot nor a lookup another
-    // send started earlier may answer it.
+    // `fresh` runs its own lookup, for the check right before delivery: a member removed or an
+    // organization blocked while the send was prepared must not receive it, so neither the cached
+    // snapshot nor a lookup another send started earlier may answer it.
     // The match ignores case, so delivery goes to the stored address rather than the supplied one.
     public async checkRecipients(
         teamId: number,
@@ -58,6 +62,9 @@ export class OrganizationMembersService {
         const snapshot = fresh
             ? await this.loadOwnSnapshot(String(teamId))
             : await this.getFreshSnapshot(String(teamId))
+        if (snapshot.sandboxSenderBlocked) {
+            return { organizationBlocked: true }
+        }
         const blocked: BlockedRecipient[] = []
         const deliverTo: string[] = []
         for (const address of recipients) {
@@ -68,7 +75,7 @@ export class OrganizationMembersService {
                 deliverTo.push(stored)
             }
         }
-        return { blocked, deliverTo }
+        return { organizationBlocked: false, blocked, deliverTo }
     }
 
     private async loadOwnSnapshot(teamId: string): Promise<OrganizationMemberSnapshot> {
@@ -81,7 +88,7 @@ export class OrganizationMembersService {
 
     private async loadSnapshots(teamIds: string[]): Promise<Record<string, OrganizationMemberSnapshot>> {
         const expiresAt = this.now() + MAX_SNAPSHOT_AGE_MS
-        const rows = await this.lookupMembers(teamIds.map(Number))
+        const { members: rows, blockedTeamIds } = await this.lookupTeams(teamIds.map(Number))
         const members = new Map(
             teamIds.map((id) => [id, { verified: new Map<string, string>(), unverified: new Set<string>() }])
         )
@@ -96,12 +103,17 @@ export class OrganizationMembersService {
         return Object.fromEntries(
             [...members].map(([id, { verified, unverified }]) => [
                 id,
-                { verifiedEmails: verified, unverifiedEmails: unverified, expiresAt },
+                {
+                    verifiedEmails: verified,
+                    unverifiedEmails: unverified,
+                    sandboxSenderBlocked: blockedTeamIds.has(id),
+                    expiresAt,
+                },
             ])
         )
     }
 
-    private async lookupMembers(teamIds: number[]): Promise<MemberRow[]> {
+    private async lookupTeams(teamIds: number[]): Promise<TeamLookup> {
         const tag = 'fetch-sandbox-team-organization-members'
         let timedOut = false
         let timer: NodeJS.Timeout | undefined
@@ -111,16 +123,16 @@ export class OrganizationMembersService {
                 resolve()
             }, LOOKUP_TIMEOUT_MS)
         })
-        let rows: MemberRow[] | undefined
+        let found: TeamLookup | undefined
         const lookup = this.lookupSlots.run(deadline, async () => {
-            rows = await this.postgres.transaction(PostgresUse.COMMON_WRITE, tag, async (tx) => {
+            found = await this.postgres.transaction(PostgresUse.COMMON_WRITE, tag, async (tx) => {
                 // Nobody waits for a lookup that got its connection after its deadline, so it runs no query.
                 if (timedOut) {
                     throw new Error('The organization member lookup was abandoned at its deadline')
                 }
                 await this.postgres.query(tx, `SET LOCAL statement_timeout = ${LOOKUP_TIMEOUT_MS}`, undefined, tag)
                 // Only an explicit false deactivates an organization, matching the web middleware.
-                const result = await this.postgres.query<MemberRow>(
+                const members = await this.postgres.query<MemberRow>(
                     tx,
                     `SELECT team.id AS team_id, users.email, users.is_email_verified
                      FROM posthog_team AS team
@@ -133,7 +145,19 @@ export class OrganizationMembersService {
                     [teamIds],
                     tag
                 )
-                return result.rows
+                const blocks = await this.postgres.query<{ team_id: number }>(
+                    tx,
+                    `SELECT team.id AS team_id
+                     FROM posthog_team AS team
+                     JOIN workflows_sandboxsenderorganizationblock AS block ON block.organization_id = team.organization_id
+                     WHERE team.id = ANY($1::bigint[])`,
+                    [teamIds],
+                    'fetch-sandbox-team-organization-blocks'
+                )
+                return {
+                    members: members.rows,
+                    blockedTeamIds: new Set(blocks.rows.map((row) => String(row.team_id))),
+                }
             })
         })
         // A lookup that loses the race can still fail later, after nobody waits for it.
@@ -143,10 +167,10 @@ export class OrganizationMembersService {
         } finally {
             clearTimeout(timer)
         }
-        if (!rows) {
+        if (!found) {
             throw new Error('The organization member lookup timed out')
         }
-        return rows
+        return found
     }
 
     // A snapshot older than a minute never decides a send: it is reloaded once, and a reload that
