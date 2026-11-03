@@ -2,9 +2,11 @@
 //! go to the flush's image pack. An image the image scrub cannot read, or one over a cap, becomes an [`ImageDecline`]
 //! marker.
 //!
-//! The scan is one pass over the colons, for `data:image/` in any case. A data URI looks the same in an attribute, a CSS `url()`, a
-//! `srcset` candidate or stylesheet text, so the scan needs no knowledge of where it sits. Every other byte is
-//! copied as it is. An SVG data URI stays inline, because SVG is text that the text scrub reads in place.
+//! The scan looks for `data:image/` in any case, at each colon and near each CSS escape, because a stylesheet can write
+//! any character of a data URI's header as an escape and a browser still reads it. A data URI looks the same in an
+//! attribute, a CSS `url()`, a `srcset` candidate or stylesheet text, so the scan needs no knowledge of where it sits.
+//! Every other byte is copied as it is. An SVG data URI stays inline, because SVG is text that the text scrub reads in
+//! place.
 
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -27,9 +29,9 @@ const FORGIVING_BASE64: GeneralPurpose = GeneralPurpose::new(
         .with_decode_allow_trailing_bits(true),
 );
 
-/// The longest media type and parameters a taken data URI has before its comma. A raster type with parameters, such
-/// as `image/png;charset=utf-8;base64`, fits. The bound keeps the scan linear.
-const MAX_META: usize = 64;
+/// The most bytes that one character of a data URI's header takes: a CSS escape of six hex digits and the CRLF after
+/// it, with the backslash and the line break escaped again by JSON.
+const MAX_HEADER_CHAR_BYTES: usize = 12;
 
 #[derive(Debug, Clone, Copy)]
 pub struct ImageLimits {
@@ -338,65 +340,100 @@ fn percent_decoded(raw: &[u8]) -> Option<Vec<u8>> {
     Some(percent_encoding::percent_decode(text.as_bytes()).collect())
 }
 
-enum Meta {
-    Read(String, usize),
-    NoPayload,
-    TooLong(String),
+/// The character of a data URI's header at `at` and the bytes that spell it, or `None` at the end of a JSON string or
+/// at an escape the scan does not read. A JSON writer may escape a `/` as `\/` or `\u002F`, and CSS reads an escape
+/// such as `\61` or `\:` as its character, so a browser reads the header through both.
+fn header_char(bytes: &[u8], at: usize) -> Option<(char, usize)> {
+    match bytes.get(at..)? {
+        [b'\\', b'/', ..] => Some(('/', 2)),
+        [b'\\', b'u', b'0', b'0', b'2', b'f' | b'F', ..] => Some(('/', 6)),
+        [b'\\', b'\\', escaped @ ..] => css_escape(escaped).map(|(ch, len)| (ch, 2 + len)),
+        [b'"' | b'\\', ..] | [] => None,
+        [byte, ..] => Some((char::from(*byte), 1)),
+    }
 }
 
-/// A JSON writer may escape a `/` as `\/` or `\u002F`, so both read as `/`.
-fn read_meta(bytes: &[u8], start: usize) -> Meta {
-    let mut meta = String::new();
+/// The character that a CSS escape names, and the bytes after its backslash that spell it. A hex escape takes the one
+/// whitespace after it, as CSS reads it.
+fn css_escape(escaped: &[u8]) -> Option<(char, usize)> {
+    let digits = escaped
+        .iter()
+        .take(6)
+        .take_while(|b| b.is_ascii_hexdigit())
+        .count();
+    if digits == 0 {
+        return match escaped {
+            [b'\\', b'\\', ..] => Some(('\\', 2)),
+            [b'"' | b'\\', ..] | [] => None,
+            [byte, ..] => Some((char::from(*byte), 1)),
+        };
+    }
+    let code = escaped[..digits].iter().fold(0u32, |code, &digit| {
+        code * 16 + char::from(digit).to_digit(16).unwrap_or_default()
+    });
+    let whitespace = match &escaped[digits..] {
+        [b'\\', b'r', b'\\', b'n', ..] => 4,
+        [b'\\', b'n' | b'r' | b't' | b'f', ..] => 2,
+        [b' ', ..] => 1,
+        _ => 0,
+    };
+    let ch = char::from_u32(code).unwrap_or(char::REPLACEMENT_CHARACTER);
+    Some((ch, digits + whitespace))
+}
+
+fn after_data_scheme(bytes: &[u8], start: usize) -> Option<usize> {
     let mut at = start;
-    let mut whitespace = false;
-    while at - start <= MAX_META {
-        match bytes.get(at..) {
-            Some([b',', ..]) => return Meta::Read(meta, at),
-            Some([b'\\', b'/', ..]) => {
-                meta.push('/');
-                at += 2;
-            }
-            Some([b'\\', b'u', b'0', b'0', b'2', b'f' | b'F', ..]) => {
-                meta.push('/');
-                at += 6;
-            }
-            Some([b'"' | b'\\', ..] | []) | None => return Meta::NoPayload,
-            Some([byte, ..]) => {
-                whitespace |= byte.is_ascii_whitespace();
-                meta.push(char::from(byte.to_ascii_lowercase()));
-                at += 1;
-            }
+    for expected in "data:".chars() {
+        let (ch, len) = header_char(bytes, at)?;
+        if ch.to_ascii_lowercase() != expected {
+            return None;
         }
+        at += len;
     }
-    if whitespace {
-        Meta::NoPayload
-    } else {
-        Meta::TooLong(meta)
+    Some(at)
+}
+
+enum Header {
+    Image { meta: String, payload_start: usize },
+    Other { read_to: usize },
+}
+
+/// A browser reads parameters of any length, so the header has no length limit.
+fn read_header(bytes: &[u8], meta_start: usize) -> Header {
+    const IMAGE: &[u8] = b"image/";
+    let mut meta = String::new();
+    let mut at = meta_start;
+    while let Some((ch, len)) = header_char(bytes, at) {
+        let ch = ch.to_ascii_lowercase();
+        if meta.len() < IMAGE.len() && Some(ch) != IMAGE.get(meta.len()).copied().map(char::from) {
+            return Header::Other { read_to: at };
+        }
+        if ch == ',' {
+            return Header::Image {
+                meta,
+                payload_start: at + len,
+            };
+        }
+        meta.push(ch);
+        at += len;
     }
+    Header::Other { read_to: at }
 }
 
 /// Reads the data URI whose `data:` starts at `start`, with the rules of v3 `collectable_data_uri_bytes`: the media
 /// type and `base64` in any case, and any parameters before the comma.
-fn read_data_uri(bytes: &[u8], start: usize, sink: &mut ImageSink<'_>) -> DataUri {
-    let meta_start = start + b"data:".len();
-    let (meta, comma) = match read_meta(bytes, meta_start) {
-        Meta::Read(meta, comma) if meta.starts_with("image/") => (meta, comma),
-        // A browser reads parameters of any length, so the URI can hold an image whose payload the scan cannot find.
-        Meta::TooLong(meta) if meta.starts_with("image/") => {
-            let end = uri_end(bytes, start, meta_start);
-            return DataUri::Replaced {
-                replacement: sink.decline(ImageDecline::Undecodable),
-                end,
-            };
-        }
-        _ => return DataUri::NotImage,
-    };
+fn read_data_uri(
+    bytes: &[u8],
+    start: usize,
+    meta: &str,
+    payload_start: usize,
+    sink: &mut ImageSink<'_>,
+) -> DataUri {
     let media_type = meta.split(';').next().unwrap_or_default();
     let subtype = &media_type["image/".len()..];
     if subtype.starts_with("svg") {
         return DataUri::Svg;
     }
-    let payload_start = comma + 1;
     if !meta.contains("base64") {
         let end = uri_end(bytes, start, payload_start);
         let replacement = match &bytes[payload_start..end] {
@@ -434,25 +471,91 @@ fn read_data_uri(bytes: &[u8], start: usize, sink: &mut ImageSink<'_>) -> DataUr
     DataUri::Replaced { replacement, end }
 }
 
+fn starts_inside_a_word(bytes: &[u8], start: usize) -> bool {
+    start
+        .checked_sub(1)
+        .is_some_and(|before| bytes[before].is_ascii_alphanumeric())
+}
+
+/// Where each `data:` that a CSS escape spells in part starts, and where its media type starts, in order.
+fn escaped_schemes(bytes: &[u8]) -> Vec<(usize, usize)> {
+    let mut found = Vec::new();
+    let mut at = 0;
+    while let Some(escape) = bytes
+        .get(at..)
+        .and_then(|rest| memchr::memchr(b'\\', rest))
+        .map(|offset| at + offset)
+    {
+        let escaped = bytes.get(escape + 1);
+        at = escape + if escaped == Some(&b'u') { 6 } else { 2 };
+        if escaped != Some(&b'\\') {
+            continue;
+        }
+        // The escape is one of the five characters of `data:`, so the scheme starts with it or at a `d` at most four
+        // characters before it. A scheme that starts with an earlier escape was found when the loop met that escape.
+        let first_candidates = (escape.saturating_sub(4 * MAX_HEADER_CHAR_BYTES)..escape)
+            .filter(|&start| matches!(bytes[start], b'd' | b'D'))
+            .chain([escape]);
+        for start in first_candidates {
+            if starts_inside_a_word(bytes, start) {
+                continue;
+            }
+            if let Some(meta_start) =
+                after_data_scheme(bytes, start).filter(|&meta_start| meta_start > escape)
+            {
+                found.push((start, meta_start));
+            }
+        }
+    }
+    found.sort_unstable();
+    found.dedup();
+    found
+}
+
+fn data_schemes(bytes: &[u8]) -> impl Iterator<Item = (usize, usize)> + '_ {
+    let mut plain = memchr::memchr_iter(b':', bytes)
+        .filter_map(|colon| {
+            let start = colon.checked_sub(b"data".len())?;
+            (bytes[start..colon].eq_ignore_ascii_case(b"data")
+                && !starts_inside_a_word(bytes, start))
+            .then_some((start, colon + 1))
+        })
+        .peekable();
+    let mut escaped = escaped_schemes(bytes).into_iter().peekable();
+    std::iter::from_fn(move || match (plain.peek(), escaped.peek()) {
+        (Some(plain_scheme), Some(escaped_scheme)) if escaped_scheme < plain_scheme => {
+            escaped.next()
+        }
+        (Some(_), _) => plain.next(),
+        (None, _) => escaped.next(),
+    })
+}
+
 /// Replaces every inline image in `bytes` but SVG with its reference or a marker. Returns the input unchanged when it holds none.
-/// The scan matches `data:image/` byte for byte, so a JSON escape of one of its letters hides the image. Give it bytes
-/// that [`canonical_strings`](crate::bytescan::canonical_strings) wrote.
+/// The scan reads the CSS escapes in a data URI's header but no JSON escape except that of a `/`, so a JSON escape of a
+/// letter hides the image. Give it bytes that [`canonical_strings`](crate::bytescan::canonical_strings) wrote.
 pub fn extract_images<'b>(bytes: &'b [u8], sink: &mut ImageSink<'_>) -> Cow<'b, [u8]> {
     let mut out: Option<Vec<u8>> = None;
     let mut copied_to = 0;
-    for colon in memchr::memchr_iter(b':', bytes) {
-        let Some(start) = colon.checked_sub(b"data".len()) else {
-            continue;
-        };
-        if start < copied_to
-            || !bytes[start..colon].eq_ignore_ascii_case(b"data")
-            || start
-                .checked_sub(1)
-                .is_some_and(|before| bytes[before].is_ascii_alphanumeric())
-        {
+    // A header can run to the end of its JSON string. The scan reads each header once, and takes a `data:` inside it as
+    // part of that URI, so that the scan stays linear.
+    let mut headers_read_to = 0;
+    for (start, meta_start) in data_schemes(bytes) {
+        if start < copied_to.max(headers_read_to) {
             continue;
         }
-        match read_data_uri(bytes, start, sink) {
+        let (meta, payload_start) = match read_header(bytes, meta_start) {
+            Header::Image {
+                meta,
+                payload_start,
+            } => (meta, payload_start),
+            Header::Other { read_to } => {
+                headers_read_to = read_to;
+                continue;
+            }
+        };
+        headers_read_to = payload_start;
+        match read_data_uri(bytes, start, &meta, payload_start, sink) {
             DataUri::NotImage => {}
             DataUri::Svg => sink.left_inline += 1,
             DataUri::Replaced { replacement, end } => {
@@ -533,7 +636,7 @@ mod tests {
     }
 
     #[test]
-    fn takes_wrapped_escaped_unpadded_and_percent_encoded_payloads() {
+    fn takes_escaped_wrapped_unpadded_percent_encoded_and_long_data_uris() {
         let image = png(&[0xfb; 62]);
         let base64 = STANDARD.encode(&image);
         assert!(base64.contains('/') && base64.ends_with('='));
@@ -589,6 +692,37 @@ mod tests {
                 r#"{"srcset":""#,
                 format!("data:image/png,{percent}"),
                 r#" 2x, https://example.com/a.png 1x"}"#,
+            ),
+            // CSS escapes in the header, with each backslash doubled by JSON.
+            (
+                r#"{"style":"background:url("#,
+                format!(r"d\\61ta:image/png;base64,{base64}"),
+                r#")"}"#,
+            ),
+            (
+                r#"{"textContent":".a{background:url(\""#,
+                format!(r"data\\3a image\\2F png;base64,{base64}"),
+                r#"\")}"}"#,
+            ),
+            (
+                r#"{"style":"background:url("#,
+                format!(r"\\000044 ata\\:image/png;base64,{base64}"),
+                r#")"}"#,
+            ),
+            (
+                r#"{"style":"background:url("#,
+                format!(r"data:image/png\\3b base64\\2c {base64}"),
+                r#")"}"#,
+            ),
+            (
+                r#"{"src":""#,
+                format!("data:image/png;name=a photo of the harbour at dusk before the rain came in.png;base64,{base64}"),
+                r#""}"#,
+            ),
+            (
+                r#"{"src":""#,
+                format!("data:image/png;name={};base64,{base64}", "a".repeat(80)),
+                r#""}"#,
             ),
         ];
         for (before, uri, after) in cases {
@@ -648,15 +782,6 @@ mod tests {
             // A CSS escape for `/`, with the backslash doubled by JSON.
             (
                 format!(r"{wrapped}\\2f {}", STANDARD.encode([8; 30])),
-                limits,
-                ImageDecline::Undecodable,
-            ),
-            (
-                format!(
-                    "data:image/png;name={};base64,{}",
-                    "a".repeat(80),
-                    STANDARD.encode(png(b"x"))
-                ),
                 limits,
                 ImageDecline::Undecodable,
             ),
@@ -832,10 +957,10 @@ mod tests {
         ));
         let unbroken = format!("{};", "data:image/".repeat(200_000));
         let mut images = sink(ImageLimits::default());
-        assert_eq!(
-            extract_images(unbroken.as_bytes(), &mut images).as_ref(),
-            ImageDecline::Undecodable.marker().as_bytes()
-        );
+        assert!(matches!(
+            extract_images(unbroken.as_bytes(), &mut images),
+            Cow::Borrowed(_)
+        ));
         assert!(started.elapsed() < std::time::Duration::from_secs(5));
     }
 }
