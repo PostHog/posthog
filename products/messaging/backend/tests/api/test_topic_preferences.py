@@ -59,16 +59,17 @@ class TestTopicPreferences(APIBaseTest):
             team=self.team, identifier="jane@example.com", preferences=preferences
         )
 
-    def test_opts_a_recipient_out_of_one_topic(self, _flag: MagicMock) -> None:
-        response = self._set({"identifier": "jane@example.com", "topics": {"newsletter": False}})
+    @parameterized.expand([("plain", "jane@example.com"), ("surrounding_whitespace", " jane@example.com ")])
+    def test_opts_a_recipient_out_of_one_topic(self, _flag: MagicMock, _name: str, identifier: str) -> None:
+        response = self._set({"identifier": identifier, "topics": {"newsletter": False}})
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json() == {
-            "identifier": "jane@example.com",
+            "identifier": identifier,
             "all_marketing": None,
             "topics": {"newsletter": False},
         }
-        assert self._stored() == {str(self.newsletter.id): OPTED_OUT}
+        assert self._stored(identifier) == {str(self.newsletter.id): OPTED_OUT}
 
     def test_applies_all_marketing_before_the_topics(self, _flag: MagicMock) -> None:
         response = self._set({"identifier": "jane@example.com", "all_marketing": False, "topics": {"newsletter": True}})

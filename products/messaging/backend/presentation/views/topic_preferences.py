@@ -21,8 +21,10 @@ logger = structlog.get_logger(__name__)
 
 
 class SetPreferencesSerializer(serializers.Serializer):
+    # Workflows looks the recipient up by the untrimmed address, so a trimmed one would save consent elsewhere.
     identifier = serializers.CharField(
         max_length=512,
+        trim_whitespace=False,
         help_text="The recipient's email address, exactly as Workflows sends to it. Matching is exact, so "
         "`Jane@example.com` and `jane@example.com` are two recipients.",
     )
