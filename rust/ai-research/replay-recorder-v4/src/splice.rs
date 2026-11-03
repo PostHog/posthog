@@ -140,8 +140,13 @@ impl DeclinedCopies {
         let mut copied_to = 0;
         let mut pending: VecDeque<Overwrite> = VecDeque::new();
         // Matches come in order of their end, so a later match cannot reach a span that ends `longest` bytes before.
+        let mut escaped: Option<Vec<bool>> = None;
         for found in self.matcher.find_overlapping_iter(bytes) {
             self.matches_left = self.matches_left.checked_sub(1)?;
+            // Such a match begins with the second byte of a `\\` pair, so the string holds no copy there.
+            if escaped.get_or_insert_with(|| escaped_bytes(bytes))[found.start()] {
+                continue;
+            }
             let mut span = Overwrite {
                 start: found.start(),
                 end: found.end(),
@@ -190,6 +195,19 @@ impl DeclinedCopies {
         out.extend_from_slice(&self.markers[span.marker]);
         *copied_to = span.end;
     }
+}
+
+/// Whether each byte follows an odd run of backslashes, which makes it the second byte of an escape.
+fn escaped_bytes(bytes: &[u8]) -> Vec<bool> {
+    let mut odd = false;
+    bytes
+        .iter()
+        .map(|&byte| {
+            let escaped = odd;
+            odd = byte == b'\\' && !odd;
+            escaped
+        })
+        .collect()
 }
 
 pub struct Splicer<'b> {

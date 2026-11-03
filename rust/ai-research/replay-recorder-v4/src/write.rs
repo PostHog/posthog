@@ -983,6 +983,11 @@ mod tests {
                 json!([{"parentId": 1, "node": {"type": 2, "tagName": "img", "attributes": {"src": "HTTPS://Bucket.s3.amazonaws.com/x\t.png?X-Amz-Signature=abc123"}, "childNodes": [], "id": 10}}]),
                 json!({"alt": "https://bucket.s3.amazonaws.com/x.png?X-Amz-Signature=abc123"}),
             ),
+            // The copy holds `\u0001` as six characters, so the slot's spelling, which starts with that control, does not match there.
+            (
+                json!([{"parentId": 1, "node": {"type": 2, "tagName": "img", "attributes": {"src": "\u{1}https://cdn.example.com/a.png?X-Amz-Signature=abc123"}, "childNodes": [], "id": 10}}]),
+                json!({"alt": "\\u0001https://cdn.example.com/a.png?X-Amz-Signature=abc123"}),
+            ),
             (
                 json!([
                     {"parentId": 1, "node": {"type": 2, "tagName": "img", "attributes": {"src": "https://a.example/?X-Amz-Signature=x&next=https://b.example/"}, "childNodes": [], "id": 7}},
@@ -999,6 +1004,9 @@ mod tests {
                 !lines.is_empty() && !lines.contains("X-Amz-Signature"),
                 "{lines}"
             );
+            for line in lines.lines() {
+                serde_json::from_str::<Value>(line).unwrap_or_else(|e| panic!("{e}: {line}"));
+            }
         }
     }
 
