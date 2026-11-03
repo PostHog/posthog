@@ -248,11 +248,14 @@ html[data-today-transition]::view-transition-new(root) {
     flex-direction: column;
     gap: 2px;
     min-width: 0;
+    padding: 4px 8px;
+    margin: -4px -8px;
     color: inherit;
+    border-radius: var(--radius-md, 6px);
 
-    &:hover .TodayPulse__name {
-        color: var(--today-ink);
-        text-decoration: underline;
+    &:hover,
+    &:focus-visible {
+        background: var(--fill-hover);
     }
 }
 

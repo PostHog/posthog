@@ -190,6 +190,7 @@ export function TodayPulse({ metrics, slots }: { metrics: HighlightMetricApi[]; 
                 return (
                     <li key={metric.key} data-pulse-key={metric.key} className="TodayPulse__metric">
                         <TodayPulseHoverCard
+                            focusable={!metric.url}
                             onOpenChange={(open) => {
                                 if (open) {
                                     pulseMetricPreviewed(metric, position)

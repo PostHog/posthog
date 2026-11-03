@@ -1,4 +1,4 @@
-import { Suspense, lazy, useState } from 'react'
+import { useState } from 'react'
 
 import { IconArrowRight, IconHide, IconInfo } from '@posthog/icons'
 import {
@@ -15,21 +15,16 @@ import {
 
 import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
-import { retryImport } from 'lib/utils/retryImport'
 
 import { TodayHoverCardFact } from '~/layout/today/TodayHoverCardFact'
 
 import type { HighlightMetricApi } from 'products/today/frontend/generated/api.schemas'
 
 import { TodayChange } from './TodayChange'
+import { TodayPulseMovers } from './TodayPulseMovers'
 import { pulsePeak, pulsePeriodCaption, pulseWhy } from './todayPulseFacts'
 import { pulseOpenHandlers } from './todayPulseOpenHandlers'
 import type { TodayTone } from './todayTone'
-
-// The charts are most of the code the home page adds, and this card opens only on hover.
-const TodayPulseMovers = lazy(() =>
-    retryImport(() => import('./TodayPulseMovers').then((m) => ({ default: m.TodayPulseMovers })))
-)
 
 const PERIOD_FORMATS: Record<HighlightMetricApi['interval'], string> = {
     day: 'ddd, D MMM',
@@ -62,58 +57,58 @@ export function TodayPulseCard({
     const peak = pulsePeak(metric)
     const why = pulseWhy(metric)
     return (
-        <div className="flex flex-col gap-3 p-3" data-attr="today-pulse-card">
-            <div className="flex flex-col gap-0.5">
-                <Text size="sm" weight="semibold" render={<span />} className="truncate">
-                    {metric.name}
-                </Text>
-                <div className="flex items-baseline gap-2">
-                    <Heading size="xl" render={<span />} className="tabular-nums" translate="no">
-                        {formatValue(metric.value)}
-                    </Heading>
-                    <span className="text-sm text-muted-foreground">
-                        <TodayChange change={metric.change_pct} tone={tone} />
-                    </span>
-                </div>
-                <Text size="xs" variant="muted" render={<span />}>
-                    {pulsePeriodCaption(metric)}
-                </Text>
-            </div>
-            {(previous !== null || peak !== null) && (
-                <div className="flex flex-col gap-1">
-                    {previous !== null && (
-                        <TodayHoverCardFact label="Before">
-                            <span className="tabular-nums">{formatValue(previous)}</span>
-                        </TodayHoverCardFact>
-                    )}
-                    {peak !== null && (
-                        <TodayHoverCardFact label={peak.label}>
-                            <span className="tabular-nums">
-                                {formatValue(peak.value)}
-                                <span className="text-muted-foreground">
-                                    {' '}
-                                    · {peak.latest ?? dayjs(peak.start).format(PERIOD_FORMATS[metric.interval])}
-                                </span>
-                            </span>
-                        </TodayHoverCardFact>
-                    )}
-                </div>
-            )}
-            {metric.movers.length > 1 && (
-                <div className="flex flex-col gap-1.5">
-                    <Text size="xs" variant="muted" render={<span />}>
-                        What changed most
+        <div className="flex flex-col" data-attr="today-pulse-card">
+            <div className="flex flex-col gap-4 p-3 pb-3">
+                <div className="flex flex-col">
+                    <Text size="sm" weight="semibold" render={<span />} className="truncate">
+                        {metric.name}
                     </Text>
-                    <Suspense fallback={null}>
-                        <TodayPulseMovers movers={metric.movers} formatValue={formatValue} />
-                    </Suspense>
+                    <div className="mt-1 flex items-baseline gap-2">
+                        <Heading size="xl" render={<span />} className="tabular-nums" translate="no">
+                            {formatValue(metric.value)}
+                        </Heading>
+                        <span className="text-sm text-muted-foreground">
+                            <TodayChange change={metric.change_pct} tone={tone} />
+                        </span>
+                    </div>
+                    <Text size="xs" variant="muted" render={<span />} className="mt-1.5 opacity-75">
+                        {pulsePeriodCaption(metric)}
+                    </Text>
                 </div>
-            )}
+                {(previous !== null || peak !== null) && (
+                    <div className="flex flex-col gap-1">
+                        {previous !== null && (
+                            <TodayHoverCardFact label="Before">
+                                <span className="tabular-nums">{formatValue(previous)}</span>
+                            </TodayHoverCardFact>
+                        )}
+                        {peak !== null && (
+                            <TodayHoverCardFact label={peak.label}>
+                                <span className="tabular-nums">
+                                    {formatValue(peak.value)}
+                                    <span className="text-muted-foreground">
+                                        {' '}
+                                        · {peak.latest ?? dayjs(peak.start).format(PERIOD_FORMATS[metric.interval])}
+                                    </span>
+                                </span>
+                            </TodayHoverCardFact>
+                        )}
+                    </div>
+                )}
+                {metric.movers.length > 1 && (
+                    <div className="flex flex-col gap-1">
+                        <Text size="xs" variant="muted" render={<span />} className="opacity-75">
+                            What changed most
+                        </Text>
+                        <TodayPulseMovers movers={metric.movers} />
+                    </div>
+                )}
+            </div>
             <Collapsible
                 variant="folder"
                 open={whyOpen}
                 onOpenChange={setWhyOpen}
-                className="flex flex-col border-t border-border pt-2"
+                className="flex flex-col border-t border-border px-3 py-1"
             >
                 <div className="flex min-h-6 items-center justify-between gap-2">
                     {metric.url ? (
