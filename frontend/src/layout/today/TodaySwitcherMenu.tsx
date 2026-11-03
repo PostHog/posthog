@@ -153,8 +153,7 @@ export function TodaySwitcherMenu({
                         <IconSearch className="size-3" />
                     </InputGroupAddon>
                 </ComboboxInput>
-                {/* The action rows live in the list, so quill's fixed cap made people scroll to reach them. Only the viewport limits it here. */}
-                <ComboboxList className="max-h-[calc(var(--available-height)-var(--spacing)*9)]">
+                <ComboboxList>
                     {(group: ListGroup) => (
                         <ComboboxGroup key={group.value ?? 'actions'} items={group.items}>
                             {group.value !== null ? (
