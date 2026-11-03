@@ -152,14 +152,16 @@ class SourceHistoryNamings:
         Raises `LegacyHistoryTableError` when the schema's registered history table uses the legacy naming, and
         `HistoryTableNameTakenError` as `naming` does.
         """
-        registered = self._registered(schema)
-        if registered == LEGACY_HISTORY_NAMING:
+        tables = self._registered_tables(schema)
+        registered = _naming_of_registered(tables)
+        # An unmarked `_cdc` table can be an ordinary source table, and incremental history never writes that name.
+        if registered == LEGACY_HISTORY_NAMING and tables[LEGACY_HISTORY_NAMING].is_history_table:
+            legacy_name = tables[LEGACY_HISTORY_NAMING].name
             raise LegacyHistoryTableError(
-                f"{schema.name} has a history table from change data capture in an older layout, which "
-                "incremental syncs can't write. Keep change data capture for this table, or choose the "
-                "consolidated table only."
+                f"{schema.name} has an older history table, {legacy_name}, that incremental syncs can't add to. "
+                f"Choose the consolidated table only, or sync {schema.name} with change data capture."
             )
-        if registered is None:
+        if registered != HISTORY_NAMING:
             self._refuse_taken_name(schema, HISTORY_NAMING)
         return HISTORY_NAMING
 
@@ -175,8 +177,11 @@ class SourceHistoryNamings:
             return None
 
     def _registered(self, schema: ExternalDataSchema) -> HistoryNaming | None:
+        return _naming_of_registered(self._registered_tables(schema))
+
+    def _registered_tables(self, schema: ExternalDataSchema) -> dict[HistoryNaming, DataWarehouseTable]:
         # A table another schema syncs into is that schema's own, as `orders_cdc` next to `orders` is.
-        tables_by_naming = {
+        return {
             naming: table
             for naming in (HISTORY_NAMING, LEGACY_HISTORY_NAMING)
             for table in self._tables_by_name.get(
@@ -184,7 +189,6 @@ class SourceHistoryNamings:
             )
             if self._schema_ids_by_table.get(table.id, set()) <= {schema.id}
         }
-        return _naming_of_registered(tables_by_naming)
 
     def _naming_for_new_tables(self) -> HistoryNaming:
         if self._new_naming is None:

@@ -104,7 +104,7 @@ CAPTURE_COLUMNS: frozenset[str] = frozenset(
 )
 
 
-# The metadata the history writer stamps on its staging table (`STAGED_*_COLUMN` in `history_writer.py`).
+# The metadata the history writer stamps on its staging table (`STAGED_*_COLUMN` in `history_upsert.py`).
 # Named here because the capture path does not import the writer.
 HISTORY_STAGING_COLUMNS: frozenset[str] = frozenset({"_ph_staged_batch", "_ph_staged_row"})
 

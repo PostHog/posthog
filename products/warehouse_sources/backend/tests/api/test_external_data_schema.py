@@ -4826,11 +4826,23 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
                 "both",
                 "datetime",
                 True,
-                "older layout",
+                "older history table",
                 {"sync_type": "incremental", "cdc_table_mode": "both"},
                 True,
                 ExternalDataSchema.SyncType.CDC,
+                "legacy_history_table",
+            ),
+            (
+                "switch_from_cdc_when_a_sibling_syncs_the_history_name",
+                "both",
+                "both",
+                "datetime",
                 True,
+                "share its name",
+                {"sync_type": "incremental", "cdc_table_mode": "both"},
+                True,
+                ExternalDataSchema.SyncType.CDC,
+                "sibling_schema",
             ),
         ]
     )
@@ -4846,7 +4858,7 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
         request_body: dict | None = None,
         source_supports_history: bool = True,
         initial_sync_type: str = ExternalDataSchema.SyncType.INCREMENTAL,
-        legacy_history_table: bool = False,
+        blocking_table: str | None = None,
     ):
         from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
 
@@ -4863,13 +4875,17 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
             team=self.team, name="orders", format="Parquet", external_data_source=self.source
         )
         self.schema.save()
-        if legacy_history_table:
+        if blocking_table == "legacy_history_table":
             DataWarehouseTable.objects.create(
                 team=self.team,
                 name=build_table_name(self.source, f"{self.schema.name}_cdc"),
                 format="DeltaS3Wrapper",
                 external_data_source=self.source,
                 options={"history_table": True},
+            )
+        elif blocking_table == "sibling_schema":
+            ExternalDataSchema.objects.create(
+                name=f"{self.schema.name}_history", team=self.team, source=self.source, should_sync=True
             )
 
         with (

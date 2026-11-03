@@ -12,6 +12,10 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.models.external_data_schema import INCREMENTAL_HISTORY_KEY, ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import HISTORY_NAMING
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCReservedColumnError
+from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import (
+    HistoryTableNameTakenError,
+    LegacyHistoryTableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.incremental_history import (
     IncrementalHistoryUnavailableError,
     attach_history_lanes,
@@ -91,6 +95,20 @@ class TestAttachHistoryLanes:
         else:
             _attach(schema, response)
             assert response.lanes is not None
+
+    @parameterized.expand(
+        [
+            ("legacy_history_table", LegacyHistoryTableError("legacy")),
+            ("name_taken", HistoryTableNameTakenError("taken")),
+        ]
+    )
+    def test_a_history_table_the_run_cannot_write_fails_as_non_retryable(self, _name: str, error: Exception) -> None:
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.incremental_history.incremental_history_naming",
+            side_effect=error,
+        ):
+            with pytest.raises(IncrementalHistoryUnavailableError):
+                attach_history_lanes(_schema("both"), _response())
 
 
 class TestStampHistoryBatch:

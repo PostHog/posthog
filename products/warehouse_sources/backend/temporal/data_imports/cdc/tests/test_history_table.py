@@ -99,11 +99,12 @@ class TestHistoryNaming(BaseTest):
             ("flag_off", None, None, False),
             ("pinned_legacy", LEGACY_HISTORY_NAMING, None, True),
             ("stamped_table", None, ("orders_history", {"history_table": True, "history_naming": "ph_validity"}), True),
-            ("legacy_table", None, ("orders_cdc", {"history_table": True}), True),
+            # An unmarked `orders_cdc` can be a source table that has not synced yet.
+            ("unmarked_legacy_named_table", None, ("orders_cdc", {}), True),
         ]
     )
     def test_incremental_history_always_takes_the_new_naming(
-        self, name: str, pinned: HistoryNaming | None, table: tuple[str, dict] | None, flag_on: bool
+        self, _name: str, pinned: HistoryNaming | None, table: tuple[str, dict] | None, flag_on: bool
     ) -> None:
         self.schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
         if pinned is not None:
@@ -113,11 +114,15 @@ class TestHistoryNaming(BaseTest):
             self._table(*table)
 
         with patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: flag_on):
-            if name == "legacy_table":
-                with pytest.raises(LegacyHistoryTableError):
-                    incremental_history_naming(self.schema)
-            else:
-                assert incremental_history_naming(self.schema) == HISTORY_NAMING
+            assert incremental_history_naming(self.schema) == HISTORY_NAMING
+
+    def test_incremental_history_refuses_a_legacy_history_table(self) -> None:
+        self.schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
+        self.schema.save()
+        self._table("orders_cdc", {"history_table": True})
+
+        with pytest.raises(LegacyHistoryTableError, match="orders_cdc"):
+            incremental_history_naming(self.schema)
 
     def test_a_stamped_new_table_wins_over_a_legacy_named_table(self) -> None:
         # An unlinked `orders_cdc` can be a source table that has not synced yet. Taking the legacy naming

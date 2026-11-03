@@ -588,7 +588,9 @@ def _refuse_reserved_columns(
         history = resolved = (
             history_naming_unless_taken(instance) if captures else _incremental_history_naming(instance)
         )
-        if history is None and is_history_table_mode(new_mode) and not kept_history:
+        # A CDC schema that kept history keeps writing its registered table. An incremental one always needs the
+        # `_history` name.
+        if history is None and is_history_table_mode(new_mode) and (not kept_history or not captures):
             raise ValidationError(
                 f"A history table for {instance.name} would share its name with another table of this "
                 "source. Choose the consolidated table only for this table."

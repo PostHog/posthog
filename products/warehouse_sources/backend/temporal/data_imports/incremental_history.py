@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCReservedColumnError
 from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import (
+    HistoryTableNameTakenError,
     LegacyHistoryTableError,
     incremental_history_naming,
 )
@@ -92,7 +93,7 @@ def attach_history_lanes(schema: ExternalDataSchema, source_response: SourceResp
         )
     try:
         naming = incremental_history_naming(schema)
-    except LegacyHistoryTableError as e:
+    except (LegacyHistoryTableError, HistoryTableNameTakenError) as e:
         raise IncrementalHistoryUnavailableError(str(e)) from e
     history_lane = OutputLane(
         name=companion_resource_name(schema.name, naming),
