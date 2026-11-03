@@ -31,6 +31,7 @@ from products.slack_app.backend.temporal.activities.classifiers import (
     team_routing_rule_lines,
 )
 from products.slack_app.backend.temporal.activities.repo_selection import _resolve_explicit_repo
+from products.slack_app.evals.offline_config import offline_suite
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, TurnPollTimeout
 from products.tasks.evals.repo_selection.fixtures import (
@@ -111,6 +112,11 @@ async def run_routing_case(
 
 async def eval_repo_selection_routing(ctx: EvalContext) -> None:
     await SandboxedEval(
+        offline_suite=offline_suite(
+            "slack_app/eval_repo_selection_routing::eval_repo_selection_routing",
+            metrics=[scorer()._name() for scorer in ROUTING_SCORERS],
+        ),
+        send_to_posthog=True,
         experiment_name=EXPERIMENT_NAME,
         cases=[
             SandboxedEvalCase(

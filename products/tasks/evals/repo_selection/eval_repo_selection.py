@@ -24,6 +24,7 @@ from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.tasks.backend.facade import api as tasks_facade
 
 from .fixtures import FIXTURE_VERSION, SELECTOR_CASES, fixture_fingerprint
+from .offline_config import REPO_SELECTION_SUITE
 from .runner import selector_case_runner
 from .scorers import SELECTOR_SCORERS, selector_expected
 from .seeders import scenario_seeder
@@ -33,6 +34,8 @@ EXPERIMENT_NAME = "repo-selection-selector"
 
 async def eval_repo_selection(ctx: EvalContext) -> None:
     await SandboxedEval(
+        offline_suite=REPO_SELECTION_SUITE,
+        send_to_posthog=True,
         experiment_name=EXPERIMENT_NAME,
         cases=[
             SandboxedEvalCase(
