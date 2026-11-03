@@ -284,14 +284,19 @@ export const dataTableLogic = kea<dataTableLogicType>([
         ],
         orderBy: [
             (s, p) => [p.query, s.sourceFeatures],
-            (query: DataTableNode, sourceFeatures: Set<QueryFeature>): string[] | null =>
-                sourceFeatures.has(QueryFeature.selectAndOrderByColumns)
-                    ? 'orderBy' in query.source // might not be EventsQuery, but something else with orderBy
-                        ? ((query.source as EventsQuery).orderBy ?? null)
-                        : isEventsQuery(query.source)
-                          ? ['timestamp DESC']
-                          : null
-                    : null,
+            (query: DataTableNode, sourceFeatures: Set<QueryFeature>): string[] | null => {
+                if (!sourceFeatures.has(QueryFeature.selectAndOrderByColumns)) {
+                    return null
+                }
+                // might not be EventsQuery, but something else with orderBy
+                const orderBy = (query.source as EventsQuery).orderBy
+                if (orderBy) {
+                    return orderBy
+                }
+                // The column configurator can save `orderBy: undefined`, and the events query runner
+                // then sorts by timestamp DESC, so treat an unset value like a missing key.
+                return isEventsQuery(query.source) ? ['timestamp DESC'] : null
+            },
             { resultEqualityCheck: objectsEqual },
         ],
         columnsInResponse: [
@@ -323,9 +328,10 @@ export const dataTableLogic = kea<dataTableLogicType>([
                             return []
                         }
 
-                        const orderKey = orderBy?.[0]?.endsWith(' DESC')
-                            ? orderBy[0].replace(/ DESC$/, '')
-                            : orderBy?.[0]
+                        // "Sort descending" writes `<column>\n DESC` so a trailing `-- comment` can't swallow DESC
+                        const orderKey = orderBy?.[0]
+                            ? removeExpressionComment(orderBy[0].replace(/ DESC$/, ''))
+                            : undefined
                         const orderKeyIndex =
                             columnsInResponse?.findIndex(
                                 (column) =>
