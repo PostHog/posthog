@@ -870,6 +870,17 @@
                             ],
                             "description": "Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap"
                         },
+                        "narrowSubqueryProperties": {
+                            "anyOf": [
+                                {
+                                    "type": "boolean"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "A subquery that exports the events `properties` column exports only the keys its readers read, as a map, so the native events table reads those subcolumns instead of rebuilding every row's document. Unset means on; `false` turns it off."
+                        },
                         "negatedPersonFiltersNotIn": {
                             "anyOf": [
                                 {
