@@ -10,6 +10,7 @@ it is redacted from logs and raised error messages.
 import dataclasses
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime
+from functools import partial
 from typing import Any, Optional
 from urllib.parse import urljoin, urlparse
 
@@ -29,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     JSONResponsePaginator,
     SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
     EndpointResource,
@@ -321,7 +323,7 @@ def _memories_pages(
     db_incremental_field_last_value: Any,
     resume_hook: Optional[Callable[[Optional[dict[str, Any]]], None]] = None,
     initial_paginator_state: dict[str, Any] | None = None,
-) -> Iterator[list[Any]]:
+) -> Resource:
     config = MEM0_ENDPOINTS[MEMORIES_ENDPOINT]
 
     rest_config: RESTAPIConfig = {
@@ -351,7 +353,13 @@ def _memories_pages(
         initial_paginator_state=initial_paginator_state,
     )
 
-    return _pages_until_page_rejected(resource, resumed=initial_paginator_state is not None)
+    # The rejection guard hands each page on unchanged and holds no rows. As a `Resource` it keeps
+    # the framework's per-page safe points.
+    return Resource(
+        partial(_pages_until_page_rejected, resource, resumed=initial_paginator_state is not None),
+        name=MEMORIES_ENDPOINT,
+        hints=resource._hints,
+    )
 
 
 def _entities_resource(
@@ -455,7 +463,7 @@ def _memory_history_resource(
             {
                 "name": MEMORIES_ENDPOINT,
                 "endpoint": {"path": MEM0_ENDPOINTS[MEMORIES_ENDPOINT].path, "method": "POST"},
-                "data_iterator": lambda: _memories_pages(client, team_id, job_id, filters, None),
+                "data_iterator": lambda: iter(_memories_pages(client, team_id, job_id, filters, None)),
             },
             {
                 "name": MEMORY_HISTORY_ENDPOINT,

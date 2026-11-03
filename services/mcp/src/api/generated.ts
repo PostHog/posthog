@@ -577,6 +577,8 @@ export namespace Schemas {
       lookback_seconds?: number;
       /** Deprecate only: true to keep a materialized view refreshing after it is deprecated. By default, accepting a deprecate suggestion also stops the view's refreshes and deletes its stored table, unless other views or syncs depend on it. */
       keep_materialized?: boolean;
+      /** Deprecate only: true to delete the view instead of marking it deprecated. Deleting also drops its stored table and refreshes, and cannot be undone. Refused when another view now reads it, or when it feeds person properties, account properties, a destination or a workflow. Refused with a 400 when any day in the read window has no read data, because a view read only on those days would look unread. */
+      delete_view?: boolean;
     }
 
     export interface AccessControlResourceDefault {
@@ -1316,6 +1318,7 @@ export namespace Schemas {
      * * `feature_flag` - feature_flag
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
+     * * `inbox` - inbox
      * * `insight` - insight
      * * `llm_analytics` - llm_analytics
      * * `llm_playground` - llm_playground
@@ -1375,6 +1378,7 @@ export namespace Schemas {
       FeatureFlag: 'feature_flag',
       Heatmap: 'heatmap',
       HogFlow: 'hog_flow',
+      Inbox: 'inbox',
       Insight: 'insight',
       LlmAnalytics: 'llm_analytics',
       LlmPlayground: 'llm_playground',
@@ -1437,6 +1441,7 @@ export namespace Schemas {
        * * `feature_flag` - feature_flag
        * * `heatmap` - heatmap
        * * `hog_flow` - hog_flow
+       * * `inbox` - inbox
        * * `insight` - insight
        * * `llm_analytics` - llm_analytics
        * * `llm_playground` - llm_playground
@@ -1704,6 +1709,7 @@ export namespace Schemas {
        * * `feature_flag` - feature_flag
        * * `heatmap` - heatmap
        * * `hog_flow` - hog_flow
+       * * `inbox` - inbox
        * * `insight` - insight
        * * `llm_analytics` - llm_analytics
        * * `llm_playground` - llm_playground
@@ -1791,6 +1797,7 @@ export namespace Schemas {
        * * `feature_flag` - feature_flag
        * * `heatmap` - heatmap
        * * `hog_flow` - hog_flow
+       * * `inbox` - inbox
        * * `insight` - insight
        * * `llm_analytics` - llm_analytics
        * * `llm_playground` - llm_playground
@@ -5699,6 +5706,94 @@ export namespace Schemas {
       stale: boolean;
     }
 
+    /**
+     * * `semantic` - Semantic
+     * * `headline` - Headline
+     * * `themes` - Themes
+     * * `owned` - Owned
+     * * `watched` - Watched
+     * * `profile` - Profile
+     */
+    export type MatchKindEnum = typeof MatchKindEnum[keyof typeof MatchKindEnum];
+
+
+    export const MatchKindEnum = {
+      Semantic: 'semantic',
+      Headline: 'headline',
+      Themes: 'themes',
+      Owned: 'owned',
+      Watched: 'watched',
+      Profile: 'profile',
+    } as const;
+
+    export interface ActivitySummarySearchMatch {
+      /** `semantic` for a vector match, else the summary field a keyword matched.
+       *
+       * * `semantic` - Semantic
+       * * `headline` - Headline
+       * * `themes` - Themes
+       * * `owned` - Owned
+       * * `watched` - Watched
+       * * `profile` - Profile */
+      kind: MatchKindEnum;
+      /**
+         * A short excerpt around the first keyword match. Null for a semantic match.
+         * @nullable
+         */
+      snippet: string | null;
+    }
+
+    export interface ActivitySummarySearchHit {
+      /** The member. Use it in `suggested_reviewers`. */
+      user_uuid: string;
+      /** The member's first name. */
+      first_name: string;
+      /** The member's last name. */
+      last_name: string;
+      /**
+         * The member's GitHub login, lowercase. Null when no GitHub identity is linked.
+         * @nullable
+         */
+      github_login: string | null;
+      /**
+         * The reciprocal rank fusion score. Higher is a better match. Null when the request had no query.
+         * @nullable
+         */
+      score: number | null;
+      /** Why this member matched. */
+      matched_on: ActivitySummarySearchMatch[];
+      /**
+         * One or two sentences about what the member works on in this project.
+         * @nullable
+         */
+      headline: string | null;
+      /** The main threads of the member's work. */
+      themes: ActivitySummaryTheme[];
+      /** How the member works in this project overall, the main mode first. */
+      modes: ActivitySummaryModeEnum[];
+      /**
+         * When this summary was written.
+         * @nullable
+         */
+      generated_at: string | null;
+      /** True when a newer version will replace this summary soon. */
+      stale: boolean;
+      /**
+         * The one-page markdown profile. Set only when the request sets `include_profile`.
+         * @nullable
+         */
+      profile: string | null;
+    }
+
+    export interface ActivitySummarySearchResult {
+      /** The matching members, best match first. */
+      results: ActivitySummarySearchHit[];
+      /** False when the search used keywords only: a `keyword` search, a request with no query, or a `hybrid` search whose vector search failed. */
+      semantic_used: boolean;
+      /** Members with access to the project and no summary yet. The search cannot find them. */
+      not_ready_count: number;
+    }
+
     export interface ActivitySummaryVersion {
       /** The number of this version. Higher numbers are newer. */
       version: number;
@@ -7522,6 +7617,13 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface ExperimentWarehouseNativeUnitBinding {
+      /** Which ids represent that unit, such as `billing_customer_id`. */
+      id_namespace: string;
+      /** What was randomized, as a stable project-scoped label such as `customer` or `account`. */
+      unit_type: string;
+    }
+
     export type ExperimentWarehouseNativeExposureConfigResponse = { [key: string]: unknown } | null;
 
     export interface ExperimentWarehouseNativeExposureConfig {
@@ -7531,6 +7633,7 @@ export namespace Schemas {
       /** Read-only SQL in the warehouse's dialect, returning one row per exposure with `entity_id`, `variant` and `timestamp` columns. PostHog keeps the first exposure per entity and applies the experiment's date range and multiple-variant handling. */
       query: string;
       response?: ExperimentWarehouseNativeExposureConfigResponse;
+      unit: ExperimentWarehouseNativeUnitBinding;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -7607,6 +7710,7 @@ export namespace Schemas {
       /** Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id` and `timestamp` columns plus any numeric columns a metric can measure. */
       query: string;
       response?: ExperimentWarehouseNativeNodeResponse;
+      unit: ExperimentWarehouseNativeUnitBinding;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -17732,6 +17836,7 @@ export namespace Schemas {
        * * `America/Coral_Harbour` - America/Coral_Harbour
        * * `America/Cordoba` - America/Cordoba
        * * `America/Costa_Rica` - America/Costa_Rica
+       * * `America/Coyhaique` - America/Coyhaique
        * * `America/Creston` - America/Creston
        * * `America/Cuiaba` - America/Cuiaba
        * * `America/Curacao` - America/Curacao
@@ -28290,6 +28395,14 @@ export namespace Schemas {
       Agent: 'agent',
     } as const;
 
+    export type MonitoringMetricConfigPurposeEnum = typeof MonitoringMetricConfigPurposeEnum[keyof typeof MonitoringMetricConfigPurposeEnum];
+
+
+    export const MonitoringMetricConfigPurposeEnum = {
+      Expectation: 'expectation',
+      MinimumEvidence: 'minimum_evidence',
+    } as const;
+
     export type ThresholdScalingEnum = typeof ThresholdScalingEnum[keyof typeof ThresholdScalingEnum];
 
 
@@ -28299,6 +28412,8 @@ export namespace Schemas {
     } as const;
 
     export interface MonitoringMetricConfig {
+      /** `expectation` evaluates whether the implementation met its target. `minimum_evidence` checks a fixed minimum sample count: meeting it passes the guard; missing it is inconclusive and requires assessment, never an implementation failure. Use a positive whole-number `gte` target on one unsampled raw count. */
+      purpose?: MonitoringMetricConfigPurposeEnum;
       /**
          * The period the comparison target describes, in minutes. Independent of the soak and run schedule.
          * @maximum 527040
@@ -32474,6 +32589,10 @@ export namespace Schemas {
       blocked_by: SyncFrequencyBlockedByEnum | null;
       /** The source or consumer named in `blocked_by`. Null when allowed, and also when the blocker sits outside the caller's access grants, where `blocked_by` still gives the direction. */
       blocker: SyncFrequencyBlocker | null;
+      /** Upstream materialized views that would refresh more often than they do now if this cadence were chosen, because a view cannot be fresher than its inputs. Only views the caller may read are listed. Empty when the cadence is blocked. */
+      speeds_up: SyncFrequencyBlocker[];
+      /** True when at least one view this cadence speeds up sits outside the caller's access grants, so `speeds_up` is incomplete. */
+      speeds_up_withheld: boolean;
     }
 
     export interface SyncFrequencyBound {
@@ -45044,8 +45163,6 @@ export namespace Schemas {
       per_issue_rate_limit_bucket_size_minutes?: number | null;
       /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
       ingestion_enabled?: boolean;
-      /** Whether status changes on linked Linear tickets update the issue. When true, an issue resolves once every linked Linear ticket is closed and at least one is done, and a resolved issue becomes active again when a linked ticket reopens. */
-      linear_status_sync_enabled?: boolean;
     }
 
     /**
@@ -47975,6 +48092,7 @@ export namespace Schemas {
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `early_significance` - Early Significance
      * * `metrics_not_matured` - Metrics Not Matured
+     * * `flag_shared` - Flag Shared
      */
     export type ExperimentHealthFindingCodeEnum = typeof ExperimentHealthFindingCodeEnum[keyof typeof ExperimentHealthFindingCodeEnum];
 
@@ -48004,6 +48122,7 @@ export namespace Schemas {
       NewFlagNoTraffic: 'new_flag_no_traffic',
       EarlySignificance: 'early_significance',
       MetricsNotMatured: 'metrics_not_matured',
+      FlagShared: 'flag_shared',
     } as const;
 
     /**
@@ -48075,7 +48194,8 @@ export namespace Schemas {
        * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
        * * `new_flag_no_traffic` - New Flag No Traffic
        * * `early_significance` - Early Significance
-       * * `metrics_not_matured` - Metrics Not Matured */
+       * * `metrics_not_matured` - Metrics Not Matured
+       * * `flag_shared` - Flag Shared */
       code: ExperimentHealthFindingCodeEnum;
       /**
          * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -48110,6 +48230,7 @@ export namespace Schemas {
 
     /**
      * * `flag_state` - Flag State
+     * * `flag_shared` - Flag Shared
      * * `flag_history` - Flag History
      * * `split_changed_mid_run` - Split Changed Mid Run
      * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
@@ -48137,6 +48258,7 @@ export namespace Schemas {
 
     export const ExperimentHealthCheckKeyEnum = {
       FlagState: 'flag_state',
+      FlagShared: 'flag_shared',
       FlagHistory: 'flag_history',
       SplitChangedMidRun: 'split_changed_mid_run',
       BucketingChangedMidRun: 'bucketing_changed_mid_run',
@@ -48180,6 +48302,7 @@ export namespace Schemas {
       /** Stable identifier of the check. A check can report several finding codes, so the key is not a finding code.
        *
        * * `flag_state` - Flag State
+       * * `flag_shared` - Flag Shared
        * * `flag_history` - Flag History
        * * `split_changed_mid_run` - Split Changed Mid Run
        * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
@@ -49383,7 +49506,7 @@ export namespace Schemas {
          */
       flag_called_during_run: boolean | null;
       /**
-         * Whether PostHog has recorded a call of the flag after the end. The flag state check reads it on an ended experiment whose flag is still active with multiple variants. False only after 3 days without a recorded call. Null before the end, before those 3 days are over, or when the organization's flag calls can't be read.
+         * Whether PostHog has recorded a call of the flag after the end and within the last 3 days. The flag state check reads it on an ended experiment whose flag is still active with multiple variants. False only once 3 days have passed since the end. Null before the end, before those 3 days are over without a call, or when the organization's flag calls can't be read.
          * @nullable
          */
       flag_called_after_end: boolean | null;
@@ -57025,10 +57148,10 @@ export namespace Schemas {
      * * `review` - review
      * * `observe` - observe
      */
-    export type PurposeEnum = typeof PurposeEnum[keyof typeof PurposeEnum];
+    export type RunPurposeEnum = typeof RunPurposeEnum[keyof typeof RunPurposeEnum];
 
 
-    export const PurposeEnum = {
+    export const RunPurposeEnum = {
       Review: 'review',
       Observe: 'observe',
     } as const;
@@ -57051,7 +57174,7 @@ export namespace Schemas {
        *
        * * `review` - review
        * * `observe` - observe */
-      readonly purpose: PurposeEnum;
+      readonly purpose: RunPurposeEnum;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of branch/run type, a commit SHA prefix, or an exact PR number) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.
        *
        * * `exact` - exact
@@ -59615,8 +59738,56 @@ export namespace Schemas {
       Failed: 'failed',
     } as const;
 
+    /**
+     * * `pending` - Loading
+     * * `ready` - Ready
+     * * `empty` - No data
+     * * `error` - Could not load
+     */
+    export type PulseSlotStatusEnum = typeof PulseSlotStatusEnum[keyof typeof PulseSlotStatusEnum];
+
+
+    export const PulseSlotStatusEnum = {
+      Pending: 'pending',
+      Ready: 'ready',
+      Empty: 'empty',
+      Error: 'error',
+    } as const;
+
+    export interface PulseSlot {
+      /** Why this number is selected, when known before its value arrives.
+       *
+       * * `routine` - You open this often
+       * * `dashboard` - On a dashboard you open often
+       * * `key_metric` - Project key metric
+       * * `popular` - Opened often in this project */
+      reason?: HighlightMetricReasonEnum | null;
+      /** Stable key of the selected number. */
+      key: string;
+      /** Title available before the number is computed. */
+      name: string;
+      /** Loading state of this number.
+       *
+       * * `pending` - Loading
+       * * `ready` - Ready
+       * * `empty` - No data
+       * * `error` - Could not load */
+      status: PulseSlotStatusEnum;
+      /**
+         * Path to the source, relative to the project.
+         * @nullable
+         */
+      url: string | null;
+      /** Measurement interval, when known.
+       *
+       * * `day` - Day
+       * * `week` - Week
+       * * `month` - Month */
+      interval: CalendarUnitEnum | null;
+    }
+
     export interface Highlights {
-      /** `ready` when the content is fresh. `computing` while new highlights are being computed: the content is the last ready highlights of the day, or empty, so poll again every 2 seconds until the status changes. `failed` when the last computation failed: the content is the last ready highlights of the day, or empty.
+      /** `ready` when the content is fresh. `computing` while new highlights are being computed: the content includes available results and, when enabled, pending number details. Otherwise it is the last ready highlights of the day, or empty. Poll again every 2 seconds until the status changes. `failed` when the last computation failed: the content is the last ready highlights of the day, or empty.
        *
        * * `computing` - Computing
        * * `ready` - Ready
@@ -59633,6 +59804,11 @@ export namespace Schemas {
       refresh_at: string;
       /** Key metrics of the project from its settings. */
       pulse: HighlightMetric[];
+      /**
+         * Selected numbers in stable display order, including unfinished numbers. Ready values are in pulse. Null for clients using complete results.
+         * @nullable
+         */
+      pulse_slots?: PulseSlot[] | null;
       /** Up to 6 items, the highest scores across sources, in display order: by `priority`, then by `score`, highest first. */
       items: HighlightItem[];
       /** The numbers the person keeps, in their order, with the state of each one. Pinned numbers lead `pulse`. */
@@ -61905,6 +62081,16 @@ export namespace Schemas {
       StrikingDistance: 'striking_distance',
     } as const;
 
+    export interface MarketingAnalyticsRecommendationStep {
+      /** Text to paste into Google Ads at this step, such as a campaign name or keywords in match type syntax, one per line. */
+      copyValue?: string | null;
+      /** The words in `text` that link to `url`, usually the section name. */
+      linkText?: string | null;
+      text: string;
+      /** Google Ads page for this step. It opens the section for the whole account, because links cannot filter to one campaign. */
+      url?: string | null;
+    }
+
     export interface MarketingAnalyticsRecommendation {
       action: string;
       /** The campaign a search term recommendation applies to, when it applies to one. */
@@ -61917,6 +62103,8 @@ export namespace Schemas {
       level: MarketingAnalyticsRecommendationLevel;
       reason: string;
       rule: MarketingAnalyticsRecommendationRule;
+      /** How to apply the recommendation in Google Ads, in order. Empty when the rule has no steps yet. */
+      steps?: MarketingAnalyticsRecommendationStep[] | null;
       /** The campaign name or the search term the recommendation is about. */
       subject: string;
     }
@@ -66588,6 +66776,90 @@ export namespace Schemas {
      */
     export interface IntegrationConfig {
       readonly id: number;
+      /**
+         * The provider of the integration, for example 'slack' or 'github'. A create accepts only the kinds that PostHog connects here. Data warehouse sources also store their typed-in credentials as integrations, under a kind per source type.
+         * @maxLength 32
+         */
+      kind: string;
+      /** How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
+       *
+       * * `oauth` - OAuth
+       * * `token` - Token
+       * * `credentials` - Credentials */
+      readonly auth_type: IntegrationAuthTypeEnum;
+      config?: unknown;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      readonly errors: string;
+      readonly display_name: string;
+      /** Slack only: whether reconnecting can request the files:write scope. */
+      readonly files_write_requestable: boolean;
+      /**
+         * GitHub only, null otherwise. Whether another project's GitHub integration references the same App installation. When false, disconnecting this integration also uninstalls the GitHub App from the connected account or organization and removes personal GitHub connections that share it.
+         * @nullable
+         */
+      readonly installation_shared: boolean | null;
+      /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
+      readonly installation_status: InstallationStatusEnum | null;
+    }
+
+    /**
+     * The request schema of a create. A create accepts only the public kinds, so the schema lists them.
+     */
+    export interface IntegrationConfigCreate {
+      readonly id: number;
+      /** The provider of the integration, for example 'slack' or 'github'.
+       *
+       * * `anthropic` - Anthropic
+       * * `apple-ads` - Apple Ads
+       * * `apns` - Apple Push
+       * * `aws-redshift` - Aws Redshift
+       * * `aws-s3` - Aws S3
+       * * `azure-blob` - Azure Blob
+       * * `bing-ads` - Bing Ads
+       * * `clickup` - Clickup
+       * * `customerio-app` - Customerio App
+       * * `customerio-track` - Customerio Track
+       * * `customerio-webhook` - Customerio Webhook
+       * * `databricks` - Databricks
+       * * `email` - Email
+       * * `firebase` - Firebase
+       * * `github` - Github
+       * * `gitlab` - Gitlab
+       * * `google-ads` - Google Ads
+       * * `google-analytics` - Google Analytics
+       * * `google-calendar` - Google Calendar
+       * * `google-cloud-service-account` - Google Cloud Service Account
+       * * `google-cloud-storage` - Google Cloud Storage
+       * * `google-pubsub` - Google Pubsub
+       * * `google-search-console` - Google Search Console
+       * * `google-sheets` - Google Sheets
+       * * `helpscout` - Helpscout
+       * * `hubspot` - Hubspot
+       * * `instagram` - Instagram
+       * * `intercom` - Intercom
+       * * `jira` - Jira
+       * * `linear` - Linear
+       * * `linkedin-ads` - Linkedin Ads
+       * * `meta-ads` - Meta Ads
+       * * `pardot` - Pardot
+       * * `pinterest-ads` - Pinterest Ads
+       * * `postgresql` - Postgresql
+       * * `posthog` - Posthog
+       * * `reddit-ads` - Reddit Ads
+       * * `twitter-ads` - Twitter Ads
+       * * `resend` - Resend
+       * * `s3-compatible` - S3 Compatible
+       * * `salesforce` - Salesforce
+       * * `slack` - Slack
+       * * `slack-posthog-code` - Slack Posthog Code
+       * * `snapchat` - Snapchat
+       * * `snowflake` - Snowflake
+       * * `stripe` - Stripe
+       * * `tiktok-ads` - Tiktok Ads
+       * * `twilio` - Twilio
+       * * `vercel` - Vercel
+       * * `youtube-analytics` - Youtube Analytics */
       kind: IntegrationKindEnum;
       /** How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
        *
@@ -80633,7 +80905,8 @@ export namespace Schemas {
      */
     export interface SessionRecordingExternalReferenceIntegration {
       readonly id: number;
-      readonly kind: IntegrationKindEnum;
+      /** The provider of the integration, for example 'github'. */
+      readonly kind: string;
       readonly display_name: string;
     }
 
@@ -81819,7 +82092,7 @@ export namespace Schemas {
       /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps costs several queries per report. */
       readonly plan: ReportPlan | null;
       /**
-         * Coarse sort key from the ranker named by the list response's ranker field, for sort=recommended only. Lower keys rank first. It is the score decile of the ranker's outcome (open, action or fix), then the priority as a tiebreak. The priority ranker uses the priority only. Reports without a usable score sort after scored ones. Null for every other sort.
+         * Sort key from the ranker named by the list response's ranker field, for sort=recommended only. Lower keys rank first, so rows from several requests merge in the order of one request. For an outcome ranker (open, action or fix), a scored report gets 1 minus its score, from 0 to 1, and a report without a usable score gets 2 plus its priority rank. The priority ranker uses the priority rank only, from 0 (P0) to 5 (no priority). Null for every other sort.
          * @nullable
          */
       readonly inbox_merge_key: number | null;
@@ -81837,6 +82110,11 @@ export namespace Schemas {
          * @nullable
          */
       ranker?: string | null;
+      /**
+         * Whether the client shows a ranking score pill on each card, when sort=recommended. The same flag arm sets this and the ranker. Null for every other sort.
+         * @nullable
+         */
+      ranking_pill?: boolean | null;
     }
 
     export type SignalSourceSyncStatusEnum = typeof SignalSourceSyncStatusEnum[keyof typeof SignalSourceSyncStatusEnum];
@@ -83668,6 +83946,18 @@ export namespace Schemas {
       results: Ticket[];
     }
 
+    /**
+     * * `shared` - Everyone in the project
+     * * `personal` - Only the creator
+     */
+    export type TicketMacroVisibilityEnum = typeof TicketMacroVisibilityEnum[keyof typeof TicketMacroVisibilityEnum];
+
+
+    export const TicketMacroVisibilityEnum = {
+      Shared: 'shared',
+      Personal: 'personal',
+    } as const;
+
     export interface TicketMacro {
       /** UUID of the macro. */
       readonly id: string;
@@ -83677,7 +83967,7 @@ export namespace Schemas {
          */
       name: string;
       /**
-         * Slash command for this macro, without the leading slash. Lowercase letters, numbers, and hyphens. Unique within the project. Null when the macro has no shortcut.
+         * Slash command for this macro, without the leading slash. Lowercase letters, numbers, and hyphens. A shared shortcut is unique among the project's shared macros, and a personal one among the creator's personal macros. Null when the macro has no shortcut.
          * @maxLength 50
          * @nullable
          */
@@ -83687,6 +83977,11 @@ export namespace Schemas {
          * @maxLength 10000
          */
       body: string;
+      /** Who can see and use the macro. 'shared' is everyone in the project, the default. 'personal' is only the person who created it.
+       *
+       * * `shared` - Everyone in the project
+       * * `personal` - Only the creator */
+      visibility?: TicketMacroVisibilityEnum;
       /** How many times agents have inserted this macro. */
       readonly usage_count: number;
       /**
@@ -84837,6 +85132,8 @@ export namespace Schemas {
       refresh_seconds_per_month: number;
       /** Bytes its refreshes read in a month. */
       refresh_bytes_per_month: number;
+      /** Whether the view is materialized. A plain view has no refreshes, so both refresh costs are 0. */
+      materialized?: boolean;
     }
 
     export interface WarehouseSuggestionVisibleSources {
@@ -88086,8 +88383,6 @@ export namespace Schemas {
       per_issue_rate_limit_bucket_size_minutes?: number | null;
       /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
       ingestion_enabled?: boolean;
-      /** Whether status changes on linked Linear tickets update the issue. When true, an issue resolves once every linked Linear ticket is closed and at least one is done, and a resolved issue becomes active again when a linked ticket reopens. */
-      linear_status_sync_enabled?: boolean;
     }
 
     /**
@@ -90114,7 +90409,11 @@ export namespace Schemas {
      */
     export interface PatchedIntegrationConfig {
       readonly id?: number;
-      kind?: IntegrationKindEnum;
+      /**
+         * The provider of the integration, for example 'slack' or 'github'. A create accepts only the kinds that PostHog connects here. Data warehouse sources also store their typed-in credentials as integrations, under a kind per source type.
+         * @maxLength 32
+         */
+      kind?: string;
       /** How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
        *
        * * `oauth` - OAuth
@@ -91675,6 +91974,13 @@ export namespace Schemas {
          * @nullable
          */
       marketing_frequency_cap_window_days?: number | null;
+      /**
+         * How many hours a marketing message over the frequency cap waits for a free slot before it is skipped. Null skips it right away.
+         * @minimum 1
+         * @maximum 168
+         * @nullable
+         */
+      marketing_frequency_cap_hold_hours?: number | null;
     }
 
     export interface TeamFeatureFlagPolicyConfig {
@@ -91852,6 +92158,7 @@ export namespace Schemas {
        * * `America/Coral_Harbour` - America/Coral_Harbour
        * * `America/Cordoba` - America/Cordoba
        * * `America/Costa_Rica` - America/Costa_Rica
+       * * `America/Coyhaique` - America/Coyhaique
        * * `America/Creston` - America/Creston
        * * `America/Cuiaba` - America/Cuiaba
        * * `America/Curacao` - America/Curacao
@@ -95213,7 +95520,7 @@ export namespace Schemas {
          */
       name?: string;
       /**
-         * Slash command for this macro, without the leading slash. Lowercase letters, numbers, and hyphens. Unique within the project. Null when the macro has no shortcut.
+         * Slash command for this macro, without the leading slash. Lowercase letters, numbers, and hyphens. A shared shortcut is unique among the project's shared macros, and a personal one among the creator's personal macros. Null when the macro has no shortcut.
          * @maxLength 50
          * @nullable
          */
@@ -95223,6 +95530,11 @@ export namespace Schemas {
          * @maxLength 10000
          */
       body?: string;
+      /** Who can see and use the macro. 'shared' is everyone in the project, the default. 'personal' is only the person who created it.
+       *
+       * * `shared` - Everyone in the project
+       * * `personal` - Only the creator */
+      visibility?: TicketMacroVisibilityEnum;
       /** How many times agents have inserted this macro. */
       readonly usage_count?: number;
       /**
@@ -96046,6 +96358,13 @@ export namespace Schemas {
          * @nullable
          */
       marketing_frequency_cap_window_days?: number | null;
+      /**
+         * How many hours a marketing message over the frequency cap waits for a free slot before it is skipped. Null skips it right away. A held message sends as soon as one of the person's earlier messages leaves the window.
+         * @minimum 1
+         * @maximum 168
+         * @nullable
+         */
+      marketing_frequency_cap_hold_hours?: number | null;
       /** Whether tracking opens and clicks on marketing email needs the recipient's consent. 'off' follows each email step's own setting, 'opt_out' tracks unless the recipient objected, and 'opt_in' tracks only recipients who consented. Transactional email is never affected.
        *
        * * `off` - Off
@@ -97847,6 +98166,7 @@ export namespace Schemas {
        * * `America/Coral_Harbour` - America/Coral_Harbour
        * * `America/Cordoba` - America/Cordoba
        * * `America/Costa_Rica` - America/Costa_Rica
+       * * `America/Coyhaique` - America/Coyhaique
        * * `America/Creston` - America/Creston
        * * `America/Cuiaba` - America/Cuiaba
        * * `America/Curacao` - America/Curacao
@@ -98718,6 +99038,7 @@ export namespace Schemas {
        * * `America/Coral_Harbour` - America/Coral_Harbour
        * * `America/Cordoba` - America/Cordoba
        * * `America/Costa_Rica` - America/Costa_Rica
+       * * `America/Coyhaique` - America/Coyhaique
        * * `America/Creston` - America/Creston
        * * `America/Cuiaba` - America/Cuiaba
        * * `America/Curacao` - America/Curacao
@@ -109734,34 +110055,6 @@ export namespace Schemas {
     }
 
     /**
-     * What one scout spent in the window, and what it produced for that spend.
-     */
-    export interface ScoutCost {
-      /** Full skill name of the scout, e.g. `signals-scout-error-tracking`. */
-      skill_name: string;
-      /** Model spend attributed to the scout's runs in the window, in US dollars. Zero when none of its runs had spend attributed, which `priced_run_count` tells apart from a scout that really spent nothing. */
-      spend_usd: number;
-      /** Runs the scout started in the window. */
-      run_count: number;
-      /** Runs of the scout that had spend attributed. Lower than `run_count` where a run failed before its first model call, or its generations haven't landed yet. Divide `spend_usd` by this, not by `run_count`, for cost per run. */
-      priced_run_count: number;
-      /** Distinct inbox reports the scout filed or added to in the window. A report it authored in one run and edited in three counts once. Zero means the scout produced no reports, so cost per report has no value rather than a value of zero. */
-      reports_touched: number;
-    }
-
-    /**
-     * Model spend and output per scout over a window.
-     */
-    export interface ScoutCosts {
-      /** Window the rows describe, in days. */
-      window_days: number;
-      /** One row per scout that started at least one run on this project in the window. */
-      scouts: ScoutCost[];
-      /** False when this deployment has no internal AI observability project to read the generations from, so `scouts` is empty and every spend is unknown rather than zero. */
-      available: boolean;
-    }
-
-    /**
      * One finding the run emitted, paired with the inbox report (if any) its signal grouped into.
      *
      * Best-effort reverse of the report -> signals link: `report` is null when the finding hasn't
@@ -110212,29 +110505,6 @@ export namespace Schemas {
          * @maxItems 200
          */
       run_ids: string[];
-    }
-
-    /**
-     * What one scout run spent on model calls.
-     */
-    export interface ScoutRunTokenCost {
-      /** UUID of the `SignalScoutRun` this cost belongs to. */
-      run_id: string;
-      /**
-         * Model spend attributed to the run in US dollars, summed from its `$ai_generation` events. Null when no generation is attributed to the run — it failed before its first model call, or its events haven't landed yet. A run still in progress reports what it has spent so far.
-         * @nullable
-         */
-      token_cost_usd: number | null;
-    }
-
-    /**
-     * Model spend for a batch of scout runs.
-     */
-    export interface ScoutRunTokenCosts {
-      /** One entry per requested run that exists on this project. Runs from another project, and ids that match no run, are absent. */
-      costs: ScoutRunTokenCost[];
-      /** False when this deployment has no internal AI observability project to read the generations from, so `costs` is empty and every cost is unknown rather than zero. */
-      available: boolean;
     }
 
     /**
@@ -111913,6 +112183,23 @@ export namespace Schemas {
     export interface SetAllServersEnabled {
       /** True enables every MCP server for the team; false disables them all. Applies to every registered server and becomes the default for untouched and future catalog servers. */
       enabled: boolean;
+    }
+
+    /**
+     * Topic key to `false` to opt the recipient out of that topic, or `true` to opt them back in. Opting back in to one marketing topic after an all-marketing opt-out lifts that opt-out, so `all_marketing` becomes `true`, and keeps the other marketing topics opted out. Topics you leave out keep their current choice.
+     */
+    export type SetPreferencesTopics = {[key: string]: boolean};
+
+    export interface SetPreferences {
+      /**
+         * The recipient's email address, exactly as Workflows sends to it. Matching is exact, so `Jane@example.com` and `jane@example.com` are two recipients.
+         * @maxLength 512
+         */
+      identifier: string;
+      /** `false` opts the recipient out of every marketing topic. `true` lifts that opt-out. Applied before `topics`. */
+      all_marketing?: boolean;
+      /** Topic key to `false` to opt the recipient out of that topic, or `true` to opt them back in. Opting back in to one marketing topic after an all-marketing opt-out lifts that opt-out, so `all_marketing` becomes `true`, and keeps the other marketing topics opted out. Topics you leave out keep their current choice. */
+      topics?: SetPreferencesTopics;
     }
 
     export interface SetTemplateEnabled {
@@ -123306,6 +123593,23 @@ export namespace Schemas {
       change: WoWChange | null;
     }
 
+    /**
+     * Topic key to `false` (opted out) or `true` (opted in), for every topic the recipient chose. A topic without a choice is not listed.
+     */
+    export type TopicPreferencesTopics = {[key: string]: boolean};
+
+    export interface TopicPreferences {
+      /** The recipient the preferences belong to. */
+      identifier: string;
+      /**
+         * `false` when the recipient opted out of all marketing, `true` when they opted back in, `null` when they never chose.
+         * @nullable
+         */
+      all_marketing: boolean | null;
+      /** Topic key to `false` (opted out) or `true` (opted in), for every topic the recipient chose. A topic without a choice is not listed. */
+      topics: TopicPreferencesTopics;
+    }
+
     export type TraceNodeIdsByAlias = {[key: string]: string};
 
     export interface TracePerson {
@@ -124216,6 +124520,28 @@ export namespace Schemas {
          */
       connected_at?: string | null;
     }
+
+    /**
+     * * `Redshift` - Redshift
+     * * `Snowflake` - Snowflake
+     * * `BigQuery` - BigQuery
+     * * `Postgres` - Postgres
+     * * `Databricks` - Databricks
+     * * `AzureBlob` - Azure Blob
+     * * `S3` - S3
+     */
+    export type UserCreatableDestinationTypeEnum = typeof UserCreatableDestinationTypeEnum[keyof typeof UserCreatableDestinationTypeEnum];
+
+
+    export const UserCreatableDestinationTypeEnum = {
+      Redshift: 'Redshift',
+      Snowflake: 'Snowflake',
+      BigQuery: 'BigQuery',
+      Postgres: 'Postgres',
+      Databricks: 'Databricks',
+      AzureBlob: 'AzureBlob',
+      S3: 'S3',
+    } as const;
 
     export interface UserCustomerAnalyticsConfig {
       /** Account properties pinned in sidebar display order. */
@@ -126098,6 +126424,16 @@ export namespace Schemas {
          * @nullable
          */
       warehouse_source_type: string | null;
+      /** Warehouse destination PostHog can send data to when the tool is that warehouse, or null for any other tool.
+       *
+       * * `Redshift` - Redshift
+       * * `Snowflake` - Snowflake
+       * * `BigQuery` - BigQuery
+       * * `Postgres` - Postgres
+       * * `Databricks` - Databricks
+       * * `AzureBlob` - Azure Blob
+       * * `S3` - S3 */
+      warehouse_destination_type: UserCreatableDestinationTypeEnum | null;
       /** How the wizard sets up the source: in the terminal or in the app. Null for a tool with no warehouse source.
        *
        * * `in-cli` - In the terminal
@@ -127001,6 +127337,13 @@ export namespace Schemas {
          * @nullable
          */
       marketing_frequency_cap_window_days?: number | null;
+      /**
+         * How many hours a marketing message over the frequency cap waits for a free slot before it is skipped. Null skips it right away. A held message sends as soon as one of the person's earlier messages leaves the window.
+         * @minimum 1
+         * @maximum 168
+         * @nullable
+         */
+      marketing_frequency_cap_hold_hours?: number | null;
       /** Whether tracking opens and clicks on marketing email needs the recipient's consent. 'off' follows each email step's own setting, 'opt_out' tracks unless the recipient objected, and 'opt_in' tracks only recipients who consented. Transactional email is never affected.
        *
        * * `off` - Off
@@ -130124,6 +130467,10 @@ export namespace Schemas {
      */
     clients?: string[];
     /**
+     * The pagination cursor value.
+     */
+    cursor?: string;
+    /**
      * JSON-encoded map of `detail` field paths to {operation, value} filters. Allowed operations: exact, contains, in.
      */
     detail_filters?: string;
@@ -131242,6 +131589,10 @@ export namespace Schemas {
 
     export type ActivityLogListParams = {
     /**
+     * The pagination cursor value.
+     */
+    cursor?: string;
+    /**
      * Filter by the ID of the affected resource.
      * @minLength 1
      */
@@ -131713,6 +132064,10 @@ export namespace Schemas {
      */
     clients?: string[];
     /**
+     * The pagination cursor value.
+     */
+    cursor?: string;
+    /**
      * JSON-encoded map of `detail` field paths to {operation, value} filters. Allowed operations: exact, contains, in.
      */
     detail_filters?: string;
@@ -131817,6 +132172,7 @@ export namespace Schemas {
     include_archived?: boolean;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -131839,6 +132195,7 @@ export namespace Schemas {
     engine?: string;
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -132315,6 +132672,7 @@ export namespace Schemas {
     export type AnnotationsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -133504,6 +133862,7 @@ export namespace Schemas {
     emails?: string;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -133589,6 +133948,7 @@ export namespace Schemas {
     export type ConversationsTicketsMessagesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 200
      */
     limit?: number;
     /**
@@ -134429,6 +134789,7 @@ export namespace Schemas {
     engine?: DataModelingJobsListEngine;
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -137489,6 +137850,10 @@ export namespace Schemas {
      */
     created_by_id?: string;
     /**
+     * Pass `true` to list only soft-deleted flags, which can be restored, archived or not. When omitted, deleted flags are excluded.
+     */
+    deleted?: FeatureFlagsListDeleted;
+    /**
      * When 'true', only return flags that can back an experiment: multivariate with 2-20 variants. Any other value is ignored.
      */
     eligible_for_experiment?: FeatureFlagsListEligibleForExperiment;
@@ -137544,6 +137909,14 @@ export namespace Schemas {
 
 
     export const FeatureFlagsListArchived = {
+      False: 'false',
+      True: 'true',
+    } as const;
+
+    export type FeatureFlagsListDeleted = typeof FeatureFlagsListDeleted[keyof typeof FeatureFlagsListDeleted];
+
+
+    export const FeatureFlagsListDeleted = {
       False: 'false',
       True: 'true',
     } as const;
@@ -138027,6 +138400,7 @@ export namespace Schemas {
     kind?: string;
     /**
      * Number of results to return per page.
+     * @maximum 250
      */
     limit?: number;
     /**
@@ -141079,6 +141453,7 @@ export namespace Schemas {
     export type McpRegistryServersListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 200
      */
     limit?: number;
     /**
@@ -141491,6 +141866,7 @@ export namespace Schemas {
     created_before?: string;
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -141550,6 +141926,7 @@ export namespace Schemas {
     include_matched_fields?: boolean;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -141804,6 +142181,7 @@ export namespace Schemas {
     format?: PersonsDeletionStatusListFormat;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -141892,6 +142270,7 @@ export namespace Schemas {
     legacy_configuration_id?: string;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -142046,6 +142425,7 @@ export namespace Schemas {
     is_numerical?: boolean | null;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -142688,6 +143068,114 @@ export namespace Schemas {
     version?: number;
     };
 
+    export type SignalsActivitySummaryMembersSearchParams = {
+    /**
+     * Members to leave out, such as people you already checked.
+     */
+    exclude_user_uuids?: string[];
+    /**
+     * Add the one-page markdown profile to each result. Set it only for the people you want to read.
+     */
+    include_profile?: boolean;
+    /**
+     * The most results to return, best match first.
+     * @minimum 1
+     * @maximum 25
+     */
+    limit?: number;
+    /**
+     * Only members who work in or visit this product.
+     *
+     * * `product_analytics` - Product Analytics
+     * * `dashboards` - Dashboards
+     * * `web_analytics` - Web Analytics
+     * * `session_replay` - Session Replay
+     * * `heatmaps` - Heatmaps
+     * * `error_tracking` - Error Tracking
+     * * `experiments` - Experiments
+     * * `feature_flags` - Feature Flags
+     * * `early_access_features` - Early Access Features
+     * * `surveys` - Surveys
+     * * `product_tours` - Product Tours
+     * * `notebooks` - Notebooks
+     * * `cohorts` - Cohorts
+     * * `persons` - Persons
+     * * `data_management` - Data Management
+     * * `data_warehouse` - Data Warehouse
+     * * `data_pipelines` - Data Pipelines
+     * * `workflows` - Workflows
+     * * `ai_observability` - Ai Observability
+     * * `mcp_analytics` - Mcp Analytics
+     * * `logs` - Logs
+     * * `tracing` - Tracing
+     * * `endpoints` - Endpoints
+     * * `revenue_analytics` - Revenue Analytics
+     * * `customer_analytics` - Customer Analytics
+     * * `inbox` - Inbox
+     * * `canvases` - Canvases
+     * * `support` - Support
+     * @minLength 1
+     */
+    product?: SignalsActivitySummaryMembersSearchProduct;
+    /**
+     * Natural language or keywords, such as an object name, a topic or a product area. Without a query, the search lists members with a summary, the newest summary first.
+     * @maxLength 500
+     */
+    query?: string;
+    /**
+     * `hybrid` merges the keyword and semantic rankings. `semantic` ranks by meaning only, and returns 503 when the vector search fails. `keyword` matches query terms in the profile, the headline, the theme labels and the names of owned and watched objects.
+     *
+     * * `hybrid` - Hybrid
+     * * `semantic` - Semantic
+     * * `keyword` - Keyword
+     * @minLength 1
+     */
+    search_mode?: SignalsActivitySummaryMembersSearchSearchMode;
+    };
+
+    export type SignalsActivitySummaryMembersSearchProduct = typeof SignalsActivitySummaryMembersSearchProduct[keyof typeof SignalsActivitySummaryMembersSearchProduct];
+
+
+    export const SignalsActivitySummaryMembersSearchProduct = {
+      ProductAnalytics: 'product_analytics',
+      Dashboards: 'dashboards',
+      WebAnalytics: 'web_analytics',
+      SessionReplay: 'session_replay',
+      Heatmaps: 'heatmaps',
+      ErrorTracking: 'error_tracking',
+      Experiments: 'experiments',
+      FeatureFlags: 'feature_flags',
+      EarlyAccessFeatures: 'early_access_features',
+      Surveys: 'surveys',
+      ProductTours: 'product_tours',
+      Notebooks: 'notebooks',
+      Cohorts: 'cohorts',
+      Persons: 'persons',
+      DataManagement: 'data_management',
+      DataWarehouse: 'data_warehouse',
+      DataPipelines: 'data_pipelines',
+      Workflows: 'workflows',
+      AiObservability: 'ai_observability',
+      McpAnalytics: 'mcp_analytics',
+      Logs: 'logs',
+      Tracing: 'tracing',
+      Endpoints: 'endpoints',
+      RevenueAnalytics: 'revenue_analytics',
+      CustomerAnalytics: 'customer_analytics',
+      Inbox: 'inbox',
+      Canvases: 'canvases',
+      Support: 'support',
+    } as const;
+
+    export type SignalsActivitySummaryMembersSearchSearchMode = typeof SignalsActivitySummaryMembersSearchSearchMode[keyof typeof SignalsActivitySummaryMembersSearchSearchMode];
+
+
+    export const SignalsActivitySummaryMembersSearchSearchMode = {
+      Hybrid: 'hybrid',
+      Semantic: 'semantic',
+      Keyword: 'keyword',
+    } as const;
+
     export type SignalsAnomaliesInsightRetrieveParams = {
     /**
      * Earliest bucket start in the range. A relative date such as `-30d`, or an ISO 8601 date.
@@ -142884,7 +143372,7 @@ export namespace Schemas {
      */
     search?: string;
     /**
-     * Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used.
+     * Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills.
      */
     sort?: string;
     /**
@@ -143357,15 +143845,6 @@ export namespace Schemas {
      * The report whose checks to list.
      */
     report_id: string;
-    };
-
-    export type SignalsScoutRunsCostsParams = {
-    /**
-     * Window in days over runs' `created_at` (default 7). Only 7 is accepted today — it matches the window the roster's fleet headline spans, so every number on the page describes one span.
-     * @minimum 7
-     * @maximum 7
-     */
-    window_days?: number;
     };
 
     export type SignalsScoutRunsRecentEmissionsParams = {
@@ -144546,6 +145025,13 @@ export namespace Schemas {
     room: string;
     };
 
+    export type TodayHighlightsRetrieveParams = {
+    /**
+     * Retry failed sources when progressive loading is enabled. An active computation is reused.
+     */
+    refresh?: boolean;
+    };
+
     export type TodayReportsKeyClausesRetrieveParams = {
     /**
      * Whether to mark the impact sentence. Pass false when the page shows an impact number instead.
@@ -144775,6 +145261,7 @@ export namespace Schemas {
     export type UptimeMonitorsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -145860,6 +146347,7 @@ export namespace Schemas {
     include_quarantined?: boolean;
     /**
      * Number of results to return per page.
+     * @maximum 10000
      */
     limit?: number;
     /**
@@ -145955,6 +146443,7 @@ export namespace Schemas {
     export type WarehouseSavedQueryDraftsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**

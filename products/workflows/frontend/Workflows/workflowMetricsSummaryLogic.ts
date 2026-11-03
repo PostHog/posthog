@@ -318,7 +318,7 @@ export const WORKFLOW_EMAIL_METRICS: Record<
     message_frequency_capped: {
         name: 'Frequency capped',
         description:
-            'Total number of emails that were not sent because the person already got the most marketing messages the project allows in the cap window. The workflow moves on to the next step. Change the cap under Project settings > Workflows > Frequency cap.',
+            'Total number of emails that were not sent because the person already got the most marketing messages the project allows in the cap window. When the project holds capped emails, an email counts here only if no slot opened before the hold ended. The workflow moves on to the next step. Change the cap under Project settings > Workflows > Frequency cap.',
         color: METRIC_COLORS['Frequency capped'],
         metricNames: ['message_frequency_capped'],
     },
