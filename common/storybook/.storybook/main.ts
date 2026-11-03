@@ -80,10 +80,7 @@ const config: StorybookConfig = {
         options: {},
     },
 
-    // Storybook's highlight feature watches every DOM change of a story, and after each change it reads
-    // the computed style of every element. Automated runs (test runner, visual review) never show
-    // highlights, so they skip it. The feature checks this flag once, before it starts. People who open
-    // Storybook in a browser keep the feature.
+    // Automated runs skip the highlight feature, which scans every element after each DOM change.
     previewHead: (head) =>
         `${head}<script>if (navigator.webdriver) { window.__STORYBOOK_HIGHLIGHT_INITIALIZED = true }</script>`,
 
@@ -154,11 +151,7 @@ const config: StorybookConfig = {
                 },
             },
             build: {
-                // Vite's preload helper adds a <link> for every JS dependency of a dynamic import, and it
-                // searches all existing <link> elements before each one. A story loads hundreds of chunks,
-                // so this work grows with the square of the chunk count. Without JS preloading, the browser
-                // fetches the same chunks through the import graph, which costs little from a local or CI
-                // server. CSS dependencies still load through the helper.
+                // The preload helper's cost grows with the square of the chunk count.
                 modulePreload: false,
                 rollupOptions: {
                     onwarn(warning: Rollup.RollupLog, defaultHandler: (warning: Rollup.RollupLog) => void) {
