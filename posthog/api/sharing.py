@@ -536,40 +536,40 @@ class SharingConfigurationViewSet(
 
         check_can_access_sharing_configuration(self, request, instance)
 
+        if request.data.get("password_required", False):
+            if not self.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+                return response.Response(
+                    {"error": "Sharing with password requires the Access Control feature"}, status=403
+                )
+
+        # Publishing is the access decision for shared links (queries on the public page execute
+        # without warehouse access control), so gate the enable transition: the publisher must have
+        # access to everything the artifact queries, or sharing becomes an escalation channel.
+        denied_resources: list[str] = []
+        if (
+            request.data.get("enabled")
+            and self.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
+            and not self.user_access_control.is_organization_admin
+        ):
+            denied_resources = denied_resources_in_share(cast(User, request.user), self.team, instance)
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+
         with transaction.atomic():
             if context.get("recording"):
                 recording = cast(SessionRecording, context.get("recording"))
-                # Special case where we need to save the instance for recordings so that the actual record gets created
+                # Recordings may not have a persisted row until they are shared.
                 recording.save()
 
             instance.lock_resource()
             instance = self._get_sharing_configuration(context, dedupe=True)
-
-            if request.data.get("password_required", False):
-                if not self.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
-                    return response.Response(
-                        {"error": "Sharing with password requires the Access Control feature"}, status=403
-                    )
-
-            # Publishing is the access decision for shared links (queries on the public page execute
-            # without warehouse access control), so gate the enable transition: the publisher must have
-            # access to everything the artifact queries, or sharing becomes an escalation channel.
-            if (
-                request.data.get("enabled")
-                and not instance.enabled
-                and self.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
-                and not self.user_access_control.is_organization_admin
-            ):
-                denied_resources = denied_resources_in_share(cast(User, request.user), self.team, instance)
-                if denied_resources:
-                    denied_names = ", ".join(f"`{name}`" for name in denied_resources)
-                    raise ValidationError(
-                        f"Can't enable sharing: you don't have access to {denied_names}, "
-                        "which the shared queries use. Ask an admin for access, or remove those queries first."
-                    )
-
-            serializer = self.get_serializer(instance, data=request.data, partial=True)
-            serializer.is_valid(raise_exception=True)
+            if denied_resources and not instance.enabled:
+                denied_names = ", ".join(f"`{name}`" for name in denied_resources)
+                raise ValidationError(
+                    f"Can't enable sharing: you don't have access to {denied_names}, "
+                    "which the shared queries use. Ask an admin for access, or remove those queries first."
+                )
+            serializer.instance = instance
             was_enabled = instance.enabled
             serializer.save(**({"shared_by": request.user} if serializer.validated_data.get("enabled") else {}))
 
