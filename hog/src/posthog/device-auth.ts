@@ -1,5 +1,6 @@
 import type { PendingApproval, PollOutcome } from '@/core/approval'
 import { HogError } from '@/core/errors'
+import { escapeControls } from '@/core/output'
 import type { Runtime } from '@/core/runtime'
 
 import { HOG_CLIENT_ID, OAuthLogin, oauthPost, type TokenResponse } from './oauth'
@@ -85,6 +86,18 @@ export interface PendingLogin extends PendingApproval {
     scopes: string[]
 }
 
+// PostHog refuses a client it hasn't verified with `unauthorized_client`, and its description says why.
+function unauthorizedClient(host: string, body: { error?: string; error_description?: unknown }): HogError | undefined {
+    if (body.error !== 'unauthorized_client' || typeof body.error_description !== 'string') {
+        return undefined
+    }
+    return new HogError(
+        'login_unavailable',
+        `${host} won't log hog in: ${escapeControls(body.error_description)}`,
+        'Set HOG_PERSONAL_API_KEY and HOG_PROJECT_ID instead.'
+    )
+}
+
 interface DeviceAuthorizationResponse {
     device_code?: string
     user_code?: string
@@ -110,7 +123,11 @@ export async function startDeviceLogin(
             'Wait a minute, then run `hog auth login` again.'
         )
     }
-    const body = (response.json ?? {}) as DeviceAuthorizationResponse
+    const body = (response.json ?? {}) as DeviceAuthorizationResponse & { error?: string; error_description?: unknown }
+    const refused = unauthorizedClient(host, body)
+    if (refused) {
+        throw refused
+    }
     if (!response.ok || !body.device_code || !body.user_code || !body.verification_uri || !body.expires_in) {
         throw new HogError(
             'login_unavailable',
@@ -149,7 +166,7 @@ export async function pollDeviceLogin(
     if (response.status >= 500) {
         return { state: 'retry', reason: `PostHog answered with HTTP ${response.status}.` }
     }
-    const body = (response.json ?? {}) as TokenResponse & { error?: string }
+    const body = (response.json ?? {}) as TokenResponse & { error?: string; error_description?: unknown }
     if (response.ok) {
         const projectId = body.scoped_teams?.[0]
         if (projectId === undefined || !body.refresh_token) {
@@ -178,6 +195,10 @@ export async function pollDeviceLogin(
             return { state: 'rejected' }
         case 'expired_token':
             return { state: 'expired' }
+    }
+    const refused = unauthorizedClient(pending.host, body)
+    if (refused) {
+        throw refused
     }
     throw new HogError(
         'login_failed',

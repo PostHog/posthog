@@ -232,29 +232,38 @@ describe('hog auth login', () => {
         [
             'stops when the code expires and forgets it',
             { status: 400, body: { error: 'expired_token' } },
-            'login_expired',
+            { code: 'login_expired' },
             false,
         ],
         [
             'stops when the person denies it and forgets it',
             { status: 400, body: { error: 'access_denied' } },
-            'login_rejected',
+            { code: 'login_rejected' },
+            false,
+        ],
+        [
+            "stops with PostHog's reason when it refuses the client, and forgets it",
+            {
+                status: 400,
+                body: { error: 'unauthorized_client', error_description: "PostHog hasn't verified this app." },
+            },
+            { code: 'login_unavailable', message: expect.stringContaining("hasn't verified this app") },
             false,
         ],
         [
             'retries a server that keeps failing, then keeps the login to resume',
             { status: 503, body: 'Service Unavailable' },
-            'login_interrupted',
+            { code: 'login_interrupted' },
             true,
         ],
-    ])('--wait %s', async (_name, final, code, keepsPending) => {
+    ])('--wait %s', async (_name, final, expected, keepsPending) => {
         const result = await runHog(['auth', 'login', '--wait'], {
             env: { CLAUDECODE: '1' },
             files: { [PENDING_FILE]: PENDING },
             respond: deviceFlow(1, final),
         })
         expect(result.exitCode).toBe(1)
-        expect(result.error()).toMatchObject({ code })
+        expect(result.error()).toMatchObject(expected)
         expect(result.files[PENDING_FILE] !== undefined).toBe(keepsPending)
         expect(result.keychain).toEqual({})
     })
@@ -294,7 +303,7 @@ describe('hog auth login', () => {
         })
 
         expect(result.exitCode).toBe(1)
-        expect(result.stderr).toContain('PostHog rejected the personal API key')
+        expect(result.stderr).toContain('https://ph.example.com rejected the personal API key')
         expect(result.keychain).toEqual({})
     })
 
