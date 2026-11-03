@@ -60,6 +60,8 @@ jobs:
                   fetch-depth: 1
                   sparse-checkout: |
                       /.github/
+                      /bin/find-affected-stories
+                      /bin/find-affected-stories.test.mjs
                       /bin/render-jest-timings-example
                       /bin/report-jest-timings
                       /.depot/
