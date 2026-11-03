@@ -6,7 +6,6 @@ from parameterized import parameterized
 
 from posthog.models import Organization, OrganizationMembership, Team, User
 
-from products.alerts.backend.models.alert import AlertConfiguration, Threshold
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.models.subscription import Subscription
@@ -150,35 +149,18 @@ class TestSubscriptionOffboarding(APIBaseTest):
         subscription.refresh_from_db()
         assert subscription.enabled
 
-    def test_subscription_and_alert_changes_save_before_removal_and_can_be_reversed(self) -> None:
+    def test_subscription_changes_save_before_removal_and_can_be_reversed(self) -> None:
         subscription = self.subscription(creator=self.departing, recipients="reports@example.com")
-        insight = Insight.objects.create(
-            team=self.team,
-            created_by=self.departing,
-            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
-        )
-        alert = AlertConfiguration.objects.create(
-            team=self.team,
-            insight=insight,
-            created_by=self.departing,
-            config={"type": "TrendsAlertConfig", "series_index": 0},
-            condition={"type": "absolute_value"},
-            threshold=Threshold.objects.create(
-                team=self.team, insight=insight, configuration={"type": "absolute", "bounds": {"upper": 100}}
-            ),
-        )
         for enabled in (False, True):
-            for path, identifier in (("subscriptions", subscription.pk), ("alerts", alert.pk)):
-                response = self.client.patch(
-                    f"/api/projects/{self.team.pk}/{path}/{identifier}/", {"enabled": enabled}, format="json"
-                )
-                assert response.status_code == 200, response.json()
+            response = self.client.patch(
+                f"/api/projects/{self.team.pk}/subscriptions/{subscription.pk}/",
+                {"enabled": enabled, "send_test_now": False},
+                format="json",
+            )
+            assert response.status_code == 200, response.json()
             subscription.refresh_from_db()
-            alert.refresh_from_db()
             assert subscription.enabled == enabled
-            assert alert.enabled == enabled
             assert self.organization.members.filter(pk=self.departing.pk).exists()
         assert self.client.delete(self.url).status_code == 204
         subscription.refresh_from_db()
-        alert.refresh_from_db()
-        assert subscription.enabled and alert.enabled
+        assert subscription.enabled

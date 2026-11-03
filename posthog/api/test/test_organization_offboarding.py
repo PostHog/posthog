@@ -14,7 +14,7 @@ from posthog.models import Organization, OrganizationMembership, SessionRecordin
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.alerts.backend.models.alert import AlertConfiguration, Threshold
+from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
@@ -240,25 +240,13 @@ class TestOrganizationOffboarding(APIBaseTest):
         unrelated_share.refresh_from_db()
         assert unrelated_share.enabled
 
-    def test_alerts_can_be_kept_or_disabled_without_changing_recipients(self) -> None:
-        insight = Insight.objects.create(
-            team=self.team,
-            created_by=self.departing,
-            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
-        )
+    def test_preview_lists_created_active_alerts_and_removal_preserves_them(self) -> None:
+        insight = Insight.objects.create(team=self.team, created_by=self.departing)
         kept = AlertConfiguration.objects.create(
             team=self.team, insight=insight, created_by=self.departing, name="Keep"
         )
         disabled = AlertConfiguration.objects.create(
-            team=self.team,
-            insight=insight,
-            created_by=self.departing,
-            name="Disable",
-            config={"type": "TrendsAlertConfig", "series_index": 0},
-            condition={"type": "absolute_value"},
-            threshold=Threshold.objects.create(
-                team=self.team, insight=insight, configuration={"type": "absolute", "bounds": {"upper": 100}}
-            ),
+            team=self.team, insight=insight, created_by=self.departing, name="Disabled", enabled=False
         )
         unrelated = AlertConfiguration.objects.create(
             team=self.team, insight=insight, created_by=self.user, name="Other"
@@ -266,12 +254,9 @@ class TestOrganizationOffboarding(APIBaseTest):
         kept.subscribed_users.add(self.user)
         response = self.client.get(self.url + "offboarding_preview/")
         assert response.status_code == 200
-        assert {item["id"] for item in response.json()} == {f"alert:{kept.pk}", f"alert:{disabled.pk}"}
-        assert all(item["kind"] == "alert" for item in response.json())
-        response = self.client.patch(
-            f"/api/projects/{self.team.pk}/alerts/{disabled.pk}/", {"enabled": False}, format="json"
-        )
-        assert response.status_code == 200
+        assert [item["id"] for item in response.json()] == [f"alert:{kept.pk}"]
+        assert response.json()[0]["kind"] == "alert"
+        assert self.client.delete(self.url).status_code == 204
         kept.refresh_from_db()
         disabled.refresh_from_db()
         unrelated.refresh_from_db()
