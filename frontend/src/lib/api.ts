@@ -130,6 +130,7 @@ import {
     ExternalDataSourceRevenueAnalyticsConfig,
     ExternalDataSourceSchema,
     ExternalDataSourceSyncSchema,
+    type ExternalDataSourceType,
     FeatureFlagType,
     FileSystemDeleteResponse,
     GoogleAdsConversionActionType,
@@ -242,10 +243,7 @@ import type {
     TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi,
     TaskRunCreateRequestSchemaApi,
 } from 'products/tasks/frontend/generated/api.schemas'
-import type {
-    ExternalDataSourceTypeEnumApi,
-    SourceConfigMapResponseApi,
-} from 'products/warehouse_sources/frontend/generated/api.schemas'
+import type { SourceConfigMapResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 import type { HogFlowPublishResponseApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 import type { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
@@ -3762,22 +3760,24 @@ const api = {
                 insightId,
                 recordingId,
                 notebookShortId,
+                teamId,
             }: {
                 dashboardId?: DashboardType['id']
                 insightId?: InsightModel['id']
                 recordingId?: SessionRecordingType['id']
                 notebookShortId?: NotebookType['short_id']
+                teamId?: TeamType['id']
             },
             data: Partial<SharingConfigurationType>
         ): Promise<SharingConfigurationType | null> {
             return dashboardId
-                ? new ApiRequest().dashboardSharing(dashboardId).update({ data })
+                ? new ApiRequest().dashboardSharing(dashboardId, teamId).update({ data })
                 : insightId
-                  ? new ApiRequest().insightSharing(insightId).update({ data })
+                  ? new ApiRequest().insightSharing(insightId, teamId).update({ data })
                   : recordingId
-                    ? new ApiRequest().recordingSharing(recordingId).update({ data })
+                    ? new ApiRequest().recordingSharing(recordingId, teamId).update({ data })
                     : notebookShortId
-                      ? new ApiRequest().notebookSharing(notebookShortId).update({ data })
+                      ? new ApiRequest().notebookSharing(notebookShortId, teamId).update({ data })
                       : null
         },
 
@@ -5686,7 +5686,7 @@ const api = {
             return await new ApiRequest().externalDataSource(sourceId).update({ data })
         },
         async database_schema(
-            source_type: ExternalDataSourceTypeEnumApi,
+            source_type: ExternalDataSourceType,
             payload: Record<string, any>
         ): Promise<ExternalDataSourceSyncSchema[]> {
             return await new ApiRequest()
@@ -5698,7 +5698,7 @@ const api = {
             return await new ApiRequest().externalDataSources().withAction('wizard').get()
         },
         async source_prefix(
-            source_type: ExternalDataSourceTypeEnumApi,
+            source_type: ExternalDataSourceType,
             prefix: string
         ): Promise<ExternalDataSourceSyncSchema[]> {
             return await new ApiRequest()
@@ -5708,7 +5708,7 @@ const api = {
         },
         async check_cdc_prerequisites(
             payload: {
-                source_type: ExternalDataSourceTypeEnumApi
+                source_type: ExternalDataSourceType
                 cdc_management_mode: 'posthog' | 'self_managed'
                 tables?: string[]
                 cdc_slot_name?: string | null

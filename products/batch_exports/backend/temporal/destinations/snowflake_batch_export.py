@@ -83,6 +83,7 @@ class NamedBytesIO(io.BytesIO):
 CONNECTION_SEMAPHORE = asyncio.Semaphore(value=1)
 
 NON_RETRYABLE_ERROR_TYPES = (
+    "UnsupportedColumnTypeError",
     # Raised when we cannot connect to Snowflake.
     "DatabaseError",
     # Raised by Snowflake when a query cannot be compiled.
