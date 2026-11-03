@@ -2,6 +2,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from uuid import UUID, uuid4
 
+import time_machine
 from unittest.mock import patch
 
 from django.db import DatabaseError, IntegrityError, connection, transaction
@@ -55,6 +56,7 @@ from products.ai_observability.backend.offline_evaluation_types import (
 )
 
 
+@time_machine.travel("2026-11-03T12:00:00Z", tick=False)
 class TestDatasetRetention(TestCase):
     team: Team
 
@@ -633,6 +635,7 @@ class TestDatasetRetentionConcurrency(TransactionTestCase):
         self.assertIsNotNone(self.dataset.expired_at)
 
 
+@time_machine.travel("2026-11-03T12:00:00Z", tick=False)
 class TestDatasetRetentionMigration(TransactionTestCase):
     def test_existing_content_receives_a_full_retention_period(self) -> None:
         _, _, team = Organization.objects.bootstrap(None)

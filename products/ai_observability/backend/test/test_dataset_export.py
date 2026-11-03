@@ -1,5 +1,6 @@
 import json
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -207,6 +208,7 @@ class TestDatasetExport(APIBaseTest):
         self.assertFalse(asset.has_content)
 
     @parameterized.expand([("expired", 1), ("missing", 2)])
+    @time_machine.travel("2026-11-03T12:00:00Z", tick=False)
     @patch("products.ai_observability.backend.dataset_export.posthog_feature_flag_value", return_value=True)
     def test_export_rejects_unavailable_revisions(self, _name: str, revision: int, _feature_flag: object) -> None:
         dataset, _result = self._create_dataset_and_item()
