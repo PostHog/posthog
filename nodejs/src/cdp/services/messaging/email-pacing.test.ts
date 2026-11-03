@@ -1,11 +1,14 @@
 import { createExampleInvocation } from '~/cdp/_tests/fixtures'
 
+import type { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import type { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import {
+    TeamSendingCap,
     WorkflowPacing,
     parseWorkflowEmailRateLimit,
     pickReservedRetryDelayMs,
     pickTokenBucketRetryDelayMs,
+    teamEmailCapBuckets,
 } from './email-pacing'
 
 describe('email pacing policies', () => {
@@ -30,6 +33,27 @@ describe('email pacing policies', () => {
         ])('ignores an absent or unusable rate limit %j', (value) => {
             expect(parseWorkflowEmailRateLimit({ email_sending_rate_limit: value })).toBeNull()
         })
+    })
+
+    it('builds hourly and daily buckets in one team hash slot with TTLs beyond their refill periods', () => {
+        expect(teamEmailCapBuckets(42, 3600, 43200)).toEqual([
+            {
+                name: 'hour',
+                key: '@posthog/team-email-rate-hour/{42}',
+                capacity: 3600,
+                refillPerSecond: 1,
+                ttlSeconds: 21600,
+                label: '3,600 emails per hour',
+            },
+            {
+                name: 'day',
+                key: '@posthog/team-email-rate-day/{42}',
+                capacity: 43200,
+                refillPerSecond: 0.5,
+                ttlSeconds: 259200,
+                label: '43,200 emails per day',
+            },
+        ])
     })
 
     describe('retry delays', () => {
@@ -98,6 +122,54 @@ describe('email pacing policies', () => {
         it('never claims for a test send', async () => {
             expect(await pacing.claim(invocation, true)).toBeNull()
             expect(limiter.claimOrReserve).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('TeamSendingCap.claim', () => {
+        const limiter = { claimAllOrNothingPair: jest.fn() }
+        const tiers = { getEmailSendingTier: jest.fn() }
+        const invocation = createExampleInvocation({ team_id: 7 })
+        const enforce = new TeamSendingCap(
+            limiter as unknown as RateLimiterService,
+            tiers as unknown as TeamWorkflowsConfigService,
+            { teamEmailCapMode: 'enforce', teamEmailTierHourlyCaps: [5, 50], teamEmailTierDailyCaps: [20, 200] }
+        )
+
+        beforeEach(() => {
+            limiter.claimAllOrNothingPair.mockReset()
+            tiers.getEmailSendingTier.mockReset().mockResolvedValue(0)
+        })
+
+        it.each([
+            ['a tier above the table', 9, 50, 200],
+            ['a negative tier', -1, 5, 20],
+        ])('caps %s at the nearest tier in the table', async (_name, tier, hourly, daily) => {
+            tiers.getEmailSendingTier.mockResolvedValue(tier)
+            limiter.claimAllOrNothingPair.mockResolvedValue({
+                granted: true,
+                deniedIndex: null,
+                retryAfterMs: null,
+                reserved: false,
+            })
+
+            expect(await enforce.claim(invocation, false)).toBeNull()
+            const [buckets] = limiter.claimAllOrNothingPair.mock.calls[0]
+            expect(buckets.map((bucket: { capacity: number }) => bucket.capacity)).toEqual([hourly, daily])
+        })
+
+        it('parks a send the daily bucket denies and names the daily cap', async () => {
+            limiter.claimAllOrNothingPair.mockResolvedValue({
+                granted: false,
+                deniedIndex: 1,
+                retryAfterMs: 4000,
+                reserved: true,
+            })
+
+            expect(await enforce.claim(invocation, false)).toEqual({
+                retryDelayMs: 4000,
+                logMessage:
+                    'This project reached its email sending limit of 20 emails per day. Retrying this email in 4s. The limit rises as the project builds a clean sending history.',
+            })
         })
     })
 })
