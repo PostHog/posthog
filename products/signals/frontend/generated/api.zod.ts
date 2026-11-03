@@ -720,7 +720,7 @@ export const SignalsReportsActionsRunCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Start or update work for the current user, internal task, or external agent. Supply claim_id to resume, pull_requests to add PRs, takeover=true to explicitly take ownership, or release=true to end ownership while preserving work history and PR links.
+ * Start or update work for the current user, internal task, or external agent. Supply claim_id to resume, pull_requests to add PRs, takeover=true to explicitly take ownership, or release=true to end ownership while preserving work history and PR links. Adding PRs needs task:write as well as inbox:write.
  * @summary Claim or release a signal report
  */
 export const signalsReportsClaimBodyPullRequestsItemMax = 2048
