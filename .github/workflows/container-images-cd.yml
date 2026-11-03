@@ -26,7 +26,7 @@ on:
             - 'rust/**'
             - 'livestream/**'
     # Break-glass: a manual dispatch must run from master. The ECR publish role
-    # (AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE) is OIDC-trusted only for
+    # (AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE) is OIDC-trusted only for
     # refs/heads/master, so a dispatch from any other branch is denied at
     # AssumeRoleWithWebIdentity — deliberate, so prod images only ship from master.
     # When GitHub Actions itself is down, build through Depot CI instead:
