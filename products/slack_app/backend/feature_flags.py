@@ -49,6 +49,7 @@ logger = structlog.get_logger(__name__)
 SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
 SLACK_APP_FORKING_FLAG = "slack-app-forking"
 SLACK_APP_BYOS_FLAG = "slack-app-byos"
+SLACK_APP_UNPROMPTED_THREAD_ANSWERS_FLAG = "slack-app-unprompted-thread-answers"
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -151,6 +152,19 @@ def is_slack_app_byos_enabled(
         integration,
         failure_log_key="slack_app_byos_feature_flag_check_failed",
         distinct_id=distinct_id,
+    )
+
+
+def is_slack_app_unprompted_thread_answers_enabled(integration: IntegrationRecord) -> bool:
+    """Gate for answering thread replies nobody tagged the app in, in threads the app is not part of.
+
+    Top-level posts need no flag. Keyed on the workspace, not the author, because the webhook
+    checks it before it resolves who wrote the message. Roll it out with an organization condition.
+    """
+    return _workspace_flag_enabled(
+        SLACK_APP_UNPROMPTED_THREAD_ANSWERS_FLAG,
+        integration,
+        failure_log_key="slack_app_unprompted_thread_answers_feature_flag_check_failed",
     )
 
 
