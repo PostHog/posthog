@@ -11,7 +11,7 @@ import { radii, type } from '@/ui/tokens'
 export function AiIncidentNotice({ incident }: { incident: NonNullable<PostHogStatus['aiIncident']> }): ReactElement {
     const styles = useStyles()
     const colors = useColors()
-    const label = `PostHog AI incident · ${incident.title}`
+    const label = `PostHog AI incident (${incident.status}) · ${incident.title}`
     return (
         <Pressable44
             accessibilityRole="link"

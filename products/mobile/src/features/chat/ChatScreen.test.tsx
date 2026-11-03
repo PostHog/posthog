@@ -23,7 +23,11 @@ jest.mock('@/features/status/usePostHogStatus', () => ({
     usePostHogStatus: () => ({
         pageUrl: 'https://www.posthogstatus.com/eu',
         summary: 'Elevated latency',
-        aiIncident: { title: 'Elevated latency', url: 'https://www.posthogstatus.com/incidents/example' },
+        aiIncident: {
+            status: 'monitoring',
+            title: 'Elevated latency',
+            url: 'https://www.posthogstatus.com/incidents/example',
+        },
     }),
 }))
 jest.mock('@/auth/useProjectScope', () => ({ useProjectScope: () => ({ host: 'https://example.com', projectId: 1 }) }))
@@ -93,7 +97,7 @@ test.each([null, 'task-1'])('shows the regional AI incident for chat %s', (taskI
     const { session } = mockReadyChat()
     session.taskId = taskId
     render(<ChatScreen source={{ entry: 'compose', origin: null }} onBack={jest.fn()} />)
-    expect(screen.getByRole('link', { name: 'PostHog AI incident · Elevated latency' })).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'PostHog AI incident (monitoring) · Elevated latency' })).toBeTruthy()
 })
 
 describe('chat send preparation', () => {

@@ -24,7 +24,11 @@ jest.mock('@/features/status/usePostHogStatus', () => ({
     usePostHogStatus: () => ({
         pageUrl: 'https://www.posthogstatus.com/eu',
         summary: 'Elevated latency',
-        aiIncident: { title: 'Elevated latency', url: 'https://www.posthogstatus.com/incidents/example' },
+        aiIncident: {
+            status: 'monitoring',
+            title: 'Elevated latency',
+            url: 'https://www.posthogstatus.com/incidents/example',
+        },
     }),
 }))
 jest.mock('@/auth/useProjectScope', () => ({ useProjectScope: () => null }))

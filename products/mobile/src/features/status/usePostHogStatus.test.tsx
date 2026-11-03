@@ -8,18 +8,25 @@ import { regionalStatus, usePostHogStatus } from './usePostHogStatus'
 
 jest.mock('@/demo/demoMode', () => ({ useDataMode: jest.fn(() => 'live') }))
 
-const euAI = { name: 'PostHog AI', group_name: 'EU Cloud 🇪🇺' }
-const usAPI = { name: 'API', group_name: 'US Cloud 🇺🇸' }
-const incident = { id: 'incident-123', name: 'Elevated error rate', affected_components: [euAI, usAPI] }
+const euAI = { current_status: 'degraded_performance' as const, name: 'PostHog AI', group_name: 'EU Cloud 🇪🇺' }
+const usAPI = { current_status: 'degraded_performance' as const, name: 'API', group_name: 'US Cloud 🇺🇸' }
+const incident = {
+    current_worst_impact: 'degraded_performance' as const,
+    status: 'investigating' as const,
+    id: 'incident-123',
+    name: 'Elevated error rate',
+    affected_components: [euAI, usAPI],
+}
 const summary = { ongoing_incidents: [incident], in_progress_maintenances: [] }
 
 test('shows a cross-region incident in both menus but only in the affected AI chat', () => {
     expect(regionalStatus(summary, 'us')).toEqual({
         pageUrl: 'https://www.posthogstatus.com/us',
-        summary: incident.name,
+        summary: `Degraded performance · ${incident.name}`,
     })
     expect(regionalStatus(summary, 'eu').aiIncident).toEqual({
         title: incident.name,
+        status: incident.status,
         url: 'https://www.posthogstatus.com/incidents/incident-123',
     })
 })
@@ -28,11 +35,11 @@ test('global incidents and maintenance appear in the menu without implying AI is
     const global = { ...incident, affected_components: [] }
     const maintenance = { name: 'Database maintenance', affected_components: [euAI] }
     const events = { ongoing_incidents: [global], in_progress_maintenances: [maintenance] }
-    expect(regionalStatus(events, 'us').summary).toBe(global.name)
+    expect(regionalStatus(events, 'us').summary).toBe(`Degraded performance · ${global.name}`)
     expect(regionalStatus(events, 'eu').aiIncident).toBeUndefined()
     const resolved = { ...events, ongoing_incidents: [] }
     expect(regionalStatus(resolved, 'us').summary).toBeUndefined()
-    expect(regionalStatus(resolved, 'eu').summary).toBe(maintenance.name)
+    expect(regionalStatus(resolved, 'eu').summary).toBe(`Maintenance in progress · ${maintenance.name}`)
     expect(regionalStatus(resolved, 'eu').aiIncident).toBeUndefined()
 })
 
@@ -64,4 +71,23 @@ test('clears a resolved AI incident and skips status requests in demo and self-h
         fetchStatus.mockRestore()
         jest.mocked(useDataMode).mockReturnValue('live')
     }
+})
+
+test('ranks the regional outage separately from the AI component and updates as incidents change', () => {
+    const partial = {
+        ...incident,
+        id: 'partial',
+        name: 'AI requests failing',
+        current_worst_impact: 'partial_outage' as const,
+        affected_components: [{ ...euAI, current_status: 'partial_outage' as const }],
+    }
+    const major = { ...incident, id: 'major', name: 'API unavailable', current_worst_impact: 'full_outage' as const }
+    const events = { ...summary, ongoing_incidents: [incident, partial, major] }
+    expect(regionalStatus(events, 'eu').summary).toBe('Major outage (3 incidents) · API unavailable')
+    expect(regionalStatus(events, 'eu').aiIncident?.title).toBe(partial.name)
+    const monitoring = { ...partial, status: 'monitoring' as const }
+    const remaining = { ...summary, ongoing_incidents: [monitoring] }
+    expect(regionalStatus(remaining, 'eu').summary).toBe('Partial outage · AI requests failing')
+    expect(regionalStatus(remaining, 'eu').aiIncident?.status).toBe('monitoring')
+    expect(regionalStatus(remaining, 'us').summary).toBeUndefined()
 })

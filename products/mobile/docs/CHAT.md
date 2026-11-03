@@ -8,8 +8,8 @@ configured default page for a direct link. The title-free header uses the shared
 New chat and the ellipsis share the Inbox's pill control. The composer clears the keyboard and safe area.
 
 An active incident affecting PostHog AI in the selected cloud region appears below the header in new and existing chats.
-Tap the notice to read the incident update. For other services, open **PostHog status** below the project name in the
-main tabs’ ellipsis menu. An indicator on that menu signals a regional incident or in-progress maintenance.
+The notice shows the published incident title and phase. Tap it to read the update. For other services, open **PostHog status** below the project name in the
+main tabs’ ellipsis menu. An indicator on that menu signals a regional incident or in-progress maintenance. The menu shows the highest current impact and the number of concurrent incidents. A healthy region shows the status link alone.
 
 The ellipsis menu offers **Copy link to chat** and **Archive chat**. Copy uses the current project's
 web URL. Archive returns to the previous page after success and keeps the chat open for retry on failure.
