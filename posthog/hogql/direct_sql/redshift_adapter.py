@@ -1,7 +1,6 @@
 from typing import TYPE_CHECKING, cast
 
 import psycopg
-import sqlparse
 from opentelemetry import trace
 from sqlparse import tokens as sqlparse_tokens
 from sshtunnel import BaseSSHTunnelForwarderError
@@ -11,7 +10,7 @@ from posthog.hogql.direct_query_metrics import DIRECT_QUERY_ROW_CAP_EXCEEDED_TOT
 from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult, parse_direct_source_config
 from posthog.hogql.direct_sql.capability import is_direct_capable
 from posthog.hogql.direct_sql.pgwire import postgres_error_to_message, postgres_oid_to_clickhouse_type
-from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
+from posthog.hogql.direct_sql.raw_sql import parse_direct_statements
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.escape_sql import escape_postgres_identifier
 
@@ -81,8 +80,7 @@ def ensure_read_only_raw_redshift_statement(sql: str) -> str:
     so a literal or alias like ``'DELETE'`` or a quoted column ``"pg_cancel_backend"`` is
     unaffected.
     """
-    sql = ensure_single_direct_statement(sql)
-    statements = [statement for statement in sqlparse.parse(sql) if str(statement).strip(" \t\r\n;")]
+    statements = parse_direct_statements(sql, dialect="redshift")
     if len(statements) != 1 or statements[0].get_type() != "SELECT":
         raise ExposedHogQLError(RAW_REDSHIFT_READ_ONLY_ERROR)
     for token in statements[0].flatten():
