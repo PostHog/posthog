@@ -347,6 +347,16 @@ describe('UrlFetchConsumer', () => {
         await harness.consumer.handleBatch([message([stored, fresh])], NOW_MS)
 
         expect(harness.run.mock.calls[0][0]).toEqual([{ ...fresh, sourcePartitions: [0] }])
+        expect(harness.topHogRecords.get('ai_research_v4_image_fetch_filtered_urls_by_registrable_domain')).toEqual([
+            {
+                key: { registrable_domain: 'example.com', stage: 'store_deduped', pass: 'first', partition: '0' },
+                value: 1,
+            },
+            {
+                key: { registrable_domain: 'example.com', stage: 'fetchable', pass: 'first', partition: '0' },
+                value: 1,
+            },
+        ])
     })
 
     it('republishes a job that arrives before its durable not-before time', async () => {
@@ -354,11 +364,18 @@ describe('UrlFetchConsumer', () => {
         const early = candidate('a', {
             notBeforeMs: NOW_MS + 30_000,
             lastBlockReason: 'configuration_unreachable',
+            republishCount: 1,
         })
 
         await harness.consumer.handleBatch([message([early])], NOW_MS)
 
         expect(harness.run.mock.calls[0][0]).toEqual([])
+        expect(harness.topHogRecords.get('ai_research_v4_image_fetch_filtered_urls_by_registrable_domain')).toEqual([
+            {
+                key: { registrable_domain: 'example.com', stage: 'not_ready', pass: 'republished', partition: '0' },
+                value: 1,
+            },
+        ])
         expect(harness.republish).toHaveBeenCalledWith(
             { ...early, sourcePartitions: [0], lastBlockReason: 'configuration_unreachable' },
             {
