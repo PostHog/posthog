@@ -327,9 +327,9 @@ fn decoded(bytes: &[u8], (start, end): (usize, usize)) -> String {
     text
 }
 
-/// Calls `on_match` with each match of `patterns` in a JSON string read through its escapes, and the span of the bytes
-/// that spell it. Only a string that holds a CSS escape is read, because a match in any other string has no other
-/// spelling.
+/// Calls `on_match` with each match of `patterns` in a JSON string read through its escapes and with each backslash read
+/// as a slash, and the span of the bytes that spell it. Only a string that holds a CSS escape is read, because a match
+/// in any other string has no other spelling.
 pub fn for_each_escaped_match(
     patterns: &AhoCorasick,
     bytes: &[u8],
@@ -349,7 +349,11 @@ pub fn for_each_escaped_match(
         if css_escape {
             let decoded = |position: usize| {
                 let next = unit(bytes, position);
-                let character = char::from_u32(next.ch).unwrap_or(char::REPLACEMENT_CHARACTER);
+                let character = match char::from_u32(next.ch) {
+                    Some('\\') => '/',
+                    Some(character) => character,
+                    None => char::REPLACEMENT_CHARACTER,
+                };
                 (character, next.len)
             };
             let mut text = String::new();

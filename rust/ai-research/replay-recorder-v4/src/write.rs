@@ -940,6 +940,14 @@ mod tests {
                 signed,
                 ".a-\\[https\\3a //bucket\\2e\r\ns3\\.amazonaws\\.com/avatar\\.png\\?X-Amz-Signature\\=abc123\\]",
             ),
+            (
+                signed,
+                r#".a::after{content:"https:\\bucket.s3.amazonaws.com\\avatar.png?X-Amz-Signature=abc123"} .b"#,
+            ),
+            (
+                "https:bucket.s3.amazonaws.com/avatar.png?X-Amz-Signature=abc123",
+                r".a-\[https\:bucket\.s3\.amazonaws\.com\/avatar\.png\?X-Amz-Signature\=abc123\]",
+            ),
         ] {
             let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 8, "id": 3,
                 "replaceSync": format!("{before}{{background:url({url})}}")}}])
@@ -950,6 +958,20 @@ mod tests {
                 "{before}: {lines}"
             );
         }
+        let quoted = format!("{signed}#\"");
+        let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
+            "attributes": [{"id": 99, "attributes": {"src": quoted, "alt": quoted.replace("https:", "HTTPS:")}}]}}])
+        .to_string();
+        let lines = stored_lines(&events, &[]);
+        assert!(
+            !lines.is_empty() && !lines.contains("X-Amz-Signature"),
+            "{lines}"
+        );
+        // A declined URL as short as a marker's text does not match the marker, so the block is kept.
+        let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
+            "attributes": [{"id": 99, "attributes": {"src": "https://v4"}}]}}])
+        .to_string();
+        assert!(stored_lines(&events, &[]).contains("imageurl:v4:declined:"));
         // A declined URL that a longer URL also holds is overwritten there too, and the block is kept.
         let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
             "attributes": [{"id": 99, "attributes": {"src": signed, "alt": format!("{signed}&size=2")}}]}}])

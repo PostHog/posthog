@@ -122,19 +122,34 @@ impl EscapedMatchers {
 
 /// Finds a declined URL in a spelling the rewrite cannot replace, such as with CSS hex escapes, so it fails the block.
 struct DeclinedSpellings {
-    /// Each URL from its host on, so that a copy with another scheme or none also matches.
+    /// Each URL from the slash before its host, so that a copy with another scheme or none also matches, with its
+    /// backslashes read as slashes, as a browser reads them.
     urls: AhoCorasick,
+    /// The same parts of the URLs as JSON writes them, to search the stored bytes.
+    json_urls: AhoCorasick,
     targets: Vec<usize>,
     /// The two spellings each URL has where `replace_urls` and `replace_escaped_urls` look for it, with the length of
-    /// the part before its host.
+    /// the part before the slash before its host.
     replaced: Vec<[(Vec<u8>, usize); 2]>,
 }
 
-fn host_start(url: &str) -> usize {
-    url.find("//")
-        .map(|slashes| slashes + 2)
-        .filter(|&start| start < url.len())
+/// A marker such as `imageurl:v4:declined:unchecked` holds no slash, so a declined URL with a short host, such as
+/// `https://v4`, does not match the marker that replaced it.
+fn slash_before_host(url: &str) -> usize {
+    url.replace('\\', "/")
+        .find("//")
+        .map(|slashes| slashes + 1)
+        .filter(|&slash| slash + 1 < url.len())
         .unwrap_or(0)
+}
+
+fn declined_matcher<P: AsRef<[u8]>>(patterns: impl IntoIterator<Item = P>) -> Option<AhoCorasick> {
+    AhoCorasick::builder()
+        .kind(Some(AhoCorasickKind::ContiguousNFA))
+        .ascii_case_insensitive(true)
+        .match_kind(MatchKind::LeftmostLongest)
+        .build(patterns)
+        .ok()
 }
 
 impl DeclinedSpellings {
@@ -142,38 +157,38 @@ impl DeclinedSpellings {
         let declined: Vec<usize> = (0..targets.len())
             .filter(|&index| targets[index].declined.is_some())
             .collect();
-        let urls = (!declined.is_empty())
-            .then(|| {
-                AhoCorasick::builder()
-                    .kind(Some(AhoCorasickKind::ContiguousNFA))
-                    .ascii_case_insensitive(true)
-                    .match_kind(MatchKind::LeftmostLongest)
-                    .build(declined.iter().map(|&index| {
-                        let url = &targets[index].url;
-                        &url[host_start(url)..]
-                    }))
-                    .ok()
+        if declined.is_empty() {
+            return None;
+        }
+        let tails: Vec<&str> = declined
+            .iter()
+            .map(|&index| {
+                let url = &targets[index].url;
+                &url[slash_before_host(url)..]
             })
-            .flatten()?;
+            .collect();
+        let urls = declined_matcher(tails.iter().map(|tail| tail.replace('\\', "/")))?;
+        let json_urls = declined_matcher(tails.iter().map(|tail| json_string_contents(tail)))?;
         let replaced = declined
             .iter()
             .map(|&index| {
                 let url = &targets[index].url;
-                let before_host = &url[..host_start(url)];
+                let before = &url[..slash_before_host(url)];
                 [
                     (
                         json_string_contents(url),
-                        json_string_contents(before_host).len(),
+                        json_string_contents(before).len(),
                     ),
                     (
                         json_string_contents(&escape_in_identifier(url)),
-                        json_string_contents(&escape_in_identifier(before_host)).len(),
+                        json_string_contents(&escape_in_identifier(before)).len(),
                     ),
                 ]
             })
             .collect();
         Some(Self {
             urls,
+            json_urls,
             targets: declined,
             replaced,
         })
@@ -648,7 +663,8 @@ impl UrlRewrite {
         };
         let rewritten = then_stage!(rebuilt, self.rewrite_css);
         let replaced = then_stage!(rewritten, self.replace_urls);
-        let replaced = if holds_escaped_url(&self.escaped_url_starts, replaced.as_ref()) {
+        let escaped_pass_ran = holds_escaped_url(&self.escaped_url_starts, replaced.as_ref());
+        let replaced = if escaped_pass_ran {
             then_stage!(replaced, self.replace_escaped_urls)
         } else {
             replaced
@@ -660,20 +676,22 @@ impl UrlRewrite {
             self.scrubbed += count;
             Cow::Owned(scrubbed.into_owned())
         };
-        self.note_respelled_declined(&out);
+        self.note_respelled_declined(&out, escaped_pass_ran);
         out
     }
 
-    fn note_respelled_declined(&mut self, bytes: &[u8]) {
+    /// A copy in a spelling that a pass replaces and that stayed is `declined_kept`, so it is left out here. The
+    /// selector spelling counts only when `replace_escaped_urls` ran on these bytes.
+    fn note_respelled_declined(&mut self, bytes: &[u8], escaped_pass_ran: bool) {
         let Some(spellings) = &self.declined_spellings else {
             return;
         };
         let mut note = |pattern: usize, (start, _): (usize, usize)| {
-            let replaced = spellings.replaced[pattern]
+            let replaced = spellings.replaced[pattern][..1 + usize::from(escaped_pass_ran)]
                 .iter()
-                .any(|(spelling, before_host)| {
+                .any(|(spelling, before)| {
                     start
-                        .checked_sub(*before_host)
+                        .checked_sub(*before)
                         .and_then(|from| bytes.get(from..from + spelling.len()))
                         == Some(&spelling[..])
                 });
@@ -681,7 +699,7 @@ impl UrlRewrite {
                 self.declined_respelled.insert(spellings.targets[pattern]);
             }
         };
-        for found in spellings.urls.find_iter(bytes) {
+        for found in spellings.json_urls.find_iter(bytes) {
             note(found.pattern().as_usize(), (found.start(), found.end()));
         }
         if self.css_escape.is_match(bytes) {
