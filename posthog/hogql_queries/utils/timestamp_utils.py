@@ -22,6 +22,8 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import StringDatabaseField
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.property import action_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -46,15 +48,23 @@ UNFILTERED_EARLIEST_TIMESTAMP_FLOOR = datetime.fromisoformat("2015-01-01T00:00:0
 
 def _get_data_warehouse_earliest_timestamp_query(
     node: Union[DataWarehouseNode, FunnelsDataWarehouseNode, LifecycleDataWarehouseNode],
+    database: Database,
 ) -> SelectQuery:
     """
     Get the select query for the earliest timestamp from a DataWarehouseNode.
 
     :param node: The DataWarehouseNode
+    :param database: The HogQL database the query runs against, used to read the timestamp field's type
     :return: A SelectQuery object that retrieves the earliest timestamp from the specified data warehouse table.
     """
+    timestamp: ast.Expr = ast.Field(chain=[node.timestamp_field])
+    # Insights compare a String timestamp column as parsed dates. min() on the raw String sorts it as
+    # text, so for a format like MM/DD/YYYY it returns a later date and "All time" drops older rows.
+    # Other types keep their native min, because toDateTime cuts a DateTime64 to whole seconds.
+    if isinstance(database.get_table(node.table_name).fields.get(node.timestamp_field), StringDatabaseField):
+        timestamp = ast.Call(name="toDateTime", args=[timestamp])
     return ast.SelectQuery(
-        select=[ast.Call(name="min", args=[ast.Field(chain=[node.timestamp_field])])],
+        select=[ast.Call(name="min", args=[timestamp])],
         select_from=ast.JoinExpr(table=ast.Field(chain=[node.table_name])),
     )
 
@@ -230,18 +240,25 @@ def _get_earliest_timestamp_from_node(
         # datetime values written after the fix and repairs the stale ones.
         return _coerce_to_datetime(cached_result, team.timezone_info)
 
-    if (
-        isinstance(node, DataWarehouseNode)
-        or isinstance(node, FunnelsDataWarehouseNode)
-        or isinstance(node, LifecycleDataWarehouseNode)
-    ):
-        query = _get_data_warehouse_earliest_timestamp_query(node)
-    else:
-        query = _get_event_earliest_timestamp_query(team, node)
-
     earliest_timestamp = EARLIEST_EVENT_TIMESTAMP
     with _earliest_timestamp_query_tags():
-        result = execute_hogql_query(query=query, team=team, user=user, modifiers=modifiers)
+        if (
+            isinstance(node, DataWarehouseNode)
+            or isinstance(node, FunnelsDataWarehouseNode)
+            or isinstance(node, LifecycleDataWarehouseNode)
+        ):
+            database = Database.create_for(team=team, user=user, modifiers=modifiers)
+            result = execute_hogql_query(
+                query=_get_data_warehouse_earliest_timestamp_query(node, database),
+                team=team,
+                user=user,
+                modifiers=modifiers,
+                context=HogQLContext(team_id=team.pk, user=user, database=database),
+            )
+        else:
+            result = execute_hogql_query(
+                query=_get_event_earliest_timestamp_query(team, node), team=team, user=user, modifiers=modifiers
+            )
     if result and len(result.results) > 0 and len(result.results[0]) > 0 and result.results[0][0] is not None:
         earliest_timestamp = _coerce_to_datetime(result.results[0][0], team.timezone_info)
 

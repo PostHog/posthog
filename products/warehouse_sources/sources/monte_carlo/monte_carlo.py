@@ -336,6 +336,7 @@ def _get_alert_rows(
         # Bookmark the next window so a crash between windows doesn't restart the backfill.
         if index + 1 < len(windows):
             resumable_source_manager.save_state(MonteCarloResumeConfig(window_after=time_range["before"]))
+        resumable_source_manager.safe_point()
 
 
 def _get_dbt_test_result_rows(

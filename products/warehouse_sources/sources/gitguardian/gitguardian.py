@@ -239,7 +239,9 @@ def _get_fan_out_rows(
     config: GitGuardianEndpointConfig,
     parent: GitGuardianEndpointConfig,
     logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[GitGuardianResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
+    # A fan-out keeps no resume state, so each safe point lets a hand-off restart from the first parent.
     parent_url = _build_url(base_url, parent.path, _list_params(parent))
 
     for page in _iter_pages(session, parent_url, headers, base_url, parent.name, logger):
@@ -257,6 +259,7 @@ def _get_fan_out_rows(
                             yield [{**row, config.parent_id_field: parent_id} for row in page.rows]
                         else:
                             yield page.rows
+                    resumable_source_manager.safe_point()
             except requests.HTTPError as e:
                 # The parent can be deleted between listing it and fetching its children.
                 if e.response is not None and e.response.status_code == 404:
@@ -265,6 +268,7 @@ def _get_fan_out_rows(
                     )
                     continue
                 raise
+        resumable_source_manager.safe_point()
 
 
 def get_rows(
@@ -286,7 +290,7 @@ def get_rows(
 
     if config.parent_endpoint:
         parent = GITGUARDIAN_ENDPOINTS[config.parent_endpoint]
-        yield from _get_fan_out_rows(session, headers, base_url, config, parent, logger)
+        yield from _get_fan_out_rows(session, headers, base_url, config, parent, logger, resumable_source_manager)
         return
 
     params = _list_params(config)
@@ -322,6 +326,7 @@ def get_rows(
             # Checkpoint the CURRENT page's URL after yielding, so a crash re-fetches this page.
             if config.resumable:
                 resumable_source_manager.save_state(GitGuardianResumeConfig(url=page.url))
+            resumable_source_manager.safe_point()
 
     # The walk finished cleanly, so drop the checkpoint. Otherwise a retry that re-runs extract
     # after a completed walk would resume from the final page and skip everything before it.

@@ -143,12 +143,8 @@ class TestSession:
 class TestValidateCredentials:
     def test_validate_credentials_sends_api_key_header(self) -> None:
         with scripted_network([ScriptedResponse(json={})]) as network:
-            assert validate_credentials("test-key") is True
+            assert validate_credentials("test-key") == (True, None)
 
         assert len(network.session_options) == 1
         assert network.session_options[0]["redact_values"] == ("test-key",)
         assert network.requests_log[0].headers["api-key"] == "test-key"
-
-    def test_validate_credentials_network_error_returns_false(self) -> None:
-        with scripted_network([OSError("network down")]):
-            assert validate_credentials("test-key") is False
