@@ -28,10 +28,10 @@ import { FrontierDeadLetterReason, FrontierDeadLetterSink } from './frontier-dea
 import { FrontierPublisher, RepublishBatch } from './frontier-publisher'
 import type { RefreshingImageSink } from './image-sink'
 import { ImageFetchConsumerMetrics, ImageFetchRequestMetrics } from './metrics'
-import { urlJob } from './politeness-key'
 import { ImageFetchProcessingMetrics } from './processing-metrics'
 import { ImageFetchTopHogMetrics } from './tophog-metrics'
 import { urlHistoryExpiresAtMs, urlHistoryStorageExpiresAtMs } from './url-history-expiry'
+import { urlJob } from './v4-native'
 
 const ONE_HOUR_MS = 60 * 60 * 1000
 const REPUBLISH_DEADLINE_FROM_BATCH_START_MS = 200_000
