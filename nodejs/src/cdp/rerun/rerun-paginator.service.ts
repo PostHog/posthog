@@ -641,7 +641,8 @@ export class RerunPaginatorService {
                         teamId,
                         state.function_kind,
                         state.function_id,
-                        row
+                        row,
+                        state.request.replay_code_sends === true
                     )
                     if (!invocation) {
                         counterRerunInvocationsSkipped.labels(state.function_kind, 'rehydrate_failed').inc()
@@ -682,7 +683,8 @@ export class RerunPaginatorService {
         teamId: number,
         functionKind: RerunFunctionKind,
         functionId: string,
-        row: InvocationRow
+        row: InvocationRow,
+        replayCodeSends: boolean
     ): Promise<CyclotronJobInvocation | null> {
         let parsedGlobals: unknown
         try {
@@ -770,6 +772,14 @@ export class RerunPaginatorService {
             const persistedState = parsedGlobals as Record<string, any>
             if (persistedState[SENSITIVE_VARIABLES_OMITTED]) {
                 logger.warn('⚠️', 'Skipping rerun of a sensitive message whose data was not stored', {
+                    functionId,
+                    teamId,
+                    invocation_id: row.invocation_id,
+                })
+                return null
+            }
+            if (persistedState.send && !replayCodeSends) {
+                logger.warn('⚠️', 'Skipping rerun of an email sent from code while code sends are off', {
                     functionId,
                     teamId,
                     invocation_id: row.invocation_id,
