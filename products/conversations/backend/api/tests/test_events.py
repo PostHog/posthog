@@ -186,10 +186,10 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["properties"]["customer_name"] == "Test Customer"
         assert call_kwargs["properties"]["customer_email"] == "test@example.com"
         assert call_kwargs["properties"]["customer_distinct_id"] == self.ticket.distinct_id
+        assert "ai_draft_outcome" not in call_kwargs["properties"]
 
         mock_produce_internal_event.assert_called_once()
         team_id, internal_event = mock_produce_internal_event.call_args.args
-        assert "ai_draft_outcome" not in call_kwargs["properties"]
         assert team_id == self.team.id
         assert internal_event.event == "$conversation_message_sent"
         assert internal_event.properties["message_id"] == "msg-123"

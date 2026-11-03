@@ -96,9 +96,10 @@ def maybe_record_human_outcome(
 ) -> HumanOutcome | None:
     """Set `ai_triage.human_outcome` on the first public human reply after the latest AI note.
 
-    Returns this reply's classification when it is that first reply, else None, so the
-    caller can stamp the outcome on the reply's analytics event even when the stored
-    value is not (re)written.
+    Returns this reply's text-similarity classification when it is that first reply, else
+    None, so the caller can stamp the outcome on the reply's analytics event. The return
+    can differ from the stored `human_outcome`: an `edited` the composer already recorded
+    is kept, but the reply is still classified on its own text.
     """
     if not human_content.strip():
         return None
@@ -136,12 +137,11 @@ def maybe_record_human_outcome(
             return None
 
         classified = classify_human_outcome(_inserted_draft_text(ai_note), human_content)
-        if current == classified:
-            return classified
-        if current and current != "used":
-            return classified
-
-        triage["human_outcome"] = classified
-        ticket.ai_triage = triage
-        ticket.save(update_fields=["ai_triage", "updated_at"])
+        # The guards only gate the write: keep an outcome the composer already recorded,
+        # except "used", which this reply's own classification can refine.
+        can_overwrite = not current or current == "used"
+        if can_overwrite and current != classified:
+            triage["human_outcome"] = classified
+            ticket.ai_triage = triage
+            ticket.save(update_fields=["ai_triage", "updated_at"])
         return classified
