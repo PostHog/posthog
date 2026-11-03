@@ -6497,9 +6497,6 @@ def _resolve_cloud_pr_authorship_mode(
     if task.github_access_limit == GithubAccess.NONE:
         return PrAuthorshipMode.BOT, None
 
-    if task.github_access_limit == GithubAccess.NONE:
-        return PrAuthorshipMode.BOT, None
-
     if pr_authorship_mode != PrAuthorshipMode.USER or github_user_token:
         return pr_authorship_mode, None
 
@@ -7248,6 +7245,10 @@ def task_visible(task_id: str | UUID, team_id: int, user_id: int | None, *, for_
         return False
     profile_key, created_by_id = row
     return drive_allowed(profile_key, created_by_id=created_by_id, user_id=user_id)
+
+
+def _task_drive_allowed(task: Task, user_id: int | None) -> bool:
+    return drive_allowed(task.profile, created_by_id=task.created_by_id, user_id=user_id)
 
 
 def scout_trial_task_ids(team_id: int, *, visible_task_id: UUID | None = None) -> Iterable[UUID]:
@@ -8709,7 +8710,7 @@ def prepare_task_staged_artifacts(
 
     # Staged artifacts feed the task's next run, so this is control, not viewing.
     task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
-    if task is None:
+    if task is None or not _task_drive_allowed(task, user_id):
         return None
 
     prepared: list[contracts.StagedArtifactPreparedDTO] = []
@@ -8770,7 +8771,7 @@ def finalize_task_staged_artifacts(
     )
 
     task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
-    if task is None:
+    if task is None or not _task_drive_allowed(task, user_id):
         return None
 
     artifact_prefix = f"{settings.OBJECT_STORAGE_TASKS_FOLDER}/artifacts/team_{task.team_id}/task_{task.id}/staged/"
@@ -9516,7 +9517,7 @@ def warm_task_resume_sandbox(
     )
 
     task = _visible_task_qs(team_id, user_id, for_control=True).select_related("team").filter(id=task_id).first()
-    if task is None:
+    if task is None or not _task_drive_allowed(task, user_id):
         return None
 
     previous_run = task.runs.filter(id=resume_from_run_id).first()

@@ -14,6 +14,7 @@ from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework.exceptions import ValidationError
 
 from posthog.clickhouse.query_tagging import get_query_tags, reset_query_tags
@@ -695,6 +696,50 @@ class TestFacadeReadsAndMappers(TestCase):
                 result = facade.task_visible(task.id, self.team.id, self.user.id, for_control=for_control)
 
         self.assertIs(result, allowed)
+
+    @parameterized.expand(
+        [
+            (f"{gate}_{mode}", gate, drive, enforced, refused)
+            for gate in ("prepare_artifacts", "finalize_artifacts", "warm_resume")
+            for mode, drive, enforced, refused in (
+                ("none_policy_in_log_mode", DrivePolicy.NONE, frozenset(), False),
+                ("none_policy_enforced", DrivePolicy.NONE, frozenset({ContractCheck.DRIVE}), True),
+                ("owner_policy_enforced", DrivePolicy.OWNER, frozenset({ContractCheck.DRIVE}), False),
+            )
+        ]
+    )
+    def test_gates_that_steer_the_next_run_apply_the_drive_policy(
+        self, _name: str, gate: str, drive: DrivePolicy, enforced: frozenset[ContractCheck], refused: bool
+    ) -> None:
+        profile = replace(
+            get_task_profile("business_knowledge"), key="test.drive_steering", drive=drive, enforced_checks=enforced
+        )
+        task = self._make_task(profile=profile.key)
+        sample = {"check": ContractCheck.DRIVE.value, "profile": profile.key}
+        before = REGISTRY.get_sample_value("posthog_tasks_contract_violation_total", sample) or 0
+
+        with patch.dict("products.tasks.backend.facade.profiles._profiles", {profile.key: profile}):
+            if gate == "prepare_artifacts":
+                refused_by_gate = (
+                    facade.prepare_task_staged_artifacts(
+                        task.id, self.team.id, self.user.id, artifacts=[], upload_expiration_seconds=60
+                    )
+                    is None
+                )
+            elif gate == "finalize_artifacts":
+                refused_by_gate = (
+                    facade.finalize_task_staged_artifacts(task.id, self.team.id, self.user.id, artifacts=[]) is None
+                )
+            else:
+                refused_by_gate = (
+                    facade.warm_task_resume_sandbox(task.id, self.team.id, self.user.id, resume_from_run_id=uuid4())
+                    is None
+                )
+
+        counted = (REGISTRY.get_sample_value("posthog_tasks_contract_violation_total", sample) or 0) - before
+        self.assertEqual(counted, 1 if drive == DrivePolicy.NONE else 0)
+        if gate != "warm_resume":
+            self.assertEqual(refused_by_gate, refused)
 
     def test_task_control_runtime_and_origin_uses_control_predicate(self):
         task = self._make_task(origin_product=Task.OriginProduct.POSTHOG_AI, runtime=Task.Runtime.PI)
