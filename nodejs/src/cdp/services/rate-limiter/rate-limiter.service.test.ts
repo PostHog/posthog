@@ -477,6 +477,10 @@ describe('RateLimiterService', () => {
             expect(await replayingLimiter.claimAllOrNothing([bucket])).toMatchObject({ granted: true })
             expect(await limiter.claimAllOrNothing([bucket])).toMatchObject({ granted: true })
             expect(await limiter.claimAllOrNothing([bucket])).toEqual({ granted: false, deniedIndexes: [0] })
+            const claimRecords = await redis.useClient({ name: 'claim-records' }, (client) =>
+                client.keys(`${bucket.key}/claimed/*`)
+            )
+            expect(claimRecords).toHaveLength(2)
         })
 
         it('fails closed through an optional pool whose Valkey is unreachable', async () => {
