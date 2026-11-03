@@ -1252,14 +1252,25 @@ describe('EmailService', () => {
                 await assertPool.end()
             })
 
-            it('delivers the files to SES as Base64 attachments', async () => {
+            it.each([
+                ['on the first try', 0],
+                ['on the retry after an SES throttle', 1],
+            ])('delivers the files to SES as Base64 attachments %s', async (_name, throttles) => {
+                for (let i = 0; i < throttles; i++) {
+                    sendEmailSpy.mockRejectedValueOnce(new ThrottlingException('Rate exceeded'))
+                }
                 sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
                 await attachments.store(invocation.id, team.id, files)
 
-                const result = await service.executeSendEmail(invocation)
+                let result = await service.executeSendEmail(invocation)
+                for (let i = 0; i < throttles; i++) {
+                    expect(result.finished).toBe(false)
+                    result = await service.executeSendEmail(result.invocation)
+                }
 
                 expect(result.finished).toBe(true)
-                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+                expect(result.error).toBeUndefined()
+                const sentCommand = sendEmailSpy.mock.calls[throttles][0] as { input: any }
                 expect(sentCommand.input.Content.Simple.Attachments).toEqual([
                     {
                         RawContent: pdfBytes,
