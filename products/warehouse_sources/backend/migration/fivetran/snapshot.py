@@ -1,6 +1,10 @@
-from collections.abc import Mapping
+import json
+from collections.abc import Mapping, Sequence
 from typing import Any
 
+from posthog.dataclasses import frozen
+
+from products.warehouse_sources.backend.facade.contracts import MigrationConnectionUpload
 from products.warehouse_sources.backend.migration.fivetran.client import FivetranAPIError, FivetranClient
 from products.warehouse_sources.backend.migration.secrets import strip_secrets
 from products.warehouse_sources.backend.migration.types import (
@@ -24,7 +28,6 @@ def fetch_snapshot(client: FivetranClient) -> VendorSnapshot:
     account = client.get_account_info()
 
     destinations: list[VendorDestination] = []
-    utc_offsets: dict[str, int] = {}
     for group in client.list_groups():
         try:
             raw_destination = client.get_destination(group["id"])
@@ -33,7 +36,7 @@ def fetch_snapshot(client: FivetranClient) -> VendorSnapshot:
                 raise
             continue  # A group can exist before its destination is set up.
         destinations.append(parse_destination(raw_destination, name=group.get("name") or group["id"]))
-        utc_offsets[group["id"]] = _parse_offset(raw_destination.get("time_zone_offset"))
+    utc_offsets = {destination.id: destination.utc_offset_hours for destination in destinations}
 
     connections: list[VendorConnection] = []
     for listed in client.list_connections():
@@ -59,6 +62,86 @@ def fetch_snapshot(client: FivetranClient) -> VendorSnapshot:
     )
 
 
+@frozen
+class UploadedSnapshot:
+    snapshot: VendorSnapshot
+    # The connections this upload read, in upload order.
+    connection_ids: tuple[str, ...]
+    # One message per destination or connection that could not be read. Each names it.
+    errors: tuple[str, ...]
+
+
+MAX_UPLOADED_CONNECTION_BYTES = 1_000_000
+
+
+def merge_upload(
+    previous: VendorSnapshot | None,
+    *,
+    account: Mapping[str, Any] | None,
+    destinations: Sequence[Mapping[str, Any]],
+    connections: Sequence[MigrationConnectionUpload],
+) -> UploadedSnapshot:
+    """Add Fivetran read responses that an agent uploaded to the snapshot of earlier uploads.
+
+    Secrets are removed exactly as in a crawl. A new destination or connection replaces the stored one with its id.
+    """
+    errors: list[str] = []
+    stored_destinations = {destination.id: destination for destination in previous.destinations} if previous else {}
+    for index, raw in enumerate(destinations):
+        raw = _unwrap(raw)
+        try:
+            destination = parse_destination(raw, name=raw.get("name") or raw["id"])
+        except (KeyError, TypeError, ValueError, AttributeError) as error:
+            errors.append(f"Destination {index} ({raw.get('id') or 'no id'}): {_read_error(error)}")
+            continue
+        stored_destinations[destination.id] = destination
+
+    utc_offsets = {destination.id: destination.utc_offset_hours for destination in stored_destinations.values()}
+    stored_connections = {connection.id: connection for connection in previous.connections} if previous else {}
+    connection_ids: list[str] = []
+    for index, upload in enumerate(connections):
+        raw = _unwrap(upload.connection)
+        label = f"Connection {index} ({raw.get('id') or 'no id'})"
+        schema_config = _unwrap(upload.schema_config) if upload.schema_config is not None else None
+        if len(json.dumps([raw, schema_config])) > MAX_UPLOADED_CONNECTION_BYTES:
+            errors.append(f"{label}: larger than 1 MB. Upload it alone, or migrate this account with an API key.")
+            continue
+        try:
+            connection = parse_connection(
+                raw, schema_config, utc_offset_hours=utc_offsets.get(raw.get("group_id") or "", 0)
+            )
+        except (KeyError, TypeError, ValueError, AttributeError) as error:
+            errors.append(f"{label}: {_read_error(error)}")
+            continue
+        stored_connections[connection.id] = connection
+        connection_ids.append(connection.id)
+
+    account_info = _unwrap(account) if account is not None else {}
+    return UploadedSnapshot(
+        snapshot=VendorSnapshot(
+            provider=MigrationProvider.FIVETRAN,
+            account_id=str(account_info.get("account_id") or (previous.account_id if previous else "")),
+            account_name=account_info.get("account_name") or (previous.account_name if previous else None),
+            destinations=tuple(stored_destinations.values()),
+            connections=tuple(stored_connections.values()),
+        ),
+        connection_ids=tuple(dict.fromkeys(connection_ids)),
+        errors=tuple(errors),
+    )
+
+
+def _unwrap(raw: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Fivetran wraps every response as `{"code": ..., "data": {...}}`."""
+    data = raw.get("data")
+    return data if "code" in raw and isinstance(data, Mapping) else raw
+
+
+def _read_error(error: Exception) -> str:
+    if isinstance(error, KeyError):
+        return f"the field `{error.args[0]}` is missing. Upload the Fivetran response unchanged."
+    return "this is not a Fivetran response PostHog can read. Upload the Fivetran response unchanged."
+
+
 def parse_destination(raw: Mapping[str, Any], *, name: str) -> VendorDestination:
     return VendorDestination(
         id=raw["id"],
@@ -66,6 +149,7 @@ def parse_destination(raw: Mapping[str, Any], *, name: str) -> VendorDestination
         service=raw.get("service") or "",
         region=raw.get("region"),
         config=strip_secrets(raw.get("config") or {}),
+        utc_offset_hours=_parse_offset(raw.get("time_zone_offset")),
     )
 
 

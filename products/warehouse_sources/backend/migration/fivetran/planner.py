@@ -234,7 +234,7 @@ def _plan_connection(
         unused_posthog_tables=tables.unused,
         sync_frequency=sync_frequency,
         sync_time_of_day=sync_time_of_day,
-        destination=_plan_destination(provider, destination, catalog, caveats),
+        destination=_plan_destination(provider, connection, destination, catalog, caveats),
         start_paused=start_paused,
     )
     return PlannedItem(
@@ -470,9 +470,19 @@ def _to_posthog_time(time_of_day: str | None) -> str | None:
 
 
 def _plan_destination(
-    provider: str, destination: VendorDestination | None, catalog: CatalogLookup, caveats: list[str]
+    provider: str,
+    connection: VendorConnection,
+    destination: VendorDestination | None,
+    catalog: CatalogLookup,
+    caveats: list[str],
 ) -> ProposedDestination | None:
     if destination is None:
+        if connection.destination_id:
+            # An agent upload can leave the destination out.
+            caveats.append(
+                "PostHog did not get this connection's Fivetran destination, so it suggests no destination "
+                "and reads a Fivetran time of day as UTC."
+            )
         return None
     destination_type = catalog.match_destination(provider, destination.service)
     if destination_type is None:

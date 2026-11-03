@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
@@ -25,6 +26,23 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _FACADE = "products.warehouse_sources.backend.facade.warehouse_migration"
 _SERVICE = "products.warehouse_sources.backend.migration.service"
+_VIEW = "products.warehouse_sources.backend.presentation.views.warehouse_migration"
+
+
+def _envelope(data: dict[str, Any]) -> dict[str, Any]:
+    return {"code": "Success", "data": data}
+
+
+def _fivetran_connection(connection_id: str, **overrides: Any) -> dict[str, Any]:
+    return {
+        "id": connection_id,
+        "group_id": "grp_example",
+        "service": "hubspot",
+        "schema": connection_id,
+        "schedule": {"schedule_type": "INTERVAL", "interval": 360},
+        "config": {"api_key": "fake-unmasked-key", "account_name": "example"},
+        **overrides,
+    }
 
 
 class TestWarehouseMigrationAPI(APIBaseTest):
@@ -228,6 +246,89 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         self.start_crawl.side_effect = None
         assert self.client.post(f"{self.url}{migration.id}/refresh/").json()["status"] == "pending"
 
+    def _upload(self, migration_id: Any, **body: Any) -> Any:
+        return self.client.post(f"{self.url}{migration_id}/connections/", body, format="json")
+
+    def test_upload_merges_batches_without_the_vendor_key_or_secrets(self) -> None:
+        with patch(f"{_VIEW}.report_user_action") as report:
+            started = self.client.post(f"{self.url}upload/", {"provider": "fivetran"})
+        assert started.status_code == 201, started.json()
+        assert started.json()["has_vendor_key"] is False
+        assert report.call_args.args[2]["origin"] == "agent_upload"
+        migration_id = started.json()["id"]
+
+        first = self._upload(
+            migration_id,
+            account=_envelope({"account_id": "acct_example", "account_name": "Example Co"}),
+            destinations=[
+                _envelope(
+                    {
+                        "id": "grp_example",
+                        "service": "snowflake",
+                        "time_zone_offset": "-5",
+                        "config": {"host": "example.snowflakecomputing.com", "password": "fake-unmasked-password"},
+                    }
+                )
+            ],
+            connections=[
+                {"connection": _envelope(_fivetran_connection("conn_a")), "schema_config": None},
+                {"connection": {"service": "hubspot"}},
+            ],
+        )
+        # The malformed connection is named, and the rest of the batch still applies.
+        assert first.status_code == 400
+        assert "Connection 1 (no id)" in first.json()["detail"]
+
+        # The destination came in an earlier batch, so its offset still moves 22:00 to UTC.
+        schedule = {"schedule_type": "TIME_OF_DAY", "time_of_day": "22:00"}
+        second = self._upload(
+            migration_id, connections=[{"connection": _fivetran_connection("conn_b", schedule=schedule)}]
+        )
+        assert second.status_code == 200, second.json()
+        assert [item["vendor_connection_id"] for item in second.json()["items"]] == ["conn_b"]
+
+        items = WarehouseMigrationItem.objects.for_team(self.team.pk).filter(migration_id=migration_id)
+        items.filter(vendor_connection_id="conn_a").update(status=WarehouseMigrationItem.Status.SKIPPED)
+        third = self._upload(
+            migration_id, connections=[{"connection": _fivetran_connection("conn_a", schema="renamed")}]
+        )
+        assert third.status_code == 200, third.json()
+
+        migration = WarehouseMigration.objects.for_team(self.team.pk).get(id=migration_id)
+        assert migration.account_name == "Example Co"
+        assert dict(items.values_list("vendor_connection_id", "status")) == {"conn_a": "skipped", "conn_b": "pending"}
+        assert items.get(vendor_connection_id="conn_a").name == "conn_a"
+        snapshot_connections = {connection["id"]: connection for connection in migration.snapshot["connections"]}
+        assert snapshot_connections["conn_b"]["schedule"]["time_of_day_utc"] == "03:00"
+        stored = json.dumps([migration.snapshot, list(items.values())], default=str)
+        assert "fake-unmasked" not in stored
+
+        refresh = self.client.post(f"{self.url}{migration_id}/refresh/")
+        assert refresh.status_code == 400
+        assert "uploaded by an agent" in refresh.json()["detail"]
+
+    @parameterized.expand(
+        [
+            ("too_many_connections", False, [{"connection": _fivetran_connection(f"conn_{i}")} for i in range(26)]),
+            (
+                "oversized_connection",
+                False,
+                [{"connection": _fivetran_connection("conn_big", config={"notes": "x" * 1_000_001})}],
+            ),
+            ("migration_with_a_vendor_key", True, [{"connection": _fivetran_connection("conn_a")}]),
+        ]
+    )
+    def test_upload_refuses(self, _name: str, has_vendor_key: bool, connections: list[dict[str, Any]]) -> None:
+        migration = WarehouseMigration.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk,
+            provider=WarehouseMigration.Provider.FIVETRAN,
+            status=WarehouseMigration.Status.READY,
+            credentials={"api_key": "fake-key", "api_secret": "fake-secret"} if has_vendor_key else {},
+        )
+
+        assert self._upload(migration.id, connections=connections).status_code == 400
+        assert not WarehouseMigrationItem.objects.for_team(self.team.pk).exists()
+
     def test_another_teams_migration_or_a_malformed_id_is_not_found(self) -> None:
         other_team = self.create_team_with_organization(organization=self.organization)
         migration = WarehouseMigration.objects.for_team(other_team.pk).create(
@@ -235,6 +336,9 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         )
         own = self._migration()
         assert self.client.get(f"{self.url}{migration.id}/").status_code == 404
+        assert (
+            self._upload(migration.id, connections=[{"connection": _fivetran_connection("conn_a")}]).status_code == 404
+        )
         # Hex-only, so they pass a loose route pattern and would reach `UUID()`.
         assert self.client.get(f"{self.url}abc/").status_code == 404
         assert self.client.post(f"{self.url}{own.id}/items/abc/skip/").status_code == 404

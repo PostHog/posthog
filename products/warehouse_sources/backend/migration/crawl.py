@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.migration.fivetran.planner import (
     plan_items,
 )
 from products.warehouse_sources.backend.migration.fivetran.snapshot import fetch_snapshot
+from products.warehouse_sources.backend.migration.types import VendorSnapshot
 from products.warehouse_sources.backend.models.warehouse_migration import WarehouseMigration, WarehouseMigrationItem
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -72,20 +73,37 @@ def crawl_migration(*, team_id: int, migration_id: UUID, catalog: CatalogLookup 
     migration.save(update_fields=["status", "latest_error", "updated_at"])
 
     snapshot = fetch_snapshot(FivetranClient(FivetranCredentials(**migration.credentials)))
-    team = Team.objects.only("organization_id").get(id=team_id)
-    planned = plan_items(snapshot, catalog, source_capabilities, flag_enabled=lambda flag: _team_has_flag(team, flag))
     with transaction.atomic():
         locked = WarehouseMigration.objects.for_team(team_id).select_for_update().filter(id=migration_id).first()
         if locked is None or locked.status != WarehouseMigration.Status.CRAWLING:
             # Deleted, or a newer crawl or a failure mark already won.
             return 0
-        _save_items(locked, planned)
-        locked.snapshot = snapshot.to_json()
-        locked.account_name = snapshot.account_name or ""
-        locked.crawled_at = timezone.now()
-        locked.status = WarehouseMigration.Status.READY
-        locked.save(update_fields=["snapshot", "account_name", "crawled_at", "status", "updated_at"])
-    return len(planned)
+        return len(save_plan(locked, snapshot, catalog=catalog))
+
+
+def save_plan(
+    migration: WarehouseMigration,
+    snapshot: VendorSnapshot,
+    *,
+    catalog: CatalogLookup = PENDING_CATALOG,
+    connection_ids: Collection[str] | None = None,
+) -> tuple[PlannedItem, ...]:
+    """Plan the snapshot and store it with its items. The caller holds the migration row lock.
+
+    Without `connection_ids` the plan replaces every item. With them, only those connections are planned
+    again, and no item is deleted. Either way, items an apply claimed or finished, or the user skipped, stay.
+    """
+    team = Team.objects.only("organization_id").get(id=migration.team_id)
+    planned = plan_items(snapshot, catalog, source_capabilities, flag_enabled=lambda flag: _team_has_flag(team, flag))
+    if connection_ids is not None:
+        planned = tuple(plan for plan in planned if plan.vendor_connection_id in connection_ids)
+    _save_items(migration, planned, delete_missing=connection_ids is None)
+    migration.snapshot = snapshot.to_json()
+    migration.account_name = snapshot.account_name or ""
+    migration.crawled_at = timezone.now()
+    migration.status = WarehouseMigration.Status.READY
+    migration.save(update_fields=["snapshot", "account_name", "crawled_at", "status", "updated_at"])
+    return planned
 
 
 def _team_has_flag(team: Team, flag: str) -> bool:
@@ -108,7 +126,7 @@ def mark_migration_failed(*, team_id: int, migration_id: UUID, auth_failed: bool
     )
 
 
-def _save_items(migration: WarehouseMigration, planned: tuple[PlannedItem, ...]) -> None:
+def _save_items(migration: WarehouseMigration, planned: tuple[PlannedItem, ...], *, delete_missing: bool) -> None:
     items = WarehouseMigrationItem.objects.for_team(migration.team_id).filter(migration=migration)
     # Locked so an apply cannot claim an item between this read and the save below.
     existing = {item.vendor_connection_id: item for item in items.select_for_update()}
@@ -133,5 +151,7 @@ def _save_items(migration: WarehouseMigration, planned: tuple[PlannedItem, ...])
         item.error = ""
         item.save()
 
+    if not delete_missing:
+        return
     planned_ids = {plan.vendor_connection_id for plan in planned}
     items.exclude(vendor_connection_id__in=planned_ids).exclude(status__in=_KEEP_ON_REFRESH).delete()
