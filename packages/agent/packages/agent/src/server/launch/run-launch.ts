@@ -34,7 +34,9 @@ export interface RunLaunch {
   readonly initialPermissionMode: PermissionMode | null;
   readonly pendingUserArtifactIds: string[];
   readonly endRunWhenDone: boolean;
+  readonly callerEndsRun: boolean;
   readonly disableRepoHooks: boolean;
+  readonly disableSkills: boolean;
   readonly systemPrompt: ClaudeCodeConfig["systemPrompt"];
   readonly systemPromptValid: boolean;
   readonly tokenUsage: unknown;
@@ -68,7 +70,9 @@ export function readRunLaunch(sources: RunLaunchSources): RunLaunch {
     initialPermissionMode: runState?.initial_permission_mode ?? null,
     pendingUserArtifactIds: runState?.pending_user_artifact_ids ?? [],
     endRunWhenDone: runState?.end_run_when_done === true,
+    callerEndsRun: runState?.caller_ends_run === true,
     disableRepoHooks: runState?.disable_repo_hooks === true,
+    disableSkills: runState?.disable_skills === true,
     systemPrompt: systemPrompt.success ? systemPrompt.data : undefined,
     systemPromptValid: systemPrompt.success,
     tokenUsage: runState?.token_usage,

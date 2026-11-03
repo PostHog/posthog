@@ -8,9 +8,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { urls } from 'scenes/urls'
 
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
-
-import { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+import { AccessControlLevel, AccessControlResourceType, type ExternalDataSourceType } from '~/types'
 
 import { SourceIcon } from '../../shared/components/SourceIcon'
 import { SourceReleaseTag } from '../../shared/components/SourceReleaseTag'
@@ -26,7 +24,7 @@ export const CATALOG_TILE_CLASS =
 export const CATALOG_GRID_CLASS = 'grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3'
 
 export interface SourceCatalogProps {
-    allowedSources?: ExternalDataSourceTypeEnumApi[]
+    allowedSources?: ExternalDataSourceType[]
 }
 
 // Memoized so the whole grid doesn't re-render per keystroke in the search input or request
