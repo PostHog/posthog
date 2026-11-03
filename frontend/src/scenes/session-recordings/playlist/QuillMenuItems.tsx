@@ -42,10 +42,8 @@ function isNode(item: MenuEntry): item is LemonMenuItemNode {
 }
 
 function itemKey(item: LemonMenuItem, index: number): string {
-    if (isCustom(item)) {
-        return String(item.key ?? index)
-    }
-    return String(item.key ?? item['data-attr'] ?? (typeof item.label === 'string' ? item.label : index))
+    // Items in one menu often share a data-attr, so the index keeps keys and radio values unique.
+    return `${index}-${String(item.key ?? (isCustom(item) ? '' : (item['data-attr'] ?? item.label)))}`
 }
 
 /** Renders Lemon menu item definitions as quill dropdown menu content, so the Lemon and quill menus share one list. */

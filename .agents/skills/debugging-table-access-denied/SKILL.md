@@ -15,5 +15,5 @@ Hints:
 - On an HTTP request this is an expected 4xx, never captured. An error tracking issue means it was raised in a background context — figure out which from the event's query tags (`team_id`, `user_id`, `product`, `celery_task_id`, `temporal.*`).
 - A `system.*` name is a system-table decision; a bare name is a warehouse table/view denial.
 - No `user_id` on the event usually means a userless `Database.create_for` — it fails closed, and `bypass_warehouse_access_control` does not cover system tables. That's a bug in the calling code.
-- Background jobs run as the resource's `created_by`; a creator who left the org is the known benign cause (cache warming, alerts, and exports already suppress capture for it via `creator_access_revoked`).
+- Background jobs run as the resource's `created_by`. A creator who left the org is the known benign cause: cache warming suppresses capture for it via `creator_access_revoked`, exports refuse to run with `CreatorLeftOrganizationError`, and subscriptions and alerts auto-disable (look for the `alert auto disabled` event or the subscription's last delivery).
 - Otherwise it's a real access rule (RBAC or entitlement) — see the readme for how a table's access level resolves, and check the `AccessControl` rows for the table's `access_scope`.

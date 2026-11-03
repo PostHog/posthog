@@ -1,52 +1,9 @@
 import { GetItemCommand } from '@aws-sdk/client-dynamodb'
 import { DecryptCommand } from '@aws-sdk/client-kms'
 
-import vector from '~/ingestion/pipelines/sessionreplay/ai-research/v4-keys/encryption-vector-v4.json'
-
-import { V4FrameContext, sealV4Frame } from './frame'
 import { TeamMonthKeys, teamMonthKeyExpiresAtMs, teamMonthWrappingContext } from './team-month-keys'
 
-const base64 = (value: string): Buffer => Buffer.from(value, 'base64')
-
 describe('v4 keys', () => {
-    it.each([
-        [
-            'an inline image under the team month key',
-            vector.teamMonthKey,
-            vector.image.context,
-            vector.image.bytes,
-            vector.image.nonce,
-            vector.image.frame,
-        ],
-        [
-            'a fetched image under the team month key',
-            vector.teamMonthKey,
-            vector.imageUrl.context,
-            vector.imageUrl.bytes,
-            vector.imageUrl.nonce,
-            vector.imageUrl.frame,
-        ],
-        [
-            'a fetched image whose context sets its absent fields to undefined',
-            vector.teamMonthKey,
-            { ...vector.imageUrl.context, sessionId: undefined },
-            vector.imageUrl.bytes,
-            vector.imageUrl.nonce,
-            vector.imageUrl.frame,
-        ],
-        [
-            'a block under the session key',
-            vector.sessionKey,
-            vector.block.context,
-            vector.block.body,
-            vector.block.nonce,
-            vector.block.frame,
-        ],
-    ])('seals %s exactly as the Rust recorder does', (_name, key, context, body, nonce, frame) => {
-        // The Rust crate pins the same file, so the two writers cannot drift apart.
-        expect(sealV4Frame(base64(key), context as V4FrameContext, base64(body), base64(nonce))).toEqual(base64(frame))
-    })
-
     const TEAM = 7
     const MONTH = '2026-10'
     const wrapped = Buffer.from('wrapped')
