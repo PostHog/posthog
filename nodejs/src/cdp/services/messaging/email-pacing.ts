@@ -47,11 +47,7 @@ const emailReservedParkMs = new Histogram({
     buckets: [1_000, 5_000, 15_000, 60_000, 300_000, 900_000, 1_800_000, 3_600_000],
 })
 
-export function pickReservedRetryDelayMs(
-    retryAfterMs: number | null,
-    refillPerSecond: number,
-    reserved: boolean
-): number {
+function pickReservedRetryDelayMs(retryAfterMs: number | null, refillPerSecond: number, reserved: boolean): number {
     // No horizon means the limiter itself failed, not that the bucket was empty.
     // Wake on the short token-bucket cadence, not on a cap that paces in hours.
     if (retryAfterMs === null) {
@@ -227,9 +223,6 @@ export class TeamSendingCap {
             ? this.config.teamEmailTierDailyCaps
             : DEFAULT_TEAM_EMAIL_TIER_DAILY_CAPS
         const topTier = Math.min(hourlyCaps.length, dailyCaps.length) - 1
-        if (topTier < 0) {
-            return null
-        }
         const tier = Math.min(Math.max(teamTier, 0), topTier)
 
         const buckets = teamEmailCapBuckets(invocation.teamId, hourlyCaps[tier], dailyCaps[tier])

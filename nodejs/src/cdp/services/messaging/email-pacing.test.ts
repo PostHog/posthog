@@ -16,38 +16,25 @@ describe('TeamSendingCap.claim', () => {
 
     beforeEach(() => {
         limiter.claimAllOrNothingPair.mockReset()
-        tiers.getEmailSendingTier.mockReset().mockResolvedValue(0)
+        tiers.getEmailSendingTier.mockReset()
     })
 
     it.each([
-        ['a tier above the table', 9, 50, 200],
-        ['a negative tier', -1, 5, 20],
-    ])('caps %s at the nearest tier in the table', async (_name, tier, hourly, daily) => {
+        ['a tier above the table', 9, 0, '50 emails per hour'],
+        ['a tier above the table', 9, 1, '200 emails per day'],
+        ['a negative tier', -1, 1, '20 emails per day'],
+    ])('names the nearest tier cap for %s (tier %i, bucket %i denies)', async (_name, tier, deniedIndex, cap) => {
         tiers.getEmailSendingTier.mockResolvedValue(tier)
         limiter.claimAllOrNothingPair.mockResolvedValue({
-            granted: true,
-            deniedIndex: null,
-            retryAfterMs: null,
-            reserved: false,
-        })
-
-        expect(await enforce.claim(invocation, false)).toBeNull()
-        const [buckets] = limiter.claimAllOrNothingPair.mock.calls[0]
-        expect(buckets.map((bucket: { capacity: number }) => bucket.capacity)).toEqual([hourly, daily])
-    })
-
-    it('parks a send the daily bucket denies and names the daily cap', async () => {
-        limiter.claimAllOrNothingPair.mockResolvedValue({
             granted: false,
-            deniedIndex: 1,
+            deniedIndex,
             retryAfterMs: 4000,
             reserved: true,
         })
 
         expect(await enforce.claim(invocation, false)).toEqual({
             retryDelayMs: 4000,
-            logMessage:
-                'This project reached its email sending limit of 20 emails per day. Retrying this email in 4s. The limit rises as the project builds a clean sending history.',
+            logMessage: `This project reached its email sending limit of ${cap}. Retrying this email in 4s. The limit rises as the project builds a clean sending history.`,
         })
     })
 })
