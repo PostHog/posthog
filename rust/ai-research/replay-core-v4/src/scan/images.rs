@@ -241,20 +241,21 @@ fn payload_is_markup(bytes: &[u8], payload_start: usize, base64: bool) -> bool {
             [b'"' | b'\\', ..] | [] => break,
             [byte, tail @ ..] => (*byte, tail),
         };
-        chars.push(byte);
+        if !byte.is_ascii_whitespace() {
+            chars.push(byte);
+        }
         rest = tail;
     }
-    let decoded = if base64 {
-        chars.retain(|byte| !byte.is_ascii_whitespace());
-        let run = chars
+    let mut decoded: Vec<u8> = percent_encoding::percent_decode(&chars).collect();
+    if base64 {
+        decoded.retain(|byte| !byte.is_ascii_whitespace());
+        let run = decoded
             .iter()
             .position(|&byte| !is_base64(byte))
-            .unwrap_or(chars.len());
-        chars.truncate(run / 4 * 4);
-        FORGIVING_BASE64.decode(&chars).unwrap_or_default()
-    } else {
-        percent_encoding::percent_decode(&chars).collect()
-    };
+            .unwrap_or(decoded.len());
+        decoded.truncate(run / 4 * 4);
+        decoded = FORGIVING_BASE64.decode(&decoded).unwrap_or_default();
+    }
     let text = decoded.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&decoded);
     text.trim_ascii_start().first() == Some(&b'<')
 }
@@ -466,6 +467,12 @@ fn read_data_uri(
     payload_start: usize,
     sink: &mut ImageSink<'_>,
 ) -> DataUri {
+    if comma_is_escaped(bytes, payload_start) && !opens_css_url(bytes, start) {
+        return DataUri::Replaced {
+            replacement: sink.decline(ImageDecline::Undecodable),
+            end: json_string_end(bytes, payload_start),
+        };
+    }
     let media_type = meta.split(';').next().unwrap_or_default();
     let subtype = &media_type["image/".len()..];
     let base64 = meta.contains("base64");
@@ -507,6 +514,40 @@ fn read_data_uri(
         sink.take_base64(&wrapped_payload(bytes, payload_start, end))
     };
     DataUri::Replaced { replacement, end }
+}
+
+fn comma_is_escaped(bytes: &[u8], payload_start: usize) -> bool {
+    bytes[payload_start - 1] != b',' || bytes[payload_start - 2] == b'\\'
+}
+
+/// CSS reads an escaped comma as a comma, but an attribute such as `src` holds it as text, so outside CSS the browser's
+/// header can run past it to a later comma.
+fn opens_css_url(bytes: &[u8], start: usize) -> bool {
+    match start.checked_sub(1).map(|at| bytes[at]) {
+        Some(b'(' | b'\'') => true,
+        Some(b'"') => {
+            bytes[..start - 1]
+                .iter()
+                .rev()
+                .take_while(|&&b| b == b'\\')
+                .count()
+                % 2
+                == 1
+        }
+        _ => false,
+    }
+}
+
+fn json_string_end(bytes: &[u8], from: usize) -> usize {
+    let mut at = from;
+    while let Some(&byte) = bytes.get(at) {
+        match byte {
+            b'"' => return at,
+            b'\\' => at += 2,
+            _ => at += 1,
+        }
+    }
+    bytes.len()
 }
 
 fn starts_inside_a_word(bytes: &[u8], start: usize) -> bool {
@@ -901,6 +942,14 @@ mod tests {
                 limits,
                 ImageDecline::Undecodable,
             ),
+            (
+                format!(
+                    r"data:image/png;name=base64;x=\\00002cQQ;base64,{}",
+                    STANDARD.encode(png(&[7; 52]))
+                ),
+                limits,
+                ImageDecline::Undecodable,
+            ),
         ];
         for (uri, limits, reason) in cases {
             let event = format!(r#"{{"src":"{uri}","alt":"x"}}"#);
@@ -926,6 +975,12 @@ mod tests {
             r#"{"src":"data:image/svg+xml,%3Csvg%2F%3E"}"#.to_owned(),
             format!(
                 r#"{{"src":"data:image/svg+xml;base64, {}"}}"#,
+                STANDARD.encode(b"<svg/>")
+            ),
+            r#"{"src":"data:image/svg+xml;base64,P%48N2Zy8+"}"#.to_owned(),
+            format!(
+                r#"{{"src":"data:image/svg+xml;base64,{}{}"}}"#,
+                " ".repeat(200),
                 STANDARD.encode(b"<svg/>")
             ),
             r#"{"src":"data:image/gif;base64,"}"#.to_owned(),
