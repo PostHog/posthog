@@ -153,9 +153,9 @@ export interface slackAppWorkspaceSetupLogicMeta {
             finishedSteps: SlackSetupStepKeyEnumApi[]
         ) => WorkspaceSetupStepKey | null
         currentStepNumber: (steps: SlackSetupStepKeyEnumApi[], currentStep: SlackSetupStepKeyEnumApi | null) => number
-        joinableChannels: (channelOptions: any) => SlackAppChannelOptionApi[]
-        joinedChannelNames: (channelOptions: any) => string[]
         returnLink: (arg: any) => SlackSetupReturnLink | null
+        joinableChannels: (channelOptions: SlackAppChannelOptionApi[] | null) => SlackAppChannelOptionApi[]
+        joinedChannelNames: (channelOptions: SlackAppChannelOptionApi[] | null) => string[]
     }
 }
 
