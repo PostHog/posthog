@@ -13447,7 +13447,6 @@ export namespace Schemas {
     export interface AnalyticsAnomalyInvestigationSignalExtra {
       alert_id: string;
       alert_name: string;
-      alert_check_id: string;
       insight_id: string;
       detector_type: string;
       verdict: InvestigationVerdictEnum;
@@ -13456,6 +13455,9 @@ export namespace Schemas {
       insight_short_id?: string | null;
       triggered_dates?: string[] | null;
       notebook_short_id?: string | null;
+      alert_check_id?: string | null;
+      investigation_id?: string | null;
+      evaluation_key?: string | null;
     }
 
     /**

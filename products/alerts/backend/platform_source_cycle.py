@@ -59,6 +59,7 @@ from products.alerts.backend.logic.destinations import configured_destination_te
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts.backend.platform_alert_wording import insight_alert_url
 from products.alerts.backend.platform_chart_detail import CHART_PENDING_KEY, RenderedChart
+from products.alerts.backend.platform_investigation import with_investigation
 from products.alerts_platform.backend.facade.api import due_check_ids, due_checks, refresh_settings, slot_of
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
@@ -330,7 +331,7 @@ def readmit_retried_check(
     return token if admitted else None
 
 
-class _ClickHouseSlot:
+class ClickHouseQuerySlot:
     """Holds a ClickHouse slot around one attempt's query, and counts how long it waited for one.
 
     Raises `ClickHouseBudgetFull` when no slot comes free in time. `holder` names one attempt of one
@@ -365,7 +366,7 @@ class _ClickHouseSlot:
                     logger.exception("Could not release a ClickHouse slot", holder=self.holder)
 
 
-def _with_capacity_retries[T](run: Callable[[], T], alert: AlertConfiguration, query_slot: _ClickHouseSlot) -> T:
+def _with_capacity_retries[T](run: Callable[[], T], alert: AlertConfiguration, query_slot: ClickHouseQuerySlot) -> T:
     """Runs a check's query, and runs it again after a ClickHouse refusal for load, on the retry
     policy production evaluates the alert's cadence with.
 
@@ -498,10 +499,17 @@ def evaluate_insight_check(
             raise
         if outcome is None:
             return None
-        return _evaluation(checks[0], outcome)
+        evaluation = _evaluation(checks[0], outcome)
     finally:
         if not retrying:
             release_evaluation_slot(configuration_id, held_until=held_until, key=INFLIGHT_KEY)
+    # After the slot is free, because the investigation's reads need no ClickHouse slot.
+    try:
+        return with_investigation(checks[0], evaluation)
+    except Exception:
+        # The firing still goes out, uninvestigated, rather than the check being lost as errored.
+        logger.exception("Failed to decide a platform insight firing's investigation", check_id=configuration_id)
+        return evaluation
 
 
 def fail_insight_check(
@@ -737,7 +745,7 @@ def _decide(
         alert_calculation_interval=alert.calculation_interval,
         alert_config_type=(alert.config or {}).get("type"),
     )
-    query_slot = _ClickHouseSlot(f"{evaluation_id}:{attempt}")
+    query_slot = ClickHouseQuerySlot(f"{evaluation_id}:{attempt}")
     if check.grouping.mode != GroupingMode.SINGLE:
         return _decide_grouped(check, snapshot, alert, now=now, query_slot=query_slot)
     started_at = time.monotonic()
@@ -900,7 +908,7 @@ def _decide_grouped(
     alert: AlertConfiguration,
     *,
     now: datetime,
-    query_slot: _ClickHouseSlot,
+    query_slot: ClickHouseQuerySlot,
 ) -> PlatformAlertOutcome | None:
     """One check of a breakdown alert, judged per breakdown value through the platform's decision.
 
