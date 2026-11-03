@@ -19,7 +19,7 @@ class TemplateErrorSerializer(serializers.Serializer):
     docs_url = serializers.URLField(required=False, help_text="Documentation for this error code.")
 
 
-TRANSACTIONAL_EMAIL_DOCS_URL = "https://posthog.com/docs/workflows/transactional-email-api"
+TRANSACTIONAL_EMAIL_DOCS_URL = "https://posthog.com/docs/workflows/transactional-emails/api"
 
 
 @frozen
