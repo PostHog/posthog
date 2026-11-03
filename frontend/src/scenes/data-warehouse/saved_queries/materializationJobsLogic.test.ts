@@ -851,7 +851,7 @@ describe('materializationJobsLogic', () => {
             useMocks(pinMocks({ pinned: false }))
             logic = materializationJobsLogic({ viewId: 'view-1' })
             logic.mount()
-            await expectLogic(logic).toDispatchActions(['loadNodeFrequencySuccess', 'loadSavedQuerySuccess'])
+            await expectLogic(logic).toDispatchActions(['loadSavedQuerySuccess', 'loadNodeFrequencySuccess'])
             const previous = logic.values.savedQuery!
             let resolveStale!: (value: typeof previous) => void
             const stale = new Promise<typeof previous>((resolve) => {
