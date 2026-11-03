@@ -2,7 +2,6 @@ import { Message } from 'node-rdkafka'
 
 import { DlqOutput, IngestionWarningsOutput, OverflowOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { IngestionOverflowMode } from '~/ingestion/config'
@@ -32,7 +31,6 @@ import {
     addSessionReplaySessionResolution,
     withSessionReplayRecordingMetrics,
 } from './session-replay-pipeline-stages'
-import { createRecordSessionUsageStep, trackUnbilledNewSessions } from './session-usage-step'
 
 export interface SessionReplayPipelineInput extends SessionBatchContext {
     message: Message
@@ -78,7 +76,6 @@ export interface SessionReplayPipelineConfig {
     topHog: TopHogRegistry
     /** Debug logging matcher for partition-based debugging. */
     isDebugLoggingEnabled: ValueMatcher<number>
-    usageBatch?: UsageRecordBatch
 }
 
 /**
@@ -93,7 +90,7 @@ export interface SessionReplayPipelineConfig {
  * 5. Record - Record parsed messages to the batch's recorder
  */
 export function createSessionReplayPipeline(config: SessionReplayPipelineConfig): SessionReplayPipeline {
-    const { outputs, promiseScheduler, topHog, isDebugLoggingEnabled, usageBatch } = config
+    const { outputs, promiseScheduler, topHog, isDebugLoggingEnabled } = config
 
     const pipelineConfig: PipelineConfig<OverflowOutput> = {
         outputs,
@@ -143,14 +140,12 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
                                                 b
                                                     // Parse message content
                                                     .pipe(
-                                                        trackUnbilledNewSessions(
-                                                            topHogWrapper(createParseMessageStep(), [
-                                                                timer('parse_time_ms_by_session_id', (input) => ({
-                                                                    token: input.headers.token ?? 'unknown',
-                                                                    session_id: input.headers.session_id ?? 'unknown',
-                                                                })),
-                                                            ])
-                                                        )
+                                                        topHogWrapper(createParseMessageStep(), [
+                                                            timer('parse_time_ms_by_session_id', (input) => ({
+                                                                token: input.headers.token ?? 'unknown',
+                                                                session_id: input.headers.session_id ?? 'unknown',
+                                                            })),
+                                                        ])
                                                     )
                                                     // Monitor library version and emit warnings for old versions
                                                     .pipe(createLibVersionMonitorStep())
@@ -162,7 +157,6 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
                                                             })
                                                         )
                                                     )
-                                                    .pipe(createRecordSessionUsageStep(usageBatch))
                                             )
                                             .gather()
                                     )

@@ -14,6 +14,7 @@ import {
 } from '~/cdp/types'
 import { createAddLogFunction, logEntry } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
+import { buildIntegerMatcher } from '~/common/config/matchers'
 import { logger } from '~/common/utils/logger'
 
 import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflows/hogflow-sensitivity'
@@ -356,6 +357,7 @@ export interface EmailServiceConfig {
     teamEmailCapMode?: TeamEmailCapMode
     teamEmailTierHourlyCaps?: number[]
     teamEmailTierDailyCaps?: number[]
+    utmLinkScannerTeams?: string
 }
 
 /**
@@ -754,7 +756,8 @@ export class EmailService {
                                       )
                                   )
                               ),
-                              this.siteUrl
+                              this.siteUrl,
+                              buildIntegerMatcher(this.sesConfig.utmLinkScannerTeams, true)(invocation.teamId)
                           ),
                       }
                     : paramsWithReplyTo
