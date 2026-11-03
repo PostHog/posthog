@@ -30,6 +30,7 @@ import { InboxWaitingForWork } from '../emptyState/InboxWaitingForWork'
 import { InboxMcpBanner } from '../InboxMcpBanner'
 import { InboxActivationPanel } from '../onboarding/InboxActivationPanel'
 import { InboxBulkSelectionBar } from '../shell/InboxBulkSelectionBar'
+import { InboxFiltersPanel } from '../shell/InboxFiltersPanel'
 import { InboxReportFilters } from '../shell/InboxReportFilters'
 import { InboxScopeFilter } from '../shell/InboxScopeFilter'
 import { InboxSortSelect } from '../shell/InboxSortSelect'
@@ -353,12 +354,20 @@ export function ReportsTab(): JSX.Element {
 
     return (
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-6 py-3">
-            {/* When the row runs out of room it wraps at the divider: filters on one line, sort and
-                scope on the next. The divider sits in the gap left of the sort group, so on a wrapped
-                line it falls outside the clipped edge instead of leading the line. The sort group
-                grows so scope always ends the row. */}
+            {/* Below @2xl the filters fold into one Filters button, so the toolbar stays one line. From
+                @2xl, when the row runs out of room it wraps at the divider: filters on one line, sort
+                and scope on the next. The divider sits in the gap left of the sort group, so on a
+                wrapped line it falls outside the clipped edge instead of leading the line. The sort
+                group grows so scope always ends the row. */}
             <div className="@container -mx-1 overflow-x-clip px-1">
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-2 @2xl:hidden">
+                    <InboxFiltersPanel />
+                    <InboxSortSelect />
+                    <div className="ml-auto min-w-0">
+                        <InboxScopeFilter />
+                    </div>
+                </div>
+                <div className="hidden flex-wrap items-center gap-2 @2xl:flex">
                     <InboxReportFilters />
                     <div className="relative flex flex-1 items-center gap-2">
                         <LemonDivider vertical className="absolute inset-y-1 -left-[5px] m-0" />

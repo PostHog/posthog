@@ -339,6 +339,7 @@ export interface inboxFiltersLogicValues {
         uuid: string
     } | null
     modelSortAvailable: boolean
+    nonDefaultReportFilterCount: number
     priorityFilter: SignalReportPriority[]
     scope: InboxScope
     scoutFilter: string[]
@@ -491,6 +492,14 @@ export interface inboxFiltersLogicMeta {
         sourceFilterAvailable: (featureFlags: FeatureFlagsSet) => boolean
         activeSourceProductFilter: (sourceProductFilter: string[], sourceFilterAvailable: boolean) => string[]
         activeScoutFilter: (scoutFilter: string[], sourceFilterAvailable: boolean) => string[]
+        nonDefaultReportFilterCount: (
+            visibleStateFilter: InboxReportSectionKey[],
+            priorityFilter: SignalReportPriority[],
+            activeCreatedWindow: InboxCreatedWindow | null,
+            activeSortField: InboxSortField,
+            activeSourceProductFilter: string[],
+            activeScoutFilter: string[]
+        ) => number
         visibleStateFilter: (
             stateFilter: (
                 | 'closed'
@@ -646,7 +655,13 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             togglePriority: () => captureQueryChange('priority'),
             setPriorityFilter: () => captureQueryChange('priority'),
             toggleState: () => captureQueryChange('state'),
-            clearFilters: () => captureQueryChange('clear'),
+            clearFilters: () => {
+                // Under a ranking sort the default is the sort's own window, not "any time".
+                if (isRankingSortField(values.activeSortField) && values.timeWindowAvailable) {
+                    actions.applyDefaultCreatedWindow(MODEL_SORT_DEFAULT_WINDOW)
+                }
+                captureQueryChange('clear')
+            },
             setFilters: () => {
                 rememberSelectedTeammate()
                 captureQueryChange('url')
@@ -885,6 +900,35 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                 user?.is_staff
                     ? stateFilter
                     : stateFilter.filter((key) => !INBOX_STAFF_ONLY_REPORT_SECTION_KEYS.includes(key)),
+        ],
+        // How many of the Reports filters (status, priority, created, source) differ from their
+        // default, for the badge on the compact Filters button. The window a ranking sort applies on
+        // its own is that sort's default, so it does not count.
+        nonDefaultReportFilterCount: [
+            (s) => [
+                s.visibleStateFilter,
+                s.priorityFilter,
+                s.activeCreatedWindow,
+                s.activeSortField,
+                s.activeSourceProductFilter,
+                s.activeScoutFilter,
+            ],
+            (
+                visibleStateFilter: InboxReportSectionKey[],
+                priorityFilter: SignalReportPriority[],
+                activeCreatedWindow: InboxCreatedWindow | null,
+                activeSortField: InboxSortField,
+                activeSourceProductFilter: string[],
+                activeScoutFilter: string[]
+            ): number => {
+                const defaultCreatedWindow = isRankingSortField(activeSortField) ? MODEL_SORT_DEFAULT_WINDOW : null
+                return [
+                    !isDefaultStateFilter(visibleStateFilter),
+                    priorityFilter.length > 0,
+                    activeCreatedWindow !== null && activeCreatedWindow !== defaultCreatedWindow,
+                    activeSourceProductFilter.length > 0 || activeScoutFilter.length > 0,
+                ].filter(Boolean).length
+            },
         ],
     }),
 
