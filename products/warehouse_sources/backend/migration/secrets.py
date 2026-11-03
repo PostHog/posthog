@@ -25,9 +25,8 @@ _NON_SECRET_KEYS = frozenset(
     {f"{name}{suffix}" for name in ("public", "primary", "partition", "sort") for suffix in ("key", "keys")}
 )
 _KEY_SUFFIX = re.compile(r"keys?\d*$")
-# A URL with a password in it (`scheme://user:password@host`), or a token in its query (an Azure SAS `sig`).
-_URL_WITH_PASSWORD = re.compile(r"://[^/@\s]+:[^/@\s]+@")
-_URL_WITH_TOKEN = re.compile(r"://\S*[?&](sig|signature|token|access_token|api_key|apikey|key)=", re.IGNORECASE)
+# A token in a URL query, such as an Azure SAS `sig`.
+_URL_TOKEN_PARAM = re.compile(r"[?&](sig|signature|token|access_token|api_key|apikey|key)=", re.IGNORECASE)
 
 
 def is_secret_key(key: str) -> bool:
@@ -42,11 +41,29 @@ def is_secret_key(key: str) -> bool:
 def _is_secret_value(value: Any) -> bool:
     if not isinstance(value, str):
         return False
-    return (
-        (len(value) > 0 and set(value) == {"*"})
-        or bool(_URL_WITH_PASSWORD.search(value))
-        or bool(_URL_WITH_TOKEN.search(value))
-    )
+    return (len(value) > 0 and set(value) == {"*"}) or any(_is_secret_url(word) for word in value.split())
+
+
+def _is_secret_url(word: str) -> bool:
+    """A URL with a password in it (`scheme://user:password@host`), or a token in its query.
+
+    Linear in the word's length: an agent upload can carry any string, and a backtracking pattern stalls on one
+    like `https://::::…`.
+    """
+    start = word.find("://")
+    if start < 0:
+        return False
+    if _URL_TOKEN_PARAM.search(word, start):
+        return True
+    while start >= 0:
+        authority_start = start + 3
+        authority_end = word.find("/", authority_start)
+        userinfo, at, _host = word[authority_start : authority_end if authority_end >= 0 else len(word)].partition("@")
+        # A user and a password, both non-empty, on either side of a colon.
+        if at and ":" in userinfo[1:-1]:
+            return True
+        start = word.find("://", authority_start)
+    return False
 
 
 def strip_secrets(config: Mapping[str, Any]) -> dict[str, Any]:

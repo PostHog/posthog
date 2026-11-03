@@ -367,6 +367,10 @@ class WarehouseMigrationUploadedError(ValueError):
     """An agent uploaded this migration, so PostHog has no vendor key to read the account again."""
 
 
+class WarehouseMigrationUploadTooLargeError(ValueError):
+    """The uploaded migration would grow past the size PostHog stores for an upload."""
+
+
 class WarehouseMigrationHasVendorKeyError(ValueError):
     """PostHog reads this migration's vendor account with an API key, so it takes no uploads."""
 

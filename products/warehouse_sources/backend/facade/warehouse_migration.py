@@ -121,7 +121,8 @@ def upload_migration_connections(
     destinations: Sequence[Mapping[str, Any]],
     connections: Sequence[contracts.MigrationConnectionUpload],
 ) -> contracts.WarehouseMigrationUpload | None:
-    """Raises `WarehouseMigrationHasVendorKeyError` when PostHog reads the account with a key instead."""
+    """Raises `WarehouseMigrationHasVendorKeyError` when PostHog reads the account with a key instead, and
+    `WarehouseMigrationUploadTooLargeError` when the migration would grow too large."""
     result = service.upload_connections(
         team_id=team_id, migration_id=migration_id, account=account, destinations=destinations, connections=connections
     )

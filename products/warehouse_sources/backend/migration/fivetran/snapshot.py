@@ -7,7 +7,10 @@ from pydantic import TypeAdapter, ValidationError
 
 from posthog.dataclasses import frozen
 
-from products.warehouse_sources.backend.facade.contracts import MigrationConnectionUpload
+from products.warehouse_sources.backend.facade.contracts import (
+    MigrationConnectionUpload,
+    WarehouseMigrationUploadTooLargeError,
+)
 from products.warehouse_sources.backend.migration.fivetran.client import FivetranAPIError, FivetranClient
 from products.warehouse_sources.backend.migration.secrets import strip_secrets
 from products.warehouse_sources.backend.migration.types import (
@@ -75,6 +78,11 @@ class UploadedSnapshot:
 
 
 MAX_UPLOADED_CONNECTION_BYTES = 1_000_000
+# Without a total cap, repeated uploads could grow the stored snapshot that every later upload loads and plans again.
+MAX_UPLOADED_SNAPSHOT_BYTES = 50_000_000
+# The item columns these values land in hold 400 characters.
+_MAX_NAME_LENGTH = 400
+_TOO_LARGE = "larger than 1 MB, so it cannot be uploaded. Migrate this account with an API key."
 # The parsers trust the vendor's field types. An agent upload can carry any JSON, so it is checked after parsing.
 _DESTINATION_ADAPTER: TypeAdapter[VendorDestination] = TypeAdapter(VendorDestination)
 _CONNECTION_ADAPTER: TypeAdapter[VendorConnection] = TypeAdapter(VendorConnection)
@@ -91,17 +99,22 @@ def merge_upload(
     """Add Fivetran read responses that an agent uploaded to the snapshot of earlier uploads.
 
     Secrets are removed exactly as in a crawl. A new destination or connection replaces the stored one with its id.
+    Raises `WarehouseMigrationUploadTooLargeError` when the merged snapshot is over `MAX_UPLOADED_SNAPSHOT_BYTES`.
     """
     errors: list[str] = []
     stored_destinations = {destination.id: destination for destination in previous.destinations} if previous else {}
     for index, raw in enumerate(destinations):
         raw = _unwrap(raw)
+        label = f"Destination {index} ({_label_id(raw)})"
+        if len(json.dumps(raw)) > MAX_UPLOADED_CONNECTION_BYTES:
+            errors.append(f"{label}: {_TOO_LARGE}")
+            continue
         try:
             destination = _DESTINATION_ADAPTER.validate_python(
                 dataclasses.asdict(parse_destination(raw, name=raw.get("name") or raw["id"]))
             )
         except _READ_ERRORS as error:
-            errors.append(f"Destination {index} ({raw.get('id') or 'no id'}): {_read_error(error)}")
+            errors.append(f"{label}: {_read_error(error)}")
             continue
         stored_destinations[destination.id] = destination
 
@@ -110,10 +123,10 @@ def merge_upload(
     connection_ids: list[str] = []
     for index, upload in enumerate(connections):
         raw = _unwrap(upload.connection)
-        label = f"Connection {index} ({raw.get('id') or 'no id'})"
+        label = f"Connection {index} ({_label_id(raw)})"
         schema_config = _unwrap(upload.schema_config) if upload.schema_config is not None else None
         if len(json.dumps([raw, schema_config])) > MAX_UPLOADED_CONNECTION_BYTES:
-            errors.append(f"{label}: larger than 1 MB, so it cannot be uploaded. Migrate this account with an API key.")
+            errors.append(f"{label}: {_TOO_LARGE}")
             continue
         try:
             parsed = parse_connection(
@@ -123,21 +136,31 @@ def merge_upload(
         except _READ_ERRORS as error:
             errors.append(f"{label}: {_read_error(error)}")
             continue
+        if max(len(connection.id), len(connection.service), len(connection.name)) > _MAX_NAME_LENGTH:
+            errors.append(f"{label}: its id, service or schema name is longer than {_MAX_NAME_LENGTH} characters.")
+            continue
         stored_connections[connection.id] = connection
         connection_ids.append(connection.id)
 
     account_info = _unwrap(account) if account is not None else {}
-    return UploadedSnapshot(
-        snapshot=VendorSnapshot(
-            provider=MigrationProvider.FIVETRAN,
-            account_id=str(account_info.get("account_id") or (previous.account_id if previous else "")),
-            account_name=_text(account_info.get("account_name")) or (previous.account_name if previous else None),
-            destinations=tuple(stored_destinations.values()),
-            connections=tuple(stored_connections.values()),
-        ),
-        connection_ids=tuple(dict.fromkeys(connection_ids)),
-        errors=tuple(errors),
+    account_name = _text(account_info.get("account_name"))
+    snapshot = VendorSnapshot(
+        provider=MigrationProvider.FIVETRAN,
+        account_id=str(account_info.get("account_id") or (previous.account_id if previous else "")),
+        account_name=account_name[:_MAX_NAME_LENGTH] if account_name else (previous.account_name if previous else None),
+        destinations=tuple(stored_destinations.values()),
+        connections=tuple(stored_connections.values()),
     )
+    if len(json.dumps(snapshot.to_json())) > MAX_UPLOADED_SNAPSHOT_BYTES:
+        raise WarehouseMigrationUploadTooLargeError()
+    return UploadedSnapshot(
+        snapshot=snapshot, connection_ids=tuple(dict.fromkeys(connection_ids)), errors=tuple(errors)
+    )
+
+
+def _label_id(raw: Mapping[str, Any]) -> str:
+    # Cut short, so an oversized id does not fill the error message.
+    return str(raw.get("id") or "no id")[:100]
 
 
 def _unwrap(raw: Mapping[str, Any]) -> Mapping[str, Any]:

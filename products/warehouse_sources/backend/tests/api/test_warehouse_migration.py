@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 _FACADE = "products.warehouse_sources.backend.facade.warehouse_migration"
 _SERVICE = "products.warehouse_sources.backend.migration.service"
 _VIEW = "products.warehouse_sources.backend.presentation.views.warehouse_migration"
+_SNAPSHOT = "products.warehouse_sources.backend.migration.fivetran.snapshot"
 
 
 def _envelope(data: dict[str, Any]) -> dict[str, Any]:
@@ -318,10 +319,18 @@ class TestWarehouseMigrationAPI(APIBaseTest):
                 False,
                 [{"connection": _fivetran_connection("conn_big", config={"notes": "x" * 1_000_001})}],
             ),
+            ("id_longer_than_its_column", False, [{"connection": _fivetran_connection("c" * 401)}]),
             ("migration_with_a_vendor_key", True, [{"connection": _fivetran_connection("conn_a")}]),
+            ("migration_over_the_total_cap", False, [{"connection": _fivetran_connection("conn_a")}], 100),
         ]
     )
-    def test_upload_refuses(self, _name: str, has_vendor_key: bool, connections: list[dict[str, Any]]) -> None:
+    def test_upload_refuses(
+        self,
+        _name: str,
+        has_vendor_key: bool,
+        connections: list[dict[str, Any]],
+        max_snapshot_bytes: int = 50_000_000,
+    ) -> None:
         migration = WarehouseMigration.objects.for_team(self.team.pk).create(
             team_id=self.team.pk,
             provider=WarehouseMigration.Provider.FIVETRAN,
@@ -329,7 +338,8 @@ class TestWarehouseMigrationAPI(APIBaseTest):
             credentials={"api_key": "fake-key", "api_secret": "fake-secret"} if has_vendor_key else {},
         )
 
-        assert self._upload(migration.id, connections=connections).status_code == 400
+        with patch(f"{_SNAPSHOT}.MAX_UPLOADED_SNAPSHOT_BYTES", max_snapshot_bytes):
+            assert self._upload(migration.id, connections=connections).status_code == 400
         assert not WarehouseMigrationItem.objects.for_team(self.team.pk).exists()
 
     def test_another_teams_migration_or_a_malformed_id_is_not_found(self) -> None:
