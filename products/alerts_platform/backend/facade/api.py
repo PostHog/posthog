@@ -12,8 +12,10 @@ from datetime import datetime
 from uuid import UUID
 
 from products.alerts_platform.backend.facade.contracts import (
+    AlertDeliveryRequest,
     DestinationSend,
     HandbackRefusal,
+    HeldDeliveryAddress,
     NewAlertDestination,
     PlatformAlertCheckInput,
     PlatformAlertConfigurationEdit,
@@ -24,6 +26,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertRuntime,
     PlatformAlertSnapshot,
     PlatformAlertUpsert,
+    PlatformCheckEntry,
     PlatformCheckEventPage,
     PlatformCheckPage,
     PlatformHandback,
@@ -32,8 +35,10 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
     StoredAlertDestination,
 )
+from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy
 from products.alerts_platform.backend.logic import (
     alert_destinations,
+    delivery_holds,
     destination_sends,
     platform_lifecycle,
     platform_reads,
@@ -58,6 +63,31 @@ def due_check_ids(
 def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now: datetime) -> int:
     """The platform's only write of state and schedule. Returns how many rows it wrote."""
     return platform_lifecycle.record_outcomes(team_id, outcomes, now)
+
+
+def release_hold(
+    address: HeldDeliveryAddress, *, action: HoldRelease, released_by: HoldReleasedBy, now: datetime
+) -> AlertDeliveryRequest | None:
+    """Releases a held delivery. Returns the request when the caller should start its delivery,
+    which it does with `start_deliveries` so the delivery keeps its usual id."""
+    return delivery_holds.release_hold(address, action=action, released_by=released_by, now=now)
+
+
+def record_hold_delivery_started(address: HeldDeliveryAddress, *, now: datetime) -> None:
+    """Marks a released send's delivery as started. Call it after `start_deliveries` returns, or the
+    safety net starts the delivery again once a grace period passes, and the delivery's id dedups it."""
+    delivery_holds.record_delivery_started([address], now)
+
+
+def reschedule_hold(address: HeldDeliveryAddress, *, release_after: datetime) -> bool:
+    """Moves an unreleased hold's safety-net deadline. Returns False when nothing was held."""
+    return delivery_holds.reschedule_hold(address, release_after=release_after)
+
+
+def hold_released_by(address: HeldDeliveryAddress) -> HoldReleasedBy | None:
+    """Who released an evaluation's held delivery, so a source can word the message that the release sent.
+    None when the evaluation was never held or is still held."""
+    return delivery_holds.hold_released_by(address)
 
 
 def slot_of(next_check_at: datetime | None, cutoff: datetime) -> str:
@@ -134,11 +164,14 @@ def list_configurations(
 
 
 def get_configuration(
-    *, team_id: int, source_kinds: Sequence[str], configuration_id: UUID
+    *, team_id: int, source_kinds: Sequence[str], configuration_id: UUID, lock: bool = False
 ) -> PlatformAlertConfigurationView | None:
-    """One configuration, or None when it does not exist or the caller may not read its kind."""
+    """One configuration, or None when it does not exist or the caller may not read its kind.
+
+    With `lock`, call it inside a transaction: the row stays locked until it ends, so a delete waits.
+    """
     return platform_reads.get_configuration(
-        team_id=team_id, source_kinds=source_kinds, configuration_id=configuration_id
+        team_id=team_id, source_kinds=source_kinds, configuration_id=configuration_id, lock=lock
     )
 
 
@@ -163,6 +196,28 @@ def check_page_by_legacy_id(
         until=until,
         limit=limit,
         offset=offset,
+    )
+
+
+def checks_with_detail_by_legacy_id(
+    *,
+    team_id: int,
+    legacy_configuration_ids: Collection[UUID],
+    detail_paths: Sequence[Sequence[str]],
+    since: datetime,
+    limit: int,
+) -> dict[UUID, tuple[PlatformCheckEntry, ...]]:
+    """Each named owned alert's newest `limit` checks since `since` whose source detail holds
+    every one of `detail_paths`, newest first, keyed by the source's id.
+
+    Raises when ClickHouse fails, so a caller can fall back to what it shows without the platform.
+    """
+    return platform_reads.checks_with_detail_by_legacy_id(
+        team_id=team_id,
+        legacy_configuration_ids=legacy_configuration_ids,
+        detail_paths=detail_paths,
+        since=since,
+        limit=limit,
     )
 
 
@@ -262,8 +317,12 @@ def update_owned_copy(
     change: Callable[[PlatformAlertConfigurationEdit], PlatformAlertConfigurationEdit],
     snooze_until: datetime | None = None,
     snooze_changed: bool = False,
+    cadence: PlatformAlertUpsert | None = None,
+    rescheduled: bool = False,
 ) -> None:
-    """Applies an edit a source made to its own row onto the copy the platform owns.
+    """Applies an edit a source made to its own row onto the copy the platform owns. When `cadence`
+    changes the copy's cadence, or `rescheduled` says the source moved its own due time, the copy is
+    next due at the cadence's `next_check_at`.
 
     Raises `InvalidPlatformAlertEdit` for an edit the source kind's schema rejects.
     """
@@ -273,6 +332,8 @@ def update_owned_copy(
         change=change,
         snooze_until=snooze_until,
         snooze_changed=snooze_changed,
+        cadence=cadence,
+        rescheduled=rescheduled,
     )
 
 
@@ -308,6 +369,11 @@ def create_alert_destinations(
 
 def list_alert_destinations(*, team_id: int, configuration_id: UUID) -> tuple[StoredAlertDestination, ...]:
     return alert_destinations.list_alert_destinations(team_id=team_id, configuration_id=configuration_id)
+
+
+def has_incident_destination(*, team_id: int, configuration_id: UUID) -> bool:
+    """Whether an alert whose destinations the platform owns has an enabled incident manager."""
+    return alert_destinations.has_incident_destination(team_id=team_id, configuration_id=configuration_id)
 
 
 def delete_alert_destinations(*, team_id: int, configuration_id: UUID, destination_ids: Collection[UUID]) -> int:

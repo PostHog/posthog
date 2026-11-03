@@ -31,7 +31,13 @@ export function buildCompactionContinuationPrompt(): string {
 export function buildAttributionPrompt(
   taskId: string,
   environment: TaskContext["environment"],
+  apiHost?: string,
 ): string {
+  // Local runs always come from Desktop, and GitHub drops custom URL schemes from links.
+  const threadLink =
+    environment === "local" && apiHost
+      ? ` from a [PostHog Desktop task](${apiHost.replace(/\/+$/, "")}/code/task/${encodeURIComponent(taskId)})`
+      : "";
   const commitInstructions =
     environment === "cloud"
       ? `In cloud tasks, call \`git_signed_commit\` to create commits. It automatically adds these trailers:
@@ -62,12 +68,15 @@ When creating new branches, prefix them with \`posthog/\` (e.g. \`posthog/fix-lo
 When creating pull requests, add the following footer at the end of the PR description:
 \`\`\`
 ---
-*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)*
+*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)${threadLink}*
 \`\`\``;
 }
 
-export function buildLocalAttributionPrompt(taskId: string): string {
-  return buildAttributionPrompt(taskId, "local");
+export function buildLocalAttributionPrompt(
+  taskId: string,
+  apiHost?: string,
+): string {
+  return buildAttributionPrompt(taskId, "local", apiHost);
 }
 
 export function buildQuestionsPrompt(
@@ -144,7 +153,11 @@ export function buildTaskSystemPrompt(
   ];
 
   sections.push(
-    buildAttributionPrompt(context.taskId, context.environment),
+    buildAttributionPrompt(
+      context.taskId,
+      context.environment,
+      context.apiHost,
+    ),
     buildQuestionsPrompt(capabilities.structuredInput === true),
     buildPullRequestLinksPrompt(),
     buildShellEfficiencyPrompt(),

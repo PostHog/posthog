@@ -86,6 +86,51 @@ describe('contentAutopilotPromptsLogic', () => {
         }
     })
 
+    it('drops a stale prompts failure after a newer request resolved', async () => {
+        const settlers: { resolve: () => void; reject: () => void }[] = []
+        mockPromptsList.mockImplementation(
+            () =>
+                new Promise((resolve, reject) => {
+                    settlers.push({
+                        resolve: () => resolve({ count: 1, next: null, previous: null, results: [EXAMPLE_PROMPTS[0]] }),
+                        reject: () => reject(new ApiError('Server error', 500)),
+                    })
+                })
+        )
+        logic = contentAutopilotPromptsLogic()
+        logic.mount()
+        logic.actions.setPromptsTopic('pricing')
+        await expectLogic(logic).toDispatchActions(['loadAeoPrompts', 'loadAeoPrompts'])
+        expect(settlers).toHaveLength(2)
+
+        settlers[1].resolve()
+        await expectLogic(logic).toDispatchActions(['loadAeoPromptsSuccess'])
+        settlers[0].reject()
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toNotHaveDispatchedActions(['loadAeoPromptsFailure'])
+            .toMatchValues({ promptsError: null, prompts: expect.objectContaining({ count: 1 }) })
+    })
+
+    it('flags a topics failure and clears it when a retry succeeds', async () => {
+        mockPromptsTopics.mockRejectedValueOnce(new ApiError('Server error', 500))
+        silenceKeaLoadersErrors()
+        try {
+            logic = contentAutopilotPromptsLogic()
+            logic.mount()
+            await expectLogic(logic)
+                .toFinishAllListeners()
+                .toMatchValues({ promptTopicsError: true, promptTopics: [], promptsError: null })
+
+            logic.actions.loadAeoPromptTopics()
+            await expectLogic(logic)
+                .toFinishAllListeners()
+                .toMatchValues({ promptTopicsError: false, promptTopics: EXAMPLE_PROMPT_TOPICS })
+        } finally {
+            resumeKeaLoadersErrors()
+        }
+    })
+
     it.each([
         ['saves', true, false],
         ['rolls back', false, true],

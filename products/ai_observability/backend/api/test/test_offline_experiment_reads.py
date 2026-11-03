@@ -114,6 +114,19 @@ class TestOfflineExperimentReads(APIBaseTest):
             self._history(),
         ]
 
+    def test_history_model_breakdown_uses_the_item_model(self) -> None:
+        self.experiment.model_version = "model-a"
+        self.experiment.save(update_fields=["model_version"])
+        self.item.model_version = "model-b"
+        self.item.save(update_fields=["model_version"])
+        response = self.client.get(self._history(), {"breakdown": "model_version", "model_version": "model-b"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data["results"][0]["breakdown_value"], "model-b")
+        self.assertEqual(response.data["results"][0]["summary"]["pass_rate"], 1.0)
+        response = self.client.get(self._history(), {"breakdown": "model_version", "model_version": "model-a"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data["count"], 0)
+
     def test_author_filter_applies_to_experiments_and_history(self) -> None:
         self.user.hedgehog_config = {
             "version": 2,
@@ -211,8 +224,9 @@ class TestOfflineExperimentReads(APIBaseTest):
                 if expected_count:
                     assert response.data["results"][0]["experiment"]["tags"] == ["production", "quality"]
                 seen = [point["experiment"]["id"] for point in response.data["results"]]
-                while response.data["next_cursor"]:
-                    response = self.client.get(self._history(), {**query, "cursor": response.data["next_cursor"]})
+                while response.data["next"]:
+                    assert response.data["next_cursor"]
+                    response = self.client.get(response.data["next"])
                     assert response.status_code == 200, response.data
                     seen.extend(point["experiment"]["id"] for point in response.data["results"])
                 assert len(seen) == len(set(seen)) == expected_count
@@ -531,6 +545,7 @@ class TestOfflineExperimentReads(APIBaseTest):
             (self._endpoint(), {"limit": 101}, "limit"),
             (self._endpoint(), {"created_by": "invalid"}, "created_by"),
             (self._history(), {"created_by": 0}, "created_by"),
+            (self._history(), {"breakdown": "unsupported"}, "breakdown"),
             (self._history(), {"created_by": self.user.id, "created_by_is_null": "true"}, "created_by"),
             (self._endpoint(f"{self.experiment.id}/"), {"limit": 1}, "limit"),
             (self._endpoint(f"{self.experiment.id}/items/{self.item.id}/"), {"limit": 1}, "limit"),

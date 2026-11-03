@@ -143,6 +143,14 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
     if not created:
         return
 
+    if (
+        instance.created_by_id is None
+        and isinstance(instance.item_context, dict)
+        and instance.item_context.get("author_type") == "AI"
+        and instance.item_context.get("automated_update_key")
+    ):
+        return
+
     # Capture values for closure (avoid referencing instance in deferred callback)
     team_id = instance.team_id
     item_id = instance.item_id

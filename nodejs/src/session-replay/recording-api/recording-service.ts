@@ -12,7 +12,14 @@ import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared
 
 import { ClickHouseCredential } from './clickhouse-credential'
 import { RecordingApiMetrics } from './metrics'
-import { KeyStore, RecordingBlock, RecordingDecryptor, RecordingEncryptor, SessionKeyDeletedError } from './types'
+import {
+    KeyStore,
+    RecordingBlock,
+    RecordingDecryptor,
+    RecordingEncryptor,
+    SessionKey,
+    SessionKeyDeletedError,
+} from './types'
 
 export interface GetBlockParams {
     sessionId: string
@@ -43,6 +50,13 @@ interface BlockListingRow {
     block_first_timestamps: string[]
     block_last_timestamps: string[]
     block_urls: string[]
+}
+
+function deletionOf(sessionKey: SessionKey): RecordingDeletedResult | null {
+    if (sessionKey.sessionState !== 'deleted') {
+        return null
+    }
+    return { ok: false, error: 'deleted', deletedAt: sessionKey.deletedAt, deletedBy: sessionKey.deletedBy ?? '' }
 }
 
 export class RecordingService {
@@ -83,13 +97,9 @@ export class RecordingService {
         if (sessionKey.sessionState === 'cleartext' && isCloud()) {
             return { ok: false, error: 'key_unavailable' }
         }
-        if (sessionKey.sessionState === 'deleted') {
-            return {
-                ok: false,
-                error: 'deleted',
-                deletedAt: sessionKey.deletedAt,
-                deletedBy: sessionKey.deletedBy ?? '',
-            }
+        const deletion = deletionOf(sessionKey)
+        if (deletion) {
+            return deletion
         }
         return {
             ok: true,
@@ -241,6 +251,13 @@ export class RecordingService {
         })
         const rows = await result.json()
         return rows.length > 0
+    }
+
+    // The key store records a deletion at once, while the is_deleted marker reaches ClickHouse later through Kafka.
+    // Call it only for a session that has blocks: the key store caches a missing key as cleartext for a day, and a
+    // lookup before ingestion creates the key would make getBlock skip decryption for that whole day.
+    async getDeletion(sessionId: string, teamId: number): Promise<RecordingDeletedResult | null> {
+        return deletionOf(await this.keyStore.getKey(sessionId, teamId))
     }
 
     async listBlocks(sessionId: string, teamId: number): Promise<RecordingBlock[]> {
@@ -538,6 +555,21 @@ export class RecordingService {
                      WHERE observation_id IN (SELECT id FROM observations)
                  ), deleted_media AS (
                      DELETE FROM replay_vision_replayobservationmedia
+                     WHERE observation_id IN (SELECT id FROM observations)
+                 ), deleted_dismissals AS (
+                     DELETE FROM replay_vision_replayobservationfeeddismissal
+                     WHERE observation_id IN (SELECT id FROM observations)
+                 ), deleted_impressions AS (
+                     DELETE FROM replay_vision_replayobservationfeedimpression
+                     WHERE observation_id IN (SELECT id FROM observations)
+                 ), deleted_similarities AS (
+                     DELETE FROM replay_vision_replayobservationanchorsimilarity
+                     WHERE observation_id IN (SELECT id FROM observations)
+                 ), deleted_ranks AS (
+                     DELETE FROM replay_vision_replayobservationrank
+                     WHERE observation_id IN (SELECT id FROM observations)
+                 ), deleted_feed_entries AS (
+                     DELETE FROM replay_vision_replayhighlightfeedentry
                      WHERE observation_id IN (SELECT id FROM observations)
                  )
                  DELETE FROM replay_vision_replayobservation

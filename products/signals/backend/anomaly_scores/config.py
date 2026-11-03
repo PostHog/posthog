@@ -1,13 +1,19 @@
 """Scoring settings, and the levers of the scheduled tick, read from the `anomaly-scoring` flag payload.
 
 The payload parse fails closed: a missing, malformed or unreadable payload turns the tick off. An invalid
-field falls back to its default, and no default is unbounded.
+field falls back to its default, and no default is unbounded. A malformed team allowlist also turns the tick
+off, because its default enrolls every team of the listed organizations.
+
+A `deployments` object, keyed by `settings.CLOUD_DEPLOYMENT`, holds per-region overrides of the top-level fields.
 """
 
 import uuid
+import hashlib
 import dataclasses
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
+
+from django.conf import settings
 
 import structlog
 
@@ -93,6 +99,20 @@ class ScoringRun(StrEnum):
 # Retrain hourly insights once a day, daily once a week, weekly once a month, and monthly once a quarter.
 DEFAULT_TRAIN_EVERY_BUCKETS = {IntervalType.HOUR: 24, IntervalType.DAY: 7, IntervalType.WEEK: 4, IntervalType.MONTH: 3}
 MAX_TRAIN_EVERY_BUCKETS = {IntervalType.HOUR: 168, IntervalType.DAY: 30, IntervalType.WEEK: 13, IntervalType.MONTH: 12}
+# Past `train_every_buckets`, a model keeps scoring until a train step has budget for it. Past this age it stops
+# scoring, and its insight waits for a train step. A value at or below `train_every_buckets` turns off stale scores.
+DEFAULT_MAX_MODEL_AGE_BUCKETS = {
+    IntervalType.HOUR: 96,
+    IntervalType.DAY: 28,
+    IntervalType.WEEK: 16,
+    IntervalType.MONTH: 12,
+}
+MAX_MODEL_AGE_BUCKETS_LIMIT = {
+    IntervalType.HOUR: 672,
+    IntervalType.DAY: 120,
+    IntervalType.WEEK: 52,
+    IntervalType.MONTH: 48,
+}
 
 
 # Hourly insights are left out by default: with many eligible insights, the time between two visits of
@@ -101,16 +121,35 @@ DEFAULT_TICK_INTERVALS = (IntervalType.DAY, IntervalType.WEEK, IntervalType.MONT
 
 
 @frozen
+class TickFanOut:
+    """How the tick runs its picks: this many shards side by side, each with this many picks in flight."""
+
+    shards: int
+    concurrency: int
+
+
+@frozen
 class AnomalyScoringConfig:
     enabled: bool = False
     organization_ids: tuple[str, ...] = ()
-    # Empty means every team of the organizations in `organization_ids`.
+    # Empty means every team of the organizations in `organization_ids`. The percentage rollout ignores it.
     allow_team_ids: tuple[int, ...] = ()
+    # Scores this percentage of the organizations with a project that has an enabled signal source.
+    # Only those projects are scored. A higher percentage keeps the organizations of a lower one.
+    self_driving_organization_percentage: float = 0.0
+    # The tick never scores these organizations, even when another field enrolls them.
+    deny_organization_ids: tuple[str, ...] = ()
     skip_team_ids: tuple[int, ...] = ()
     intervals: tuple[IntervalType, ...] = DEFAULT_TICK_INTERVALS
-    # Smooths the spend over the hour, so one tick cannot use the whole query budget.
+    # Smooths the spend over the hour, so one tick cannot use the whole query budget. With the split on,
+    # the two passes use the per-pass caps below instead. Each pick cap is per shard, see `fan_out`.
     max_insights_per_tick: int = 8
+    # Picks in flight in each shard.
     max_concurrency: int = 2
+    # Shards of the tick. Each shard runs its own picks, and all the picks of one team go to one shard.
+    shards: int = 1
+    # Picks in flight over all the shards. It lowers the shard count, so the cluster load has one upper limit.
+    max_total_concurrency: int = 8
     # Scoring queries per clock hour. One pick sends one query per series, see `scoring.query_cost`.
     max_queries_per_hour: int = 120
     max_queries_per_project_per_hour: int = 30
@@ -120,24 +159,58 @@ class AnomalyScoringConfig:
     train_every_buckets: dict[IntervalType, int] = dataclasses.field(
         default_factory=lambda: dict(DEFAULT_TRAIN_EVERY_BUCKETS)
     )
+    max_model_age_buckets: dict[IntervalType, int] = dataclasses.field(
+        default_factory=lambda: dict(DEFAULT_MAX_MODEL_AGE_BUCKETS)
+    )
     # Score step queries per clock hour. Train steps use the budgets above, so a cheap score step never waits for them.
     max_score_queries_per_hour: int = 600
-    max_score_queries_per_project_per_hour: int = 150
+    max_score_queries_per_project_per_hour: int = 500
+    # Per-tick picks of each pass when the split is on. Score steps are cheap, so the score pass gets most slots.
+    max_score_insights_per_tick: int = 20
+    max_train_insights_per_tick: int = 2
+    # An insight is scored only while one of its activity signals falls in this many days, see `queue.active_insights`.
+    active_window_days: int = 90
+    # On, the tick plans from the stored due list, and a slow job refreshes the list. See `due_list.py`.
+    due_list: bool = False
+    # Each enrolled team's due list refreshes about this often.
+    due_list_refresh_hours: int = 6
+    # ClickHouse CPU seconds of scoring queries per UTC day, read from the query log, see `spend.py`. Zero is off.
+    # A project at its limit gets no picks until the next UTC day. Near the fleet limit, train picks stop first.
+    max_cpu_seconds_per_project_per_day: int = 0
+    max_fleet_cpu_seconds_per_day: int = 0
+
+    def fan_out(self) -> TickFanOut:
+        concurrency = min(self.max_concurrency, self.max_total_concurrency)
+        return TickFanOut(
+            shards=max(1, min(self.shards, self.max_total_concurrency // concurrency)), concurrency=concurrency
+        )
 
 
 DISABLED = AnomalyScoringConfig()
 # The largest value a flag payload can set for each lever of the tick.
 MAX_INSIGHTS_PER_TICK = 50
 MAX_CONCURRENCY = 8
+MAX_SHARDS = 8
+MAX_TOTAL_CONCURRENCY = 32
 MAX_QUERIES_PER_HOUR = 2000
 MAX_QUERIES_PER_PROJECT_PER_HOUR = 500
 MAX_SCORE_QUERIES_PER_HOUR = 5000
 MAX_SCORE_QUERIES_PER_PROJECT_PER_HOUR = 1000
+MAX_SCORE_INSIGHTS_PER_TICK = 200
+MAX_TRAIN_INSIGHTS_PER_TICK = 50
+MAX_ACTIVE_WINDOW_DAYS = 365
+MAX_DUE_LIST_REFRESH_HOURS = 48
 
 
 def _positive_int(value: Any, default: int) -> int:
     # `bool` is an `int` subclass, and `true` is not a count.
     return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else default
+
+
+def _percentage(value: Any, default: float) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float) or not 0 <= value <= 100:
+        return default
+    return float(value)
 
 
 def _team_ids(value: Any) -> tuple[int, ...]:
@@ -146,19 +219,28 @@ def _team_ids(value: Any) -> tuple[int, ...]:
     return tuple(item for item in value if isinstance(item, int) and not isinstance(item, bool))
 
 
-def _is_uuid(value: str) -> bool:
+def _allow_team_ids(value: Any) -> tuple[int, ...] | None:
+    """`None` when the allowlist is malformed. An empty allowlist enrolls every team of the listed organizations."""
+    if not isinstance(value, list):
+        return None
+    team_ids = _team_ids(value)
+    return team_ids if team_ids or not value else None
+
+
+def _canonical_uuid(value: str) -> str | None:
     try:
-        uuid.UUID(value)
+        return str(uuid.UUID(value))
     except ValueError:
-        return False
-    return True
+        return None
 
 
 def _organization_ids(value: Any) -> tuple[str, ...]:
     if not isinstance(value, list):
         return ()
-    # A value that is not a UUID would fail the organization lookup of the whole tick.
-    return tuple(item for item in value if isinstance(item, str) and _is_uuid(item))
+    # A value that is not a UUID would fail the organization lookup of the whole tick. The canonical form
+    # lets `covers_team` compare ids as strings, so an id in another UUID format still matches.
+    ids = (_canonical_uuid(item) for item in value if isinstance(item, str))
+    return tuple(item for item in ids if item is not None)
 
 
 def _intervals(value: Any) -> tuple[IntervalType, ...]:
@@ -199,17 +281,29 @@ def parse_limits(payload: Any) -> ScoringLimits:
 def parse_config(payload: Any) -> AnomalyScoringConfig:
     if not isinstance(payload, dict) or payload.get("enabled") is not True:
         return DISABLED
+    allow_team_ids = _allow_team_ids(payload.get("allow_team_ids", []))
+    if allow_team_ids is None:
+        logger.warning("anomaly_scoring_config_malformed_allowlist")
+        return DISABLED
     defaults = AnomalyScoringConfig()
     return AnomalyScoringConfig(
         enabled=True,
         organization_ids=_organization_ids(payload.get("organization_ids")),
-        allow_team_ids=_team_ids(payload.get("allow_team_ids")),
+        allow_team_ids=allow_team_ids,
+        self_driving_organization_percentage=_percentage(
+            payload.get("self_driving_organization_percentage"), defaults.self_driving_organization_percentage
+        ),
+        deny_organization_ids=_organization_ids(payload.get("deny_organization_ids")),
         skip_team_ids=_team_ids(payload.get("skip_team_ids")),
         intervals=_intervals(payload.get("intervals")),
         max_insights_per_tick=min(
             _positive_int(payload.get("max_insights_per_tick"), defaults.max_insights_per_tick), MAX_INSIGHTS_PER_TICK
         ),
         max_concurrency=min(_positive_int(payload.get("max_concurrency"), defaults.max_concurrency), MAX_CONCURRENCY),
+        shards=min(_positive_int(payload.get("shards"), defaults.shards), MAX_SHARDS),
+        max_total_concurrency=min(
+            _positive_int(payload.get("max_total_concurrency"), defaults.max_total_concurrency), MAX_TOTAL_CONCURRENCY
+        ),
         max_queries_per_hour=min(
             _positive_int(payload.get("max_queries_per_hour"), defaults.max_queries_per_hour), MAX_QUERIES_PER_HOUR
         ),
@@ -222,6 +316,9 @@ def parse_config(payload: Any) -> AnomalyScoringConfig:
         train_every_buckets=_buckets_per_interval(
             payload.get("train_every_buckets"), DEFAULT_TRAIN_EVERY_BUCKETS, MAX_TRAIN_EVERY_BUCKETS
         ),
+        max_model_age_buckets=_buckets_per_interval(
+            payload.get("max_model_age_buckets"), DEFAULT_MAX_MODEL_AGE_BUCKETS, MAX_MODEL_AGE_BUCKETS_LIMIT
+        ),
         max_score_queries_per_hour=min(
             _positive_int(payload.get("max_score_queries_per_hour"), defaults.max_score_queries_per_hour),
             MAX_SCORE_QUERIES_PER_HOUR,
@@ -232,21 +329,97 @@ def parse_config(payload: Any) -> AnomalyScoringConfig:
             ),
             MAX_SCORE_QUERIES_PER_PROJECT_PER_HOUR,
         ),
+        max_score_insights_per_tick=min(
+            _positive_int(payload.get("max_score_insights_per_tick"), defaults.max_score_insights_per_tick),
+            MAX_SCORE_INSIGHTS_PER_TICK,
+        ),
+        # A payload from before the split sets only `max_insights_per_tick`, and keeps it as its train cap.
+        max_train_insights_per_tick=min(
+            _positive_int(
+                payload.get("max_train_insights_per_tick"),
+                _positive_int(payload.get("max_insights_per_tick"), defaults.max_train_insights_per_tick),
+            ),
+            MAX_TRAIN_INSIGHTS_PER_TICK,
+        ),
+        active_window_days=min(
+            _positive_int(payload.get("active_window_days"), defaults.active_window_days), MAX_ACTIVE_WINDOW_DAYS
+        ),
+        due_list=payload.get("due_list") is True,
+        due_list_refresh_hours=min(
+            _positive_int(payload.get("due_list_refresh_hours"), defaults.due_list_refresh_hours),
+            MAX_DUE_LIST_REFRESH_HOURS,
+        ),
+        max_cpu_seconds_per_project_per_day=_positive_int(
+            payload.get("max_cpu_seconds_per_project_per_day"), defaults.max_cpu_seconds_per_project_per_day
+        ),
+        max_fleet_cpu_seconds_per_day=_positive_int(
+            payload.get("max_fleet_cpu_seconds_per_day"), defaults.max_fleet_cpu_seconds_per_day
+        ),
     )
+
+
+# A new salt reorders every organization, so change the version only to start a new rollout order.
+_ROLLOUT_SALT = "anomaly-scoring-self-driving-v1"
+_ROLLOUT_BUCKETS = 10_000
+
+
+def organization_rollout_bucket(organization_id: "uuid.UUID | str") -> int:
+    """The organization's fixed place in the percentage rollout, from 0 to `_ROLLOUT_BUCKETS` - 1."""
+    digest = hashlib.sha256(f"{_ROLLOUT_SALT}:{uuid.UUID(str(organization_id))}".encode()).digest()
+    return int.from_bytes(digest[:8], "big") % _ROLLOUT_BUCKETS
+
+
+def in_rollout(config: AnomalyScoringConfig, organization_id: "uuid.UUID | str") -> bool:
+    threshold = config.self_driving_organization_percentage * _ROLLOUT_BUCKETS / 100
+    return organization_rollout_bucket(organization_id) < threshold
 
 
 def covers_team(config: AnomalyScoringConfig, team: "Team") -> bool:
-    """Whether the tick scores this team's insights. The event quota check of `queue.eligible_teams` is left out."""
-    return (
-        config.enabled
-        and str(team.organization_id) in config.organization_ids
-        and team.id not in config.skip_team_ids
-        and (not config.allow_team_ids or team.id in config.allow_team_ids)
+    """Whether the tick scores this team's insights. The single-team form of `queue.eligible_teams`.
+
+    The event quota check of `queue.eligible_teams` is left out. The skip list and the denylist win over every
+    enrollment. The percentage rollout enrolls only the projects that have an enabled signal source.
+    """
+    organization_id = str(team.organization_id)
+    if not config.enabled or team.id in config.skip_team_ids or organization_id in config.deny_organization_ids:
+        return False
+    if organization_id in config.organization_ids:
+        return not config.allow_team_ids or team.id in config.allow_team_ids
+    if not in_rollout(config, organization_id):
+        return False
+    from products.signals.backend.facade.api import (
+        has_enabled_source,  # noqa: PLC0415 — the facade imports this module through `search`
     )
+
+    return has_enabled_source(team.id)
+
+
+def deployment_payload(payload: Any, deployment: str | None) -> Any:
+    """The payload with the entry of `deployment` in its `deployments` object merged over the top-level fields.
+
+    A malformed `deployments` object or entry is ignored, so the top-level fields apply. Each field then gets
+    the same validation and caps as a top-level field.
+    """
+    if not isinstance(payload, dict) or "deployments" not in payload:
+        return payload
+    base = {key: value for key, value in payload.items() if key != "deployments"}
+    deployments = payload["deployments"]
+    if not isinstance(deployments, dict):
+        logger.warning("anomaly_scoring_config_malformed_deployments")
+        return base
+    if deployment is None or deployment not in deployments:
+        return base
+    override = deployments[deployment]
+    if not isinstance(override, dict) or "deployments" in override:
+        logger.warning("anomaly_scoring_config_malformed_deployment_override", deployment=deployment)
+        return base
+    return {**base, **override}
 
 
 def read_payload() -> dict | None:
-    return read_flag_payload(ANOMALY_SCORING_FLAG, ANOMALY_SCORING_FLAG_DISTINCT_ID)
+    return deployment_payload(
+        read_flag_payload(ANOMALY_SCORING_FLAG, ANOMALY_SCORING_FLAG_DISTINCT_ID), settings.CLOUD_DEPLOYMENT
+    )
 
 
 def read_config(payload: Any) -> AnomalyScoringConfig:
@@ -256,5 +429,7 @@ def read_config(payload: Any) -> AnomalyScoringConfig:
         enabled=config.enabled,
         organizations=len(config.organization_ids),
         allow_teams=len(config.allow_team_ids),
+        self_driving_organization_percentage=config.self_driving_organization_percentage,
+        denied_organizations=len(config.deny_organization_ids),
     )
     return config

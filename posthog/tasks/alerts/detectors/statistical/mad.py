@@ -29,8 +29,8 @@ class MADDetector(BaseDetector):
     """
 
     def detect(self, data: np.ndarray) -> DetectionResult:
-        threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
-        window = self.config.get("window", 30)
+        threshold = self.threshold
+        window = self.window
         # preprocess() only ever runs a single first-difference pass when diffs_n is truthy
         # (it's a boolean toggle, not a pass count), so exactly one synthetic leading point
         # is introduced regardless of the configured magnitude.
@@ -75,8 +75,8 @@ class MADDetector(BaseDetector):
         )
 
     def detect_batch(self, data: np.ndarray) -> DetectionResult:
-        threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
-        window = self.config.get("window", 30)
+        threshold = self.threshold
+        window = self.window
         # preprocess() only ever runs a single first-difference pass when diffs_n is truthy
         # (it's a boolean toggle, not a pass count), so exactly one synthetic leading point
         # is introduced regardless of the configured magnitude.
@@ -118,7 +118,7 @@ class MADDetector(BaseDetector):
         )
 
     def fit(self, history: np.ndarray) -> DetectorArtifact:
-        window = self.config.get("window", 30)
+        window = self.window
         diffs_n = 1 if self.preprocessing_config.get("diffs_n") else 0
         rows = self._fit_rows(history, min_rows=window + diffs_n)
         values = rows if rows.ndim == 1 else rows[:, 0]

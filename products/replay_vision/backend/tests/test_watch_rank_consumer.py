@@ -1,17 +1,21 @@
 import json
 import math
 import time
+import uuid
+import asyncio
 from typing import Any
 
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import OperationalError
 from django.test import SimpleTestCase
+from django.utils import timezone
 
-import numpy as np
 from asgiref.sync import async_to_sync
 from confluent_kafka import KafkaException
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from products.replay_vision.backend.embeddings import (
     EMBEDDING_DOCUMENT_TYPE,
@@ -19,13 +23,14 @@ from products.replay_vision.backend.embeddings import (
     OBSERVATION_EMBEDDING_MODEL,
 )
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger, ReplayObservation
+from products.replay_vision.backend.models.replay_observation_anchor_similarity import ReplayObservationAnchorSimilarity
+from products.replay_vision.backend.models.replay_observation_rank import RankCategory, ReplayObservationRank
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
-from products.replay_vision.backend.tests.helpers import snapshot_for
-from products.replay_vision.backend.watch_rank import ANCHOR_VERSION, RankRequest
+from products.replay_vision.backend.tests.helpers import axis_anchors, set_rank, snapshot_for
+from products.replay_vision.backend.watch_rank import RankRequest
 from products.replay_vision.backend.watch_rank_consumer import WatchRankConsumer, parse_rank_request
 
 _WATCH_RANK = "products.replay_vision.backend.watch_rank"
-_CURRENT_RANK = {"category": "struggle", "contrast": 0.2, "duplicate_of": None, "anchor_version": ANCHOR_VERSION}
 _CONSUMER = "products.replay_vision.backend.watch_rank_consumer"
 
 
@@ -80,12 +85,7 @@ class TestParseRankRequest(SimpleTestCase):
 
 
 class TestWatchRankConsumer(BaseTest):
-    _ANCHORS = {
-        "failure": np.array([[1.0, 0.0, 0.0]]),
-        "struggle": np.array([[0.0, 1.0, 0.0]]),
-        "revenue": np.array([[0.0, -1.0, 0.0]]),
-        "routine": np.array([[0.0, 0.0, 1.0]]),
-    }
+    _ANCHORS = axis_anchors()
 
     def _observation(self, scanner: ReplayScanner, session_id: str, **overrides: Any) -> ReplayObservation:
         return ReplayObservation.objects.create(
@@ -99,25 +99,19 @@ class TestWatchRankConsumer(BaseTest):
 
     @parameterized.expand(
         [
-            (
-                "duplicate_points_at_the_group_root",
-                None,
-                None,
-                "ranked",
-                {"category": "failure", "duplicate_of": "root-id"},
-            ),
-            ("ranking_failure_leaves_no_rank", None, RuntimeError("clickhouse down"), "failed", None),
-            ("redelivery_keeps_the_current_rank", _CURRENT_RANK, None, "already_ranked", _CURRENT_RANK),
+            ("issue_row_gets_a_rank_and_a_feed_group", None, None, "ranked", RankCategory.FAILURE),
+            ("ranking_failure_leaves_no_rank", None, RuntimeError("cache down"), "failed", None),
+            ("redelivery_keeps_the_current_rank", "struggle", None, "already_ranked", RankCategory.STRUGGLE),
             ("deleted_observation_is_skipped", None, None, "missing", None),
         ]
     )
     def test_ranks_the_observation_in_a_result(
         self,
         _name: str,
-        existing_rank: dict[str, Any] | None,
-        nearest_error: Exception | None,
+        existing_category: str | None,
+        anchor_error: Exception | None,
         outcome: str,
-        expected_rank: dict[str, Any] | None,
+        expected_category: int | None,
     ) -> None:
         scanner = ReplayScanner.objects.create(
             team=self.team,
@@ -126,30 +120,36 @@ class TestWatchRankConsumer(BaseTest):
             scanner_config={"prompt": "p"},
             model=ScannerModel.GEMINI_3_8_FLASH,
         )
-        neighbour = self._observation(scanner, "sess-earlier", watch_rank={"duplicate_of": "root-id"})
-        observation = self._observation(scanner, "sess-new", watch_rank=existing_rank)
-        nearest = MagicMock(side_effect=nearest_error, return_value=(str(neighbour.id), 0.05))
+        observation = self._observation(scanner, "sess-new")
+        kept_group = uuid.uuid4()
+        if existing_category:
+            set_rank(observation, category=existing_category, contrast=0.2, group=kept_group)
         message = _result_message(team_id=self.team.id, observation_id=str(observation.id), scanner_id=str(scanner.id))
         if outcome == "missing":
             observation.delete()
 
         with (
-            patch(f"{_WATCH_RANK}.anchor_vectors", AsyncMock(return_value=self._ANCHORS)),
-            patch(f"{_WATCH_RANK}.nearest_earlier_observation", nearest),
+            patch(f"{_WATCH_RANK}.anchor_vectors", AsyncMock(side_effect=anchor_error, return_value=self._ANCHORS)),
             patch(f"{_CONSUMER}._RETRY_WINDOW_S", 0),
+            patch(f"{_CONSUMER}._ERROR_RETRY_WINDOW_S", 0),
             # It would close the connection that holds the test transaction.
             patch(f"{_CONSUMER}.close_old_connections"),
         ):
-            assert async_to_sync(WatchRankConsumer(MagicMock()).handle)(message, 0.0, math.inf) == outcome
+            assert async_to_sync(WatchRankConsumer(MagicMock()).handle)(message, math.inf) == outcome
 
         if outcome == "missing":
             return
-        observation.refresh_from_db()
-        if expected_rank is None:
-            assert observation.watch_rank is None
-        else:
-            assert observation.watch_rank is not None
-            assert expected_rank.items() <= observation.watch_rank.items()
+        rank = ReplayObservationRank.objects.for_team(self.team.id).filter(observation_id=observation.id).first()
+        if expected_category is None:
+            assert rank is None
+            return
+        assert rank is not None
+        assert rank.category == expected_category
+        assert rank.feed_group_id is not None and (rank.feed_group_id == kept_group) == bool(existing_category)
+        # A redelivery returns before ranking, so only a fresh rank writes the similarity row.
+        assert ReplayObservationAnchorSimilarity.objects.for_team(self.team.id).filter(
+            observation=observation
+        ).exists() == (outcome == "ranked")
 
     @parameterized.expand(
         [
@@ -193,4 +193,41 @@ class TestWatchRankConsumer(BaseTest):
             patch(f"{_CONSUMER}.close_old_connections"),
         ):
             for _ in range(2):
-                assert async_to_sync(consumer.handle)(message, 0.0, time.monotonic()) == "deferred"
+                assert async_to_sync(consumer.handle)(message, time.monotonic()) == "deferred"
+
+
+class TestWatchRankConsumerRetries(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # The database being away waits out the full window, so a short outage costs no ranks.
+            ("database_error_keeps_retrying", OperationalError("server closed the connection"), "deferred"),
+            # Any other error holds every partition behind it, so it gives up after the short window.
+            ("other_error_gives_up_sooner", ValueError("bad vector"), "failed"),
+        ]
+    )
+    def test_a_failure_gives_up_after_the_window_for_its_kind(self, _name: str, error: Exception, outcome: str) -> None:
+        consumer = WatchRankConsumer(MagicMock())
+        consumer._first_failed_at["obs-1"] = time.monotonic() - 90
+
+        with (
+            patch(f"{_CONSUMER}.rank_observation", AsyncMock(side_effect=error)),
+            patch(f"{_CONSUMER}.close_old_connections"),
+        ):
+            assert async_to_sync(consumer.handle)(_result_message(), time.monotonic()) == outcome
+
+    def test_a_hung_naming_call_counts_a_timeout(self) -> None:
+        async def never_returns(*_args: Any) -> None:
+            await asyncio.Event().wait()
+
+        def timeouts() -> float:
+            labels = {"outcome": "timeout"}
+            return REGISTRY.get_sample_value("replay_vision_watch_rank_consumer_theme_naming_total", labels) or 0.0
+
+        before = timeouts()
+        with (
+            patch(f"{_CONSUMER}.name_theme", never_returns),
+            patch(f"{_CONSUMER}._NAMING_TIMEOUT_S", 0.01),
+        ):
+            async_to_sync(WatchRankConsumer._name)(7, uuid.uuid4(), timezone.now())
+
+        assert timeouts() == before + 1

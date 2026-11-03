@@ -13,11 +13,10 @@ import { getSourceDisplayStatus } from 'scenes/data-pipelines/utils/nonHogFuncti
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { HogFunctionTemplateStatus } from '~/types'
+import { type ExternalDataSourceType, HogFunctionTemplateStatus } from '~/types'
 
 import {
     DataWarehouseSourceCategoryApi,
-    ExternalDataSourceTypeEnumApi,
     SourceConfigResponseApi,
 } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
@@ -86,9 +85,9 @@ const SELF_MANAGED_KEYWORDS = [
 // registers interest and leaves without the connector that works today. Each key is hidden while
 // its value is in the catalog and connectable.
 const LIVE_ALTERNATIVE_TO_COMING_SOON: Partial<Record<string, string>> = {
-    [ExternalDataSourceTypeEnumApi.MicrosoftAdvertising]: ExternalDataSourceTypeEnumApi.BingAds,
+    MicrosoftAdvertising: 'BingAds',
     // The managed Amazon S3 source is flag-gated, but the self-managed S3 connector links a bucket.
-    [ExternalDataSourceTypeEnumApi.AmazonS3]: 'aws',
+    AmazonS3: 'aws',
 }
 
 // "Request a data warehouse source" survey. We render our own modal and submit the answer
@@ -97,7 +96,7 @@ export const SOURCE_REQUEST_SURVEY_ID = '0190ff15-5032-0000-722a-e13933c140ac'
 
 export interface SourceCatalogLogicProps {
     /** When set, only managed sources whose name is in this list are shown. */
-    allowedSources?: ExternalDataSourceTypeEnumApi[]
+    allowedSources?: ExternalDataSourceType[]
 }
 
 export interface CatalogItem {
@@ -163,6 +162,7 @@ export interface sourceCatalogLogicValues {
         name: string
         type: ManualLinkSourceType
     }[] // sourceWizardLogic
+    objectStorageSourcesEnabled: boolean // sourceWizardLogic
     dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null // sourcesDataLogic
     user: UserType | null // userLogic
     catalogFuse: Fuse
@@ -220,8 +220,9 @@ export interface sourceCatalogLogicMeta {
                 type: ManualLinkSourceType
             }[],
             featureFlags: FeatureFlagsSet,
+            objectStorageSourcesEnabled: boolean,
             dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
-            arg: ExternalDataSourceTypeEnumApi[] | undefined
+            arg: string[] | undefined
         ) => CatalogItem[]
         categoriesWithCounts: (catalogItems: CatalogItem[]) => CatalogCategory[]
         selectedCategoryLabel: (
@@ -294,7 +295,7 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
             availableSourcesLogic,
             ['availableSources'],
             sourceWizardLogic,
-            ['manualConnectors'],
+            ['manualConnectors', 'objectStorageSourcesEnabled'],
             featureFlagLogic,
             ['featureFlags'],
             userLogic,
@@ -354,6 +355,7 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                 s.availableSources,
                 s.manualConnectors,
                 s.featureFlags,
+                s.objectStorageSourcesEnabled,
                 s.dataWarehouseSources,
                 (_, p: SourceCatalogLogicProps) => p.allowedSources,
             ],
@@ -364,8 +366,9 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                     type: import('~/types').ManualLinkSourceType
                 }[],
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
+                objectStorageSourcesEnabled: boolean,
                 dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
-                allowedSources: ExternalDataSourceTypeEnumApi[] | undefined
+                allowedSources: ExternalDataSourceType[] | undefined
             ): CatalogItem[] => {
                 // SourceConfigResponseApi declares `existingSource`, but the /wizard payload this
                 // selector reads never populates it, so derive it from the project's source list.
@@ -426,20 +429,21 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                     })
                 )
 
-                // File upload is self-managed too — the uploaded file becomes an in-place table — but
-                // it isn't a `manualConnector` (those link a user's own bucket). It's one entry with
-                // three tiles, one per format, since users search for "CSV" rather than "File upload".
+                // File upload isn't a `manualConnector` (those link a user's own bucket). Without managed
+                // object storage sources it is self-managed too; with them it is a managed source.
+                // One entry with three tiles, one per format, since users search for "CSV" rather
+                // than "File upload".
                 const fileUpload = FILE_UPLOAD_FORMATS.map(
                     ({ format, label, keywords }): CatalogItem => ({
                         name: fileUploadSourceType(format),
                         label,
                         iconType: FILE_UPLOAD_SOURCE_NAME,
                         category: MANUAL_SOURCE_CATEGORY,
-                        keywords: [...keywords, ...SELF_MANAGED_KEYWORDS],
+                        keywords: objectStorageSourcesEnabled ? keywords : [...keywords, ...SELF_MANAGED_KEYWORDS],
                         status: 'stable',
                         releaseStatus: FILE_UPLOAD_SOURCE_CONFIG.releaseStatus,
                         url: fileUploadSourceUrl(format),
-                        selfManaged: true,
+                        selfManaged: !objectStorageSourcesEnabled,
                     })
                 )
 
@@ -575,9 +579,7 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
         customSourceItem: [
             (s) => [s.catalogItems],
             (catalogItems: CatalogItem[]): CatalogItem | null =>
-                catalogItems.find(
-                    (item) => item.name === ExternalDataSourceTypeEnumApi.Custom && item.status !== 'coming_soon'
-                ) ?? null,
+                catalogItems.find((item) => item.name === 'Custom' && item.status !== 'coming_soon') ?? null,
         ],
     }),
     listeners(({ values, actions }) => ({
@@ -626,6 +628,9 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
         '*': (_, searchParams) => {
             const category = searchParams[CATEGORY_SEARCH_PARAM]
             if (!isSourceCategoryFilter(category) || category === values.selectedCategory) {
+                return
+            }
+            if (category === SELF_MANAGED_CATEGORY && values.objectStorageSourcesEnabled) {
                 return
             }
             actions.setSelectedCategory(category)

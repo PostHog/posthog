@@ -14,6 +14,11 @@ from products.data_modeling.backend.facade import api
 from products.data_modeling.backend.facade.contracts import SavedQueryDefinition, UpstreamTableRef
 from products.data_modeling.backend.logic.saved_query_reads import POSTHOG_TABLE_ORIGIN
 from products.data_modeling.backend.models.dag import DAG
+from products.data_modeling.backend.models.data_modeling_job import (
+    DataModelingJob,
+    DataModelingJobEngine,
+    DataModelingJobStatus,
+)
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import Node, NodeType
@@ -181,3 +186,24 @@ class TestSavedQueryReads(BaseTest):
                 UpstreamTableRef(name="legacy_orders"),
             }
         )
+
+    def test_unbuilt_upstream_saved_query_ids_needs_a_completed_build_on_that_engine(self) -> None:
+        dag = DAG.objects.create(team=self.team, name="Default")
+        events = table_node(self.team, dag, "events", {"origin": POSTHOG_TABLE_ORIGIN})
+        built = saved_query_node(self.team, dag, "built", NodeType.TABLE)
+        built_elsewhere = saved_query_node(self.team, dag, "built_elsewhere", NodeType.TABLE)
+        failed = saved_query_node(self.team, dag, "failed", NodeType.TABLE)
+        target = saved_query_node(self.team, dag, "target", NodeType.VIEW)
+        for source in [events, built, built_elsewhere, failed]:
+            Edge.objects.create(team=self.team, dag=dag, source=source, target=target)
+        for node, engine, status in [
+            (built, DataModelingJobEngine.MANAGED_WAREHOUSE, DataModelingJobStatus.FAILED),
+            (built, DataModelingJobEngine.MANAGED_WAREHOUSE, DataModelingJobStatus.COMPLETED),
+            (built_elsewhere, DataModelingJobEngine.CLICKHOUSE, DataModelingJobStatus.COMPLETED),
+            (failed, DataModelingJobEngine.MANAGED_WAREHOUSE, DataModelingJobStatus.FAILED),
+        ]:
+            DataModelingJob.objects.create(team=self.team, saved_query=node.saved_query, engine=engine, status=status)
+
+        assert api.unbuilt_upstream_saved_query_ids(
+            self.team.id, target.saved_query_id, engine=DataModelingJobEngine.MANAGED_WAREHOUSE
+        ) == frozenset({built_elsewhere.saved_query_id, failed.saved_query_id})

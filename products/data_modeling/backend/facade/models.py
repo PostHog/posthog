@@ -11,6 +11,7 @@ methods, so importing this adds nothing beyond the models Django loads at ``setu
 from products.data_modeling.backend.graph import Graph
 from products.data_modeling.backend.models.dag import DAG, DEFAULT_DAG_NAME
 from products.data_modeling.backend.models.data_modeling_job import (
+    TERMINAL_JOB_STATUSES,
     DataModelingJob,
     DataModelingJobEngine,
     DataModelingJobRunMode,
@@ -22,6 +23,7 @@ from products.data_modeling.backend.models.datawarehouse_saved_query import (
     aget_saved_query_by_id,
     aget_table_by_saved_query_id,
     asave_saved_query,
+    is_raw_managed_trino_query,
     validate_saved_query_name,
 )
 from products.data_modeling.backend.models.datawarehouse_saved_query_column_annotation import (
@@ -36,6 +38,7 @@ __all__ = [
     "DEFAULT_DAG_NAME",
     "NON_SCHEDULING_EDGES",
     "SAVED_QUERY_NODE_TYPES",
+    "TERMINAL_JOB_STATUSES",
     "DataModelingJob",
     "DataModelingJobEngine",
     "DataModelingJobRunMode",
@@ -52,5 +55,6 @@ __all__ = [
     "aget_saved_query_by_id",
     "aget_table_by_saved_query_id",
     "asave_saved_query",
+    "is_raw_managed_trino_query",
     "validate_saved_query_name",
 ]

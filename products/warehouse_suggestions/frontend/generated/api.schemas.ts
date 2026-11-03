@@ -19,6 +19,8 @@ export interface WarehouseSuggestionDeprecatePayloadApi {
     refresh_seconds_per_month: number
     /** Bytes its refreshes read in a month. */
     refresh_bytes_per_month: number
+    /** Whether the view is materialized. A plain view has no refreshes, so both refresh costs are 0. */
+    materialized?: boolean
 }
 
 export interface WarehouseSuggestionVisibleSourcesApi {
@@ -44,6 +46,7 @@ export const WarehouseSuggestionRefreshModeEnumApi = {
  * * `source_sync` - Source sync
  * * `fastest_schedule` - Fastest schedule
  * * `read_rate` - Read rate
+ * * `consumer_refresh` - Consumer refresh
  * * `savings` - Savings
  */
 export type WarehouseSuggestionRefreshIntervalBasisEnumApi =
@@ -53,7 +56,22 @@ export const WarehouseSuggestionRefreshIntervalBasisEnumApi = {
     SourceSync: 'source_sync',
     FastestSchedule: 'fastest_schedule',
     ReadRate: 'read_rate',
+    ConsumerRefresh: 'consumer_refresh',
     Savings: 'savings',
+} as const
+
+/**
+ * * `waiting` - Waiting
+ * * `background` - Background
+ * * `scanned` - Scanned
+ */
+export type WarehouseSuggestionMainSavingEnumApi =
+    (typeof WarehouseSuggestionMainSavingEnumApi)[keyof typeof WarehouseSuggestionMainSavingEnumApi]
+
+export const WarehouseSuggestionMainSavingEnumApi = {
+    Waiting: 'waiting',
+    Background: 'background',
+    Scanned: 'scanned',
 } as const
 
 export interface WarehouseSuggestionMaterializePayloadApi {
@@ -66,13 +84,20 @@ export interface WarehouseSuggestionMaterializePayloadApi {
      * * `full` - Full
      * * `incremental` - Incremental */
     refresh_mode: WarehouseSuggestionRefreshModeEnumApi
-    /** Why the interval is not shorter. source_sync: the view's sources sync no faster. fastest_schedule: PostHog refreshes views no more often. read_rate: people read the view no more often. savings: a shorter interval would cost more than it saves. Null on suggestions made before this was recorded.
+    /** Why the interval is not shorter. source_sync: the view's sources sync no faster. fastest_schedule: PostHog refreshes views no more often. read_rate: people read the view no more often. consumer_refresh: the materialized views that read it refresh no more often. savings: a shorter interval would cost more than it saves. Null on suggestions made before this was recorded.
      *
      * * `source_sync` - Source sync
      * * `fastest_schedule` - Fastest schedule
      * * `read_rate` - Read rate
+     * * `consumer_refresh` - Consumer refresh
      * * `savings` - Savings */
     refresh_interval_basis: WarehouseSuggestionRefreshIntervalBasisEnumApi | null
+    /** The saving that earned the suggestion. waiting: people, agents and API callers wait less on reads. background: refreshes do less work. scanned: reads scan fewer bytes. Null on suggestions made before this was recorded.
+     *
+     * * `waiting` - Waiting
+     * * `background` - Background
+     * * `scanned` - Scanned */
+    main_saving: WarehouseSuggestionMainSavingEnumApi | null
     /** Name of the view to materialize. */
     subject_name: string
     /** Proposed refresh interval, in seconds. */
@@ -97,6 +122,23 @@ export interface WarehouseSuggestionMaterializePayloadApi {
     unique_key?: string[]
     /** How far before the last refresh's highest incremental_key value each refresh reads again, in seconds. The last incremental_key value is always read again. */
     lookback_seconds?: number
+    /** How many materialized views compute this view again on every refresh, because it is not stored. 0 when the saving comes only from people's reads. */
+    recomputed_by_views?: number
+    /**
+     * Part of saves_seconds_per_month that people, agents and API callers spend waiting on reads of this view, in seconds. Null on suggestions made before this was recorded.
+     * @nullable
+     */
+    waiting_seconds_saved_per_month?: number | null
+    /**
+     * Part of saves_seconds_per_month that background refreshes spend, in seconds. Negative when refreshing the stored copy costs more background time than it saves. Null on suggestions made before this was recorded.
+     * @nullable
+     */
+    background_seconds_saved_per_month?: number | null
+    /**
+     * How long one read of the view takes today, in seconds. Null when no read was measured on its own.
+     * @nullable
+     */
+    read_seconds?: number | null
 }
 
 export interface WarehouseSuggestionUnmaterializePayloadApi {
@@ -243,6 +285,8 @@ export interface WarehouseSuggestionApi {
     created_asset: WarehouseSuggestionApiCreatedAsset
     /** Who accepted or dismissed this suggestion. Null while it is open. */
     reviewed_by: WarehouseSuggestionReviewerApi | null
+    /** Who should accept or dismiss this suggestion. When a view's suggestion is first shown, it goes to the person who created the view, if they can accept it. Null when nobody is assigned. */
+    assignee: WarehouseSuggestionReviewerApi | null
     /** What the suggestion proposes: certify, deprecate, materialize or unmaterialize the subject. unmaterialize turns a rarely read materialized view back into a plain view computed on read.
      *
      * * `certify` - Certify
@@ -359,6 +403,16 @@ export interface AcceptWarehouseSuggestionApi {
     lookback_seconds?: number
     /** Deprecate only: true to keep a materialized view refreshing after it is deprecated. By default, accepting a deprecate suggestion also stops the view's refreshes and deletes its stored table, unless other views or syncs depend on it. */
     keep_materialized?: boolean
+    /** Deprecate only: true to delete the view instead of marking it deprecated. Deleting also drops its stored table and refreshes, and cannot be undone. Refused when another view now reads it, or when it feeds person properties, account properties, a destination or a workflow. Refused with a 400 when any day in the read window has no read data, because a view read only on those days would look unread. */
+    delete_view?: boolean
+}
+
+export interface AssignWarehouseSuggestionApi {
+    /**
+     * ID of the user to assign. They must be able to accept the suggestion: edit access to the view or table, and to the data catalog for certify and deprecate suggestions. Null removes the assignee. The assignee gets a notification unless they assign themselves.
+     * @nullable
+     */
+    assignee_id: number | null
 }
 
 export interface DismissWarehouseSuggestionApi {
@@ -398,6 +452,10 @@ export interface WarehouseSuggestionStatusApi {
 
 export type WarehouseSuggestionsListParams = {
     /**
+     * Only return suggestions assigned to the user with this ID.
+     */
+    assignee_id?: number
+    /**
      * Only return suggestions of this kind.
      *
      * * `certify` - Certify
@@ -409,6 +467,7 @@ export type WarehouseSuggestionsListParams = {
     kind?: WarehouseSuggestionsListKind
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**

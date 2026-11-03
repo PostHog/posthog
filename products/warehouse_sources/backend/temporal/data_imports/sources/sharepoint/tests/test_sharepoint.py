@@ -8,6 +8,7 @@ from http import HTTPStatus
 from typing import Any, Optional, Union, cast
 
 import pytest
+import time_machine
 from unittest import mock
 
 import requests
@@ -163,9 +164,10 @@ def _run(
     routes: Mapping[str, Route | list[Route]],
     site_urls: Optional[str] = None,
     resume_state: Optional[SharePointResumeConfig] = None,
+    **inputs: Any,
 ) -> DriveResult:
     driver = SourceDriver(SharePointSource(), make_config(enabled=None, site_urls=site_urls))
-    return driver.run(endpoint, _graph(routes), resume_state=resume_state)
+    return driver.run(endpoint, _graph(routes), resume_state=resume_state, **inputs)
 
 
 ALL_SITES_ROUTES: dict[str, Route] = {
@@ -333,6 +335,183 @@ class TestSharePointResume:
 
         assert result.raised is None
         assert [(row["site_id"], row["id"]) for row in result.rows] == [(SITE_A, "list-a"), (SITE_B, "list-b")]
+
+
+SITE_A_URL = "https://contoso.sharepoint.com/sites/a"
+SITE_A_ROUTE: dict[str, Route] = {_g("/sites/contoso.sharepoint.com:/sites/a:"): {"id": SITE_A}}
+
+
+def _activity_path(start: str) -> str:
+    return _g(
+        f"/sites/{SITE_A}/getActivitiesByInterval(startDateTime='{start}',endDateTime='2026-10-27',interval='day')"
+    )
+
+
+class TestSharePointSiteTables:
+    @parameterized.expand(
+        [
+            ("drives", "drives"),
+            ("content_types", "contentTypes"),
+        ]
+    )
+    def test_reads_each_site_collection(self, endpoint: str, collection: str) -> None:
+        routes: dict[str, Route] = {
+            **SITE_A_ROUTE,
+            _g(f"/sites/{SITE_A}/{collection}"): {
+                "value": [{"id": "0x0101", "name": "Document"}],
+                "@odata.nextLink": _g(f"/sites/{SITE_A}/{collection}?$skiptoken=2"),
+            },
+            _g(f"/sites/{SITE_A}/{collection}?$skiptoken=2"): {"value": [{"id": "0x0120", "name": "Folder"}]},
+        }
+
+        result = _run(endpoint, routes, site_urls=SITE_A_URL)
+
+        assert result.raised is None
+        assert [(row["site_id"], row["id"]) for row in result.rows] == [(SITE_A, "0x0101"), (SITE_A, "0x0120")]
+
+    @parameterized.expand(
+        [
+            ("full_refresh_reads_the_whole_window", {}, "2026-07-30"),
+            (
+                "incremental_starts_at_the_watermark_day",
+                {"incremental_field": "startDateTime", "db_incremental_field_last_value": "2026-10-20T00:00:00Z"},
+                "2026-10-20",
+            ),
+            (
+                "incremental_watermark_as_datetime",
+                {
+                    "incremental_field": "startDateTime",
+                    "db_incremental_field_last_value": datetime(2026, 10, 25, 6, tzinfo=UTC),
+                },
+                "2026-10-25",
+            ),
+            (
+                "incremental_watermark_older_than_the_window_is_clamped",
+                {"incremental_field": "startDateTime", "db_incremental_field_last_value": "2026-01-01T00:00:00Z"},
+                "2026-07-30",
+            ),
+        ]
+    )
+    def test_activity_stats_request_a_daily_window_graph_accepts(
+        self, _name: str, inputs: dict[str, Any], expected_start: str
+    ) -> None:
+        routes: dict[str, Route] = {
+            **SITE_A_ROUTE,
+            _activity_path(expected_start): {
+                "value": [
+                    {
+                        "startDateTime": "2026-10-25T00:00:00Z",
+                        "endDateTime": "2026-10-26T00:00:00Z",
+                        "access": {"actionCount": 5, "actorCount": 3},
+                    }
+                ]
+            },
+        }
+
+        with time_machine.travel(datetime(2026, 10, 26, 23, 30, tzinfo=UTC), tick=False):
+            result = _run("site_activity_stats", routes, site_urls=SITE_A_URL, **inputs)
+
+        assert result.raised is None
+        assert result.rows == [
+            {
+                "site_id": SITE_A,
+                "startDateTime": datetime(2026, 10, 25, tzinfo=UTC),
+                "endDateTime": "2026-10-26T00:00:00Z",
+                "access": {"actionCount": 5, "actorCount": 3},
+            }
+        ]
+        assert result.response is not None and result.response.sort_mode is None
+
+
+DRIVE_VERSION_ROUTES: dict[str, Route] = {
+    **SITE_A_ROUTE,
+    _g(f"/sites/{SITE_A}/drives"): {"value": [{"id": "b!drive-a"}]},
+    _g("/drives/b!drive-a/root/delta"): {
+        "value": [
+            {"id": "root", "root": {}, "folder": {}},
+            {"id": "f1", "file": {}},
+            {"id": "gone", "deleted": {}},
+        ],
+        "@odata.nextLink": _g("/drives/b!drive-a/root/delta?token=2"),
+    },
+    _g("/drives/b!drive-a/root/delta?token=2"): {
+        "value": [{"id": "f1", "file": {}}, {"id": "f2", "file": {}}, {"id": "f3", "file": {}}],
+        "@odata.nextLink": _g("/drives/b!drive-a/root/delta?token=3"),
+    },
+    _g("/drives/b!drive-a/root/delta?token=3"): {"value": [{"id": "folder-2", "folder": {}}]},
+    _g("/drives/b!drive-a/items/f1/versions"): {
+        "value": [{"id": "2.0", "size": 20, "@microsoft.graph.downloadUrl": "https://temporary.example.com/f1"}],
+        "@odata.nextLink": _g("/drives/b!drive-a/items/f1/versions?$skiptoken=2"),
+    },
+    _g("/drives/b!drive-a/items/f1/versions?$skiptoken=2"): {"value": [{"id": "1.0", "size": 10}]},
+    # A file deleted after the delta page was read.
+    _g("/drives/b!drive-a/items/f2/versions"): 404,
+    _g("/drives/b!drive-a/items/f3/versions"): {"value": [{"id": "1.0", "size": 30}]},
+}
+
+
+class TestSharePointVersions:
+    def test_drive_item_versions_read_each_file_once(self) -> None:
+        result = _run("drive_item_versions", DRIVE_VERSION_ROUTES, site_urls=SITE_A_URL)
+
+        assert result.raised is None
+        assert [(row["drive_id"], row["item_id"], row["id"]) for row in result.rows] == [
+            ("b!drive-a", "f1", "2.0"),
+            ("b!drive-a", "f1", "1.0"),
+            ("b!drive-a", "f3", "1.0"),
+        ]
+        assert all(row["site_id"] == SITE_A for row in result.rows)
+        assert all("@microsoft.graph.downloadUrl" not in row for row in result.rows)
+        assert [url for url in result.urls if "/versions" in url] == [
+            _g("/drives/b!drive-a/items/f1/versions"),
+            _g("/drives/b!drive-a/items/f1/versions?$skiptoken=2"),
+            _g("/drives/b!drive-a/items/f2/versions"),
+            _g("/drives/b!drive-a/items/f3/versions"),
+        ]
+
+    def test_failure_mid_page_resumes_at_the_page_in_progress(self) -> None:
+        failing = {**DRIVE_VERSION_ROUTES, _g("/drives/b!drive-a/items/f3/versions"): 403}
+
+        failed = _run("drive_item_versions", failing, site_urls=SITE_A_URL)
+
+        page_2 = _g("/drives/b!drive-a/root/delta?token=2")
+        assert isinstance(failed.raised, requests.HTTPError)
+        assert failed.final_state == SharePointResumeConfig(site_id=SITE_A, parent_id="b!drive-a", next_url=page_2)
+
+        resumed = _run(
+            "drive_item_versions", DRIVE_VERSION_ROUTES, site_urls=SITE_A_URL, resume_state=failed.final_state
+        )
+
+        assert resumed.raised is None
+        assert _g("/drives/b!drive-a/root/delta") not in resumed.urls
+        assert [(row["item_id"], row["id"]) for row in resumed.rows] == [("f1", "2.0"), ("f1", "1.0"), ("f3", "1.0")]
+
+    def test_list_item_versions_skip_hidden_lists_and_expand_fields(self) -> None:
+        routes: dict[str, Route] = {
+            **SITE_A_ROUTE,
+            _g(f"/sites/{SITE_A}/lists"): {
+                "value": [{"id": "list-1", "list": {"hidden": False}}, {"id": "hidden-list", "list": {"hidden": True}}]
+            },
+            _g(f"/sites/{SITE_A}/lists/list-1/items"): {"value": [{"id": "1"}, {"id": "2"}]},
+            _g(f"/sites/{SITE_A}/lists/list-1/items/1/versions"): {
+                "value": [
+                    {"id": "2.0", "lastModifiedDateTime": "2026-02-01T00:00:00Z", "fields": {"Title": "Widget v2"}},
+                    {"id": "1.0", "lastModifiedDateTime": "2026-01-01T00:00:00Z", "fields": {"Title": "Widget"}},
+                ]
+            },
+            _g(f"/sites/{SITE_A}/lists/list-1/items/2/versions"): {"value": []},
+        }
+
+        result = _run("list_item_versions", routes, site_urls=SITE_A_URL)
+
+        assert result.raised is None
+        assert [(row["list_id"], row["item_id"], row["id"], row["fields"]["Title"]) for row in result.rows] == [
+            ("list-1", "1", "2.0", "Widget v2"),
+            ("list-1", "1", "1.0", "Widget"),
+        ]
+        version_requests = [request for request in result.requests if request.path.endswith("/versions")]
+        assert [request.param("expand") for request in version_requests] == ["fields", "fields"]
+        assert all("hidden-list" not in url for url in result.urls)
 
 
 class TestValidateCredentials:

@@ -1,9 +1,12 @@
 from typing import get_args
 
+from unittest.mock import patch
+
 from django.utils import timezone
 
 from posthog.models.activity_logging.activity_log import ActivityScope, field_exclusions
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.signals import model_activity_signal
 from posthog.test.activity_log_utils import ActivityLogTestHelper
 
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
@@ -105,6 +108,29 @@ class TestExternalDataSchemaActivityLogging(ActivityLogTestHelper):
 
         changes = activity_logs[0].detail.get("changes", [])
         self.assertEqual([change["field"] for change in changes], ["enabled"])
+
+    def test_logging_an_update_reads_source_and_team_in_one_query(self):
+        external_data_source = self.create_external_data_source()
+        schema_id = ExternalDataSchema.objects.filter(source_id=external_data_source["id"]).values_list(
+            "id", flat=True
+        )[0]
+        schema = ExternalDataSchema.objects.get(id=schema_id)
+
+        with patch("products.warehouse_sources.backend.activity_logging.log_activity") as log_activity:
+            for expected_queries in (1, 0):
+                with self.assertNumQueries(expected_queries):
+                    model_activity_signal.send(
+                        sender=ExternalDataSchema,
+                        scope="ExternalDataSchema",
+                        before_update=None,
+                        after_update=schema,
+                        activity="updated",
+                        user=self.user,
+                    )
+
+                assert log_activity.call_args.kwargs["organization_id"] == self.organization.id
+                context = log_activity.call_args.kwargs["detail"].context
+                assert (context.source_id, context.source_type) == (str(external_data_source["id"]), "Stripe")
 
     def test_external_data_schema_relationship_logging(self):
         external_data_source = self.create_external_data_source()

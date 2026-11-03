@@ -311,6 +311,9 @@ const dataCatalogMetricCreate = (): ToolBase<
         if (params.unit !== undefined) {
             body['unit'] = params.unit
         }
+        if (params.owner !== undefined) {
+            body['owner'] = params.owner
+        }
         if (params.definition !== undefined) {
             body['definition'] = params.definition
         }
@@ -472,6 +475,9 @@ const dataCatalogMetricUpdate = (): ToolBase<
         }
         if (params.unit !== undefined) {
             body['unit'] = params.unit
+        }
+        if (params.owner !== undefined) {
+            body['owner'] = params.owner
         }
         if (params.definition !== undefined) {
             body['definition'] = params.definition

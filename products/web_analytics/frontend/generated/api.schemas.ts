@@ -147,6 +147,16 @@ export interface AEOPromptCheckApi {
      * @nullable
      */
     prompt_version: number | null
+    /**
+     * Sentiment of the sentences that name the brand: 'positive', 'neutral' or 'negative'. Null until scored, and when the answer never names the brand.
+     * @nullable
+     */
+    brand_sentiment?: string | null
+    /**
+     * Classifier confidence (0-1) in 'brand_sentiment'. Null when 'brand_sentiment' is null.
+     * @nullable
+     */
+    brand_sentiment_score?: number | null
 }
 
 export interface PaginatedAEOPromptCheckListApi {
@@ -164,12 +174,19 @@ export interface AEOPromptEngineStatsApi {
      * @nullable
      */
     readonly citation_rate: number | null
+    /**
+     * Share (0-1) of answered checks whose answer names the brand. Failed checks are left out. Null when no check was answered.
+     * @nullable
+     */
+    readonly mention_rate: number | null
     /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
     engine: string
     /** Checks of the prompt on this engine, failed ones included. */
     checks: number
     /** Checks whose answer cited a target domain. */
     cited: number
+    /** Checks whose answer names the brand (the registrable name of a target domain, case ignored). A cited check always counts as mentioned. */
+    mentioned: number
     /** Checks where the engine did not answer. */
     failed: number
     /** When the engine first ran the prompt. */
@@ -187,8 +204,41 @@ export interface AEOPromptDailyEngineStatsApi {
     checks: number
     /** Checks that day whose answer cited a target domain. */
     cited: number
+    /** Checks that day whose answer names the brand. Checks whose answer names the brand (the registrable name of a target domain, case ignored). A cited check always counts as mentioned. */
+    mentioned: number
     /** Checks that day where the engine did not answer. */
     failed: number
+}
+
+export interface AEOPromptEngineDomainShareApi {
+    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+    engine: string
+    /** One of the most cited domains across all engines in the window. */
+    domain: string
+    /** This engine's answered checks in the last 30 days that cited the domain. */
+    checks_citing: number
+    /** This engine's answered checks in the last 30 days. */
+    checks: number
+}
+
+export interface AEOPromptEngineSentimentApi {
+    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+    engine: string
+    /** Answers in the last 30 days whose brand sentences read positive. */
+    positive: number
+    /** Answers in the last 30 days whose brand sentences read neutral. */
+    neutral: number
+    /** Answers in the last 30 days whose brand sentences read negative. */
+    negative: number
+    /** Answers in the last 30 days that name the brand but have no sentiment yet. */
+    unscored: number
+}
+
+export interface AEOPromptSearchWordApi {
+    /** A word from the web searches, lower-cased, common English words left out. */
+    word: string
+    /** How many searches used the word, weighted by how often each search ran. */
+    count: number
 }
 
 export interface AEOPromptStatsApi {
@@ -196,8 +246,16 @@ export interface AEOPromptStatsApi {
     engines: AEOPromptEngineStatsApi[]
     /** Counts per day and engine from 'daily_from' to 'daily_to' (30 days). Days and engines without a check are left out. */
     daily: AEOPromptDailyEngineStatsApi[]
+    /** One row per engine and per domain for the 10 most cited domains of the last 30 days: how many of the engine's answers cited the domain. Shows which sources the engines agree on. */
+    consensus: AEOPromptEngineDomainShareApi[]
+    /** Brand sentiment of the answers in the last 30 days, one row per engine. Only the sentences that name the brand are scored. */
+    sentiment: AEOPromptEngineSentimentApi[]
+    /** Most used words across the web searches the engines ran in the last 30 days, at most 20. Only engines that report their searches contribute. */
+    top_words: AEOPromptSearchWordApi[]
     /** Checks of the prompt across all engines, failed ones included. */
     total_checks: number
+    /** Lower-cased brand names, derived from the project's target domains. An answer that contains one of them as a word counts as a mention. */
+    brand_names: string[]
     /** First day of the daily series, in the project's timezone. */
     daily_from: string
     /** Last day of the daily series (today), in the project's timezone. */
@@ -262,6 +320,123 @@ export interface AEOPromptImportResultApi {
     updated: number
     /** Prompts that were empty, too long for the answer engines, or matched an archived prompt. */
     skipped: number
+}
+
+export interface AEOPromptSetCountsApi {
+    /**
+     * Share of answered checks that cited a target domain. Share (0-1) of answered checks in the window. Failed checks are left out. Null when no check was answered.
+     * @nullable
+     */
+    readonly citation_rate: number | null
+    /**
+     * Share of answered checks whose answer names the brand. Share (0-1) of answered checks in the window. Failed checks are left out. Null when no check was answered.
+     * @nullable
+     */
+    readonly mention_rate: number | null
+    /** Checks in the window, failed ones included. */
+    checks: number
+    /** Checks in the window where the engine did not answer. */
+    failed: number
+    /** Checks in the window whose answer cited a target domain. */
+    cited: number
+    /** Checks in the window whose answer names the brand. Checks whose answer names the brand (the registrable name of a target domain, case ignored). A cited check always counts as mentioned. */
+    mentioned: number
+    /** Distinct prompts that ran at least once in the window. */
+    prompts: number
+    /** Distinct prompts cited at least once in the window. 'prompts' minus this is how many prompts were never cited. */
+    prompts_cited: number
+}
+
+export interface AEOPromptSetEngineCountsApi {
+    /**
+     * Share of answered checks that cited a target domain. Share (0-1) of answered checks in the window. Failed checks are left out. Null when no check was answered.
+     * @nullable
+     */
+    readonly citation_rate: number | null
+    /**
+     * Share of answered checks whose answer names the brand. Share (0-1) of answered checks in the window. Failed checks are left out. Null when no check was answered.
+     * @nullable
+     */
+    readonly mention_rate: number | null
+    /** Checks in the window, failed ones included. */
+    checks: number
+    /** Checks in the window where the engine did not answer. */
+    failed: number
+    /** Checks in the window whose answer cited a target domain. */
+    cited: number
+    /** Checks in the window whose answer names the brand. Checks whose answer names the brand (the registrable name of a target domain, case ignored). A cited check always counts as mentioned. */
+    mentioned: number
+    /** Distinct prompts that ran at least once in the window. */
+    prompts: number
+    /** Distinct prompts cited at least once in the window. 'prompts' minus this is how many prompts were never cited. */
+    prompts_cited: number
+    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+    engine: string
+}
+
+export interface AEOPromptSetTopicCountsApi {
+    /**
+     * Share of answered checks that cited a target domain. Share (0-1) of answered checks in the window. Failed checks are left out. Null when no check was answered.
+     * @nullable
+     */
+    readonly citation_rate: number | null
+    /**
+     * Share of answered checks whose answer names the brand. Share (0-1) of answered checks in the window. Failed checks are left out. Null when no check was answered.
+     * @nullable
+     */
+    readonly mention_rate: number | null
+    /** Checks in the window, failed ones included. */
+    checks: number
+    /** Checks in the window where the engine did not answer. */
+    failed: number
+    /** Checks in the window whose answer cited a target domain. */
+    cited: number
+    /** Checks in the window whose answer names the brand. Checks whose answer names the brand (the registrable name of a target domain, case ignored). A cited check always counts as mentioned. */
+    mentioned: number
+    /** Distinct prompts that ran at least once in the window. */
+    prompts: number
+    /** Distinct prompts cited at least once in the window. 'prompts' minus this is how many prompts were never cited. */
+    prompts_cited: number
+    /** Topic the checks ran with. Empty for prompts that have no topic. A prompt moved to another topic keeps its past checks under the old one. */
+    topic: string
+    /** Prompts that are on, not archived, and have this topic now. */
+    active_prompts: number
+}
+
+export interface AEOPromptSetDomainApi {
+    /** Host of the cited URLs, for example 'docs.example.com'. */
+    domain: string
+    /** Answers in the window that cited at least one URL on this domain. */
+    answers: number
+    /** Share (0-1) of all answered checks in the window that cited the domain. */
+    share_of_answers: number
+    /** Whether the domain is one of the project's target domains (the project's own site). */
+    is_target: boolean
+}
+
+export interface AEOPromptSetOverviewApi {
+    /** Checks across the prompt set in the last 'days' days. */
+    current: AEOPromptSetCountsApi
+    /** The same counts for the 'days' days before 'window_from'. */
+    previous: AEOPromptSetCountsApi
+    /** The current window split per answer engine, ordered by engine. Engines that did not run are left out. */
+    engines: AEOPromptSetEngineCountsApi[]
+    /** The current window split per topic, ordered by topic. A topic with active prompts but no check in the window has zero checks. */
+    topics: AEOPromptSetTopicCountsApi[]
+    /** The 20 domains the engines cited most across all answers in the current window, most cited first, with the project's own domains flagged. */
+    top_domains: AEOPromptSetDomainApi[]
+    /** Length of each window in days. */
+    days: number
+    /** First day of the current window, in the project's timezone. */
+    window_from: string
+    /** Last day of the current window (today), in the project's timezone. */
+    window_to: string
+    /** Prompts that are on and not archived: the ones the next daily run takes. */
+    prompts_tracked: number
+    /** Domains that count as the project's own site in citations. */
+    target_domains: string[]
+    /** Lower-cased brand names, derived from the target domains. An answer that contains one of them as a word counts as a mention. */
+    brand_names: string[]
 }
 
 export interface AEOPromptTopicApi {
@@ -1917,6 +2092,7 @@ export type AeoPromptsListParams = {
     include_archived?: boolean
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -1939,6 +2115,7 @@ export type AeoPromptsChecksParams = {
     engine?: string
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**
@@ -1950,6 +2127,15 @@ export type AeoPromptsChecksParams = {
      * @minimum 1
      */
     version?: number
+}
+
+export type AeoPromptsOverviewParams = {
+    /**
+     * Length of the window in days, ending today in the project's timezone. Default 30, at most 90.
+     * @minimum 1
+     * @maximum 90
+     */
+    days?: number
 }
 
 export type HeatmapScreenshotsContentRetrieveParams = {

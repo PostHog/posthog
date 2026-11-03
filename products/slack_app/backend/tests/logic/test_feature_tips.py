@@ -37,10 +37,8 @@ class TestOfferFeatureTip:
             team=self.team, kind="slack", integration_id=WORKSPACE, sensitive_config={"access_token": "xoxb-test"}
         )
         with (
-            patch.object(offer, "is_slack_app_feature_tips_enabled", return_value=True) as self.flag,
             patch.object(offer, "post_slack_ephemeral") as self.post,
             patch.object(offer, "SlackIntegration"),
-            patch.object(catalog, "is_slack_app_unprompted_answers_enabled", return_value=False),
             # The decision model is not reachable here, so every pick falls back to the ranked order.
             patch.object(picker, "build_system_one_client", side_effect=RuntimeError("no gateway")),
         ):
@@ -127,13 +125,6 @@ class TestOfferFeatureTip:
         )
 
         assert self._offer() == expected
-
-    def test_flag_off_writes_nothing(self):
-        self._threads(3)
-        self.flag.return_value = False
-
-        assert self._offer() is None
-        assert not SlackSettings.objects.filter(slack_workspace_id=WORKSPACE, slack_user_id=SLACK_USER).exists()
 
 
 class TestCatalog(SimpleTestCase):

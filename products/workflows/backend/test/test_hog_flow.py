@@ -1,6 +1,7 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.management import call_command
+from django.db import transaction
 from django.test import TestCase
 from django.utils import timezone
 
@@ -8,6 +9,9 @@ from posthog.models.user import User
 
 from products.actions.backend.models.action import Action
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+
+REPORT_CREATED = "products.workflows.backend.tasks.hog_flows.report_workflow_created.delay"
+LOGGER = "products.workflows.backend.models.hog_flow.hog_flow.logger"
 
 
 class TestHogFlow(TestCase):
@@ -17,6 +21,54 @@ class TestHogFlow(TestCase):
         self.team = team
         self.user = user
         self.org = org
+
+    @patch("posthog.ph_client.get_client")
+    @patch(REPORT_CREATED)
+    def test_creation_enqueues_one_report_after_commit(self, report_created: MagicMock, get_client: MagicMock) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            flow = HogFlow.objects.create(
+                name="Welcome",
+                team=self.team,
+                created_by=self.user,
+                origin_product="broadcasts",
+                actions=[{"type": "trigger"}],
+            )
+            flow.name = "Renamed"
+            flow.origin_product = "loops"
+            flow.actions = []
+            flow.save()
+            report_created.assert_not_called()
+
+        report_created.assert_called_once_with(
+            team_id=self.team.id,
+            hog_flow_id=str(flow.id),
+            created_at=flow.created_at.isoformat(),
+            origin_product="broadcasts",
+            actions_count=1,
+        )
+        get_client.assert_not_called()
+
+    @patch(REPORT_CREATED, side_effect=RuntimeError("Broker unavailable"))
+    def test_failed_enqueue_is_logged_and_does_not_fail_creation(self, report_created: MagicMock) -> None:
+        with patch(LOGGER) as logger, self.captureOnCommitCallbacks(execute=True):
+            flow = HogFlow.objects.create(name="Welcome", team=self.team)
+
+        report_created.assert_called_once()
+        logger.exception.assert_called_once_with(
+            "Failed to report workflow creation", team_id=self.team.id, workflow_id=str(flow.id)
+        )
+        assert HogFlow.objects.filter(id=flow.id, team=self.team).exists()
+
+    @patch(REPORT_CREATED)
+    def test_rolled_back_creation_does_not_report(self, report_created: MagicMock) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            try:
+                with transaction.atomic():
+                    HogFlow.objects.create(name="Rolled back", team=self.team)
+                    raise ValueError("Abort")
+            except ValueError:
+                pass
+        report_created.assert_not_called()
 
     @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_hog_flow_saved_receiver(self, mock_reload):

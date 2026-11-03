@@ -133,7 +133,7 @@ function stripRedundantLeadingHeading(content: string, sectionTitle: string): st
     return lines.slice(startIdx).join('\n')
 }
 
-function ReportSectionContent({
+export function ReportSectionContent({
     section,
     citations,
 }: {
@@ -144,8 +144,9 @@ function ReportSectionContent({
         stripRedundantLeadingHeading(section.content ?? '', section.title ?? ''),
         citations
     )
+    // A model writes reports from trace content, so an injected image would call an outside server for each viewer.
     return (
-        <LemonMarkdown lowKeyHeadings className="text-sm">
+        <LemonMarkdown lowKeyHeadings disableImages className="text-sm">
             {markdown}
         </LemonMarkdown>
     )

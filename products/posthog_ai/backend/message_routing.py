@@ -380,7 +380,7 @@ class SandboxSession(BaseSandboxService):
         # credits). Best-effort: a failure only over-counts the warm pool until the Run terminates,
         # and the key is simply absent on Runs that were never warm (the remove is then a no-op).
         try:
-            tasks_facade.update_task_run_state(run.id, remove_keys=["await_user_message"])
+            tasks_facade.activate_warm_task_run(run.id)
         except Exception as e:
             logger.warning("sandbox_followup_activation_flip_failed", run_id=str(run.id), error=str(e))
 

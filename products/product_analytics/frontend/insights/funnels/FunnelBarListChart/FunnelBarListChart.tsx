@@ -24,6 +24,7 @@ import {
 import { GlyphColumn } from '../FunnelBarHorizontalChart/GlyphColumn'
 import { openFunnelSegmentPersons } from '../FunnelBarHorizontalChart/openFunnelSegmentPersons'
 import { funnelDataLogic } from '../funnelDataLogic'
+import { FunnelGoalLines } from '../FunnelGoalLines'
 import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
 import { FunnelBarListDropOff } from './FunnelBarListDropOff'
 import { FunnelBarListLabel } from './FunnelBarListLabel'
@@ -124,6 +125,7 @@ export function FunnelBarListChart({ showPersonsModal: showPersonsModalProp = tr
                 step={steps[row.stepIndex]}
                 stepIndex={row.stepIndex}
                 firstStep={steps[0]}
+                querySource={querySource}
                 breakdownFilter={breakdownFilter}
                 isPartialBreakdownSelection={hasPartialBreakdownSelection}
                 groupTypeLabel={groupTypeLabel}
@@ -186,6 +188,7 @@ export function FunnelBarListChart({ showPersonsModal: showPersonsModalProp = tr
                                 step={steps[rows[rowIndex].stepIndex]}
                                 stepIndex={rows[rowIndex].stepIndex}
                                 period={rows[rowIndex].period}
+                                querySource={querySource}
                                 isUnordered={isUnordered}
                                 isOptional={isStepOptional(rows[rowIndex].stepIndex + 1)}
                                 showStepPaths={showStepPaths}
@@ -211,7 +214,9 @@ export function FunnelBarListChart({ showPersonsModal: showPersonsModalProp = tr
                     tooltip={renderTooltip}
                     onPointClick={onPointClick}
                     onError={handleChartError}
-                />
+                >
+                    <FunnelGoalLines />
+                </StackedBarList>
             </div>
         </div>
     )

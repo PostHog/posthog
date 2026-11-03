@@ -41,6 +41,9 @@ class FeatureTipsState(BaseModel):
     shown: dict[str, TipRecord] = {}
     opted_out_at: datetime | None = None
     last_shown_at: datetime | None = None
+    # Interview invitations share this row so they need no migration. They have their own limit.
+    interview_invited_at: datetime | None = None
+    interview_opted_out_at: datetime | None = None
 
 
 def parse_state(raw: object) -> FeatureTipsState:

@@ -52,6 +52,7 @@ from posthog.api.team.marketing_config import TeamMarketingAnalyticsConfigSerial
 from posthog.api.team.settings_validation import (
     _format_serializer_errors,
     heatmaps_screenshot_secret_for_reader,
+    hide_secret_api_tokens_from_unscoped_caller,
     validate_team_attrs,
     validate_team_workflows_config,
 )
@@ -1017,6 +1018,7 @@ class ProjectBackwardCompatSerializer(
         # Mirror TeamSerializer: fall back to the global default data theme when the color feature isn't available
         if not instance.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
             representation["default_data_theme"] = _default_data_color_theme_id()
+        hide_secret_api_tokens_from_unscoped_caller(representation, self.context.get("request"))
         return representation
 
     def get_user_access_level(self, obj: Model | ObjectAccessRef) -> Optional[str]:
@@ -1206,6 +1208,10 @@ class ProjectBackwardCompatSerializer(
                         continue
                     resource, required_level = field_mappings[field_name]
                     if resource == "project":
+                        # Without the entitlement a project rule is never consulted; validate_team_attrs
+                        # gates the admin-only fields on the membership level instead.
+                        if not user_access_control.access_controls_supported:
+                            continue
                         has_access = user_access_control.check_access_level_for_object(team, required_level)
                     else:
                         has_access = user_access_control.check_access_level_for_resource(resource, required_level)
@@ -1745,7 +1751,8 @@ class ProjectViewSet(
         license = get_cached_instance_license()
         try:
             has_active_subscription = (
-                settings.EE_AVAILABLE
+                is_last_project
+                and settings.EE_AVAILABLE
                 and is_cloud()
                 and license
                 and BillingManager(license).get_billing(project.organization).get("has_active_subscription")
@@ -2078,6 +2085,7 @@ class ProjectViewSet(
             item_ids=[str(project.pk)],
             limit=page_params.limit,
             page=page_params.page,
+            user=request.user,
         )
         return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
