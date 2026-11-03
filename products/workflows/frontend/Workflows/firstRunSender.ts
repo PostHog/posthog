@@ -1,7 +1,7 @@
 import { ApiConfig } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { isSandboxEmailSender } from 'lib/integrations/utils'
+import { isSandboxEmailSender } from 'lib/integrations/sandboxEmailSender'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
