@@ -5426,6 +5426,36 @@ class TestExperimentService(APIBaseTest):
             assert criterion["event_type"] == "events"
             assert criterion["event_filters"] == [flag_filter]
 
+    @parameterized.expand(
+        [
+            # (name, legacy custom_exposure_filter, expected exposure event)
+            ("empty_actions_string", {"actions": "", "events": [{"id": "signed_up", "order": 0}]}, "signed_up"),
+            (
+                "string_and_int_zero_order",
+                {"events": [{"id": "first_event", "order": "0"}, {"id": "second_event", "order": 0}]},
+                "first_event",
+            ),
+        ]
+    )
+    def test_create_exposure_cohort_reads_legacy_custom_exposure_filter(
+        self, name: str, custom_exposure_filter: dict, expected_event: str
+    ) -> None:
+        flag_key = f"cohort-legacy-{name}"
+        self._create_flag(key=flag_key)
+        service = self._service()
+        experiment = service.create_experiment(
+            name=f"Legacy {name}",
+            feature_flag_key=flag_key,
+            start_date=timezone.now(),
+            parameters={"custom_exposure_filter": custom_exposure_filter},
+        )
+
+        cohort = service.create_exposure_cohort(experiment)
+
+        assert cohort.filters is not None
+        criteria = cohort.filters["properties"]["values"][0]["values"]
+        assert [criterion["key"] for criterion in criteria] == [expected_event]
+
     def test_create_exposure_cohort_without_start_date_raises(self):
         self._create_flag(key="cohort-no-start")
         service = self._service()

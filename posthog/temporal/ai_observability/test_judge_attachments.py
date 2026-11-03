@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import patch
 
 from posthog.storage.object_storage import ObjectStorageError
-from posthog.temporal.ai_observability.judge_attachments import MAX_ATTACHMENTS, JudgeAttachments
+from posthog.temporal.ai_observability.judge_attachments import _NOT_ATTACHED_NOTE, MAX_ATTACHMENTS, JudgeAttachments
 
 from products.ai_observability.backend.llm.attachments import (
     MAX_IMAGE_BYTES,
@@ -15,6 +15,11 @@ from products.ai_observability.backend.llm.attachments import (
 from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaBlock, parse_media_block
 
 OBJECT_STORAGE = "products.ai_observability.backend.ai_blobs.object_storage"
+OPENROUTER_CATALOGUE = {
+    "openai/gpt-5-mini": frozenset({"text", "image", "file"}),
+    "google/gemini-2.5-flash": frozenset({"text", "image", "file", "audio", "video"}),
+    "example/image-only": frozenset({"text", "image"}),
+}
 
 
 def _pointer(digit: str, mime: str = "image%2Fjpeg") -> MediaBlock:
@@ -59,6 +64,14 @@ class TestJudgeAttachmentsMarkers:
 
 
 class TestJudgeAttachmentsContent:
+    @pytest.fixture(autouse=True)
+    def openrouter_catalogue(self):
+        with patch(
+            "products.ai_observability.backend.llm.providers.openrouter.model_input_modalities",
+            side_effect=OPENROUTER_CATALOGUE.get,
+        ) as lookup:
+            yield lookup
+
     def test_an_image_referenced_again_at_the_end_stays_attached(self):
         images = JudgeAttachments(team_id=7)
         markers = [images.marker(_inline(f"{i:02}")) for i in range(MAX_ATTACHMENTS + 1)]
@@ -67,7 +80,7 @@ class TestJudgeAttachmentsContent:
 
         assert {"type": "text", "text": "Image 1:"} in content
         assert {"type": "text", "text": "Image 2:"} not in content
-        assert {"type": "text", "text": "Not attached, over the judge's attachment limit: 1."} in content
+        assert {"type": "text", "text": "Not attached, over the judge's attachment limit: Image 2."} in content
 
     def test_attaches_the_newest_images_when_over_the_limit(self):
         images = JudgeAttachments(team_id=7)
@@ -76,10 +89,11 @@ class TestJudgeAttachmentsContent:
         content = images.content(prompt, "openai", "gpt-5.5")
 
         assert content[1] == {"type": "text", "text": "Image 2:"}
-        assert content[-4:-1] == [
+        assert content[-5:-1] == [
             {"type": "text", "text": f"Image {MAX_ATTACHMENTS + 1}:"},
             AttachmentPart(mime_type="image/png", data=base64.b64decode(f"{MAX_ATTACHMENTS:02}" * 4)),
-            {"type": "text", "text": "Not attached, over the judge's attachment limit: 1."},
+            {"type": "text", "text": "Not attached, over the judge's attachment limit: Image 1."},
+            {"type": "text", "text": _NOT_ATTACHED_NOTE},
         ]
 
     @pytest.mark.parametrize(
@@ -129,7 +143,7 @@ class TestJudgeAttachmentsContent:
                 "gemini",
                 "gemini-3-flash",
                 "image%2Fgif",
-                "Not attached, this judge can't read their file type: 1.",
+                "Not attached, this judge can't read their file type: Image 1.",
                 None,
                 id="format_rejected_by_provider",
             ),
@@ -161,7 +175,7 @@ class TestJudgeAttachmentsContent:
                 "anthropic",
                 "claude-haiku-4-5",
                 "video%2Fmp4",
-                "Not attached, this judge can't read their file type: 1.",
+                "Not attached, this judge can't read their file type: Video 1.",
                 None,
                 id="video_on_a_provider_without_video_input",
             ),
@@ -177,7 +191,7 @@ class TestJudgeAttachmentsContent:
                 "openai",
                 "gpt-5.5",
                 "audio%2Fwav",
-                "Not attached, this judge can't read their file type: 1.",
+                "Not attached, this judge can't read their file type: Audio 1.",
                 None,
                 id="audio_on_an_openai_model_without_audio_input",
             ),
@@ -185,17 +199,49 @@ class TestJudgeAttachmentsContent:
                 "openai",
                 "gpt-4o-audio-preview",
                 "image%2Fpng",
-                "Not attached, this judge can't read their file type: 1.",
+                "Not attached, this judge can't read their file type: Image 1.",
                 None,
                 id="image_on_an_openai_audio_model",
             ),
             pytest.param(
                 "openrouter",
-                "any",
+                "openai/gpt-5-mini",
                 "application%2Fpdf",
-                "Not attached, this judge can't read their file type: 1.",
+                "File 1:",
+                AttachmentPart(mime_type="application/pdf", data=b"hi"),
+                id="pdf_on_an_openrouter_model_that_reads_files",
+            ),
+            pytest.param(
+                "openrouter",
+                "google/gemini-2.5-flash",
+                "video%2Fmp4",
+                "Video 1:",
+                AttachmentPart(mime_type="video/mp4", data=b"hi"),
+                id="video_on_an_openrouter_model_that_reads_video",
+            ),
+            pytest.param(
+                "openrouter",
+                "openai/gpt-5-mini",
+                "video%2Fmp4",
+                "Not attached, this judge can't read their file type: Video 1.",
                 None,
-                id="pdf_unsupported_provider",
+                id="video_on_an_openrouter_model_without_video_input",
+            ),
+            pytest.param(
+                "openrouter",
+                "example/unlisted",
+                "application%2Fpdf",
+                "Not attached, this judge can't read their file type: File 1.",
+                None,
+                id="pdf_on_a_model_the_openrouter_catalogue_does_not_list",
+            ),
+            pytest.param(
+                "openrouter",
+                "example/unlisted",
+                "image%2Fpng",
+                "Image 1:",
+                AttachmentPart(mime_type="image/png", url="https://signed"),
+                id="image_on_a_model_the_openrouter_catalogue_does_not_list",
             ),
         ],
     )
@@ -218,7 +264,7 @@ class TestJudgeAttachmentsContent:
                 "text": "The transcript refers to these attachments as [image N], [file N], [audio N] or [video N].",
             },
             {"type": "text", "text": expected_label},
-            *([expected_part] if expected_part else []),
+            *([expected_part] if expected_part else [{"type": "text", "text": _NOT_ATTACHED_NOTE}]),
             {"type": "text", "text": prompt},
         ]
         if expected_part:
@@ -347,23 +393,31 @@ class TestJudgeAttachmentsContent:
         assert "Image 1:" in labels
         assert {f"Video {n}:" for n in range(12 - attached, 12)} <= labels
         assert f"Video {11 - attached}:" not in labels
-        assert f"Not attached, over the judge's attachment limit: {11 - attached}." in labels
+        dropped = ", ".join(f"Video {n}" for n in range(1, 12 - attached))
+        assert f"Not attached, over the judge's attachment limit: {dropped}." in labels
 
-    def test_attachments_the_judge_cannot_read_take_no_slot(self):
+    def test_attachments_the_judge_cannot_read_take_no_slot(self, openrouter_catalogue):
         images = JudgeAttachments(team_id=7)
         image = images.marker(_inline("aa"))
         pdfs = " ".join(
             images.marker(MediaBlock(modality="file", url=f"phaiblob://v1/sha256/{i:064x}?mime=application%2Fpdf"))
-            for i in range(MAX_ATTACHMENTS)
+            for i in range(MAX_ATTACHMENTS + 1)
         )
 
-        content = images.content(f"user: {image} {pdfs}", "openrouter", "openai/gpt-5-mini")
+        content = images.content(f"user: {image} {pdfs}", "openrouter", "example/image-only")
 
         assert content[1:4] == [
             {"type": "text", "text": "Image 1:"},
             AttachmentPart(mime_type="image/png", data=base64.b64decode("aa" * 4)),
-            {"type": "text", "text": f"Not attached, this judge can't read their file type: {MAX_ATTACHMENTS}."},
+            {
+                "type": "text",
+                "text": "Not attached, this judge can't read their file type: "
+                + ", ".join(f"File {n}" for n in range(1, MAX_ATTACHMENTS + 1))
+                + ", and 1 more.",
+            },
         ]
+        # Each lookup reads the whole OpenRouter catalogue, so it runs once per file type, not per attachment.
+        assert openrouter_catalogue.call_count == 2
 
     def test_an_inline_image_exactly_at_the_provider_limit_is_attached(self):
         images = JudgeAttachments(team_id=7)

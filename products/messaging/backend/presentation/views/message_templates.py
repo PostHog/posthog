@@ -642,7 +642,8 @@ class TransactionalEmailSendMixin:
 
     def _require_workflow_editor(self, hog_flow_id: Any) -> None:
         # The template's own access rules don't cover the workflow it sends through, which can carry its own.
-        # A project secret API key has no user to check, and its scope already limits it to sending.
+        # A project secret API key has no user to check. Its scope limits it to sending and to setting recipient
+        # topic preferences.
         if is_authenticated_via_project_secret_api_key(self.request):
             return
         try:

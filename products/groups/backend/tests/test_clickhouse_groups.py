@@ -28,10 +28,9 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.constants import AvailableFeature
+from posthog.constants import AvailableFeature, GroupTypeIndex
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.models import GroupUsageMetric, PropertyDefinition
-from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group.group import Group
 from posthog.models.group.util import ListGroupsResult, create_group, list_groups, raw_create_group_ch
 from posthog.models.group_type_mapping import (

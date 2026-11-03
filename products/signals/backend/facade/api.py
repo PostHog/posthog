@@ -37,6 +37,11 @@ from products.signals.backend.activity_summary.read import (
     ActivitySummaryVersionView as ActivitySummaryVersionView,
     ActivitySummaryView as ActivitySummaryView,
 )
+from products.signals.backend.activity_summary.search import (
+    ActivitySummarySearchResult as ActivitySummarySearchResult,
+    SearchMode,
+    search_summaries,
+)
 from products.signals.backend.anomaly_scores import search as anomaly_search
 from products.signals.backend.anomaly_scores.search import (
     AnomalyDashboardNotFound as AnomalyDashboardNotFound,
@@ -236,6 +241,28 @@ def list_activity_summary_versions(
 ) -> list[ActivitySummaryVersionView] | None:
     """The user's own summary versions, newest first, or None when the flag payload does not enroll the team."""
     return activity_summary_read.list_versions(team, user_id, limit=limit, version=version)
+
+
+def search_activity_summaries(
+    *,
+    team: Team,
+    query: str | None,
+    search_mode: SearchMode,
+    product: str | None,
+    exclude_user_uuids: list[str],
+    include_profile: bool,
+    limit: int,
+) -> ActivitySummarySearchResult | None:
+    """The project members whose activity summary matches `query`, or None when search is off for the team."""
+    return search_summaries(
+        team,
+        query=query,
+        search_mode=search_mode,
+        product=product,
+        exclude_user_uuids=exclude_user_uuids,
+        include_profile=include_profile,
+        limit=limit,
+    )
 
 
 def search_anomalies(*, team: Team, user: User, filters: AnomalySearchFilters, now: datetime) -> AnomalySearchResult:
@@ -839,9 +866,13 @@ async def emit_signal(
     sync_with_source: bool = False,
     source_match_signal_id: str | None = None,
     source_match_report_id: str | None = None,
-) -> None:
+) -> bool:
     """
     Emit a signal for grouping and potential report generation, fire-and-forget.
+
+    Returns True when the signal was dispatched to the pipeline, and False when it was skipped: the
+    organization has not approved AI data processing, the source is off, the signal is already
+    finalized, the team's steering filtered it, or its idempotency key was already used.
 
     Active path:
         emit_signal() -> SignalEmitterWorkflow -> BufferSignalsWorkflow -> TeamSignalGroupingV2Workflow
@@ -903,7 +934,7 @@ async def emit_signal(
             await database_sync_to_async(complete_signal_pipeline)(
                 team_id=team.id, signal_id=signal_id, billing_exempt=system_source_exempt(source_product)
             )
-        return
+        return False
 
     is_enabled = await database_sync_to_async(SignalSourceConfig.is_source_enabled, thread_sensitive=False)(
         team.id, source_product, source_type
@@ -913,7 +944,7 @@ async def emit_signal(
             await database_sync_to_async(complete_signal_pipeline)(
                 team_id=team.id, signal_id=signal_id, billing_exempt=system_source_exempt(source_product)
             )
-        return
+        return False
 
     description_tokens = _token_count(description)
     if description_tokens > MAX_SIGNAL_DESCRIPTION_TOKENS:
@@ -973,7 +1004,7 @@ async def emit_signal(
         team_id=team.id, source_product=source_product, source_type=source_type, idempotency_key=idempotency_key
     )
     if await database_sync_to_async(finalized_signal_ids)(team_id=team.id, signal_ids=[signal_id]):
-        return
+        return False
 
     # Below the started event on purpose: a filtered signal then has a top-of-funnel event to be
     # counted against, so a steering drop reads apart from a dispatch failure rather than as one.
@@ -996,7 +1027,7 @@ async def emit_signal(
             await database_sync_to_async(complete_signal_pipeline, thread_sensitive=False)(
                 team_id=team.id, signal_id=signal_id, billing_exempt=system_source_exempt(source_product)
             )
-            return
+            return False
 
     client = await async_connect()
 
@@ -1051,11 +1082,12 @@ async def emit_signal(
         # A repeated idempotency key is a deliberate dedupe, so label it rather than leave it to
         # read as a dispatch failure in started - filtered - emitted.
         capture_emission_event("signal_data_source_filtered", {"filter_reason": "duplicate_emission"})
-        return
+        return False
 
     # Fire the analytics event only after the signal is definitively queued so
     # Temporal/connection failures don't inflate the "signals emitted" metric.
     capture_emission_event("signal_emitted")
+    return True
 
 
 def forward_report_discussion_note(
