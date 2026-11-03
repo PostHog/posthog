@@ -4,12 +4,16 @@ import { LazyLoader } from '~/common/utils/lazy-loader'
 import { DeadlineSlots } from '../../utils/deadline-slots'
 
 type OrganizationMemberSnapshot = {
-    verifiedEmails: ReadonlySet<string>
+    // Normalized address to the address as the user stored it.
+    verifiedEmails: ReadonlyMap<string, string>
     unverifiedEmails: ReadonlySet<string>
     expiresAt: number
 }
 
 export type BlockedRecipient = { readonly address: string; readonly unverifiedMember: boolean }
+
+// `deliverTo` holds the stored address of each allowed recipient, in the order the recipients came in.
+export type RecipientCheck = { readonly blocked: BlockedRecipient[]; readonly deliverTo: string[] }
 
 const MAX_SNAPSHOT_AGE_MS = 60_000
 const REFRESH_AGE_MS = MAX_SNAPSHOT_AGE_MS - 1_000
@@ -45,17 +49,26 @@ export class OrganizationMembersService {
     // `fresh` runs its own lookup, for the check right before delivery: a member removed while the
     // send was prepared must not receive it, so neither the cached snapshot nor a lookup another
     // send started earlier may answer it.
-    public async getBlockedRecipients(
+    // The match ignores case, so delivery goes to the stored address rather than the supplied one.
+    public async checkRecipients(
         teamId: number,
         recipients: string[],
         { fresh = false }: { fresh?: boolean } = {}
-    ): Promise<BlockedRecipient[]> {
+    ): Promise<RecipientCheck> {
         const snapshot = fresh
             ? await this.loadOwnSnapshot(String(teamId))
             : await this.getFreshSnapshot(String(teamId))
-        return recipients
-            .filter((email) => !snapshot.verifiedEmails.has(normalizeEmail(email)))
-            .map((address) => ({ address, unverifiedMember: snapshot.unverifiedEmails.has(normalizeEmail(address)) }))
+        const blocked: BlockedRecipient[] = []
+        const deliverTo: string[] = []
+        for (const address of recipients) {
+            const stored = snapshot.verifiedEmails.get(normalizeEmail(address))
+            if (stored === undefined) {
+                blocked.push({ address, unverifiedMember: snapshot.unverifiedEmails.has(normalizeEmail(address)) })
+            } else {
+                deliverTo.push(stored)
+            }
+        }
+        return { blocked, deliverTo }
     }
 
     private async loadOwnSnapshot(teamId: string): Promise<OrganizationMemberSnapshot> {
@@ -70,11 +83,15 @@ export class OrganizationMembersService {
         const expiresAt = this.now() + MAX_SNAPSHOT_AGE_MS
         const rows = await this.lookupMembers(teamIds.map(Number))
         const members = new Map(
-            teamIds.map((id) => [id, { verified: new Set<string>(), unverified: new Set<string>() }])
+            teamIds.map((id) => [id, { verified: new Map<string, string>(), unverified: new Set<string>() }])
         )
         for (const row of rows) {
             const { verified, unverified } = members.get(String(row.team_id))!
-            ;(row.is_email_verified === true ? verified : unverified).add(normalizeEmail(row.email))
+            if (row.is_email_verified === true) {
+                verified.set(normalizeEmail(row.email), row.email.trim())
+            } else {
+                unverified.add(normalizeEmail(row.email))
+            }
         }
         return Object.fromEntries(
             [...members].map(([id, { verified, unverified }]) => [

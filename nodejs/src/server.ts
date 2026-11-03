@@ -138,7 +138,8 @@ export class PluginServer implements NodeServer {
         // Build typed deps objects for consumers. `emailValidationValkey` and `frequencyCapValkey`
         // are null in the shared deps and set only by the cyclotron workers that run the hogflow
         // email action (see `withEmailActionValkeys` at their loaders below) — no
-        // other consumer touches the SES or frequency cap Valkey.
+        // other consumer touches the SES or frequency cap Valkey. Sandbox-enabled cdp-api
+        // opens a separate SES pool for the sandbox daily caps only.
         const cdpDeps: CdpConsumerBaseDeps | undefined = needsCdp
             ? {
                   postgres: this.postgres!,
@@ -245,7 +246,19 @@ export class PluginServer implements NodeServer {
                     : null
                 const api = new CdpApi(
                     this.config,
-                    { ...cdpDeps!, idempotencyValkey: createIdempotencyValkeyPool(this.config) },
+                    {
+                        ...cdpDeps!,
+                        ...(this.config.WORKFLOWS_SANDBOX_SENDER_ENABLED
+                            ? {
+                                  sandboxEmailCapValkey: createSesRateLimiterValkeyPool(
+                                      this.config,
+                                      'sandbox-email-cap',
+                                      { optional: true }
+                                  ),
+                              }
+                            : {}),
+                        idempotencyValkey: createIdempotencyValkeyPool(this.config),
+                    },
                     { hogQueue: kafkaQueue, hogflowQueue: postgresV2Queue },
                     batchResolverProducer
                 )

@@ -34,7 +34,7 @@ With the flag on, opening the Channels page creates the sender and shows it in i
 Workflow email steps offer it as a sender. It replaces any other selected sender and has no Reply-To or custom sender. Broadcasts and other email surfaces do not offer it.
 Users cannot edit, verify, or remove the managed integration, make it the project default, use it for transactional email, or register their own integration on the shared domain.
 The managed integration is excluded from project SES tenant migration, identity cleanup, data suggestions, and the reputation page's domain breakdown.
-Configure the shared SES route, then enable `WORKFLOWS_SANDBOX_SENDER_ENABLED` on the worker and CDP API. Enable `workflows-sandbox-sender` last, and only for test projects until the sandbox caps ship.
+Configure the shared SES route, then enable `WORKFLOWS_SANDBOX_SENDER_ENABLED` on the worker and CDP API. Enable `workflows-sandbox-sender` last, and only for test projects until the tenant pause and organization block ship.
 
 ### Sending tiers
 
@@ -94,6 +94,7 @@ Decay, suspension drops, admin recomputes, and the backfill stay silent.
 The worker sends through a `sandbox` email integration only when `WORKFLOWS_SANDBOX_SENDER_ENABLED` is on and `SES_SANDBOX_TENANT_NAME`, `SES_SANDBOX_CONFIGURATION_SET`, and `SES_SANDBOX_FROM_ADDRESS` are set.
 Otherwise every send through it skips with a reason in the run log and a `workflows sandbox email blocked` event with reason `switch_off`.
 Every To, CC, and BCC address must belong to an active member of the team's active organization with a verified email address.
+The check ignores case, and the worker delivers to the address as the member stored it, not as the step wrote it.
 Membership snapshots expire within one minute, and the worker checks recipients again right before delivery.
 A failed or stale membership check skips the send and lists the blocked addresses in the run log.
 The blocked event fires at most once an hour per team, reason, and send kind (workflow or test).
@@ -103,6 +104,11 @@ The worker parses and normalizes the HTML, then appends a footer that names the 
 It overrides root clipping and visibility styles, drops any root style declaration it cannot parse cleanly, and keeps the template's typography, so malformed markup may render differently from an own-domain send.
 A template whose HTML cannot keep the footer fails the send.
 The visible footer is best effort across email clients and template CSS; the signed tracking header still attributes the message.
+Right before delivery, every sandbox send, test sends included, claims a daily allowance per project (`WORKFLOWS_SANDBOX_DAILY_TEAM_CAP`, one token per recipient copy) and per recipient address across the organization (`WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP`).
+The allowances are token buckets that refill their capacity over 24 hours, not calendar-day counters.
+A reached allowance skips the send instead of delaying it. A limiter error, or an empty or invalid cap value, skips every sandbox send.
+The worker checks members after the claim and gives the claim back when that check skips the send.
+An SES throttle response also gives the claim back before the delivery retry. Returns are deduplicated, and Valkey ignores a return that arrives more than five minutes after it was issued.
+Test sends run inline in the CDP API, so a sandbox-enabled CDP API opens the SES Valkey pool (`SES_RATE_LIMITER_VALKEY_*`) for the allowances. Without it, every sandbox test send skips.
 Each delivered send emits a `workflows sandbox email sent` event.
-Live workflow sends record `email_sent`, so workflow reports count them; test sends do not.
-The worker has no daily sandbox caps yet, so only switch it on where Django provisions sandbox senders for a small set of projects.
+Live workflow sends record `email_sent`, so workflow reports count them, and also `email_sandbox_sent`, so the sending tier and the sending allowance can leave them out; test sends record neither.

@@ -17,9 +17,12 @@ const sender = new SandboxEmailSender(
         tenantName: 'sandbox-tenant',
         configurationSetName: 'sandbox-email',
         fromAddress: 'fixed-sandbox@example.com',
+        dailyTeamCap: '25',
+        dailyRecipientCap: '5',
     },
     teamManager,
-    blockedEventRedis
+    blockedEventRedis,
+    null
 )
 const params = (html: string, text?: string, preheader?: string): CyclotronInvocationQueueParametersEmailType => ({
     type: 'email',
@@ -68,7 +71,8 @@ describe('sandbox email content', () => {
                 fromAddress: ' fixed-sandbox@example.com ',
             },
             teamManager,
-            blockedEventRedis
+            blockedEventRedis,
+            null
         )
         const result = await paddedSender.withIdentificationFooter(
             params('<p>Hello</p>'),
