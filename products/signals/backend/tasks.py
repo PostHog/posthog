@@ -61,6 +61,10 @@ from products.signals.backend.pr_origin import write_origin_section
 from products.signals.backend.pull_request_body import BodyEditOutcome
 from products.signals.backend.pull_request_label import apply_pull_request_label
 from products.signals.backend.pull_requests import update_pull_request_review_decision, update_pull_request_state
+from products.signals.backend.rated_usage_tasks import (
+    enqueue_signals_rated_usage as enqueue_signals_rated_usage,
+    report_signals_rated_usage as report_signals_rated_usage,
+)
 from products.signals.backend.report_generation.repo_activity import (
     ACTIVITY_KEEP_WARM_WINDOW,
     rebuild_repository_activity,
