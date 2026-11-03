@@ -238,6 +238,7 @@ class ChangeOperation:
     team_id: int
     actor_type: ErrorTrackingIssueChange.ActorType
     actor_user_id: int | None
+    actor_automation_id: UUID | None
     bulk: bool
 
     @classmethod
@@ -253,11 +254,12 @@ class ChangeOperation:
             team_id=team_id,
             actor_type=ErrorTrackingIssueChange.ActorType.USER,
             actor_user_id=user.id,
+            actor_automation_id=None,
             bulk=bulk,
         )
 
     @classmethod
-    def for_automation(cls, team_id: int) -> "ChangeOperation | None":
+    def for_automation(cls, team_id: int, automation_id: UUID) -> "ChangeOperation | None":
         """Start an operation that no person made, or return None when the change log is off for the team."""
         if not issue_change_log_enabled(team_id):
             return None
@@ -266,6 +268,7 @@ class ChangeOperation:
             team_id=team_id,
             actor_type=ErrorTrackingIssueChange.ActorType.AUTOMATION,
             actor_user_id=None,
+            actor_automation_id=automation_id,
             bulk=False,
         )
 
@@ -308,6 +311,7 @@ def record_issue_changes(operation: ChangeOperation | None, changes: Sequence[Is
                 bulk=operation.bulk,
                 actor_type=operation.actor_type,
                 actor_user_id=operation.actor_user_id,
+                actor_automation_id=operation.actor_automation_id,
             )
             for change in changes
         ]

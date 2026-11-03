@@ -1,7 +1,5 @@
 /**
- * The URL policy and the crawl history rule of the recorder, reached through the v4 native addon
- * rather than reimplemented here. One public suffix list keeps producer and consumer
- * canonicalization aligned.
+ * The rules this lane shares with the recorder, reached through the v4 native addon rather than reimplemented here.
  *
  * The addon is a native library, and `index.ts` imports every server whatever mode the pod runs.
  * This loads the addon on first use rather than at import, so only a pod in this lane pays for it.
@@ -17,7 +15,10 @@ function addon(): typeof import('@posthog/ai-research-v4-native') {
             typeof loaded.isPublicHost !== 'function' ||
             typeof loaded.tryCanonicalizeUrl !== 'function' ||
             typeof loaded.urlJob !== 'function' ||
-            typeof loaded.isUrlHistoryValue !== 'function'
+            typeof loaded.isUrlHistoryValue !== 'function' ||
+            typeof loaded.parseV4UrlRef !== 'function' ||
+            typeof loaded.sealFetchedImage !== 'function' ||
+            typeof loaded.imageUrlHash !== 'function'
         ) {
             throw new Error('the ai-research-v4-native addon is missing a shared rule: rebuild index.node')
         }
@@ -26,27 +27,33 @@ function addon(): typeof import('@posthog/ai-research-v4-native') {
     return cached
 }
 
-/**
- * Load the addon now and run one URL and one crawl history entry through it, so a stale `index.node` stops the pod at
- * startup.
- *
- * The parser calls into it for every URL, and the crawl history reader for every URL row. A stale addon must stop the
- * pod before it reads a batch.
- */
-export function assertUrlPolicyLoaded(): void {
+/** Runs a probe through each shared rule, so a stale `index.node` stops the pod at startup rather than in its first batch. */
+export function assertSharedRulesLoaded(): void {
     const verdict = addon().tryCanonicalizeUrl('https://example.com/probe.png')
     if (!verdict.ok) {
         throw new Error(`the ai-research-v4-native addon refused a plain URL (${verdict.decline}): rebuild index.node`)
     }
-    if (!readsCrawlHistory()) {
-        throw new Error('the ai-research-v4-native addon misread a crawl history entry: rebuild index.node')
+    if (!runsSharedRules()) {
+        throw new Error('the ai-research-v4-native addon failed a probe: rebuild index.node')
     }
 }
 
-function readsCrawlHistory(): boolean {
+const PROBE_REF = 'imageurl:v4:1:2026-01:AAAAAAAAAAAAAAAAAAAAAA'
+
+function runsSharedRules(): boolean {
     const entry = JSON.stringify({ kind: 'url', key: 'probe', nextFetchAtMs: 1, storageExpiresAtMs: 1, outcome: 'ok' })
+    const key = Buffer.alloc(32)
     try {
-        return addon().urlJob(1, undefined, 0) === 'drop' && addon().isUrlHistoryValue('probe', entry)
+        // A stale index.node has no export, so the wrapper throws before it returns the promise.
+        void addon()
+            .sealFetchedImage(key, PROBE_REF, Buffer.alloc(0))
+            .catch(() => undefined)
+        return (
+            addon().urlJob(1, undefined, 0) === 'drop' &&
+            addon().isUrlHistoryValue('probe', entry) &&
+            addon().parseV4UrlRef(PROBE_REF)?.teamId === 1 &&
+            addon().imageUrlHash(key, 'https://example.com/probe.png').length === 22
+        )
     } catch {
         return false
     }
@@ -85,4 +92,16 @@ export function urlJob(
 
 export function isUrlHistoryValue(key: string, value: string): boolean {
     return addon().isUrlHistoryValue(key, value)
+}
+
+export function parseV4UrlRef(reference: string): { teamId: number; keyMonth: string; hash: string } | null {
+    return addon().parseV4UrlRef(reference)
+}
+
+export function sealFetchedImage(teamMonthKey: Buffer, reference: string, image: Buffer): Promise<Buffer> {
+    return addon().sealFetchedImage(teamMonthKey, reference, image)
+}
+
+export function imageUrlHash(teamMonthKey: Buffer, url: string): string {
+    return addon().imageUrlHash(teamMonthKey, url)
 }
