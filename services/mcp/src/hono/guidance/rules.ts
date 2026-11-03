@@ -52,6 +52,47 @@ export type GuidanceRule = z.infer<typeof guidanceRuleSchema>
 export const MCP_GUIDANCE_REPLAY_VISION_FLAG = 'mcp-guidance-replay-vision'
 export const MCP_GUIDANCE_SQL_SCHEMA_FLAG = 'mcp-guidance-sql-schema'
 export const MCP_GUIDANCE_SQL_TYPED_RUNNER_FLAG = 'mcp-guidance-sql-typed-runner'
+export const MCP_GUIDANCE_ERROR_TRACKING_EMPTY_SETUP_FLAG = 'mcp-guidance-error-tracking-empty-setup'
+export const MCP_GUIDANCE_ERROR_TRACKING_EMPTY_FILTERS_FLAG = 'mcp-guidance-error-tracking-empty-filters'
+export const MCP_GUIDANCE_ERROR_TRACKING_EMPTY_RANGE_FLAG = 'mcp-guidance-error-tracking-empty-range'
+
+const ERROR_TRACKING_ISSUES_LIST_TOOL = 'query-error-tracking-issues-list'
+
+// `status` and `dateRange` are absent because the default query also sets them, and the range rule covers them.
+const ERROR_TRACKING_NARROWING_FILTERS = [
+    'searchQuery',
+    'library',
+    'release',
+    'fingerprint',
+    'url',
+    'personId',
+    'user',
+    'filePath',
+    'filterGroup',
+    'assignee',
+    'firstSeenAfter',
+]
+
+function errorTrackingFiltersIn(call: GuidanceCall): string[] {
+    return ERROR_TRACKING_NARROWING_FILTERS.filter((filter) => {
+        const value = call.args?.[filter]
+        return value !== undefined && value !== null && value !== '' && !(Array.isArray(value) && value.length === 0)
+    })
+}
+
+// An empty later page only means the agent read past the last row.
+function isLaterPage(call: GuidanceCall): boolean {
+    const offset = call.args?.offset
+    return typeof offset === 'number' && offset > 0
+}
+
+async function projectHasErrorTrackingIssues(productState: GuidanceProductState): Promise<boolean | undefined> {
+    // A project with no data at all gets no notice, so the issue lookup never runs for it.
+    if ((await productState.hasIngestedData()) !== true) {
+        return undefined
+    }
+    return productState.hasErrorTrackingIssues()
+}
 
 const TYPED_RUNNER_TOOLS = [
     'query-trends',
@@ -157,6 +198,76 @@ const RULES: GuidanceRule[] = [
             'so the numbers can differ.',
             'Keep this SQL only when the user asked for SQL or the runners cannot express the calculation.',
             'To only check that an event or property exists, use `read-data-schema`.',
+        ].join(' '),
+    },
+    {
+        id: 'error-tracking-empty-to-setup',
+        flag: MCP_GUIDANCE_ERROR_TRACKING_EMPTY_SETUP_FLAG,
+        trigger: {
+            tool: ERROR_TRACKING_ISSUES_LIST_TOOL,
+            resultEmpty: true,
+            outcome: 'success',
+            presets: ['user'],
+        },
+        threshold: 1,
+        maxPerSession: 1,
+        suppressIfCalled: ['docs-search'],
+        requiresTool: ['docs-search'],
+        condition: async ({ call, productState }) =>
+            !isLaterPage(call) && (await projectHasErrorTrackingIssues(productState)) === false,
+        text: [
+            'This project has no error tracking issues at all, so exception capture is probably not set up.',
+            'If the user wants error tracking, call `docs-search` to find the setup steps for their SDK.',
+            'If the user expected errors here, tell them that no exceptions have reached PostHog.',
+        ].join(' '),
+    },
+    {
+        id: 'error-tracking-empty-to-filters',
+        flag: MCP_GUIDANCE_ERROR_TRACKING_EMPTY_FILTERS_FLAG,
+        trigger: {
+            tool: ERROR_TRACKING_ISSUES_LIST_TOOL,
+            resultEmpty: true,
+            outcome: 'success',
+            presets: ['user'],
+        },
+        threshold: 1,
+        maxPerSession: 2,
+        suppressIfCalled: [],
+        requiresTool: [ERROR_TRACKING_ISSUES_LIST_TOOL],
+        condition: async ({ call, productState }) =>
+            !isLaterPage(call) &&
+            errorTrackingFiltersIn(call).length > 0 &&
+            (await projectHasErrorTrackingIssues(productState)) === true,
+        text: (call) =>
+            [
+                'This project has error tracking issues, but none matched this query.',
+                `This call filtered on ${errorTrackingFiltersIn(call)
+                    .map((filter) => `\`${filter}\``)
+                    .join(', ')}.`,
+                'Remove or loosen these filters and try again before you report that no matching errors exist.',
+            ].join(' '),
+    },
+    {
+        id: 'error-tracking-empty-to-range',
+        flag: MCP_GUIDANCE_ERROR_TRACKING_EMPTY_RANGE_FLAG,
+        trigger: {
+            tool: ERROR_TRACKING_ISSUES_LIST_TOOL,
+            resultEmpty: true,
+            outcome: 'success',
+            presets: ['user'],
+        },
+        threshold: 1,
+        maxPerSession: 1,
+        suppressIfCalled: [],
+        requiresTool: [ERROR_TRACKING_ISSUES_LIST_TOOL],
+        condition: async ({ call, productState }) =>
+            !isLaterPage(call) &&
+            errorTrackingFiltersIn(call).length === 0 &&
+            (await projectHasErrorTrackingIssues(productState)) === true,
+        text: [
+            'This project has error tracking issues, but none matched this status and date range.',
+            'This tool returns only issues seen during `dateRange`, and `status` defaults to `active`.',
+            'Try a wider `dateRange` or `status: "all"` before you report that no errors exist.',
         ].join(' '),
     },
 ]
