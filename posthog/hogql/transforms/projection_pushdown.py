@@ -211,6 +211,39 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
     def union_queries(self, node: ast.SelectSetQuery) -> list[SubqueryNode]:
         return [node.initial_select_query, *(set_node.select_query for set_node in node.subsequent_select_queries)]
 
+    def _select_names(self, node: SubqueryNode) -> list[str | None]:
+        if isinstance(node, ast.SelectSetQuery):
+            return self._select_names(node.initial_select_query)
+        return [self._get_column_name(expr) for expr in node.select]
+
+    def _branch_matches_by_name(self, set_query: ast.SelectSetQuery, branch: SubqueryNode) -> bool:
+        """A set operation matches branch columns by position, and the first branch names the set query's columns, so
+        only a later branch under a BY NAME operator is matched by name."""
+        index = [id(query) for query in self.union_queries(set_query)].index(id(branch))
+        return index == 0 or set_query.subsequent_select_queries[index - 1].set_operator.endswith("BY NAME")
+
+    def branch_column_name(self, set_query: ast.SelectSetQuery, branch: SubqueryNode, name: str) -> str | None:
+        """The branch column that feeds the set query's column `name`"""
+        branch_names = self._select_names(branch)
+        if self._branch_matches_by_name(set_query, branch):
+            return name if name in branch_names else None
+        set_names = self._select_names(set_query)
+        if name not in set_names:
+            return None
+        position = set_names.index(name)
+        return branch_names[position] if position < len(branch_names) else None
+
+    def set_column_name(self, set_query: ast.SelectSetQuery, branch: SubqueryNode, branch_name: str) -> str | None:
+        """The set query's column that the branch column `branch_name` feeds"""
+        if self._branch_matches_by_name(set_query, branch):
+            return branch_name
+        branch_names = self._select_names(branch)
+        if branch_name not in branch_names:
+            return None
+        position = branch_names.index(branch_name)
+        set_names = self._select_names(set_query)
+        return set_names[position] if position < len(set_names) else None
+
     def _is_from_asterisk(self, expr: ast.Expr) -> bool:
         """Check if an expression was expanded from asterisk"""
         if isinstance(expr, ast.Alias):
@@ -342,12 +375,15 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
             return
 
         for query in self.union_queries(node):
-            self.demands[id(query)].update(demanded_from_this)
             for col_name in demanded_from_this:
+                branch_name = self.branch_column_name(node, query, col_name)
+                if branch_name is None:
+                    continue
+                self.demands[id(query)].add(branch_name)
                 parent_reads = self.reads.get((id(node), col_name))
                 if parent_reads is None:
                     continue
-                branch_reads = self.reads[(id(query), col_name)]
+                branch_reads = self.reads[(id(query), branch_name)]
                 branch_reads.whole = branch_reads.whole or parent_reads.whole
                 branch_reads.keys.update(parent_reads.keys)
 

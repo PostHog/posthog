@@ -116,6 +116,12 @@ class TestExportedProperties(BaseTest):
                 "count()",
             ),
             (
+                "union_branches_matched_by_position",
+                "SELECT a.email FROM (SELECT properties AS a, properties AS b FROM events UNION ALL SELECT properties AS b, properties AS a FROM events)",
+                f"{EMAIL_MAP} AS b",
+                "JSONExtractRaw(a['email'])",
+            ),
+            (
                 "eight_chained_ctes",
                 f"WITH c1 AS {STAR_EVENTS}, "
                 + ", ".join(f"c{n} AS (SELECT * FROM c{n - 1})" for n in range(2, 9))

@@ -146,7 +146,10 @@ class _ExportedPropertiesNarrower:
     def _neighbors(self, node: "SubqueryNode", name: str) -> list[tuple["SubqueryNode", str]]:
         neighbors: list[tuple[SubqueryNode, str]] = []
         if isinstance(node, ast.SelectSetQuery):
-            neighbors.extend((query, name) for query in self.optimizer.union_queries(node))
+            for query in self.optimizer.union_queries(node):
+                branch_name = self.optimizer.branch_column_name(node, query, name)
+                if branch_name is not None:
+                    neighbors.append((query, branch_name))
         else:
             passthrough = self._passthrough(node, name)
             if passthrough is not None:
@@ -154,7 +157,9 @@ class _ExportedPropertiesNarrower:
         neighbors.extend(self.optimizer.passthrough_parents.get((id(node), name), {}).values())
         set_query = self.optimizer.union_of.get(id(node))
         if set_query is not None:
-            neighbors.append((set_query, name))
+            set_name = self.optimizer.set_column_name(set_query, node, name)
+            if set_name is not None:
+                neighbors.append((set_query, set_name))
         return neighbors
 
     def _column_names(self, node: "SubqueryNode") -> list[str]:
