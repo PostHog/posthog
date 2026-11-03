@@ -7,7 +7,7 @@ deadline passes, so a source that never answers still delivers.
 """
 
 from collections.abc import Sequence
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Final
 
 from django.db import transaction
@@ -199,7 +199,7 @@ def stale_held_triggers(request: AlertDeliveryRequest, transitions: Sequence[Ann
     if not held:
         return frozenset()
     current = {
-        grouping_key: (state, firing_started_at)
+        grouping_key: (state, _in_utc(firing_started_at))
         for grouping_key, state, firing_started_at in PlatformAlert.objects.for_team(request.team_id)
         .filter(configuration_id=request.configuration_id, grouping_key__in=triggering)
         .values_list("grouping_key", "state", "firing_started_at")
@@ -208,8 +208,16 @@ def stale_held_triggers(request: AlertDeliveryRequest, transitions: Sequence[Ann
         transition.grouping_key
         for transition in transitions
         if transition.grouping_key in triggering
-        and current.get(transition.grouping_key) != (PlatformAlertState.FIRING, transition.episode_started_at)
+        and current.get(transition.grouping_key) != (PlatformAlertState.FIRING, _in_utc(transition.episode_started_at))
     )
+
+
+def _in_utc(moment: datetime | None) -> datetime | None:
+    # ClickHouse can return a history row's times without a zone, and they are UTC. A naive time
+    # never equals an aware one, so every comparison with a Postgres time would say "changed".
+    if moment is None or moment.tzinfo is not None:
+        return moment
+    return moment.replace(tzinfo=UTC)
 
 
 def prune_holds(now: datetime, *, limit: int) -> int:
