@@ -16,7 +16,7 @@ use super::dom::{RemoteKind, RemoteUrl};
 use crate::fonts::bundled_font;
 use crate::url_policy::{
     as_parsed, is_fetched_image_type, is_protocol_relative, is_remote, try_canonicalize,
-    MAX_URL_LEN,
+    without_credentials, MAX_URL_LEN,
 };
 
 /// Each resolution copies the page's origin, so one event resolves at most this many relative URLs.
@@ -46,6 +46,8 @@ pub enum CssUrl<'a> {
     },
     /// A [`CssUrl::Resolved`] font URL of a family that the renderer does not ship.
     ResolvedFont(&'a str),
+    /// A URL with a credential in a CSS property that shows no image, or in an `@import`, which no fetch takes.
+    Link(&'a str),
     /// Rules or functions nest to [`NESTED_BLOCK_LIMIT`], where `cssparser` enters no block, so a URL there goes unnamed.
     NestedTooDeep,
     /// A URL that the scan names but cannot find in the text it read, so the writer could not replace it there.
@@ -61,8 +63,6 @@ pub struct CssRewrite {
     pub resolved: Option<RemoteUrl>,
     /// Where `replacement` holds its one URL, so that the edit finds the URL without a search.
     pub url_at: Option<Range<usize>>,
-    /// The URL as the page wrote it and as its escapes decode, where `resolved` spells it otherwise, to find their copies.
-    pub spellings: Vec<String>,
 }
 
 /// The origin that a root-relative URL on `page_url` resolves against, as `https` because the fetcher loads nothing else.
@@ -185,10 +185,73 @@ pub fn urls(css: &str, resolver: &mut Resolver<'_>, found: &mut impl FnMut(CssUr
                     CssUrl::Resolved(_)
                     | CssUrl::Unshown(_)
                     | CssUrl::Font { .. }
-                    | CssUrl::ResolvedFont(_) => {}
+                    | CssUrl::ResolvedFont(_)
+                    | CssUrl::Link(_) => {}
                 });
             }
             DeclarationKind::FontFamily(_) => {}
+            DeclarationKind::Link if may_hold_url(value) => {
+                link_urls(value, resolver.edit_budget(), found)
+            }
+            DeclarationKind::Link => {}
+            DeclarationKind::Import => {
+                import_string(value, found);
+                link_urls(value, resolver.edit_budget(), found);
+            }
+        }
+    }
+}
+
+/// A `url()` needs a `(`, and its name is `url` or holds an escape, so a value with neither holds no URL.
+fn may_hold_url(value: &str) -> bool {
+    value.contains('(')
+        && (value.contains('\\')
+            || value
+                .as_bytes()
+                .windows(3)
+                .any(|name| name.eq_ignore_ascii_case(b"url")))
+}
+
+/// The URLs of a value that shows no image, which no fetch takes. Only a URL with a credential changes, so the rest of
+/// the text stays as the page wrote it.
+fn link_urls(value: &str, edit_budget: Option<&AtomicUsize>, found: &mut impl FnMut(CssUrl<'_>)) {
+    let mut unresolving = Resolver::new(None, None).with_edit_budget(edit_budget);
+    value_urls(value, &mut unresolving, &mut |url| match url {
+        CssUrl::Image(url) | CssUrl::Unshown(url) if without_credentials(url).is_some() => {
+            found(CssUrl::Link(url))
+        }
+        CssUrl::Rewrite {
+            mut rewrite,
+            function,
+        } => {
+            let holds_credential = rewrite
+                .resolved
+                .as_ref()
+                .is_none_or(|url| without_credentials(&url.url).is_some());
+            if holds_credential {
+                if let Some(resolved) = &mut rewrite.resolved {
+                    resolved.kind = RemoteKind::Link;
+                }
+                found(CssUrl::Rewrite { rewrite, function });
+            }
+        }
+        CssUrl::NestedTooDeep | CssUrl::Unplaced => found(url),
+        CssUrl::Image(_)
+        | CssUrl::Unshown(_)
+        | CssUrl::Resolved(_)
+        | CssUrl::Unresolved(_)
+        | CssUrl::Font { .. }
+        | CssUrl::ResolvedFont(_)
+        | CssUrl::Link(_) => {}
+    });
+}
+
+/// `@import "…"` names its sheet with a string, not a `url()`.
+fn import_string(prelude: &str, found: &mut impl FnMut(CssUrl<'_>)) {
+    let mut input = Parser::new(prelude);
+    if let Ok(Token::QuotedString(url)) = input.next() {
+        if without_credentials(url).is_some() {
+            found(CssUrl::Link(url));
         }
     }
 }
@@ -233,6 +296,8 @@ enum DeclarationKind {
     Image,
     FontSrc(usize),
     FontFamily(usize),
+    Link,
+    Import,
 }
 
 struct Declaration {
@@ -306,7 +371,8 @@ impl<'i> DeclarationParser<'i> for Declarations {
         }
         let kind = match self.block {
             Block::FontFace(face) => font_descriptor(&name, face),
-            Block::Style => can_hold_image(&name).then_some(DeclarationKind::Image),
+            Block::Style if can_hold_image(&name) => Some(DeclarationKind::Image),
+            Block::Style => Some(DeclarationKind::Link),
         };
         if let Some(kind) = kind {
             self.found.push(Declaration {
@@ -330,7 +396,15 @@ impl<'i> AtRuleParser<'i> for Declarations {
         input: &mut Parser<'i>,
     ) -> Result<Block, ParseError<()>> {
         let font_face = name.eq_ignore_ascii_case("font-face") && input.is_exhausted();
+        let start = input.position().byte_index();
         while input.next().is_ok() {}
+        if name.eq_ignore_ascii_case("import") {
+            self.found.push(Declaration {
+                start,
+                end: input.position().byte_index(),
+                kind: DeclarationKind::Import,
+            });
+        }
         if !font_face {
             return Ok(Block::Style);
         }
@@ -490,7 +564,7 @@ fn value_urls(value: &str, resolver: &mut Resolver<'_>, found: &mut impl FnMut(C
             },
             // A browser loads the URL its escapes decode to, so the block must not keep it as the page wrote it.
             None if source.escaped => {
-                escaped_url_function_urls(function, source.written, &source.url, resolver, found)
+                escaped_url_function_urls(function, &source.url, resolver, found)
             }
             None => {}
         }
@@ -573,20 +647,46 @@ fn url_function_urls(
                         kind: RemoteKind::Image,
                     }),
                     url_at: Some(url_at),
-                    spellings: Vec::new(),
                 },
                 function,
             });
         }
-        None if is_root_relative(source) => found(CssUrl::Unresolved(function)),
+        None if is_root_relative(source) => match without_credentials(source) {
+            Some(kept) => found(redacted(function, &kept)),
+            None => found(CssUrl::Unresolved(function)),
+        },
         None => found(CssUrl::Image(source)),
+    }
+}
+
+fn redacted<'f>(function: &'f str, kept: &str) -> CssUrl<'f> {
+    let mut replacement = String::from(URL_FUNCTION_OPEN);
+    for ch in kept.chars() {
+        match ch {
+            '"' | '\\' => {
+                replacement.push('\\');
+                replacement.push(ch);
+            }
+            '\0'..='\u{1f}' | '\u{7f}' => replacement.push_str(&format!("\\{:x} ", u32::from(ch))),
+            _ => replacement.push(ch),
+        }
+    }
+    replacement.push_str("\")");
+    CssUrl::Rewrite {
+        rewrite: CssRewrite {
+            text: function.to_owned(),
+            replacement,
+            dropped: Vec::new(),
+            resolved: None,
+            url_at: None,
+        },
+        function,
     }
 }
 
 /// The block does not hold the URL a browser reads from an escaped source, so the rewrite replaces the whole `url()`.
 fn escaped_url_function_urls(
     function: &str,
-    escaped: &str,
     decoded: &str,
     resolver: &mut Resolver<'_>,
     found: &mut impl FnMut(CssUrl<'_>),
@@ -608,17 +708,13 @@ fn escaped_url_function_urls(
     else {
         if is_remote(written) {
             found(CssUrl::Unplaced);
+        } else if let Some(kept) = without_credentials(written) {
+            found(redacted(function, &kept));
         }
         return;
     };
     found(CssUrl::Resolved(&absolute));
     let (replacement, url_at) = url_function(&absolute);
-    let mut spellings: Vec<String> = Vec::new();
-    for spelling in [escaped, written, &as_parsed(written)] {
-        if spelling != absolute && !spellings.iter().any(|kept| kept == spelling) {
-            spellings.push(spelling.to_owned());
-        }
-    }
     found(CssUrl::Rewrite {
         rewrite: CssRewrite {
             text: function.to_owned(),
@@ -629,7 +725,6 @@ fn escaped_url_function_urls(
                 kind: RemoteKind::Image,
             }),
             url_at: Some(url_at),
-            spellings,
         },
         function,
     });
@@ -694,9 +789,14 @@ fn image_set_urls(
     let mut dropped = Vec::new();
     for (index, candidate) in candidates.iter().enumerate() {
         let source = candidate.source.unwrap_or_default();
-        if kept.is_none_or(|kept| kept.0 != index) && is_remote(source) {
+        if kept.is_some_and(|kept| kept.0 == index) {
+            continue;
+        }
+        if is_remote(source) {
             found(CssUrl::Unshown(source));
             dropped.push(source.to_owned());
+        } else if without_credentials(source).is_some() {
+            found(CssUrl::Link(source));
         }
     }
     let Some((index, source, _)) = kept else {
@@ -733,7 +833,6 @@ fn image_set_urls(
                     kind: RemoteKind::Image,
                 }),
                 url_at: url_in_candidate.map(|at| at.start + opening..at.end + opening),
-                spellings: Vec::new(),
             },
             function,
         });
@@ -784,6 +883,11 @@ fn image_set_candidates<'i>(
                 }
                 if let Some(source) = candidate.source.filter(|source| is_remote(source)) {
                     found(CssUrl::Unshown(source));
+                } else if let Some(source) = candidate
+                    .source
+                    .filter(|source| without_credentials(source).is_some())
+                {
+                    found(CssUrl::Link(source));
                 }
             }
         }
@@ -835,10 +939,11 @@ fn image_set_candidate<'i>(input: &mut Parser<'i>) -> Option<ImageSetCandidate<'
     };
     let source_end = input.position();
     let written = source.as_ref().and_then(collectable);
-    // A set keeps a candidate as the page wrote it, so an escaped remote URL, which the block does not hold as a browser reads it, has no place.
-    let escaped_remote = source
-        .as_ref()
-        .is_some_and(|source| source.escaped && is_remote(source.url.trim()));
+    // A set keeps a candidate as the page wrote it, so an escaped remote URL, or an escaped relative one with a credential, which the block does not hold as a browser reads it, has no place.
+    let escaped_remote = source.as_ref().is_some_and(|source| {
+        let url = source.url.trim();
+        source.escaped && (is_remote(url) || without_credentials(url).is_some())
+    });
     let source = source
         .as_ref()
         .zip(written)
@@ -924,8 +1029,11 @@ impl CssUrl<'_> {
         let piece = std::mem::size_of::<CssPiece>() + std::mem::size_of::<CssPart>();
         match self {
             // The builder keeps only a remote URL, so a relative one takes nothing.
-            CssUrl::Image(url) | CssUrl::Unshown(url) | CssUrl::Font { url, .. } => {
-                if is_remote(url.trim()) {
+            CssUrl::Image(url)
+            | CssUrl::Unshown(url)
+            | CssUrl::Font { url, .. }
+            | CssUrl::Link(url) => {
+                if is_remote(url.trim()) || without_credentials(url).is_some() {
                     piece + url.len()
                 } else {
                     0
@@ -974,6 +1082,7 @@ impl<'c> CssEditBuilder<'c> {
                 self.place(url, kind);
             }
             CssUrl::Rewrite { rewrite, function } => self.rewrite(rewrite, function),
+            CssUrl::Link(url) => self.place(url, RemoteKind::Link),
             CssUrl::Unplaced => self.unplaced = true,
             CssUrl::Resolved(_)
             | CssUrl::ResolvedFont(_)
@@ -982,9 +1091,15 @@ impl<'c> CssEditBuilder<'c> {
         }
     }
 
+    /// A URL that no fetch takes is placed only when it holds a credential, so that the rest of the text keeps its bytes.
     fn place(&mut self, url: &str, kind: RemoteKind) {
         let url = url.trim();
-        if !is_remote(url) {
+        let kind = match kind {
+            RemoteKind::Link => RemoteKind::Link,
+            _ if is_remote(url) => kind,
+            _ => RemoteKind::Link,
+        };
+        if kind == RemoteKind::Link && without_credentials(url).is_none() {
             return;
         }
         let named = RemoteUrl {
@@ -1108,6 +1223,7 @@ mod tests {
                 ),
                 CssUrl::Font { url, family } => format!("font {url} {family:?}"),
                 CssUrl::ResolvedFont(url) => format!("resolved font {url}"),
+                CssUrl::Link(url) => format!("link {url}"),
                 CssUrl::NestedTooDeep => "nested too deep".to_owned(),
                 CssUrl::Unplaced => "unplaced".to_owned(),
             })

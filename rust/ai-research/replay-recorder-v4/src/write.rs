@@ -3,7 +3,6 @@
 //! The order matters for a crash between writes. A pack without its blocks is unreferenced, which is harmless. A block
 //! whose images were never stored would hold references that resolve to nothing. The rows go out only after both.
 
-use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::{self, Write};
 use std::sync::Arc;
@@ -19,7 +18,7 @@ use replay_core_v4::inspect::stats::BlockStats;
 use replay_core_v4::inspect::stats::MAX_URL_FINGERPRINTS;
 use replay_core_v4::keys::batch::{FlushKeys, SessionId, SessionKey as Key};
 use replay_core_v4::refs::url_fingerprint;
-use replay_core_v4::scan::cv::{extract_event_images, BeforeImages, Expansion};
+use replay_core_v4::scan::cv::{extract_event_images, Expansion};
 use replay_core_v4::scan::images::{Image, ImageLimits, ImageSink};
 use replay_core_v4::seal::{image_content_key, url_fingerprint_key};
 
@@ -27,7 +26,7 @@ use tokio::sync::Semaphore;
 
 use crate::batch::{Block, SessionKey};
 use crate::index::{BlockIndexRow, ImageIndexRow};
-use crate::splice::{DeclinedCopies, Splicer};
+use crate::splice::Splicer;
 use crate::store::{BlobStore, StoreError};
 
 /// Brotli settings for blocks, the same as the v3 lane, which uses the same C encoder. The lane keeps blocks for months
@@ -68,8 +67,6 @@ pub struct WriterCounts {
     pub max_line_bytes: u64,
     /// Why the block must not be stored, as the outcome of its drop: the inspector could not read some of it.
     pub dropped: Option<&'static str>,
-    /// Copies of a refused URL that the writer overwrote outside its slot.
-    pub overwritten: u64,
 }
 
 /// A block compressed once for all the attempts of its flush, with the images it moved out.
@@ -119,8 +116,6 @@ fn prepare_block(
 ) -> io::Result<(Vec<Image>, WriterCounts)> {
     let content_key = image_content_key(team_key);
     let mut splicer = Splicer::new(&block.edits, block.session.team_id, key_month, team_key);
-    let mut declined = DeclinedCopies::new(&block.declined);
-    let mut too_many_matches = false;
     let mut images = Vec::new();
     let mut kept = HashSet::new();
     let mut counts = WriterCounts::default();
@@ -138,39 +133,16 @@ fn prepare_block(
             ImageLimits::default(),
         );
         for event in &message.events {
-            let mut overwrite =
-                |bytes: &[u8]| match declined.as_mut()?.apply(bytes, &mut counts.overwritten) {
-                    Some(Cow::Owned(overwritten)) => Some(overwritten),
-                    Some(Cow::Borrowed(_)) => None,
-                    None => {
-                        too_many_matches = true;
-                        None
-                    }
-                };
-            let before_images: Option<&mut BeforeImages<'_>> = Some(&mut overwrite);
             let extracted = match splicer.edits_of(event_index) {
                 Some(edits) => {
                     let mut copy = |source, bytes: &[u8], range, out: &mut Vec<u8>| {
                         splicer.copy(edits, source, bytes, range, out)
                     };
-                    extract_event_images(
-                        &message.inner,
-                        event,
-                        &mut sink,
-                        Some(&mut copy),
-                        before_images,
-                    )
+                    extract_event_images(&message.inner, event, &mut sink, Some(&mut copy))
                 }
-                None => extract_event_images(&message.inner, event, &mut sink, None, before_images),
+                None => extract_event_images(&message.inner, event, &mut sink, None),
             };
             event_index += 1;
-            if too_many_matches {
-                let counts = WriterCounts {
-                    dropped: Some("too_many_declined_copies"),
-                    ..WriterCounts::default()
-                };
-                return Ok((Vec::new(), counts));
-            }
             let event_bytes = extracted
                 .as_deref()
                 .unwrap_or(&message.inner[event.span.0..event.span.1]);
@@ -300,8 +272,6 @@ pub fn compress_block(
     };
     let (lines, images, counts) =
         write_block(block, team_key, key_month, open).map_err(seal_error)?;
-    counter!("ai_research_v4_recorder_overwritten_declined_copies_total")
-        .increment(counts.overwritten);
     let encoder = lines.into_inner().map_err(|e| seal_error(e.into_error()))?;
     let body = encoder
         .into_inner()
@@ -784,7 +754,6 @@ mod tests {
             font_urls: Vec::new(),
             url_limit: None,
             edits: Vec::new(),
-            declined: Vec::new(),
             unplaced: false,
             visited_urls: Vec::new(),
             captured_at_ms: None,
@@ -832,7 +801,6 @@ mod tests {
         inspected.font_urls = found.font_urls;
         inspected.url_limit = found.url_limit;
         inspected.edits = found.edits;
-        inspected.declined = found.declined;
         inspected.unplaced = found.unplaced;
         inspected
     }
@@ -859,21 +827,19 @@ mod tests {
         .1;
         assert!(
             lines.contains(&format!(
-                r#""src":"imageurl:v4:declined:credential","srcset":"{reference} 2x""#
+                r#""src":"https://bucket.s3.amazonaws.com/avatar.png","srcset":"{reference} 2x""#
             )),
             "{lines}"
         );
-        // A URL past the length the fetcher takes is named and declined.
-        let long = |len: usize| {
-            let url = format!("https://cdn.example.com/{}", "a".repeat(len - 24));
-            json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
-                "attributes": [{"id": 99, "attributes": {"src": url}}]}}])
-            .to_string()
-        };
-        // A URL too long to fetch is declined, and the block is kept.
-        let long_lines = stored_lines(&long(16 * 1024));
+        // A URL too long to fetch gets no reference and holds no credential, so the block keeps it as it is.
+        let long = format!("https://cdn.example.com/{}", "a".repeat(16 * 1024 - 24));
+        let long_lines = stored_lines(
+            &json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
+                "attributes": [{"id": 99, "attributes": {"src": long}}]}}])
+            .to_string(),
+        );
         assert!(
-            long_lines.contains("imageurl:v4:declined:too_long"),
+            long_lines.contains(&format!(r#""src":"{long}""#)),
             "{long_lines}"
         );
         // Keys written with escapes hide no URL.
@@ -897,7 +863,7 @@ mod tests {
             .to_string();
             let lines = stored_lines(&events);
             assert!(
-                lines.contains("imageurl:v4:declined:credential") && !lines.contains("secret"),
+                lines.contains("cdn.example.com/a.png") && !lines.contains("secret"),
                 "{lines}"
             );
         }
@@ -921,87 +887,65 @@ mod tests {
         ] {
             let lines = stored_lines(&events);
             assert!(
-                lines.contains("imageurl:v4:declined:credential")
+                lines.contains(r#""src":"https://bucket.s3.amazonaws.com/avatar.png""#)
                     && !lines.contains("X-Amz-Signature"),
                 "{lines}"
             );
         }
-        // A declined URL that a longer URL also holds is overwritten there too, and the block is kept, also for a bundled font, which names no URL, and for an escaped font URL, as the scan decodes it, of a bundled family too.
-        let bundled_font = json!({"parentId": 1, "node": {"type": 2, "tagName": "style",
-            "attributes": {"_cssText": format!("@font-face{{font-family:Roboto;src:url({signed})}}")}, "childNodes": [], "id": 5}});
-        let escaped_font = |family: &str, host: &str| {
+        // Each slot loses its credential, also an escaped font URL of a bundled family, which names no URL. v4 stores
+        // pages unscrubbed, so a copy of the URL outside a URL slot, here in `alt`, keeps its text.
+        let font = |family: &str, host: &str| {
             json!({"parentId": 1, "node": {"type": 2, "tagName": "style",
             "attributes": {"_cssText": format!("@font-face{{font-family:{family};src:url(https://{host}/f\\2e woff2?X-Amz-Signature=abc123)}}")}, "childNodes": [], "id": 6}})
         };
-        let overlapping =
-            "https://a.example/?X-Amz-Signature=x&next=https://b.example/?X-Amz-Signature=abc123";
-        // Image extraction changes the copy's inline image, so the writer overwrites the copy before it.
-        let with_inline_image = "https://cdn.example.com/a?X-Amz-Signature=abc123&x=data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
-        let decoded_font_copy =
-            |host: &str| json!({"alt": format!("https://{host}/f.woff2?X-Amz-Signature=abc123")});
-        for (adds, attributes) in [
-            (
-                json!([]),
-                json!({"src": signed, "alt": format!("{signed}&size=2")}),
-            ),
-            (
-                json!([bundled_font]),
-                json!({"alt": format!("{signed}&size=2")}),
-            ),
-            (
-                json!([escaped_font("Brand", "bucket.s3.amazonaws.com")]),
-                decoded_font_copy("bucket.s3.amazonaws.com"),
-            ),
-            // The URL parser lowercases the host, and a copy keeps the spelling the page wrote.
-            (
-                json!([escaped_font("Brand", "CDN.example.com")]),
-                decoded_font_copy("CDN.example.com"),
-            ),
-            // A text copy of the rule keeps its CSS escapes.
-            (
-                json!([escaped_font("Brand", "bucket.s3.amazonaws.com")]),
-                json!({"alt": "url(https://bucket.s3.amazonaws.com/f\\2e woff2?X-Amz-Signature=abc123)"}),
-            ),
-            (
-                json!([]),
-                json!({"src": with_inline_image, "alt": with_inline_image}),
-            ),
-            (
-                json!([escaped_font("Roboto", "bucket.s3.amazonaws.com")]),
-                decoded_font_copy("bucket.s3.amazonaws.com"),
-            ),
-            (
-                json!([{"parentId": 1, "node": {"type": 2, "tagName": "div", "attributes": {"style": "background-image:url('\\2f \\2f cdn.example.com/a.png?X-Amz-Signature=abc123')"}, "childNodes": [], "id": 9}}]),
-                json!({"alt": "//cdn.example.com/a.png?X-Amz-Signature=abc123"}),
-            ),
-            (
-                json!([{"parentId": 1, "node": {"type": 2, "tagName": "div", "attributes": {"style": "background-image:url('\\1 //cdn.example.com/a.png?X-Amz-Signature=abc123')"}, "childNodes": [], "id": 9}}]),
-                json!({"alt": "//cdn.example.com/a.png?X-Amz-Signature=abc123"}),
-            ),
+        let style = |style: &str| json!({"parentId": 1, "node": {"type": 2, "tagName": "div", "attributes": {"style": style}, "childNodes": [], "id": 9}});
+        let link = |tag: &str, attributes: Value| json!({"parentId": 1, "node": {"type": 2, "tagName": tag, "attributes": attributes, "childNodes": [], "id": 10}});
+        for adds in [
+            json!([link("img", json!({"src": signed}))]),
+            json!([font("Brand", "bucket.s3.amazonaws.com")]),
+            json!([font("Roboto", "bucket.s3.amazonaws.com")]),
+            json!([style(
+                "background-image:url('\\2f \\2f cdn.example.com/a.png?X-Amz-Signature=abc123')"
+            )]),
+            json!([style(
+                "background-image:url('\\1 //cdn.example.com/a.png?X-Amz-Signature=abc123')"
+            )]),
             // A browser loads a URL with a tab in it, or in another letter case, from the same place.
-            (
-                json!([{"parentId": 1, "node": {"type": 2, "tagName": "img", "attributes": {"src": "HTTPS://Bucket.s3.amazonaws.com/x\t.png?X-Amz-Signature=abc123"}, "childNodes": [], "id": 10}}]),
-                json!({"alt": "https://bucket.s3.amazonaws.com/x.png?X-Amz-Signature=abc123"}),
-            ),
-            // The copy holds `\u0001` as six characters, so the slot's spelling, which starts with that control, does not match there.
-            (
-                json!([{"parentId": 1, "node": {"type": 2, "tagName": "img", "attributes": {"src": "\u{1}https://cdn.example.com/a.png?X-Amz-Signature=abc123"}, "childNodes": [], "id": 10}}]),
-                json!({"alt": "\\u0001https://cdn.example.com/a.png?X-Amz-Signature=abc123"}),
-            ),
-            (
-                json!([
-                    {"parentId": 1, "node": {"type": 2, "tagName": "img", "attributes": {"src": "https://a.example/?X-Amz-Signature=x&next=https://b.example/"}, "childNodes": [], "id": 7}},
-                    {"parentId": 1, "node": {"type": 2, "tagName": "img", "attributes": {"src": "https://b.example/?X-Amz-Signature=abc123"}, "childNodes": [], "id": 8}},
-                ]),
-                json!({"alt": format!("{overlapping} {} {overlapping}", "x".repeat(200))}),
-            ),
+            json!([link(
+                "img",
+                json!({"src": "HTTPS://Bucket.s3.amazonaws.com/x\t.png?X-Amz-Signature=abc123"})
+            )]),
+            json!([link("a", json!({"href": signed}))]),
+            json!([link(
+                "form",
+                json!({"action": "/session/reset?token=abc123"})
+            )]),
+            json!([link(
+                "img",
+                json!({"data-src": signed, "data-srcset": format!("{signed} 2x, /b.png 1x")})
+            )]),
+            json!([link(
+                "img",
+                json!({"src": "/api/avatar.png?X-Amz-Signature=abc123"})
+            )]),
+            json!([style(
+                "cursor:pointer;filter:url(https://cdn.example.com/f.svg?X-Amz-Signature=abc123#f)"
+            )]),
+            // This window has no page URL, so the set's root-relative candidate cannot load, and keeps its place.
+            json!([style(
+                "background-image:image-set(url(/a.png?X-Amz-Signature=abc123) 1x)"
+            )]),
+            json!([{"parentId": 1, "node": {"type": 2, "tagName": "style", "attributes": {"_cssText": "@import url(\"https://cdn.example.com/a.css?X-Amz-Signature=abc123\");@import \"/b.css?token=abc123\";"}, "childNodes": [], "id": 11}}]),
         ] {
+            let copy = json!(signed).to_string();
             let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": adds, "removes": [], "texts": [],
-                "attributes": [{"id": 99, "attributes": attributes}]}}])
+                "attributes": [{"id": 99, "attributes": {"alt": signed}}]}}])
             .to_string();
             let lines = stored_lines(&events);
+            assert_eq!(lines.matches(&copy).count(), 1, "{lines}");
             assert!(
-                !lines.is_empty() && !lines.contains("X-Amz-Signature"),
+                !lines.replace(&copy, "").contains("X-Amz-Signature")
+                    && !lines.contains("token=abc123"),
                 "{lines}"
             );
             for line in lines.lines() {
@@ -1035,18 +979,24 @@ mod tests {
             link(),
             json!({"type": 2, "tagName": "style", "attributes": {"_cssText": split_face}, "childNodes": [], "id": 4}),
         ];
-        for (nodes, named, references, declined) in [
-            (images, "imageurl:v4:7:2026-10:", 10_001, 0),
-            (fonts, "fonturl:v4:7:2026-10:", 4_098, 0),
-            (escaped_fonts, "fonturl:v4:7:2026-10:", 10_001, 1),
+        let split_kept = r#"src:url(\"https://fonts.example.com/split.woff2\")"#;
+        for (nodes, named, references, kept) in [
+            (images, "imageurl:v4:7:2026-10:", 10_001, None),
+            (fonts, "fonturl:v4:7:2026-10:", 4_098, None),
+            (
+                escaped_fonts,
+                "fonturl:v4:7:2026-10:",
+                10_001,
+                Some(split_kept),
+            ),
         ] {
             let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": nodes}}}]).to_string();
-            let lines = stored_lines(&events);
+            let mut lines = stored_lines(&events);
             assert_eq!(lines.matches(named).count(), references);
-            assert_eq!(
-                lines.matches("fonturl:v4:declined:credential").count(),
-                declined
-            );
+            if let Some(kept) = kept {
+                assert!(lines.contains(kept), "{lines}");
+                lines = lines.replace(kept, "");
+            }
             for raw in [
                 "https://cdn.",
                 "https://fonts.",
@@ -1100,27 +1050,6 @@ mod tests {
             let (_, counts) = written(block_of("kept", &json!([event]).to_string()));
             assert_eq!(counts.dropped, Some("too_deep_json"), "{event:.80}");
         }
-        let refused: Vec<_> = (0..2_000)
-            .map(|i| json!({"type": 2, "tagName": "img", "attributes": {"src": format!("https://cdn.example.com/{i}/{}.png?token=x", "a".repeat(600))}, "childNodes": [], "id": i + 2}))
-            .collect();
-        let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": refused}}}]).to_string();
-        let (_, counts) = written(block_of("kept", &events));
-        assert_eq!(counts.dropped, Some("too_many_declined_urls"));
-        // Each copy of the longest of these refused URLs holds a match of every one of them.
-        let nested: Vec<_> = (1..=1_000)
-            .map(|i| json!({"type": 2, "tagName": "img", "attributes": {"src": format!("https://10.0.0.7/{}", "a".repeat(i))}, "childNodes": [], "id": i + 1}))
-            .collect();
-        let copies = format!("https://10.0.0.7/{} ", "a".repeat(1_000)).repeat(1_001);
-        let events = json!([
-            {"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": nested}}},
-            {"type": 5, "timestamp": 2, "data": {"tag": "copies", "payload": {"text": copies}}},
-        ])
-        .to_string();
-        let (lines, counts) = written(block_of("kept", &events));
-        assert_eq!(
-            (lines.as_str(), counts.dropped),
-            ("", Some("too_many_declined_copies"))
-        );
         // cssparser reads a NUL in a string as U+FFFD, so the decoded URL is not in its token, only in the comment.
         let nul_url = "url(\"https://cdn.example.com/a.png?X-Amz-Signature=abc123#\u{0}\"/*https://cdn.example.com/a.png?X-Amz-Signature=abc123#\u{FFFD}*/)";
         // A set keeps its candidate as the page wrote it, so it cannot keep an escaped one, or one that another image function holds.
@@ -1129,6 +1058,7 @@ mod tests {
             format!("background-image:image-set({nul_url} 1x)"),
             "background-image:image-set(url('\\2f \\2f cdn.example.com/a.png?token=secret') 1x)"
                 .to_owned(),
+            "background-image:image-set(url('\\2f a.png?token=secret') 1x)".to_owned(),
             "background-image:image-set(-webkit-cross-fade(url(https://cdn.example.com/a.png?token=secret), url(https://cdn.example.com/b.png), 50%) 1x)"
                 .to_owned(),
             // An escaped remote URL that the URL parser does not read may still load in a browser that does.
@@ -1188,7 +1118,9 @@ mod tests {
                 r#"image-set(url({}) 2x)"#,
                 reference("https://cdn.example.com/2x.png")
             ),
-            r#"url(\"imageurl:v4:declined:credential\")"#.to_owned(),
+            r#".c{background:url(\"https://app.example.com/c.png\")}"#.to_owned(),
+            r".s-\\[url\\(https\\:\\/\\/cdn\\.example\\.com\\/s\\.png\\?X-Amz-Signature\\=abc123\\)\\]{background-image:url(https://cdn.example.com/s.png)}".to_owned(),
+            r".\\/\\/cdn\\.example\\.com\\/p\\.png\\?X-Amz-Signature\\=abc123{background:url(//cdn.example.com/p.png)}".to_owned(),
             format!(
                 r#"src:url(\"{}\")"#,
                 crate::urls::url_reference(
@@ -1234,15 +1166,12 @@ mod tests {
         ] {
             assert!(lines.contains(kept), "{kept} in {lines}");
         }
-        assert!(
-            lines.contains(r".s-\\[url\\(imageurl\\:v4\\:declined\\:credential\\)\\]"),
-            "{lines}"
-        );
+        // A selector is no URL slot, so it keeps a refused URL as the page wrote it.
+        assert_eq!(lines.matches("X-Amz-Signature").count(), 2, "{lines}");
         for gone in [
             ":url(/img/a.png)",
             "1x.png",
             "1x,",
-            "Signature",
             "/fonts/",
             "fonts.example.com",
         ] {
@@ -1284,7 +1213,7 @@ mod tests {
         for expected in [
             r#""href":"http://10.0.0.5/admin""#.to_owned(),
             r#""href":"https://app.example.com/shop""#.to_owned(),
-            r#"url(\"imageurl:v4:declined:non_public_host\")"#.to_owned(),
+            r#"url(\"https://10.0.0.5/a.png\")"#.to_owned(),
             format!(r#"url(\"{reference}\")"#),
         ] {
             assert!(lines.contains(&expected), "{expected} in {lines}");
@@ -1302,7 +1231,8 @@ mod tests {
             .to_string();
             let lines = stored_lines(&events);
             assert!(
-                lines.contains("imageurl:v4:declined:credential") && !lines.contains("secret"),
+                lines.contains(r#"url(\"https://app.example.com/api/img\")"#)
+                    && !lines.contains("secret"),
                 "{css}: {lines}"
             );
         }
@@ -1462,9 +1392,8 @@ mod tests {
             "{lines}"
         );
 
-        // A srcset key outside an image slot, here in a custom event, is no srcset of the DOM and stays as it is. With
-        // the same value as an inspected image slot, only the slot is rebuilt, and the custom event loses only the URL
-        // that the policy refuses.
+        // A srcset key outside an image slot, here in a custom event, is no srcset of the DOM and stays as it is, also
+        // with the same value as an inspected image slot.
         let value = "https://cdn.example.com/a.png 1x, https://10.0.0.7/a.png 2x";
         let both = format!(
             r#"[{{"type":3,"timestamp":1,"data":{{"source":0,"adds":[],"removes":[],"texts":[],"attributes":[{{"id":99,"attributes":{{"srcset":"{value}"}}}}]}}}},{{"type":5,"timestamp":2,"data":{{"tag":"app","payload":{{"srcset":"{value}"}}}}}}]"#
@@ -1485,9 +1414,7 @@ mod tests {
             "{dom}"
         );
         assert!(
-            custom.contains(
-                r#""srcset":"https://cdn.example.com/a.png 1x, imageurl:v4:declined:non_public_host 2x""#
-            ),
+            custom.contains(&format!(r#""srcset":"{value}""#)),
             "{custom}"
         );
         let custom = r#"[{"type":5,"timestamp":1,"data":{"tag":"app","payload":{"srcset":"https://cdn.example.com/a.png 1x, https://10.0.0.7/a.png 2x"}}}]"#;

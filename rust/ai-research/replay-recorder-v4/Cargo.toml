@@ -19,7 +19,6 @@ common-redis = { path = "../../common/redis" }
 lifecycle = { path = "../../common/lifecycle" }
 replay-core-v4 = { path = "../replay-core-v4" }
 
-aho-corasick = { workspace = true }
 arc-swap = { workspace = true }
 async-trait = { workspace = true }
 aws-config = { workspace = true }

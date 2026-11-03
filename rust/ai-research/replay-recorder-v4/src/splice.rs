@@ -1,27 +1,24 @@
 //! The writer's one pass over an event. It copies the event, and where the inspector read each slot, it writes the
-//! slot's references and markers, so it searches the event for no URL. A URL the policy refuses must leave the block
-//! wherever it is, so the writer also overwrites each copy of one, which only a block that holds one pays for.
+//! slot's references, and each URL that gets none without its credentials, so it searches the event for no URL.
 
-use std::borrow::Cow;
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap};
 
-use aho_corasick::{AhoCorasick, AhoCorasickKind, MatchKind};
 use metrics::counter;
 use replay_core_v4::bytescan::{unescape, write_json_string, Span};
-use replay_core_v4::inspect::css::{escape_in_identifier, write_css_edit, CssEdit};
-use replay_core_v4::inspect::dom::{for_each_srcset_candidate, DeclinedUrl, RemoteKind};
+use replay_core_v4::inspect::css::{write_css_edit, CssEdit};
+use replay_core_v4::inspect::dom::{for_each_srcset_candidate, RemoteKind};
 use replay_core_v4::inspect::edits::{Edit, EditSource, EventEdits, Slot};
 use replay_core_v4::inspect::srcset::{shown_candidate, SrcsetSlot};
-use replay_core_v4::refs::{declined_url_ref, UrlAsset};
+use replay_core_v4::refs::UrlAsset;
 use replay_core_v4::seal::image_url_key;
-use replay_core_v4::url_policy::is_remote;
+use replay_core_v4::url_policy::{is_remote, without_credentials};
 use replay_core_v4::v4_image_refs::{bundled_font_ref, ImageDecline, IMAGE_DECLINED_PREFIX};
 
 use crate::urls::url_reference;
 
 fn asset_of(kind: RemoteKind) -> UrlAsset {
     match kind {
-        RemoteKind::Image => UrlAsset::Image,
+        RemoteKind::Image | RemoteKind::Link => UrlAsset::Image,
         RemoteKind::Font | RemoteKind::BundledFont(_) => UrlAsset::Font,
     }
 }
@@ -31,13 +28,13 @@ fn kind_label(kind: RemoteKind) -> &'static str {
         RemoteKind::Image => "image",
         RemoteKind::Font => "font",
         RemoteKind::BundledFont(_) => "bundled_font",
+        RemoteKind::Link => "link",
     }
 }
 
-fn json_string_contents(text: &str) -> Vec<u8> {
-    let mut quoted = Vec::with_capacity(text.len() + 2);
-    write_json_string(text, &mut quoted);
-    quoted[1..quoted.len() - 1].to_vec()
+/// `url` without its credentials, or as it is when it holds none.
+fn kept(url: &str) -> String {
+    without_credentials(url).unwrap_or_else(|| url.to_owned())
 }
 
 #[derive(Clone)]
@@ -83,131 +80,6 @@ impl SpliceCounters {
                 .increment(count);
         }
     }
-}
-
-/// Refused URLs that hold one another can end many matches at each byte, so a block past this many is dropped.
-const MAX_BLOCK_DECLINED_MATCHES: usize = 1_000_000;
-
-/// Overwrites every copy of the block's refused URLs, as a JSON string holds it and as a CSS selector escapes it.
-pub struct DeclinedCopies {
-    matcher: AhoCorasick,
-    markers: Vec<Vec<u8>>,
-    longest: usize,
-    matches_left: usize,
-}
-
-#[derive(Clone, Copy)]
-struct Overwrite {
-    start: usize,
-    end: usize,
-    marker: usize,
-}
-
-impl DeclinedCopies {
-    pub fn new(declined: &[DeclinedUrl]) -> Option<Self> {
-        let mut patterns = Vec::new();
-        let mut markers = Vec::new();
-        for DeclinedUrl { url, kind, decline } in declined {
-            let marker = declined_url_ref(asset_of(*kind), *decline);
-            // A selector copy takes an escaped marker, so that its colons do not start pseudo-classes.
-            for (form, replacement) in [
-                (url.clone(), marker.clone()),
-                (escape_in_identifier(url), escape_in_identifier(&marker)),
-            ] {
-                patterns.push(json_string_contents(&form));
-                markers.push(json_string_contents(&replacement));
-            }
-        }
-        // A scheme and a host read the same in any letter case, so a copy in another case is the same URL.
-        let matcher = AhoCorasick::builder()
-            .kind(Some(AhoCorasickKind::ContiguousNFA))
-            .match_kind(MatchKind::Standard)
-            .ascii_case_insensitive(true)
-            .build(&patterns)
-            .ok()?;
-        let longest = patterns.iter().map(Vec::len).max()?;
-        Some(Self {
-            matcher,
-            markers,
-            longest,
-            matches_left: MAX_BLOCK_DECLINED_MATCHES,
-        })
-    }
-
-    /// Copies that overlap share one span, so that a refused URL that starts inside another one is overwritten too.
-    pub fn apply<'b>(&mut self, bytes: &'b [u8], overwritten: &mut u64) -> Option<Cow<'b, [u8]>> {
-        let mut out = None;
-        let mut copied_to = 0;
-        let mut pending: VecDeque<Overwrite> = VecDeque::new();
-        // Matches come in order of their end, so a later match cannot reach a span that ends `longest` bytes before.
-        let mut escaped: Option<Vec<bool>> = None;
-        for found in self.matcher.find_overlapping_iter(bytes) {
-            self.matches_left = self.matches_left.checked_sub(1)?;
-            // Such a match begins with the second byte of a `\\` pair, so the string holds no copy there.
-            if escaped.get_or_insert_with(|| escaped_bytes(bytes))[found.start()] {
-                continue;
-            }
-            let mut span = Overwrite {
-                start: found.start(),
-                end: found.end(),
-                marker: found.pattern().as_usize(),
-            };
-            while let Some(last) = pending.back().copied().filter(|last| last.end > span.start) {
-                pending.pop_back();
-                if last.start <= span.start {
-                    span.start = last.start;
-                    span.marker = last.marker;
-                }
-            }
-            pending.push_back(span);
-            while let Some(first) = pending
-                .front()
-                .copied()
-                .filter(|first| first.end + self.longest <= span.end)
-            {
-                pending.pop_front();
-                self.write(bytes, first, &mut out, &mut copied_to);
-                *overwritten += 1;
-            }
-        }
-        for span in pending {
-            self.write(bytes, span, &mut out, &mut copied_to);
-            *overwritten += 1;
-        }
-        Some(match out {
-            Some(mut out) => {
-                out.extend_from_slice(&bytes[copied_to..]);
-                Cow::Owned(out)
-            }
-            None => Cow::Borrowed(bytes),
-        })
-    }
-
-    fn write(
-        &self,
-        bytes: &[u8],
-        span: Overwrite,
-        out: &mut Option<Vec<u8>>,
-        copied_to: &mut usize,
-    ) {
-        let out = out.get_or_insert_with(|| Vec::with_capacity(bytes.len()));
-        out.extend_from_slice(&bytes[*copied_to..span.start]);
-        out.extend_from_slice(&self.markers[span.marker]);
-        *copied_to = span.end;
-    }
-}
-
-/// Whether each byte follows an odd run of backslashes, which makes it the second byte of an escape.
-fn escaped_bytes(bytes: &[u8]) -> Vec<bool> {
-    let mut odd = false;
-    bytes
-        .iter()
-        .map(|&byte| {
-            let escaped = odd;
-            odd = byte == b'\\' && !odd;
-            escaped
-        })
-        .collect()
 }
 
 pub struct Splicer<'b> {
@@ -295,7 +167,7 @@ impl<'b> Splicer<'b> {
                 decline: None,
             },
             (_, Err(decline)) => Named {
-                text: declined_url_ref(asset, decline),
+                text: kept(url),
                 decline: Some(decline.label()),
             },
         };
@@ -317,10 +189,16 @@ impl<'b> Splicer<'b> {
         match slot {
             Slot::Url => {
                 let url = text.trim();
-                is_remote(url).then(|| self.named(url, RemoteKind::Image).text)
+                if is_remote(url) {
+                    Some(self.named(url, RemoteKind::Image).text)
+                } else {
+                    without_credentials(text)
+                }
             }
             Slot::Srcset(slot) => self.rebuilt_srcset(text, *slot),
             Slot::Css(edit) => Some(self.written_css(text, edit)),
+            Slot::Link { srcset: false } => without_credentials(text),
+            Slot::Link { srcset: true } => Some(links_without_credentials(text)),
         }
     }
 
@@ -339,7 +217,10 @@ impl<'b> Splicer<'b> {
                 *self.counters.css_rewrites.entry(kind).or_default() += 1;
             }
         }
-        write_css_edit(text, edit, &mut |url| self.named(&url.url, url.kind).text)
+        write_css_edit(text, edit, &mut |url| match url.kind {
+            RemoteKind::Link => kept(&url.url),
+            kind => self.named(&url.url, kind).text,
+        })
     }
 
     /// The srcset with only the candidate it shows, a remote one as its reference. `None` when it has nothing to change.
@@ -353,12 +234,13 @@ impl<'b> Splicer<'b> {
             index += 1;
             let written = if is_remote(url) {
                 remote = true;
-                is_shown
-                    .then(|| self.named(url, RemoteKind::Image))
-                    .filter(|named| named.decline.is_none())
-                    .map(|named| named.text)
+                is_shown.then(|| self.named(url, RemoteKind::Image).text)
+            } else if is_shown && !url.starts_with(IMAGE_DECLINED_PREFIX) {
+                let written = kept(url);
+                remote |= written != url;
+                Some(written)
             } else {
-                (is_shown && !url.starts_with(IMAGE_DECLINED_PREFIX)).then(|| url.to_owned())
+                None
             };
             match written {
                 Some(written) => {
@@ -384,4 +266,19 @@ impl<'b> Splicer<'b> {
         }
         (removed || remote).then_some(value)
     }
+}
+
+fn links_without_credentials(srcset: &str) -> String {
+    let mut value = String::with_capacity(srcset.len());
+    for_each_srcset_candidate(srcset, |url, descriptors| {
+        if !value.is_empty() {
+            value.push_str(", ");
+        }
+        value.push_str(&kept(url));
+        if !descriptors.is_empty() {
+            value.push(' ');
+            value.push_str(descriptors);
+        }
+    });
+    value
 }

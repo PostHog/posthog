@@ -21,7 +21,10 @@ use public_suffix::{EffectiveTLDProvider, DEFAULT_PROVIDER};
 
 use url::Url;
 
+mod redact;
 mod shopify;
+
+pub use redact::without_credentials;
 
 const VOLATILE_PARAMS: &[&str] = &["cb", "nocache", "rnd"];
 
@@ -551,12 +554,9 @@ fn has_credential_query(url: &Url) -> Result<bool, Decline> {
             .decode_utf8()
             .map_err(|_| Decline::InvalidQuery)?;
     }
-    Ok(url.query_pairs().any(|(name, value)| {
-        CREDENTIAL_PARAMS
-            .iter()
-            .any(|credential| credential.eq_ignore_ascii_case(&name))
-            || (name.eq_ignore_ascii_case("s") && value.chars().count() == 32)
-    }))
+    Ok(url
+        .query_pairs()
+        .any(|(name, value)| is_credential_param(&name, &value)))
 }
 
 fn has_valid_percent_encoding(value: &str) -> bool {
@@ -593,37 +593,62 @@ fn decoded_lowercase_path(url: &Url) -> Result<String, Decline> {
 /// `path` is the decoded lowercase path from [`decoded_lowercase_path`].
 fn has_credential_path(path: &str, host: &str) -> bool {
     let segments: Vec<&str> = path.split('/').collect();
+    let has_supabase_signature = path.contains("/storage/v1/object/sign/")
+        || path.contains("/storage/v1/render/image/sign/");
+    has_supabase_signature || !path_tokens(&segments, host).is_empty()
+}
+
+/// Where a path holds a token: a whole segment, or a `;jsessionid=` parameter in one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PathToken {
+    Segment(usize),
+    SessionId(usize),
+}
+
+/// `segments` is a decoded lowercase path split at `/`, so the first one is empty.
+fn path_tokens(segments: &[&str], host: &str) -> Vec<PathToken> {
+    let mut tokens = Vec::new();
     let first_segment_has_bunny_token = segments
         .get(1)
         .and_then(|segment| segment.strip_prefix("bcdn_token="))
         .and_then(|value| value.split('&').next())
         .is_some_and(|token| !token.is_empty());
+    if first_segment_has_bunny_token {
+        tokens.push(PathToken::Segment(1));
+    }
     let has_oracle_token = host.starts_with("objectstorage.")
         && host.ends_with(".oraclecloud.com")
         && host.split('.').count() == 4
         && segments.get(1) == Some(&"p")
         && segments.get(2).is_some_and(|token| !token.is_empty())
         && segments.get(3) == Some(&"n");
-    let has_cloudinary_signature = segments.iter().any(|segment| {
-        segment
+    if has_oracle_token {
+        tokens.push(PathToken::Segment(2));
+    }
+    for (index, segment) in segments.iter().enumerate() {
+        let has_cloudinary_signature = segment
             .strip_prefix("s--")
             .and_then(|value| value.strip_suffix("--"))
-            .is_some_and(|token| !token.is_empty())
-    });
-    let has_supabase_signature = path.contains("/storage/v1/object/sign/")
-        || path.contains("/storage/v1/render/image/sign/");
-    let has_session_token = segments.iter().any(|segment| {
-        segment
+            .is_some_and(|token| !token.is_empty());
+        if has_cloudinary_signature {
+            tokens.push(PathToken::Segment(index));
+        }
+        let has_session_token = segment
             .split_once(";jsessionid=")
             .and_then(|(_, value)| value.split(';').next())
-            .is_some_and(|token| !token.is_empty())
-    });
+            .is_some_and(|token| !token.is_empty());
+        if has_session_token {
+            tokens.push(PathToken::SessionId(index));
+        }
+    }
+    tokens
+}
 
-    first_segment_has_bunny_token
-        || has_oracle_token
-        || has_cloudinary_signature
-        || has_supabase_signature
-        || has_session_token
+fn is_credential_param(name: &str, value: &str) -> bool {
+    CREDENTIAL_PARAMS
+        .iter()
+        .any(|credential| credential.eq_ignore_ascii_case(name))
+        || (name.eq_ignore_ascii_case("s") && value.chars().count() == 32)
 }
 
 fn remove_volatile_params(raw_query: Option<&str>) -> Result<Option<String>, Decline> {

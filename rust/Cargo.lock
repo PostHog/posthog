@@ -11196,7 +11196,6 @@ name = "replay-recorder-v4"
 version = "0.1.0"
 dependencies = [
  "aes-gcm",
- "aho-corasick",
  "arc-swap",
  "async-trait",
  "aws-config",

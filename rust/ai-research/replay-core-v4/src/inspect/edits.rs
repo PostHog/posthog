@@ -16,10 +16,15 @@ pub enum EditSource {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Slot {
-    /// A URL attribute. The writer writes the URL's reference, or its decline marker.
+    /// A URL attribute of an image slot. The writer writes the URL's reference, or the URL without its credentials.
     Url,
     Srcset(SrcsetSlot),
     Css(CssEdit),
+    /// A URL attribute that shows no image, such as a link's `href`, or a list of them, as `imagesrcset` holds. No fetch
+    /// takes it, so the writer keeps it without its credentials.
+    Link {
+        srcset: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,8 +44,12 @@ pub struct EventEdits {
 }
 
 impl EventEdits {
+    /// A string that is an image slot and also holds a link, such as a picture source's srcset, keeps the image slot.
     pub fn new(event: u32, mut edits: Vec<Edit>) -> Self {
-        edits.sort_by_key(|edit| (edit.source, edit.value.0));
+        edits.sort_by_key(|edit| {
+            let link = matches!(edit.slot, Slot::Link { .. });
+            (edit.source, edit.value.0, link)
+        });
         edits.dedup_by_key(|edit| (edit.source, edit.value));
         Self { event, edits }
     }

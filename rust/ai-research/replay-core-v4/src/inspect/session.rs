@@ -1,13 +1,10 @@
 //! Everything the recorder learns about one session, block by block.
 
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use super::clicks::{ClickKind, ClickTracker};
-use super::dom::{
-    DeclinedUrl, DomInspector, FlushBudgets, RemoteKind, UrlLimit, MAX_BLOCK_DECLINED_URL_BYTES,
-};
+use super::dom::{DomInspector, FlushBudgets, UrlLimit};
 use super::edits::EventEdits;
 use super::events::{href_from, number, Activity, DataFields, EventCounter};
 use super::features::{BlockFeatures, FeatureRecorder, SurfacingFeatures};
@@ -16,7 +13,6 @@ use super::rrweb::{
 };
 use super::stats::{BlockStats, MAX_WINDOW_IDS};
 use crate::scan::message::{Event, Message};
-use crate::url_policy::Decline;
 
 /// Moments kept per block, so a long block cannot grow its index row without bound.
 pub const MAX_MOMENTS_PER_BLOCK: usize = 256;
@@ -60,8 +56,6 @@ pub struct BlockInspection {
     url_limit: Option<UrlLimit>,
     edits: Vec<EventEdits>,
     unplaced: bool,
-    declined: HashMap<String, (RemoteKind, Decline)>,
-    declined_bytes: usize,
     events: u32,
     resolve_budget: Option<Arc<AtomicUsize>>,
     edit_budget: Option<Arc<AtomicUsize>>,
@@ -83,8 +77,6 @@ pub struct Inspected {
     pub edits: Vec<EventEdits>,
     /// The inspector read a slot that the writer could not find again, so the block must not be stored.
     pub unplaced: bool,
-    /// Spellings of named URLs that the policy refuses, by the largest kind each was named as.
-    pub declined: Vec<DeclinedUrl>,
 }
 
 impl BlockInspection {
@@ -123,11 +115,6 @@ impl BlockInspection {
             url_limit: self.url_limit,
             edits: self.edits,
             unplaced: self.unplaced,
-            declined: self
-                .declined
-                .into_iter()
-                .map(|(url, (kind, decline))| DeclinedUrl { url, kind, decline })
-                .collect(),
         }
     }
 }
@@ -227,18 +214,6 @@ impl SessionInspector {
         let (edits, unplaced, edit_bytes) = self.dom.take_edits();
         block.edit_bytes_taken += edit_bytes;
         block.unplaced |= unplaced;
-        for declined in self.dom.take_declined() {
-            if let Some((kind, _)) = block.declined.get_mut(&declined.url) {
-                *kind = (*kind).max(declined.kind);
-            } else if block.declined_bytes + declined.url.len() > MAX_BLOCK_DECLINED_URL_BYTES {
-                block.url_limit = block.url_limit.or(Some(UrlLimit::DeclinedUrls));
-            } else {
-                block.declined_bytes += declined.url.len();
-                block
-                    .declined
-                    .insert(declined.url, (declined.kind, declined.decline));
-            }
-        }
         if block.url_limit.is_none() && !edits.is_empty() {
             block.edits.push(EventEdits::new(index, edits));
         }
