@@ -17,7 +17,6 @@ import { ScoutSpendLabel } from '../../spend/ScoutSpendLabel'
 import { ScoutDeprecationBadge, ScoutExemptionBadge, ScoutLifecycleBadge } from './ScoutBadges'
 import { ScoutCadenceLabel } from './ScoutCadenceLabel'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
-import { ScoutCostLine } from './ScoutCostLine'
 import { ScoutNextRunLabel } from './ScoutNextRunLabel'
 import { ScoutRosterRunBoxes } from './ScoutRosterRunBoxes'
 import { ScoutStatusDot } from './ScoutStatusDot'
@@ -45,13 +44,11 @@ function MetaSeparator(): JSX.Element {
  */
 export const ScoutRosterCard = memo(function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
     const { config, group } = row
-    const { rollups, updatingScoutIds, scoutRunsLoadedOnce, scoutRunsCoverFleet, scoutCostRollups } =
-        useValues(scoutFleetLogic)
+    const { rollups, updatingScoutIds, scoutRunsLoadedOnce, scoutRunsCoverFleet } = useValues(scoutFleetLogic)
     const { updateScoutConfig } = useActions(scoutFleetLogic)
     const { currentTeam } = useValues(teamLogic)
     const now = new Date()
     const rollup = rollups.get(config.skill_name)
-    const costRollup = scoutCostRollups.get(config.skill_name)
     const runs = rollup?.runs ?? []
     const subtitle = scoutSubtitle(config, rollup, now)
     // Only enabled scouts have a next run; a paused one would otherwise carry an empty dash.
@@ -98,18 +95,7 @@ export const ScoutRosterCard = memo(function ScoutRosterCard({ row }: { row: Sco
                             </>
                         )}
                     </div>
-                    <FlaggedFeature
-                        flag={FEATURE_FLAGS.SELF_DRIVING_USAGE_DISPLAY}
-                        fallback={
-                            <>
-                                {costRollup && (
-                                    <div className="flex flex-wrap items-center text-xs leading-none text-tertiary select-none">
-                                        <ScoutCostLine rollup={costRollup} />
-                                    </div>
-                                )}
-                            </>
-                        }
-                    >
+                    <FlaggedFeature flag={FEATURE_FLAGS.SELF_DRIVING_USAGE_DISPLAY}>
                         <ScoutSpendLabel skillName={config.skill_name} average />
                     </FlaggedFeature>
                 </div>
