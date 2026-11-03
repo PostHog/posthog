@@ -14,8 +14,6 @@ import { URL_ASSET_RULES } from './url-asset-rules'
 import { V4UrlAsset, V4UrlRef, parseV4UrlRef, publicFontRefOf } from './v4-url-ref'
 
 const S3_WRITE_TIMEOUT_MS = 30_000
-/** The `images-v4` lifecycle is 98 days: the 90-day raw window plus this interval and one day. */
-const REFRESH_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000
 const CONTENT_TYPE = 'application/octet-stream'
 
 const storedImages = new Counter({
@@ -33,7 +31,6 @@ const storedImages = new Counter({
  * overwrites the object of its reference, and `refreshImage` copies it onto itself to reset its age.
  */
 export class RawImageStore implements RefreshingImageSink {
-    public readonly refreshIntervalMs = REFRESH_INTERVAL_MS
     private readonly writes: ConcurrencyController
 
     constructor(

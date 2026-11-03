@@ -23,9 +23,10 @@ use replay_core_v4::keys::table::{AwsKeyTable, CachedKeyTable};
 use tokio::sync::Semaphore;
 
 use crate::batch::Block;
+use crate::history::{mark_fresh, FetchHistory};
 use crate::index::{Index, IndexMessage};
 use crate::store::BlobStore;
-use crate::urls::{fetch_jobs, records, FetchJobs};
+use crate::urls::{fetch_jobs, records, FetchJobs, FlushUrls};
 use crate::write::{
     block_index_rows, compress_block, new_images, object_key, seal_blocking, seal_compressed,
     session_keyed_frames, write_blocks, write_images, CompressedBlock, FlushAttempt, WriteError,
@@ -33,6 +34,9 @@ use crate::write::{
 
 /// How long a fetch job may wait for room in the producer queue.
 const ENQUEUE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// The read runs while the flush seals its blocks, so a slow read rarely makes the flush longer.
+const HISTORY_READ_BUDGET: Duration = Duration::from_secs(5);
 
 /// Fetch job records sent at once, so a slow broker slows the flush instead of filling the producer queue.
 const SENDS_IN_FLIGHT: usize = 64;
@@ -50,9 +54,11 @@ pub struct Writer {
     /// The flush does not wait for index rows, so they get their own producer with a delivery timeout of minutes.
     pub index_producer: FutureProducer<KafkaContext>,
     pub index_topic: String,
-    /// Remote image references this process sent to the fetcher, by UTC day. A reference goes out again each day, so
-    /// the fetcher sees it within every refresh interval and keeps the image as long as the blocks that reference it.
+    /// Remote image references this process sent to the fetcher, or found fresh in its history, by UTC day. A
+    /// reference goes out again each day unless its stored image needs no refresh, so the fetcher refreshes it within
+    /// every refresh interval and keeps the image as long as the blocks that reference it.
     pub sent_urls: moka::sync::Cache<(String, String), ()>,
+    pub fetch_history: Option<Arc<dyn FetchHistory>>,
     /// Seals running at once, over all attempts: the flush concurrency.
     pub seal_permits: Arc<Semaphore>,
 }
@@ -164,6 +170,17 @@ pub async fn write_flush(
     drop(resolved);
     let month = key_month(&day);
     let attempt = FlushAttempt::new(now);
+    let already_sent = |reference: &str| {
+        writer
+            .sent_urls
+            .contains_key(&(day.clone(), reference.to_owned()))
+    };
+    let urls = FlushUrls::new(
+        blocks.iter().map(|block| &**block),
+        &keys,
+        month,
+        &already_sent,
+    );
 
     let object_key = object_key(&day, now);
     let seals: Vec<_> = blocks
@@ -191,10 +208,12 @@ pub async fn write_flush(
         })
         .collect();
     let mut done = Vec::with_capacity(seals.len());
-    let results: Vec<_> = stream::iter(seals)
-        .buffer_unordered(concurrency.max(1))
-        .collect()
-        .await;
+    let (results, ()) = tokio::join!(
+        stream::iter(seals)
+            .buffer_unordered(concurrency.max(1))
+            .collect::<Vec<_>>(),
+        mark_fresh_urls(writer, &urls, &day),
+    );
     for result in results {
         match result {
             Ok(sealed) => done.push(sealed),
@@ -236,21 +255,17 @@ pub async fn write_flush(
         kept[index] = true;
     }
     let jobs = fetch_jobs(
+        &urls,
         blocks
             .iter()
-            .map(|b| &**b)
             .zip(stats.iter_mut())
-            .zip(kept)
-            .filter_map(|(pair, kept)| kept.then_some(pair)),
-        &keys,
-        month,
+            .enumerate()
+            .filter(|(index, _)| kept[*index])
+            .map(|(index, (block, stats))| (index, &**block, stats)),
         now.timestamp_millis(),
-        &|reference| {
-            writer
-                .sent_urls
-                .contains_key(&(day.clone(), reference.to_owned()))
-        },
+        &already_sent,
     );
+    drop(urls);
 
     let session_frames = session_keyed_frames(&sealed);
     let image_rows = write_images(
@@ -295,6 +310,21 @@ pub async fn write_flush(
     produce_jobs(writer, jobs, &day, now.timestamp_millis()).await;
     send_index(&writer.index_producer, &writer.index_topic, &day, index);
     Ok(())
+}
+
+async fn mark_fresh_urls(writer: &Writer, urls: &FlushUrls, day: &str) {
+    let Some(history) = &writer.fetch_history else {
+        return;
+    };
+    let deadline = tokio::time::Instant::now() + HISTORY_READ_BUDGET;
+    mark_fresh(
+        history.as_ref(),
+        &writer.sent_urls,
+        urls.unsent_references(),
+        day,
+        deadline,
+    )
+    .await;
 }
 
 /// Sends every fetch job of the flush, then waits for all deliveries before the flush commits, as the v3 mirror does.
