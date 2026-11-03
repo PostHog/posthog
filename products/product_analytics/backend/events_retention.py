@@ -34,7 +34,6 @@ from posthog.models.team.event_retention import (
     events_retention_windows,
     has_standard_retention,
     organization_events_retention_months,
-    retention_windows,
     should_enforce_events_retention,
     team_plan,
 )
@@ -175,11 +174,8 @@ def _enforced_plans(teams: Sequence[Team]) -> list[TeamPlan]:
     return [team_plan(team) for team in teams if should_enforce_events_retention(team.id)]
 
 
-def _schedule_passes(plans: Sequence[TeamPlan], previous_windows: dict[int, int]) -> None:
-    """Give each team whose window the cleanup enforces a pass date, so that its next deletion is known on save."""
-    reschedule_plan_deletions(
-        plans, cleanup_date(), admit={plan.team_id for plan in plans}, previous_windows=previous_windows
-    )
+def _schedule_passes(plans: Sequence[TeamPlan]) -> None:
+    reschedule_plan_deletions(plans, cleanup_date(), admit={plan.team_id for plan in plans})
 
 
 def set_organization_events_retention(
@@ -199,7 +195,7 @@ def set_organization_events_retention(
             return
         _check_allowed(organization_events_retention(organization), months)
         plans = _enforced_plans(Team.objects.filter(organization_id=organization.id))
-        previous_windows = retention_windows(plans)
+        _schedule_passes(plans)
         config = config or OrganizationEventsRetentionConfig(organization_id=organization.id)
         config.default_events_retention_months = months
         config.full_clean()
@@ -208,7 +204,7 @@ def set_organization_events_retention(
         else:
             config.save()
         _report_retention_set(organization, None, user, before, months, analytics_properties, was_impersonated)
-        _schedule_passes(plans, previous_windows)
+        _schedule_passes(plans)
 
     log_activity(
         organization_id=organization.id,
@@ -242,7 +238,7 @@ def set_project_events_retention(
             return
         _check_allowed(organization_events_retention(team.organization), months)
         plans = _enforced_plans([team])
-        previous_windows = retention_windows(plans)
+        _schedule_passes(plans)
         if months is None:
             TeamEventsRetentionConfig.objects.filter(team_id=team.id).delete()
         else:
@@ -251,7 +247,7 @@ def set_project_events_retention(
             config.full_clean()
             config.save()
         _report_retention_set(team.organization, team, user, before, months, analytics_properties, was_impersonated)
-        _schedule_passes(plans, previous_windows)
+        _schedule_passes(plans)
 
     log_activity(
         organization_id=team.organization_id,

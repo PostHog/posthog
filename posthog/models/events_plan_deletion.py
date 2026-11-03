@@ -1,4 +1,4 @@
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import replace
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -20,8 +20,6 @@ _WRITE_BATCH_SIZE = 1000
 
 
 class TeamEventsPlanDeletion(models.Model):
-    """When the events cleanup next deletes a team's events past its window. Teams without a row aren't admitted."""
-
     team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True, db_constraint=False)
     months = models.PositiveSmallIntegerField(
         help_text="The window the team's passes delete past, as of the last cleanup or settings change."
@@ -46,7 +44,6 @@ def cleanup_timezone() -> str:
 
 
 def cleanup_date() -> date:
-    """Today where the cleanup schedule runs, so that a pass date shown to users is the local day its deletes start."""
     return datetime.now(ZoneInfo(cleanup_timezone())).date()
 
 
@@ -73,7 +70,6 @@ def is_shorter_window(state: PlanDeletionState, window_months: int) -> bool:
 
 
 def with_window(state: PlanDeletionState, window_months: int, today: date) -> PlanDeletionState:
-    # A shorter window gives the organization a full interval to change it back before the extra months are deleted.
     next_deletion_on = (
         max(state.next_deletion_on, next_pass_on(today))
         if is_shorter_window(state, window_months)
@@ -83,35 +79,17 @@ def with_window(state: PlanDeletionState, window_months: int, today: date) -> Pl
 
 
 def after_pass(state: PlanDeletionState, today: date) -> PlanDeletionState:
-    # A shorter window saved while the pass ran has already moved the next deletion later, so keep that date.
     return replace(state, next_deletion_on=max(state.next_deletion_on, next_pass_on(today)))
 
 
-def deletion_months(setting: TeamEventsRetention | None, pass_months: int | None) -> int | None:
-    """The window the cleanup deletes past for a team this run, or None to delete nothing.
-
-    A window set in settings deletes at every monthly cleanup. The default deletes only at the team's passes.
-    """
-    windows = [months for months in (setting.months if setting else None, pass_months) if months is not None]
+def deletion_months(setting: TeamEventsRetention | None, due_pass_months: int | None) -> int | None:
+    windows = [months for months in (setting.months if setting else None, due_pass_months) if months is not None]
     return min(windows) if windows else None
 
 
 def reschedule_plan_deletions(
-    plans: Sequence[TeamPlan],
-    today: date,
-    *,
-    admit: Collection[int],
-    previous_windows: Mapping[int, int] | None = None,
+    plans: Sequence[TeamPlan], today: date, *, admit: Collection[int]
 ) -> dict[int, PlanDeletionState]:
-    """Move each team's row to the team's window, admit the teams in `admit` that have no row, and return every row.
-
-    Call it inside a transaction. It locks the rows before it reads the windows, so the cleanup and a settings save
-    can't write back a window older than the other one saved.
-
-    A settings save passes each team's window from before the save. The cleanup updates rows only once a month, so a
-    row can still hold a window from before a plan change. Moving the row to the previous window first makes a change
-    from that window get the full interval before a shorter window deletes.
-    """
     team_ids = [plan.team_id for plan in plans]
     rows = {
         row.team_id: row.state
@@ -121,8 +99,6 @@ def reschedule_plan_deletions(
     states: dict[int, PlanDeletionState] = {}
     for team_id in team_ids:
         if (state := rows.get(team_id)) is not None:
-            if previous_windows is not None:
-                state = with_window(state, previous_windows[team_id], today)
             states[team_id] = with_window(state, windows[team_id], today)
         elif team_id in admit:
             states[team_id] = admitted(windows[team_id], today)
@@ -134,7 +110,6 @@ def reschedule_plan_deletions(
         update_fields=["months", "next_deletion_on"],
         batch_size=_WRITE_BATCH_SIZE,
     )
-    # A row created after the lock was taken holds a newer window than this one, so keep it.
     TeamEventsPlanDeletion.objects.bulk_create(
         [_row(team_id, state) for team_id, state in states.items() if team_id not in rows],
         ignore_conflicts=True,
