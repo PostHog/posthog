@@ -26,12 +26,20 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     relax_batch_nullability,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    TransientObjectStoreError,
+    is_transient_object_store_error,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.evolution import evolve_delta_schema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
     DELTA_TABLE_PROPERTIES,
+    OBJECT_STORE_PERMISSION_DENIED_MESSAGE,
+    OBJECT_STORE_TRANSIENT_MESSAGE,
+    ObjectStorePermissionDeniedError,
     delta_merge_spill_kwargs,
     ensure_table_properties,
     execute_with_conflict_retry,
+    is_object_store_permission_denied,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_buffer_bytes, report_phase
 
@@ -903,6 +911,26 @@ class DeltaWriter:
             deleted += int(metrics.get("num_deleted_rows") or 0)
         return deleted
 
+    async def _read_history(self, delta_table: deltalake.DeltaTable, limit: int) -> list[dict[str, Any]]:
+        """Read delta commit history, classifying object-store errors the same way every other
+        read/write here already does (see `execute_with_conflict_retry`), instead of letting one
+        reach the caller as a bare, unclassified OSError/DeltaError.
+
+        Checked in the same order as `execute_with_conflict_retry`: a permission denial first, since
+        the broad transient-error matcher's "Generic S3 error" needle also prefixes a permanent
+        privilege refusal, and classifying that as transient would silently drop a reportable bug.
+        """
+        try:
+            return await asyncio.to_thread(delta_table.history, limit=limit)
+        except (OSError, deltalake.exceptions.DeltaError) as e:
+            if is_object_store_permission_denied(e):
+                await self._logger.awarning(f"history: the object store denied the read ({type(e).__name__})")
+                raise ObjectStorePermissionDeniedError(OBJECT_STORE_PERMISSION_DENIED_MESSAGE) from e
+            if is_transient_object_store_error(e):
+                await self._logger.awarning(f"history: transient object-store error, not reporting: {e}")
+                raise TransientObjectStoreError(OBJECT_STORE_TRANSIENT_MESSAGE) from e
+            raise
+
     async def has_commit_with_metadata(self, match: dict[str, str], *, scan_limit: int = 50) -> bool:
         """Check whether any recent delta commit has custom metadata matching all entries in `match`.
 
@@ -920,7 +948,7 @@ class DeltaWriter:
         if delta_table is None:
             return False
 
-        history = await asyncio.to_thread(delta_table.history, limit=scan_limit)
+        history = await self._read_history(delta_table, scan_limit)
 
         for commit in history:
             if commit_matches(commit, match):
@@ -941,7 +969,7 @@ class DeltaWriter:
 
         limit = scan_limit
         while True:
-            history = await asyncio.to_thread(delta_table.history, limit=limit)
+            history = await self._read_history(delta_table, limit)
             if any(commit_covers_batch(commit, run_uuid, batch_index) for commit in history):
                 return True
             data_commits = sum(1 for commit in history if commit.get("operation") not in _MAINTENANCE_OPERATIONS)

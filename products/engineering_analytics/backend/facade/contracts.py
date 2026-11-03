@@ -269,6 +269,13 @@ class GitHubTeamMembership:
 
 
 @dataclass(frozen=True)
+class DepotCIRepoUsage:
+    repo: str
+    elapsed_seconds: float
+    estimated_cost_usd: float
+
+
+@dataclass(frozen=True)
 class GitHubTeamRoster:
     """Every synced org team membership, and whether there was a snapshot to read at all.
 
@@ -677,6 +684,34 @@ class PRLLMSpend:
     input_tokens: int
     output_tokens: int
     generations: int
+    cache_read_input_tokens: int
+    cache_creation_input_tokens: int
+    peak_context_tokens: int
+
+
+@dataclass(frozen=True)
+class AuthorPRLLMSpend:
+    number: int
+    title: str
+    state: PRState
+    head_branch: str
+    created_at: datetime
+    llm_spend: PRLLMSpend | None
+
+
+@dataclass(frozen=True)
+class AuthorLLMSpendList:
+    items: list[AuthorPRLLMSpend]
+    truncated: bool
+    limit: int
+
+
+@dataclass(frozen=True)
+class LLMSpendCoverage:
+    cost_usd: float
+    attributed_cost_usd: float
+    generations: int
+    attributed_generations: int
 
 
 @dataclass(frozen=True)

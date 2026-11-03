@@ -5,6 +5,7 @@ from uuid import uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.utils import timezone
 
 import requests
@@ -134,8 +135,12 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         detail = self.client.get(f"{self.url}{migration.id}/").json()
         assert "credentials" not in detail
         assert detail["item_counts"] == {"as_is": 1, "caveats": 0, "unsupported": 1, "applied": 1, "skipped": 1}
-        items = self.client.get(f"{self.url}{migration.id}/items/").json()
+        page = self.client.get(f"{self.url}{migration.id}/items/").json()
+        assert page["count"] == 4
+        items = page["results"]
         assert len(items) == 4
+        second = self.client.get(f"{self.url}{migration.id}/items/?limit=3&offset=3").json()
+        assert [item["id"] for item in second["results"]] == [items[3]["id"]]
         (proposal,) = [item["proposal"] for item in items if item["proposal"]]
         assert proposal["inferred_tables"] == [{"vendor_table": "contact", "posthog_table": "contacts"}]
         assert proposal["unmatched_tables"] == ["email_event"]
@@ -161,7 +166,7 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         response = self.client.get(f"{self.url}{migration.id}/items/")
 
         assert response.status_code == 200, response.json()
-        by_name = {item["name"]: item for item in response.json()}
+        by_name = {item["name"]: item for item in response.json()["results"]}
         assert by_name["old"]["proposal"]["schemas"][0]["alternative_names"] == []
         assert by_name["old"]["proposal"]["inferred_tables"] == []
         assert by_name["broken"]["proposal"] is None
@@ -216,6 +221,15 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         migration.refresh_from_db()
         assert migration.status == WarehouseMigration.Status.PENDING
         assert self.client.post(f"{self.url}{migration.id}/refresh/").status_code == 400
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    @patch("posthog.rate_limit.WarehouseMigrationCrawlThrottle.rate", new="1/hour")
+    def test_session_callers_cannot_start_unlimited_crawls(self, _rate_limit_enabled: MagicMock) -> None:
+        cache.clear()
+        self.addCleanup(cache.clear)
+        migration = self._migration()
+        assert self.client.post(f"{self.url}{migration.id}/refresh/").status_code == 200
+        assert self._create(status_code=200, json={"code": "Success", "data": {}}).status_code == 429
 
     def test_a_crawl_that_cannot_start_fails_so_it_can_be_refreshed(self) -> None:
         migration = self._migration()

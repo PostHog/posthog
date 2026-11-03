@@ -919,12 +919,10 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 dismissed_for_recurrence_at = (
                     recurrence_dismissal_at(report) if report.status == SignalReport.Status.SUPPRESSED else None
                 )
-                # Resolved reports are terminal — never reopen them. When a signal would have grouped
-                # into an already-resolved report, the issue it fixed has recurred (or a related one
-                # has), so we start a fresh report and link it to the resolved report via a
-                # `recurrence_of` report link. The research agent is later handed that
-                # resolved report as context (see report.py).
-                if report.effective_status == SignalReport.Status.RESOLVED or dismissed_for_recurrence_at is not None:
+                if (
+                    report.effective_status in {SignalReport.Status.RESOLVED, SignalReport.Status.CLOSED}
+                    or dismissed_for_recurrence_at is not None
+                ):
                     parent_report = report
                     inherit_content = not _is_safety_suppressed(str(parent_report.id), input.team_id)
                     report = SignalReport.objects.create(
@@ -1026,13 +1024,23 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     promoted = True
 
             pending_bucket = next_research_bucket(report.researching_signal_count or 0)
-            if (
-                report.status == SignalReport.Status.IN_PROGRESS
-                and report.pending_triggering_signal_id is None
-                and (source_refresh or (pending_bucket is not None and report.signal_count >= pending_bucket))
+            if report.status == SignalReport.Status.IN_PROGRESS and (
+                source_refresh
+                or (
+                    report.pending_triggering_signal_id is None
+                    and pending_bucket is not None
+                    and report.signal_count >= pending_bucket
+                )
             ):
+                displaced_signal_id = report.pending_triggering_signal_id
                 report.pending_triggering_signal_id = input.signal_id
                 report.save(update_fields=["pending_triggering_signal_id"])
+                if displaced_signal_id is not None and str(displaced_signal_id) != input.signal_id:
+                    complete_signal_pipeline(
+                        team_id=input.team_id,
+                        signal_id=str(displaced_signal_id),
+                        report_id=str(report.id),
+                    )
 
             report_id = str(report.id)
             if input.sync_with_source:

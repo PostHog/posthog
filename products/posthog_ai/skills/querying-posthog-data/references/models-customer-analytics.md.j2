@@ -6,6 +6,16 @@ Customer analytics tracks **accounts**, their owners and custom properties, and 
 
 Prefer the typed `posthog:accounts-*`, `posthog:account-relationship-definitions-*`, `posthog:custom-property-definitions-*`, and `posthog:feature-request*` MCP tools for writes. Use HogQL for reads and aggregations.
 
+## Contents
+
+- [Resolve team-defined account fields](#resolve-team-defined-account-fields)
+- [Account (`system.accounts`)](#account-systemaccounts)
+- [Account relationships](#account-relationships-systemaccount_relationship_definitions-systemaccount_relationships)
+- [Feature requests](#feature-requests)
+  - [Feature request query patterns](#feature-request-query-patterns)
+- [Custom properties (`system.custom_property_definitions`)](#custom-properties-systemcustom_property_definitions)
+- [Common query patterns](#common-query-patterns)
+
 ## Resolve team-defined account fields
 
 Words such as "owner" or "CSM" do not identify a fixed account column. A team may use a relationship, a custom property, or both. Before filtering accounts:

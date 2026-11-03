@@ -803,6 +803,48 @@ describe('CdpEventsConsumer', () => {
                 expect(mockQueueInvocations).toHaveBeenCalledWith([expect.objectContaining({ teamId: team.id })])
             })
 
+            it('leaves the body unread when the team id header names a team with no hog functions', async () => {
+                await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+                // team2 has no hog function and this body cannot be parsed, so a parked record could
+                // only come from reading a body the consumer does not need. The second message carries
+                // no header, so the batch also covers the fallback that reads the team from the body.
+                const unreadable = {
+                    ...createKafkaMessage(createIncomingEvent(team2.id, {}), {
+                        headers: [{ team_id: String(team2.id) }],
+                    }),
+                    value: Buffer.from('{'),
+                }
+
+                await handleBatch([unreadable, createKafkaMessage(createIncomingEvent(team.id, {}), { offset: 1 })])
+
+                expect(mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')).toHaveLength(0)
+                expect(mockQueueInvocations).toHaveBeenCalledWith([expect.objectContaining({ teamId: team.id })])
+            })
+
+            it('parks an event whose body names a different team than its header', async () => {
+                await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+                // The header decides which team's destinations load, the body carries the event data.
+                // Letting the two disagree would send one team's event to another team's destinations.
+                const mismatched = createKafkaMessage(createIncomingEvent(team2.id, {}), {
+                    headers: [{ team_id: String(team.id) }],
+                })
+
+                await handleBatch([mismatched])
+
+                const parked = mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')
+                expect(parked).toHaveLength(1)
+                expect(parked[0].headers).toMatchObject({ dlq_step: 'parse' })
+                expect(mockQueueInvocations).not.toHaveBeenCalledWith([expect.objectContaining({ teamId: team.id })])
+            })
+
             it('fails the batch when the record cannot be written, so the offsets stay put', async () => {
                 // Also guards the ordering: the handler has to await the write. Without the await
                 // this rejects in the background and the consumer walks past the event anyway.

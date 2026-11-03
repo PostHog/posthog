@@ -209,6 +209,15 @@ pub async fn main() -> Result<(), Error> {
 
             info!("Claimed job: {:?}", model.id);
 
+            match model.recover_interrupted_commit(context.clone()).await {
+                Ok(true) => continue,
+                Ok(false) => {}
+                Err(e) => {
+                    error!("Failed to recover interrupted job {}: {:?}", model.id, e);
+                    continue;
+                }
+            }
+
             // Trial jobs (trial_s3 sink) take their own bounded, sequential path
             // instead of the import pipeline.
             if matches!(model.import_config.sink, SinkConfig::TrialS3 { .. }) {

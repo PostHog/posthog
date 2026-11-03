@@ -22,10 +22,12 @@ import { InboxOnboardingBanner } from './components/onboarding/InboxOnboardingBa
 import { InboxOnboardingEntry } from './components/onboarding/InboxOnboardingEntry'
 import { ScratchpadPanel } from './components/scratchpad/ScratchpadPanel'
 import { InboxTabBar } from './components/shell/InboxTabBar'
+import { InboxTriageButton } from './components/shell/InboxTriageButton'
 import { InboxValueSummary } from './components/shell/InboxValueSummary'
 import { ReportsTab } from './components/tabs/ReportsTab'
 import { RunsTab } from './components/tabs/RunsTab'
 import { SettingsTab } from './components/tabs/SettingsTab'
+import { SourcesTab } from './components/tabs/SourcesTab'
 import { InboxTriageView } from './components/triage/InboxTriageView'
 import { captureInboxPanelViewed } from './inboxAnalytics'
 import { inboxSceneLogic } from './inboxSceneLogic'
@@ -72,6 +74,8 @@ function ActiveTabBody({ tab }: { tab: InboxTabKey }): JSX.Element | null {
             return <ReportsTab />
         case 'scouts':
             return <ScoutsRoster />
+        case 'sources':
+            return <SourcesTab />
         case 'settings':
             return <SettingsTab />
         // Old-layout tab segments are redirected before they can become active.
@@ -80,11 +84,6 @@ function ActiveTabBody({ tab }: { tab: InboxTabKey }): JSX.Element | null {
     }
 }
 
-/**
- * List view: the page tab bar (Reports / Scouts / Settings) over the active tab's body. The Reports
- * tab owns its filters and keyed report lists; Scouts is the roster in the same column;
- * Settings is every agent-setup control on one page.
- */
 function InboxListView(): JSX.Element {
     const { activeTab } = useValues(inboxSceneLogic)
     const { onboardingMode } = useValues(inboxOnboardingLogic)
@@ -95,11 +94,11 @@ function InboxListView(): JSX.Element {
     // what caused the normal inbox to flash in and get replaced by the welcome page.
     const pending = onboardingMode === 'pending'
 
-    // Settings renders no report list, so `Inbox viewed` never fires for it. Same once-per-visit
-    // guard as the report list. The panel name predates the tab's rename (see `InboxPanelName`).
+    // These tabs render no report list, so `Inbox viewed` never fires for them.
+    // Keep Settings attributed to `config` so existing panel breakdowns remain continuous.
     const panelViewFiredRef = useRef<InboxTabKey | null>(null)
     useEffect(() => {
-        if (activeTab !== 'settings' || onboarding || pending) {
+        if ((activeTab !== 'settings' && activeTab !== 'sources') || onboarding || pending) {
             panelViewFiredRef.current = null
             return
         }
@@ -107,7 +106,7 @@ function InboxListView(): JSX.Element {
             return
         }
         panelViewFiredRef.current = activeTab
-        captureInboxPanelViewed({ panel: 'config' })
+        captureInboxPanelViewed({ panel: activeTab === 'settings' ? 'config' : 'sources' })
     }, [activeTab, onboarding, pending])
 
     return (
@@ -255,6 +254,16 @@ export function InboxScene(): JSX.Element {
         }
     }, [isScratchpadOpen])
 
+    // Each tab's primary action sits in the scene header rather than inside the tab: one predictable
+    // place, and it stays reachable when filters narrow the tab down to nothing. Not while onboarding
+    // has the tab locked (or is still deciding): the tab isn't reachable then.
+    const tabUnlocked = onboardingMode !== 'takeover' && onboardingMode !== 'pending'
+    const headerActions = !tabUnlocked ? undefined : activeTab === 'scouts' ? (
+        <ScoutsRosterActions />
+    ) : activeTab === 'reports' ? (
+        <InboxTriageButton />
+    ) : undefined
+
     return (
         <SceneContent className="gap-y-0 border-b-0 flex-1 min-h-0">
             <div className={showDetail ? 'hidden' : 'flex flex-col gap-y-4 flex-1 min-h-0'}>
@@ -270,15 +279,7 @@ export function InboxScene(): JSX.Element {
                             : INBOX_TAB_DESCRIPTION[activeTab]
                     }
                     resourceType={{ type: 'inbox' }}
-                    // Creating a scout is the Scouts tab's primary action, so it sits in the scene
-                    // header rather than inside the roster — one predictable place, and it stays
-                    // reachable when the roster is filtered down to nothing. Not while onboarding
-                    // has the tab locked (or is still deciding): the roster isn't reachable then.
-                    actions={
-                        activeTab === 'scouts' && onboardingMode !== 'takeover' && onboardingMode !== 'pending' ? (
-                            <ScoutsRosterActions />
-                        ) : undefined
-                    }
+                    actions={headerActions}
                 />
 
                 <div className="flex flex-col -mx-4 -mt-4 flex-1 min-h-0">

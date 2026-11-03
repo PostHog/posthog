@@ -5,7 +5,8 @@ The customer grants PostHog access from the connect form, and the grant is store
 so the token is resolved per authentication rather than once per run.
 """
 
-from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, OauthIntegration
+from posthog.integrations import IntegrationRecord
+from posthog.models.integration import OauthIntegration
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.apple_search_ads.apple_search_ads import (
     AppleSearchAdsAuthError,
@@ -20,12 +21,19 @@ class AppleAdsOauthError(AppleSearchAdsAuthError):
     """Raised where the client expects an auth failure, so `validate_credentials` reports it."""
 
 
-def apple_ads_access_token(integration: Integration) -> str:
+def apple_ads_access_token(integration: IntegrationRecord) -> str:
     """Current bearer token for an Apple Ads grant, refreshing it when it has expired."""
     oauth_integration = OauthIntegration(integration)
     if oauth_integration.access_token_expired():
         oauth_integration.refresh_access_token()
-        if integration.errors == ERROR_TOKEN_REFRESH_FAILED:
+        # `refresh_terminal`, not `integration.errors`, because a failed refresh also sets
+        # `errors` for a transient provider hiccup (network error, 429, 5xx) that a later
+        # attempt clears on its own. `refresh_terminal` only latches once the grant itself is
+        # confirmed dead (an unreadable secret, or an unbroken streak of `invalid_grant`
+        # responses), which is the one condition only a reconnect can fix. Until then, fall
+        # through and keep using the still-valid access token the conservative expiry check
+        # refreshed early for.
+        if integration.config.get("refresh_terminal"):
             raise AppleAdsOauthError(TOKEN_REFRESH_FAILED_MESSAGE)
 
     if not integration.access_token:

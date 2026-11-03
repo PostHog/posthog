@@ -21,6 +21,7 @@ from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.dataclasses import frozen
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import Team
 from posthog.models.integration import (
     TLS,
@@ -30,7 +31,6 @@ from posthog.models.integration import (
     AWSS3Integration,
     AWSS3RoleBasedIntegration,
     Credentials,
-    Integration,
     IntegrationError,
     RedshiftIntegration,
 )
@@ -70,7 +70,7 @@ from products.batch_exports.backend.temporal.destinations.s3_batch_export import
     s3_client,
 )
 from products.batch_exports.backend.temporal.destinations.utils import get_absolute_key_prefix
-from products.batch_exports.backend.temporal.errors import MissingRequiredInputsError
+from products.batch_exports.backend.temporal.errors import ColumnTypeMappingError, MissingRequiredInputsError
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
@@ -83,6 +83,7 @@ from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
     cast_record_batch_schema_json_columns,
+    handle_column_type_mapping_errors,
     handle_non_retryable_errors,
 )
 
@@ -90,6 +91,7 @@ LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger()
 
 NON_RETRYABLE_ERROR_TYPES = (
+    "UnsupportedColumnTypeError",
     # The integration backing this export is missing, of the wrong kind, or
     # misconfigured. Retrying can never recover it.
     "IntegrationError",
@@ -656,7 +658,7 @@ def get_redshift_fields_from_record_schema(
             pg_type = "SUPER"
 
         else:
-            raise TypeError(f"Unsupported type in field '{name}': '{pa_field.type}'")
+            raise ColumnTypeMappingError("Redshift", name, pa_field.type)
 
         pg_schema.append((name, pg_type))
 
@@ -846,9 +848,10 @@ def _get_table_schemas(
         table_schema = [field for field in table_schema if field[0] in record_batch_schema.names]
 
     else:
-        table_schema = get_redshift_fields_from_record_schema(
-            record_batch_schema, known_super_columns=known_super_columns, use_super=properties_type == "SUPER"
-        )
+        with handle_column_type_mapping_errors(model):
+            table_schema = get_redshift_fields_from_record_schema(
+                record_batch_schema, known_super_columns=known_super_columns, use_super=properties_type == "SUPER"
+            )
 
     if properties_type == "SUPER":
         # Update stage schema to first load as VARBYTE, and later JSON_PARSE to SUPER
@@ -901,15 +904,10 @@ async def _get_redshift_integration(
 ) -> AWSRedshiftRoleBasedIntegration | AWSRedshiftIntegration | RedshiftIntegration:
     """Fetch a Redshift integration from the database."""
     try:
-        integration = await Integration.objects.aget(id=integration_id, team_id=team_id)
-    except Integration.DoesNotExist:
+        integration = await IntegrationManager.aws_redshift.credentials.aget(team_id, integration_id)
+    except IntegrationNotFound:
         raise IntegrationError(f"Redshift integration with ID '{integration_id}' not found for team '{team_id}'")
 
-    if integration.kind != Integration.IntegrationKind.AWS_REDSHIFT:
-        raise IntegrationError(
-            f"Integration with ID '{integration_id}' for team '{team_id}' is not a Redshift integration "
-            f"(kind='{integration.kind}')"
-        )
     if "aws_role_arn" in integration.config:
         return AWSRedshiftRoleBasedIntegration(integration)
     elif "aws_access_key_id" in integration.sensitive_config:
@@ -921,15 +919,10 @@ async def _get_redshift_integration(
 async def _get_aws_s3_integration(integration_id: int, team_id: int) -> AWSS3RoleBasedIntegration | AWSS3Integration:
     """Fetch an AWS S3 integration from the database."""
     try:
-        integration = await Integration.objects.aget(id=integration_id, team_id=team_id)
-    except Integration.DoesNotExist:
+        integration = await IntegrationManager.aws_s3.credentials.aget(team_id, integration_id)
+    except IntegrationNotFound:
         raise IntegrationError(f"AWS S3 integration with ID '{integration_id}' not found for team '{team_id}'")
 
-    if integration.kind != Integration.IntegrationKind.AWS_S3:
-        raise IntegrationError(
-            f"Integration with ID '{integration_id}' for team '{team_id}' is not an S3 integration "
-            f"(kind='{integration.kind}')"
-        )
     if "aws_role_arn" in integration.config:
         return AWSS3RoleBasedIntegration(integration)
     else:
@@ -1274,7 +1267,7 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
         inputs.table.name,
     )
 
-    async with Heartbeater():
+    async with Heartbeater(), contextlib.AsyncExitStack() as cleanup:
         model = migrate_batch_export_model(inputs.batch_export.batch_export_model)
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_REDSHIFT_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
@@ -1288,6 +1281,7 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
             max_record_batch_size_bytes=1024 * 1024 * 10,  # 10MB
             stage_folder=inputs.batch_export.stage_folder,
         )
+        cleanup.push_async_callback(producer.stop)
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:
@@ -1790,7 +1784,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
         inputs.table.name,
     )
 
-    async with Heartbeater():
+    async with Heartbeater(), contextlib.AsyncExitStack() as cleanup:
         model = migrate_batch_export_model(inputs.batch_export.batch_export_model)
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_S3_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
@@ -1804,6 +1798,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
             max_record_batch_size_bytes=1024 * 1024 * 60,  # 60MB
             stage_folder=inputs.batch_export.stage_folder,
         )
+        cleanup.push_async_callback(producer.stop)
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:

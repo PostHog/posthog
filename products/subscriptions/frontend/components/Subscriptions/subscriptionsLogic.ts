@@ -2,8 +2,8 @@ import { MakeLogicType, BreakPointFunction, actions, afterMount, kea, key, liste
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { getInsightId } from 'lib/insights/getInsightId'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { getInsightId } from 'scenes/insights/utils'
 
 import { SubscriptionType } from '~/types'
 
@@ -172,7 +172,7 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
         ],
     }),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         loadAllSubscriptions: () => {
             actions.loadSubscriptions()
             actions.loadInsightSubscriptions()
@@ -195,7 +195,8 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
             }
         },
         setSubscriptionEnabled: async ({ id, enabled }) => {
-            const ok = await toggleSubscriptionEnabled(id, enabled)
+            const owner = values.subscriptions.find((subscription) => subscription.id === id)?.created_by ?? null
+            const ok = await toggleSubscriptionEnabled(id, enabled, owner)
             if (ok) {
                 actions.setSubscriptionEnabledSuccess()
             } else {

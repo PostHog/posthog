@@ -48,12 +48,6 @@ export function ByokModelPickerNotice({ forEvaluation = false }: { forEvaluation
                 </p>
             )
         }
-        case 'no-keys':
-            return (
-                <p className="text-xs text-secondary mt-1">
-                    No models available. <Link to={PROVIDER_SETTINGS_URL}>Add your own API keys</Link> to choose one.
-                </p>
-            )
         case 'no-usable-keys':
             return (
                 <p className="text-xs text-secondary mt-1">
