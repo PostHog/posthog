@@ -54,6 +54,7 @@ from products.signals.backend.temporal.monitoring_assessment import (
     exhaust_monitoring_assessment_activity,
     start_monitoring_assessment,
 )
+from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
 from products.signals.backend.tracker_issues import complete_monitoring_tracker_issues
 from products.tasks.backend.models import Task, TaskRun
 
@@ -694,16 +695,10 @@ class TestReportMonitoringAggregation(BaseTest):
 
     def test_assessment_prompt_respects_the_acting_users_metric_access(self) -> None:
         self.enterContext(patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"))
-        query = {
-            "kind": "InsightVizNode",
-            "source": {
-                "kind": "TrendsQuery",
-                "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                "properties": [
-                    {"key": "secret_plan", "value": ["invented_private_tier"], "type": "event", "operator": "exact"}
-                ],
-            },
-        }
+        query = trends_metric_query(series=[{"kind": "EventsNode", "event": "$pageview"}])
+        query["source"]["properties"] = [
+            {"key": "secret_plan", "value": ["invented_private_tier"], "type": "event", "operator": "exact"}
+        ]
         SignalReportCheck.objects.for_team(self.team.id).filter(report_id=self.report.id).update(
             config={"query": query, "baseline_value": 37}, soak_minutes=30
         )
