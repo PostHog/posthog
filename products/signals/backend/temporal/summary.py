@@ -91,6 +91,7 @@ from products.signals.backend.temporal.agentic.report import (
     RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE,
     RunAgenticReportInput,
     RunAgenticReportOutput,
+    resolve_research_skills_activity,
     run_agentic_report_activity,
 )
 from products.signals.backend.temporal.agentic.select_repository import (
@@ -406,6 +407,14 @@ class SignalReportSummaryWorkflow:
     async def _run_research(
         self, log: FilteringBoundLogger, research_input: RunAgenticReportInput
     ) -> RunAgenticReportOutput:
+        if workflow.patched("signals-source-research-skills"):
+            bindings = await workflow.execute_activity(
+                resolve_research_skills_activity,
+                research_input,
+                start_to_close_timeout=timedelta(minutes=1),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            research_input = replace(research_input, research_skill_bindings=bindings)
         retries = 0
         while True:
             try:

@@ -178,6 +178,7 @@ class TestSignalsProductModuleIntegrity:
             "reset_report_to_potential_activity",
             "restore_grouping_pause_activity",
             "run_agentic_report_activity",
+            "resolve_research_skills_activity",
             "run_signal_semantic_search_activity",
             "report_safety_judge_activity",
             "safety_filter_activity",

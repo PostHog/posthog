@@ -9,8 +9,14 @@ from django.db.models import Max, Min, QuerySet
 
 from posthog.models.team.team import Team
 
+from products.signals.backend.agent_skills import (
+    AgentSkill,
+    LoadedSkillFile as LoadedSkillFile,
+    SkillNotFoundError as SkillNotFoundError,
+    load_agent_skill_row,
+)
 from products.signals.backend.constants import SYSTEM_SCOUT_NAMES
-from products.skills.backend.models.skills import CATEGORY_BY_NAME_PREFIX, LLMSkill, LLMSkillFile, LLMSkillOwner
+from products.skills.backend.models.skills import CATEGORY_BY_NAME_PREFIX, LLMSkill, LLMSkillOwner
 
 if TYPE_CHECKING:
     from products.signals.backend.models import SignalScoutConfig
@@ -92,16 +98,6 @@ def resolve_report_channel_variant(allowed_tools: list[str] | None) -> str:
     return "none"
 
 
-class SkillNotFoundError(LookupError):
-    """The team has no skill matching the requested name."""
-
-
-@dataclass(frozen=True)
-class LoadedSkillFile:
-    path: str
-    content_type: str
-
-
 # Editors surfaced in the prompt beyond the creator. Distinct authors per skill are few in
 # practice; the cap only guards the prompt against a pathologically churned skill.
 MAX_SKILL_EDITORS_IN_PROMPT = 5
@@ -126,23 +122,7 @@ class SkillAuthor:
 
 
 @dataclass(frozen=True)
-class LoadedSkill:
-    name: str
-    # Snapshotted onto the run row so a historical run can be reproduced even after re-versioning.
-    version: int
-    body: str
-    description: str
-    # Portable skill metadata, and the opt-in gate for the report channel. The harness reads it at
-    # spawn time: listing `emit_report` / `edit_report` here makes the runner grant the
-    # `signals_scout_reports` scope posture (vs plain `signals_scout`), which carries
-    # `signal_scout_report:write` — the scope the report tools require. A scout that doesn't list them
-    # gets no report scope, so the MCP server strips those tools from its toolset (exposure is
-    # scope-level at the OAuth/MCP boundary). The `emit-report` / `edit-report` viewset actions also
-    # re-check this list server-side (`views.SignalScoutRunViewSet._assert_report_tool_opted_in`) as a
-    # fail-closed gate on the write. Downstream consumers (e.g. Claude Code) may also read it.
-    allowed_tools: list[str]
-    files: list[LoadedSkillFile]
-    skill_id: str
+class LoadedSkill(AgentSkill):
     # "canonical" | "custom" — who owns the skill row (see `lazy_seed.scout_skill_row_origin`;
     # a seeded row the team has edited in place classifies as custom). The prompt builder gates
     # the self-improvement section on it: a custom scout is invited to record `improve:`
@@ -338,15 +318,9 @@ def load_skill_for_run(
     # (SIGNALS_SCOUT_SKILL_PREFIX), and `products.skills.backend.api` triggers a temporal module
     # load that this package is itself imported from at temporal-worker boot. Models only is fine.
     from products.signals.backend.scout_harness.lazy_seed import scout_skill_row_origin
-    from products.skills.backend.api.skill_services import get_skill_by_name_from_db
 
-    skill = get_skill_by_name_from_db(team, skill_name, version=version)
-    if skill is None:
-        raise SkillNotFoundError(
-            f"No skill named '{skill_name}' found on team {team.id}"
-            + (f" (version {version})" if version is not None else "")
-        )
-    file_rows = LLMSkillFile.objects.filter(skill=skill).only("path", "content_type").order_by("path")
+    skill = load_agent_skill_row(team, skill_name, version=version)
+    definition = AgentSkill.from_row(skill)
     origin = scout_skill_row_origin(skill)
     return LoadedSkill(
         name=skill.name,
@@ -354,7 +328,7 @@ def load_skill_for_run(
         body=skill.body,
         description=skill.description,
         allowed_tools=list(skill.allowed_tools or []),
-        files=[LoadedSkillFile(path=f.path, content_type=f.content_type) for f in file_rows],
+        files=definition.files,
         skill_id=str(skill.id),
         origin=origin,
         # Only a custom scout's prompt renders authorship (canonical bodies are PostHog-owned),

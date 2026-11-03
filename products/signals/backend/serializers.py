@@ -61,6 +61,7 @@ from products.signals.backend.report_checks import (
     parse_check_config,
 )
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
+from products.signals.backend.research_skills import RESEARCH_SKILL_KEY, validate_research_skill_selection
 from products.signals.backend.reviewer_rules import ReviewerRules
 from products.signals.backend.scout_harness.tools.report import is_self_improvement_title
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
@@ -196,6 +197,9 @@ _SOURCE_CONFIG_HELP_TEXT = (
     "the same steering text. "
     "Some sources read additional keys, for example `recording_filters` and `sample_rate` for "
     "session analysis. "
+    "`research_skill` (skill name or null) adds a customer skill to the default research agent "
+    "for this source product and type. Omit or clear it to use default research. Changing it "
+    "requires editor access to skills and llm_skill:write for scoped credentials. "
     "The Linear issue source (`source_product=linear`, `source_type=issue`) reads "
     "`linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the "
     "whole Linear workspace, but only issues from those teams become signals. Omit the key or "
@@ -346,6 +350,14 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
                 # Stored stripped: emission matches these ids exactly, so a pasted id with a
                 # stray space would select a scope and then read nothing.
                 config[scope_key] = [scope_id.strip() for scope_id in config[scope_key]]
+        previous_config = self.instance.config if self.instance is not None else {}
+        if config is not None and (RESEARCH_SKILL_KEY in config or RESEARCH_SKILL_KEY in previous_config):
+            team = self.instance.team if self.instance is not None else self.context["get_team"]()
+            if source_product == "signals_scout" and source_type == "cross_source_issue":
+                team = team.parent_team or team
+            validate_research_skill_selection(
+                config, previous_config=previous_config, team=team, request=self.context["request"]
+            )
         if source_product == SignalSourceConfig.SourceProduct.SESSION_REPLAY and config:
             recording_filters = config.get("recording_filters")
             if recording_filters is not None and not isinstance(recording_filters, dict):

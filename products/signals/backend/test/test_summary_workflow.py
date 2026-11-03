@@ -25,6 +25,7 @@ from products.signals.backend.models import SignalReport
 from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.research_skills import ResearchSkillBinding, ResearchSource
 from products.signals.backend.startup_failure import RESEARCH_STARTUP_FAILURE, ResearchStartupFailure
 from products.signals.backend.temporal.agentic.report import (
     RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE,
@@ -210,6 +211,8 @@ class _Recorder:
         self.checks_monitoring_enabled = False
         self.selected_repository = selected_repository
         self.research_errors = list(research_errors or [])
+        self.skill_resolutions = 0
+        self.skill_bindings: list[list[ResearchSkillBinding] | None] = []
         self.failure_error_types: list[str | None] = []
         self.failure_startups: list[ResearchStartupFailure | None] = []
         self.startup_notice_attempts = 0
@@ -317,9 +320,22 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
         recorder.repo_selections += 1
         return RepoSelectionResult(repository=recorder.selected_repository, reason="no repository matched")
 
+    @activity.defn(name="resolve_research_skills_activity")
+    async def fake_research_skills(input: RunAgenticReportInput) -> list[ResearchSkillBinding]:
+        recorder.skill_resolutions += 1
+        return [
+            ResearchSkillBinding(
+                source=ResearchSource(product="error_tracking", type="issue"),
+                team_id=1,
+                name="review-defects",
+                version=recorder.skill_resolutions,
+            )
+        ]
+
     @activity.defn(name="run_agentic_report_activity")
     async def fake_research(input: RunAgenticReportInput) -> RunAgenticReportOutput:
         recorder.researches += 1
+        recorder.skill_bindings.append(input.research_skill_bindings)
         if recorder.research_errors:
             raise recorder.research_errors.pop(0)
         return RunAgenticReportOutput(
@@ -400,6 +416,7 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
                 fake_spend_owner,
                 fake_safety,
                 fake_select_repo,
+                fake_research_skills,
                 fake_research,
                 fake_mark_pending,
                 fake_mark_ready,
@@ -470,6 +487,11 @@ async def test_research_retries_after_a_sandbox_outage_instead_of_failing_the_re
     recorder = _Recorder(research_errors=[_sandbox_unavailable() for _ in range(2)])
     await _run_summary_workflow(recorder)
     assert recorder.researches == 3
+    assert recorder.skill_resolutions == 1
+    assert all(bindings == recorder.skill_bindings[0] for bindings in recorder.skill_bindings)
+    bindings = recorder.skill_bindings[0]
+    assert bindings is not None
+    assert bindings[0].version == 1
     assert recorder.failures == 0
     assert recorder.marks_in_progress == 1
     assert recorder.spend_publications == 1

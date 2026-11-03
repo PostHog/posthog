@@ -19,6 +19,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.signals.backend.models import SignalSourceConfig
 from products.signals.backend.serializers import SignalSourceConfigSerializer
+from products.skills.backend.models.skills import LLMSkill
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
 if TYPE_CHECKING:
@@ -431,6 +432,58 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         config.refresh_from_db()
         assert config.config == {}
+
+    @parameterized.expand([("config_set",), ("config",)])
+    def test_select_and_clear_research_skill(self, update_field: str) -> None:
+        LLMSkill.objects.create(team=self.team, name="review-defects", body="Check the evidence.")
+        config = SignalSourceConfig.objects.create(team=self.team, source_product="github", source_type="issue")
+        response = self.client.patch(
+            self._url(str(config.id)), {update_field: {"research_skill": "review-defects"}}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["config"]["research_skill"] == "review-defects"
+        response = self.client.patch(self._url(str(config.id)), {"config_remove": ["research_skill"]}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert "research_skill" not in response.json()["config"]
+
+    @parameterized.expand([("missing",), ("archived",), ("other_team",)])
+    def test_research_skill_must_be_active_in_the_config_project(self, kind: str) -> None:
+        if kind != "missing":
+            owner = self.team if kind == "archived" else Team.objects.create(organization=self.organization)
+            LLMSkill.objects.create(
+                team=owner, name="review-defects", body="Check evidence.", deleted=kind == "archived"
+            )
+        response = self.client.post(
+            self._url(),
+            {"source_product": "github", "source_type": "issue", "config": {"research_skill": "review-defects"}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert not SignalSourceConfig.objects.filter(team=self.team, source_product="github").exists()
+
+    @parameterized.expand([("set",), ("remove",), ("replace",)])
+    def test_research_skill_changes_require_skill_write_scope(self, operation: str) -> None:
+        LLMSkill.objects.create(team=self.team, name="review-defects", body="Check evidence.")
+        config = SignalSourceConfig.objects.create(
+            team=self.team,
+            source_product="github",
+            source_type="issue",
+            config={} if operation == "set" else {"research_skill": "review-defects"},
+        )
+        payload = {
+            "set": {"config_set": {"research_skill": "review-defects"}},
+            "remove": {"config_remove": ["research_skill"]},
+            "replace": {"config": {}},
+        }[operation]
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user, secure_value=hash_key_value(raw), scopes=["inbox:write"], scoped_teams=[self.team.id]
+        )
+        self.client.logout()
+        response = self.client.patch(
+            self._url(str(config.id)), payload, format="json", HTTP_AUTHORIZATION=f"Bearer {raw}"
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
     def test_update_config_recording_filters_not_dict_rejected(self):
         config = SignalSourceConfig.objects.create(

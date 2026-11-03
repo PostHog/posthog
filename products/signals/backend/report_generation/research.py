@@ -47,6 +47,7 @@ from products.signals.backend.report_metrics import (
     ReportMetric,
 )
 from products.signals.backend.report_tags import coerce_report_tags
+from products.signals.backend.research_skills import NO_RESEARCH_SKILLS, ResearchSkills
 from products.signals.backend.supersession import NO_IMPLEMENTATION_CONTEXT, ImplementationResearchContext
 
 # Deferred: importing temporal.types here runs the signals temporal package __init__, which
@@ -1752,6 +1753,7 @@ async def run_multi_turn_research(
     suggestable_products: Sequence[SuggestedSourceProduct] = (),
     current_tags: Sequence[str] = (),
     team_tags: Sequence[str] = (),
+    research_skills: ResearchSkills = NO_RESEARCH_SKILLS,
 ) -> ReportResearchOutput:
     """Orchestrate a multi-turn sandbox session that investigates each signal individually.
 
@@ -1795,6 +1797,7 @@ async def run_multi_turn_research(
         steering_section=steering_section,
         code_available=code_available,
     )
+    initial_prompt += research_skills.for_signal(signals[0])
     session, first_response = await MultiTurnSession.start(
         prompt=initial_prompt,
         context=context,
@@ -1865,6 +1868,7 @@ async def run_multi_turn_research(
                 previous_finding=previous_finding,
                 code_available=code_available,
             )
+            followup_prompt += research_skills.for_signal(signal)
             response = await session.send_followup(
                 followup_prompt,
                 finding_model,

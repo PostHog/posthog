@@ -212,6 +212,10 @@ async def _run_summary_workflow(
     async def fake_research_access(team_id: int) -> bool:
         return False
 
+    @activity.defn(name="resolve_research_skills_activity")
+    async def fake_research_skills(input: RunAgenticReportInput) -> list:
+        return []
+
     @activity.defn(name="run_agentic_report_activity")
     async def fake_research(input: RunAgenticReportInput) -> RunAgenticReportOutput:
         recorder.work_owners.append(input.signal_id)
@@ -272,6 +276,7 @@ async def _run_summary_workflow(
                 fake_safety,
                 fake_select_repo,
                 fake_research_access,
+                fake_research_skills,
                 fake_research,
                 fake_mark_ready,
                 fake_publish,
