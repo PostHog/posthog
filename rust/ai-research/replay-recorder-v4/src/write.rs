@@ -896,21 +896,38 @@ mod tests {
                 "{lines}"
             );
         }
-        // The player loads the last of a repeated attribute, so the inspector names that one.
-        for events in [
-            format!(
-                r#"[{{"type":3,"timestamp":1,"data":{{"source":0,"adds":[],"removes":[],"texts":[],"attributes":[{{"id":99,"attributes":{{"src":"{public}","src":"{signed}"}}}}]}}}}]"#
-            ),
-            format!(
-                r#"[{{"type":3,"timestamp":1,"data":{{"source":0,"adds":[{{"parentId":1,"node":{{"type":2,"tagName":"img","attributes":{{"src":"{public}","src":"{signed}"}},"childNodes":[],"id":5}}}}],"removes":[],"texts":[],"attributes":[]}}}}]"#
-            ),
-        ] {
-            let lines = stored_lines(&events);
-            assert!(
-                lines.contains("imageurl:v4:declined:credential")
-                    && !lines.contains("X-Amz-Signature"),
-                "{lines}"
-            );
+        // The player loads the last of a repeated key, but the block holds every copy, so each is replaced.
+        let style_sheet = r#"{"type":2,"timestamp":1,"data":{"node":{"type":0,"id":1,"childNodes":[{"type":2,"tagName":"style","attributes":{},"id":3,"childNodes":[{"type":3,"textContent":"","id":4}]}]}}}"#;
+        for (first, last) in [(public, signed), (signed, public)] {
+            for events in [
+                format!(
+                    r#"[{{"type":3,"timestamp":1,"data":{{"source":0,"adds":[],"removes":[],"texts":[],"attributes":[{{"id":99,"attributes":{{"src":"{first}","src":"{last}"}}}}]}}}}]"#
+                ),
+                format!(
+                    r#"[{{"type":3,"timestamp":1,"data":{{"source":0,"adds":[{{"parentId":1,"node":{{"type":2,"tagName":"img","attributes":{{"src":"{first}","src":"{last}"}},"childNodes":[],"id":5}}}}],"removes":[],"texts":[],"attributes":[]}}}}]"#
+                ),
+                format!(
+                    r#"[{{"type":2,"timestamp":1,"data":{{"node":{{"type":0,"id":1,"childNodes":[{{"type":2,"tagName":"picture","attributes":{{}},"id":2,"childNodes":[{{"type":2,"tagName":"source","attributes":{{"srcset":"{first} 1x","srcset":"{last} 1x"}},"childNodes":[],"id":3}}]}}]}}}}}}]"#
+                ),
+                format!(
+                    r#"[{{"type":3,"timestamp":1,"data":{{"source":0,"adds":[{{"parentId":1,"node":{{"type":2,"tagName":"div","attributes":{{"style":"background:url({first})","style":"background:url({last})"}},"childNodes":[],"id":5}}}}],"removes":[],"texts":[],"attributes":[]}}}}]"#
+                ),
+                format!(
+                    r#"[{{"type":2,"timestamp":1,"data":{{"node":{{"type":0,"id":1,"childNodes":[{{"type":2,"tagName":"style","attributes":{{}},"id":3,"childNodes":[{{"type":3,"textContent":".a{{background:url({first})}}","textContent":".a{{background:url({last})}}","id":4}}]}}]}}}}}}]"#
+                ),
+                format!(
+                    r#"[{style_sheet},{{"type":3,"timestamp":2,"data":{{"source":0,"adds":[],"removes":[],"attributes":[],"texts":[{{"id":4,"value":".a{{background:url({first})}}","value":".a{{background:url({last})}}"}}]}}}}]"#
+                ),
+                format!(
+                    r#"[{{"type":3,"timestamp":1,"data":{{"source":8,"id":3,"replaceSync":".a{{background:url({first})}}","replaceSync":".a{{background:url({last})}}"}}}}]"#
+                ),
+            ] {
+                let lines = stored_lines(&events);
+                assert!(
+                    lines.contains(&reference) && !lines.contains("X-Amz-Signature"),
+                    "{lines}"
+                );
+            }
         }
         // A declined URL that a longer URL also holds is overwritten there too, and the block is kept, also for a bundled font, which names no URL, and for an escaped font URL, as the scan decodes it, of a bundled family too.
         let bundled_font = json!({"parentId": 1, "node": {"type": 2, "tagName": "style",

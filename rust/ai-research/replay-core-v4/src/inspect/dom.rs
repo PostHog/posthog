@@ -14,7 +14,7 @@ use crate::url_policy::{checked_url, is_fetched_image_type, is_remote, Decline, 
 
 use super::css::{self, CssEditBuilder, CssUrl, Resolver};
 use super::edits::{Buffers, Edit, Slot};
-use super::events::{field, fields, number, text};
+use super::events::{field, field_copies, fields, number, text};
 use super::rrweb::{
     ADOPTED_STYLE_SHEET, FULL_SNAPSHOT, INCREMENTAL_SNAPSHOT, MUTATION, STYLE_DECLARATION,
     STYLE_SHEET_RULE,
@@ -507,7 +507,7 @@ struct Walk<'p> {
     hidden: Vec<(i64, HiddenSources)>,
     /// `source` elements that are a walk's root, with their srcset. Whether each is a picture source depends on the
     /// parent that the mutation names.
-    root_sources: Vec<(Option<i64>, Option<Span>, Option<Span>)>,
+    root_sources: Vec<(Option<i64>, Vec<Span>, Option<Span>)>,
 }
 
 impl Walk<'_> {
@@ -580,15 +580,23 @@ impl Walk<'_> {
     }
 
     /// A picture source of a type the fetcher does not store gets no fetch job, and the writer empties its srcset, so
-    /// the browser falls back to the next source or the img.
-    fn push_source(&mut self, bytes: &[u8], srcset: Option<Span>, unfetched_type: bool) {
+    /// the browser falls back to the next source or the img. `srcsets` holds every copy of the attribute, and only the
+    /// last, which the player reads, is fetched.
+    fn push_source(&mut self, bytes: &[u8], srcsets: &[Span], unfetched_type: bool) {
         let slot = if unfetched_type {
             SrcsetSlot::UnfetchedTypeSource
         } else {
             SrcsetSlot::Alone
         };
-        self.push_srcset(bytes, srcset, slot);
-        self.push_srcset_value(bytes, srcset, slot);
+        if let Some((&last, earlier)) = srcsets.split_last() {
+            for &copy in earlier {
+                self.push_remote(bytes, Some(copy), true);
+            }
+            self.push_srcset(bytes, Some(last), slot);
+        }
+        for &copy in srcsets {
+            self.push_srcset_value(bytes, Some(copy), slot);
+        }
     }
 
     fn push_css(&mut self, bytes: &[u8], value: Option<Span>) {
@@ -691,9 +699,40 @@ fn style_property_value(bytes: &[u8], span: Span) -> Option<Span> {
     }
 }
 
+/// An attribute that can hold an asset URL.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AssetAttribute {
+    Src,
+    RrSrc,
+    Srcset,
+    Href,
+    XlinkHref,
+    Poster,
+    Style,
+    CssText,
+}
+
+impl AssetAttribute {
+    fn named(name: &[u8]) -> Option<Self> {
+        Some(match name {
+            b"src" => Self::Src,
+            b"rr_src" => Self::RrSrc,
+            b"srcset" => Self::Srcset,
+            b"href" => Self::Href,
+            b"xlink:href" => Self::XlinkHref,
+            b"poster" => Self::Poster,
+            b"style" => Self::Style,
+            b"_cssText" => Self::CssText,
+            _ => return None,
+        })
+    }
+}
+
 /// A repeated attribute takes its last value, as in `JSON.parse`, so that the inspector names the URL the player loads.
+/// The block still holds the earlier copies of an asset attribute, so the writer replaces those too.
 #[derive(Default)]
 struct Attributes {
+    earlier: Vec<(AssetAttribute, Span)>,
     rel: Option<Span>,
     href: Option<Span>,
     xlink_href: Option<Span>,
@@ -729,16 +768,54 @@ impl Attributes {
         })
     }
 
+    fn set(&mut self, name: &[u8], value: Span) {
+        let previous = self.slot(name).and_then(|slot| slot.replace(value));
+        if let (Some(previous), Some(attribute)) = (previous, AssetAttribute::named(name)) {
+            self.earlier.push((attribute, previous));
+        }
+    }
+
     fn read(bytes: &[u8], object: Span) -> Self {
         let mut attributes = Self::default();
         if let Ok(entries) = scan::object_entries(bytes, object) {
             for entry in entries.filter_map(Result::ok).filter(|e| !e.key_escaped) {
-                if let Some(slot) = attributes.slot(&bytes[entry.key.0..entry.key.1]) {
-                    *slot = Some(entry.value);
-                }
+                attributes.set(&bytes[entry.key.0..entry.key.1], entry.value);
             }
         }
         attributes
+    }
+
+    fn srcset_copies(&self) -> Vec<Span> {
+        self.earlier
+            .iter()
+            .filter(|(attribute, _)| *attribute == AssetAttribute::Srcset)
+            .map(|&(_, span)| span)
+            .chain(self.srcset)
+            .collect()
+    }
+
+    /// The earlier copies of `attributes`, which the player does not read, so they are not fetched. The writer replaces
+    /// each one as the last copy's slot reads it.
+    fn push_earlier(
+        &self,
+        bytes: &[u8],
+        attributes: &[AssetAttribute],
+        srcset_slot: SrcsetSlot,
+        walk: &mut Walk,
+    ) {
+        for &(attribute, span) in &self.earlier {
+            if !attributes.contains(&attribute) {
+                continue;
+            }
+            match attribute {
+                AssetAttribute::Srcset => {
+                    walk.push_remote(bytes, Some(span), true);
+                    walk.push_srcset_value(bytes, Some(span), srcset_slot);
+                }
+                AssetAttribute::Style | AssetAttribute::CssText => walk.push_css(bytes, Some(span)),
+                _ => walk.push_remote(bytes, Some(span), false),
+            }
+        }
     }
 
     /// The sources of a node the window does not know, after a restart, an eviction or the node cap. What the node
@@ -751,6 +828,15 @@ impl Attributes {
         walk.push_remote(bytes, self.href, false);
         walk.push_remote(bytes, self.xlink_href, false);
         walk.push_remote(bytes, self.poster, false);
+        let sources = [
+            AssetAttribute::Src,
+            AssetAttribute::RrSrc,
+            AssetAttribute::Srcset,
+            AssetAttribute::Href,
+            AssetAttribute::XlinkHref,
+            AssetAttribute::Poster,
+        ];
+        self.push_earlier(bytes, &sources, SrcsetSlot::Alone, walk);
     }
 
     /// A mutation that does not set `src` leaves it unknown, so the img's srcset counts as alone.
@@ -767,6 +853,11 @@ impl Attributes {
 
     /// The image URLs v3 fetches from these attributes on an element of this kind, and the URLs in its CSS.
     fn push_urls(&self, bytes: &[u8], media: Option<Media>, walk: &mut Walk) {
+        let img_sources = [
+            AssetAttribute::Src,
+            AssetAttribute::RrSrc,
+            AssetAttribute::Srcset,
+        ];
         match media {
             Some(Media::Img { visibility }) if !visibility.hides() => {
                 let slot = self.img_srcset_slot(bytes);
@@ -778,25 +869,35 @@ impl Attributes {
                     walk.push_url(bytes, self.rr_src);
                 }
                 walk.push_srcset_value(bytes, self.srcset, slot);
+                self.push_earlier(bytes, &img_sources, slot, walk);
             }
             Some(Media::Img { .. }) => {
+                let slot = self.img_srcset_slot(bytes);
                 walk.push_remote(bytes, self.src, false);
                 walk.push_remote(bytes, self.rr_src, false);
                 walk.push_remote(bytes, self.srcset, true);
-                walk.push_srcset_value(bytes, self.srcset, self.img_srcset_slot(bytes));
+                walk.push_srcset_value(bytes, self.srcset, slot);
+                self.push_earlier(bytes, &img_sources, slot, walk);
             }
             Some(Media::SvgImage) => {
                 walk.push_url(bytes, self.href);
                 walk.push_url(bytes, self.xlink_href);
+                let links = [AssetAttribute::Href, AssetAttribute::XlinkHref];
+                self.push_earlier(bytes, &links, SrcsetSlot::Alone, walk);
             }
-            Some(Media::Video) => walk.push_url(bytes, self.poster),
+            Some(Media::Video) => {
+                walk.push_url(bytes, self.poster);
+                self.push_earlier(bytes, &[AssetAttribute::Poster], SrcsetSlot::Alone, walk);
+            }
             Some(Media::PictureSource { unfetched_type }) => {
-                walk.push_source(bytes, self.srcset, unfetched_type)
+                walk.push_source(bytes, &self.srcset_copies(), unfetched_type)
             }
             _ => {}
         }
         walk.push_css(bytes, self.style);
         walk.push_css(bytes, self.css_text);
+        let css = [AssetAttribute::Style, AssetAttribute::CssText];
+        self.push_earlier(bytes, &css, SrcsetSlot::Alone, walk);
     }
 }
 
@@ -918,6 +1019,8 @@ struct NodeFrame {
     is_style_text: bool,
     tag: Tag,
     text: Option<Span>,
+    /// The copies of a repeated `textContent` before `text`, which the player reads.
+    earlier_texts: Vec<Span>,
     shadow_host: bool,
     attributes: Attributes,
     /// The ids of the children walked so far. A node's id comes after its children, so they wait for it here.
@@ -925,7 +1028,7 @@ struct NodeFrame {
     /// Child text, and child `source` elements with their srcset, which count only under a `style` or a `picture`.
     /// They wait here because the tag can come after the children.
     child_texts: Vec<(Option<i64>, Span)>,
-    child_sources: Vec<(Option<i64>, Option<Span>, Option<Span>)>,
+    child_sources: Vec<(Option<i64>, Vec<Span>, Option<Span>)>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -985,15 +1088,19 @@ fn walk_nodes(bytes: &[u8], span: Span, walk: &mut Walk) -> bool {
                             node.is_text = scan::parse_number(bytes, value) == Some(TEXT_NODE)
                         }
                         b"tagName" => node.tag = tag(bytes, value),
-                        b"textContent" => node.text = Some(value),
+                        b"textContent" => {
+                            if let Some(earlier) = node.text.replace(value) {
+                                node.earlier_texts.push(earlier);
+                            }
+                        }
                         b"isShadowHost" => node.shadow_host = &bytes[value.0..value.1] == b"true",
                         b"isStyle" => node.is_style_text = &bytes[value.0..value.1] == b"true",
                         _ => {}
                     }
                 }
                 (Some(FrameKind::Attributes), Some(name)) => {
-                    if let Some(slot) = nodes.last_mut().and_then(|n| n.attributes.slot(name)) {
-                        *slot = Some(value);
+                    if let Some(node) = nodes.last_mut() {
+                        node.attributes.set(name, value);
                     }
                 }
                 _ => {}
@@ -1023,11 +1130,11 @@ fn finish_node(bytes: &[u8], node: NodeFrame, parent: Option<&mut NodeFrame>, wa
         }
     }
     if node.tag == Tag::Picture {
-        for &(id, srcset, source_type) in &node.child_sources {
-            let unfetched_type = is_unfetched_type(bytes, source_type);
+        for (id, srcsets, source_type) in &node.child_sources {
+            let unfetched_type = is_unfetched_type(bytes, *source_type);
             walk.media
                 .extend(id.map(|id| (id, Media::PictureSource { unfetched_type })));
-            walk.push_source(bytes, srcset, unfetched_type);
+            walk.push_source(bytes, srcsets, unfetched_type);
         }
     }
     match node.id {
@@ -1059,7 +1166,9 @@ fn finish_node(bytes: &[u8], node: NodeFrame, parent: Option<&mut NodeFrame>, wa
             walk.text_chars += (text.1 - text.0).saturating_sub(2) as u64;
             if node.is_style_text {
                 walk.style_texts.extend(node.id);
-                walk.push_css(bytes, Some(text));
+                for &text in node.earlier_texts.iter().chain(&node.text) {
+                    walk.push_css(bytes, Some(text));
+                }
             }
         }
     }
@@ -1086,14 +1195,17 @@ fn finish_node(bytes: &[u8], node: NodeFrame, parent: Option<&mut NodeFrame>, wa
         Some(parent) => {
             parent.children.extend(node.id);
             if node.is_text && !node.is_style_text {
-                parent
-                    .child_texts
-                    .extend(node.text.map(|text| (node.id, text)));
+                parent.child_texts.extend(
+                    node.earlier_texts
+                        .iter()
+                        .chain(&node.text)
+                        .map(|&text| (node.id, text)),
+                );
             }
             if node.tag == Tag::Source {
                 parent.child_sources.push((
                     node.id,
-                    node.attributes.srcset,
+                    node.attributes.srcset_copies(),
                     node.attributes.source_type,
                 ));
             }
@@ -1105,7 +1217,7 @@ fn finish_node(bytes: &[u8], node: NodeFrame, parent: Option<&mut NodeFrame>, wa
             if node.tag == Tag::Source {
                 walk.root_sources.push((
                     node.id,
-                    node.attributes.srcset,
+                    node.attributes.srcset_copies(),
                     node.attributes.source_type,
                 ));
             }
@@ -1673,13 +1785,13 @@ fn observe_mutation(
                 .filter(|(_, media)| *media == Media::Picture)
                 .map(|&(id, _)| id)
                 .collect();
-            for (parent, (id, srcset, source_type)) in sources {
+            for (parent, (id, srcsets, source_type)) in sources {
                 let Some(parent) = parent else { continue };
                 if pictures.contains(&parent) || dom.media.get(&parent) == Some(&Media::Picture) {
                     let unfetched_type = is_unfetched_type(list.bytes, source_type);
                     walk.media
                         .extend(id.map(|id| (id, Media::PictureSource { unfetched_type })));
-                    walk.push_source(list.bytes, srcset, unfetched_type);
+                    walk.push_source(list.bytes, &srcsets, unfetched_type);
                 }
             }
         }
@@ -1689,9 +1801,11 @@ fn observe_mutation(
     dom.add_style_texts(&walk.style_texts);
     if let Some(texts) = lists.texts {
         for item in items(texts) {
-            let [id, value] = fields(texts.bytes, item, [b"id", b"value"]);
+            let id = field(texts.bytes, item, b"id");
             if number(texts.bytes, id).is_some_and(|id| dom.style_texts.contains(&(id as i64))) {
-                walk.push_css(texts.bytes, value);
+                for value in field_copies(texts.bytes, item, b"value") {
+                    walk.push_css(texts.bytes, Some(value));
+                }
             }
         }
     }
@@ -1829,25 +1943,29 @@ fn style_sheet_urls(
     };
     match source {
         Some(STYLE_SHEET_RULE) => {
-            let [adds, replace, replace_sync] =
-                fields(inner, data, [b"adds", b"replace", b"replaceSync"]);
+            let adds = field(inner, data, b"adds");
             if let Some(adds) = adds.and_then(|adds| decoded_list(inner, adds, expansion)) {
                 for item in items(adds) {
-                    read_rule(adds.bytes, field(adds.bytes, item, b"rule"), urls);
+                    for rule in field_copies(adds.bytes, item, b"rule") {
+                        read_rule(adds.bytes, Some(rule), urls);
+                    }
                 }
             }
-            for sheet in [replace, replace_sync] {
-                read_rule(inner, sheet, urls);
+            for key in [&b"replace"[..], b"replaceSync"] {
+                for sheet in field_copies(inner, data, key) {
+                    read_rule(inner, Some(sheet), urls);
+                }
             }
         }
         Some(STYLE_DECLARATION) => {
             let set = field(inner, data, b"set");
-            let [property, value] =
-                set.map_or([None; 2], |set| fields(inner, set, [b"property", b"value"]));
-            if let (Some(property), Some(at), Some(value)) =
-                (text(inner, property), value, text(inner, value))
-            {
-                urls.read_css(&buffers, (inner, at), &value, Some(&property), resolver);
+            let property = set.and_then(|set| text(inner, field(inner, set, b"property")));
+            if let (Some(set), Some(property)) = (set, property) {
+                for at in field_copies(inner, set, b"value") {
+                    if let Some(value) = text(inner, Some(at)) {
+                        urls.read_css(&buffers, (inner, at), &value, Some(&property), resolver);
+                    }
+                }
             }
         }
         Some(ADOPTED_STYLE_SHEET) => {
@@ -1865,7 +1983,9 @@ fn style_sheet_urls(
                     bytes: inner,
                     span: rules,
                 }) {
-                    read_rule(inner, field(inner, rule, b"rule"), urls);
+                    for text in field_copies(inner, rule, b"rule") {
+                        read_rule(inner, Some(text), urls);
+                    }
                 }
             }
         }

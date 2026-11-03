@@ -50,6 +50,21 @@ pub(crate) fn field(bytes: &[u8], object: Span, key: &[u8]) -> Option<Span> {
         .map(|entry| entry.value)
 }
 
+/// Every value of `key` in the object at `object`, top level only. The player reads the last, and the block holds them
+/// all.
+pub(crate) fn field_copies(bytes: &[u8], object: Span, key: &[u8]) -> Vec<Span> {
+    if !scan::is_object(bytes, object) {
+        return Vec::new();
+    }
+    scan::object_entries(bytes, object)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter(|entry| !entry.key_escaped && &bytes[entry.key.0..entry.key.1] == key)
+        .map(|entry| entry.value)
+        .collect()
+}
+
 /// The values of `keys` in the object at `object`, top level only, in one pass. The last of a repeated key wins.
 pub(crate) fn fields<const N: usize>(
     bytes: &[u8],
