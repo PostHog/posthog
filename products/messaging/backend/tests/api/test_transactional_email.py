@@ -503,7 +503,6 @@ class TestTransactionalEmail(APIBaseTest):
                 {"sensitive": True},
                 {
                     "content": {"subject": "Welcome, Jane", "html": "<p>Hi Jane</p>", "text": "Hi Jane"},
-                    "from": {"isDefault": True},
                     "tracking": {"captureEngagement": True},
                     "sensitive": True,
                 },
@@ -513,7 +512,6 @@ class TestTransactionalEmail(APIBaseTest):
                 {"sensitive": False},
                 {
                     "content": {"subject": "Welcome, Jane", "html": "<p>Hi Jane</p>", "text": "Hi Jane"},
-                    "from": {"isDefault": True},
                     "tracking": {"captureEngagement": True},
                 },
             ),
