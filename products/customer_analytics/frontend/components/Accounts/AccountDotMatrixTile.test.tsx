@@ -1,7 +1,10 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { resetContext } from 'kea'
 
-import type { DotMatrixMockDatum, DotMatrixMockDatasetName } from 'lib/components/DotMatrix/mocks'
+import {
+    type DotMatrixMockDatum,
+    type DotMatrixMockDatasetName,
+} from 'lib/components/DotMatrix/examples/dotMatrixMockTypes'
 import type { DotMatrixProps } from 'lib/components/DotMatrix/types'
 
 import { AccountDotMatrixTile } from './AccountDotMatrixTile'

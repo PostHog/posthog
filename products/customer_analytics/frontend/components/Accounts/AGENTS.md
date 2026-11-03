@@ -39,6 +39,10 @@ AccountsTabContent  ── binds dataNodeLogic(ACCOUNTS_TABLE_DATA_NODE_KEY, acc
         └── (meetings)      AccountMeetingsExpansion                 (accountMeetingsLogic, keyed by accountId; synced Google Calendar meetings plus optional Gong call links from the Gong warehouse source, and the matching editor; flag-gated tab, CUSTOMER_ANALYTICS_CSP)
 ```
 
+The `AccountDotMatrixTile` uses the shared renderer in `lib/components/DotMatrix/`.
+Its deterministic datasets and tooltip examples live in `lib/components/DotMatrix/examples/`.
+`accountDotMatrixTileLogic` owns the saved dataset, display mode, and selection through the account view config callback.
+
 ### Logics and what each owns
 
 | Logic                         | Owns                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |

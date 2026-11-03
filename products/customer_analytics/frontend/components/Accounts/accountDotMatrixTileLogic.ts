@@ -12,12 +12,12 @@ import {
     selectors,
 } from 'kea'
 
-import { getDotMatrixDemoPresentation } from 'lib/components/DotMatrix/dotMatrixDemoData'
+import { getDotMatrixDemoPresentation } from 'lib/components/DotMatrix/examples/dotMatrixDemoPresentation'
 import {
-    getDotMatrixMockDataset,
     type DotMatrixMockDataset,
     type DotMatrixMockDatasetName,
-} from 'lib/components/DotMatrix/mocks'
+} from 'lib/components/DotMatrix/examples/dotMatrixMockTypes'
+import { getDotMatrixMockDataset } from 'lib/components/DotMatrix/examples/mocks'
 import { objectsEqual } from 'lib/utils/objects'
 
 import type { AccountViewTileLogicProps } from './accountViewTileConfig'

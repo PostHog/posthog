@@ -1,3 +1,4 @@
+import { DOT_MATRIX_SIZE_THRESHOLDS } from './dotMatrixPresentation'
 import type {
     DotMatrixAxisItem,
     DotMatrixCell,
@@ -132,7 +133,7 @@ export function toggleDotMatrixSeries(selected: string[], key: string, shift: bo
     return selected.includes(key) ? selected.filter((item) => item !== key) : [...new Set([...selected, key])]
 }
 
-export function normalizeDotMatrixSizeThresholds(thresholds: number[] = [1, 5, 10]): number[] {
+export function normalizeDotMatrixSizeThresholds(thresholds: number[] = DOT_MATRIX_SIZE_THRESHOLDS): number[] {
     return [...new Set(thresholds.filter((threshold) => Number.isFinite(threshold) && threshold > 0))]
         .sort((first, second) => first - second)
         .slice(0, 3)

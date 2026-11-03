@@ -1,52 +1,15 @@
-import { getDotMatrixCellCount, normalizeDotMatrixData } from './dotMatrixData'
+import { getDotMatrixCellCount, normalizeDotMatrixData } from '../dotMatrixData'
+import type { DotMatrixCell, DotMatrixSeries } from '../types'
 import type { DotMatrixDemoMode } from './dotMatrixDemoLogic'
+import { getDotMatrixAccountMeta, getDotMatrixDetailDataset } from './dotMatrixDetailData'
+import { DOT_MATRIX_MOCK_ACCOUNTS, DOT_MATRIX_MOCK_PRODUCTS } from './dotMatrixMockFixtures'
 import {
-    DOT_MATRIX_MOCK_ACCOUNTS,
-    DOT_MATRIX_MOCK_PRODUCTS,
-    DOT_MATRIX_PRODUCT_COUNT_SCALE,
-    DOT_MATRIX_USER_COUNT_SCALE,
-    getDotMatrixAccountMeta,
-    getDotMatrixDetailDataset,
-    getDotMatrixMockPeople,
     type DotMatrixMockDataset,
     type DotMatrixMockDatasetName,
     type DotMatrixMockDatum,
     type DotMatrixMockPerson,
-} from './mocks'
-import type { DotMatrixCell, DotMatrixCountBin, DotMatrixSeries } from './types'
-
-export interface DotMatrixDemoPresentation {
-    countScale: DotMatrixCountBin[]
-    trendColor: string
-    legend: { itemLabel: string; valueLabel: string; countLabel: string }
-}
-
-export function getDotMatrixDemoPresentation(
-    datasetName: DotMatrixMockDatasetName,
-    selectedSeries: string[]
-): DotMatrixDemoPresentation {
-    if (datasetName === 'ci') {
-        return {
-            countScale: DOT_MATRIX_PRODUCT_COUNT_SCALE,
-            trendColor: '#36a352',
-            legend: { itemLabel: 'job', valueLabel: 'Failures', countLabel: 'Failing jobs' },
-        }
-    }
-    const countLabel = !selectedSeries.length
-        ? 'Products used'
-        : selectedSeries.length === 1
-          ? `Users of ${DOT_MATRIX_MOCK_PRODUCTS.find(([key]) => key === selectedSeries[0])?.[1] ?? selectedSeries[0]}`
-          : `Users of any of these ${selectedSeries.length} products`
-    return {
-        countScale: selectedSeries.length ? DOT_MATRIX_USER_COUNT_SCALE : DOT_MATRIX_PRODUCT_COUNT_SCALE,
-        trendColor: selectedSeries.length ? '#3b76d4' : '#36a352',
-        legend: {
-            itemLabel: 'product',
-            valueLabel: datasetName === 'people' ? 'Events' : 'Users',
-            countLabel,
-        },
-    }
-}
+} from './dotMatrixMockTypes'
+import { getDotMatrixMockPeople } from './mocks'
 
 export function getDotMatrixSelectionSummary(
     cell: DotMatrixCell<DotMatrixMockDatum>,

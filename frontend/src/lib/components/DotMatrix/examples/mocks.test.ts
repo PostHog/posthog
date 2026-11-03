@@ -1,4 +1,5 @@
-import { aggregateDotMatrixMockPeople, getDotMatrixMockDataset, type DotMatrixMockDatum } from './mocks'
+import { type DotMatrixMockDatum } from './dotMatrixMockTypes'
+import { aggregateDotMatrixMockPeople, getDotMatrixMockDataset } from './mocks'
 
 const person = { id: 'one', name: 'alex', email: 'alex@example.com', seconds: 60 }
 

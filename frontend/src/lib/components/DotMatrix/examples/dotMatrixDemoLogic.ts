@@ -1,12 +1,9 @@
 import { actions, kea, key, path, props, reducers, selectors, type LogicWrapper, type MakeLogicType } from 'kea'
 
-import {
-    getDotMatrixDemoDisplay,
-    getDotMatrixDemoPresentation,
-    type DotMatrixDemoDisplay,
-    type DotMatrixDemoPresentation,
-} from './dotMatrixDemoData'
-import { getDotMatrixMockDataset, type DotMatrixMockDataset, type DotMatrixMockDatasetName } from './mocks'
+import { getDotMatrixDemoDisplay, type DotMatrixDemoDisplay } from './dotMatrixDemoData'
+import { getDotMatrixDemoPresentation, type DotMatrixDemoPresentation } from './dotMatrixDemoPresentation'
+import { type DotMatrixMockDataset, type DotMatrixMockDatasetName } from './dotMatrixMockTypes'
+import { getDotMatrixMockDataset } from './mocks'
 
 export type DotMatrixDemoMode = 'products' | 'count' | 'users' | 'account'
 export interface DotMatrixDemoLogicProps {

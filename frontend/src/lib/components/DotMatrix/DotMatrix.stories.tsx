@@ -2,8 +2,9 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import { DotGlyph } from './DotGlyph'
 import { DotMatrix } from './DotMatrix'
-import { DotMatrixDemo } from './DotMatrixDemo'
-import { DOT_MATRIX_MOCK_GROUPS, getDotMatrixMockDataset } from './mocks'
+import { DotMatrixDemo } from './examples/DotMatrixDemo'
+import { DOT_MATRIX_MOCK_GROUPS } from './examples/dotMatrixMockFixtures'
+import { getDotMatrixMockDataset } from './examples/mocks'
 
 const meta: Meta<typeof DotMatrixDemo> = {
     title: 'Components/Dot matrix',

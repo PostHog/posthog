@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 
 import { initKeaTests } from '~/test/init'
 
+import { DotGlyph } from './DotGlyph'
 import { DotMatrix } from './DotMatrix'
 
 const data = [{ location: 'North', period: 'Morning', check: 'Safety', total: 12 }]
@@ -81,5 +82,64 @@ describe('DotMatrix', () => {
             { label: '5-9', color: 'blue' },
             { label: '10+', color: 'red' },
         ])
+    })
+    it.each([
+        { groups: [], expected: ['var(--data-color-1)', 'var(--data-color-2)'] },
+        { groups: [{ key: 'checks', label: 'Checks', color: 'blue' }], expected: ['blue', 'blue'] },
+    ])(
+        'uses identical series colors in standalone glyphs, matrix cells, and legends: $groups',
+        ({ groups, expected }) => {
+            const series = [
+                { key: 'Safety', group: 'checks' },
+                { key: 'Quality', group: 'checks' },
+            ]
+            const { container } = render(
+                <>
+                    <DotGlyph series={series} values={{ Safety: 1, Quality: 1 }} groups={groups} label="Standalone" />
+                    <DotMatrix
+                        data={[
+                            ...data.map((item) => ({ ...item, total: 1 })),
+                            { ...data[0], check: 'Quality', total: 1 },
+                        ]}
+                        fields={fields}
+                        series={series}
+                        groups={groups}
+                    />
+                </>
+            )
+            for (const glyph of container.querySelectorAll('.DotGlyph')) {
+                expect(Array.from(glyph.querySelectorAll('circle'), (circle) => circle.getAttribute('fill'))).toEqual(
+                    expected
+                )
+            }
+            expect(
+                Array.from(container.querySelectorAll('.DotMatrix__legend-item circle'), (circle) =>
+                    circle.getAttribute('fill')
+                )
+            ).toEqual(expected)
+        }
+    )
+
+    it('passes the mapped cell to a click handler and describes its selected count', () => {
+        const onCellClick = jest.fn()
+        const aggregateSelection = jest.fn(() => 7)
+        render(
+            <DotMatrix
+                data={data}
+                fields={fields}
+                mode="count"
+                selectedSeries={['Safety']}
+                aggregateSelection={aggregateSelection}
+                onCellClick={onCellClick}
+            />
+        )
+        fireEvent.click(screen.getByLabelText('North, Morning: 7', { selector: 'button' }))
+        expect(onCellClick).toHaveBeenCalledWith({
+            rowKey: 'North',
+            columnKey: 'Morning',
+            values: { Safety: 12 },
+            data,
+        })
+        expect(aggregateSelection).toHaveBeenCalledWith(onCellClick.mock.calls[0][0], ['Safety'])
     })
 })

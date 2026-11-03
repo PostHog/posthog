@@ -1,7 +1,8 @@
 import './DotMatrixDemoTooltip.scss'
 
-import { getDotMatrixMockWeekLabel, DOT_MATRIX_MOCK_PRODUCTS, type DotMatrixMockDatum } from './mocks'
-import type { DotMatrixCell } from './types'
+import type { DotMatrixCell } from '../types'
+import { getDotMatrixMockWeekLabel, DOT_MATRIX_MOCK_PRODUCTS } from './dotMatrixMockFixtures'
+import { type DotMatrixMockDatum } from './dotMatrixMockTypes'
 
 interface DotMatrixDemoAccountTooltipProps {
     cell: DotMatrixCell<DotMatrixMockDatum>

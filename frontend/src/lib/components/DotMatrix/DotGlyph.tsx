@@ -1,8 +1,15 @@
 import './DotGlyph.scss'
 
-import { Fragment } from 'react'
+import { useMemo } from 'react'
 
 import { normalizeDotMatrixSizeThresholds } from './dotMatrixData'
+import {
+    DOT_MATRIX_EMPTY_GROUPS,
+    DOT_MATRIX_SIZE_THRESHOLDS,
+    getDotMatrixActiveSeries,
+    resolveDotMatrixSeries,
+} from './dotMatrixPresentation'
+import { DotMatrixSymbol } from './DotMatrixSymbol'
 import type { DotMatrixGroup, DotMatrixSeries } from './types'
 
 interface DotGlyphProps {
@@ -17,20 +24,20 @@ interface DotGlyphProps {
 export function DotGlyph({
     series,
     values,
-    groups = [],
-    sizeThresholds = [1, 5, 10],
+    groups = DOT_MATRIX_EMPTY_GROUPS,
+    sizeThresholds = DOT_MATRIX_SIZE_THRESHOLDS,
     label,
     columnsPerGroup = 6,
 }: DotGlyphProps): JSX.Element {
-    const thresholds = normalizeDotMatrixSizeThresholds(sizeThresholds)
+    const thresholds = useMemo(() => normalizeDotMatrixSizeThresholds(sizeThresholds), [sizeThresholds])
+    const coloredSeries = useMemo(() => resolveDotMatrixSeries(series, groups), [series, groups])
     const perRow = Number.isFinite(columnsPerGroup) ? Math.max(1, Math.floor(columnsPerGroup)) : 6
     const groupKeys = Array.from(new Set([...groups.map(({ key }) => key), ...series.map(({ group }) => group)]))
-    const rows = groupKeys.map((key) => series.filter(({ group }) => group === key))
+    const rows = groupKeys.map((key) => coloredSeries.filter(({ group }) => group === key))
     const rowCount = rows.reduce((total, items) => total + Math.max(1, Math.ceil(items.length / perRow)), 0)
     const width = perRow * 17
     const height = Math.max(1, rowCount) * 17
-    const valueLabel = series
-        .filter(({ key }) => Number.isFinite(values[key]) && values[key] > 0)
+    const valueLabel = getDotMatrixActiveSeries(series, values)
         .map(({ key, label }) => `${label ?? key} ${values[key]}`)
         .join(', ')
     let rowOffset = 0
@@ -44,29 +51,24 @@ export function DotGlyph({
             role="img"
             aria-label={`${label}: ${valueLabel || 'No values'}`}
         >
-            {rows.map((items, groupIndex) => {
+            {rows.map((items) => {
                 const firstRow = rowOffset
                 rowOffset += Math.max(1, Math.ceil(items.length / perRow))
-                const groupColor = groups.find(({ key }) => key === groupKeys[groupIndex])?.color
 
                 return items.map((item, index) => {
                     const value = values[item.key] ?? 0
                     const cx = 8.5 + (index % perRow) * 17
                     const cy = 8.5 + (firstRow + Math.floor(index / perRow)) * 17
-                    const color = item.color ?? groupColor ?? `var(--data-color-${(groupIndex % 15) + 1})`
 
                     return (
-                        <Fragment key={item.key}>
-                            {Number.isFinite(value) && thresholds[0] !== undefined && value >= thresholds[0] && (
-                                <circle cx={cx} cy={cy} r={2.6} fill={color} />
-                            )}
-                            {Number.isFinite(value) && thresholds[1] !== undefined && value >= thresholds[1] && (
-                                <circle cx={cx} cy={cy} r={4.4} fill="none" stroke={color} strokeWidth={1.2} />
-                            )}
-                            {Number.isFinite(value) && thresholds[2] !== undefined && value >= thresholds[2] && (
-                                <circle cx={cx} cy={cy} r={6.7} fill="none" stroke={color} strokeWidth={1.2} />
-                            )}
-                        </Fragment>
+                        <DotMatrixSymbol
+                            key={item.key}
+                            cx={cx}
+                            cy={cy}
+                            value={value}
+                            thresholds={thresholds}
+                            color={item.color}
+                        />
                     )
                 })
             })}

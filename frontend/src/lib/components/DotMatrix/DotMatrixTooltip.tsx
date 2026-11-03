@@ -1,3 +1,4 @@
+import { getDotMatrixActiveSeries } from './dotMatrixPresentation'
 import type { DotMatrixCell, DotMatrixSeries } from './types'
 
 interface DotMatrixTooltipProps<D> {
@@ -8,7 +9,7 @@ interface DotMatrixTooltipProps<D> {
 }
 
 export function DotMatrixTooltip<D>({ cell, rowLabel, columnLabel, series }: DotMatrixTooltipProps<D>): JSX.Element {
-    const activeSeries = series.filter((item) => cell.values[item.key] > 0)
+    const activeSeries = getDotMatrixActiveSeries(series, cell.values)
     return (
         <div className="DotMatrix__tooltip-content">
             <strong>{rowLabel}</strong>

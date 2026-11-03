@@ -5,8 +5,8 @@ import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
 import { DotMatrix } from 'lib/components/DotMatrix/DotMatrix'
-import { DotMatrixDemoTooltip } from 'lib/components/DotMatrix/DotMatrixDemoTooltip'
-import type { DotMatrixMockDatasetName } from 'lib/components/DotMatrix/mocks'
+import { DotMatrixDemoTooltip } from 'lib/components/DotMatrix/examples/DotMatrixDemoTooltip'
+import { type DotMatrixMockDatasetName } from 'lib/components/DotMatrix/examples/dotMatrixMockTypes'
 import { Popover } from 'lib/lemon-ui/Popover'
 
 import { accountDotMatrixTileLogic } from './accountDotMatrixTileLogic'

@@ -1,17 +1,14 @@
-import { normalizeDotMatrixData } from './dotMatrixData'
-import {
-    getDotMatrixDemoDisplay,
-    getDotMatrixDemoPresentation,
-    getDotMatrixSelectionSummary,
-} from './dotMatrixDemoData'
+import { normalizeDotMatrixData } from '../dotMatrixData'
+import { getDotMatrixDemoDisplay, getDotMatrixSelectionSummary } from './dotMatrixDemoData'
+import { getDotMatrixDemoPresentation } from './dotMatrixDemoPresentation'
+import { getDotMatrixAccountMeta } from './dotMatrixDetailData'
 import {
     DOT_MATRIX_MOCK_ACCOUNTS,
     DOT_MATRIX_PRODUCT_COUNT_SCALE,
     DOT_MATRIX_USER_COUNT_SCALE,
-    getDotMatrixAccountMeta,
-    getDotMatrixMockDataset,
-    type DotMatrixMockDatasetName,
-} from './mocks'
+} from './dotMatrixMockFixtures'
+import { type DotMatrixMockDatasetName } from './dotMatrixMockTypes'
+import { getDotMatrixMockDataset } from './mocks'
 
 describe('dot matrix demo data', () => {
     test.each([

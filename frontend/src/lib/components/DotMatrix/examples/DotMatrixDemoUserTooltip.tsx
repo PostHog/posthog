@@ -1,4 +1,5 @@
-import { getDotMatrixMockWeekLabel, type DotMatrixMockPerson } from './mocks'
+import { getDotMatrixMockWeekLabel } from './dotMatrixMockFixtures'
+import { type DotMatrixMockPerson } from './dotMatrixMockTypes'
 
 interface DotMatrixDemoUserTooltipProps {
     person: DotMatrixMockPerson

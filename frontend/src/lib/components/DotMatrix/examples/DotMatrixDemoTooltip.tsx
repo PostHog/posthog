@@ -1,15 +1,14 @@
 import './DotMatrixDemoTooltip.scss'
 
+import type { DotMatrixCell } from '../types'
 import { getDotMatrixSelectionSummary } from './dotMatrixDemoData'
 import {
     DOT_MATRIX_MOCK_ACCOUNTS,
     getDotMatrixMockWeekLabel,
     DOT_MATRIX_MOCK_GROUPS,
     DOT_MATRIX_MOCK_PRODUCTS,
-    type DotMatrixMockDatum,
-    type DotMatrixMockDatasetName,
-} from './mocks'
-import type { DotMatrixCell } from './types'
+} from './dotMatrixMockFixtures'
+import { type DotMatrixMockDatum, type DotMatrixMockDatasetName } from './dotMatrixMockTypes'
 
 interface DotMatrixDemoTooltipProps {
     cell: DotMatrixCell<DotMatrixMockDatum>

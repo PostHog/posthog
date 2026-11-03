@@ -3,7 +3,8 @@ import clsx from 'clsx'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { toggleDotMatrixSeries } from './dotMatrixData'
-import type { DotMatrixCountBin, DotMatrixGroup, DotMatrixProps, DotMatrixSeries } from './types'
+import { DotMatrixScaleKey } from './DotMatrixScaleKey'
+import type { DotMatrixCountBin, DotMatrixGroup, DotMatrixLegendLabels, DotMatrixSeries } from './types'
 
 interface DotMatrixLegendProps {
     series: DotMatrixSeries[]
@@ -13,7 +14,7 @@ interface DotMatrixLegendProps {
     countScale?: DotMatrixCountBin[]
     selectedSeries: string[]
     onSelectedSeriesChange?: (keys: string[]) => void
-    labels?: Exclude<DotMatrixProps<Record<string, unknown>>['legend'], false>
+    labels?: DotMatrixLegendLabels
 }
 
 export function DotMatrixLegend({
@@ -103,59 +104,14 @@ export function DotMatrixLegend({
                         <span>{labels?.hint ?? `Click a ${itemLabel} to filter. Shift-click to add more.`}</span>
                     )
                 )}
-                {labels?.footer ??
-                    (mode === 'dots' ? (
-                        <div className="DotMatrix__size-key">
-                            <span>{labels?.valueLabel ?? 'Value'}</span>
-                            {sizeThresholds.slice(0, 3).map((threshold, index) => (
-                                <span className="DotMatrix__key-item" key={threshold}>
-                                    <svg width="17" height="17" viewBox="0 0 17 17" aria-hidden="true">
-                                        <circle cx="8.5" cy="8.5" r="2.6" fill="currentColor" />
-                                        {index >= 1 && (
-                                            <circle
-                                                cx="8.5"
-                                                cy="8.5"
-                                                r="4.4"
-                                                fill="none"
-                                                stroke="currentColor"
-                                                strokeWidth="1.2"
-                                            />
-                                        )}
-                                        {index >= 2 && (
-                                            <circle
-                                                cx="8.5"
-                                                cy="8.5"
-                                                r="6.7"
-                                                fill="none"
-                                                stroke="currentColor"
-                                                strokeWidth="1.2"
-                                            />
-                                        )}
-                                    </svg>
-                                    <b>{`${threshold}+`}</b>
-                                </span>
-                            ))}
-                        </div>
-                    ) : (
-                        countScale && (
-                            <div className="DotMatrix__count-key">
-                                <span>{labels?.countLabel ?? 'Count'}</span>
-                                {countScale.map((bin, index) => (
-                                    <span className="DotMatrix__key-item" key={bin.min}>
-                                        <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
-                                            <rect width="14" height="14" rx="3" fill={bin.color} />
-                                        </svg>
-                                        <span>
-                                            {bin.label ??
-                                                (countScale[index + 1]
-                                                    ? `${bin.min}-${countScale[index + 1].min - 1}`
-                                                    : `${bin.min}+`)}
-                                        </span>
-                                    </span>
-                                ))}
-                            </div>
-                        )
-                    ))}
+                {labels?.footer ?? (
+                    <DotMatrixScaleKey
+                        mode={mode}
+                        sizeThresholds={sizeThresholds}
+                        countScale={countScale}
+                        labels={labels}
+                    />
+                )}
             </div>
         </div>
     )

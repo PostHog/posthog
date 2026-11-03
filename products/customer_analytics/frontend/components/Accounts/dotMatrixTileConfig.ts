@@ -1,4 +1,4 @@
-import type { DotMatrixMockDatasetName } from 'lib/components/DotMatrix/mocks'
+import { type DotMatrixMockDatasetName } from 'lib/components/DotMatrix/examples/dotMatrixMockTypes'
 
 import type { AccountViewTileConfig } from './accountViewTileConfig'
 
