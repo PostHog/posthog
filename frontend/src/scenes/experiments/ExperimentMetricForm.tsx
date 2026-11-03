@@ -239,7 +239,6 @@ export function ExperimentMetricForm({
     }
 
     const handleMetricTypeChange = (newMetricType: ExperimentMetricType): void => {
-        // Extract current sources from the existing metric to preserve selections
         const sources = getMetricSources(metric)
 
         const newMetric = getDefaultExperimentMetric(newMetricType)

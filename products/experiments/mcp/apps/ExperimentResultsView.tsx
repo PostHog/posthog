@@ -167,13 +167,13 @@ function buildRows(result: ExperimentMetricResult): VariantRow[] {
             : stats.number_of_samples > 0
               ? stats.sum / stats.number_of_samples
               : null
-    const baselineMean = baseline ? variantValue(baseline) : null
+    const baselineValue = baseline ? variantValue(baseline) : null
 
     const toRow = (stats: ExperimentVariantStats, isBaseline: boolean): VariantRow => {
         const perUser = variantValue(stats)
         const lift =
-            !isBaseline && perUser != null && baselineMean != null && baselineMean !== 0
-                ? perUser / baselineMean - 1
+            !isBaseline && perUser != null && baselineValue != null && baselineValue !== 0
+                ? perUser / baselineValue - 1
                 : null
         return {
             variant: stats.key,

@@ -28,12 +28,13 @@ import { ExperimentMetricGoal } from '~/types'
 
 export type ExperimentVariantResult = ExperimentVariantResultFrequentist | ExperimentVariantResultBayesian
 
+export const formatMetricTypeName = (metricType: string): string =>
+    metricType === ExperimentMetricType.QUANTILE ? 'percentile' : metricType
+
 export const getMetricTag = (metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery): string => {
     if (metric.kind === NodeKind.ExperimentMetric) {
-        if (isExperimentQuantileMetric(metric)) {
-            return 'Percentile'
-        }
-        return metric.metric_type.charAt(0).toUpperCase() + metric.metric_type.slice(1).toLowerCase()
+        const typeName = formatMetricTypeName(metric.metric_type)
+        return typeName.charAt(0).toUpperCase() + typeName.slice(1).toLowerCase()
     } else if (metric.kind === NodeKind.ExperimentFunnelsQuery) {
         return 'Funnel'
     }
@@ -61,9 +62,6 @@ const getDefaultName = (source: MetricSource): string | null | undefined => {
             return 'Exposure'
     }
 }
-
-export const formatMetricTypeName = (metricType: string): string =>
-    metricType === ExperimentMetricType.QUANTILE ? 'percentile' : metricType
 
 // Rounds away float noise (0.975 * 100 is 97.49999…) but keeps fractional levels such as p97.5
 export const quantileToPercentile = (quantile: number): number => Number((quantile * 100).toFixed(2))
