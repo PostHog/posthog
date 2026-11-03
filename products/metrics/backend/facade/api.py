@@ -449,6 +449,8 @@ def run_promql_query(
     *, team: Team, expr: str, date_from: dt.datetime, date_to: dt.datetime, interval: str | None
 ) -> list[MetricSeries]:
     """Run a PromQL range query on Snuffle. The caller checks the Snuffle feature flag. `date_to` is exclusive."""
+    if date_to <= date_from:
+        raise ValueError("date_to must be after date_from")
     if date_to - date_from > MAX_QUERY_SPAN:
         raise ValueError(f"date range too wide; the maximum span is {MAX_QUERY_SPAN.days} days")
     with query_concurrency_slots(team):

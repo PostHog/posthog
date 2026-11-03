@@ -583,12 +583,24 @@ class TestMetricsPromqlQueryApi(APIBaseTest):
         assert response.status_code == expected_status
         assert detail in response.json()["detail"]
 
-    def test_promql_query_rejects_a_span_over_the_builder_limit(self) -> None:
+    @parameterized.expand(
+        [
+            ("span_over_the_builder_limit", {"dateFrom": "-40d"}, "maximum span is 31 days"),
+            (
+                "reversed_bounds_in_one_bucket",
+                {"dateFrom": "2026-01-01T10:59:00Z", "dateTo": "2026-01-01T10:58:00Z", "interval": "hour"},
+                "date_to must be after date_from",
+            ),
+        ]
+    )
+    def test_promql_query_rejects_a_window_the_builder_rejects(
+        self, _name: str, window: dict[str, str], message: str
+    ) -> None:
         with patch("posthog.api.snuffle_proxy.internal_requests.request") as request:
-            response = self._post({"promql": "up", "dateFrom": "-40d"})
+            response = self._post({"promql": "up", **window})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "maximum span is 31 days" in response.json()["detail"]
+        assert message in response.json()["detail"]
         request.assert_not_called()
 
     def test_promql_query_respects_the_query_byte_budget(self) -> None:

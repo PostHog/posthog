@@ -14,6 +14,6 @@ describe('query-metrics schema', () => {
         const result = querySchema().safeParse({ query: { promql: 'sum(rate(http_requests_total[5m]))' } })
 
         expect(result.success).toBe(true)
-        expect(result.data.query).toEqual({ promql: 'sum(rate(http_requests_total[5m]))' })
+        expect(result.data).toHaveProperty('query', { promql: 'sum(rate(http_requests_total[5m]))' })
     })
 })
