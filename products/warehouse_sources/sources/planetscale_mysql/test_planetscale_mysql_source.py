@@ -4,18 +4,14 @@ from typing import cast
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.planetscalemysql import (
-    PlanetScaleMySQLSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.planetscale_mysql.planetscale_mysql import (
-    PlanetScaleMySQLImplementation,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.planetscale_mysql.source import (
-    PlanetScaleMySQLSource,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+import pymysql
+
+from products.warehouse_sources.sources.planetscale_mysql._config import PlanetScaleMySQLSourceConfig
+from products.warehouse_sources.sources.planetscale_mysql.planetscale_mysql import PlanetScaleMySQLImplementation
+from products.warehouse_sources.sources.planetscale_mysql.source import PlanetScaleMySQLSource
+from products.warehouse_sources.sources.sdk import ExternalDataSourceType, SourceFieldInputConfig
+from products.warehouse_sources.sources.sdk.internals import Any_Source_Errors, MySQLSourceConfig
+from products.warehouse_sources.sources.sdk.testing import error_message_matches
 
 
 def _config(host: str = "aws.connect.psdb.cloud") -> MySQLSourceConfig:
@@ -173,9 +169,7 @@ def test_connection_failures_map_to_actionable_messages(raw_error, expected_frag
     with (
         mock.patch.object(PlanetScaleMySQLSource, "is_database_host_valid", return_value=(True, None)),
         mock.patch.object(PlanetScaleMySQLSource, "get_schemas", side_effect=Exception(raw_error)),
-        mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.planetscale_mysql.source.capture_exception"
-        ) as capture,
+        mock.patch("products.warehouse_sources.sources.planetscale_mysql.source.capture_exception") as capture,
     ):
         success, error = PlanetScaleMySQLSource().validate_credentials(_config(), team_id=1)
 
@@ -200,9 +194,7 @@ def test_retryable_sync_errors_are_not_captured_during_validation(raw_error):
     with (
         mock.patch.object(PlanetScaleMySQLSource, "is_database_host_valid", return_value=(True, None)),
         mock.patch.object(PlanetScaleMySQLSource, "get_schemas", side_effect=Exception(raw_error)),
-        mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.planetscale_mysql.source.capture_exception"
-        ) as capture,
+        mock.patch("products.warehouse_sources.sources.planetscale_mysql.source.capture_exception") as capture,
     ):
         success, error = PlanetScaleMySQLSource().validate_credentials(_config(), team_id=1)
 
@@ -218,12 +210,24 @@ def test_unrecognized_failure_is_captured_and_reported_generically():
     with (
         mock.patch.object(PlanetScaleMySQLSource, "is_database_host_valid", return_value=(True, None)),
         mock.patch.object(PlanetScaleMySQLSource, "get_schemas", side_effect=Exception("something unexpected")),
-        mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.planetscale_mysql.source.capture_exception"
-        ) as capture,
+        mock.patch("products.warehouse_sources.sources.planetscale_mysql.source.capture_exception") as capture,
     ):
         success, error = PlanetScaleMySQLSource().validate_credentials(_config(), team_id=1)
 
     capture.assert_called_once()
     assert success is False
     assert error == "Could not connect to PlanetScale MySQL. Please check all connection details are valid."
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query (timed out)"),
+        pymysql.err.OperationalError(2006, "MySQL server has gone away (TimeoutError('timed out'))"),
+    ],
+    ids=["read_timeout", "write_timeout"],
+)
+def test_driver_timeout_is_not_non_retryable(error: pymysql.err.OperationalError) -> None:
+    source = PlanetScaleMySQLSource()
+
+    assert not error_message_matches(str(error), {**Any_Source_Errors, **source.get_non_retryable_errors()})

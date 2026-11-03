@@ -53,7 +53,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     update_sync_type_config_keys,
 )
-from products.warehouse_sources.backend.models.ssh_tunnel import from_private_key
+from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnelConfig, from_private_key
 from products.warehouse_sources.backend.temporal.data_imports.sources.common import (
     config,
     credentials_service,
@@ -379,6 +379,7 @@ __all__ = [
     "RowFilterColumn",
     "SQLSource",
     "SQLSourceImplementation",
+    "SSHTunnelConfig",
     "SUPABASE_DIRECT_HOST_IPV4_HINT",
     "SUPABASE_DIRECT_HOST_RE",
     "SafeSQL",

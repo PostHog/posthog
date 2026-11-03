@@ -1,23 +1,21 @@
 from collections.abc import Mapping
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
+    SourceRegistry,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
-    PostgresSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
+from products.warehouse_sources.sources.sdk.internals import (
     _DATABASE_NOT_FOUND_VALIDATION_ERROR,
     PostgresSource,
+    PostgresSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _NEON_POOLED_HOST_CDC_ERROR = (
     "This is Neon's pooled endpoint, which doesn't support logical replication. For CDC, use the "
