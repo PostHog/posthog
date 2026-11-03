@@ -527,6 +527,7 @@ When the partition moves first, or the process restarts, the next attempt for th
 A retry can also cover a different range than the attempt it replaces, for example one flush that replays two earlier flushes.
 Every row therefore names its flush and its Kafka position.
 The index rows are published without waiting for delivery, so a retry can also reach the index only in part.
+`flush_id` is a random 64-bit number for each attempt, written as 16 lowercase hexadecimal digits, so its text order is its numeric order.
 Every row of one (`flush_id`, `topic`, `partition`) carries the same `flush_end_offset` and `flush_row_count`, and its own `flush_row_index` from 0.
 Readers drop duplicates with one rule per (`topic`, `partition`), applied to all rows before any session or team filter:
 
