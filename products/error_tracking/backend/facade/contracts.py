@@ -502,7 +502,7 @@ class ErrorTrackingIssueSummary:
     category: IssueSummaryCategory | None
     model: str
     generated_at: datetime
-    # When the summary was last generated or confirmed unchanged.
+    # When generation last wrote the summary.
     checked_at: datetime
 
 

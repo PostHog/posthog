@@ -271,9 +271,7 @@ class ErrorTrackingStoredIssueSummarySerializer(serializers.Serializer):
     )
     model = serializers.CharField(help_text="Model that wrote the summary.")
     generated_at = serializers.DateTimeField(help_text="When the summary was written.")
-    checked_at = serializers.DateTimeField(
-        help_text="When generation last wrote the summary or confirmed it unchanged."
-    )
+    checked_at = serializers.DateTimeField(help_text="When generation last wrote the summary.")
 
 
 class ErrorTrackingIssueSummaryResponseSerializer(serializers.Serializer):

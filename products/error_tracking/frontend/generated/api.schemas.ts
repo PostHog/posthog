@@ -1161,7 +1161,7 @@ export interface ErrorTrackingStoredIssueSummaryApi {
     model: string
     /** When the summary was written. */
     generated_at: string
-    /** When generation last wrote the summary or confirmed it unchanged. */
+    /** When generation last wrote the summary. */
     checked_at: string
 }
 
