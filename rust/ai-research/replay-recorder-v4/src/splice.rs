@@ -1,5 +1,5 @@
 //! The writer's one pass over an event. It copies the event, and where the inspector read each slot, it writes the
-//! slot's references, and each URL that gets none without its credentials, so it searches the event for no URL.
+//! slot's references, decline markers, or URLs without their credentials, so it searches the event for no URL.
 
 use std::collections::{BTreeMap, HashMap};
 

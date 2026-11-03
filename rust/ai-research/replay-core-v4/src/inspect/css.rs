@@ -304,8 +304,7 @@ fn string_source<'i>(url: CowRcStr<'i>, token: &'i str) -> UrlSource<'i> {
     }
 }
 
-/// The URLs with a credential in a text that may not be CSS, such as the text of a node the window does not know. Only
-/// such a URL changes, and none is fetched, so text that only looks like CSS keeps its bytes.
+/// The URLs with a credential in a text that may not be CSS, such as the text of a node the window does not know.
 pub fn text_link_urls(text: &str, found: &mut impl FnMut(CssUrl<'_>)) {
     if may_hold_url(text) {
         link_urls(text, found);

@@ -22,7 +22,6 @@ static RELATIVE_BASE: LazyLock<Url> =
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Redaction {
-    /// The policy reads no credential in the URL.
     Clean,
     Redacted(String),
     /// The URL can hold a credential, but it is longer than [`MAX_URL_LEN`] or the URL parser does not read it, so the
@@ -59,12 +58,10 @@ pub fn redaction(raw: &str) -> Redaction {
     Redaction::Redacted(parts.origin(&url))
 }
 
-/// Whether a block keeps `raw` otherwise than as the page wrote it.
 pub fn needs_redaction(raw: &str) -> bool {
     redaction(raw) != Redaction::Clean
 }
 
-/// The URL that [`redaction`] makes of `raw`, or `None` when it makes none.
 pub fn without_credentials(raw: &str) -> Option<String> {
     match redaction(raw) {
         Redaction::Redacted(kept) => Some(kept),
@@ -77,7 +74,6 @@ fn parsed_as_the_policy_does(url: &str) -> Option<Url> {
     Url::parse(url).or_else(|_| RELATIVE_BASE.join(url)).ok()
 }
 
-/// Whether the policy reads a credential in `parsed`, with the checks that make it refuse a URL as a credential.
 fn holds_credential(parsed: &Url) -> bool {
     if !parsed.username().is_empty() || parsed.password().is_some() {
         return true;
@@ -466,8 +462,7 @@ mod tests {
                 "https://cdn.example.com/a.png?%ff=1&w=2",
                 Some("https://cdn.example.com/a.png?w=2"),
             ),
-            // The policy reads these paths only once they are decoded and their dot segments are gone, so only the
-            // origin stays.
+            // The policy reads these paths decoded and without dot segments, so only the origin stays.
             (
                 "https://res.example.com/v1%2Fs--abc--/a.png",
                 Some("https://res.example.com/"),

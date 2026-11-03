@@ -211,7 +211,6 @@ impl UrlLimit {
     }
 }
 
-/// The kind of a URL by the slot that holds it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RemoteKind {
     BundledFont(&'static str),
@@ -349,7 +348,6 @@ impl Urls {
         }
     }
 
-    /// Reads `css`, the text of the JSON string at `value`, as `read` says.
     fn read_css(
         &mut self,
         buffers: &Buffers,
@@ -550,7 +548,6 @@ impl Walk<'_> {
         self.push_srcset_value(bytes, srcset, slot);
     }
 
-    /// The text of a node that may not be CSS, so that only its URLs with a credential change.
     fn push_css_links(&mut self, bytes: &[u8], value: Option<Span>) {
         if let (Some(value), Some(text)) = (value, text(bytes, value)) {
             self.image_urls.read_css(
@@ -675,7 +672,6 @@ struct Attributes {
     width: Option<Span>,
     height: Option<Span>,
     source_type: Option<Span>,
-    /// Other attributes that hold a URL, as [`link_attribute`] names them.
     links: Vec<(Span, LinkForm)>,
 }
 

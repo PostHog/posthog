@@ -16,7 +16,7 @@ pub enum EditSource {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Slot {
-    /// A URL attribute of an image slot. The writer writes the URL's reference, or the URL without its credentials.
+    /// A URL attribute of an image slot. The writer writes the URL's reference, its decline marker, or the URL without its credentials.
     Url,
     Srcset(SrcsetSlot),
     Css(CssEdit),
