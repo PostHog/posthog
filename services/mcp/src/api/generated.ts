@@ -1316,6 +1316,7 @@ export namespace Schemas {
      * * `feature_flag` - feature_flag
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
+     * * `inbox` - inbox
      * * `insight` - insight
      * * `llm_analytics` - llm_analytics
      * * `llm_playground` - llm_playground
@@ -1375,6 +1376,7 @@ export namespace Schemas {
       FeatureFlag: 'feature_flag',
       Heatmap: 'heatmap',
       HogFlow: 'hog_flow',
+      Inbox: 'inbox',
       Insight: 'insight',
       LlmAnalytics: 'llm_analytics',
       LlmPlayground: 'llm_playground',
@@ -1437,6 +1439,7 @@ export namespace Schemas {
        * * `feature_flag` - feature_flag
        * * `heatmap` - heatmap
        * * `hog_flow` - hog_flow
+       * * `inbox` - inbox
        * * `insight` - insight
        * * `llm_analytics` - llm_analytics
        * * `llm_playground` - llm_playground
@@ -1704,6 +1707,7 @@ export namespace Schemas {
        * * `feature_flag` - feature_flag
        * * `heatmap` - heatmap
        * * `hog_flow` - hog_flow
+       * * `inbox` - inbox
        * * `insight` - insight
        * * `llm_analytics` - llm_analytics
        * * `llm_playground` - llm_playground
@@ -1791,6 +1795,7 @@ export namespace Schemas {
        * * `feature_flag` - feature_flag
        * * `heatmap` - heatmap
        * * `hog_flow` - hog_flow
+       * * `inbox` - inbox
        * * `insight` - insight
        * * `llm_analytics` - llm_analytics
        * * `llm_playground` - llm_playground
@@ -7610,6 +7615,13 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface ExperimentWarehouseNativeUnitBinding {
+      /** Which ids represent that unit, such as `billing_customer_id`. */
+      id_namespace: string;
+      /** What was randomized, as a stable project-scoped label such as `customer` or `account`. */
+      unit_type: string;
+    }
+
     export type ExperimentWarehouseNativeExposureConfigResponse = { [key: string]: unknown } | null;
 
     export interface ExperimentWarehouseNativeExposureConfig {
@@ -7619,6 +7631,7 @@ export namespace Schemas {
       /** Read-only SQL in the warehouse's dialect, returning one row per exposure with `entity_id`, `variant` and `timestamp` columns. PostHog keeps the first exposure per entity and applies the experiment's date range and multiple-variant handling. */
       query: string;
       response?: ExperimentWarehouseNativeExposureConfigResponse;
+      unit: ExperimentWarehouseNativeUnitBinding;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -7695,6 +7708,7 @@ export namespace Schemas {
       /** Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id` and `timestamp` columns plus any numeric columns a metric can measure. */
       query: string;
       response?: ExperimentWarehouseNativeNodeResponse;
+      unit: ExperimentWarehouseNativeUnitBinding;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -28379,6 +28393,14 @@ export namespace Schemas {
       Agent: 'agent',
     } as const;
 
+    export type MonitoringMetricConfigPurposeEnum = typeof MonitoringMetricConfigPurposeEnum[keyof typeof MonitoringMetricConfigPurposeEnum];
+
+
+    export const MonitoringMetricConfigPurposeEnum = {
+      Expectation: 'expectation',
+      MinimumEvidence: 'minimum_evidence',
+    } as const;
+
     export type ThresholdScalingEnum = typeof ThresholdScalingEnum[keyof typeof ThresholdScalingEnum];
 
 
@@ -28388,6 +28410,8 @@ export namespace Schemas {
     } as const;
 
     export interface MonitoringMetricConfig {
+      /** `expectation` evaluates whether the implementation met its target. `minimum_evidence` checks a fixed minimum sample count: meeting it passes the guard; missing it is inconclusive and requires assessment, never an implementation failure. Use a positive whole-number `gte` target on one unsampled raw count. */
+      purpose?: MonitoringMetricConfigPurposeEnum;
       /**
          * The period the comparison target describes, in minutes. Independent of the soak and run schedule.
          * @maximum 527040
@@ -48066,6 +48090,7 @@ export namespace Schemas {
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `early_significance` - Early Significance
      * * `metrics_not_matured` - Metrics Not Matured
+     * * `flag_shared` - Flag Shared
      */
     export type ExperimentHealthFindingCodeEnum = typeof ExperimentHealthFindingCodeEnum[keyof typeof ExperimentHealthFindingCodeEnum];
 
@@ -48095,6 +48120,7 @@ export namespace Schemas {
       NewFlagNoTraffic: 'new_flag_no_traffic',
       EarlySignificance: 'early_significance',
       MetricsNotMatured: 'metrics_not_matured',
+      FlagShared: 'flag_shared',
     } as const;
 
     /**
@@ -48166,7 +48192,8 @@ export namespace Schemas {
        * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
        * * `new_flag_no_traffic` - New Flag No Traffic
        * * `early_significance` - Early Significance
-       * * `metrics_not_matured` - Metrics Not Matured */
+       * * `metrics_not_matured` - Metrics Not Matured
+       * * `flag_shared` - Flag Shared */
       code: ExperimentHealthFindingCodeEnum;
       /**
          * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -48201,6 +48228,7 @@ export namespace Schemas {
 
     /**
      * * `flag_state` - Flag State
+     * * `flag_shared` - Flag Shared
      * * `flag_history` - Flag History
      * * `split_changed_mid_run` - Split Changed Mid Run
      * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
@@ -48228,6 +48256,7 @@ export namespace Schemas {
 
     export const ExperimentHealthCheckKeyEnum = {
       FlagState: 'flag_state',
+      FlagShared: 'flag_shared',
       FlagHistory: 'flag_history',
       SplitChangedMidRun: 'split_changed_mid_run',
       BucketingChangedMidRun: 'bucketing_changed_mid_run',
@@ -48271,6 +48300,7 @@ export namespace Schemas {
       /** Stable identifier of the check. A check can report several finding codes, so the key is not a finding code.
        *
        * * `flag_state` - Flag State
+       * * `flag_shared` - Flag Shared
        * * `flag_history` - Flag History
        * * `split_changed_mid_run` - Split Changed Mid Run
        * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
@@ -57116,10 +57146,10 @@ export namespace Schemas {
      * * `review` - review
      * * `observe` - observe
      */
-    export type PurposeEnum = typeof PurposeEnum[keyof typeof PurposeEnum];
+    export type RunPurposeEnum = typeof RunPurposeEnum[keyof typeof RunPurposeEnum];
 
 
-    export const PurposeEnum = {
+    export const RunPurposeEnum = {
       Review: 'review',
       Observe: 'observe',
     } as const;
@@ -57142,7 +57172,7 @@ export namespace Schemas {
        *
        * * `review` - review
        * * `observe` - observe */
-      readonly purpose: PurposeEnum;
+      readonly purpose: RunPurposeEnum;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of branch/run type, a commit SHA prefix, or an exact PR number) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.
        *
        * * `exact` - exact
@@ -62050,7 +62080,7 @@ export namespace Schemas {
     } as const;
 
     export interface MarketingAnalyticsRecommendationStep {
-      /** Text to paste into Google Ads at this step, such as a campaign name or a keyword in match type syntax. */
+      /** Text to paste into Google Ads at this step, such as a campaign name or keywords in match type syntax, one per line. */
       copyValue?: string | null;
       /** The words in `text` that link to `url`, usually the section name. */
       linkText?: string | null;
@@ -124487,6 +124517,28 @@ export namespace Schemas {
       connected_at?: string | null;
     }
 
+    /**
+     * * `Redshift` - Redshift
+     * * `Snowflake` - Snowflake
+     * * `BigQuery` - BigQuery
+     * * `Postgres` - Postgres
+     * * `Databricks` - Databricks
+     * * `AzureBlob` - Azure Blob
+     * * `S3` - S3
+     */
+    export type UserCreatableDestinationTypeEnum = typeof UserCreatableDestinationTypeEnum[keyof typeof UserCreatableDestinationTypeEnum];
+
+
+    export const UserCreatableDestinationTypeEnum = {
+      Redshift: 'Redshift',
+      Snowflake: 'Snowflake',
+      BigQuery: 'BigQuery',
+      Postgres: 'Postgres',
+      Databricks: 'Databricks',
+      AzureBlob: 'AzureBlob',
+      S3: 'S3',
+    } as const;
+
     export interface UserCustomerAnalyticsConfig {
       /** Account properties pinned in sidebar display order. */
       readonly pinned_properties: readonly PinnedAccountProperty[];
@@ -126368,6 +126420,16 @@ export namespace Schemas {
          * @nullable
          */
       warehouse_source_type: string | null;
+      /** Warehouse destination PostHog can send data to when the tool is that warehouse, or null for any other tool.
+       *
+       * * `Redshift` - Redshift
+       * * `Snowflake` - Snowflake
+       * * `BigQuery` - BigQuery
+       * * `Postgres` - Postgres
+       * * `Databricks` - Databricks
+       * * `AzureBlob` - Azure Blob
+       * * `S3` - S3 */
+      warehouse_destination_type: UserCreatableDestinationTypeEnum | null;
       /** How the wizard sets up the source: in the terminal or in the app. Null for a tool with no warehouse source.
        *
        * * `in-cli` - In the terminal

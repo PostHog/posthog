@@ -144,6 +144,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     log_connection_open,
     resolve_safe_host,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.oauth_pointers import PointerPath
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.primary_keys import resolve_merge_keys
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import (
     SourceKey,
@@ -368,6 +369,7 @@ __all__ = [
     "OffsetPaginator",
     "PageNumberPaginator",
     "PageNumberPaginatorConfig",
+    "PointerPath",
     "PaginatorConfig",
     "ParamLocation",
     "ParamStyle",

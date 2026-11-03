@@ -247,9 +247,6 @@ frontend/src/lib/components/SessionTimeline/timeline/items/logs.tsx -> products/
 frontend/src/lib/components/SessionTimeline/timeline/items/page.tsx -> products/error_tracking/frontend/components/RuntimeIcon.tsx
 frontend/src/lib/components/Sharing/SharingModal.tsx -> frontend/src/queries/nodes/InsightQuery/defaults.ts
 frontend/src/lib/components/Sharing/SharingModal.tsx -> frontend/src/scenes/insights/insightVizDataLogic.ts
-frontend/src/lib/components/SmoothingFilter/SmoothingFilter.tsx -> frontend/src/scenes/insights/insightLogic.tsx
-frontend/src/lib/components/SmoothingFilter/SmoothingFilter.tsx -> frontend/src/scenes/insights/insightVizDataLogic.ts
-frontend/src/lib/components/SmoothingFilter/SmoothingFilter.tsx -> products/product_analytics/frontend/insights/trends/trendsDataLogic.ts
 frontend/src/lib/components/SurveyResponseDisplay/SurveyResponseDisplay.tsx -> frontend/src/scenes/surveys/hooks/useSurveyResponseColumns.tsx
 frontend/src/lib/components/SurveyResponseDisplay/SurveyResponseDisplay.tsx -> frontend/src/scenes/surveys/surveyLogic.tsx
 frontend/src/lib/components/SurveyResponseDisplay/SurveyResponseDisplay.tsx -> frontend/src/scenes/surveys/utils.ts
