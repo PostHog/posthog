@@ -67,6 +67,7 @@ from .analytics import SuggestionOutcome, report_outcomes
 from .candidates.base import inlining_could_deny_a_reader, reads_direct_source
 from .candidates.unmaterialize import effective_definition
 from .payloads import payload_from_json
+from .rules import RULES
 from .suggestions import HUMAN_TRANSITIONS, Transitions, transition_to
 
 if TYPE_CHECKING:
@@ -97,6 +98,13 @@ class Acceptor(ABC):
 
 KEEP_MATERIALIZED_FIELD = "keep_materialized"
 DELETE_VIEW_FIELD = "delete_view"
+DELETE_NEEDS_EVERY_DAY_OF_READS = (
+    "Some days in the read window have no read data, so a view read only on those days would look unread. "
+    "Mark it deprecated instead."
+)
+ALREADY_MARKED_DEPRECATED = (
+    "This suggestion was already accepted by marking the view deprecated. Delete the view from its page instead."
+)
 WAREHOUSE_SUGGESTION_TRIGGER_JOB_TYPE = "warehouse_suggestion"
 OTHER_VIEWS_READ_IT = "Other views now read from this view."
 SYNCS_READ_IT = "This view now feeds person properties, account properties, a destination or a workflow."
@@ -159,8 +167,11 @@ class DeprecateAcceptor(CertificationAcceptor):
     ) -> CreatedAsset:
         if not request.options.delete_view:
             return super().accept(suggestion, payload, request)
-        if suggestion.subject_id in saved_queries_feeding_consumers(suggestion.team_id, [suggestion.subject_id]):
-            raise SuggestionOutdatedError(SYNCS_READ_IT)
+        if suggestion.evidence.get("days_with_data", 0) < RULES.deprecate.min_days_with_data_to_delete:
+            raise AcceptOptionRefusedError(DELETE_VIEW_FIELD, DELETE_NEEDS_EVERY_DAY_OF_READS)
+        blocker = _delete_blocker(suggestion.team_id, suggestion.subject_id)
+        if blocker is not None:
+            raise SuggestionOutdatedError(blocker)
         stopped_materialization = saved_query_still_materializes(suggestion.team_id, suggestion.subject_id)
         try:
             delete_saved_query_by_id(
@@ -175,6 +186,14 @@ class DeprecateAcceptor(CertificationAcceptor):
         except HasDependentsError:
             raise SuggestionOutdatedError(OTHER_VIEWS_READ_IT)
         return DeletionAsset(saved_query_id=str(suggestion.subject_id), stopped_materialization=stopped_materialization)
+
+
+def _delete_blocker(team_id: int, saved_query_id: UUID) -> str | None:
+    if dependent_saved_query_ids(team_id, [saved_query_id]).get(saved_query_id):
+        return OTHER_VIEWS_READ_IT
+    if saved_query_id in saved_queries_feeding_consumers(team_id, [saved_query_id]):
+        return SYNCS_READ_IT
+    return None
 
 
 def _may_stop_materializing(suggestion: WarehouseSuggestion, options: AcceptOptions) -> bool:
@@ -453,6 +472,8 @@ def _accept(team_id: int, suggestion_id: UUID, request: AcceptRequest) -> Accept
     _refuse_options_the_kind_ignores(acceptor, kind, request.options)
     status = WarehouseSuggestionStatus(suggestion.status)
     if status == WarehouseSuggestionStatus.ACCEPTED:
+        if request.options.delete_view and _kept_the_view(suggestion):
+            raise SuggestionOutdatedError(ALREADY_MARKED_DEPRECATED)
         return AcceptOutcome(suggestion=suggestion, newly_accepted=False)
     if status != WarehouseSuggestionStatus.PROPOSED:
         raise SuggestionAlreadyDecidedError(status, WarehouseSuggestionStatus.ACCEPTED)
@@ -509,6 +530,10 @@ def _refuse_options_the_kind_ignores(acceptor: Acceptor, kind: WarehouseSuggesti
     ignored = [name for name in chosen_fields(options) if name not in acceptor.option_fields]
     if ignored:
         raise AcceptOptionRefusedError(ignored[0], OPTION_NOT_APPLICABLE.format(kind=kind))
+
+
+def _kept_the_view(suggestion: WarehouseSuggestion) -> bool:
+    return "certification_id" in (suggestion.created_asset or {})
 
 
 def _subject_exists(suggestion: WarehouseSuggestion) -> bool:

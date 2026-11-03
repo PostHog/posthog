@@ -4,7 +4,7 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 
-import { isDeprecatePayload, noReadsLabel, refreshCostLabel } from '../suggestionCopy'
+import { deleteDisabledReason, isDeprecatePayload, noReadsLabel, refreshCostLabel } from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 
 type RefreshChoice = 'stop' | 'keep'
@@ -53,7 +53,12 @@ export function DeprecateSuggestionModal(): JSX.Element | null {
     }
     const inFlight = !!actionsInFlight[acceptConfirmSuggestion.id]
     const materialized = payload.materialized !== false
-    const noReads = noReadsLabel(status?.window_days ?? 0)
+    const windowDays = status?.window_days ?? 0
+    const noReads = noReadsLabel(windowDays)
+    const deleteBlockedReason = deleteDisabledReason(acceptConfirmSuggestion.evidence, windowDays)
+    const actionChoices = ACTION_CHOICES.map((choice) =>
+        choice.value === 'delete' ? { ...choice, disabledReason: deleteBlockedReason } : choice
+    )
 
     return (
         <LemonModal
@@ -96,7 +101,7 @@ export function DeprecateSuggestionModal(): JSX.Element | null {
                         aria-label="What to do"
                         value={deleteView ? 'delete' : 'deprecate'}
                         onChange={(choice) => setDeleteView(choice === 'delete')}
-                        options={ACTION_CHOICES}
+                        options={actionChoices}
                         radioPosition="top"
                     />
                 </fieldset>

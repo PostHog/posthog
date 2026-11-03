@@ -42,6 +42,7 @@ function suggestion(
             human_users: kind === 'certify' ? 9 : 0,
             human_days: kind === 'certify' ? 28 : 0,
             requests_by_surface: kind === 'certify' ? { dashboard: 400, mcp: 240 } : {},
+            days_with_data: 30,
         },
         evidence_window_start: '2026-09-07T00:00:00Z',
         evidence_window_end: '2026-10-07T00:00:00Z',
