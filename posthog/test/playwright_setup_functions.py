@@ -1,5 +1,6 @@
 """Playwright setup functions for test data creation."""
 
+import time
 import secrets
 from dataclasses import dataclass
 from datetime import datetime
@@ -629,6 +630,9 @@ class PlaywrightHogFunctionTemplateData(BaseModel):
     status: str = "hidden"
     template_type: str = "destination"
     inputs_schema: list[dict[str, Any]] = []
+    # Hog source. A test whose subject reads the code itself, such as the fetch-URL trace behind
+    # secret rebinding, has to seed the fetch call it expects to be traced.
+    code: str = "return event"
 
 
 class PlaywrightHogFunctionTemplateResult(BaseModel):
@@ -660,7 +664,7 @@ def create_hog_function_template(
             sha="playwright-seed",
             name=data.name,
             description=data.name,
-            code="return event",
+            code=data.code,
             code_language="hog",
             inputs_schema=data.inputs_schema,
             type=data.template_type,
@@ -718,6 +722,60 @@ def create_oauth_application(data: PlaywrightOAuthApplicationData) -> Playwright
     return PlaywrightOAuthApplicationResult(client_id=app.client_id, name=app.name, created=created)
 
 
+class PlaywrightIntegrationData(BaseModel):
+    team_id: int
+    kind: str = "slack"
+    integration_id: str = "e2e-integration"
+    config: dict[str, Any] = {}
+
+
+class PlaywrightIntegrationResult(BaseModel):
+    integration_id: int
+
+
+def create_integration(data: PlaywrightIntegrationData) -> PlaywrightIntegrationResult:
+    """Seed an Integration row for a team.
+
+    The real integrations arrive through an OAuth round trip that a browser test cannot complete,
+    so a test that needs a destination with something linked to it seeds the row instead.
+    """
+    from posthog.models.integration import Integration
+
+    integration, _ = Integration.objects.get_or_create(
+        team_id=data.team_id,
+        kind=data.kind,
+        integration_id=data.integration_id,
+        defaults={"config": data.config, "sensitive_config": {"access_token": "e2e-not-a-real-token"}},
+    )
+    return PlaywrightIntegrationResult(integration_id=integration.pk)
+
+
+class PlaywrightExpireSessionReauthData(BaseModel):
+    session_key: str
+
+
+class PlaywrightExpireSessionReauthResult(BaseModel):
+    expired: bool
+
+
+def expire_session_reauth(data: PlaywrightExpireSessionReauthData) -> PlaywrightExpireSessionReauthResult:
+    """Move a session's re-auth clock back past the sensitive-action window.
+
+    A browser that just logged in is always recently authenticated, so no amount of clicking reaches
+    the re-auth prompt until the session's own timestamps say it is old.
+    """
+    from importlib import import_module
+
+    store = import_module(settings.SESSION_ENGINE).SessionStore(data.session_key)
+    if not store.exists(data.session_key):
+        return PlaywrightExpireSessionReauthResult(expired=False)
+    stale = time.time() - settings.SESSION_SENSITIVE_ACTIONS_AGE - 60
+    store[settings.SESSION_COOKIE_CREATED_AT_KEY] = stale
+    store[settings.SESSION_LAST_REAUTH_AT_KEY] = stale
+    store.save()
+    return PlaywrightExpireSessionReauthResult(expired=True)
+
+
 @dataclass(frozen=True)
 class SetupFunctionConfig:
     function: PlaywrightSetupFunction
@@ -745,6 +803,16 @@ PLAYWRIGHT_SETUP_FUNCTIONS: dict[str, SetupFunctionConfig] = {
         function=seed_evaluation,  # type: ignore
         input_model=PlaywrightSeedEvaluationData,
         description="Seeds an Evaluation row with output_config stored exactly as given, bypassing save() normalization",
+    ),
+    "integration": SetupFunctionConfig(
+        function=create_integration,  # type: ignore
+        input_model=PlaywrightIntegrationData,
+        description="Seeds an Integration row for a team, standing in for an OAuth connection",
+    ),
+    "expire_session_reauth": SetupFunctionConfig(
+        function=expire_session_reauth,  # type: ignore
+        input_model=PlaywrightExpireSessionReauthData,
+        description="Backdates a session past the sensitive-action window so the re-auth prompt appears",
     ),
     "oauth_application": SetupFunctionConfig(
         function=create_oauth_application,  # type: ignore

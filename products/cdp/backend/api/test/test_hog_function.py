@@ -1420,7 +1420,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         stored = HogFunction.objects.get(id=create.json()["id"])
         if expected_status == 400:
             assert res.json()["attr"] == "inputs__secret1"
-            assert stored.inputs["url"]["value"] == "https://example.com"
+            assert (stored.inputs or {})["url"]["value"] == "https://example.com"
         assert stored.encrypted_inputs["secret1"]["value"] == (
             "NEW SECRET" if secret_input == {"value": "NEW SECRET"} else "I AM SECRET"
         )
@@ -1482,7 +1482,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     ) -> None:
         integration = Integration.objects.create(team=self.team, kind="slack", config={}, sensitive_config={})
         other = Integration.objects.create(team=self.team, kind="slack", integration_id="other", config={})
-        payload = {
+        payload: dict[str, Any] = {
             "type": "destination",
             "name": "Fetch URL",
             "hog": "fetch(inputs.url, {'body': inputs.body, 'headers': {'Authorization': inputs.slack.access_token}});",

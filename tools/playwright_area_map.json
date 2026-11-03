@@ -73,7 +73,7 @@
         "surveys": ["products/surveys/frontend/e2e/"]
     },
     "scenes": {
-        "hog-functions": ["playwright/e2e/webhook-secret-headers.spec.ts"],
+        "hog-functions": ["playwright/e2e/webhook-secret-headers.spec.ts", "playwright/e2e/cdp-secret-binding.spec.ts"],
         "billing": ["products/billing/frontend/e2e/"],
         "surveys": ["products/surveys/frontend/e2e/"],
         "session-recordings": ["products/replay/frontend/e2e/"],
@@ -186,7 +186,8 @@
         "products/workflows/frontend/**": [
             "playwright/e2e/workflows-hidden-templates-load.spec.ts",
             "playwright/e2e/workflows-property-filter-category-dropdown.spec.ts",
-            "playwright/e2e/webhook-secret-headers.spec.ts"
+            "playwright/e2e/webhook-secret-headers.spec.ts",
+            "playwright/e2e/cdp-secret-binding.spec.ts"
         ],
         "frontend/src/toolbar/**": ["playwright/e2e/toolbar.spec.ts"]
     },

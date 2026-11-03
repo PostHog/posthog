@@ -1261,22 +1261,26 @@ function CyclotronJobInputWithSchema({
                                 </LemonButton>
                             </div>
                         ) : (
-                            <CyclotronJobInputRenderer
-                                schema={schema}
-                                input={hiddenSecret ? { value: '' } : (value ?? { value: '' })}
-                                // Save sends a `secret` input as "keep the stored value", so a new value drops the flag.
-                                onChange={
-                                    hiddenSecret ? (newValue) => onChange({ ...newValue, secret: false }) : onChange
-                                }
-                                onInputChange={onInputChange}
-                                onInputsChange={onInputsChange}
-                                configuration={configuration}
-                                parentConfiguration={parentConfiguration}
-                                sampleGlobalsWithInputs={sampleGlobalsWithInputs}
-                                emailFieldErrors={emailFieldErrors}
-                                emailLiveChanges={emailLiveChanges}
-                                emailSaveIndicator={emailSaveIndicator}
-                            />
+                            // `contents` keeps the wrapper out of the layout; it exists only to give
+                            // each input a stable handle, since the label carries no `htmlFor`.
+                            <div className="contents" data-attr={`cyclotron-job-input-${schema.key}`}>
+                                <CyclotronJobInputRenderer
+                                    schema={schema}
+                                    input={hiddenSecret ? { value: '' } : (value ?? { value: '' })}
+                                    // Save sends a `secret` input as "keep the stored value", so a new value drops the flag.
+                                    onChange={
+                                        hiddenSecret ? (newValue) => onChange({ ...newValue, secret: false }) : onChange
+                                    }
+                                    onInputChange={onInputChange}
+                                    onInputsChange={onInputsChange}
+                                    configuration={configuration}
+                                    parentConfiguration={parentConfiguration}
+                                    sampleGlobalsWithInputs={sampleGlobalsWithInputs}
+                                    emailFieldErrors={emailFieldErrors}
+                                    emailLiveChanges={emailLiveChanges}
+                                    emailSaveIndicator={emailSaveIndicator}
+                                />
+                            </div>
                         )}
                         {warning && !value?.secret ? (
                             <div className="flex gap-1 items-start mt-1 text-xs text-warning">

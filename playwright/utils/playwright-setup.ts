@@ -365,12 +365,44 @@ export class PlaywrightSetup {
         status?: 'alpha' | 'beta' | 'stable' | 'deprecated' | 'hidden' | 'coming_soon' | 'client_side'
         template_type?: 'destination' | 'transformation' | 'source_webhook' | 'site_destination' | 'site_app'
         inputs_schema?: Array<Record<string, any>>
+        code?: string
     }): Promise<{ template_id: string; created: boolean }> {
         const result = await this.callSetupEndpoint('hog_function_template', { data })
         if (!result.success) {
             throw new Error(`Failed to seed hog function template: ${result.error}`)
         }
         return result.result as { template_id: string; created: boolean }
+    }
+
+    /**
+     * Seed an Integration row for a team. The real ones arrive through an OAuth round trip a
+     * browser test cannot complete, so a test that needs something linked seeds the row.
+     */
+    async seedIntegration(data: {
+        team_id: number
+        kind?: string
+        integration_id?: string
+        config?: Record<string, any>
+    }): Promise<{ integration_id: number }> {
+        const result = await this.callSetupEndpoint('integration', { data })
+        if (!result.success) {
+            throw new Error(`Failed to seed integration: ${result.error}`)
+        }
+        return result.result as { integration_id: number }
+    }
+
+    /**
+     * Move a logged-in session's re-auth clock back past the sensitive-action window, so the next
+     * sensitive save opens the re-authentication modal.
+     */
+    async expireSessionReauth(sessionKey: string): Promise<void> {
+        const result = await this.callSetupEndpoint('expire_session_reauth', { data: { session_key: sessionKey } })
+        if (!result.success) {
+            throw new Error(`Failed to expire session re-auth: ${result.error}`)
+        }
+        if (!(result.result as { expired: boolean }).expired) {
+            throw new Error('Session key did not match a stored session')
+        }
     }
 }
 
