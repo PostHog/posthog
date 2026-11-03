@@ -1,11 +1,8 @@
-import contextvars
 from collections.abc import Sequence
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import AbstractContextManager
 from datetime import date, datetime, timedelta, tzinfo
-from typing import Any, Optional, Union, cast
+from typing import Any, Optional, Union
 
-from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
 
@@ -32,6 +29,7 @@ from posthog.hogql.property import action_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
+from posthog.hogql_queries.utils.caller_context import map_in_caller_context
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team, User
 from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA
@@ -40,6 +38,7 @@ from posthog.models.team import WeekStartDay
 from posthog.utils import get_safe_cache
 
 from products.actions.backend.models.action import Action
+from products.data_modeling.backend.facade import api as data_modeling_api
 
 EARLIEST_TIMESTAMP_CACHE_TTL = 24 * 60 * 60
 EARLIEST_EVENT_TIMESTAMP = datetime.fromisoformat("1980-01-01T00:00:00Z")
@@ -113,6 +112,13 @@ def _get_event_earliest_timestamp_query(team: Team, node: Union[EventsNode, Acti
     )
 
 
+def _data_warehouse_cache_key_suffix(team: Team, table_name: str) -> str:
+    # A view returns different rows after someone edits its HogQL or it materializes again, so its
+    # earliest timestamp is valid only for the revision it was read from. A warehouse table has no revision.
+    revision = data_modeling_api.saved_query_data_revision(team.pk, table_name)
+    return f"_{revision}" if revision else ""
+
+
 def _get_earliest_timestamp_cache_key(
     team: Team,
     node: Union[
@@ -131,11 +137,14 @@ def _get_earliest_timestamp_cache_key(
             # Use the same cache key as EventsNode(event=None) since they return the same result
             return f"earliest_timestamp_event_{team.pk}"
         case DataWarehouseNode(table_name=table_name, timestamp_field=timestamp_field):
-            return f"earliest_timestamp_data_warehouse_{team.pk}_{table_name}_{timestamp_field}"
+            suffix = _data_warehouse_cache_key_suffix(team, table_name)
+            return f"earliest_timestamp_data_warehouse_{team.pk}_{table_name}_{timestamp_field}{suffix}"
         case FunnelsDataWarehouseNode(table_name=table_name, timestamp_field=timestamp_field):
-            return f"earliest_timestamp_funnels_data_warehouse_{team.pk}_{table_name}_{timestamp_field}"
+            suffix = _data_warehouse_cache_key_suffix(team, table_name)
+            return f"earliest_timestamp_funnels_data_warehouse_{team.pk}_{table_name}_{timestamp_field}{suffix}"
         case LifecycleDataWarehouseNode(table_name=table_name, timestamp_field=timestamp_field):
-            return f"earliest_timestamp_lifecycle_data_warehouse_{team.pk}_{table_name}_{timestamp_field}"
+            suffix = _data_warehouse_cache_key_suffix(team, table_name)
+            return f"earliest_timestamp_lifecycle_data_warehouse_{team.pk}_{table_name}_{timestamp_field}{suffix}"
         case ActionsNode(id=action_id):
             return f"earliest_timestamp_action_{team.pk}_{action_id}"
         case EventsNode(event=None):
@@ -286,19 +295,12 @@ def get_earliest_timestamp_from_series(
         else:
             nodes.append(node)
 
-    if len(nodes) == 1 or settings.IN_UNIT_TESTING:
-        timestamps = [_get_earliest_timestamp_from_node(team, node, user) for node in nodes]
-
-    else:
-        with ThreadPoolExecutor(max_workers=min(len(nodes), 4)) as executor:
-            # ThreadPoolExecutor does not inherit contextvars (query tags) by default; copy the
-            # current context into each worker so tagged sync_execute calls don't fail untagged.
-            futures = [
-                executor.submit(contextvars.copy_context().run, _get_earliest_timestamp_from_node, team, node, user)
-                for node in nodes
-            ]
-            timestamps = [cast(datetime, future.result()) for future in futures]
-
+    timestamps = map_in_caller_context(
+        lambda node: _get_earliest_timestamp_from_node(team, node, user),
+        nodes,
+        max_workers=4,
+        thread_name_prefix="earliest_timestamp",
+    )
     return min(timestamps)
 
 

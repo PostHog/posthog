@@ -2454,6 +2454,7 @@ describe('CDP API', () => {
         })
 
         it.each([
+            ['a field this version does not know', { ...codeSend, priority: 'high' }],
             ['content without a body', { ...codeSend, content: { subject: 'Hi', html: '', text: '' } }],
             ['content with an empty subject', { ...codeSend, content: { subject: '', text: 'Hi' } }],
             ['a sender without an integration', { ...codeSend, from: { email: 'security@example.com' } }],
@@ -2462,7 +2463,6 @@ describe('CDP API', () => {
                 'more than 10 cc addresses',
                 { ...codeSend, cc: Array.from({ length: 11 }, (_, i) => `copy-${i}@example.com`) },
             ],
-            ['a field this version does not know', { ...codeSend, priority: 'high' }],
         ])('refuses a code send with %s', async (_desc, acceptedSend) => {
             const invalidBefore = await outcomeCount('invalid_request')
 
