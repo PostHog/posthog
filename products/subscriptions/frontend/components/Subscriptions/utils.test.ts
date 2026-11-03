@@ -297,10 +297,10 @@ describe('Slack gallery delivery config', () => {
             false,
         ],
         [
-            'removes the flag for a prompt subscription',
+            'keeps the flag for a prompt subscription without files:write',
             subscription({ resource_type: 'ai_prompt' }),
-            [slackIntegration(7, 'files:write')],
-            false,
+            [slackIntegration(7, 'chat:write')],
+            true,
         ],
         ['removes the flag when the loaded integration is missing', subscription({}), [], false],
         ['preserves the flag while integrations are unresolved', subscription({}), null, true],
