@@ -16,7 +16,7 @@ from dataclasses import replace
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ActivityError
+from temporalio.exceptions import ActivityError, WorkflowAlreadyStartedError
 
 from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
@@ -35,6 +35,11 @@ with workflow.unsafe.imports_passed_through():
     from posthog.temporal.common.utils import close_db_connections
 
     from products.alerts.backend.platform_chart_detail import RenderedChart, pending_chart_alert_id, with_chart
+    from products.alerts.backend.platform_investigation_detail import (
+        InvestigationClaims,
+        InvestigationStart,
+        requested_investigation,
+    )
     from products.alerts_platform.backend.facade.contracts import (
         RECORD_OUTCOMES_ACTIVITY,
         AlertDeliveryRequest,
@@ -83,6 +88,8 @@ FAIL_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=20)
 # and never holds it back. It is best effort, so it gets what the batch budget leaves.
 STOP_QUERIES_START_TO_CLOSE = dt.timedelta(seconds=60)
 RECORD_START_TO_CLOSE = dt.timedelta(seconds=8)
+CLAIM_START_TO_CLOSE = dt.timedelta(seconds=10)
+CLAIM_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=20)
 RECORD_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=12)
 # The pool admits once per round, so a batch that admits only once evaluates at most one pool of
 # checks per tick. Rounds refill the slots that finished checks free, the way production's
@@ -99,7 +106,8 @@ EVALUATION_BUDGET = (
     + max(CHECK_SCHEDULE_TO_CLOSE, REAL_TIME_CHECK_SCHEDULE_TO_CLOSE)
     + max(CHART_SCHEDULE_TO_CLOSE, FAIL_SCHEDULE_TO_CLOSE)
     + RECORD_SCHEDULE_TO_CLOSE
-    + max(FAIL_SCHEDULE_TO_CLOSE + RECORD_SCHEDULE_TO_CLOSE, STOP_QUERIES_START_TO_CLOSE)
+    + CLAIM_SCHEDULE_TO_CLOSE
+    + max(FAIL_SCHEDULE_TO_CLOSE + RECORD_SCHEDULE_TO_CLOSE + CLAIM_SCHEDULE_TO_CLOSE, STOP_QUERIES_START_TO_CLOSE)
 )
 _PATCH_READMISSION = "platform-insight-readmission-2026-10"
 # Runs started before it recorded every outcome in one activity, and replay must schedule the same.
@@ -115,6 +123,8 @@ _PATCH_CHART_AFTER_CHECK = "platform-insight-chart-after-check-2026-10"
 _PATCH_RECORD_AS_FINISHED = "platform-insight-record-as-finished-2026-10"
 # Runs started before it returned when their first round found the pool full, and replay must not poll.
 _PATCH_WAIT_FOR_POOL = "platform-insight-wait-for-pool-2026-10"
+# Runs started before it claimed investigations after a record, and replay must not schedule a claim.
+_PATCH_INVESTIGATIONS = "platform-insight-investigations-2026-11"
 
 
 @frozen
@@ -157,6 +167,12 @@ class FailedInsightCheckInputs:
     configuration_id: str
     error_message: str
     error_type: str | None = None
+
+
+@frozen
+class ClaimInsightInvestigationsInputs:
+    team_id: int
+    outcomes: tuple[PlatformAlertOutcome, ...]
 
 
 @frozen
@@ -333,6 +349,15 @@ def _release_platform_llm_check(thread: "asyncio.Future[SourceBatchEvaluation | 
     # Read the error of a thread nobody awaits any more, so asyncio does not log it as never retrieved.
     if not thread.cancelled():
         thread.exception()
+
+
+@activity.defn
+@close_db_connections
+def claim_platform_insight_investigations_activity(inputs: ClaimInsightInvestigationsInputs) -> InvestigationClaims:
+    """Claims the investigations recorded firings asked for. A retry gets the first claim's answer."""
+    from products.alerts.backend.platform_investigation import claim_requested_investigations  # noqa: PLC0415
+
+    return claim_requested_investigations(inputs.team_id, inputs.outcomes)
 
 
 @activity.defn
@@ -751,6 +776,42 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         # Started only after the record, because a delivery reads the history row the record writes.
         recorded = {str(outcome.configuration_id) for outcome in chunk}
         await start_deliveries([delivery for delivery in deliveries if delivery.configuration_id in recorded])
+        investigated = tuple(outcome for outcome in chunk if requested_investigation(outcome) is not None)
+        if workflow.patched(_PATCH_INVESTIGATIONS) and investigated:
+            # After the chunk's own deliveries, so a slow claim holds back only the firings it holds.
+            claims = await self._claim_investigations(inputs, investigated)
+            await asyncio.gather(*(self._start_investigation(start) for start in claims.starts))
+            await start_deliveries(list(claims.deliveries))
+
+    async def _claim_investigations(
+        self, inputs: SourceEvaluationInputs, outcomes: tuple[PlatformAlertOutcome, ...]
+    ) -> InvestigationClaims:
+        try:
+            return await workflow.execute_activity(
+                claim_platform_insight_investigations_activity,
+                ClaimInsightInvestigationsInputs(team_id=inputs.batch_key.team_id, outcomes=outcomes),
+                start_to_close_timeout=CLAIM_START_TO_CLOSE,
+                schedule_to_close_timeout=CLAIM_SCHEDULE_TO_CLOSE,
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+        except ActivityError:
+            # The outcomes are recorded, so a failure here must not record them again. Each held
+            # firing goes out at its hold's deadline, uninvestigated, as a firing whose agent never ran.
+            workflow.logger.warning("Could not claim the investigations of recorded platform insight firings")
+            return InvestigationClaims()
+
+    async def _start_investigation(self, start: InvestigationStart) -> None:
+        try:
+            await workflow.start_child_workflow(
+                "anomaly-investigation",
+                start.workflow_inputs(),
+                id=start.workflow_id,
+                task_queue=settings.MAX_AI_TASK_QUEUE,
+                parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+            )
+        except WorkflowAlreadyStartedError:
+            # A retried record claims again and gets the same investigation back.
+            pass
 
 
 def _maximum_attempts(check: AdmittedInsightCheck) -> int:
@@ -770,6 +831,7 @@ PLATFORM_EVALUATION_ACTIVITIES = [
     plan_platform_insight_checks_activity,
     evaluate_platform_insight_check_activity,
     render_platform_insight_chart_activity,
+    claim_platform_insight_investigations_activity,
     fail_platform_insight_check_activity,
     stop_platform_insight_queries_activity,
 ]

@@ -8,6 +8,7 @@ The decision is a read, so it can run inside an evaluation that a retry repeats.
 write, and runs once the evaluation is recorded.
 """
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any, Final
 from uuid import UUID
@@ -17,17 +18,42 @@ from django.db import connection, transaction
 from posthog.dataclasses import frozen
 from posthog.temporal.alerts.investigation import (
     InvestigationDecision,
+    carried_verdict_suppresses,
     decide_within_budget,
     investigates,
     refusing_investigations,
 )
 
 from products.alerts.backend.investigation_episode import STARTED_INVESTIGATION_STATUSES
-from products.alerts.backend.investigation_release import earlier_in_episode, last_verdict
+from products.alerts.backend.investigation_release import (
+    RUNNING_HOLD,
+    earlier_in_episode,
+    last_verdict,
+    previous_verdict_in_episode,
+    release_held,
+)
 from products.alerts.backend.models.alert import AlertConfiguration, InvestigationStatus
 from products.alerts.backend.models.investigation import InsightAlertInvestigation
+from products.alerts.backend.platform_investigation_detail import (
+    INVESTIGATION_REQUESTED_KEY,
+    InvestigationClaims,
+    InvestigationStart,
+    requested_investigation,
+)
+from products.alerts_platform.backend.facade.contracts import (
+    AlertEventKind,
+    HeldDelivery,
+    HeldDeliveryAddress,
+    PlatformAlertCheckInput,
+    PlatformAlertOutcome,
+    SourceBatchEvaluation,
+)
+from products.alerts_platform.backend.facade.enums import HoldReleasedBy
+from products.alerts_platform.backend.facade.lifecycle import AlertState, NotificationAction
 
 _CLAIM_LOCK_SQL: Final = "SELECT pg_advisory_xact_lock(hashtext(%s))"
+HOLD_REASON: Final = "investigation"
+_EVALUATED_KEYS: Final = ("anomaly_scores", "triggered_points", "triggered_dates", "interval", "triggered_metadata")
 
 
 @frozen
@@ -98,3 +124,103 @@ def claim_investigation(
             evaluated=evaluated,
         )
     return InvestigationClaim(investigation_id=investigation.id, claimed=not refused)
+
+
+def with_investigation(check: PlatformAlertCheckInput, evaluation: SourceBatchEvaluation) -> SourceBatchEvaluation:
+    """The evaluation of a check the platform owns, with the insight stack's investigation rules applied.
+
+    A firing the agent investigates asks for its claim in `source_detail`, and a gated alert holds the
+    firing's delivery until the verdict. A firing past the budget is muted when the firing's last
+    verdict suppresses it. Only an owned check, because a parallel run must never pay for an agent run.
+    """
+    if not check.owned_by_platform or check.legacy_configuration_id is None or len(evaluation.outcomes) != 1:
+        return evaluation
+    outcome = evaluation.outcomes[0]
+    if len(outcome.groups) != 1 or outcome.groups[0].new_state != AlertState.FIRING.value:
+        return evaluation
+    alert = AlertConfiguration.objects.filter(team_id=check.team_id, id=check.legacy_configuration_id).first()
+    if alert is None:
+        return evaluation
+    group = outcome.groups[0]
+    decision = decide_investigation(
+        alert,
+        firing=True,
+        configuration_id=check.id,
+        evaluation_key=outcome.evaluation_key,
+        episode_started_at=group.firing_episode.started_at if group.firing_episode else None,
+    )
+    if decision.should_investigate:
+        group = replace(group, source_detail={**group.source_detail, INVESTIGATION_REQUESTED_KEY: str(alert.id)})
+        held = None
+        if evaluation.deliveries and alert.investigation_gates_notifications:
+            (request,) = evaluation.deliveries
+            held = HeldDelivery(
+                request=request, reason=HOLD_REASON, release_after_seconds=int(RUNNING_HOLD.total_seconds())
+            )
+        return replace(
+            evaluation,
+            outcomes=(replace(outcome, groups=(group,), held_delivery=held),),
+            deliveries=() if held else evaluation.deliveries,
+        )
+    if group.kind == AlertEventKind.FIRING and carried_verdict_suppresses(alert, decision):
+        # As the insight stack: the firing still moves the alert's state and `last_notified_at`.
+        group = replace(group, kind=AlertEventKind.CHECK, muted_notification=NotificationAction.FIRE.value)
+        return replace(evaluation, outcomes=(replace(outcome, groups=(group,)),), deliveries=())
+    return evaluation
+
+
+def claim_requested_investigations(team_id: int, outcomes: tuple[PlatformAlertOutcome, ...]) -> InvestigationClaims:
+    """Claims the investigation each recorded firing asked for, and returns the agent runs to start.
+
+    A refused claim releases the firing's held delivery by the firing's last verdict, as the insight
+    stack mutes a check that runs no investigation of its own.
+    """
+    starts: list[InvestigationStart] = []
+    deliveries = []
+    for outcome in outcomes:
+        requested = requested_investigation(outcome)
+        if requested is None:
+            continue
+        alert = AlertConfiguration.objects.filter(team_id=team_id, id=requested.alert_id).first()
+        if alert is None:
+            # The safety net sends the held firing at its deadline.
+            continue
+        group = outcome.groups[0]
+        claim = claim_investigation(
+            alert,
+            configuration_id=outcome.configuration_id,
+            evaluation_key=outcome.evaluation_key,
+            episode_started_at=requested.episode_started_at,
+            kind=InsightAlertInvestigation.Kind.AGENT,
+            evaluated={
+                "value": group.value,
+                **{key: group.source_detail[key] for key in _EVALUATED_KEYS if key in group.source_detail},
+            },
+        )
+        if claim.claimed:
+            starts.append(
+                InvestigationStart(
+                    team_id=team_id,
+                    alert_id=str(alert.id),
+                    investigation_id=str(claim.investigation_id),
+                    configuration_id=str(outcome.configuration_id),
+                    evaluation_key=outcome.evaluation_key,
+                    user_id=alert.created_by_id,
+                )
+            )
+            continue
+        if outcome.held_delivery is None:
+            continue
+        previous_verdict = previous_verdict_in_episode(
+            team_id, outcome.configuration_id, requested.episode_started_at, outcome.evaluation_key
+        )
+        request = release_held(
+            HeldDeliveryAddress(
+                team_id=team_id, configuration_id=str(outcome.configuration_id), evaluation_key=outcome.evaluation_key
+            ),
+            suppress=carried_verdict_suppresses(alert, InvestigationDecision(previous_verdict=previous_verdict)),
+            released_by=HoldReleasedBy.CLAIM_REFUSED,
+        )
+        if request is not None:
+            deliveries.append(request)
+    return InvestigationClaims(starts=tuple(starts), deliveries=tuple(deliveries))
