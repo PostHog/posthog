@@ -111,6 +111,17 @@ export type tracePageLogicType = MakeLogicType<
     tracePageLogicMeta
 >
 
+function toTimestampHint(timestamp?: string, exceptionTimestamp?: string): string | null {
+    const dateFrom = timestamp ? parseUrlDate(timestamp) : null
+    if (dateFrom) {
+        return dateFrom
+    }
+    const exceptionDate = exceptionTimestamp ? parseUrlDate(exceptionTimestamp) : null
+    return exceptionDate
+        ? dayjs(exceptionDate).subtract(EXCEPTION_LOOKUP_WINDOW_MINUTES, 'minutes').toISOString()
+        : null
+}
+
 export const tracePageLogic = kea<tracePageLogicType>([
     path(['products', 'ai_observability', 'frontend', 'redesign', 'trace', 'tracePageLogic']),
     connect(() => ({
@@ -175,16 +186,9 @@ export const tracePageLogic = kea<tracePageLogicType>([
             actions.requestStep(event || (tab === 'evals' ? traceId : null), traceId)
             actions.setOpeningMode(tab === 'summary' ? 'summary' : null)
             actions.setSeedQuery(searchParamFromUrl())
-            const dateFrom = timestamp ? parseUrlDate(timestamp) : null
-            const exceptionDate = exception_ts ? parseUrlDate(exception_ts) : null
-            if (dateFrom) {
-                actions.setTimestampHint(dateFrom)
-            } else if (exceptionDate) {
-                actions.setTimestampHint(
-                    dayjs(exceptionDate).subtract(EXCEPTION_LOOKUP_WINDOW_MINUTES, 'minutes').toISOString()
-                )
-            } else if (isNewTrace) {
-                actions.setTimestampHint(null)
+            const timestampHint = toTimestampHint(timestamp, exception_ts)
+            if (timestampHint || isNewTrace) {
+                actions.setTimestampHint(timestampHint)
             }
         },
     })),

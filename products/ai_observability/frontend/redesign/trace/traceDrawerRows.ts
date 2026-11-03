@@ -28,22 +28,19 @@ export function hasOwnClickHandler(target: EventTarget | null): boolean {
     return target instanceof Element && !!target.closest('button, a, [role="button"]')
 }
 
-export function opensTraceDrawer(
-    {
-        target,
-        currentTarget,
-        button,
-        metaKey,
-        ctrlKey,
-        shiftKey,
-        altKey,
-    }: Pick<MouseEvent, 'target' | 'currentTarget' | 'button' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey'>,
-    linkSelector: string,
-    rowClick: boolean
-): boolean {
+type DrawerClick = Pick<
+    MouseEvent,
+    'target' | 'currentTarget' | 'button' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey'
+>
+
+function isPlainLeftClick({ button, metaKey, ctrlKey, shiftKey, altKey }: DrawerClick): boolean {
+    return button === 0 && !metaKey && !ctrlKey && !shiftKey && !altKey
+}
+
+export function opensTraceDrawer(click: DrawerClick, linkSelector: string, rowClick: boolean): boolean {
+    const { target, currentTarget } = click
     // React capture also reaches the row from a portal, so an overlay opened from a cell would lose its own clicks.
     const isInsideRow = target instanceof Node && currentTarget.contains(target)
-    const isPlainClick = button === 0 && !metaKey && !ctrlKey && !shiftKey && !altKey
     const isTraceLink = target instanceof Element && !!target.closest(linkSelector)
-    return isInsideRow && isPlainClick && (isTraceLink || (rowClick && !hasOwnClickHandler(target)))
+    return isInsideRow && isPlainLeftClick(click) && (isTraceLink || (rowClick && !hasOwnClickHandler(target)))
 }
