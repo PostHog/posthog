@@ -1,3 +1,5 @@
+import { isObject } from 'lib/utils/guards'
+
 import type { ActivityLogItem } from './humanizeActivity'
 
 // Matches WORKLOAD_TRIGGER_JOB_TYPE in posthog/models/activity_logging/activity_log.py.
@@ -27,11 +29,11 @@ function stringField(payload: Record<string, unknown>, key: string): string | nu
 }
 
 function stringMap(value: unknown): Record<string, string> {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    if (!isObject(value)) {
         return {}
     }
     return Object.fromEntries(
-        Object.entries(value as Record<string, unknown>).filter(
+        Object.entries(value).filter(
             (entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1] !== ''
         )
     )
