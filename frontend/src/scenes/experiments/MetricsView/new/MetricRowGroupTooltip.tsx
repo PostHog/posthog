@@ -31,7 +31,7 @@ const renderValueRows = (variantResult: ExperimentVariantResult, metric: Experim
             <div className="flex justify-between items-center">
                 <span className="text-muted-alt font-semibold">Events:</span>
                 <span className="font-semibold">
-                    {variantResult.denominator_sum != null ? humanFriendlyNumber(variantResult.denominator_sum) : '–'}
+                    {variantResult.denominator_sum != null ? humanFriendlyNumber(variantResult.denominator_sum) : '—'}
                 </span>
             </div>
         </>
@@ -39,7 +39,7 @@ const renderValueRows = (variantResult: ExperimentVariantResult, metric: Experim
         <div className="flex justify-between items-center">
             <span className="text-muted-alt font-semibold">Total value:</span>
             <span className="font-semibold">
-                {variantResult.sum != null ? humanFriendlyNumber(variantResult.sum) : '–'}
+                {variantResult.sum != null ? humanFriendlyNumber(variantResult.sum) : '—'}
             </span>
         </div>
     )
@@ -74,7 +74,7 @@ export const renderTooltipContent = (
                 <span className="font-semibold">
                     {variantResult.number_of_samples != null
                         ? humanFriendlyNumber(variantResult.number_of_samples)
-                        : '–'}
+                        : '—'}
                 </span>
             </div>
 

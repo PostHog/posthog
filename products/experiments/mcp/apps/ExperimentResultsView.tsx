@@ -245,7 +245,8 @@ function MetricCard({ entry }: { entry: MetricEntry }): ReactElement {
     const rows = result ? buildRows(result) : []
     const isFunnel =
         result?.baseline?.step_counts != null || (result?.variant_results ?? []).some((v) => v.step_counts != null)
-    const isPercentile = result?.baseline?.quantile_grid != null
+    const isPercentile =
+        result?.baseline?.quantile_grid != null || (result?.variant_results ?? []).some((v) => v.quantile_grid != null)
 
     const columns: DataTableColumn<VariantRow>[] = [
         {
