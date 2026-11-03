@@ -34,9 +34,12 @@ class Command(BaseCommand):
         if not queues:
             raise CommandError("SES_EVENTS_DLQ_URLS is empty, so there is no queue to replay.")
 
-        replay_options = ReplayOptions(
-            dry_run=options["dry_run"], limit=options["limit"], max_per_second=options["max_per_second"]
-        )
+        try:
+            replay_options = ReplayOptions(
+                dry_run=options["dry_run"], limit=options["limit"], max_per_second=options["max_per_second"]
+            )
+        except ValueError as error:
+            raise CommandError(str(error))
         for queue in queues:
             report = replay_queue(
                 queue, replay_options, sqs=sqs_client(queue), triggered_by="replay_ses_events_dlq command"

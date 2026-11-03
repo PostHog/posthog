@@ -40,9 +40,10 @@ RECEIVE_BATCH_SIZE = 10
 WEBHOOK_TIMEOUT_SECONDS = 10
 MAX_REPORTED_FAILURES = 50
 RELEASE_ATTEMPTS = 3
-# A run stops taking messages this long before their visibility timeout ends, so the slowest post
-# still finishes and every kept message is released with a receipt handle that is still valid.
-DEADLINE_MARGIN_SECONDS = WEBHOOK_TIMEOUT_SECONDS + 20
+MIN_MAX_PER_SECOND = 0.1
+# A run stops taking messages this long before their visibility timeout ends. The margin holds the
+# longest pacing wait plus the slowest post, so every kept message is released with a valid receipt handle.
+DEADLINE_MARGIN_SECONDS = WEBHOOK_TIMEOUT_SECONDS + int(1 / MIN_MAX_PER_SECOND) + 10
 TRACKING_CODE_HEADER = "x-posthog-tracking-code"
 VERSIONED_TRACKING_CODE_MARKER = "v2"
 
@@ -219,8 +220,8 @@ class ReplayOptions:
     def __post_init__(self) -> None:
         if self.limit < 1:
             raise ValueError("limit must be at least 1")
-        if self.max_per_second <= 0:
-            raise ValueError("max_per_second must be positive")
+        if self.max_per_second < MIN_MAX_PER_SECOND:
+            raise ValueError(f"max_per_second must be at least {MIN_MAX_PER_SECOND}")
 
     @property
     def visibility_timeout_seconds(self) -> int:
