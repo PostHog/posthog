@@ -1,4 +1,4 @@
-import { isPublicHost, politenessKey, tryCanonicalizeUrl } from '@posthog/ai-research-v4-native'
+import { isPublicHost, parseV4UrlRef, politenessKey, tryCanonicalizeUrl } from '@posthog/ai-research-v4-native'
 
 /**
  * The crate owns the rule and tests it. This file tests only that the fetch lane reaches that
@@ -48,20 +48,26 @@ describe('the v4 url policy addon', () => {
         })
     })
 
-    it('stops the fetch pod at startup when index.node predates a shared rule', () => {
-        const nativePath = require.resolve('@posthog/ai-research-v4-native/index.node')
-        jest.isolateModules(() => {
-            jest.doMock(nativePath, () => {
-                const {
-                    urlJob: _urlJob,
-                    isUrlHistoryValue: _isUrlHistoryValue,
-                    ...stale
-                } = jest.requireActual(nativePath)
-                return stale
-            })
-            const { assertUrlPolicyLoaded } = require('./politeness-key')
-            expect(() => assertUrlPolicyLoaded()).toThrow('rebuild index.node')
-        })
-        jest.dontMock(nativePath)
+    it('parses only an image URL reference whose team id a number holds exactly', () => {
+        const hash = 'a'.repeat(22)
+        expect(parseV4UrlRef(`imageurl:v4:7:2026-10:${hash}`)).toEqual({ teamId: 7, keyMonth: '2026-10', hash })
+        expect(parseV4UrlRef(`image:v4:7:2026-10:${hash}`)).toBeNull()
+        expect(parseV4UrlRef(`imageurl:v4:9007199254740993:2026-10:${hash}`)).toBeNull()
     })
+
+    it.each(['urlJob', 'isUrlHistoryValue', 'parseV4UrlRef', 'sealFetchedImage', 'imageUrlHash'])(
+        'stops the fetch pod at startup when index.node has no %s',
+        (missing) => {
+            const nativePath = require.resolve('@posthog/ai-research-v4-native/index.node')
+            jest.isolateModules(() => {
+                jest.doMock(nativePath, () => {
+                    const { [missing]: _missing, ...stale } = jest.requireActual(nativePath)
+                    return stale
+                })
+                const { assertSharedRulesLoaded } = require('./v4-native')
+                expect(() => assertSharedRulesLoaded()).toThrow('rebuild index.node')
+            })
+            jest.dontMock(nativePath)
+        }
+    )
 })
