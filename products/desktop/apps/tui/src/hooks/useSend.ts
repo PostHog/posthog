@@ -69,6 +69,7 @@ export function useSend({
   pickFor,
   compact,
   openSearch,
+  openInbox,
   openSettings,
   openHelp,
   onChatStarted,
@@ -110,6 +111,7 @@ export function useSend({
     instructions: string,
   ) => void;
   openSearch: () => void;
+  openInbox: () => void;
   openSettings: () => void;
   openHelp: () => void;
   repos: Pick<RepoPicker, "open" | "reposFor">;
@@ -199,6 +201,10 @@ export function useSend({
     }
     if (slash?.command === "search") {
       openSearch();
+      return;
+    }
+    if (slash?.command === "inbox") {
+      openInbox();
       return;
     }
     if (slash?.command === "settings" || slash?.command === "config") {

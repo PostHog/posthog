@@ -52,6 +52,7 @@ export function useSidebar({
   showToday,
   pinned,
   scope,
+  inbox,
   lines,
 }: {
   layout: LayoutState;
@@ -69,6 +70,8 @@ export function useSidebar({
   showToday: boolean;
   pinned: PinnedChat[];
   scope: ChatScope;
+  // Chats that need the user, for the Inbox tab.
+  inbox: Set<string>;
   // Rows the list under the heading has on screen; 0 before the screen is measured.
   lines: number;
 }): SidebarState {
@@ -91,6 +94,7 @@ export function useSidebar({
         showToday,
         pinned,
         scope,
+        inbox,
       }),
     [
       layout,
@@ -107,6 +111,7 @@ export function useSidebar({
       showToday,
       pinned,
       scope,
+      inbox,
     ],
   );
   const selectedIndex = cursorIndex(rows, selected);

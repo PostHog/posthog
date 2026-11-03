@@ -55,11 +55,12 @@ Picking a plan that lacks its login runs the sign-in on a sheet. Settings (Ctrl+
 | `!` | Run a shell command where the agent runs |
 | Ctrl+\ / Ctrl+\| | Split side by side / stacked |
 | Tab / Shift+Tab | Next pane or the sidebar / back |
-| ↑ ↓ ← → | Step chats / fold a workspace, or switch the My chats and All chats tabs |
+| ↑ ↓ ← → | Step chats / fold a workspace, or switch the My chats, All chats and Inbox tabs |
 | Ctrl+[ / Ctrl+] | Back / forward through the chats visited (Ctrl+[ needs a kitty terminal) |
 | Ctrl+M / Ctrl+Shift+M | Step a Claude Code chat's mode / back (kitty terminals) |
 | Ctrl+B | Narrow the sidebar |
 | Ctrl+P | Pin or unpin a chat above the workspaces |
+| Ctrl+0 | Inbox: only the chats that need you (a question, a failed run, or a finished turn you have not replied to); `d` on a row dismisses it |
 | Ctrl+; | Settings |
 | Ctrl+R / Ctrl+Q | Reload / quit |
 
@@ -80,6 +81,7 @@ Cmd works in place of Ctrl where the terminal passes it on.
 | `/optimize` | Lay out this workspace's panes in an even grid |
 | `/expand` | Open this chat full width |
 | `/search` | Search your tasks |
+| `/inbox` | The Inbox tab, like Ctrl+0 |
 | `/local`, `/cloud` | Run this pane's new chats on this machine or in the cloud |
 | `/repo` | Pick the repositories this pane's new cloud chats clone |
 | `/mcp`, `/mcp add` | The MCP servers your chats reach, and add one |

@@ -48,7 +48,11 @@ const labels = (rows: ReturnType<typeof sidebarRows>): string[] =>
       case "section":
         return `## ${row.label}`;
       case "tabs":
-        return row.scope === "mine" ? "## All chats" : "## All chats (team)";
+        return row.scope === "mine"
+          ? "## All chats"
+          : row.scope === "all"
+            ? "## All chats (team)"
+            : "## Inbox";
       case "today":
         return "Today";
       case "gap":
@@ -57,6 +61,8 @@ const labels = (rows: ReturnType<typeof sidebarRows>): string[] =>
         return `${row.expanded ? "v" : ">"} ${row.label}`;
       case "task":
         return `${row.nested ? "  " : ""}${row.title}`;
+      case "empty":
+        return row.inbox ? "[inbox zero]" : "[empty]";
       default:
         return `[${row.kind}]`;
     }
@@ -80,6 +86,37 @@ describe("sidebarRows", () => {
       }),
     );
     expect(rows).toEqual(["# Work", "## All chats", "New chat", "[empty]"]);
+  });
+
+  it("lists only the chats that need the user on the Inbox tab, with no paging, and inbox zero when none do", () => {
+    const work = page({
+      tasks: [task("a"), task("b"), task("c")],
+      hasMore: true,
+    });
+    const inboxRows = (inbox: Set<string>): string[] =>
+      labels(
+        sidebarRows({
+          layout: initialLayout(),
+          work,
+          collapsed: new Set(),
+          working: new Set(),
+          showToday: false,
+          scope: "inbox",
+          inbox,
+        }),
+      );
+    expect(inboxRows(new Set(["b"]))).toEqual([
+      "# Work",
+      "## Inbox",
+      "New chat",
+      "Task b",
+    ]);
+    expect(inboxRows(new Set())).toEqual([
+      "# Work",
+      "## Inbox",
+      "New chat",
+      "[inbox zero]",
+    ]);
   });
 
   it("keeps one Work list, with split tasks in their workspace and in Chats", () => {

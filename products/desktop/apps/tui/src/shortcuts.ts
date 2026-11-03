@@ -16,7 +16,8 @@ export type Shortcut =
   | "cycleModeBack"
   | "historyBack"
   | "historyForward"
-  | "togglePin";
+  | "togglePin"
+  | "inbox";
 
 export function shortcutFor(input: string, key: Key): Shortcut | null {
   const letter = input.toLowerCase();
@@ -40,6 +41,8 @@ export function shortcutFor(input: string, key: Key): Shortcut | null {
   if ((key.ctrl || key.super) && letter === "b") return "toggleSidebar";
   if (key.ctrl && letter === "r") return "reload";
   if (key.ctrl && letter === "p") return "togglePin";
+  // Inbox zero: the chat list shows only the chats that need the user.
+  if (key.ctrl && input === "0") return "inbox";
   // Ctrl+M needs the kitty keyboard protocol, since a legacy terminal sends it as Enter.
   if (key.ctrl && letter === "m")
     return key.shift ? "cycleModeBack" : "cycleMode";

@@ -27,19 +27,30 @@ export const SIDEBAR_WIDTH = 31;
 export const NARROW_SIDEBAR_WIDTH = 5;
 
 // The tabs row: "My chats", a gap, then "All chats"; a click on a tab picks it by column.
-export const TABS = ["My chats", "All chats"] as const;
+export const TABS = ["My chats", "All chats", "Inbox"] as const;
 export const TAB_GAP = 2;
 export const ALL_TAB_COLUMN = TABS[0].length + TAB_GAP;
+export const INBOX_TAB_COLUMN = ALL_TAB_COLUMN + TABS[1].length + TAB_GAP;
+const SCOPES: ChatScope[] = ["mine", "all", "inbox"];
+
+// The tab a click at this column of the tabs row picks.
+export const scopeAtColumn = (column: number): ChatScope =>
+  column >= INBOX_TAB_COLUMN
+    ? "inbox"
+    : column >= ALL_TAB_COLUMN
+      ? "all"
+      : "mine";
 
 const Tabs = ({ scope }: { scope: ChatScope }): ReactElement => (
   <Text>
-    <Text bold={scope === "mine"} dimColor={scope !== "mine"}>
-      {TABS[0]}
-    </Text>
-    {" ".repeat(TAB_GAP)}
-    <Text bold={scope === "all"} dimColor={scope !== "all"}>
-      {TABS[1]}
-    </Text>
+    {TABS.map((label, index) => (
+      <Text key={label}>
+        {index > 0 ? " ".repeat(TAB_GAP) : ""}
+        <Text bold={scope === SCOPES[index]} dimColor={scope !== SCOPES[index]}>
+          {label}
+        </Text>
+      </Text>
+    ))}
   </Text>
 );
 
@@ -154,7 +165,7 @@ function Row({
     case "signedOut":
       return <Text dimColor>Signed out · type /login</Text>;
     case "empty":
-      return <Text dimColor>No work yet</Text>;
+      return <Text dimColor>{row.inbox ? "Inbox zero" : "No work yet"}</Text>;
     case "viewMore":
       return (
         <Text
@@ -197,7 +208,13 @@ function NarrowRow({
     case "section":
       return <Label text="Pin" />;
     case "tabs":
-      return <Label text={row.scope === "mine" ? "Me" : "All"} />;
+      return (
+        <Label
+          text={
+            row.scope === "mine" ? "Me" : row.scope === "all" ? "All" : "Inbox"
+          }
+        />
+      );
     case "today":
       return (
         <Text

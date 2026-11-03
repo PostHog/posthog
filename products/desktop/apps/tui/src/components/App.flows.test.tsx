@@ -835,9 +835,9 @@ describe("App flows", () => {
       await vi.waitFor(() =>
         expect(app.plain()).toContain("Keyboard shortcuts"),
       );
-      expect(app.plain().slice(-3000)).toContain("Split side by side");
+      expect(app.plain().slice(-4000)).toContain("Split side by side");
       // Every built-in command, from the composer's own list.
-      expect(app.plain().slice(-3000)).toContain("/mcp");
+      expect(app.plain().slice(-4000)).toContain("/mcp");
       app.press("\x1b");
       await vi.waitFor(() =>
         expect(stripTerminalSequences(app.output().slice(-3000))).toContain(

@@ -8,7 +8,7 @@ import {
 import { track } from "../analytics";
 import type { ChatView } from "../chatView";
 import { copyToClipboard } from "../clipboard";
-import { ALL_TAB_COLUMN, HEADER_GAP } from "../components/Sidebar";
+import { HEADER_GAP, scopeAtColumn } from "../components/Sidebar";
 import type { Composer } from "../composer";
 import { focusPane, focusSidebar, type LayoutState } from "../layout";
 import {
@@ -122,9 +122,7 @@ export function usePointer({
       if (row?.kind === "workspace" && row.expanded) {
         setCollapsed(row.workspaceId, true);
       } else if (row?.kind === "tabs") {
-        setScope(
-          click.column - sidebar.left >= ALL_TAB_COLUMN ? "all" : "mine",
-        );
+        setScope(scopeAtColumn(click.column - sidebar.left));
       } else if (row && isSelectable(row)) {
         setNavigating(row.kind !== "viewMore");
         activate(index);

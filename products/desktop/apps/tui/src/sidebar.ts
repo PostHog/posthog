@@ -61,7 +61,8 @@ export type SidebarRow =
     }
   | { kind: "loading" }
   | { kind: "signedOut" }
-  | { kind: "empty" }
+  // No chats to list; on the Inbox tab, inbox zero.
+  | { kind: "empty"; inbox?: boolean }
   | { kind: "viewMore" }
   | { kind: "error"; message: string };
 
@@ -163,6 +164,7 @@ export function sidebarRows({
   showToday = true,
   pinned = [],
   scope = "mine",
+  inbox = new Set(),
 }: {
   layout: LayoutState;
   work: WorkPage;
@@ -182,12 +184,19 @@ export function sidebarRows({
   pinned?: PinnedChat[];
   // The tab the chat list is on.
   scope?: ChatScope;
+  // Chats that need the user, shown alone on the Inbox tab.
+  inbox?: Set<string>;
 }): SidebarRow[] {
   const byId = new Map([
     ...known,
     ...(work.tasks ?? []).map((task): [string, Task] => [task.id, task]),
   ]);
-  const tasks = work.tasks === null ? [] : workTasks(work, byId, local);
+  const tasks =
+    work.tasks === null
+      ? []
+      : workTasks(work, byId, local).filter(
+          (task) => scope !== "inbox" || inbox.has(task.id),
+        );
   const listed = new Set(tasks.map((task) => task.id));
   const isLocal = (taskId: string): boolean =>
     local.active.has(taskId) || taskId.startsWith(LEGACY_PREFIX);
@@ -296,7 +305,8 @@ export function sidebarRows({
   }
   if (work.error) rows.push({ kind: "error", message: work.error });
   else if (work.tasks === null) rows.push({ kind: "loading" });
-  else if (tasks.length === 0) rows.push({ kind: "empty" });
+  else if (tasks.length === 0)
+    rows.push({ kind: "empty", inbox: scope === "inbox" });
   for (const task of tasks) {
     if (pinnedIds.has(task.id)) continue;
     const by = task.created_by;
@@ -309,6 +319,8 @@ export function sidebarRows({
       ...(author && { author }),
     });
   }
+  // The inbox is a filter over the loaded page; paging the list is for the My chats tab.
+  if (scope === "inbox") return rows;
   if (work.loadingMore) rows.push({ kind: "loading" });
   else if (work.hasMore) rows.push({ kind: "viewMore" });
   return rows;

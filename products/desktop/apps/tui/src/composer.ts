@@ -91,6 +91,10 @@ export const SLASH_COMMANDS = [
   { name: "archive", description: "Archive this chat, out of the list" },
   { name: "unarchive", description: "Bring this chat back into the list" },
   {
+    name: "inbox",
+    description: "Show only the chats that need you, like Ctrl+0",
+  },
+  {
     name: "optimize",
     description: "Lay out this workspace's panes in an even grid",
   },

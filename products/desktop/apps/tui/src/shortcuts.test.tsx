@@ -62,6 +62,7 @@ describe("shortcutFor", () => {
     ["kitty Cmd+K", "\x1b[107;9u", "search"],
     ["kitty Ctrl+Shift+K", "\x1b[107;6u", "searchFullScreen"],
     ["kitty Cmd+Shift+K", "\x1b[107;10u", "searchFullScreen"],
+    ["legacy Ctrl+0", "\x1b[48;5u", "inbox"],
     ["plain s", "s", null],
     ["Tab", "\t", null],
   ])("%s", async (_, bytes, expected) => {

@@ -31,6 +31,7 @@ import { useTerminalInput } from "../hooks/useTerminalInput";
 import { useToday } from "../hooks/useToday";
 import { useTurns } from "../hooks/useTurns";
 import { useWorkList } from "../hooks/useWorkList";
+import { inboxReason } from "../inbox";
 import {
   activeWorkspace,
   adoptSharedLayout,
@@ -262,7 +263,8 @@ export function App({
       ...pinned.map((chat) => chat.id),
     ],
     onRefresh: refreshLocalActive,
-    scope,
+    // The inbox is a filter over the user's own chats.
+    scope: scope === "inbox" ? "mine" : scope,
   });
 
   // The search opens from a callback only, so the send hook reaches it through a ref: the search needs the turns,
@@ -279,12 +281,13 @@ export function App({
     new Map(),
   );
   useEffect(() => runs?.watchPrompts(setCloudPrompts), [runs]);
+  const allPrompts = useMemo(
+    () => new Map([...cloudPrompts, ...prompts]),
+    [cloudPrompts, prompts],
+  );
   const { modalFor, openModal, closeModal, onModalKey } = useSheets({
     layout,
-    prompts: useMemo(
-      () => new Map([...cloudPrompts, ...prompts]),
-      [cloudPrompts, prompts],
-    ),
+    prompts: allPrompts,
     promptCursors,
     setPromptCursor,
     answer: (taskId, prompt, reply) => {
@@ -384,6 +387,7 @@ export function App({
     pickFor,
     compact,
     openSearch: () => latestSearch.current?.toggle(),
+    openInbox: () => switchScope("inbox"),
     openHelp: () => setHelpOpen(true),
     openSettings: settings.toggle,
     repos: repoPicker,
@@ -426,6 +430,45 @@ export function App({
     () => new Set([...turns.working, ...pending.keys()]),
     [turns.working, pending],
   );
+  // Chats dismissed from the inbox, until a later turn ends; saved between runs.
+  const [inboxDismissed, setInboxDismissed] = useState(
+    () => loadPrefs().inboxDismissed,
+  );
+  const dismissFromInbox = (taskId: string): void => {
+    track("inbox dismissed");
+    const next = { ...inboxDismissed, [taskId]: Date.now() };
+    setInboxDismissed(next);
+    savePrefs({ inboxDismissed: next });
+  };
+  // The chats that need the user: a prompt, a failed run, or a finished turn with no reply since.
+  const inbox = useMemo(() => {
+    const ids = new Set([...turns.facts.keys(), ...allPrompts.keys()]);
+    for (const task of page.tasks ?? []) ids.add(task.id);
+    const result = new Set<string>();
+    for (const taskId of ids) {
+      const facts = turns.facts.get(taskId);
+      const reason = inboxReason({
+        working: working.has(taskId),
+        prompted: (allPrompts.get(taskId)?.length ?? 0) > 0,
+        failed: taskOf(taskId)?.latest_run?.status === "failed",
+        turnEndedAt: facts?.turnEndedAt ?? null,
+        shells: facts?.shells ?? 0,
+        wake: facts?.wake ?? false,
+        repliedAt: turns.repliedAt.get(taskId) ?? null,
+        dismissedAt: inboxDismissed[taskId] ?? null,
+      });
+      if (reason) result.add(taskId);
+    }
+    return result;
+  }, [
+    turns.facts,
+    turns.repliedAt,
+    allPrompts,
+    page.tasks,
+    working,
+    taskOf,
+    inboxDismissed,
+  ]);
   const sidebar = useSidebar({
     layout,
     setLayout,
@@ -442,6 +485,7 @@ export function App({
     showToday,
     pinned,
     scope,
+    inbox,
     lines: Math.max(0, area.height - CHROME_ROWS),
   });
   const caughtUp = [...titles].filter(
@@ -573,7 +617,13 @@ export function App({
           : null;
       if (chat) setPinnedTo(chat, !pinned.some((p) => p.id === chat.id));
     },
-    toggleScope: () => switchScope(scope === "mine" ? "all" : "mine"),
+    toggleScope: (direction) => {
+      const order: ChatScope[] = ["mine", "all", "inbox"];
+      const index = order.indexOf(scope);
+      switchScope(order[(index + direction + order.length) % order.length]);
+    },
+    toggleInbox: () => switchScope(scope === "inbox" ? "mine" : "inbox"),
+    dismissFromInbox,
     repoPickerKey: repoPicker.onKey,
     notice,
   });

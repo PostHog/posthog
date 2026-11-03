@@ -8,9 +8,9 @@ export function Help(): ReactElement {
   return (
     <Box flexGrow={1} flexDirection="column" paddingX={1} paddingBottom={1}>
       <Text bold>Keyboard shortcuts</Text>
-      {HELP.map((group) => (
+      {HELP.map((group, index) => (
         <Box key={group.title} flexDirection="column">
-          <Text> </Text>
+          {index === 0 && <Text> </Text>}
           <Text bold>{group.title}</Text>
           {group.rows.map((row) => (
             <Box key={row.keys}>

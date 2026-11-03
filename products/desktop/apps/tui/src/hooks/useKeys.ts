@@ -62,6 +62,8 @@ export function useKeys({
   toggleSidebar,
   togglePin,
   toggleScope,
+  toggleInbox,
+  dismissFromInbox,
   cycleMode,
   history,
   repoPickerKey,
@@ -83,7 +85,10 @@ export function useKeys({
   toggleSidebar: () => void;
   togglePin: () => void;
   // ← or → on a chat under the tabs switches between My chats and All chats.
-  toggleScope: () => void;
+  toggleScope: (direction: 1 | -1) => void;
+  toggleInbox: () => void;
+  // Dismisses the chat under the sidebar cursor from the inbox.
+  dismissFromInbox: (taskId: string) => void;
   cycleMode: (paneId: string, step: 1 | -1) => void;
   history: HistoryNav;
   // Gives a key to the pane's open /repo picker; false when it has none.
@@ -188,6 +193,7 @@ export function useKeys({
       toggleSidebar();
       return;
     }
+    if (shortcut === "inbox") return toggleInbox();
     if (shortcut === "togglePin") {
       togglePin();
       return;
@@ -211,7 +217,8 @@ export function useKeys({
     const fold = (): void => {
       const workspaceId = workspaceOf(rows[selectedIndex]);
       if (workspaceId) setCollapsed(workspaceId, key.leftArrow);
-      else if (underTabs(rows, selectedIndex)) toggleScope();
+      else if (underTabs(rows, selectedIndex))
+        toggleScope(key.rightArrow ? 1 : -1);
     };
     if (!sidebarFocused) {
       // A sheet open on the pane takes the arrows, which also reach it through the raw key stream.
@@ -239,6 +246,9 @@ export function useKeys({
     } else if (key.return) {
       setNavigating(rows[selectedIndex]?.kind === "task");
       activate(selectedIndex);
+    } else if (input === "d") {
+      const row = rows[selectedIndex];
+      if (row?.kind === "task" && row.taskId) dismissFromInbox(row.taskId);
     }
   });
 
