@@ -10,6 +10,7 @@ describe('correctedSearch', () => {
         ['api', null],
         ['фзш api', null],
         ['123', null],
+        ['2026/11', null],
     ])('corrects %s to %s', (text, expected) => {
         expect(correctedSearch(text)).toBe(expected)
     })
