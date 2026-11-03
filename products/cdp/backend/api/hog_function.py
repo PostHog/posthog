@@ -1543,12 +1543,15 @@ class HogFunctionViewSet(
         # Version the starting config too. Otherwise a function deleted before its first config change
         # keeps its code only on the soft-deleted row, which no endpoint returns. The save is not wrapped
         # in a transaction with this write, because its post_save signal tells the workers to reload at once.
-        HogFunctionRevision.objects.create(
+        # A config edit that lands first writes the same revision as its outgoing snapshot.
+        HogFunctionRevision.objects.get_or_create(
             team_id=self.team_id,
             hog_function=serializer.instance,
             version=serializer.instance.version,
-            content=snapshot_hog_function_content(serializer.instance),
-            created_by=self.request.user if self.request.user.is_authenticated else None,
+            defaults={
+                "content": snapshot_hog_function_content(serializer.instance),
+                "created_by": self.request.user if self.request.user.is_authenticated else None,
+            },
         )
         log_activity_from_viewset(
             self,
