@@ -133,6 +133,10 @@ class ContentTooLarge(TransactionalEmailError):
     code = "content_too_large"
 
 
+class InvalidRequest(TransactionalEmailError):
+    code = "invalid_request"
+
+
 @frozen
 class CodeEmail:
     key: str

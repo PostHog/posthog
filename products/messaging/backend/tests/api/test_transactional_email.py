@@ -6,6 +6,8 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 import requests
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -27,12 +29,26 @@ from products.messaging.backend.presentation.views.message_templates import (
     CODE_SEND_FIELDS,
     EMAIL_FROM_CODE_FLAG,
     TRANSACTIONAL_EMAIL_API_FLAG,
+    SendEmailSerializer,
 )
 from products.messaging.backend.services import transactional_email
 from products.messaging.backend.services.transactional_email import TransactionalEmailStage, make_transactional
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
 from products.workflows.backend.facade.models import HogFlow
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
+
+ADDRESS_VERDICTS = [
+    ("jane=tag@example.com", True),
+    ("jane~tag@example.com", True),
+    ("jane#tag@example.com", True),
+    ("o'brien@example.com", True),
+    ("a!b$c%d&e*f/g?h^i`j{k|l}m@example.com", True),
+    ("jane@sub.example.co.uk", True),
+    ("jane@bücher.example", False),
+    ("jane@[192.0.2.1]", False),
+    ('"jane doe"@example.com', False),
+    ("jane@localhost", False),
+]
 
 
 def _stage_counts() -> dict[str, float]:
@@ -245,10 +261,10 @@ class TestTransactionalEmail(APIBaseTest):
             ("connection_error", requests.ConnectionError(), "connection_error", None),
             ("cdp_api_error", MagicMock(status_code=500, json=dict), "5xx", None),
             (
-                "invalid_request",
-                MagicMock(status_code=400, json=lambda: {"error": "invalid_request"}),
+                "workflow_not_found",
+                MagicMock(status_code=404, json=lambda: {"error": "Workflow not found"}),
                 "4xx",
-                "invalid_request",
+                "Workflow not found",
             ),
         ]
     )
@@ -333,6 +349,8 @@ class TestTransactionalEmail(APIBaseTest):
             ("recipient_suppressed", 422, 422, "recipient_suppressed"),
             ("recipient_unreachable", 422, 422, "recipient_unreachable"),
             ("not_sendable", 400, 400, "transactional_email_paused"),
+            ("invalid_request", 400, 400, "invalid_request"),
+            ("a 400 without a known code", 400, 400, "invalid_request"),
             ("Request entity too large", 413, 400, "content_too_large"),
         ]
     )
@@ -567,6 +585,7 @@ class TestTransactionalEmail(APIBaseTest):
             ("sender_with_a_quoted_local_part", {"from": '"security"@example.com'}, "from"),
             ("sender_nested_too_deep_to_parse", {"from": "(" * 1000 + "security@example.com" + ")" * 1000}, "from"),
             ("empty_reply_to", {"reply_to": []}, "reply_to"),
+            ("recipient_the_pipeline_cannot_send_to", {"to": "jane@[192.0.2.1]"}, "to"),
             ("field_this_server_lacks", {"scheduled_at": "2026-11-01T09:00:00Z"}, "scheduled_at"),
             ("empty_key_beside_a_field_this_server_lacks", {"": "", "scheduled_at": "2026-11-01T09:00:00Z"}, None),
             ("html_over_5_mib_in_utf8", {"html": "é" * (5 * 1024 * 1024 // 2 + 1)}, "html"),
@@ -1098,3 +1117,22 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         template.refresh_from_db()
         assert template.transactional_hog_flow_id == linked_hog_flow_id
+
+
+class TestSendEmailAddresses(SimpleTestCase):
+    @parameterized.expand(
+        [(field, address, accepted) for field in ("to", "reply_to") for address, accepted in ADDRESS_VERDICTS]
+    )
+    def test_takes_the_addresses_the_pipeline_takes(self, field, address, accepted):
+        body: dict[str, Any] = {
+            "to": "user@example.com",
+            "template_key": "welcome",
+            "subject": "Hi",
+            "html": "<p>Hi</p>",
+        }
+        body[field] = address if field == "to" else [address]
+
+        serializer = SendEmailSerializer(data=body)
+
+        assert serializer.is_valid() == accepted, serializer.errors
+        assert (field in serializer.errors) == (not accepted)
