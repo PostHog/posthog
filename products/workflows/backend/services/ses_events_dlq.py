@@ -25,6 +25,7 @@ from django.conf import settings
 import boto3
 import requests
 import structlog
+from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
 from posthog.dataclasses import frozen
@@ -41,9 +42,12 @@ WEBHOOK_TIMEOUT_SECONDS = 10
 MAX_REPORTED_FAILURES = 50
 RELEASE_ATTEMPTS = 3
 MIN_MAX_PER_SECOND = 0.1
-# A run stops taking messages this long before their visibility timeout ends. The margin holds the
-# longest pacing wait plus the slowest post, so every kept message is released with a valid receipt handle.
-DEADLINE_MARGIN_SECONDS = WEBHOOK_TIMEOUT_SECONDS + int(1 / MIN_MAX_PER_SECOND) + 10
+# A run hides every message it holds for this long and renews that every HEARTBEAT_SECONDS. A single post,
+# pacing wait or SQS call has to take longer than the difference before a held message can show again.
+VISIBILITY_TIMEOUT_SECONDS = 300
+HEARTBEAT_SECONDS = 60
+# SQS ends a message's visibility 12 hours after it was received, however often the run renews it.
+MAX_RUN_SECONDS = 11 * 3600
 TRACKING_CODE_HEADER = "x-posthog-tracking-code"
 VERSIONED_TRACKING_CODE_MARKER = "v2"
 
@@ -79,7 +83,9 @@ def find_queue(name: str) -> DlqQueue | None:
 
 
 def sqs_client(queue: DlqQueue) -> "SQSClient":
-    return boto3.client("sqs", region_name=queue.region)
+    return boto3.client(
+        "sqs", region_name=queue.region, config=Config(connect_timeout=5, read_timeout=20, retries={"max_attempts": 3})
+    )
 
 
 @frozen
@@ -223,17 +229,6 @@ class ReplayOptions:
         if self.max_per_second < MIN_MAX_PER_SECOND:
             raise ValueError(f"max_per_second must be at least {MIN_MAX_PER_SECOND}")
 
-    @property
-    def visibility_timeout_seconds(self) -> int:
-        # Hide each received message for the whole run, so the run never receives it twice. SQS caps
-        # the timeout at 12 hours. A slow webhook can make the run longer than this, so the run also
-        # stops at deadline_seconds.
-        return min(int(self.limit / self.max_per_second) + 2 * DEADLINE_MARGIN_SECONDS, 43_200)
-
-    @property
-    def deadline_seconds(self) -> int:
-        return self.visibility_timeout_seconds - DEADLINE_MARGIN_SECONDS
-
 
 @frozen
 class ReplayFailure:
@@ -344,14 +339,17 @@ def replay_queue(
         queue_name=queue.name, dry_run=options.dry_run, by_event_type=Counter(), by_team=Counter(), failures=[]
     )
     pacer = _Pacer(options.max_per_second, clock, sleep)
-    deadline = clock() + options.deadline_seconds
+    started_at = last_heartbeat_at = clock()
     held: dict[str, str] = {}
     logger.info("ses_events_dlq.replay_started", queue=queue.name, triggered_by=triggered_by, options=options)
     try:
         for message in _receive_unseen(queue, options, sqs, held):
-            if clock() >= deadline:
+            if clock() - started_at >= MAX_RUN_SECONDS:
                 report.stopped_at_deadline = True
                 break
+            if clock() - last_heartbeat_at >= HEARTBEAT_SECONDS:
+                _change_visibility(queue, sqs, list(held.values()), VISIBILITY_TIMEOUT_SECONDS)
+                last_heartbeat_at = clock()
             summary = summarize_message(message)
             outcome, error = _replay_one(message, summary, options, post, pacer)
             report.record(summary, outcome, error)
@@ -360,7 +358,7 @@ def replay_queue(
                 del held[str(message["MessageId"])]
             on_progress(report)
     finally:
-        report.unreleased = _release(queue, sqs, list(held.values()))
+        report.unreleased = _change_visibility(queue, sqs, list(held.values()), 0)
         logger.info(
             "ses_events_dlq.replay_finished", queue=queue.name, triggered_by=triggered_by, report=report.to_dict()
         )
@@ -375,10 +373,15 @@ def _receive_unseen(
         messages = sqs.receive_message(
             QueueUrl=queue.url,
             MaxNumberOfMessages=min(RECEIVE_BATCH_SIZE, options.limit - len(seen)),
-            VisibilityTimeout=options.visibility_timeout_seconds,
+            VisibilityTimeout=VISIBILITY_TIMEOUT_SECONDS,
             WaitTimeSeconds=1,
             MessageSystemAttributeNames=["SentTimestamp"],
         ).get("Messages", [])
+        for received in messages:
+            # A message whose lease ran out comes back with a new receipt handle. Only the newest
+            # handle can still hide or release it.
+            if str(received["MessageId"]) in held:
+                held[str(received["MessageId"])] = str(received["ReceiptHandle"])
         unseen = [dict(m) for m in messages if m["MessageId"] not in seen]
         if not unseen:
             return
@@ -409,9 +412,9 @@ def _replay_one(
     return "failed", f"webhook answered {status}"
 
 
-def _release(queue: DlqQueue, sqs: "SQSClient", receipt_handles: Sequence[str]) -> int:
-    """Make kept messages visible again. Returns how many SQS still refused after the retries."""
-    unreleased = 0
+def _change_visibility(queue: DlqQueue, sqs: "SQSClient", receipt_handles: Sequence[str], timeout: int) -> int:
+    """Set the visibility timeout of held messages. Returns how many SQS still refused after the retries."""
+    refused = 0
     for start in range(0, len(receipt_handles), RECEIVE_BATCH_SIZE):
         pending = dict(enumerate(receipt_handles[start : start + RECEIVE_BATCH_SIZE]))
         for _ in range(RELEASE_ATTEMPTS):
@@ -419,12 +422,12 @@ def _release(queue: DlqQueue, sqs: "SQSClient", receipt_handles: Sequence[str]) 
                 response = sqs.change_message_visibility_batch(
                     QueueUrl=queue.url,
                     Entries=[
-                        {"Id": str(index), "ReceiptHandle": handle, "VisibilityTimeout": 0}
+                        {"Id": str(index), "ReceiptHandle": handle, "VisibilityTimeout": timeout}
                         for index, handle in pending.items()
                     ],
                 )
             except (BotoCoreError, ClientError) as error:
-                logger.warning("ses_events_dlq.release_failed", queue=queue.name, error=str(error))
+                logger.warning("ses_events_dlq.visibility_change_failed", queue=queue.name, error=str(error))
                 continue
             # SQS answers 200 even when single entries fail, and lists those under Failed.
             failed = {int(entry["Id"]) for entry in response.get("Failed", [])}
@@ -432,6 +435,6 @@ def _release(queue: DlqQueue, sqs: "SQSClient", receipt_handles: Sequence[str]) 
             if not pending:
                 break
         if pending:
-            logger.error("ses_events_dlq.messages_not_released", queue=queue.name, count=len(pending))
-        unreleased += len(pending)
-    return unreleased
+            logger.error("ses_events_dlq.visibility_not_changed", queue=queue.name, timeout=timeout, count=len(pending))
+        refused += len(pending)
+    return refused

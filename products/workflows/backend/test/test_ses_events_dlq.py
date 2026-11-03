@@ -56,6 +56,10 @@ def sns_message(message_id: str, event_type: str = "Bounce", team_id: int = 7) -
 
 
 class FakeSqs:
+    """An SQS queue whose leases expire on the injected clock, like the real one."""
+
+    MAX_VISIBILITY_SECONDS = 43_200
+
     def __init__(
         self,
         messages: list[dict[str, Any]],
@@ -64,26 +68,36 @@ class FakeSqs:
         clock: Callable[[], float] = lambda: 0.0,
     ):
         self.messages = {m["MessageId"]: m for m in messages}
-        self.receipts = {m["ReceiptHandle"]: m["MessageId"] for m in messages}
-        self.hidden: set[str] = set()
+        self.handles: dict[str, str] = {}
+        self.visible_after: dict[str, float] = {}
+        self.received_at: dict[str, float] = {}
         self.refuse_release = refuse_release or set()
         self.release_errors = release_errors
         self.release_calls = 0
         self.clock = clock
-        self.received_at: dict[str, float] = {}
 
-    def _by_receipt(self, handle: str) -> str:
-        return self.receipts[handle]
+    def _hide(self, message_id: str, timeout: int) -> None:
+        self.visible_after[message_id] = min(
+            self.clock() + timeout, self.received_at[message_id] + self.MAX_VISIBILITY_SECONDS
+        )
+
+    def _is_visible(self, message_id: str) -> bool:
+        return self.visible_after.get(message_id, float("-inf")) <= self.clock()
 
     def receive_message(self, *, MaxNumberOfMessages: int, VisibilityTimeout: int, **_: Any) -> dict[str, Any]:
-        visible = [m for mid, m in self.messages.items() if mid not in self.hidden][:MaxNumberOfMessages]
-        if VisibilityTimeout > 0:
-            self.hidden.update(m["MessageId"] for m in visible)
-            self.received_at.update((m["MessageId"], self.clock()) for m in visible)
-        return {"Messages": visible}
+        visible = [mid for mid in self.messages if self._is_visible(mid)][:MaxNumberOfMessages]
+        if VisibilityTimeout == 0:
+            return {"Messages": [self.messages[mid] for mid in visible]}
+        received = []
+        for mid in visible:
+            self.handles[mid] = f"receipt-{mid}-{self.clock()}"
+            self.received_at[mid] = self.clock()
+            self._hide(mid, VisibilityTimeout)
+            received.append({**self.messages[mid], "ReceiptHandle": self.handles[mid]})
+        return {"Messages": received}
 
     def delete_message(self, *, ReceiptHandle: str, **_: Any) -> None:
-        del self.messages[self._by_receipt(ReceiptHandle)]
+        del self.messages[ReceiptHandle.split("-")[1]]
 
     def change_message_visibility_batch(self, *, Entries: list[dict[str, Any]], **_: Any) -> dict[str, Any]:
         self.release_calls += 1
@@ -91,17 +105,20 @@ class FakeSqs:
             raise ClientError({"Error": {"Code": "ServiceUnavailable"}}, "ChangeMessageVisibilityBatch")
         failed = []
         for entry in Entries:
-            assert entry["VisibilityTimeout"] == 0
-            message_id = self._by_receipt(entry["ReceiptHandle"])
-            if message_id in self.refuse_release:
+            message_id = entry["ReceiptHandle"].split("-")[1]
+            stale = self.handles.get(message_id) != entry["ReceiptHandle"]
+            if stale or (entry["VisibilityTimeout"] == 0 and message_id in self.refuse_release):
                 failed.append({"Id": entry["Id"], "Code": "ReceiptHandleIsInvalid", "SenderFault": True})
             else:
-                self.hidden.discard(message_id)
+                self._hide(message_id, entry["VisibilityTimeout"])
         return {"Successful": [], "Failed": failed}
 
     @property
     def visible_ids(self) -> set[str]:
-        return set(self.messages) - self.hidden
+        return {mid for mid in self.messages if self._is_visible(mid)}
+
+    def lapsed_leases(self) -> set[str]:
+        return {mid for mid in self.received_at if mid in self.messages and self._is_visible(mid)}
 
 
 class StubWebhook:
@@ -216,29 +233,30 @@ class TestReplaySesEventsDlq(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("slow_webhook", 25, 1000.0, 12.0),
-            ("minimum_rate_past_the_sqs_visibility_cap", 5000, MIN_MAX_PER_SECOND, 0.5),
+            ("slow_failing_webhook_past_the_visibility_timeout", 25, 20.0, 500, False),
+            ("run_past_the_sqs_visibility_cap", 1000, 50.0, 200, True),
         ]
     )
-    def test_a_run_stops_before_kept_messages_outlive_their_visibility(
-        self, _name: str, count: int, max_per_second: float, post_seconds: float
+    def test_held_messages_stay_hidden_for_the_whole_run(
+        self, _name: str, count: int, post_seconds: float, status: int, stopped: bool
     ) -> None:
         now = [0.0]
         sqs = FakeSqs([sns_message(str(i)) for i in range(count)], clock=lambda: now[0])
-        options = ReplayOptions(dry_run=False, limit=count, max_per_second=max_per_second)
-        posts_ended_at: dict[str, float] = {}
+        posted: list[str] = []
+        lapsed: set[str] = set()
 
         def slow_post(body: str) -> int:
+            lapsed.update(sqs.lapsed_leases())
+            posted.append(json.loads(body)["MessageId"].removeprefix("sns-"))
             now[0] += post_seconds
-            posts_ended_at[json.loads(body)["MessageId"].removeprefix("sns-")] = now[0]
-            return 200
+            return status
 
         def sleep(seconds: float) -> None:
             now[0] += seconds
 
         report = replay_queue(
             QUEUE,
-            options,
+            ReplayOptions(dry_run=False, limit=count, max_per_second=1000.0),
             sqs=sqs,  # type: ignore[arg-type]
             triggered_by="test",
             post=slow_post,
@@ -246,16 +264,12 @@ class TestReplaySesEventsDlq(SimpleTestCase):
             sleep=sleep,
         )
 
-        late = [
-            mid
-            for mid, ended in posts_ended_at.items()
-            if ended >= sqs.received_at[mid] + options.visibility_timeout_seconds
-        ]
-        assert late == []
-        assert report.stopped_at_deadline
-        assert report.totals == {"replayed": len(posts_ended_at)}
+        assert lapsed == set()
+        assert len(posted) == len(set(posted))
+        assert report.stopped_at_deadline == stopped
+        assert (len(posted) < count) == stopped
         assert sqs.visible_ids == set(sqs.messages)
-        assert len(sqs.messages) == count - len(posts_ended_at) > 0
+        assert report.unreleased == 0
 
     @parameterized.expand([("release_works", 0, {"0", "1", "2", "3", "4"}), ("release_fails_too", 99, set())])
     def test_an_error_mid_batch_still_releases_every_received_message_and_surfaces(
@@ -317,7 +331,7 @@ class TestReplaySesEventsDlq(SimpleTestCase):
 
         assert sleeps == [0.25, 0.25]
 
-    def test_refuses_a_rate_whose_pacing_wait_would_outlast_the_deadline_margin(self) -> None:
+    def test_refuses_a_rate_whose_pacing_wait_would_outlast_the_heartbeat(self) -> None:
         with self.assertRaises(ValueError):
             ReplayOptions(dry_run=False, limit=10, max_per_second=MIN_MAX_PER_SECOND / 2)
 
