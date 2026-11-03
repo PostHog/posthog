@@ -17,6 +17,8 @@ from posthog.dataclasses import frozen
 PER_RULE_LIMIT = 10
 # Share of impressions that become clicks once a page reaches the top 3 organic results. A rough industry figure.
 TOP3_CTR = 0.15
+# Below this, reaching the top 3 brings too few clicks to be worth editing the page.
+STRIKING_MIN_MONTHLY_IMPRESSIONS = 100
 # Below this, someone else's ad often takes the first spot on your own brand searches.
 BRAND_DEFENSE_ABSOLUTE_TOP = 0.9
 INACTIVE_STATUSES = frozenset({"PAUSED", "ENDED", "REMOVED"})
@@ -553,6 +555,7 @@ class _Recommender:
                 and term.conversions >= 2
                 and term.cost / term.conversions <= cpa
                 and (not term.organic or term.organic.position > 10)
+                and not self._in_striking_distance(term, competitors)
             ]
             rules[MarketingAnalyticsRecommendationRule.SPEND_WITHOUT_CONVERSIONS] = [
                 self._term_recommendation(
@@ -592,11 +595,7 @@ class _Recommender:
                     steps=self._improve_page_steps(term.term),
                 )
                 for term in terms
-                if term.organic
-                and term.term not in self.brand_terms
-                and 5 <= term.organic.position <= 20
-                and term.clicks >= 5
-                and term.term not in competitors
+                if term.organic and self._in_striking_distance(term, competitors)
             ]
 
         ordered: list[MarketingAnalyticsRecommendation] = []
@@ -953,6 +952,16 @@ class _Recommender:
             copyValue=name,
             url=ADS_CAMPAIGNS_URL,
             linkText="Campaigns",
+        )
+
+    def _in_striking_distance(self, term: _Term, competitors: set[str]) -> bool:
+        return bool(
+            term.organic
+            and term.term not in self.brand_terms
+            and 5 <= term.organic.position <= 20
+            and term.organic.impressions * self.per_month >= STRIKING_MIN_MONTHLY_IMPRESSIONS
+            and term.clicks >= 5
+            and term.term not in competitors
         )
 
     def _content_gap_steps(self, term: _Term) -> tuple[Step, ...]:
