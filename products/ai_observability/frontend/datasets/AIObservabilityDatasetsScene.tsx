@@ -91,12 +91,9 @@ export function AIObservabilityDatasetsScene({ navigation }: { navigation?: Reac
             width: 112,
             render: function renderStatus(_, dataset) {
                 return (
-                    <div className="flex flex-wrap items-center gap-1">
-                        <LemonTag type={dataset.archived ? 'muted' : 'success'}>
-                            {dataset.archived ? 'Archived' : 'Active'}
-                        </LemonTag>
-                        {dataset.expiring_soon && <LemonTag type="warning">Expiring soon</LemonTag>}
-                    </div>
+                    <LemonTag type={dataset.expiring_soon ? 'warning' : dataset.archived ? 'muted' : 'success'}>
+                        {dataset.expiring_soon ? 'Expiring soon' : dataset.archived ? 'Archived' : 'Active'}
+                    </LemonTag>
                 )
             },
         },

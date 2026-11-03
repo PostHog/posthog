@@ -502,7 +502,7 @@ Usage is recorded in Postgres at most once per 12 hours per resource on read pat
 
 The hourly cleanup marks expired datasets and snapshots unavailable before deleting item versions in bounded batches. A version is removable only when no retained snapshot needs it, it is not the item's current version, and it has not been read recently. Archive markers follow the same rule so pruning cannot make an archived item reappear. Expiring a whole dataset eventually removes all its item versions, items, and revisions. Completed experiments, evaluation items, scores, scorer versions, and usage ledger rows remain; optional dataset foreign keys become null while their provenance identifiers remain intact. Completed evaluation reads do not keep source datasets alive.
 
-Dataset and revision responses expose `expires_at` and `expiring_soon`. The UI shows **Expiring soon** in the final seven days, without an extension button. Normal use refreshes retention. The deadline is the earliest cleanup eligibility time, not a promise of immediate deletion. Cleanup emits a `dataset retention run` event with expiry and deletion counts, duration, completion status, and whether the time budget was exhausted.
+Dataset and revision responses expose `expires_at` and `expiring_soon`. The UI shows **Expiring soon** in the final seven days, replacing the Active or Archived status label, without an extension button. Normal use refreshes retention. The deadline is the earliest cleanup eligibility time, not a promise of immediate deletion. Cleanup emits a `dataset retention run` event with expiry and deletion counts, duration, completion status, and whether the time budget was exhausted.
 
 ## Resource tags
 
