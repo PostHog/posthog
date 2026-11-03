@@ -24,6 +24,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.security.url_validation import PinnedUrlVerdict
 
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import get_configuration, list_configurations, upsert_configuration
@@ -76,7 +77,9 @@ def _make_log_row(*, team_id: int, service: str, uuid: str, ts: datetime, body: 
 # Where a request-side delivery meets Temporal and the transports, which the tests stand in for.
 _WEB_START = "products.alerts_platform.backend.temporal.web_start"
 _ALERTS_API = "products.logs.backend.presentation.views.alerts_api"
-_NATIVE_PAGERDUTY_DELIVER = "products.alerts_platform.backend.delivery.pagerduty.PagerDutyTransport.deliver"
+# A native send leaves through the pinned adapter, so a stub there counts native sends with no network.
+_PINNED_URL_CHECK = "posthog.security.pinned_requests.validate_url_and_pin_ips"
+_PINNED_SEND = "posthog.security.pinned_requests.PinnedIPAdapter.send"
 
 
 class TestLogsAlertAPI(APIBaseTest):
@@ -2889,7 +2892,8 @@ class TestLogsAlertAPI(APIBaseTest):
             patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True),
             # Sends the resolve inline, so the test sees which path delivered it.
             patch(f"{_WEB_START}.async_connect", AsyncMock(side_effect=RuntimeError("temporal unreachable"))),
-            patch(_NATIVE_PAGERDUTY_DELIVER, return_value=None) as native,
+            patch(_PINNED_URL_CHECK, return_value=PinnedUrlVerdict(allowed=True, reason=None, pinned_ips=set())),
+            patch(_PINNED_SEND, return_value=MagicMock(status_code=202)) as native,
             patch("products.logs.backend.platform_alert_legacy_events.emit_alert_internal_events") as emit,
             self.captureOnCommitCallbacks(execute=True),
         ):
