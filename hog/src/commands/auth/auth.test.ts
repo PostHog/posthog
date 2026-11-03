@@ -500,6 +500,19 @@ describe('hog auth login', () => {
             { code: 'invalid_legacy_credentials', hint: expect.any(String) },
         ],
         [
+            'a self-hosted key is checked under the path PostHog sits under',
+            {
+                [LEGACY_CLI_FILE]: JSON.stringify({
+                    host: 'https://example.com/posthog',
+                    token: 'phx_secret',
+                    env_id: '42',
+                }),
+            },
+            200,
+            0,
+            { status: 'migrated', host: 'https://example.com/posthog', store: 'keychain' },
+        ],
+        [
             'a key PostHog rejects stays out of the store',
             { [LEGACY_CLI_FILE]: STORED },
             401,
@@ -511,17 +524,18 @@ describe('hog auth login', () => {
             env: { CLAUDECODE: '1' },
             files,
             respond: (url) =>
-                url === 'https://eu.posthog.com/api/personal_api_keys/@current/'
+                [
+                    'https://eu.posthog.com/api/personal_api_keys/@current/',
+                    'https://example.com/posthog/api/personal_api_keys/@current/',
+                ].includes(url)
                     ? { status: keyStatus, body: keyStatus === 200 ? { scopes: ['query:read'] } : {} }
-                    : { status: 500, body: {} },
+                    : { status: 404, body: {} },
         })
 
         expect(result.exitCode).toBe(exitCode)
         expect(exitCode === 0 ? result.json() : result.error()).toMatchObject(expected)
         expect(result.files[LEGACY_CLI_FILE]).toBe(files[LEGACY_CLI_FILE])
         const migrated = exitCode === 0 && files[LEGACY_CLI_FILE] !== undefined
-        expect(result.keychain['https://eu.posthog.com']).toBe(
-            migrated ? JSON.stringify({ apiKey: 'phx_secret' }) : undefined
-        )
+        expect(Object.values(result.keychain)).toEqual(migrated ? [JSON.stringify({ apiKey: 'phx_secret' })] : [])
     })
 })
