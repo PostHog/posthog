@@ -11,6 +11,7 @@ Django settings. That is not true yet: several origin modules import Django mode
 
 from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
+from posthog.egress.slack.transport import slack_request
 from posthog.exceptions_capture import capture_exception
 from posthog.integrations import IntegrationKind, IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models.integration import (
@@ -21,10 +22,12 @@ from posthog.models.integration import (
 )
 from posthog.models.integration.databricks import NOT_A_DATABRICKS_HOST_MESSAGE, is_databricks_workspace_host
 from posthog.schema_enums import ProductKey
+from posthog.security.postgres_hosts import SUPABASE_DIRECT_HOST_IPV4_HINT, SUPABASE_DIRECT_HOST_RE
 from posthog.security.url_validation import is_url_allowed
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.shutdown import WorkerShuttingDownError
 
+from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE, detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
@@ -38,6 +41,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldOauthConfig,
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
+    SourceFieldSSHTunnelConfig,
     SourceFieldSwitchGroupConfig,
     SuggestedTable,
 )
@@ -51,7 +55,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     update_sync_type_config_keys,
 )
-from products.warehouse_sources.backend.models.ssh_tunnel import from_private_key
+from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnelConfig, from_private_key
 from products.warehouse_sources.backend.temporal.data_imports.sources.common import (
     config,
     credentials_service,
@@ -59,10 +63,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     UNVERSIONED_API_VERSION,
+    ExternalWebhookInfo,
     FieldType,
     ResumableSource,
     SimpleSource,
     VersionDeprecation,
+    WebhookCreationResult,
+    WebhookDeletionResult,
+    WebhookSource,
+    WebhookSyncResult,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.boundary_checkpoint import (
     BoundaryCheckpoint,
@@ -131,11 +140,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     DATABASE_HOST_NOT_ALLOWED_ERROR,
     HostNotAllowedError,
     OAuthMixin,
+    TemporaryHostResolutionError,
     ValidateDatabaseHostMixin,
     _is_host_safe,
     log_connection_open,
     resolve_safe_host,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.oauth_pointers import PointerPath
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.primary_keys import resolve_merge_keys
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import (
     SourceKey,
@@ -279,6 +290,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
     SourceResponse,
     TDataType,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth import (
     salesforce_refresh_access_token,
 )
@@ -316,6 +328,7 @@ __all__ = [
     "ExternalDataSchema",
     "ExternalDataSchemaSyncType",
     "ExternalDataSourceType",
+    "ExternalWebhookInfo",
     "FILE_MODIFIED_AT_COLUMN",
     "FILE_PATH_COLUMN",
     "FORMAT_ERROR",
@@ -324,6 +337,7 @@ __all__ = [
     "FileDelimiterError",
     "HTTPMethodBasic",
     "HeaderLinkPaginator",
+    "HogFunctionTemplateDC",
     "HostNotAllowedError",
     "HttpBasicAuth",
     "HttpBasicAuthConfig",
@@ -357,6 +371,7 @@ __all__ = [
     "OffsetPaginator",
     "PageNumberPaginator",
     "PageNumberPaginatorConfig",
+    "PointerPath",
     "PaginatorConfig",
     "ParamLocation",
     "ParamStyle",
@@ -377,6 +392,9 @@ __all__ = [
     "RowFilterColumn",
     "SQLSource",
     "SQLSourceImplementation",
+    "SSHTunnelConfig",
+    "SUPABASE_DIRECT_HOST_IPV4_HINT",
+    "SUPABASE_DIRECT_HOST_RE",
     "SafeSQL",
     "SelectQueryBuilder",
     "SimpleSource",
@@ -390,6 +408,7 @@ __all__ = [
     "SourceFieldInputConfigType",
     "SourceFieldOauthAccountSelectConfig",
     "SourceFieldOauthConfig",
+    "SourceFieldSSHTunnelConfig",
     "SourceFieldSelectConfig",
     "SourceFieldSelectConfigOption",
     "SourceFieldSwitchGroupConfig",
@@ -405,6 +424,7 @@ __all__ = [
     "TJsonPath",
     "Table",
     "TableStats",
+    "TemporaryHostResolutionError",
     "TrackedHTTPAdapter",
     "UNKNOWN_RESOURCE_PREFIX",
     "UNVERSIONED_API_VERSION",
@@ -412,6 +432,11 @@ __all__ = [
     "ValidateDatabaseHostMixin",
     "ValidatedRowFilter",
     "VersionDeprecation",
+    "WebhookCreationResult",
+    "WebhookDeletionResult",
+    "WebhookSource",
+    "WebhookSourceManager",
+    "WebhookSyncResult",
     "WorkerShuttingDownError",
     "_NoRedirectSession",
     "_inject_param",
@@ -472,6 +497,7 @@ __all__ = [
     "schema_for_resource",
     "scrub_url",
     "set_json_param",
+    "slack_request",
     "source_helpers",
     "source_key",
     "stop_at_request_deadline",
