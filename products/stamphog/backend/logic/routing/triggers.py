@@ -315,5 +315,4 @@ def route_on_safety_net(
     if _resume(client, state):
         return
     step = _safety_net_step(client, state)
-    # A net that finds another task routing schedules itself again instead of retrying.
     _execute(client, state, step, review_path, retry_when_busy=False)

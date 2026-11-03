@@ -246,7 +246,6 @@ def test_routing_requests_the_owners_the_cut_step_keeps(
     "name,label_failures",
     [
         ("labels_added", 0),
-        # The label is the only signal a fork gives those teams, so a server error retries the task.
         ("server_error_retries", 1),
     ],
 )
