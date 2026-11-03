@@ -30,7 +30,7 @@ from products.alerts.backend.models.alert import (
 )
 from products.alerts.backend.models.investigation import InsightAlertInvestigation
 from products.alerts.backend.platform_cutover import cut_over_team
-from products.alerts.backend.platform_source_cycle import SUPPRESSED_BY_AGENT_KEY
+from products.alerts.backend.platform_investigation_detail import SUPPRESSED_BY_AGENT_KEY
 from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import get_configuration, update_configuration

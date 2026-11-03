@@ -43,7 +43,7 @@ from products.alerts.backend.models.investigation import InsightAlertInvestigati
 from products.alerts.backend.platform_alert_wording import insight_alert_url
 from products.alerts.backend.platform_chart_detail import CHART_PENDING_KEY, RenderedChart
 from products.alerts.backend.platform_investigation import claim_requested_investigations, run_metrics_investigation
-from products.alerts.backend.platform_investigation_detail import requested_investigation
+from products.alerts.backend.platform_investigation_detail import SUPPRESSED_BY_AGENT_KEY, requested_investigation
 from products.alerts.backend.platform_source_cycle import (
     CAPACITY_REJECTED,
     CHART_RENDER_INFLIGHT_KEY,
@@ -949,6 +949,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
         assert requested_investigation(outcome) is None
         assert (outcome.groups[0].kind, outcome.groups[0].muted_notification) == (AlertEventKind.CHECK, "fire")
+        assert outcome.groups[0].source_detail.get(SUPPRESSED_BY_AGENT_KEY) is True
         assert self.deliveries == ()
 
     @parameterized.expand(
