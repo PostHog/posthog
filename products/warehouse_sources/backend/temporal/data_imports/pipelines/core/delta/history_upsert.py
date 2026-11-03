@@ -75,6 +75,8 @@ _STAGING_COLUMNS = (STAGED_BATCH_COLUMN, STAGED_ROW_COLUMN)
 MAX_CALL_BYTES = 1024 * 1024 * 1024
 # Each chunk rewrites the `current` files that hold its keys, so chunks stay as large as memory allows.
 CHUNK_TARGET_BYTES = 512 * 1024 * 1024
+# Rows per scanned batch, so one decoded batch of wide rows stays small next to the call budget.
+_SCAN_BATCH_ROWS = 16_384
 # Each chunk holds one open spill file while the staging table is read. Past this many chunks, a chunk grows
 # instead.
 _MAX_CHUNKS = 256
@@ -286,7 +288,7 @@ def _read_if_it_fits(dataset: ds.Dataset, columns: list[str], max_bytes: int) ->
     """
     held: list[pa.RecordBatch] | None = []
     total = 0
-    scanner = dataset.scanner(columns=columns, batch_readahead=1, fragment_readahead=1, use_threads=False)
+    scanner = _scanner(dataset, columns)
     for batch in scanner.to_batches():
         total += batch.nbytes
         if held is not None and total <= max_bytes:
@@ -320,8 +322,7 @@ def _spill_chunks(
     options = pa.ipc.IpcWriteOptions(compression="zstd")
     with contextlib.ExitStack() as stack:
         writers = [stack.enter_context(pa.ipc.new_file(str(path), schema, options=options)) for path in paths]
-        scanner = dataset.scanner(columns=columns, batch_readahead=1, fragment_readahead=1, use_threads=False)
-        for batch in scanner.to_batches():
+        for batch in _scanner(dataset, columns).to_batches():
             if batch.num_rows == 0:
                 continue
             buckets = deltalite.key_buckets(batch, list(key_columns), chunks)
@@ -343,8 +344,16 @@ def _read_chunk(path: Path) -> pa.Table:
 
 
 def _batch_tags(dataset: ds.Dataset) -> set[str]:
-    tags = dataset.to_table(columns=[STAGED_BATCH_COLUMN]).column(STAGED_BATCH_COLUMN)
-    return {str(tag) for tag in pc.unique(tags).drop_null().to_pylist()}
+    tags: set[str] = set()
+    for batch in _scanner(dataset, [STAGED_BATCH_COLUMN]).to_batches():
+        tags.update(str(tag) for tag in pc.unique(batch.column(STAGED_BATCH_COLUMN)).drop_null().to_pylist())
+    return tags
+
+
+def _scanner(dataset: ds.Dataset, columns: list[str]) -> ds.Scanner:
+    return dataset.scanner(
+        columns=columns, batch_size=_SCAN_BATCH_ROWS, batch_readahead=1, fragment_readahead=1, use_threads=False
+    )
 
 
 def _normalized_keys(key_columns: Sequence[str]) -> list[str]:
