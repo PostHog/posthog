@@ -25,6 +25,7 @@ import {
     TrendsQuery,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
+    isExperimentQuantileMetric,
     isExperimentRatioMetric,
     isExperimentExposureNode,
     isExperimentRetentionMetric,
@@ -202,13 +203,14 @@ function seriesToFilter(series: AnyEntityNode | ExperimentMetricSource): Univers
  * surfaces don't enumerate) yields no filters.
  */
 export function getMetricSessionFilters(metric: ExperimentMetric): UniversalFiltersGroupValue[] {
-    const sources: (ExperimentMetricSource | ExperimentFunnelMetricStep)[] = isExperimentMeanMetric(metric)
-        ? [metric.source]
-        : isExperimentFunnelMetric(metric)
-          ? metric.series
-          : isExperimentRatioMetric(metric)
-            ? [metric.numerator, metric.denominator]
-            : []
+    const sources: (ExperimentMetricSource | ExperimentFunnelMetricStep)[] =
+        isExperimentMeanMetric(metric) || isExperimentQuantileMetric(metric)
+            ? [metric.source]
+            : isExperimentFunnelMetric(metric)
+              ? metric.series
+              : isExperimentRatioMetric(metric)
+                ? [metric.numerator, metric.denominator]
+                : []
     return sources
         .filter((source) => source.kind === NodeKind.EventsNode || source.kind === NodeKind.ActionsNode)
         .map((source) => seriesToFilter(source))
@@ -355,13 +357,14 @@ export function getSessionLinkabilityEventNames(experiment: Experiment): string[
     ].filter((metric): metric is ExperimentMetric => metric?.kind === NodeKind.ExperimentMetric)
 
     for (const metric of metrics) {
-        const sources: (ExperimentMetricSource | ExperimentFunnelMetricStep)[] = isExperimentMeanMetric(metric)
-            ? [metric.source]
-            : isExperimentFunnelMetric(metric)
-              ? metric.series
-              : isExperimentRatioMetric(metric)
-                ? [metric.numerator, metric.denominator]
-                : []
+        const sources: (ExperimentMetricSource | ExperimentFunnelMetricStep)[] =
+            isExperimentMeanMetric(metric) || isExperimentQuantileMetric(metric)
+                ? [metric.source]
+                : isExperimentFunnelMetric(metric)
+                  ? metric.series
+                  : isExperimentRatioMetric(metric)
+                    ? [metric.numerator, metric.denominator]
+                    : []
         for (const source of sources) {
             if (source.kind === NodeKind.EventsNode && source.event) {
                 eventNames.add(source.event)
@@ -466,8 +469,28 @@ export function getDefaultRetentionMetric(): ExperimentMetric {
     }
 }
 
+export const DEFAULT_METRIC_QUANTILE = 0.9
+
+export function getDefaultQuantileMetric(): ExperimentMetric {
+    return {
+        kind: NodeKind.ExperimentMetric,
+        uuid: uuid(),
+        metric_type: ExperimentMetricType.QUANTILE,
+        // Percentile metrics usually measure durations such as load time, where lower is better
+        goal: ExperimentMetricGoal.Decrease,
+        quantile: DEFAULT_METRIC_QUANTILE,
+        source: {
+            kind: NodeKind.EventsNode,
+            event: '$pageview',
+            name: '$pageview',
+        },
+    }
+}
+
 export function getDefaultExperimentMetric(metricType: ExperimentMetricType): ExperimentMetric {
     switch (metricType) {
+        case ExperimentMetricType.QUANTILE:
+            return getDefaultQuantileMetric()
         case ExperimentMetricType.FUNNEL:
             return getDefaultFunnelMetric()
         case ExperimentMetricType.RATIO:
@@ -571,6 +594,31 @@ export function seriesToExposureConfig(series: SeriesNode[]): ExperimentEventExp
             name: node.name,
             properties: node.properties,
         }
+    }
+    return undefined
+}
+
+/** True when an inline or shared metric of the experiment is a percentile metric. */
+export function experimentHasQuantileMetric(experiment: Experiment): boolean {
+    return [
+        ...(experiment.metrics ?? []),
+        ...(experiment.metrics_secondary ?? []),
+        ...(experiment.saved_metrics ?? []).map((savedMetric: { query?: unknown }) => savedMetric.query),
+    ].some(
+        (metric) =>
+            !!metric &&
+            typeof metric === 'object' &&
+            (metric as { metric_type?: unknown }).metric_type === ExperimentMetricType.QUANTILE
+    )
+}
+
+/**
+ * Why the metric form can't be saved yet, or undefined when the metric is complete. The backend
+ * rejects an incomplete metric too; this lets the save button say what is missing first.
+ */
+export function getMetricIncompleteReason(metric: ExperimentMetric): string | undefined {
+    if (isExperimentQuantileMetric(metric) && !metric.source.math_property) {
+        return 'Select a numeric property for the percentile'
     }
     return undefined
 }
@@ -700,6 +748,7 @@ const getEventCountSeries = (metric: ExperimentMetric): AnyEntityNode[] => {
                 : retentionMetric.start_event
         )
         .when(isExperimentMeanMetric, (meanMetric) => meanMetric.source)
+        .when(isExperimentQuantileMetric, (quantileMetric) => quantileMetric.source)
         .otherwise(() => null)
 
     if (!source) {

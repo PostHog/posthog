@@ -4,6 +4,7 @@ import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonModal, Link } fr
 
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { pluralize } from 'lib/utils/strings'
+import { formatMetricTypeName } from 'scenes/experiments/MetricsView/shared/utils'
 import { InlineTagEditor } from 'scenes/experiments/SharedMetrics/InlineTagEditor'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
 import { sharedMetricsLogic } from 'scenes/experiments/SharedMetrics/sharedMetricsLogic'
@@ -238,7 +239,7 @@ export function SharedMetricModal({
                                 {
                                     title: 'Type',
                                     key: 'type',
-                                    render: (_, metric: SharedMetric) => metric.query.metric_type,
+                                    render: (_, metric: SharedMetric) => formatMetricTypeName(metric.query.metric_type),
                                 },
                             ]}
                             footer={

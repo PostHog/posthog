@@ -34,6 +34,7 @@ import {
     isExperimentExposureNode,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
+    isExperimentQuantileMetric,
     isExperimentRatioMetric,
     isExperimentRetentionMetric,
 } from '~/queries/schema/schema-general'
@@ -44,6 +45,7 @@ import {
     FunnelConversionWindowTimeUnit,
 } from '~/types'
 
+import { ExperimentQuantileMetricFields } from 'products/experiments/frontend/components/ExperimentQuantileMetricFields'
 import { WarehouseNativeMetricFields } from 'products/experiments/frontend/warehouseNative/WarehouseNativeMetricFields'
 import {
     EMPTY_WAREHOUSE_NATIVE_BINDING,
@@ -186,7 +188,7 @@ export function ExperimentMetricForm({
     } | null>(null)
 
     const getEventTypeLabel = (): string => {
-        if (isExperimentMeanMetric(metric)) {
+        if (isExperimentMeanMetric(metric) || isExperimentQuantileMetric(metric)) {
             return metric.source.kind === NodeKind.ActionsNode ? 'actions' : 'events'
         } else if (isExperimentFunnelMetric(metric)) {
             const lastStep = metric.series[metric.series.length - 1]
@@ -217,7 +219,7 @@ export function ExperimentMetricForm({
         // Extract current sources from the existing metric to preserve selections
         let sources: ExperimentMetricSource[] = []
 
-        if (isExperimentMeanMetric(metric)) {
+        if (isExperimentMeanMetric(metric) || isExperimentQuantileMetric(metric)) {
             sources = [metric.source]
         } else if (isExperimentFunnelMetric(metric)) {
             sources = metric.series
@@ -252,6 +254,12 @@ export function ExperimentMetricForm({
                 }
                 if (isPickerSource(sources[1])) {
                     newMetric.completion_event = sources[1]
+                }
+            } else if (newMetricType === ExperimentMetricType.QUANTILE && isExperimentQuantileMetric(newMetric)) {
+                const source = sources[0]
+                // A percentile reads event properties, so only an event or action source carries over
+                if (source.kind === NodeKind.EventsNode || source.kind === NodeKind.ActionsNode) {
+                    newMetric.source = { ...source, math: undefined, math_property: source.math_property }
                 }
             }
         }
@@ -322,10 +330,17 @@ export function ExperimentMetricForm({
             description:
                 'Calculates the retention rate of users exposed to the experiment. Useful for measuring the percentage of users who return to the app after a certain period of time.',
         },
+        {
+            value: ExperimentMetricType.QUANTILE,
+            label: 'Percentile',
+            disabledReason: warehouseNativeTypeReason,
+            description:
+                'Calculates a percentile of a numeric property across all events, such as p90 page load time. Useful for measuring latency and other durations.',
+        },
     ]
 
     // dependencies for the loadEventCount useEffect call
-    const meanSource = isExperimentMeanMetric(metric) ? metric.source : null
+    const singleSource = isExperimentMeanMetric(metric) || isExperimentQuantileMetric(metric) ? metric.source : null
     const funnelSeries = isExperimentFunnelMetric(metric) ? metric.series : null
     const ratioNumerator = isExperimentRatioMetric(metric) ? metric.numerator : null
     const ratioDenominator = isExperimentRatioMetric(metric) ? metric.denominator : null
@@ -337,7 +352,7 @@ export function ExperimentMetricForm({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [
         metric.metric_type,
-        meanSource,
+        singleSource,
         funnelSeries,
         ratioNumerator,
         ratioDenominator,
@@ -513,6 +528,10 @@ export function ExperimentMetricForm({
                             }
                         />
                     </>
+                )}
+
+                {isExperimentQuantileMetric(metric) && (
+                    <ExperimentQuantileMetricFields metric={metric} handleSetMetric={handleSetMetric} />
                 )}
 
                 {isExperimentFunnelMetric(metric) && (

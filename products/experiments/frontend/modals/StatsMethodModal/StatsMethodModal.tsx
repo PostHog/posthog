@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonInput, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 import { LemonModal } from '@posthog/lemon-ui'
 
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
@@ -9,9 +9,11 @@ import {
     MAX_SEQUENTIAL_TUNING_PARAMETER,
     SequentialSelection,
     getSequentialSelection,
+    resolveSequentialEnabled,
     resolveSequentialTuningParameter,
 } from 'scenes/experiments/ExperimentView/sequential'
 import { modalsLogic } from 'scenes/experiments/modalsLogic'
+import { experimentHasQuantileMetric } from 'scenes/experiments/utils'
 import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsConfigLogic'
 
 import { ExperimentStatsMethod } from '~/types'
@@ -185,6 +187,13 @@ export function StatsMethodModal(): JSX.Element {
                         ]}
                         className="w-72"
                     />
+                    {resolveSequentialEnabled(experiment.stats_config?.frequentist, teamDefaultSequentialEnabled) &&
+                        experimentHasQuantileMetric(experiment) && (
+                            <LemonBanner type="warning">
+                                Percentile metrics don't support sequential testing yet. They show an error until you
+                                turn it off.
+                            </LemonBanner>
+                        )}
                     <p className="text-xs text-secondary m-0">
                         Always-valid p-values that are robust to peeking. You can check the experiment as often as you
                         want without inflating the false positive rate, at the cost of slightly wider confidence

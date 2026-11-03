@@ -19,6 +19,7 @@ import {
     NodeKind,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
+    isExperimentQuantileMetric,
     isExperimentRatioMetric,
     isExperimentRetentionMetric,
 } from '~/queries/schema/schema-general'
@@ -28,6 +29,9 @@ export type ExperimentVariantResult = ExperimentVariantResultFrequentist | Exper
 
 export const getMetricTag = (metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery): string => {
     if (metric.kind === NodeKind.ExperimentMetric) {
+        if (isExperimentQuantileMetric(metric)) {
+            return 'Percentile'
+        }
         return metric.metric_type.charAt(0).toUpperCase() + metric.metric_type.slice(1).toLowerCase()
     } else if (metric.kind === NodeKind.ExperimentFunnelsQuery) {
         return 'Funnel'
@@ -57,6 +61,16 @@ const getDefaultName = (source: MetricSource): string | null | undefined => {
     }
 }
 
+/** The lowercase type name users see, which is "percentile" for the `quantile` metric type. */
+export const formatMetricTypeName = (metricType: string): string =>
+    metricType === ExperimentMetricType.QUANTILE ? 'percentile' : metricType
+
+/** The short label of a quantile level, for example "p90" for 0.9. */
+export const formatQuantileLevel = (quantile: number): string => `p${Math.round(quantile * 100)}`
+
+/** True when the results UI can open a daily timeseries for the metric. Percentile metrics have no daily timeseries. */
+export const metricSupportsTimeseries = (metric: ExperimentMetric): boolean => !isExperimentQuantileMetric(metric)
+
 export const getDefaultMetricTitle = (metric: ExperimentMetric): string => {
     switch (metric.metric_type) {
         case ExperimentMetricType.MEAN:
@@ -71,6 +85,8 @@ export const getDefaultMetricTitle = (metric: ExperimentMetric): string => {
             const startEventName = getDefaultName(metric.start_event)
             const completionEventName = getDefaultName(metric.completion_event)
             return `${startEventName || 'Start event'} / ${completionEventName || 'Completion event'}`
+        case ExperimentMetricType.QUANTILE:
+            return `${formatQuantileLevel(metric.quantile)} of ${metric.source.math_property || getDefaultName(metric.source) || 'property'}`
         default:
             return 'Untitled metric'
     }
@@ -284,6 +300,13 @@ export function isProportionMetric(metric: ExperimentMetric): boolean {
 }
 
 export function formatMetricValue(data: any, metric: ExperimentMetric): string {
+    if (isExperimentQuantileMetric(metric)) {
+        // The first grid entry is the quantile itself. `sum` holds the count of events at or below it.
+        const quantileValue = data.quantile_grid?.[0]
+        return typeof quantileValue === 'number' && Number.isFinite(quantileValue)
+            ? humanFriendlyLargeNumber(quantileValue)
+            : '—'
+    }
     if (isExperimentRatioMetric(metric)) {
         // For ratio metrics, we need to calculate the ratio from sum and denominator_sum
         if (data.denominator_sum && data.denominator_sum > 0) {
@@ -309,6 +332,13 @@ export function getMetricSubtitleValues(
         return {
             numerator: variant.sum,
             denominator: variant.denominator_sum || 0,
+        }
+    }
+    if (isExperimentQuantileMetric(metric)) {
+        // Events over exposed users, because `sum` is the count of events at or below the quantile
+        return {
+            numerator: variant.denominator_sum || 0,
+            denominator: variant.number_of_samples || 0,
         }
     }
     return {

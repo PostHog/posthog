@@ -6101,7 +6101,7 @@
         }
     },
     "experiment-saved-metrics-create": {
-        "description": "Create a reusable shared metric. Requires name (unique per project, case-insensitive) and query (kind='ExperimentMetric', metric_type one of 'mean', 'funnel', 'ratio', 'retention'). Optional: description, tags.\n\nLoad the configuring-experiment-analytics skill before constructing the query, and use read-data-schema to confirm event names. Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected.\n\nTo attach to an experiment, call experiment-update with saved_metrics_ids — each item has 'id' and 'metadata.type' ('primary' or 'secondary').",
+        "description": "Create a reusable shared metric. Requires name (unique per project, case-insensitive) and query (kind='ExperimentMetric', metric_type one of 'mean', 'funnel', 'ratio', 'retention', 'quantile'). Optional: description, tags.\n\nLoad the configuring-experiment-analytics skill before constructing the query, and use read-data-schema to confirm event names. Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected.\n\nTo attach to an experiment, call experiment-update with saved_metrics_ids — each item has 'id' and 'metadata.type' ('primary' or 'secondary').",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Create shared experiment metric",

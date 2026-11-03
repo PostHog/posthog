@@ -10,13 +10,16 @@ import type {
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetricSource,
+    ExperimentQuantileMetric,
     ExperimentRatioMetric,
 } from '~/queries/schema/schema-general'
 import {
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
+    isExperimentQuantileMetric,
     isExperimentRatioMetric,
 } from '~/queries/schema/schema-general'
+import { formatQuantileLevel } from '~/scenes/experiments/MetricsView/shared/utils'
 
 import { isWarehouseNativeSource } from 'products/experiments/frontend/warehouseNative/warehouseNativeSources'
 
@@ -103,4 +106,12 @@ export const MetricEventDetails = ({ metric }: MetricEventDetailsProps): JSX.Ele
                 </div>
             )
         })
+        .when(isExperimentQuantileMetric, (quantileMetric: ExperimentQuantileMetric) => (
+            <div className="text-xs text-muted">
+                <span className="truncate">{getSourceName(quantileMetric.source)}</span>
+                <span className="text-muted">
+                    {` (${formatQuantileLevel(quantileMetric.quantile)} of ${quantileMetric.source.math_property || 'no property'})`}
+                </span>
+            </div>
+        ))
         .otherwise(() => <div>Unknown metric type</div>)

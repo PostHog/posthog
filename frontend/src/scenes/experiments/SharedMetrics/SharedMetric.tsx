@@ -37,7 +37,7 @@ import type { ExperimentSavedMetricLinkedExperimentApi } from 'products/experime
 import { getWarehouseNativeMetricError } from 'products/experiments/frontend/warehouseNative/warehouseNativeSources'
 
 import { ExperimentMetricForm } from '../ExperimentMetricForm'
-import { isLegacyExperimentQuery } from '../utils'
+import { getMetricIncompleteReason, isLegacyExperimentQuery } from '../utils'
 import { openDeleteSharedMetricDialog } from './deleteSharedMetricDialog'
 import { SharedMetricLinkedExperiments } from './SharedMetricLinkedExperiments'
 import { SharedMetricLogicProps, sharedMetricLogic } from './sharedMetricLogic'
@@ -107,7 +107,8 @@ export function SharedMetric(): JSX.Element {
         ? 'Legacy shared metrics can no longer be edited'
         : !sharedMetric?.name
           ? 'You must give your metric a name'
-          : (getWarehouseNativeMetricError(sharedMetric.query as ExperimentMetric) ?? undefined)
+          : (getWarehouseNativeMetricError(sharedMetric.query as ExperimentMetric) ??
+            (sharedMetric.query ? getMetricIncompleteReason(sharedMetric.query as ExperimentMetric) : undefined))
 
     const handleDelete = async (): Promise<void> => {
         if (!sharedMetric.id || deleteCheckLoading) {
