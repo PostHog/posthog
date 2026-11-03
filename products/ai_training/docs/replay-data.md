@@ -698,7 +698,7 @@ To find the write days that hold every record captured before a cutoff `C`, a re
 1. Starts at the UTC day of `C` and uses only days that have ended, because the files of the current day still change.
 2. Finds the first day `X` with a file for every partition of every topic in `input_partitions`, each with `complete_up_to_capture_ms` at or after `C`. Each block and index row of a record captured before `C` then has a write day of `X` or earlier. A day with a missing file proves nothing, but a later day can.
 3. Takes the highest value of `index_end_offsets` for each index partition, over the files of day `X`.
-4. Waits until the sink's [watermark file](#watermark-files) of the index that it reads has, for each index partition, a `committed_offset` at or past that value. Every row of that index for those records is then in an index file in S3.
+4. Waits until, for each index partition, one of the sink's [watermark files](#watermark-files) of that partition has a `committed_offset` at or past that value. The block and image files of a partition carry its one committed offset, so either file shows it, and a reader of one index does not wait for the other's file to refresh. Every index row of those records is then in an index file in S3.
 5. Reads the write days up to and including `X`.
 
 For example, take a cutoff of 2026-10-27 00:00 and a recorder that is 60 hours behind.

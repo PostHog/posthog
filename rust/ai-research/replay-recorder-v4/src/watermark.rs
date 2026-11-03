@@ -1,5 +1,4 @@
-//! The recorder's watermark files. The format is in `products/ai_training/docs/replay-data.md`, section "Recorder
-//! watermark files".
+//! The recorder's watermark files. The format is in `products/ai_training/docs/replay-data.md`, section "Recorder watermark files".
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -16,14 +15,12 @@ use crate::store::BlobStore;
 
 pub const WATERMARK_FILE_INTERVAL: Duration = Duration::from_secs(180);
 
-/// A later offset can hold a record captured earlier, by up to its producer's delivery timeout. This is well over the
-/// delivery timeouts of capture and of the replay lane that moves records to the overflow topic.
+/// A later offset can hold a record captured earlier, by up to its producer's delivery timeout. This is well over the delivery timeouts of capture and of the replay lane that moves records to the overflow topic.
 pub const CAPTURE_ORDER_SLACK_MS: i64 = 5 * 60 * 1000;
 
 const PUT_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// The previous owner's last index rows are delivered or failed within the index delivery timeout of the assignment.
-/// The extra minute covers clock differences between processes, which pick write days by their own clocks.
+/// The previous owner's last index rows are delivered or failed within the index delivery timeout of the assignment. The extra minute covers clock differences between processes, which pick write days by their own clocks.
 pub fn assignment_grace(index_delivery_timeout: Duration) -> Duration {
     index_delivery_timeout + Duration::from_secs(60)
 }
@@ -153,7 +150,6 @@ impl Progress {
     }
 }
 
-/// `committed_offset` stands in for the next offset of a partition that has handled nothing under its assignment.
 pub fn complete_up_to_capture_ms(
     progress: Option<PartitionProgress>,
     committed_offset: Option<i64>,
@@ -161,8 +157,7 @@ pub fn complete_up_to_capture_ms(
     high_watermark_read_at_ms: i64,
 ) -> Option<i64> {
     let next_offset = progress.map(|p| p.next_offset).or(committed_offset)?;
-    // Every record appended before the read is handled, and one appended after it was captured at most the slack
-    // before the read.
+    // Every record appended before the read is handled, and one appended after it was captured at most the slack before the read.
     let read_to_end_at_ms = (next_offset >= high_watermark).then_some(high_watermark_read_at_ms);
     let newest_ms = progress
         .and_then(|p| p.last_captured_at_ms)
@@ -178,7 +173,6 @@ pub fn complete_up_to_capture_ms(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KafkaEnds {
     pub reads_started_at_ms: i64,
-    pub committed_offsets: HashMap<Tp, i64>,
     pub input_end_offsets: HashMap<Tp, i64>,
     pub input_partitions: BTreeMap<&'static str, usize>,
     pub index_end_offsets: Vec<i64>,
@@ -201,10 +195,10 @@ pub fn watermark_key(write_day: &str, tp: Tp) -> String {
     )
 }
 
-/// `written_at` must be read after the Kafka reads, so that the file's day is no earlier than the write day of any flush
-/// that the progress counts.
+/// `written_at` must be read after the Kafka reads, so that the file's day is no earlier than the write day of any flush that the progress counts.
 pub fn watermark_files(
     owned: &[(Tp, Option<PartitionProgress>)],
+    committed_offsets: &HashMap<Tp, i64>,
     ends: &KafkaEnds,
     written_at: DateTime<Utc>,
 ) -> Result<Vec<(String, Vec<u8>)>, serde_json::Error> {
@@ -216,7 +210,7 @@ pub fn watermark_files(
         };
         let Some(complete_up_to_capture_ms) = complete_up_to_capture_ms(
             progress,
-            ends.committed_offsets.get(&tp).copied(),
+            committed_offsets.get(&tp).copied(),
             end_offset,
             ends.reads_started_at_ms,
         ) else {
@@ -244,7 +238,6 @@ pub struct WatermarkFiles {
 }
 
 impl WatermarkFiles {
-    /// An older value that lands after a newer one is still true, so writes need no fence.
     pub async fn put(&self, files: Vec<(String, Vec<u8>)>) {
         let writes = files.into_iter().map(|(key, body)| async move {
             match tokio::time::timeout(PUT_TIMEOUT, self.store.put(&self.bucket, &key, body)).await
@@ -310,7 +303,6 @@ mod tests {
                 20,
                 Some(9_000_000 - SLACK),
             ),
-            // A partition read to its end moves with the clock, also when it delivers nothing.
             (
                 progress(20, Some(9_000_000), None),
                 None,
@@ -369,7 +361,6 @@ mod tests {
         };
         let ends = KafkaEnds {
             reads_started_at_ms: 10_000_000,
-            committed_offsets: HashMap::from([(overflow, 5)]),
             input_end_offsets: HashMap::from([(MAIN, 20), (overflow, 9)]),
             input_partitions: BTreeMap::from([("main", 64), ("overflow", 8)]),
             index_end_offsets: vec![100, 200],
@@ -380,6 +371,7 @@ mod tests {
                 (MAIN, progress(10, Some(9_000_000), None)),
                 (overflow, None),
             ],
+            &HashMap::from([(overflow, 5)]),
             &ends,
             written_at,
         )

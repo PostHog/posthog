@@ -395,9 +395,7 @@ async fn produce_jobs(
     metrics::gauge!("ai_research_v4_recorder_sent_urls").set(writer.sent_urls.entry_count() as f64);
 }
 
-/// Hands the index rows to the producer and returns without waiting for their delivery. The returned task counts the
-/// outcomes, then finishes `done`. `write_day` is the `dt=` partition of the blocks and packs the rows point at, so the
-/// sink files them with those.
+/// Hands the index rows to the producer and returns without waiting for their delivery. The returned task counts the outcomes, then finishes `done`. `write_day` is the `dt=` partition of the blocks and packs the rows point at, so the sink files them with those.
 pub fn send_index(
     producer: &FutureProducer<KafkaContext>,
     topic: &str,

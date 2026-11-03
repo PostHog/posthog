@@ -429,20 +429,14 @@ impl RecorderConsumer {
         }
     }
 
-    /// Blocks on Kafka, so the round runs it on a blocking thread.
-    fn read_ends(&self, owned: &[Tp], index_topic: &str) -> Result<KafkaEnds, KafkaError> {
-        let deadline = Instant::now() + WATERMARK_READS_TIMEOUT;
-        let remaining = || deadline.saturating_duration_since(Instant::now());
-        let reads_started_at_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |d| d.as_millis() as i64);
+    fn read_committed(&self, owned: &[Tp]) -> Result<HashMap<Tp, i64>, KafkaError> {
         let mut list = TopicPartitionList::new();
         for tp in owned {
             list.add_partition(tp.topic, tp.partition);
         }
-        let committed_offsets = self
+        Ok(self
             .consumer
-            .committed_offsets(list, remaining())?
+            .committed_offsets(list, KAFKA_TIMEOUT)?
             .elements()
             .iter()
             .filter_map(|e| match e.offset() {
@@ -452,7 +446,15 @@ impl RecorderConsumer {
                 )),
                 _ => None,
             })
-            .collect();
+            .collect())
+    }
+
+    fn read_ends(&self, owned: &[Tp], index_topic: &str) -> Result<KafkaEnds, KafkaError> {
+        let deadline = Instant::now() + WATERMARK_READS_TIMEOUT;
+        let remaining = || deadline.saturating_duration_since(Instant::now());
+        let reads_started_at_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as i64);
         let mut input_end_offsets = HashMap::new();
         for tp in owned {
             let (_, end) = self
@@ -473,7 +475,6 @@ impl RecorderConsumer {
         }
         Ok(KafkaEnds {
             reads_started_at_ms,
-            committed_offsets,
             input_end_offsets,
             input_partitions,
             index_end_offsets,
@@ -990,17 +991,26 @@ async fn flush_steps(
     Ok(())
 }
 
-/// The progress is read before the end offsets, so that every index row it counts as delivered is below the index end
-/// offsets that the files carry.
+/// The committed offsets are read before the progress: a partition that has handled nothing under its assignment by then has committed nothing under it, so its committed offset is past no undelivered index row. The end offsets are read after the progress, so that every index row it counts as delivered is below the index end offsets.
 async fn write_watermarks(consumer: RecorderConsumer, watermarks: Arc<WatermarkFiles>) {
-    let owned = consumer
-        .state
-        .lock()
-        .unwrap()
-        .owned_since(Instant::now(), watermarks.grace);
-    if owned.is_empty() {
+    let owned = |consumer: &RecorderConsumer| -> Vec<(Tp, u64)> {
+        consumer
+            .state
+            .lock()
+            .unwrap()
+            .owned_since(Instant::now(), watermarks.grace)
+    };
+    let partitions = |owned: &[(Tp, u64)]| -> Vec<Tp> { owned.iter().map(|(tp, _)| *tp).collect() };
+    let candidates = partitions(&owned(&consumer));
+    if candidates.is_empty() {
         return;
     }
+    let reader = consumer.clone();
+    let Some(committed) = read_kafka(move || reader.read_committed(&candidates)).await else {
+        return;
+    };
+    // Read again, so that a partition revoked since the committed offsets were read is left out.
+    let owned = owned(&consumer);
     let progress: Vec<_> = {
         let progress = watermarks.progress.lock().unwrap();
         owned
@@ -1008,29 +1018,36 @@ async fn write_watermarks(consumer: RecorderConsumer, watermarks: Arc<WatermarkF
             .map(|&(tp, epoch)| (tp, progress.of(tp, epoch)))
             .collect()
     };
-    let partitions: Vec<Tp> = owned.iter().map(|(tp, _)| *tp).collect();
+    let read = partitions(&owned);
     let index_topic = watermarks.index_topic.clone();
-    let ends =
-        tokio::task::spawn_blocking(move || consumer.read_ends(&partitions, &index_topic)).await;
-    let ends = match ends
-        .map_err(|error| error.to_string())
-        .and_then(|read| read.map_err(|error| error.to_string()))
-    {
-        Ok(ends) => ends,
-        Err(error) => {
-            tracing::warn!(%error, "reading the offsets for the watermark files failed");
-            counter!("ai_research_v4_recorder_watermark_rounds_total", "outcome" => "kafka_failed")
-                .increment(1);
-            return;
-        }
+    let Some(ends) = read_kafka(move || consumer.read_ends(&read, &index_topic)).await else {
+        return;
     };
-    match watermark_files(&progress, &ends, chrono::Utc::now()) {
+    match watermark_files(&progress, &committed, &ends, chrono::Utc::now()) {
         Ok(files) => {
             counter!("ai_research_v4_recorder_watermark_rounds_total", "outcome" => "written")
                 .increment(1);
             watermarks.put(files).await;
         }
         Err(error) => tracing::error!(%error, "encoding the watermark files failed"),
+    }
+}
+
+async fn read_kafka<T: Send + 'static>(
+    read: impl FnOnce() -> Result<T, KafkaError> + Send + 'static,
+) -> Option<T> {
+    let read = tokio::task::spawn_blocking(read)
+        .await
+        .map_err(|error| error.to_string())
+        .and_then(|read| read.map_err(|error| error.to_string()));
+    match read {
+        Ok(value) => Some(value),
+        Err(error) => {
+            tracing::warn!(%error, "reading the offsets for the watermark files failed");
+            counter!("ai_research_v4_recorder_watermark_rounds_total", "outcome" => "kafka_failed")
+                .increment(1);
+            None
+        }
     }
 }
 
