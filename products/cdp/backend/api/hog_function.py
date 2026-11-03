@@ -1436,7 +1436,9 @@ class HogFunctionViewSet(
         mock_async_functions = serializer.validated_data["mock_async_functions"]
         if sends_real_requests(configuration, mock_async_functions=mock_async_functions):
             # The row is written before the worker call, so a test that then fails is still recorded.
+            # Without `strict`, production drops a failed write and the test still sends real requests.
             log_activity(
+                strict=True,
                 organization_id=self.organization.id,
                 team_id=self.team_id,
                 user=cast(User, request.user),

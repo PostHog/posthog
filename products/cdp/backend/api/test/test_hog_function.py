@@ -6,7 +6,8 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import ANY, MagicMock, patch
 
-from django.db import connection
+from django.conf import UserSettingsHolder, settings
+from django.db import DatabaseError, connection
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
@@ -2882,6 +2883,23 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "hog": EXAMPLE_FULL["hog"],
         }
         assert "0e02d917-563f-4050-9725-aad881b69937" not in json.dumps(detail)
+
+    def test_test_invocation_with_real_requests_does_not_run_when_its_activity_log_write_fails(self):
+        # Under `settings.TEST`, `log_activity` raises on every failed write, strict or not. The override
+        # stays in its module, because route modules read `settings.TEST` when the URL conf loads.
+        production_settings = UserSettingsHolder(settings)
+        production_settings.TEST = False
+        with (
+            patch("products.cdp.backend.api.hog_function.create_hog_invocation_test") as mock_invocation,
+            patch.object(ActivityLog.objects, "create", side_effect=DatabaseError("insert rejected")),
+            patch("posthog.models.activity_logging.activity_log.settings", production_settings),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/new/invocations/",
+                data={"configuration": EXAMPLE_FULL, "mock_async_functions": False},
+            )
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        mock_invocation.assert_not_called()
 
     def test_test_invocation_rejects_a_posthog_connection_input(self):
         connection = Integration.objects.create(team=self.team, kind="posthog", created_by=self.user)
