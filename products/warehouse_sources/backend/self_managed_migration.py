@@ -296,8 +296,8 @@ def _source_fingerprints(sources: Sequence[ExternalDataSource]) -> dict[uuid.UUI
         for credential in DataWarehouseCredential.objects.filter(team_id=team_id, pk__in=credential_ids):
             credentials[(team_id, credential.pk)] = credential
     for source_id, key in legacy.items():
-        if (credential := credentials.get(key)) is not None:
-            fingerprints[source_id] = _credential_fingerprint(_self_managed_credential(credential))
+        if (found := credentials.get(key)) is not None:
+            fingerprints[source_id] = _credential_fingerprint(_self_managed_credential(found))
     return fingerprints
 
 
