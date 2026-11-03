@@ -281,6 +281,8 @@ describe('tileCanvasLogic', () => {
             logic.values.workflow.edges.find((candidate) => candidate.from === from && candidate.to === to)
         const edgePairs = (): string[] =>
             logic.values.workflow.edges.map((candidate) => `${candidate.from}->${candidate.to}`).sort()
+        const dragEndedCalls = (capture: jest.SpyInstance): unknown[][] =>
+            capture.mock.calls.filter(([event]) => event === 'workflows tile canvas step drag ended')
 
         beforeEach(async () => {
             jest.mocked(loadAppMetricsTotals).mockResolvedValue({})
@@ -296,7 +298,9 @@ describe('tileCanvasLogic', () => {
 
             logic.actions.startDraggingStep('b2')
             logic.actions.dropAt(edge('split', 'b1') as HogFlowEdge)
-            logic.actions.endDraggingStep()
+            // The moved tile can re-render before its dragend, so the drop itself must send the event.
+            const atDrop = dragEndedCalls(capture)
+            logic.actions.endDraggingStep('move')
 
             expect(edgePairs()).toEqual(
                 [
@@ -314,9 +318,9 @@ describe('tileCanvasLogic', () => {
                 source: 'drag',
                 step_type: 'delay',
             })
-            expect(capture.mock.calls.filter(([event]) => event === 'workflows tile canvas step drag ended')).toEqual([
-                ['workflows tile canvas step drag ended', { outcome: 'moved', step_type: 'delay' }],
-            ])
+            const moved = [['workflows tile canvas step drag ended', { outcome: 'moved', step_type: 'delay' }]]
+            expect(atDrop).toEqual(moved)
+            expect(dragEndedCalls(capture)).toEqual(moved)
         })
 
         it('records a drag let go away from every + with the drop effect the browser reported', async () => {
@@ -386,13 +390,16 @@ describe('tileCanvasLogic', () => {
             expect(logic.values.placeableEdgeKeys).toContain(getEdgeId(edge('a2', 'join') as HogFlowEdge))
 
             logic.actions.dropAt(edge('join', 'exit_node') as HogFlowEdge)
-            logic.actions.endDraggingStep()
+            const atDrop = dragEndedCalls(capture)
+            logic.actions.endDraggingStep('move')
 
             expect(edgePairs()).toEqual(before)
             expect(capture).not.toHaveBeenCalledWith('workflows tile canvas step moved', expect.anything())
-            expect(capture.mock.calls.filter(([event]) => event === 'workflows tile canvas step drag ended')).toEqual([
+            const noSpot = [
                 ['workflows tile canvas step drag ended', { outcome: 'no_matching_spot', step_type: 'delay' }],
-            ])
+            ]
+            expect(atDrop).toEqual(noSpot)
+            expect(dragEndedCalls(capture)).toEqual(noSpot)
         })
     })
 
