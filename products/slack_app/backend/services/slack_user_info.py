@@ -43,6 +43,7 @@ from products.slack_app.backend.services.slack_auth import (
     write_auth_state_broken,
     write_auth_state_ok,
 )
+from products.slack_app.backend.services.workspace_integrations import workspace_integrations
 
 logger = structlog.get_logger(__name__)
 
@@ -232,8 +233,7 @@ def find_member_by_cached_slack_email(
         return None
     profile = (
         SlackUserProfileCache.objects.filter(
-            integration__kind__in=SLACK_INTEGRATION_KINDS,
-            integration__integration_id=slack_team_id,
+            integration_id__in=[row.id for row in workspace_integrations(slack_team_id)],
             slack_user_id=slack_user_id,
         )
         .exclude(email__isnull=True)
