@@ -9274,13 +9274,11 @@ ${' '}
             try {
                 const { container } = render(createElement(MarkdownNotebook, { value, onChange }))
                 const cell = within(container).getByText('Other')
-                fireEvent.mouseMove(cell, { clientX: 450, clientY: 275 })
-                expect(
-                    container.querySelector(
-                        '.MarkdownNotebook__table-remove-zone.MarkdownNotebook__table-control-zone--active'
-                    )
-                ).toBeNull()
-
+                fireEvent.mouseMove(cell, { clientX: 450, clientY: 300 })
+                expect(container.querySelector('.MarkdownNotebook__table-control-zone--active')).toBeNull()
+                await user.click(cell)
+                expect(onChange).not.toHaveBeenCalled()
+                fireEvent.mouseMove(cell, { clientX: dimension === 'row' ? 450 : 495, clientY: 275 })
                 const addButton = container.querySelector<HTMLButtonElement>(
                     `button[aria-label="${addLabel}"]`
                 ) as HTMLButtonElement

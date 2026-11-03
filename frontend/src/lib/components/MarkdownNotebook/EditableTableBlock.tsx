@@ -433,21 +433,22 @@ export function EditableTableBlock({
             tableHeight,
             insertZoneSize
         ) - tableTop
-    const nearestIndex = (values: number[], coordinate: number | undefined): number =>
-        coordinate === undefined || !values.length
-            ? -1
-            : values.reduce(
-                  (nearest, value, index) =>
-                      Math.abs(value - coordinate) < Math.abs(values[nearest] - coordinate) ? index : nearest,
-                  0
-              )
-    const activeRowInsert = nearestIndex(
-        rowInsertControls.map(({ top }) => top),
-        hoverPosition?.y
-    )
+    const nearestIndex = (values: number[], coordinate: number | undefined, maxDistance = Infinity): number => {
+        if (coordinate === undefined || !values.length) {
+            return -1
+        }
+        const nearest = values.reduce(
+            (closest, value, index) =>
+                Math.abs(value - coordinate) < Math.abs(values[closest] - coordinate) ? index : closest,
+            0
+        )
+        return Math.abs(values[nearest] - coordinate) <= maxDistance ? nearest : -1
+    }
+    const activeRowInsert = nearestIndex(controlLayout?.rowInsertTops ?? [], hoverPosition?.y, insertZoneSize / 2)
     const activeColumnInsert = nearestIndex(
-        columnInsertControls.map(({ left }) => left),
-        hoverPosition?.x
+        controlLayout?.columnInsertLefts ?? [],
+        hoverPosition?.x,
+        insertZoneSize / 2
     )
     const activeRowRemove = nearestIndex(
         controlLayout?.rowRemoveRects.map(({ top, height }) => top + height / 2) ?? [],

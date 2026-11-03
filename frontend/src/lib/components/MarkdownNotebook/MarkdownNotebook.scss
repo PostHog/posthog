@@ -1328,6 +1328,11 @@ h3.MarkdownNotebook__text-block--heading {
     min-width: 100%;
 }
 
+.MarkdownNotebook__table-block--editable .MarkdownNotebook__table-grid {
+    padding-top: 1.5rem;
+    padding-right: 1.5rem;
+}
+
 .MarkdownNotebook__table-block table {
     width: 100%;
     min-width: 24rem;
@@ -1454,7 +1459,6 @@ h3.MarkdownNotebook__text-block--heading {
     left: var(--table-control-left);
     width: 1.5rem;
     height: var(--table-control-height);
-    transform: translateX(-100%);
 }
 
 .MarkdownNotebook__table-column-remove-zone {
@@ -1462,6 +1466,7 @@ h3.MarkdownNotebook__text-block--heading {
     left: var(--table-control-left);
     width: var(--table-control-width);
     height: 1.5rem;
+    transform: translateY(-100%);
 }
 
 // Sits inside the top-left corner, because the scroll container clips anything outside the grid
