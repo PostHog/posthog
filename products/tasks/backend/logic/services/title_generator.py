@@ -1,5 +1,6 @@
 import logging
 from typing import Any
+from uuid import uuid4
 
 from posthog.ph_client import feature_enabled_or_false
 
@@ -15,7 +16,7 @@ TITLE_GATEWAY_TIMEOUT_SECONDS = 30.0
 TITLE_GATEWAY_MAX_RETRIES = 1
 
 
-def generate_task_title(description: str) -> str:
+def generate_task_title(description: str, *, distinct_id: str | None = None) -> str:
     """
     Generate a concise task title from a description using Claude Haiku.
 
@@ -70,7 +71,7 @@ Examples:
 Output the title now:"""
         messages: list[dict[str, Any]] = [{"role": "user", "content": user_prompt}]
 
-        if _title_via_ai_gateway():
+        if _title_via_ai_gateway(distinct_id):
             response_text = _complete_via_ai_gateway(system_prompt, user_prompt)
         else:
             client = Client(distinct_id=TITLE_DISTINCT_ID)
@@ -106,14 +107,14 @@ Output the title now:"""
         return _fallback_title(description)
 
 
-def _title_via_ai_gateway() -> bool:
+def _title_via_ai_gateway(distinct_id: str | None) -> bool:
     from posthog.llm.gateway_client import resolve_ai_gateway_config  # noqa: PLC0415
 
     if resolve_ai_gateway_config() is None:
         return False
     return feature_enabled_or_false(
         TASK_TITLE_AI_GATEWAY_FEATURE_FLAG,
-        TITLE_DISTINCT_ID,
+        distinct_id or str(uuid4()),
         only_evaluate_locally=False,
         send_feature_flag_events=False,
     )
