@@ -478,6 +478,9 @@ jobs:
     tests:
         permissions:
             contents: read
+            # The schema fast path downloads an Actions artifact; declaring any
+            # permission drops the rest to none, so this must be explicit.
+            actions: read
         # Not on master push — master coverage comes from the hourly run (see `schedule`).
         if: needs.changes.outputs.nodejs == 'true' && github.event_name != 'push'
         name: Node.js ${{ matrix.lane }} Tests ${{ matrix.shard }}/${{ matrix.shard_count }} (depot-ubuntu-24.04-4)
@@ -816,6 +819,8 @@ jobs:
     rust_ingestion_e2e:
         permissions:
             contents: read
+            # Same schema fast path as `tests`; without this the artifact download 403s.
+            actions: read
         # Not on master push — master coverage comes from the hourly run (see `schedule`).
         if: (needs.changes.outputs.nodejs == 'true' || needs.changes.outputs.personhog_e2e == 'true') && github.event_name != 'push'
         name: Rust ingestion consumer Node API e2e (depot-ubuntu-24.04-4)
