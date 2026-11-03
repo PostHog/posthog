@@ -61,11 +61,9 @@ const getDefaultName = (source: MetricSource): string | null | undefined => {
     }
 }
 
-/** The lowercase type name users see, which is "percentile" for the `quantile` metric type. */
 export const formatMetricTypeName = (metricType: string): string =>
     metricType === ExperimentMetricType.QUANTILE ? 'percentile' : metricType
 
-/** The short label of a quantile level, for example "p90" for 0.9. */
 export const formatQuantileLevel = (quantile: number): string => `p${Math.round(quantile * 100)}`
 
 /** True when the results UI can open a daily timeseries for the metric. Percentile metrics have no daily timeseries. */
