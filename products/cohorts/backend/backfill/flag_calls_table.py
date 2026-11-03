@@ -4,6 +4,8 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
+from django.db import Error as DatabaseError
+
 from posthog.hogql.transforms.flag_calls_from_flag_evaluations import FLAG_EVALUATIONS_COMPLETE_DAYS
 
 from posthog.exceptions_capture import capture_exception
@@ -58,6 +60,9 @@ def _can_seed_from_flag_evaluations(cohort: Cohort, conditions: list[dict[str, A
 
     try:
         reads = batch_flag_call_reads(cohort, team)
+    except DatabaseError:
+        # A catalog read that times out succeeds on a later try, so the trigger task keeps its retries.
+        raise
     except Exception as error:
         # A malformed filter value can fail outside the compile errors, such as an assert in the HogQL printer. The
         # run is refused, so the trigger task does not retry it.

@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from posthog.test.base import BaseTest
 from unittest import mock
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, OperationalError, transaction
 from django.test import override_settings
 
 from parameterized import parameterized
@@ -502,6 +502,19 @@ class TestBackfillRunFlagCallsTable(BaseTest):
             attempt = attempt_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
 
         self.assertEqual(attempt.reason, BackfillRefusalReason.FLAG_CALLS_TABLE_UNRESOLVED)
+
+    def test_a_database_error_while_compiling_the_batch_query_reaches_the_caller_to_retry(self) -> None:
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        cohort = self._cohort(_FLAG_CALL_LEAF)
+
+        with mock.patch(
+            "posthog.hogql_queries.hogql_cohort_query.batch_flag_call_reads",
+            side_effect=OperationalError("canceling statement due to statement timeout"),
+        ):
+            with self.assertRaises(OperationalError):
+                attempt_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+
+        self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 0)
 
 
 @override_settings(
