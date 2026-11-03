@@ -19,6 +19,7 @@ import {
     CyclotronJobInvocationResult,
     HogFlowInvocationContext,
 } from '../types'
+import { createInvocationResult } from '../utils/invocation-utils'
 import { CdpCyclotronWorkerHogFlow } from './cdp-cyclotron-worker-hogflow.consumer'
 
 jest.setTimeout(1000)
@@ -695,10 +696,13 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             expect((results[0].invocation as CyclotronJobInvocationHogFlow).hogFlow?.id).toBe(hogFlow.id)
         })
 
+        const files = [{ filename: 'a.pdf', sizeBytes: 3, sha256: 'x' }]
         it.each([
-            ['deletes the attachment files of a run that ends', [{ filename: 'a.pdf', sizeBytes: 3, sha256: 'x' }], 1],
-            ['leaves the attachment store alone for a run without files', undefined, 0],
-        ])('%s before its email step runs', async (_name, attachments, deletes) => {
+            ['deletes the files of a run canceled before its email step', 'canceled', files, true],
+            ['deletes the files of a run whose send finished', 'finished', files, true],
+            ['keeps the files of a run rescheduled for a retry', 'rescheduled', files, false],
+            ['leaves the file store alone for a run without files', 'finished', undefined, false],
+        ] as const)('%s', async (_name, outcome, attachments, deleted) => {
             const invocation = createSerializedHogFlowInvocation(hogFlows[0], {
                 event: { distinct_id: 'distinct_person_1', properties: {} } as any,
             })
@@ -707,12 +711,17 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                 tracking: { captureEngagement: false },
                 attachments,
             }
-            invocation.cancelRequestedAt = DateTime.now()
+            if (outcome === 'canceled') {
+                invocation.cancelRequestedAt = DateTime.now()
+            }
+            jest.spyOn(processor['hogFlowExecutor'], 'execute').mockImplementation((item) =>
+                Promise.resolve(createInvocationResult(item, {}, { finished: outcome === 'finished' }))
+            )
             const deleteSpy = jest.spyOn(processor['emailAttachmentsService'], 'delete').mockResolvedValue()
 
             await processor.processInvocations([invocation])
 
-            expect(deleteSpy.mock.calls).toEqual(deletes ? [[invocation.id]] : [])
+            expect(deleteSpy.mock.calls).toEqual(deleted ? [[invocation.id]] : [])
         })
 
         it('terminates cancel-requested invocations without loading the flow, so cancel works for deleted flows', async () => {
