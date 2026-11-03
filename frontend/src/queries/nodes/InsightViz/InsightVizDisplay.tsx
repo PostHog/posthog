@@ -49,10 +49,6 @@ import {
 import { ChartAlternatives } from 'products/product_analytics/frontend/insights/chartAlternatives/ChartAlternatives'
 import { InsightDataChecks } from 'products/product_analytics/frontend/insights/dataChecks/InsightDataChecks'
 import { InsightDisplayConfig } from 'products/product_analytics/frontend/insights/editor/InsightDisplayConfig'
-import { ExplainChartAgentBridge } from 'products/product_analytics/frontend/insights/explainChart/ExplainChartAgentBridge'
-import { ExplainChartAIAnalysisFallback } from 'products/product_analytics/frontend/insights/explainChart/ExplainChartAIAnalysisFallback'
-import { ExplainChartButton } from 'products/product_analytics/frontend/insights/explainChart/ExplainChartButton'
-import { InsightExplainChart } from 'products/product_analytics/frontend/insights/explainChart/InsightExplainChart'
 import { Funnel } from 'products/product_analytics/frontend/insights/funnels/Funnel'
 import { FunnelCanvasLabel } from 'products/product_analytics/frontend/insights/funnels/FunnelCanvasLabel'
 import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
@@ -78,6 +74,26 @@ import { ResultCustomizationsModal } from './ResultCustomizationsModal'
 // tiles on every page that shows an insight.
 const WebAnalyticsInsight = lazyWithRetry(() =>
     import('scenes/web-analytics/WebAnalyticsInsight').then((m) => ({ default: m.WebAnalyticsInsight }))
+)
+const InsightExplainChart = lazyWithRetry(() =>
+    import('products/product_analytics/frontend/insights/explainChart/InsightExplainChart').then((m) => ({
+        default: m.InsightExplainChart,
+    }))
+)
+const ExplainChartButton = lazyWithRetry(() =>
+    import('products/product_analytics/frontend/insights/explainChart/ExplainChartButton').then((m) => ({
+        default: m.ExplainChartButton,
+    }))
+)
+const ExplainChartAgentBridge = lazyWithRetry(() =>
+    import('products/product_analytics/frontend/insights/explainChart/ExplainChartAgentBridge').then((m) => ({
+        default: m.ExplainChartAgentBridge,
+    }))
+)
+const ExplainChartAIAnalysisFallback = lazyWithRetry(() =>
+    import('products/product_analytics/frontend/insights/explainChart/ExplainChartAIAnalysisFallback').then((m) => ({
+        default: m.ExplainChartAIAnalysisFallback,
+    }))
 )
 
 /** When the dashboard is still streaming/refreshing tiles, prefer loading UX over "Chart data didn't load". */
@@ -555,7 +571,9 @@ export function InsightVizDisplay({
             hasResults: hasResultRows(insightData),
         }) ? (
             showsExplainChart ? (
-                <ExplainChartAIAnalysisFallback insightProps={insightProps} />
+                <Suspense fallback={null}>
+                    <ExplainChartAIAnalysisFallback insightProps={insightProps} />
+                </Suspense>
             ) : (
                 <InsightAIAnalysis />
             )
@@ -566,10 +584,12 @@ export function InsightVizDisplay({
     const showsDataChecks = !!context?.showDataChecks && !inSharedMode
     const showsExplainChart = explainChartEnabled && !embedded && !inSharedMode && activeView === InsightType.TRENDS
     const chart = showsExplainChart ? (
-        <InsightExplainChart
-            insightProps={insightProps}
-            renderChart={(overlay) => renderActiveView(overlay ? { ...context, chartOverlay: overlay } : context)}
-        />
+        <Suspense fallback={renderActiveView()}>
+            <InsightExplainChart
+                insightProps={insightProps}
+                renderChart={(overlay) => renderActiveView(overlay ? { ...context, chartOverlay: overlay } : context)}
+            />
+        </Suspense>
     ) : (
         renderActiveView()
     )
@@ -619,7 +639,11 @@ export function InsightVizDisplay({
                                     <div className="flex items-center gap-2">
                                         {isPaths && <PathCanvasLabel />}
                                         {isFunnels && <FunnelCanvasLabel />}
-                                        {showsExplainChart && <ExplainChartButton insightProps={insightProps} />}
+                                        {showsExplainChart && (
+                                            <Suspense fallback={null}>
+                                                <ExplainChartButton insightProps={insightProps} />
+                                            </Suspense>
+                                        )}
                                         {showsDataChecks && <InsightDataChecks insightProps={insightProps} />}
                                     </div>
                                 </div>
@@ -654,7 +678,11 @@ export function InsightVizDisplay({
                 )}
             </div>
             <ResultCustomizationsModal />
-            {showsExplainChart && <ExplainChartAgentBridge insightProps={insightProps} />}
+            {showsExplainChart && (
+                <Suspense fallback={null}>
+                    <ExplainChartAgentBridge insightProps={insightProps} />
+                </Suspense>
+            )}
             {renderAIAnalysisSection()}
             {renderTable()}
         </>
