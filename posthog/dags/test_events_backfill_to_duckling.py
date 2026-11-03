@@ -2,7 +2,7 @@ import os
 import re
 from datetime import UTC, date, datetime, timedelta
 from fnmatch import fnmatch
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import pytest
 import time_machine
@@ -76,6 +76,7 @@ from products.managed_warehouse.backend.facade.api import EARLIEST_BACKFILL_DATE
 from products.managed_warehouse.backend.facade.client import ServiceCredential, ServiceCredentialUnavailable
 from products.managed_warehouse.backend.facade.contracts import (
     DuckLakeDayReplacement,
+    DuckLakeTableLayoutError,
     DuckLakeTableReplacement,
     DucklingTables,
     ManagedWarehouseTableNames,
@@ -2626,7 +2627,10 @@ class TestFannedOutLayoutRoundTrip:
 
 
 class _FakeTrinoBackfillCatalog:
-    def __init__(self) -> None:
+    def __init__(self, layout_mismatch: Literal["ensure", "register"] | None = None) -> None:
+        self.layout_mismatch = layout_mismatch
+        self.rebuilt = False
+        self.calls: list[tuple[Any, ...]] = []
         self.tables: list[tuple[str, dict[str, str]]] = []
         self.registered: list[tuple[str, list[str], str, DuckLakeDayReplacement | DuckLakeTableReplacement | None]] = []
         self.deleted: list[tuple[str, DuckLakeDayReplacement | DuckLakeTableReplacement]] = []
@@ -2634,7 +2638,13 @@ class _FakeTrinoBackfillCatalog:
     def ensure_table(
         self, table: str, columns: dict[str, str], *, drop_first: bool, create_if_missing: bool, validate: bool
     ) -> None:
+        if self.layout_mismatch == "ensure" and validate and not self.rebuilt:
+            raise DuckLakeTableLayoutError("the table has unsigned columns")
         self.tables.append((table, dict(columns)))
+
+    def replace_table(self, table: str, columns: dict[str, str]) -> None:
+        self.calls.append(("replace", table))
+        self.rebuilt = True
 
     def register_files(
         self,
@@ -2644,6 +2654,9 @@ class _FakeTrinoBackfillCatalog:
         import_id: str,
         replacement: DuckLakeDayReplacement | DuckLakeTableReplacement | None,
     ) -> int:
+        self.calls.append(("register", table, replacement))
+        if self.layout_mismatch == "register" and not self.rebuilt:
+            raise DuckLakeTableLayoutError("the table has unsigned columns")
         self.registered.append((table, list(files), import_id, replacement))
         return len(files)
 
@@ -2686,8 +2699,15 @@ class TestBackfillThroughTrino:
         persons_table="persons_team_2",
     )
 
-    def _run(self, run, partition_key: str, clickhouse: _FakeExportClickHouse, config: DucklingBackfillConfig):
-        catalog = _FakeTrinoBackfillCatalog()
+    def _run(
+        self,
+        run,
+        partition_key: str,
+        clickhouse: _FakeExportClickHouse,
+        config: DucklingBackfillConfig,
+        catalog: _FakeTrinoBackfillCatalog | None = None,
+    ):
+        catalog = catalog or _FakeTrinoBackfillCatalog()
         cluster = MagicMock()
         cluster.any_host_by_role.side_effect = lambda fn, **_: MagicMock(result=MagicMock(return_value=fn(clickhouse)))
         context = MagicMock(partition_key=partition_key)
@@ -2756,6 +2776,43 @@ class TestBackfillThroughTrino:
         for insert, settings in clickhouse.inserts:
             assert cast_column in insert
             assert settings["output_format_parquet_string_as_string"] == 1
+
+    @parameterized.expand(
+        [
+            ("full_rebuilds_before_registering", "2", "ensure", True, ["replace", "register", "register"]),
+            (
+                "full_rebuilds_when_add_files_refuses",
+                "2",
+                "register",
+                True,
+                ["register", "replace", "register", "register"],
+            ),
+            ("full_without_cleanup_refuses", "2", "ensure", False, None),
+            ("day_refuses_before_registering", "2_2026-06-17", "ensure", True, None),
+            ("day_refuses_when_add_files_refuses", "2_2026-06-17", "register", True, None),
+        ]
+    )
+    @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
+    def test_rebuilds_a_table_with_other_column_types_only_when_the_run_replaces_the_table(
+        self, _name, partition_key, layout_mismatch, cleanup, expected_calls
+    ):
+        clickhouse = _FakeExportClickHouse(files_per_export=2)
+        catalog = _FakeTrinoBackfillCatalog(layout_mismatch=layout_mismatch)
+        config = DucklingBackfillConfig(cleanup_existing_partition_data=cleanup)
+
+        def run() -> None:
+            self._run(_run_duckling_persons_backfill, partition_key, clickhouse, config, catalog)
+
+        if expected_calls is None:
+            with pytest.raises(DuckLakeTableLayoutError):
+                run()
+            assert "replace" not in [call[0] for call in catalog.calls]
+            assert catalog.registered == []
+        else:
+            run()
+            assert [call[0] for call in catalog.calls] == expected_calls
+            assert {call[2] for call in catalog.calls if call[0] == "register"} == {DuckLakeTableReplacement()}
+            assert len(catalog.registered) == 2
 
     @parameterized.expand(
         [

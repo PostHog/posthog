@@ -1,13 +1,14 @@
 """Register duckling backfill exports in DuckLake through the organization's Trino catalog.
 
-The Dagster backfills use this for warehouses that have no duckgres. One `add_files` call registers the files of an
-export and removes the rows they replace in a single DuckLake snapshot, so readers never see a day without rows or
-with two copies of it. The call refuses any type conversion, so the export must write the exact Parquet types that
+The Dagster backfills use this for organizations with the Trino registration flag. One `add_files` call registers the
+files of an export and removes the rows they replace in a single DuckLake snapshot, so readers never see a day without
+rows or with two copies of it. The call refuses any type conversion, so the export must write the exact Parquet types that
 DuckLake writes for each Trino column.
 """
 
 from __future__ import annotations
 
+import re
 import contextlib
 from collections.abc import Iterator, Mapping, Sequence
 from datetime import date, timedelta
@@ -15,14 +16,18 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 from tenacity import RetryCallState, retry, retry_if_exception, stop_after_attempt, wait_exponential
-from trino.exceptions import Http502Error, Http503Error, Http504Error, TrinoConnectionError
+from trino.exceptions import Http502Error, Http503Error, Http504Error, TrinoConnectionError, TrinoQueryError
 
 from posthog.hogql.escape_sql import escape_trino_identifier, escape_trino_string
 
 from posthog.exceptions_capture import capture_exception
 from posthog.ph_client import feature_enabled_or_false
 
-from products.managed_warehouse.backend.facade.contracts import DuckLakeDayReplacement, DuckLakeTableReplacement
+from products.managed_warehouse.backend.facade.contracts import (
+    DuckLakeDayReplacement,
+    DuckLakeTableLayoutError,
+    DuckLakeTableReplacement,
+)
 from products.managed_warehouse.backend.facade.feature_flags import DUCKLAKE_TRINO_REGISTRATION_FLAG
 from products.managed_warehouse.backend.trino_connection import connect_managed_warehouse_trino
 from products.managed_warehouse.backend.trino_execution import is_transient_trino_error
@@ -46,6 +51,11 @@ TRANSIENT_DUCKLAKE_ERROR_NAMES = frozenset(
     {"DUCKLAKE_COMMIT_CONFLICT", "DUCKLAKE_CONCURRENT_MODIFICATION", "DUCKLAKE_COMMIT_FAILED"}
 )
 STATEMENT_ATTEMPTS = 4
+# The connector words its error this way for a file whose column type differs from the table's, and names the table's
+# type after "versus".
+PARQUET_TYPE_MISMATCH_PREFIX = "Parquet type does not match column"
+PARQUET_UNSIGNED_INTEGER = re.compile(r"INTEGER\(\d+,\s*false\)")
+REBUILD_HINT = "Only a backfill that replaces the whole table can rebuild it with the export's types."
 
 
 Replacement = DuckLakeDayReplacement | DuckLakeTableReplacement
@@ -79,6 +89,20 @@ def _refuse_shared_table(table: str, change: str) -> None:
             f"Refusing to {change} the shared table '{table}' through Trino, because that would also remove the rows "
             "of other teams"
         )
+
+
+def _column_definitions(columns: Mapping[str, str]) -> str:
+    return ", ".join(f"{escape_trino_identifier(name)} {data_type}" for name, data_type in columns.items())
+
+
+def _is_unsigned_column_mismatch(error: TrinoQueryError) -> bool:
+    # DuckLake shows an unsigned column as a wider signed Trino type, so only add_files sees that a table duckgres
+    # created holds one. Any other mismatch means that the export wrote a wrong type, which a rebuild cannot fix.
+    message = str(error.message)
+    if error.error_name != "DUCKLAKE_BAD_DATA" or not message.startswith(PARQUET_TYPE_MISMATCH_PREFIX):
+        return False
+    _, _, table_type = message.partition(" versus ")
+    return PARQUET_UNSIGNED_INTEGER.search(table_type) is not None
 
 
 def _is_transient(error: BaseException) -> bool:
@@ -123,7 +147,8 @@ class TrinoBackfillCatalog:
     )
     def _run(self, statement: str) -> list[list[Any]]:
         # Every statement here can run again. DDL has IF [NOT] EXISTS, deleting a range twice deletes nothing more,
-        # and add_files records its import_id, so a repeat of an applied import adds nothing.
+        # and add_files records its import_id, so a repeat of an applied import adds nothing. CREATE OR REPLACE runs
+        # before the add_files that fills the table, so a repeat recreates a table that is still empty.
         cursor = self._connection.cursor()
         try:
             cursor.execute(statement)
@@ -139,27 +164,35 @@ class TrinoBackfillCatalog:
             self._run(f"DROP TABLE IF EXISTS {self._table(table)}")
         if create_if_missing:
             self._run(f"CREATE SCHEMA IF NOT EXISTS {self._catalog}.{escape_trino_identifier(BACKFILL_SCHEMA)}")
-            definitions = ", ".join(
-                f"{escape_trino_identifier(name)} {data_type}" for name, data_type in columns.items()
-            )
-            self._run(f"CREATE TABLE IF NOT EXISTS {self._table(table)} ({definitions})")
+            self._run(f"CREATE TABLE IF NOT EXISTS {self._table(table)} ({_column_definitions(columns)})")
         if validate:
             self._validate(table, columns)
 
-    def _validate(self, table: str, columns: Mapping[str, str]) -> None:
-        # A table can have more columns than the export, because add_files reads a missing column as NULL.
+    def _columns(self, table: str) -> dict[str, str]:
         rows = self._run(
             f"SELECT column_name, data_type FROM {self._catalog}.information_schema.columns "
             f"WHERE table_schema = {escape_trino_string(BACKFILL_SCHEMA)} AND table_name = {escape_trino_string(table)}"
         )
-        actual = {str(name): str(data_type) for name, data_type in rows}
+        return {str(name): str(data_type) for name, data_type in rows}
+
+    def replace_table(self, table: str, columns: Mapping[str, str]) -> None:
+        _refuse_shared_table(table, "rebuild")
+        # Views can select a column that the export does not write, so the rebuilt table keeps it.
+        kept = {name: data_type for name, data_type in self._columns(table).items() if name not in columns}
+        # The connector ends the old table and creates the new one in one commit, so readers see an empty table at
+        # worst.
+        self._run(f"CREATE OR REPLACE TABLE {self._table(table)} ({_column_definitions({**columns, **kept})})")
+
+    def _validate(self, table: str, columns: Mapping[str, str]) -> None:
+        # A table can have more columns than the export, because add_files reads a missing column as NULL.
+        actual = self._columns(table)
         mismatched = {
             name: actual.get(name, "missing") for name, data_type in columns.items() if actual.get(name) != data_type
         }
         if mismatched:
-            raise ValueError(
+            raise DuckLakeTableLayoutError(
                 f"Table {BACKFILL_SCHEMA}.{table} does not match the backfill export, so add_files would refuse its "
-                f"files. Expected {dict(columns)}, but these columns differ: {mismatched}"
+                f"files. Expected {dict(columns)}, but these columns differ: {mismatched}. {REBUILD_HINT}"
             )
 
     def register_files(
@@ -191,7 +224,15 @@ class TrinoBackfillCatalog:
                 ]
             case DuckLakeTableReplacement():
                 options.append("replace => true")
-        rows = self._run(f"ALTER TABLE {self._table(table)} EXECUTE add_files({', '.join(options)})")
+        try:
+            rows = self._run(f"ALTER TABLE {self._table(table)} EXECUTE add_files({', '.join(options)})")
+        except TrinoQueryError as error:
+            if _is_unsigned_column_mismatch(error):
+                raise DuckLakeTableLayoutError(
+                    f"add_files refused the files because a column of table {BACKFILL_SCHEMA}.{table} is unsigned: "
+                    f"{error.message}. {REBUILD_HINT}"
+                ) from error
+            raise
         return sum(int(row[1]) for row in rows if len(row) > 1 and row[0] == "added_data_files")
 
     def delete_rows(self, table: str, replacement: Replacement) -> None:

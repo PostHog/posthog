@@ -10,7 +10,11 @@ from parameterized import parameterized
 from trino.exceptions import Http503Error, TrinoConnectionError, TrinoExternalError, TrinoQueryError, TrinoUserError
 
 from products.managed_warehouse.backend.backfill_trino import ADD_FILES_MAX_FILES, TrinoBackfillCatalog
-from products.managed_warehouse.backend.facade.contracts import DuckLakeDayReplacement, DuckLakeTableReplacement
+from products.managed_warehouse.backend.facade.contracts import (
+    DuckLakeDayReplacement,
+    DuckLakeTableLayoutError,
+    DuckLakeTableReplacement,
+)
 
 if TYPE_CHECKING:
     from trino.dbapi import Connection
@@ -174,12 +178,37 @@ class TestEnsureTable:
             '("team_id" bigint, "timestamp" timestamp(6) with time zone, "person_version" bigint)',
         ]
 
-    @parameterized.expand([("events",), ("persons",), ("groups",)])
-    def test_refuses_to_drop_a_table_other_teams_share(self, table: str) -> None:
+    def test_rebuilds_the_table_with_the_export_types_and_keeps_other_columns(self) -> None:
+        catalog, connection = _catalog({**COLUMNS, "person_version": "decimal(20,0)", "added_later": "varchar"})
+
+        catalog.replace_table("events_team_7", COLUMNS)
+
+        assert connection.statements[-1] == (
+            'CREATE OR REPLACE TABLE "warehouse"."posthog"."events_team_7" '
+            '("team_id" bigint, "timestamp" timestamp(6) with time zone, "person_version" bigint, '
+            '"added_later" varchar)'
+        )
+
+    @parameterized.expand(
+        [
+            (f"{name}_{table}", table, action)
+            for table in ("events", "persons", "groups")
+            for name, action in (
+                (
+                    "drop",
+                    lambda catalog, table: catalog.ensure_table(
+                        table, COLUMNS, drop_first=True, create_if_missing=True, validate=True
+                    ),
+                ),
+                ("rebuild", lambda catalog, table: catalog.replace_table(table, COLUMNS)),
+            )
+        ]
+    )
+    def test_refuses_to_drop_or_rebuild_a_table_other_teams_share(self, _name: str, table: str, action) -> None:
         catalog, connection = _catalog(COLUMNS)
 
         with pytest.raises(ValueError, match="shared"):
-            catalog.ensure_table(table, COLUMNS, drop_first=True, create_if_missing=True, validate=True)
+            action(catalog, table)
 
         assert connection.statements == []
 
@@ -201,12 +230,14 @@ class TestEnsureTable:
         if mismatch is None:
             ensure()
         else:
-            with pytest.raises(ValueError, match=mismatch):
+            with pytest.raises(DuckLakeTableLayoutError, match=mismatch):
                 ensure()
 
 
-def _query_error(error_class: type[TrinoQueryError], name: str, error_type: str) -> TrinoQueryError:
-    return error_class({"errorName": name, "errorType": error_type, "message": name}, "query-1")
+def _query_error(
+    error_class: type[TrinoQueryError], name: str, error_type: str, message: str | None = None
+) -> TrinoQueryError:
+    return error_class({"errorName": name, "errorType": error_type, "message": message or name}, "query-1")
 
 
 def _register(catalog: TrinoBackfillCatalog) -> int:
@@ -246,16 +277,42 @@ class TestTransientFailures:
 
     @parameterized.expand(
         [
-            ("import_id_reused", _query_error(TrinoUserError, "INVALID_PROCEDURE_ARGUMENT", "USER_ERROR")),
-            ("file_types_differ", _query_error(TrinoExternalError, "DUCKLAKE_BAD_DATA", "EXTERNAL")),
+            (
+                "import_id_reused",
+                _query_error(TrinoUserError, "INVALID_PROCEDURE_ARGUMENT", "USER_ERROR"),
+                TrinoUserError,
+            ),
+            ("bad_data", _query_error(TrinoExternalError, "DUCKLAKE_BAD_DATA", "EXTERNAL"), TrinoExternalError),
+            (
+                "table_column_unsigned",
+                _query_error(
+                    TrinoExternalError,
+                    "DUCKLAKE_BAD_DATA",
+                    "EXTERNAL",
+                    "Parquet type does not match column 'group_type_index': required int32 group_type_index "
+                    "(INTEGER(16,true)) versus optional int32 group_type_index (INTEGER(8,false))",
+                ),
+                DuckLakeTableLayoutError,
+            ),
+            (
+                "export_type_wrong",
+                _query_error(
+                    TrinoExternalError,
+                    "DUCKLAKE_BAD_DATA",
+                    "EXTERNAL",
+                    "Parquet type does not match column 'group_type_index': required int32 group_type_index "
+                    "(INTEGER(8,false)) versus optional int32 group_type_index (INTEGER(16,true))",
+                ),
+                TrinoExternalError,
+            ),
         ]
     )
     def test_raises_a_statement_error_without_repeating_the_statement(
-        self, _sleep, _name: str, failure: Exception
+        self, _sleep, _name: str, failure: Exception, expected: type[Exception]
     ) -> None:
         catalog, connection = _catalog(failures=[failure])
 
-        with pytest.raises(type(failure)):
+        with pytest.raises(expected):
             _register(catalog)
 
         assert len(connection.statements) == 1

@@ -106,6 +106,7 @@ from products.managed_warehouse.backend.facade.client import (
 )
 from products.managed_warehouse.backend.facade.contracts import (
     DuckLakeDayReplacement,
+    DuckLakeTableLayoutError,
     DuckLakeTableReplacement,
     ManagedWarehouseTeamMembership,
 )
@@ -2547,7 +2548,7 @@ def _merged_clickhouse_settings(context: AssetExecutionContext, config: Duckling
     reraise=True,
 )
 def list_exported_files(client: Client, target: DucklingTarget, s3_glob: str, settings: dict[str, Any]) -> list[str]:
-    """List the files an export wrote, for a warehouse without duckgres to glob them.
+    """List the files an export wrote, for the Trino path to register them.
 
     ClickHouse wrote the files, and the duckling bucket policy lets it list them. The export globs have their
     wildcard in the file name only, so every listed file name joins the directory of the glob.
@@ -2598,7 +2599,7 @@ def backfill_through_trino(
     exports: Sequence[TrinoExport],
     settings: dict[str, Any],
 ) -> TrinoBackfillResult:
-    """Export each item from ClickHouse and register its files through Trino, for a warehouse without duckgres.
+    """Export each item from ClickHouse and register its files through Trino instead of duckgres.
 
     One add_files call adds the files of an export and removes the rows they replace in the same snapshot. A retried
     call with the same import id is a no-op, so this path needs no delete-then-register replay. A run that skips
@@ -2611,15 +2612,33 @@ def backfill_through_trino(
     partitions_exported = 0
     files_registered = 0
     register = not (config.dry_run or config.skip_ducklake_registration)
+    # A run that replaces the whole table loses nothing when it rebuilds the table. A table that duckgres created can
+    # hold unsigned types, which add_files refuses to convert from the export's types. Such a run also rebuilds a table
+    # that misses a column or has another type in Trino, because the export defines the whole snapshot.
+    replaces_table = (
+        config.cleanup_existing_partition_data
+        and bool(exports)
+        and all(isinstance(item.replacement, DuckLakeTableReplacement) for item in exports)
+    )
+    rebuild = False
     with connect_backfill_catalog(target.organization_id) if register else nullcontext() as catalog:
         if catalog is not None:
-            catalog.ensure_table(
-                table,
-                column_types,
-                drop_first=config.delete_tables,
-                create_if_missing=config.create_tables_if_missing,
-                validate=not config.skip_schema_validation,
-            )
+            try:
+                catalog.ensure_table(
+                    table,
+                    column_types,
+                    drop_first=config.delete_tables,
+                    create_if_missing=config.create_tables_if_missing,
+                    validate=not config.skip_schema_validation,
+                )
+            except DuckLakeTableLayoutError:
+                if not replaces_table:
+                    raise
+                rebuild = True
+                context.log.warning(
+                    f"{table} does not have the column types of the export, so this run rebuilds it before it "
+                    "registers files"
+                )
         for item in exports:
             # A new prefix for every export, because an export under an earlier prefix would overwrite files that
             # DuckLake already registered with their row counts and statistics.
@@ -2638,8 +2657,23 @@ def backfill_through_trino(
                 context.log.info(f"Exported {len(files)} file(s) for {item.label} without registering them")
                 continue
             replacement = item.replacement if config.cleanup_existing_partition_data else None
+            if rebuild:
+                # The rebuild waits until the export finished, to keep the window with an empty table short.
+                catalog.replace_table(table, column_types)
+                rebuild = False
             if files:
-                catalog.register_files(table, files, import_id=prefix, replacement=replacement)
+                try:
+                    catalog.register_files(table, files, import_id=prefix, replacement=replacement)
+                except DuckLakeTableLayoutError:
+                    if not replaces_table:
+                        raise
+                    context.log.warning(
+                        f"{table} does not have the column types of the export, so this run rebuilds it and "
+                        "registers the files again"
+                    )
+                    # The refused add_files committed nothing, so the import id is still unused.
+                    catalog.replace_table(table, column_types)
+                    catalog.register_files(table, files, import_id=prefix, replacement=replacement)
                 files_registered += len(files)
             elif replacement is not None:
                 catalog.delete_rows(table, replacement)
