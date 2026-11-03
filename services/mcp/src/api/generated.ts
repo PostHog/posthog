@@ -5457,6 +5457,56 @@ export namespace Schemas {
       Created: 'created',
     } as const;
 
+    /**
+     * * `session` - session
+     * * `personal_api_key` - personal_api_key
+     * * `oauth` - oauth
+     * * `project_secret_key` - project_secret_key
+     * * `team_secret_token` - team_secret_token
+     * * `id_jag` - id_jag
+     * * `internal_jwt` - internal_jwt
+     * * `service_jwt` - service_jwt
+     * * `internal_api_secret` - internal_api_secret
+     * * `scim` - scim
+     * * `vercel` - vercel
+     * * `partner` - partner
+     * * `sharing_access_token` - sharing_access_token
+     * * `sharing_password` - sharing_password
+     * * `widget_token` - widget_token
+     * * `billing_service` - billing_service
+     * * `gateway_agent` - gateway_agent
+     * * `export_renderer` - export_renderer
+     * * `webhook` - webhook
+     * * `cross_region_signature` - cross_region_signature
+     * * `unattributed` - unattributed
+     */
+    export type ActivityLogCredentialTypeEnum = typeof ActivityLogCredentialTypeEnum[keyof typeof ActivityLogCredentialTypeEnum];
+
+
+    export const ActivityLogCredentialTypeEnum = {
+      Session: 'session',
+      PersonalApiKey: 'personal_api_key',
+      Oauth: 'oauth',
+      ProjectSecretKey: 'project_secret_key',
+      TeamSecretToken: 'team_secret_token',
+      IdJag: 'id_jag',
+      InternalJwt: 'internal_jwt',
+      ServiceJwt: 'service_jwt',
+      InternalApiSecret: 'internal_api_secret',
+      Scim: 'scim',
+      Vercel: 'vercel',
+      Partner: 'partner',
+      SharingAccessToken: 'sharing_access_token',
+      SharingPassword: 'sharing_password',
+      WidgetToken: 'widget_token',
+      BillingService: 'billing_service',
+      GatewayAgent: 'gateway_agent',
+      ExportRenderer: 'export_renderer',
+      Webhook: 'webhook',
+      CrossRegionSignature: 'cross_region_signature',
+      Unattributed: 'unattributed',
+    } as const;
+
     export interface ActivityLog {
       readonly id: string;
       user: UserBasic;
@@ -5481,6 +5531,35 @@ export namespace Schemas {
       client?: string | null;
       /** @nullable */
       ip_address?: string | null;
+      /** Kind of credential that authenticated the request that made the change. 'unattributed' means the request recorded no credential. Null for changes made outside a request, such as background jobs, and for entries recorded before PostHog stored the credential.
+       *
+       * * `session` - session
+       * * `personal_api_key` - personal_api_key
+       * * `oauth` - oauth
+       * * `project_secret_key` - project_secret_key
+       * * `team_secret_token` - team_secret_token
+       * * `id_jag` - id_jag
+       * * `internal_jwt` - internal_jwt
+       * * `service_jwt` - service_jwt
+       * * `internal_api_secret` - internal_api_secret
+       * * `scim` - scim
+       * * `vercel` - vercel
+       * * `partner` - partner
+       * * `sharing_access_token` - sharing_access_token
+       * * `sharing_password` - sharing_password
+       * * `widget_token` - widget_token
+       * * `billing_service` - billing_service
+       * * `gateway_agent` - gateway_agent
+       * * `export_renderer` - export_renderer
+       * * `webhook` - webhook
+       * * `cross_region_signature` - cross_region_signature
+       * * `unattributed` - unattributed */
+      readonly credential_type: ActivityLogCredentialTypeEnum | null;
+      /**
+         * Id of the credential that authenticated the change: the login session id for 'session', or the key id for 'personal_api_key' and 'project_secret_key'. Null for every other credential type and for impersonated changes.
+         * @nullable
+         */
+      readonly credential_id: string | null;
       /** @maxLength 79 */
       activity: string;
       /**
@@ -56203,6 +56282,8 @@ export namespace Schemas {
 
     export interface MCPMissingCapabilitiesQuery {
       dateRange?: DateRange | null;
+      /** Exclude reports from the project's internal and test users. */
+      filterTestAccounts?: boolean | null;
       kind?: 'MCPMissingCapabilitiesQuery';
       /** Page size; defaults to 100, capped at 500. */
       limit?: number | null;
@@ -71921,6 +72002,12 @@ export namespace Schemas {
        * * `template` - Template
        * * `scratch` - From scratch */
       creation_method?: ScannerCreationMethodEnum | null;
+      /**
+         * The app surface the creator started from, such as `replay_filters`. Reported to product analytics at creation so a scanner can be attributed to its entry point, and not stored on the scanner. Ignored on update.
+         * @nullable
+         * @pattern ^[a-z0-9_]{1,64}$
+         */
+      entry_point?: string | null;
       /** Set with `enabled: true` to turn on a scanner whose creator can no longer view recordings. The caller becomes the scanner's creator, and scheduled scans then run as the caller. Without it, that request fails with code `scanner_creator_lost_access`. */
       take_over_as_creator?: boolean;
       /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
@@ -84905,6 +84992,12 @@ export namespace Schemas {
        * * `template` - Template
        * * `scratch` - From scratch */
       creation_method?: ScannerCreationMethodEnum | null;
+      /**
+         * The app surface the creator started from, such as `replay_filters`. Reported to product analytics at creation so a scanner can be attributed to its entry point, and not stored on the scanner. Ignored on update.
+         * @nullable
+         * @pattern ^[a-z0-9_]{1,64}$
+         */
+      entry_point?: string | null;
       /** Set with `enabled: true` to turn on a scanner whose creator can no longer view recordings. The caller becomes the scanner's creator, and scheduled scans then run as the caller. Without it, that request fails with code `scanner_creator_lost_access`. */
       take_over_as_creator?: boolean;
       /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */

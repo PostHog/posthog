@@ -8906,6 +8906,10 @@ snapshots:
         hash: v1.k794b7964.bc64e8d178e529d893d7bb7cf3b41acbc2f03932226becc2c3ab1122dfd2dcfd.VWUxbIzF0TqTKWX7VtcV_b1sxsM7WCMkHEaT9c0s2uQ
     replay-tabs-home-filters-banner--scanner-cross-sell--light:
         hash: v1.k794b7964.4ed70ddb8a2d3543d370f0bb7ef593c8ea519dc2d0f76211b3036803f76535b8.PKjFroml7V0bPXDpdHO4s52Xxxb--3lQmjldubsJzr0
+    replay-tabs-home-filters-banner--scanner-cross-sell-control--dark:
+        hash: v1.k794b7964.1722cfe8f847a40523bbbf5dd26dcb2ede8104f3c217746e520af470bf603696.zeYoi2mPsZ4krP8EVrYqmbbZwtJrWIzFkU1ZnYJNT8I
+    replay-tabs-home-filters-banner--scanner-cross-sell-control--light:
+        hash: v1.k794b7964.4ac8cd491bd7dd16dc3971687ae5543700a51aaa78f8479a9f22b787f6e39ddd.f40BCFR1yDV7Zle7lVyKtTRBrhetU8WZwdpYsIA35Ms
     replay-tabs-home-filters-banner--templates-tab--dark:
         hash: v1.k794b7964.d029de296a4c76b82cefbd0e68f9990c27a1b9692764a9b3ddc4317dd5d184d4.VGIKGjydwEuB3kz2DSDoMy-1QWQkGO6PPu44E4bBto0
     replay-tabs-home-filters-banner--templates-tab--light:
