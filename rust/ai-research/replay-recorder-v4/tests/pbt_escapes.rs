@@ -113,6 +113,11 @@ impl Slot {
         )
     }
 
+    /// After a restart the inspector cannot tell that a style element's text is CSS, so it names no URL there.
+    fn names_an_accepted_url(self, shape: Shape) -> bool {
+        !(self.is_link() || (shape.restart && self == Slot::StyleText))
+    }
+
     /// The bundled font's reference names no URL.
     fn names_its_url(self) -> bool {
         !self.is_link() && self != Slot::FontFace("Roboto")
@@ -154,12 +159,18 @@ fn draw_url(tc: &TestCase, index: usize, refused: bool) -> String {
         return format!("{scheme}{ACCEPTED}-{index}.example.com/{path}");
     }
     let host = HOSTS[draw_index(tc, HOSTS.len())];
-    match draw_index(tc, 4) {
+    match draw_index(tc, 7) {
         0 => format!(
             "/{path}{}{SECRET}",
             REFUSALS[draw_index(tc, REFUSALS.len())]
         ),
         1 => format!("{scheme}u:{SECRET}@{host}/{path}"),
+        // The policy finds these tokens by their place in the path, and the Oracle one by its host too.
+        2 => format!(
+            "{scheme}objectstorage.us-ashburn-1.oraclecloud.com/p/{SECRET}/n/ns/b/bucket/o/{path}"
+        ),
+        3 => format!("{scheme}{host}/bcdn_token={SECRET}&expires=1/{path}"),
+        4 => format!("{scheme}{host}/image/upload/s--{SECRET}--/v1/{path}"),
         _ => format!(
             "{scheme}{host}/{path}{}{SECRET}",
             REFUSALS[draw_index(tc, REFUSALS.len())]
@@ -209,6 +220,9 @@ fn parsed_alike(tc: &TestCase, url: &str) -> String {
     if draw_index(tc, 4) == 0 {
         let first = host.remove(0);
         host.insert_str(0, &format!("%{:02X}", first as u32));
+    }
+    if draw_index(tc, 6) == 0 {
+        host.push('.');
     }
     let port = if draw_index(tc, 4) == 0 { ":443" } else { "" };
     let dots = ["", "", "./", "x/../"][draw_index(tc, 4)];
@@ -655,13 +669,14 @@ struct Page {
 }
 
 fn draw_page(tc: &TestCase) -> Page {
+    let shape = draw_shape(tc);
     let refused = tc.draw(gs::integers::<usize>().min_value(0).max_value(3));
     let accepted = tc.draw(gs::integers::<usize>().min_value(0).max_value(2));
-    // A link keeps an accepted URL as the page wrote it, so only an image slot takes one.
+    // A link keeps an accepted URL as the page wrote it, so only a slot that names one takes one.
     let image_slots: Vec<Slot> = SLOTS
         .iter()
         .copied()
-        .filter(|slot| !slot.is_link())
+        .filter(|slot| slot.names_an_accepted_url(shape))
         .collect();
     let placed: Vec<Placed> = (0..refused)
         .map(|index| (index, true))
@@ -672,7 +687,6 @@ fn draw_page(tc: &TestCase) -> Page {
             draw_placed(tc, slots, url, refused)
         })
         .collect();
-    let shape = draw_shape(tc);
     let events = events(tc, &placed, shape);
     Page {
         placed,
@@ -774,20 +788,20 @@ fn drops_a_block_only_for_a_reason_the_page_holds(tc: TestCase) {
 #[hegel::test]
 #[ignore = "a search for bugs, run on demand"]
 fn each_spelling_of_a_url_gets_the_reference_its_fetch_job_names(tc: TestCase) {
+    let shape = Shape {
+        deep: false,
+        ..draw_shape(&tc)
+    };
     let url = draw_url(&tc, 0, false);
     let slots: Vec<Slot> = SLOTS
         .iter()
         .copied()
-        .filter(|slot| !slot.drops_its_block(""))
+        .filter(|slot| !slot.drops_its_block("") && slot.names_an_accepted_url(shape))
         .collect();
     let count = tc.draw(gs::integers::<usize>().min_value(2).max_value(4));
     let placed: Vec<Placed> = (0..count)
         .map(|_| draw_placed(&tc, &slots, url.clone(), false))
         .collect();
-    let shape = Shape {
-        deep: false,
-        ..draw_shape(&tc)
-    };
     let events = events(&tc, &placed, shape);
     let Ok(lines) = stored(&tc, &events) else {
         return;
