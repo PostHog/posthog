@@ -238,6 +238,15 @@ describe('tileCanvasLogic', () => {
                 source: 'quick add',
                 add: (): void => logic.actions.addStepAt(delayStep, logic.values.workflow.edges[0]),
             },
+            {
+                source: 'drag',
+                add: (): void => {
+                    logic.actions.openCommandPalette('d')
+                    logic.actions.startDraggingNewStep(delayStep)
+                    logic.actions.dropAt(logic.values.workflow.edges[0])
+                    logic.actions.endDraggingNewStep()
+                },
+            },
         ])('counts a step added from the $source', ({ source, add }) => {
             const capture = jest.spyOn(posthog, 'capture')
 
@@ -245,6 +254,47 @@ describe('tileCanvasLogic', () => {
 
             expect(capture).toHaveBeenCalledWith('workflows tile canvas step added', { source, step_type: 'delay' })
         })
+
+        it.each([
+            { outcome: 'lands on a +', fromAddWindow: false, drop: true, dragEnds: true, stillOpen: false },
+            // The drop replaces the arrow of the + that opened the add window, so the window and its dragend go away.
+            {
+                outcome: 'lands on the + that opened it',
+                fromAddWindow: true,
+                drop: true,
+                dragEnds: false,
+                stillOpen: false,
+            },
+            { outcome: 'lets go elsewhere', fromAddWindow: false, drop: false, dragEnds: true, stillOpen: true },
+        ])(
+            'closes the palette only when a step dragged out of it $outcome',
+            async ({ fromAddWindow, drop, dragEnds, stillOpen }) => {
+                const stepsBefore = logic.values.workflow.actions.length
+                const edge = logic.values.workflow.edges[0]
+                if (fromAddWindow) {
+                    logic.actions.openQuickAdd(getEdgeId(edge))
+                } else {
+                    logic.actions.openCommandPalette('d')
+                }
+                logic.actions.startDraggingNewStep(delayStep)
+                if (drop) {
+                    logic.actions.dropAt(edge)
+                }
+
+                await expectLogic(logic, () => {
+                    if (dragEnds) {
+                        logic.actions.endDraggingNewStep()
+                    }
+                }).toMatchValues({
+                    nodeToBeAdded: null,
+                    isDraggingNewStep: false,
+                })
+                expect(logic.values.commandPaletteQuery !== null || logic.values.quickAddEdgeKey !== null).toBe(
+                    stillOpen
+                )
+                expect(logic.values.workflow.actions).toHaveLength(stepsBefore + (drop ? 1 : 0))
+            }
+        )
 
         it.each(['startMovingNode', 'startCopyingNode'] as const)(
             'drops a pending %s when someone starts adding a step',
@@ -281,6 +331,8 @@ describe('tileCanvasLogic', () => {
             logic.values.workflow.edges.find((candidate) => candidate.from === from && candidate.to === to)
         const edgePairs = (): string[] =>
             logic.values.workflow.edges.map((candidate) => `${candidate.from}->${candidate.to}`).sort()
+        const dragEndedCalls = (capture: jest.SpyInstance): unknown[][] =>
+            capture.mock.calls.filter(([event]) => event === 'workflows tile canvas step drag ended')
 
         beforeEach(async () => {
             jest.mocked(loadAppMetricsTotals).mockResolvedValue({})
@@ -296,7 +348,9 @@ describe('tileCanvasLogic', () => {
 
             logic.actions.startDraggingStep('b2')
             logic.actions.dropAt(edge('split', 'b1') as HogFlowEdge)
-            logic.actions.endDraggingStep()
+            // The moved tile can re-render before its dragend, so the drop itself must send the event.
+            const atDrop = dragEndedCalls(capture)
+            logic.actions.endDraggingStep('move')
 
             expect(edgePairs()).toEqual(
                 [
@@ -313,6 +367,25 @@ describe('tileCanvasLogic', () => {
             expect(capture).toHaveBeenCalledWith('workflows tile canvas step moved', {
                 source: 'drag',
                 step_type: 'delay',
+            })
+            const moved = [['workflows tile canvas step drag ended', { outcome: 'moved', step_type: 'delay' }]]
+            expect(atDrop).toEqual(moved)
+            expect(dragEndedCalls(capture)).toEqual(moved)
+        })
+
+        it('records a drag let go away from every + with the drop effect the browser reported', async () => {
+            const before = edgePairs()
+            const capture = jest.spyOn(posthog, 'capture')
+
+            logic.actions.startDraggingStep('b2')
+            logic.actions.endDraggingStep('none')
+
+            expect(edgePairs()).toEqual(before)
+            expect(logic.values.isMovingNode).toBe(false)
+            expect(capture).toHaveBeenCalledWith('workflows tile canvas step drag ended', {
+                outcome: 'let_go_elsewhere',
+                step_type: 'delay',
+                drop_effect: 'none',
             })
         })
 
@@ -367,10 +440,16 @@ describe('tileCanvasLogic', () => {
             expect(logic.values.placeableEdgeKeys).toContain(getEdgeId(edge('a2', 'join') as HogFlowEdge))
 
             logic.actions.dropAt(edge('join', 'exit_node') as HogFlowEdge)
-            logic.actions.endDraggingStep()
+            const atDrop = dragEndedCalls(capture)
+            logic.actions.endDraggingStep('move')
 
             expect(edgePairs()).toEqual(before)
             expect(capture).not.toHaveBeenCalledWith('workflows tile canvas step moved', expect.anything())
+            const noSpot = [
+                ['workflows tile canvas step drag ended', { outcome: 'no_matching_spot', step_type: 'delay' }],
+            ]
+            expect(atDrop).toEqual(noSpot)
+            expect(dragEndedCalls(capture)).toEqual(noSpot)
         })
     })
 

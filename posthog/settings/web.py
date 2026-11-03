@@ -496,6 +496,13 @@ if DEBUG:
     # a second source for 1300+ identical assets would make collectstatic warn about
     # duplicate destinations for no gain.
     STATICFILES_DIRS.append(os.path.join(BASE_DIR, "frontend/public"))
+    # A warehouse source plugin keeps its icon in its own directory. The frontend build copies those
+    # icons into dist, so this finder is DEBUG-only for the same reason as `frontend/public` above.
+    STATICFILES_FINDERS = [
+        "django.contrib.staticfiles.finders.FileSystemFinder",
+        "django.contrib.staticfiles.finders.AppDirectoriesFinder",
+        "products.warehouse_sources.backend.source_icons.SourceIconFinder",
+    ]
 
 # WhiteNoise serves precompressed files when present, so this only controls collectstatic output.
 if TEST:
@@ -651,6 +658,8 @@ SPECTACULAR_SETTINGS = {
             "LogsAlertConfigurationStateEnum": "products.logs.backend.models.LogsAlertConfiguration.State",
             # Matches the shared alerts skeleton's PlatformAlert.State.
             "BillingAlertConfigurationStateEnum": "products.billing_alerts.backend.models.BillingAlertConfiguration.State",
+            # The ai_observability playground asks the same System One question kinds, so both share one name.
+            "DecisionQuestionTypeEnum": "products.ml_inference.backend.facade.enums.DecisionQuestionType.choices",
             "LogsPatternsSourceEnum": ["stored_patterns", "body_mining"],
             # Dashboard filters and data catalog metric runs both take the query schema's IntervalType,
             # a plain enum no class can carry.

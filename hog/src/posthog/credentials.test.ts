@@ -204,4 +204,15 @@ describe('resolveCredentials', () => {
         const error = await resolveCredentials(runtime, { dotenvFile: '/x/.env' }).catch((caught: unknown) => caught)
         expect((error as HogError).code).toBe('invalid_dotenv_file')
     })
+
+    test('points to the home folder and the env variables when there is none', async () => {
+        const runtime = fakeRuntime()
+        runtime.homeDir = () => undefined
+
+        const error = (await resolveCredentials(runtime, {}).catch((caught: unknown) => caught)) as HogError
+
+        expect(error.code).toBe('not_authenticated')
+        expect(error.hint).toContain('HOME')
+        expect(error.hint).toContain('HOG_PERSONAL_API_KEY')
+    })
 })
