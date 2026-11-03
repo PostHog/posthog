@@ -19,11 +19,12 @@ from posthog.utils import safe_cache_delete
 # widen its own access. Risky scopes that stay grantable carry a warning from `RISKY_SCOPE_WARNINGS`.
 # - `workload_trust_policy` and `workload_trust_policy_request` would let a workload change the policy behind its token.
 # - `task:write` starts an agent run from a prompt the caller writes, with its own longer-lived owner token.
-#   `conversation:write` (PostHog AI can create such a task), `signal_scout:write` and
-#   `business_knowledge:write` start the same kind of run.
+#   `conversation:write` (PostHog AI can create such a task), `signal_scout:write`,
+#   `business_knowledge:write` and `autoresearch:write` start the same kind of run.
 # - `conversation:read` and `task:read` read the owner's private PostHog AI chats and tasks, because the token
 #   acts as the owner. Add them back if a workload needs them.
 # - `project:write` lets a token rotate the project's secret token.
+# - `user:write` changes the account of the owner the token acts as.
 # - `streamlit_app` returns a one-hour OAuth token to connect to a running app.
 # - `webhook:write`, `batch_export:write` and `subscription:write` set up feeds that keep sending after the
 #   policy is revoked. A subscription can send to any email address.
@@ -34,6 +35,7 @@ WORKLOAD_TRUST_POLICY_DENIED_SCOPES: frozenset[str] = frozenset(
         "workload_trust_policy:write",
         "workload_trust_policy_request:read",
         "workload_trust_policy_request:write",
+        "autoresearch:write",
         "batch_export:write",
         "business_knowledge:write",
         "conversation:read",
@@ -47,6 +49,7 @@ WORKLOAD_TRUST_POLICY_DENIED_SCOPES: frozenset[str] = frozenset(
         "subscription:write",
         "task:read",
         "task:write",
+        "user:write",
         "webhook:write",
     }
 )

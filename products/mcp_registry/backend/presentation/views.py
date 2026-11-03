@@ -10,7 +10,7 @@ from rest_framework.response import Response
 
 from posthog.api.pagination import BoundedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import OAuthAccessTokenAuthentication, WorkloadAccessTokenAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.mcp_registry.backend.facade import api as registry_api
@@ -61,13 +61,10 @@ class MCPRegistryServerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # The staff tier reports across every project, so it must not ride a grantable
         # credential: a self-registered OAuth client that consents a staff user would
         # otherwise inherit fleet-wide visibility. Session auth and personal API keys
-        # keep it, because the user mints those themselves. A workload token acts as the organization
-        # owner without that owner minting it, so it never gets the tier either.
+        # keep it, because the user mints those themselves.
         if not getattr(self.request.user, "is_staff", False):
             return False
-        return not isinstance(
-            self.request.successful_authenticator, OAuthAccessTokenAuthentication | WorkloadAccessTokenAuthentication
-        )
+        return not isinstance(self.request.successful_authenticator, OAuthAccessTokenAuthentication)
 
     def _caller_context(self) -> dict[str, Any]:
         return {"team_id": self.team.id, "caller_is_staff": self._caller_is_staff()}
