@@ -25,6 +25,7 @@ import { DataQualityOverview } from 'products/data_quality/frontend/overview/Dat
 import { ModelsLineageTab } from './lineage/ModelsLineageTab'
 import { ModelsOverviewTab } from './ModelsOverviewTab'
 import { ModelsSceneTab, modelsSceneLogic } from './modelsSceneLogic'
+import { ModelsUsageDateFilter } from './ModelsUsageDateFilter'
 import { ModelsUsageTab } from './ModelsUsageTab'
 import { ViewsTab } from './ViewsTab'
 
@@ -74,7 +75,12 @@ export function ModelsScene(): JSX.Element {
                       key: 'usage' as const,
                       label: 'Usage',
                       link: urls.models('usage'),
-                      content: <ModelsUsageTab savedQueryIdToNodeId={savedQueryIdToNodeId} />,
+                      content: (
+                          <ModelsUsageTab
+                              savedQueryIdToNodeId={savedQueryIdToNodeId}
+                              dateFilter={<ModelsUsageDateFilter />}
+                          />
+                      ),
                       'data-attr': 'models-tab-usage',
                   },
               ]

@@ -7,9 +7,9 @@ import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { isDeprecatePayload, noReadsLabel, refreshCostLabel } from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 
-type RefreshChoice = 'stop' | 'keep'
+export type RefreshChoice = 'stop' | 'keep'
 
-const REFRESH_CHOICES: LemonRadioOption<RefreshChoice>[] = [
+export const REFRESH_CHOICES: LemonRadioOption<RefreshChoice>[] = [
     {
         value: 'stop',
         label: 'Stop refreshing it',

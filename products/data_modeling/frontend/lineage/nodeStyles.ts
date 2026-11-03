@@ -13,6 +13,14 @@ export const NODE_TYPE_TAG_SETTINGS: Record<
     metric: { label: 'Metric', type: 'info', color: 'var(--blue)' },
 }
 
+export const QUILL_NODE_TYPE_COLORS: Record<DataModelingNodeType, string> = {
+    table: 'var(--muted-foreground)',
+    view: 'var(--primary)',
+    matview: 'var(--success-foreground)',
+    endpoint: 'var(--completed-foreground)',
+    metric: 'var(--info-foreground)',
+}
+
 export const STATUS_TAG_SETTINGS: Record<string, LemonTagType> = {
     Running: 'primary',
     Completed: 'success',
@@ -43,6 +51,13 @@ export const STATUS_MARK_BACKGROUNDS: Record<string, string> = {
     Cancelled: 'bg-muted',
     Skipped: 'bg-muted',
     Modified: 'bg-warning',
+}
+
+export const STATUS_DOT_VARIANTS: Record<string, 'default' | 'info' | 'destructive' | 'warning' | 'success'> = {
+    Running: 'warning',
+    Completed: 'success',
+    Failed: 'destructive',
+    Modified: 'warning',
 }
 
 /** Background for a status mark that carries no text of its own, such as a run-history square. */
