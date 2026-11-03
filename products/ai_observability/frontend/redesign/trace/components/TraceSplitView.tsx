@@ -43,7 +43,7 @@ export function TraceSplitView({
                         matchStepCount={matchStepCount}
                     />
                 </aside>
-                <div className="min-w-0 flex-1 @3xl:sticky @3xl:top-[var(--scene-title-section-height,50px)] @3xl:max-h-[calc(100vh-var(--scene-title-section-height,50px))] @3xl:overflow-y-auto">
+                <div className="min-w-0 flex-1 @3xl:sticky @3xl:top-[var(--scene-title-section-height,50px)] @3xl:max-h-[calc(var(--trace-view-height,100vh)-var(--scene-title-section-height,50px))] @3xl:overflow-y-auto">
                     {detail ? (
                         <NodeDetail
                             {...detail}

@@ -18,8 +18,8 @@ class KnowledgeUsageRecord(UUIDModel):
     write records nothing. Retrieval writes one row per search. Rows are never updated, and deleting the
     source, document or chunks they describe leaves them in place, so a delete never removes usage.
 
-    Nothing reads this table for billing yet. It meters usage so the pricing can be checked against real
-    data before the usage report and the billing service start counting it.
+    The nightly usage report reads this table. The billing service receives the totals but does not charge
+    for them until it has Business Knowledge products.
     """
 
     # Canonical team, no FK: deleting a team must not cascade into usage history.

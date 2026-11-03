@@ -1,4 +1,4 @@
-from django.core.validators import MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 from posthog.models.team import Team
@@ -76,3 +76,7 @@ class TeamWorkflowsConfig(models.Model):
     # Max marketing messages per person per rolling window across all workflows; null on either means no cap.
     marketing_frequency_cap_max_messages = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(1)])
     marketing_frequency_cap_window_days = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(1)])
+    # How long a capped marketing message waits for a free slot before it is skipped; null skips it at once.
+    marketing_frequency_cap_hold_hours = models.IntegerField(
+        null=True, blank=True, validators=[MinValueValidator(1), MaxValueValidator(168)]
+    )

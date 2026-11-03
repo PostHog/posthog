@@ -1,6 +1,5 @@
 import json
 import time
-from ipaddress import ip_address
 
 from unittest.mock import patch
 
@@ -18,6 +17,7 @@ from posthog.api.oauth.client_assertion import (
     ClientAssertionError,
 )
 from posthog.models.oauth import OAuthApplication
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from ee.api.agentic_provisioning.test.base import TEST_PARTNER_SCOPES, ProvisioningTestBase, provisioning_config
 
@@ -94,7 +94,7 @@ class TestClientRegistration(ProvisioningTestBase):
         with (
             # example.com does not resolve, and the SSRF guard runs before the fetch, so
             # without this the metadata check would fail for a reason unrelated to the test.
-            patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")}),
+            mock_anti_ssrf_dns_lookup(),
             metadata_patch,
             patch(
                 "posthog.api.oauth.client_assertion.fetch_client_json_document",
