@@ -22,7 +22,11 @@ export function hogDir(runtime: Pick<Runtime, 'env' | 'platform' | 'homeDir' | '
     const name = runtime.isDevelopment ? 'hog-dev' : 'hog'
     let folder: string | undefined
     if (platform === 'win32') {
-        folder = env.APPDATA ? win32.join(env.APPDATA, name) : home && win32.join(home, 'AppData', 'Roaming', name)
+        // Local, not Roaming: a domain profile copies Roaming to a server and to every machine the
+        // person signs in to, and this folder can hold credentials.
+        folder = env.LOCALAPPDATA
+            ? win32.join(env.LOCALAPPDATA, name)
+            : home && win32.join(home, 'AppData', 'Local', name)
     } else if (platform === 'darwin') {
         folder = home && posix.join(home, 'Library', 'Application Support', name)
     } else {
@@ -34,7 +38,7 @@ export function hogDir(runtime: Pick<Runtime, 'env' | 'platform' | 'homeDir' | '
         throw new HogError(
             'no_home_directory',
             "hog couldn't find your home folder to keep its settings in.",
-            platform === 'win32' ? 'Set APPDATA to your app settings folder.' : 'Set HOME to your home folder.'
+            platform === 'win32' ? 'Set LOCALAPPDATA to your local app data folder.' : 'Set HOME to your home folder.'
         )
     }
     return folder
