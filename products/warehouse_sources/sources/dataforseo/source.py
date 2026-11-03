@@ -151,11 +151,19 @@ Note: DataForSEO bills per API request, so syncing these tables consumes account
         }
 
     def get_retryable_errors(self) -> set[str]:
-        # `_post_task`'s own tenacity retry already covers HTTP 429/5xx and the 40202/50xxx body
+        # `_request_task`'s own tenacity retry already covers HTTP 429/5xx and the 40202/50xxx body
         # codes (see `DataForSEORetryableError`), so one only reaches here once that budget is
         # exhausted. Temporal retries the whole activity from there, so the failure is transient
         # and self-recovering rather than a bug.
-        return {"DataForSEO API error (retryable)"}
+        #
+        # A requests.ReadTimeout that survives the same tenacity retry (which already catches it,
+        # along with the broader requests.ConnectionError) is a transient network blip, not a
+        # DataForSEO or customer problem — once Temporal retries the activity the failure is
+        # self-recovering the same way. Mirrors Bitbucket's and GitLab's identical classification
+        # of the same urllib3 wording. Only the read-timeout wording is matched here; an exhausted
+        # ConnectionError without it (e.g. "Connection reset by peer") still reaches error tracking
+        # as an exception.
+        return {"DataForSEO API error (retryable)", "Read timed out"}
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.sources.dataforseo.canonical_descriptions import CANONICAL_DESCRIPTIONS

@@ -181,10 +181,14 @@ class TestDataForSEOSource:
             ("http_status", "DataForSEO API error (retryable): status=500, url=https://api.dataforseo.com/v3/x"),
             ("body_rate_limit", "DataForSEO API error (retryable) [40202]: rate limit exceeded"),
             ("body_server_error", "DataForSEO API error (retryable) [50000]: internal error"),
+            (
+                "read_timeout",
+                "HTTPSConnectionPool(host='api.dataforseo.com', port=443): Read timed out. (read timeout=56.0)",
+            ),
         ]
     )
     def test_transient_api_errors_are_retryable(self, _name: str, error_msg: str) -> None:
-        # `_post_task` already exhausted its own tenacity retry before this reaches us, so it
+        # `_request_task` already exhausted its own tenacity retry before this reaches us, so it
         # must stay retryable (and out of the non-retryable set), so that a self-recovering
         # blip is retried by Temporal instead of reported as an unclassified error.
         source = DataForSEOSource()
