@@ -155,6 +155,8 @@ class TestWorkloadTrustPolicyAPI(APIBaseTest):
             ("webhook_feed_scope", {"scopes": ["webhook:write"]}, "scopes"),
             ("batch_export_feed_scope", {"scopes": ["batch_export:write"]}, "scopes"),
             ("subscription_feed_scope", {"scopes": ["subscription:write"]}, "scopes"),
+            ("sharing_link_scope", {"scopes": ["sharing_configuration:write"]}, "scopes"),
+            ("sharing_link_read_scope", {"scopes": ["sharing_configuration:read"]}, "scopes"),
             ("owner_ai_chat_scope", {"scopes": ["conversation:read"]}, "scopes"),
             ("owner_task_scope", {"scopes": ["task:read"]}, "scopes"),
         ]
