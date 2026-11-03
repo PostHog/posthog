@@ -416,9 +416,12 @@ impl TableHandle {
         }
     }
 
-    /// Run one history upsert (see [`crate::history`]), retrying data conflicts against a
-    /// refreshed snapshot exactly as [`TableHandle::upsert`] does. A re-planned attempt
-    /// reads the open rows again, so a concurrent commit cannot make it close a row twice.
+    /// Run one history upsert (see [`crate::history`]), retrying conflicts against a
+    /// refreshed snapshot. A re-planned attempt reads the open rows again, so a concurrent
+    /// commit cannot make it close a row twice. Unlike [`TableHandle::upsert`], a
+    /// concurrent schema or protocol change is planned against too: every attempt checks
+    /// the refreshed table again, and a history write copies existing rows whole instead of
+    /// replacing them with source values, so the result equals running after that commit.
     pub async fn history_upsert(
         &mut self,
         source_batches: Vec<RecordBatch>,
