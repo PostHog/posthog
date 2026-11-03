@@ -166,7 +166,8 @@ Escalating to the next rung is the last resort, not the default.
     Do not assume a debounce, `setTimeout`, kea breakpoint, or fast mock will still be
     pending on the next line. Test setup may shorten internal delays without changing
     production behavior.
-- **No fixed `time.sleep` in a test or fixture body.** `posthog/test/repo_invariants/test_no_sleep_in_test_bodies.py` fails the build on one.
+- **No `time.sleep` in test code.** Ruff rule TID251 bans it in test files, and CI runs that rule with `--ignore-noqa`, so an inline `noqa` changes nothing.
+  The only exemption is a file path under `per-file-ignores` in `pyproject.toml`, reserved for a fake that must be slow.
   A sleep guesses how long the work takes, so it flakes on a loaded runner and slows every run on a fast one.
   Pick the replacement by what the test waits for:
   - Code that reads `time.time()` or `datetime.now()`: `time_machine.travel(..., tick=False)`, then `traveller.shift(...)`.

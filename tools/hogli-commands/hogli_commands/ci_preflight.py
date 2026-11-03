@@ -154,6 +154,13 @@ DIFF_CHECKS: list[DiffCheck] = [
         takes_files=True,
     ),
     DiffCheck(
+        key="ruff-test-sleep",
+        label="fixed time.sleep in a test (ruff TID251 ignores inline noqa in CI)",
+        triggers=["*.py"],
+        verify=["ruff", "check", "--ignore-noqa", "--select", "TID251"],
+        takes_files=True,
+    ),
+    DiffCheck(
         key="complexity",
         label=f"cyclomatic complexity (warn >{WARN_AT}, >{TEST_WARN_AT} in tests)",
         # From complexity_lint.py so preflight and the command can't drift on scope.

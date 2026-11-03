@@ -462,6 +462,10 @@ jobs:
                     shell: bash
                     run: ruff check .
 
+                  - name: Check for fixed sleeps in tests, ignoring inline noqa
+                    shell: bash
+                    run: ruff check --ignore-noqa --select TID251 .
+
                   - name: Check formatting
                     shell: bash
                     run: ruff format --check --diff .

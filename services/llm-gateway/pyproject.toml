@@ -76,6 +76,7 @@ select = [
     "B",
     "C4",
     "PLC0415",
+    "TID251",
     "UP",
 ]
 ignore = [
@@ -87,6 +88,12 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "src/**" = ["PLC0415"]
 "tests/**" = ["PLC0415"]
+# TID251 bans `time.sleep` in test code only (see the root pyproject.toml).
+"!tests/**" = ["TID251"]
+"tests/integration/conftest.py" = ["TID251"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"time.sleep".msg = "a test waits on its condition, not on a fixed sleep (see /writing-tests)"
 
 [tool.ruff.format]
 quote-style = "double"
