@@ -3,6 +3,7 @@ import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch, mockInternalFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { Server } from 'http'
+import { register } from 'prom-client'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
@@ -575,6 +576,29 @@ describe('EmailTrackingService', () => {
                     metric_name: 'email_bounced',
                     metric_kind: 'email',
                 })
+            })
+
+            it('counts a failed primary lookup as a lookup failure for a bounce on a flow only the primary has', async () => {
+                const hogFlow = await insertHogFlow(
+                    hub.postgres,
+                    new FixtureHogFlowBuilder().withTeamId(team.id).build()
+                )
+                hideHogFlowsFromReplica(hub.postgres, [hogFlow.id])
+                jest.spyOn(
+                    api['emailTrackingService']['hogFlowManager'],
+                    'getHogFlowsCheckingPrimaryOnMiss'
+                ).mockRejectedValue(new Error('primary lookup failed'))
+                const lookupFailures = async (): Promise<number> =>
+                    (await register.getSingleMetric('email_tracking_errors_total')!.get()).values.find(
+                        (v) => v.labels.error_type === 'hog_flow_lookup_failed' && v.labels.source === 'ses'
+                    )?.value ?? 0
+                const before = await lookupFailures()
+
+                const res = await postBounce({ functionId: hogFlow.id })
+                expect(res.status).toBe(200)
+
+                expect(await lookupFailures()).toBeGreaterThan(before)
+                expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)).toHaveLength(0)
             })
 
             it('records the bounced status of a transactional email', async () => {
