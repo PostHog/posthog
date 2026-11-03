@@ -506,7 +506,8 @@ class HogQLQueryExecutor:
                 context=direct_context,
                 dialect=dialect,
                 pretty=self.pretty if self.pretty is not None else True,
-            )
+            ),
+            dialect=dialect,
         )
         self.direct_context = direct_context
         self.direct_values = direct_context.values
@@ -590,7 +591,7 @@ class HogQLQueryExecutor:
 
         self.hogql = transpiled.hogql
         self.print_columns = list(transpiled.print_columns)
-        self.direct_sql = ensure_single_direct_statement(transpiled.sql)
+        self.direct_sql = ensure_single_direct_statement(transpiled.sql, dialect="trino")
         self.direct_values = transpiled.values
         self.direct_source_id = str(source.id)
         self.direct_dialect = "trino"
