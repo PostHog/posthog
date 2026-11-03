@@ -3881,6 +3881,15 @@ class SignalReportTaskActionRunRequestSerializer(serializers.Serializer):
         min_value=0,
         help_text="Required for `suggested_prompt`: the `suggested_prompt_index` from the actions list.",
     )
+    suggested_prompt_text = serializers.CharField(
+        required=False,
+        trim_whitespace=False,
+        help_text=(
+            "Optional for `suggested_prompt`: the `text` the actions list showed at `suggested_prompt_index`. "
+            "When the report's prompt at that index no longer matches it exactly, the run does not start and "
+            "the response is 409 `report_action_prompt_changed`."
+        ),
+    )
     message = serializers.CharField(
         required=False,
         max_length=2000,
@@ -3902,6 +3911,10 @@ class SignalReportTaskActionRunRequestSerializer(serializers.Serializer):
         if action == ReportTaskActionKind.SUGGESTED_PROMPT and attrs.get("message"):
             raise serializers.ValidationError(
                 {"message": "A suggested prompt sends its own text. Use `ask` to send your own message."}
+            )
+        if action != ReportTaskActionKind.SUGGESTED_PROMPT and "suggested_prompt_text" in attrs:
+            raise serializers.ValidationError(
+                {"suggested_prompt_text": "Only `suggested_prompt` accepts the text of a suggested prompt."}
             )
         if action == ReportTaskActionKind.ASK and not attrs.get("message"):
             raise serializers.ValidationError({"message": "Give the message to send with `ask`."})

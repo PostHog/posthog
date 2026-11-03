@@ -113127,6 +113127,8 @@ export namespace Schemas {
          * @minimum 0
          */
       suggested_prompt_index?: number;
+      /** Optional for `suggested_prompt`: the `text` the actions list showed at `suggested_prompt_index`. When the report's prompt at that index no longer matches it exactly, the run does not start and the response is 409 `report_action_prompt_changed`. */
+      suggested_prompt_text?: string;
       /**
          * Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged` and `make_it_green`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Not accepted for `suggested_prompt`.
          * @maxLength 2000

@@ -287,13 +287,41 @@ class TestReportTaskActionsAPI(APIBaseTest):
         assert properties["report_action"] == action
         assert properties["question_source"] == ("suggested" if action == "suggested_prompt" else "custom")
 
-    def test_suggested_prompt_index_outside_the_report_is_404(self, workflow: MagicMock, _flag_mock: MagicMock) -> None:
+    @parameterized.expand(
+        [
+            ("text_matches", 0, "Why does checkout fail?", status.HTTP_201_CREATED, [None]),
+            ("text_changed", 0, "Create the alert", status.HTTP_409_CONFLICT, ["report_action_prompt_changed"]),
+            ("list_shrank", 1, "Create the alert", status.HTTP_409_CONFLICT, []),
+            ("index_outside_without_text", 1, None, status.HTTP_404_NOT_FOUND, []),
+        ]
+    )
+    def test_suggested_prompt_runs_only_the_prompt_the_caller_saw(
+        self,
+        workflow: MagicMock,
+        _flag_mock: MagicMock,
+        _name: str,
+        index: int,
+        text: str | None,
+        expected: int,
+        captured_limit_codes: list[str | None],
+    ) -> None:
         report = self._report(prompts=["Why does checkout fail?"])
+        body: dict = {"action": "suggested_prompt", "suggested_prompt_index": index}
+        if text is not None:
+            body["suggested_prompt_text"] = text
 
-        response = self._run(report, {"action": "suggested_prompt", "suggested_prompt_index": 1})
+        with patch("products.signals.backend.views.report_user_action") as capture:
+            response = self._run(report, body)
 
-        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.status_code == expected, response.data
+        assert [call.args[2].get("limit_code") for call in capture.call_args_list] == captured_limit_codes
+        if expected == status.HTTP_201_CREATED:
+            assert Task.objects.get(id=response.json()["task_id"]).description.endswith("Why does checkout fail?")
+            return
+        assert not Task.objects.filter(signal_report=report).exists()
         workflow.assert_not_called()
+        if expected == status.HTTP_409_CONFLICT:
+            assert response.json()["code"] == "report_action_prompt_changed"
 
     @parameterized.expand(
         [
@@ -373,6 +401,11 @@ class TestReportTaskActionRunRequestValidation(SimpleTestCase):
                 "message",
             ),
             ("message_too_long", {"action": "get_it_merged", "message": "x" * 2001}, "message"),
+            (
+                "prompt_text_on_other_action",
+                {"action": "ask", "message": "Hi", "suggested_prompt_text": "Hi"},
+                "suggested_prompt_text",
+            ),
         ]
     )
     def test_rejects_an_invalid_message(self, _name: str, data: dict, field: str) -> None:
