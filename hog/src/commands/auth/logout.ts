@@ -3,7 +3,7 @@ import { defineCommand } from '@/core/command'
 import { escapeControls } from '@/core/output'
 import { PERSONAL_API_KEY_ENV_VAR } from '@/posthog/credentials'
 import { LOGIN_COMMAND } from '@/posthog/login'
-import { readLogin, removeLogin } from '@/posthog/logins'
+import { logout } from '@/posthog/logins'
 import { readSettings } from '@/posthog/settings'
 
 interface LogoutResult {
@@ -27,16 +27,12 @@ export default defineCommand({
         // posthog.json must not stop a logout.
         const configHost = (await ctx.config().catch(() => undefined))?.config.host
         const host = ctx.globals.host ?? configHost ?? settings.host
-        const login = host ? await readLogin(runtime, settings, host) : undefined
-        const [outcome, removed] = await Promise.all([
-            login?.credential.logout(runtime),
-            login ? removeLogin(runtime, login) : false,
-        ])
+        const outcome = host ? await logout(runtime, host) : undefined
         await clearPending(runtime, LOGIN_COMMAND)
         return {
-            status: removed ? 'logged_out' : 'not_logged_in',
+            status: outcome ? 'logged_out' : 'not_logged_in',
             host: host ?? null,
-            revokeUrl: removed ? (outcome?.revokeUrl ?? null) : null,
+            revokeUrl: outcome?.revokeUrl ?? null,
             stillSet: runtime.env[PERSONAL_API_KEY_ENV_VAR] ? [PERSONAL_API_KEY_ENV_VAR] : [],
         }
     },

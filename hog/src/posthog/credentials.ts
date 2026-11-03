@@ -4,7 +4,7 @@ import { EXIT_USAGE, HogError } from '@/core/errors'
 import type { Env, Runtime } from '@/core/runtime'
 
 import { PersonalApiKey, type Credential } from './credential'
-import { FileStore, type StoreChoice } from './credential-store'
+import type { StoreChoice } from './credential-store'
 import { loginStorage, readLogin } from './logins'
 import { readSettings } from './settings'
 
@@ -152,10 +152,6 @@ function validate(raw: RawCredentials, host: string): Credentials {
     return { apiKey: raw.apiKey, projectId: raw.projectId, host }
 }
 
-export function legacyCredentialsPath(runtime: Runtime): string {
-    return posthogFile(runtime, 'credentials.json')
-}
-
 // Every credential source, in order: HOG_PERSONAL_API_KEY in the environment, then in --dotenv-file,
 // then what `hog auth login` stored. posthog-cli's credentials file is never read here: `hog auth
 // migrate` moves its key into hog's store. The global host overrides
@@ -233,10 +229,7 @@ export async function resolveCredentials(
             checkConfigHost(login.credential.host)
             const credential = await login.credential.fresh(runtime, loginStorage(runtime, login))
             const { store } = login
-            return resolved(credential, 'store', {
-                store: store.kind,
-                path: store instanceof FileStore ? store.path : undefined,
-            })
+            return resolved(credential, 'store', { store: store.kind, path: store.path ?? undefined })
         }
     }
 
