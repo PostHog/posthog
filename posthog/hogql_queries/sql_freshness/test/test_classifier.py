@@ -140,6 +140,23 @@ class TestClassify(BaseTest):
                 {"fresh_until": NOW + timedelta(minutes=5)},
             ),
             (
+                "latest_event_time_up_to_now",
+                "select max(timestamp) from events where timestamp > now() - interval 2 day",
+                SqlWindowClass.UP_TO_NOW_LONG,
+                {"fresh_until": NOW + timedelta(minutes=5)},
+            ),
+            (
+                "latest_rows_up_to_now",
+                "select event from events where timestamp > now() - interval 7 day order by timestamp desc limit 10",
+                SqlWindowClass.UP_TO_NOW_LONG,
+                {"fresh_until": NOW + timedelta(minutes=5)},
+            ),
+            (
+                "latest_event_time_in_a_fixed_past_range",
+                "select max(timestamp) from events where timestamp >= '2026-10-01' and timestamp < '2026-10-15'",
+                SqlWindowClass.FIXED_PAST,
+            ),
+            (
                 "union_takes_the_freshest",
                 "select count() from events where timestamp < '2026-10-01' and timestamp >= '2026-09-01' "
                 "union all select count() from events where timestamp > now() - interval 10 minute",

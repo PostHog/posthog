@@ -77,6 +77,7 @@ class QueryFacts:
     unsupported_bound: bool
     clock_outside_bounds: bool
     reads_now: bool
+    reads_latest_event: bool
 
 
 class _UnsupportedBound(Exception):
@@ -190,6 +191,7 @@ class _QueryScan(TraversingVisitor):
         self.selects: list[ast.SelectQuery] = []
         self.clock_calls: set[int] = set()
         self.unsupported_field = False
+        self.reads_latest_event = False
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         self.selects.append(node)
@@ -202,7 +204,14 @@ class _QueryScan(TraversingVisitor):
     def visit_call(self, node: ast.Call) -> None:
         if _clock_name(node) is not None:
             self.clock_calls.add(id(node))
+        if node.name.lower() == "max" and len(node.args) == 1 and _is_events_timestamp(node.args[0]):
+            self.reads_latest_event = True
         super().visit_call(node)
+
+    def visit_order_expr(self, node: ast.OrderExpr) -> None:
+        if node.order == "DESC" and _is_events_timestamp(node.expr):
+            self.reads_latest_event = True
+        super().visit_order_expr(node)
 
 
 class _Evaluator:
@@ -348,4 +357,5 @@ def extract_facts(
         unsupported_bound=unsupported_bound,
         clock_outside_bounds=bool(scan.clock_calls - evaluator.consumed_clock_calls),
         reads_now=evaluator.reads_now,
+        reads_latest_event=scan.reads_latest_event,
     )

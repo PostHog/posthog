@@ -28,6 +28,7 @@ FIXED_PAST_SETTLE_TIME = timedelta(hours=1)
 class FreshnessReason(StrEnum):
     WINDOW_AGE = "window_age"
     NOW_ANCHORED = "now_anchored"
+    LATEST_EVENT = "latest_event"
     NO_EVENTS = "no_events"
     UNSUPPORTED_FIELD = "unsupported_field"
     JOIN = "join"
@@ -87,4 +88,8 @@ def fresh_until(facts: QueryFacts) -> tuple[datetime, FreshnessReason]:
             for window in facts.windows
             if window.end is not None and window_class(window, facts) == SqlWindowClass.FIXED_PAST
         ]
+    if facts.reads_latest_event and any(
+        window_class(window, facts) != SqlWindowClass.FIXED_PAST for window in facts.windows
+    ):
+        limits.append((facts.now + SQL_WINDOW_MAX_AGE[SqlWindowClass.LIVE], FreshnessReason.LATEST_EVENT))
     return min(limits, key=lambda limit: limit[0])
