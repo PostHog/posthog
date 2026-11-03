@@ -177,10 +177,24 @@ class TestEventsSubqueryPushdown(BaseTest):
         assert "toFloat64OrZero(properties__amount)" in printed, printed
         assert "'Float64'" not in printed, printed
 
-    def test_hoisted_name_avoids_the_outer_columns(self) -> None:
-        printed = self._print(f"SELECT concat(properties.utm_source, '!') AS properties__utm_source FROM {STAR_EVENTS}")
+    @parameterized.expand(
+        [
+            (
+                "outer_alias",
+                f"SELECT concat(properties.utm_source, '!') AS properties__utm_source FROM {STAR_EVENTS}",
+                "ifNull(toString(__hoisted_properties_0), ''), '!') AS properties__utm_source",
+            ),
+            (
+                "lambda_parameter",
+                f"SELECT arrayMap(properties__utm_source -> properties.utm_source, ['z']) FROM {STAR_EVENTS}",
+                "properties__utm_source -> __hoisted_properties_0",
+            ),
+        ]
+    )
+    def test_hoisted_name_avoids_the_names_in_scope(self, _name: str, select: str, outer_read: str) -> None:
+        printed = self._print(select)
         assert "AS __hoisted_properties_0" in printed, printed
-        assert printed.count(" AS properties__utm_source") == 1, printed
+        assert outer_read in printed, printed
 
     @parameterized.expand([("legacy", False), ("native", True)])
     def test_hoisted_restricted_key_stays_masked(self, _name: str, native: bool) -> None:

@@ -400,6 +400,24 @@ def _draws_a_random_value(expr: ast.Expr) -> bool:
     return finder.found
 
 
+class _LambdaParameterCollector(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.names: set[str] = set()
+
+    def visit_lambda(self, node: ast.Lambda) -> None:
+        self.names.update(node.args)
+        super().visit_lambda(node)
+
+
+def _lambda_parameters(exprs: list[ast.Expr | None]) -> set[str]:
+    collector = _LambdaParameterCollector()
+    for expr in exprs:
+        if expr is not None:
+            collector.visit(expr)
+    return collector.names
+
+
 def _outer_expressions(outer: ast.SelectQuery) -> list[ast.Expr | None]:
     """Every expression slot of a select at its own level, join constraints included; joined tables are their own scope."""
     exprs: list[ast.Expr | None] = [
@@ -467,12 +485,19 @@ class EventsSubqueryPushdownTransform(TraversingVisitor):
 
         # An outer stream-dependent function sees a different input once the subquery filters earlier, so only the
         # key reads move then. Aggregates and windows are fine: a WHERE is applied before them either way.
+        outer_expressions = _outer_expressions(outer)
         pushed: list[ast.Expr] = []
         residual_where = outer.where
-        if not _depends_on_row_stream(_outer_expressions(outer), include_aggregates=False):
+        if not _depends_on_row_stream(outer_expressions, include_aggregates=False):
             pushed, residual_where = self._split_where(outer, columns)
 
-        taken_names = set(outer.type.columns) | set(outer.type.aliases) | set(inner.type.columns)
+        # The hoisted read of an unaliased subquery is a bare name, which a lambda parameter of that name would capture.
+        taken_names = (
+            set(outer.type.columns)
+            | set(outer.type.aliases)
+            | set(inner.type.columns)
+            | _lambda_parameters(outer_expressions)
+        )
         hoister = _KeyReadHoister(columns, taken_names)
         new_select = [cast(ast.Expr, hoister.visit(expr)) for expr in outer.select]
         new_where = cast(ast.Expr | None, hoister.visit(residual_where))
