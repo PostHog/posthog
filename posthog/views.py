@@ -16,7 +16,14 @@ from django.contrib.auth.decorators import login_required as base_login_required
 from django.db import DEFAULT_DB_ALIAS, connections
 from django.db.migrations.executor import MigrationExecutor
 from django.db.models import Q
-from django.http import HttpRequest, HttpResponse, HttpResponseNotAllowed, HttpResponseServerError, JsonResponse
+from django.http import (
+    HttpRequest,
+    HttpResponse,
+    HttpResponseNotAllowed,
+    HttpResponseNotFound,
+    HttpResponseServerError,
+    JsonResponse,
+)
 from django.shortcuts import redirect, render
 from django.template import loader
 from django.views.decorators.cache import never_cache
@@ -166,6 +173,36 @@ Disallow: /decide/
 Disallow: /flags/
 """
     return HttpResponse(ROBOTS_TXT_CONTENT, content_type="text/plain")
+
+
+def llms_txt(request: HttpRequest) -> HttpResponse:
+    if not is_cloud():
+        return HttpResponseNotFound()
+
+    LLMS_TXT_CONTENT = f"""# PostHog Cloud app
+
+> This is the PostHog web app. Most pages need a login. Agents get better results from the MCP server or the API than from reading app pages.
+
+- Do not crawl the app. Shared dashboards and shared links are private to the people who got them.
+- After a person logs in, the app gives in-page tools through WebMCP. An agent in the browser can call them, so it does not need to click through the UI.
+
+## Use PostHog from an agent
+
+- [MCP server](https://mcp.posthog.com/mcp): Connect an MCP client here to query data and manage flags, insights, experiments and more.
+- [MCP server docs](https://posthog.com/docs/model-context-protocol): How to connect and authenticate.
+- [API reference](https://posthog.com/docs/api): REST API. It uses a personal API key.
+- [Personal API keys]({settings.SITE_URL}/settings/user-api-keys): Create a key here.
+
+## Docs
+
+- [PostHog docs](https://posthog.com/docs): Product and SDK docs.
+- [Docs for LLMs](https://posthog.com/llms.txt): The full docs index in llms.txt format.
+"""
+    return HttpResponse(LLMS_TXT_CONTENT, content_type="text/markdown; charset=utf-8")
+
+
+def not_found(request: HttpRequest) -> HttpResponse:
+    return HttpResponseNotFound()
 
 
 def security_txt(request):
