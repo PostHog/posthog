@@ -1,7 +1,7 @@
 import os
 import re
 import copy
-from typing import TYPE_CHECKING, Any, get_args
+from typing import TYPE_CHECKING, Any, Literal, get_args
 from uuid import UUID
 
 from django.core.exceptions import ImproperlyConfigured
@@ -25,7 +25,6 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework_dataclasses.fields import EnumField as DataclassEnumField
 
 from posthog.enums import LabeledEnumType
-from posthog.models.entity import MathType
 from posthog.models.property import OperatorType, PropertyType
 from posthog.models.property.property import SemverOperator
 from posthog.permissions import APIScopePermission
@@ -743,6 +742,35 @@ class PropertiesSerializer(serializers.Serializer):
 class PersonPropertiesSerializer(serializers.Serializer):
     properties = PropertySerializer(required=False, many=True, help_text="Filter Persons by person properties.")
 
+
+MathType = Literal[
+    "total",
+    "dau",
+    "weekly_active",
+    "monthly_active",
+    "unique_group",
+    "unique_session",
+    "hogql",
+    # Equivalent to *PROPERTY_MATH_FUNCTIONS.keys(),
+    "sum",
+    "min",
+    "max",
+    "avg",
+    "median",
+    "p75",
+    "p90",
+    "p95",
+    "p99",
+    # Equivalent to *COUNT_PER_ACTOR_MATH_FUNCTIONS.keys()
+    "min_count_per_actor",
+    "max_count_per_actor",
+    "avg_count_per_actor",
+    "median_count_per_actor",
+    "p75_count_per_actor",
+    "p90_count_per_actor",
+    "p95_count_per_actor",
+    "p99_count_per_actor",
+]
 
 math_help_text = """How to aggregate results, shown as \"counted by\" in the interface.
 - `total` (default): no aggregation, count by events

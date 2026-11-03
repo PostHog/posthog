@@ -9,8 +9,6 @@ const meta: Meta<typeof TraceHeader> = {
     args: {
         name: 'answer-billing-question',
         hasError: false,
-        olderHref: '/older',
-        newerHref: null,
         backLink: { label: 'Back to traces', href: '/traces' },
     },
 }

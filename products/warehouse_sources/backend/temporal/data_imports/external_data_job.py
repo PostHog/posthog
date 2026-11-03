@@ -272,6 +272,17 @@ TRANSIENT_CONNECT_DROPPED_MESSAGE = (
     "allows PostHog's IP addresses; the next sync runs on schedule."
 )
 
+# A tunneled source connects to the local end of the SSH tunnel, which `SSHTunnel.get_tunnel` binds
+# to loopback, so libpq names that address instead of the customer's host. The local end accepts the
+# connection and closes it when the SSH server cannot reach the database behind it, so an IP
+# allowlist is not the cause. Wording mirrors `_SSH_FORWARD_FAILED_GUIDANCE` in the Postgres source.
+LIBPQ_SSH_TUNNEL_CONNECT_FAILURE_MARKER = f'{LIBPQ_CONNECT_FAILURE_MARKER} "127.0.0.1"'
+
+TRANSIENT_SSH_TUNNEL_CONNECT_DROPPED_MESSAGE = (
+    "Your SSH server couldn't reach your database through the tunnel. Check the database host and "
+    "port set for the tunnel; the next sync runs on schedule."
+)
+
 TRANSIENT_POOLER_MESSAGE = (
     "Your database's connection pooler couldn't reach your database and refused the connection. "
     "Check that the database is running; the next sync runs on schedule."
@@ -478,6 +489,8 @@ def _transient_error_message(internal_error: str) -> str | None:
     if message == TRANSIENT_SOURCE_CONNECTION_MESSAGE and error_message_matches(
         internal_error, [LIBPQ_CONNECT_FAILURE_MARKER]
     ):
+        if error_message_matches(internal_error, [LIBPQ_SSH_TUNNEL_CONNECT_FAILURE_MARKER]):
+            return TRANSIENT_SSH_TUNNEL_CONNECT_DROPPED_MESSAGE
         return TRANSIENT_CONNECT_DROPPED_MESSAGE
     return message
 

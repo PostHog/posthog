@@ -36,7 +36,7 @@ class TestMetricsTimeBucketBounds(BaseTest):
 
     @parameterized.expand(
         [
-            ("column_bound", "SELECT count() FROM posthog.metrics WHERE timestamp >= observed_timestamp"),
+            ("column_bound", "SELECT count() FROM posthog.metrics WHERE timestamp >= original_expiry_timestamp"),
             ("inside_or", "SELECT count() FROM posthog.metrics WHERE timestamp >= now() OR value > 1"),
             ("equality", "SELECT count() FROM posthog.metrics WHERE timestamp = now()"),
             ("other_table", "SELECT count() FROM events WHERE timestamp >= now()"),
