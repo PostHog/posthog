@@ -41,9 +41,8 @@ export function loginFlow(runtime: Runtime, host?: string): ApprovalFlow<Pending
 // login over SSH had to use. Clears any pending login too, so a later `--wait` can't replace these
 // credentials with an older approval.
 export async function saveLogin(runtime: Runtime, credential: Credential): Promise<LoggedIn> {
-    const probe = await probeKeychain(runtime)
+    const [probe, previous] = await Promise.all([probeKeychain(runtime), readSettings(runtime)])
     const store = openStore(runtime, probe.usable ? 'keychain' : 'file')
-    const previous = await readSettings(runtime)
     const { host, projectId } = credential
     await writeLogin(runtime, store, credential, { lastLogin: true })
     // Only an old file login is removed. Removing a keychain login after a failed probe would wait for the keychain again.
@@ -55,7 +54,7 @@ export async function saveLogin(runtime: Runtime, credential: Credential): Promi
         host,
         projectId,
         store: store.kind,
-        credentialsPath: store instanceof FileStore ? store.path : null,
+        credentialsPath: store.path,
         keychainProblem: probe.usable ? null : probe.reason,
         scopes: [],
     }
