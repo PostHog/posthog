@@ -4,6 +4,7 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -19,16 +20,21 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.models.workload_trust_policy import WorkloadTrustPolicy
 from posthog.tasks.email import send_workload_trust_policy_changed
 from posthog.tasks.test.utils_email_tests import mock_email_messages
-from posthog.workload_identity.test.fixtures import FAKE_WORKLOAD_ISSUER, with_fake_workload_provider
+from posthog.workload_identity.test.fixtures import (
+    FAKE_WORKLOAD_ISSUER,
+    FAKE_WORKLOAD_PROVIDER,
+    with_fake_workload_provider,
+)
+from posthog.workload_identity.trust_policy import DUPLICATE_POLICY_MESSAGE, normalize_workload_conditions
 
 
 def _payload(**overrides: Any) -> dict[str, Any]:
     return {
         "name": "Production deploys",
         "issuer": FAKE_WORKLOAD_ISSUER,
-        "repository": "acme/web",
-        "repository_id": "1234",
-        "ref": "refs/heads/main",
+        "subject_name": "acme/web",
+        "subject": "1234",
+        "conditions": {"ref": "refs/heads/main"},
         "scopes": ["error_tracking:write", "annotation:write"],
         **overrides,
     }
@@ -98,6 +104,10 @@ class TestWorkloadTrustPolicyAPI(APIBaseTest):
         assert created.status_code == status.HTTP_201_CREATED, created.json()
         assert "organization_member:write" in providers["risky_scopes"]
         assert "task:write" not in providers["grantable_scopes"]
+        assert [claim["label"] for claim in providers["supported"][0]["condition_claims"]] == [
+            "Branch or tag",
+            "Environment",
+        ]
 
     def test_members_can_neither_read_nor_change_policies(self) -> None:
         policy = self._create_policy()
@@ -123,7 +133,7 @@ class TestWorkloadTrustPolicyAPI(APIBaseTest):
         self._use_token(kind)
 
         list_response = self.client.get(self.url)
-        create_response = self.client.post(self.url, _payload(ref="refs/heads/other"), format="json")
+        create_response = self.client.post(self.url, _payload(conditions={"ref": "refs/heads/other"}), format="json")
         patch_response = self.client.patch(f"{self.url}{policy.id}/", {"enabled": False}, format="json")
         delete_response = self.client.delete(f"{self.url}{policy.id}/")
 
@@ -136,10 +146,17 @@ class TestWorkloadTrustPolicyAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("unsupported_issuer", {"issuer": "https://token.actions.example.org"}, "issuer"),
-            ("wildcard_repository", {"repository": "acme/*"}, "repository"),
-            ("empty_repository_id", {"repository_id": ""}, "repository_id"),
-            ("no_ref_or_environment", {"ref": "", "environment": ""}, "ref"),
-            ("wildcard_ref", {"ref": "refs/heads/*"}, "ref"),
+            ("wildcard_subject_name", {"subject_name": "acme/*"}, "subject_name"),
+            ("empty_subject", {"subject": ""}, "subject"),
+            ("no_conditions", {"conditions": {}}, "conditions"),
+            ("only_empty_conditions", {"conditions": {"ref": "", "environment": ""}}, "conditions"),
+            ("conditions_not_an_object", {"conditions": ["ref"]}, "conditions"),
+            ("condition_claim_the_provider_does_not_allow", {"conditions": {"sha": "abc123"}}, "conditions"),
+            ("non_string_condition_value", {"conditions": {"ref": 1}}, "conditions"),
+            ("null_condition_value", {"conditions": {"ref": None}}, "conditions"),
+            ("wildcard_condition_value", {"conditions": {"ref": "refs/heads/*"}}, "conditions"),
+            ("padded_condition_value", {"conditions": {"ref": " refs/heads/main"}}, "conditions"),
+            ("overlong_condition_value", {"conditions": {"ref": "r" * 201}}, "conditions"),
             ("no_scopes", {"scopes": []}, "scopes"),
             ("unknown_scope", {"scopes": ["not_a_thing:read"]}, "scopes"),
             ("privileged_scope", {"scopes": ["llm_gateway:read"]}, "scopes"),
@@ -171,7 +188,9 @@ class TestWorkloadTrustPolicyAPI(APIBaseTest):
 
         with patch("posthog.workload_identity.trust_policy.is_impersonated", return_value=True):
             list_response = self.client.get(self.url)
-            create_response = self.client.post(self.url, _payload(ref="refs/heads/other"), format="json")
+            create_response = self.client.post(
+                self.url, _payload(conditions={"ref": "refs/heads/other"}), format="json"
+            )
             patch_response = self.client.patch(f"{self.url}{policy.id}/", {"enabled": False}, format="json")
             delete_response = self.client.delete(f"{self.url}{policy.id}/")
 
@@ -181,13 +200,51 @@ class TestWorkloadTrustPolicyAPI(APIBaseTest):
         assert delete_response.status_code == status.HTTP_403_FORBIDDEN
         assert WorkloadTrustPolicy.objects.for_team(self.team.id).count() == 1
 
-    def test_rejects_a_second_policy_with_the_same_conditions(self) -> None:
+    def test_rejects_a_second_policy_whose_conditions_differ_only_by_an_empty_value(self) -> None:
         self._set_level(OrganizationMembership.Level.ADMIN)
         self._create_policy()
 
-        response = self.client.post(self.url, _payload(name="Duplicate"), format="json")
+        response = self.client.post(
+            self.url,
+            _payload(name="Duplicate", conditions={"environment": "", "ref": "refs/heads/main"}),
+            format="json",
+        )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["detail"] == DUPLICATE_POLICY_MESSAGE
+
+    @parameterized.expand(
+        [
+            (
+                "key_order",
+                {"ref": "refs/heads/main", "environment": "production"},
+                {"environment": "production", "ref": "refs/heads/main"},
+                False,
+            ),
+            ("empty_valued_key", {"ref": "refs/heads/main"}, {"ref": "refs/heads/main", "environment": ""}, False),
+            ("different_value", {"ref": "refs/heads/main"}, {"ref": "refs/heads/release"}, True),
+            (
+                "extra_condition",
+                {"ref": "refs/heads/main"},
+                {"ref": "refs/heads/main", "environment": "production"},
+                True,
+            ),
+        ]
+    )
+    def test_unique_constraint_compares_conditions_by_content(
+        self, _name: str, stored: dict[str, str], second: dict[str, str], allowed: bool
+    ) -> None:
+        self._create_policy(conditions=stored)
+        normalized = normalize_workload_conditions(second, FAKE_WORKLOAD_PROVIDER)
+
+        if allowed:
+            self._create_policy(name="Second", conditions=normalized)
+        else:
+            with self.assertRaises(IntegrityError), transaction.atomic():
+                self._create_policy(name="Second", conditions=normalized)
+
+        assert "" not in normalized.values()
+        assert WorkloadTrustPolicy.objects.for_team(self.team.id).count() == (2 if allowed else 1)
 
     def test_policies_of_other_projects_are_not_listed(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other project")

@@ -60,12 +60,13 @@ def workload_trust_policies_settings_url(team_id: int) -> str:
 
 
 class WorkloadTrustPolicy(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
-    """Lets a workload, such as the CI jobs of one repository, exchange its OIDC token for a short-lived
-    project token. Azure calls this a federated identity credential, AWS a role trust policy, Google
-    Cloud a workload identity provider, and PyPI and npm trusted publishing.
+    """Lets a workload, such as a CI job, exchange its OIDC token for a short-lived project token. Azure
+    calls this a federated identity credential, AWS a role trust policy, Google Cloud a workload identity
+    provider, and PyPI and npm trusted publishing.
 
-    An empty `ref` or `environment` matches any value. The repository is always pinned, by name and
-    by its immutable id.
+    The shape follows the common OIDC model: issuer, subject, claim conditions. A policy always pins the
+    subject by its immutable claim and by its name. Every key in `conditions` is a claim the token must
+    carry with exactly that value, and an empty map adds no conditions.
     """
 
     activity_logging_on_delete = True
@@ -74,10 +75,11 @@ class WorkloadTrustPolicy(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False)
     name = models.CharField(max_length=200)
     issuer = models.CharField(max_length=255)
-    repository = models.CharField(max_length=255)
-    repository_id = models.CharField(max_length=100)
-    ref = models.CharField(max_length=255, blank=True, default="")
-    environment = models.CharField(max_length=255, blank=True, default="")
+    subject_name = models.CharField(max_length=255)
+    subject = models.CharField(max_length=255)
+    # Claim name to required value. Write it only through `normalize_workload_conditions`, which drops empty
+    # values and sorts the keys, so two policies with the same conditions always collide in the constraint.
+    conditions = models.JSONField(default=dict, blank=True)
     scopes = ArrayField(models.CharField(max_length=100), default=list)
     enabled = models.BooleanField(default=True)
     created_by = models.ForeignKey(
@@ -88,8 +90,9 @@ class WorkloadTrustPolicy(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
 
     class Meta:
         constraints = [
+            # jsonb equality ignores key order, so the constraint compares conditions by content.
             models.UniqueConstraint(
-                fields=["team", "issuer", "repository_id", "ref", "environment"],
+                fields=["team", "issuer", "subject", "conditions"],
                 name="posthog_unique_workload_trust_policy_conditions",
             ),
         ]

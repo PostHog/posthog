@@ -1297,13 +1297,9 @@ export const workloadTrustPoliciesCreateBodyNameMax = 200
 
 export const workloadTrustPoliciesCreateBodyIssuerMax = 255
 
-export const workloadTrustPoliciesCreateBodyRepositoryMax = 255
+export const workloadTrustPoliciesCreateBodySubjectNameMax = 255
 
-export const workloadTrustPoliciesCreateBodyRepositoryIdMax = 100
-
-export const workloadTrustPoliciesCreateBodyRefMax = 255
-
-export const workloadTrustPoliciesCreateBodyEnvironmentMax = 255
+export const workloadTrustPoliciesCreateBodySubjectMax = 255
 
 export const workloadTrustPoliciesCreateBodyScopesItemMax = 100
 
@@ -1312,27 +1308,25 @@ export const WorkloadTrustPoliciesCreateBody = /* @__PURE__ */ zod.object({
     issuer: zod
         .string()
         .max(workloadTrustPoliciesCreateBodyIssuerMax)
-        .describe('The OIDC issuer of the CI provider, from the list of supported providers.'),
-    repository: zod
+        .describe('The OIDC issuer of the workload provider, from the list of supported providers.'),
+    subject_name: zod
         .string()
-        .max(workloadTrustPoliciesCreateBodyRepositoryMax)
-        .describe("The repository's full name, for example `acme\/web`. Matched exactly."),
-    repository_id: zod
-        .string()
-        .max(workloadTrustPoliciesCreateBodyRepositoryIdMax)
+        .max(workloadTrustPoliciesCreateBodySubjectNameMax)
         .describe(
-            "The repository's immutable ID from the CI provider. Matched together with the name, so a deleted and re-created repository with the same name does not match."
+            "The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly."
         ),
-    ref: zod
+    subject: zod
         .string()
-        .max(workloadTrustPoliciesCreateBodyRefMax)
+        .max(workloadTrustPoliciesCreateBodySubjectMax)
+        .describe(
+            "The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match."
+        ),
+    conditions: zod
+        .record(zod.string(), zod.string())
         .optional()
-        .describe('The git ref the job must run on, for example `refs\/heads\/main`. Empty matches any ref.'),
-    environment: zod
-        .string()
-        .max(workloadTrustPoliciesCreateBodyEnvironmentMax)
-        .optional()
-        .describe('The deployment environment the job must run in. Empty matches any environment.'),
+        .describe(
+            "Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition."
+        ),
     scopes: zod
         .array(zod.string().max(workloadTrustPoliciesCreateBodyScopesItemMax))
         .describe(
@@ -1345,13 +1339,9 @@ export const workloadTrustPoliciesUpdateBodyNameMax = 200
 
 export const workloadTrustPoliciesUpdateBodyIssuerMax = 255
 
-export const workloadTrustPoliciesUpdateBodyRepositoryMax = 255
+export const workloadTrustPoliciesUpdateBodySubjectNameMax = 255
 
-export const workloadTrustPoliciesUpdateBodyRepositoryIdMax = 100
-
-export const workloadTrustPoliciesUpdateBodyRefMax = 255
-
-export const workloadTrustPoliciesUpdateBodyEnvironmentMax = 255
+export const workloadTrustPoliciesUpdateBodySubjectMax = 255
 
 export const workloadTrustPoliciesUpdateBodyScopesItemMax = 100
 
@@ -1360,27 +1350,25 @@ export const WorkloadTrustPoliciesUpdateBody = /* @__PURE__ */ zod.object({
     issuer: zod
         .string()
         .max(workloadTrustPoliciesUpdateBodyIssuerMax)
-        .describe('The OIDC issuer of the CI provider, from the list of supported providers.'),
-    repository: zod
+        .describe('The OIDC issuer of the workload provider, from the list of supported providers.'),
+    subject_name: zod
         .string()
-        .max(workloadTrustPoliciesUpdateBodyRepositoryMax)
-        .describe("The repository's full name, for example `acme\/web`. Matched exactly."),
-    repository_id: zod
-        .string()
-        .max(workloadTrustPoliciesUpdateBodyRepositoryIdMax)
+        .max(workloadTrustPoliciesUpdateBodySubjectNameMax)
         .describe(
-            "The repository's immutable ID from the CI provider. Matched together with the name, so a deleted and re-created repository with the same name does not match."
+            "The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly."
         ),
-    ref: zod
+    subject: zod
         .string()
-        .max(workloadTrustPoliciesUpdateBodyRefMax)
+        .max(workloadTrustPoliciesUpdateBodySubjectMax)
+        .describe(
+            "The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match."
+        ),
+    conditions: zod
+        .record(zod.string(), zod.string())
         .optional()
-        .describe('The git ref the job must run on, for example `refs\/heads\/main`. Empty matches any ref.'),
-    environment: zod
-        .string()
-        .max(workloadTrustPoliciesUpdateBodyEnvironmentMax)
-        .optional()
-        .describe('The deployment environment the job must run in. Empty matches any environment.'),
+        .describe(
+            "Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition."
+        ),
     scopes: zod
         .array(zod.string().max(workloadTrustPoliciesUpdateBodyScopesItemMax))
         .describe(
@@ -1393,13 +1381,9 @@ export const workloadTrustPoliciesPartialUpdateBodyNameMax = 200
 
 export const workloadTrustPoliciesPartialUpdateBodyIssuerMax = 255
 
-export const workloadTrustPoliciesPartialUpdateBodyRepositoryMax = 255
+export const workloadTrustPoliciesPartialUpdateBodySubjectNameMax = 255
 
-export const workloadTrustPoliciesPartialUpdateBodyRepositoryIdMax = 100
-
-export const workloadTrustPoliciesPartialUpdateBodyRefMax = 255
-
-export const workloadTrustPoliciesPartialUpdateBodyEnvironmentMax = 255
+export const workloadTrustPoliciesPartialUpdateBodySubjectMax = 255
 
 export const workloadTrustPoliciesPartialUpdateBodyScopesItemMax = 100
 
@@ -1413,29 +1397,27 @@ export const WorkloadTrustPoliciesPartialUpdateBody = /* @__PURE__ */ zod.object
         .string()
         .max(workloadTrustPoliciesPartialUpdateBodyIssuerMax)
         .optional()
-        .describe('The OIDC issuer of the CI provider, from the list of supported providers.'),
-    repository: zod
+        .describe('The OIDC issuer of the workload provider, from the list of supported providers.'),
+    subject_name: zod
         .string()
-        .max(workloadTrustPoliciesPartialUpdateBodyRepositoryMax)
-        .optional()
-        .describe("The repository's full name, for example `acme\/web`. Matched exactly."),
-    repository_id: zod
-        .string()
-        .max(workloadTrustPoliciesPartialUpdateBodyRepositoryIdMax)
+        .max(workloadTrustPoliciesPartialUpdateBodySubjectNameMax)
         .optional()
         .describe(
-            "The repository's immutable ID from the CI provider. Matched together with the name, so a deleted and re-created repository with the same name does not match."
+            "The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly."
         ),
-    ref: zod
+    subject: zod
         .string()
-        .max(workloadTrustPoliciesPartialUpdateBodyRefMax)
+        .max(workloadTrustPoliciesPartialUpdateBodySubjectMax)
         .optional()
-        .describe('The git ref the job must run on, for example `refs\/heads\/main`. Empty matches any ref.'),
-    environment: zod
-        .string()
-        .max(workloadTrustPoliciesPartialUpdateBodyEnvironmentMax)
+        .describe(
+            "The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match."
+        ),
+    conditions: zod
+        .record(zod.string(), zod.string())
         .optional()
-        .describe('The deployment environment the job must run in. Empty matches any environment.'),
+        .describe(
+            "Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition."
+        ),
     scopes: zod
         .array(zod.string().max(workloadTrustPoliciesPartialUpdateBodyScopesItemMax))
         .optional()
