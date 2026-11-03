@@ -38,9 +38,13 @@ export class ImageFetchTopHogMetrics {
 
     /**
      * The first pass of a URL shows what the recorder sends for a domain. The later passes show what the fetcher sends
-     * back to itself, so the two together separate new demand from republish churn.
+     * back to itself, so the two together separate new demand from republish churn. Only the `received` stage reads
+     * demand, because the later stages see a URL after duplicates merge, with the highest pass and one route.
      */
-    public recordFilteredUrl(candidate: FetchCandidate, stage: 'store_deduped' | 'not_ready' | 'fetchable'): void {
+    public recordFilteredUrl(
+        candidate: FetchCandidate,
+        stage: 'received' | 'store_deduped' | 'not_ready' | 'fetchable'
+    ): void {
         this.recordForSourcePartitions(
             this.filteredUrls,
             candidate.sourcePartitions,

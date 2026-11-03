@@ -113,6 +113,7 @@ export class UrlFetchConsumer {
                 }
                 for (const candidate of parsed.candidates) {
                     const partitionCandidate = { ...candidate, sourcePartitions: [message.partition] }
+                    this.topHogMetrics?.recordFilteredUrl(partitionCandidate, 'received')
                     const existing = candidatesByRef.get(partitionCandidate.originalRef)
                     if (existing) {
                         dedupedInBatch += 1

@@ -780,7 +780,7 @@ When one frontier partition holds most of the lag, find the cause before you cha
 
 1. Read `ai_research_v4_image_fetch_partition_urls_total` for the partition. A high `store_deduped` rate means that the recorder sends jobs that the fetcher drops. Check that the recorder has `AI_RESEARCH_V4_IMAGE_FETCH_HISTORY_TABLE` and read `ai_research_v4_recorder_image_fetch_history_total`.
 2. Read the TopHog metrics by `registrable_domain`, which the staff query path in `/querying-tophog` shows:
-   - `ai_research_v4_image_fetch_filtered_urls_by_registrable_domain` shows the demand. `pass=first` counts what the recorder sent, and `pass=republished` counts what the fetcher sent back to itself.
+   - `ai_research_v4_image_fetch_filtered_urls_by_registrable_domain` with `stage=received` shows the demand. `pass=first` counts what the recorder sent, and `pass=republished` counts what the fetcher sent back to itself. The other stages count unique URLs after duplicates in a batch merge, so they do not separate the two passes.
    - `ai_research_v4_image_fetch_attempts_by_registrable_domain` shows each outcome.
    - `ai_research_v4_image_fetch_block_events_by_registrable_domain` and `ai_research_v4_image_fetch_blocked_ms_by_registrable_domain` show which limit holds the domain.
 3. Act on the limit that holds the domain:
