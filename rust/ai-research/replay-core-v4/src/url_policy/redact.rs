@@ -9,7 +9,7 @@ use url::{form_urlencoded, Url};
 
 use super::{
     as_parsed, decoded_lowercase_path, has_credential_path, has_credential_query,
-    is_credential_param, path_tokens, PathToken, MAX_URL_LEN,
+    is_credential_param, is_remote, path_tokens, PathToken, MAX_URL_LEN,
 };
 
 /// The URL parser reads these with an authority, and a backslash in them as a slash. A URL with no scheme resolves
@@ -39,16 +39,12 @@ pub fn redaction(raw: &str) -> Redaction {
     if !is_hierarchical(raw) {
         return Redaction::Clean;
     }
-    if raw.len() > MAX_URL_LEN {
-        return if may_hold_credential(raw) {
-            Redaction::Unread
-        } else {
-            Redaction::Clean
-        };
-    }
     let url = as_parsed(raw);
     if !may_hold_credential(&url) {
         return Redaction::Clean;
+    }
+    if url.len() > MAX_URL_LEN {
+        return Redaction::Unread;
     }
     let (Some(parsed), Some(parts)) = (parsed_as_the_policy_does(&url), Parts::of(&url)) else {
         return Redaction::Unread;
@@ -89,8 +85,10 @@ fn holds_credential(parsed: &Url) -> bool {
     if has_credential_query(parsed).unwrap_or(true) {
         return true;
     }
-    let host = parsed.host_str().unwrap_or_default();
-    let host = host.strip_suffix('.').unwrap_or(host);
+    let host = parsed
+        .host_str()
+        .filter(|&host| Some(host) != RELATIVE_BASE.host_str())
+        .map(|host| host.strip_suffix('.').unwrap_or(host));
     match decoded_lowercase_path(parsed) {
         Ok(path) if has_credential_path(&path, host) => return true,
         Ok(_) => {}
@@ -105,22 +103,28 @@ fn holds_credential(parsed: &Url) -> bool {
 }
 
 /// A credential needs userinfo, a query or fragment, a path parameter, an escape, or one of the path tokens that the
-/// policy knows, so a URL with none of those needs no parse.
+/// policy knows, so a URL with none of those needs no parse. The text is read as the URL parser reads it, without
+/// tabs and line breaks and with a backslash as a slash, and as if a slash came before it, as before a relative path.
 fn may_hold_credential(url: &str) -> bool {
-    let bytes = url.as_bytes();
-    bytes
-        .iter()
-        .any(|byte| matches!(byte, b'@' | b'?' | b'#' | b';' | b'%'))
-        || url.contains("--")
-        || contains_ignoring_case(bytes, b"bcdn_token")
-        || contains_ignoring_case(bytes, b"oraclecloud")
-        || contains_ignoring_case(bytes, b"/sign/")
-}
-
-fn contains_ignoring_case(bytes: &[u8], needle: &[u8]) -> bool {
-    bytes
-        .windows(needle.len())
-        .any(|window| window.eq_ignore_ascii_case(needle))
+    let relative = !is_remote(url);
+    let mut recent = [b'/'; 16];
+    for &byte in url.as_bytes() {
+        let byte = match byte {
+            b'\t' | b'\n' | b'\r' => continue,
+            b'@' | b'?' | b'#' | b';' | b'%' => return true,
+            b'\\' => b'/',
+            _ => byte.to_ascii_lowercase(),
+        };
+        recent.copy_within(1.., 0);
+        recent[recent.len() - 1] = byte;
+        let holds_token = [&b"--"[..], b"bcdn_token", b"oraclecloud", b"/sign/"]
+            .iter()
+            .any(|token| recent.ends_with(token));
+        if holds_token || (relative && recent.ends_with(b"/p/")) {
+            return true;
+        }
+    }
+    false
 }
 
 /// A URL of a scheme such as `data:` or `mailto:` holds no path to a host. The URL parser drops tabs and line breaks
@@ -247,7 +251,8 @@ impl Parts {
             None => out.push_str(&url[..self.path.start]),
         }
         let mut copied_to = self.path.start;
-        for cut in self.path_cuts(url, &host) {
+        let host = self.authority.is_some().then_some(host.as_str());
+        for cut in self.path_cuts(url, host) {
             out.push_str(&url[copied_to..cut.start]);
             copied_to = cut.end;
         }
@@ -288,7 +293,7 @@ impl Parts {
 
     /// The ranges of the path to drop, in order: each segment that holds a token with the slash before it, and each
     /// `;jsessionid=` parameter.
-    fn path_cuts(&self, url: &str, host: &str) -> Vec<Range<usize>> {
+    fn path_cuts(&self, url: &str, host: Option<&str>) -> Vec<Range<usize>> {
         let bytes = url.as_bytes();
         let is_slash = |byte: u8| byte == b'/' || (self.special && byte == b'\\');
         let mut segments = Vec::new();
@@ -430,6 +435,11 @@ mod tests {
                 Some("//cdn.example.com/a.png?w=1"),
             ),
             ("/api/img?access_token=abc", Some("/api/img")),
+            // A relative URL's host is the page's, which can be an Oracle bucket.
+            (
+                "/p/abc/n/ns/b/bucket/o/a.png",
+                Some("/p/n/ns/b/bucket/o/a.png"),
+            ),
             ("img/a.png?w=1&token=abc", Some("img/a.png?w=1")),
             (
                 "https://app.example.com/cb#access_token=abc&state=x",
@@ -459,6 +469,10 @@ mod tests {
             ),
             (
                 "https://cdn.example.com/x/../bcdn_token=abc/a.png",
+                Some("https://cdn.example.com/"),
+            ),
+            (
+                r"https://cdn.example.com\storage\v1\object\sign\abc",
                 Some("https://cdn.example.com/"),
             ),
             ("https://cdn.example.com/a.png?w=10", None),
@@ -502,6 +516,13 @@ mod tests {
             "/a".repeat(16 * 1024 * 1024)
         );
         assert_eq!(redaction(&long), Redaction::Unread);
+        let padding = "/a".repeat(MAX_URL_LEN);
+        for long in [
+            format!("https://cdn.example.com/bcdn_to\tken=abc{padding}"),
+            format!("/p/abc/n/ns/b/bucket/o{padding}"),
+        ] {
+            assert_eq!(redaction(&long), Redaction::Unread);
+        }
         assert_eq!(
             redaction("https://cdn.example.com:99999/a.png?token=abc"),
             Redaction::Unread

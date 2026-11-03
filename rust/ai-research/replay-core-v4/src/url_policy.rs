@@ -481,7 +481,7 @@ pub fn try_canonicalize(raw: &str) -> Result<CanonicalUrl, Decline> {
         url.set_host(Some(&host)).map_err(|_| Decline::NoHost)?;
     }
     let lowercase_path = decoded_lowercase_path(&url)?;
-    if has_credential_query(&url)? || has_credential_path(&lowercase_path, &host) {
+    if has_credential_query(&url)? || has_credential_path(&lowercase_path, Some(&host)) {
         return Err(Decline::Credential);
     }
     if matches_beacon_list(&host, &collapse_slashes(&lowercase_path)) {
@@ -577,12 +577,18 @@ fn decoded_lowercase_path(url: &Url) -> Result<String, Decline> {
         .to_ascii_lowercase())
 }
 
-/// `path` is the decoded lowercase path from [`decoded_lowercase_path`].
-fn has_credential_path(path: &str, host: &str) -> bool {
+/// `path` is the decoded lowercase path from [`decoded_lowercase_path`], and `host` is `None` for a relative URL.
+fn has_credential_path(path: &str, host: Option<&str>) -> bool {
     let segments: Vec<&str> = path.split('/').collect();
     let has_supabase_signature = path.contains("/storage/v1/object/sign/")
         || path.contains("/storage/v1/render/image/sign/");
     has_supabase_signature || !path_tokens(&segments, host).is_empty()
+}
+
+fn is_oracle_object_storage(host: &str) -> bool {
+    host.starts_with("objectstorage.")
+        && host.ends_with(".oraclecloud.com")
+        && host.split('.').count() == 4
 }
 
 /// Where a path holds a token: a whole segment, or a `;jsessionid=` parameter in one.
@@ -592,8 +598,9 @@ enum PathToken {
     SessionId(usize),
 }
 
-/// `segments` is a decoded lowercase path split at `/`, so the first one is empty.
-fn path_tokens(segments: &[&str], host: &str) -> Vec<PathToken> {
+/// `segments` is a decoded lowercase path split at `/`, so the first one is empty. `host` is `None` for a relative URL,
+/// whose host is the page's, so a rule for one host then matches it on any page.
+fn path_tokens(segments: &[&str], host: Option<&str>) -> Vec<PathToken> {
     let mut tokens = Vec::new();
     let first_segment_has_bunny_token = segments
         .get(1)
@@ -603,9 +610,7 @@ fn path_tokens(segments: &[&str], host: &str) -> Vec<PathToken> {
     if first_segment_has_bunny_token {
         tokens.push(PathToken::Segment(1));
     }
-    let has_oracle_token = host.starts_with("objectstorage.")
-        && host.ends_with(".oraclecloud.com")
-        && host.split('.').count() == 4
+    let has_oracle_token = host.is_none_or(is_oracle_object_storage)
         && segments.get(1) == Some(&"p")
         && segments.get(2).is_some_and(|token| !token.is_empty())
         && segments.get(3) == Some(&"n");

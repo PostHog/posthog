@@ -39,6 +39,13 @@ fn kept(url: &str) -> String {
     unnamed_url(url, UrlAsset::Image).unwrap_or_else(|| url.to_owned())
 }
 
+fn push_kept(value: &mut String, url: &str) {
+    match unnamed_url(url, UrlAsset::Image) {
+        Some(kept) => value.push_str(&kept),
+        None => value.push_str(url),
+    }
+}
+
 #[derive(Clone)]
 struct Named {
     text: String,
@@ -212,12 +219,16 @@ impl<'b> Splicer<'b> {
             Slot::Css(edit) => Some(self.written_css(text, edit)),
             Slot::Link(LinkForm::Url) => self.redacted(unnamed_url(text, UrlAsset::Image)),
             Slot::Link(LinkForm::Srcset) => self.redacted(Some(links_without_credentials(text))),
-            Slot::Link(LinkForm::Urls) => self.redacted(Some(
-                text.split_ascii_whitespace()
-                    .map(kept)
-                    .collect::<Vec<_>>()
-                    .join(" "),
-            )),
+            Slot::Link(LinkForm::Urls) => {
+                let mut value = String::with_capacity(text.len());
+                for url in text.split_ascii_whitespace() {
+                    if !value.is_empty() {
+                        value.push(' ');
+                    }
+                    push_kept(&mut value, url);
+                }
+                self.redacted(Some(value))
+            }
         }
     }
 
@@ -311,7 +322,7 @@ fn links_without_credentials(srcset: &str) -> String {
         if !value.is_empty() {
             value.push_str(", ");
         }
-        value.push_str(&kept(url));
+        push_kept(&mut value, url);
         if !descriptors.is_empty() {
             value.push(' ');
             value.push_str(descriptors);

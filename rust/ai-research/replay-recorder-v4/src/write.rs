@@ -885,16 +885,19 @@ mod tests {
                 "{lines}"
             );
         }
-        // Such a node's text may not be CSS, so an accepted URL in it gets no reference.
+        // Such a node's text may not be CSS, so only a URL with a credential in it changes. An accepted URL gets no
+        // reference, and an `image-set()` keeps each candidate.
         let accepted = ".a{background:url(https://cdn.example.com/a.png)}";
+        let set = ".a{background:image-set(url(https://cdn.example.com/a.png) 1x, url(https://cdn.example.com/b.png) 2x)}";
         let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "removes": [], "attributes": [],
             "texts": [{"id": 99, "value": format!(".a{{background:url({signed})}}")}, {"id": 96, "value": accepted},
-                {"id": 95, "value": format!("@import \"{signed}\";")}],
+                {"id": 95, "value": format!("@import \"{signed}\";")}, {"id": 94, "value": set},
+                {"id": 93, "value": format!(".a{{background:image-set(\"{signed}\" 1x)}}")}],
             "adds": [{"parentId": 98, "node": {"type": 2, "tagName": "source", "attributes": {"srcset": format!("{signed} 1x")}, "childNodes": [], "id": 97}}]}}])
         .to_string();
         let lines = stored_lines(&events);
         assert!(
-            lines.contains(accepted) && !lines.contains("X-Amz-Signature"),
+            lines.contains(accepted) && lines.contains(set) && !lines.contains("X-Amz-Signature"),
             "{lines}"
         );
         // The URL parser keeps a backslash in a query, so the rewrite escapes it, and the CSS string still ends.

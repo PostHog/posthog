@@ -191,60 +191,97 @@ pub fn urls(css: &str, resolver: &mut Resolver<'_>, found: &mut impl FnMut(CssUr
                 });
             }
             DeclarationKind::FontFamily(_) => {}
-            DeclarationKind::Link if may_hold_url(value) => {
-                link_urls(value, resolver.edit_budget(), found)
-            }
+            DeclarationKind::Link if may_hold_url(value) => link_urls(value, found),
             DeclarationKind::Link => {}
             DeclarationKind::Import => {
                 import_string(value, found);
-                link_urls(value, resolver.edit_budget(), found);
+                link_urls(value, found);
             }
         }
     }
 }
 
-/// A `url()` needs a `(`, and its name is `url` or holds an escape, so a value with neither holds no URL.
+/// A URL needs the `(` of a `url()` or an `image-set()`, and that name or an escape, so a value with neither holds no URL.
 fn may_hold_url(value: &str) -> bool {
-    value.contains('(')
-        && (value.contains('\\')
-            || value
-                .as_bytes()
-                .windows(3)
-                .any(|name| name.eq_ignore_ascii_case(b"url")))
+    let holds = |name: &[u8]| {
+        value
+            .as_bytes()
+            .windows(name.len())
+            .any(|at| at.eq_ignore_ascii_case(name))
+    };
+    value.contains('(') && (value.contains('\\') || holds(b"url") || holds(b"image-set"))
 }
 
-/// The URLs of a value that shows no image, which no fetch takes. Only a URL with a credential changes, so the rest of
-/// the text stays as the page wrote it.
-fn link_urls(value: &str, edit_budget: Option<&AtomicUsize>, found: &mut impl FnMut(CssUrl<'_>)) {
-    let mut unresolving = Resolver::new(None, None).with_edit_budget(edit_budget);
-    value_urls(value, &mut unresolving, &mut |url| match url {
-        CssUrl::Image(url) | CssUrl::Unshown(url) if needs_redaction(url) => {
-            found(CssUrl::Link(url))
+/// The URLs of a text that shows no image, which no fetch takes. Only a URL with a credential changes, so the rest of
+/// the text stays as the page wrote it, with every candidate of an `image-set()`.
+fn link_urls(value: &str, found: &mut impl FnMut(CssUrl<'_>)) {
+    let mut input = Parser::new(value);
+    input.set_nested_block_limit(NESTED_BLOCK_LIMIT);
+    if !link_tokens(&mut input, 0, false, found) {
+        found(CssUrl::NestedTooDeep);
+    }
+}
+
+/// Reads each `url()` at any depth, and each string that an `image-set()` holds as a candidate. Returns false when it
+/// skipped a block too deep to read whole.
+fn link_tokens<'i>(
+    input: &mut Parser<'i>,
+    depth: u8,
+    in_image_set: bool,
+    found: &mut impl FnMut(CssUrl<'_>),
+) -> bool {
+    let mut whole = true;
+    loop {
+        let start = input.position();
+        let token = match input.next_including_whitespace_and_comments() {
+            Err(_) => return whole,
+            Ok(token) => token.clone(),
+        };
+        let opens_block = matches!(
+            token,
+            Token::Function(_)
+                | Token::ParenthesisBlock
+                | Token::SquareBracketBlock
+                | Token::CurlyBracketBlock
+        );
+        if opens_block && depth + 1 >= NESTED_BLOCK_LIMIT {
+            whole = false;
+            continue;
         }
-        CssUrl::Rewrite {
-            mut rewrite,
-            function,
-        } => {
-            let holds_credential = rewrite
-                .resolved
-                .as_ref()
-                .is_none_or(|url| needs_redaction(&url.url));
-            if holds_credential {
-                if let Some(resolved) = &mut rewrite.resolved {
-                    resolved.kind = RemoteKind::Link;
+        let source = match token {
+            Token::UnquotedUrl(url) => unquoted_url_source(url, input.slice_from(start)),
+            Token::Function(name) if name.eq_ignore_ascii_case("url") => {
+                match quoted_url_source(input) {
+                    Some(source) => source,
+                    None => continue,
                 }
-                found(CssUrl::Rewrite { rewrite, function });
             }
-        }
-        CssUrl::NestedTooDeep | CssUrl::Unplaced => found(url),
-        CssUrl::Image(_)
-        | CssUrl::Unshown(_)
-        | CssUrl::Resolved(_)
-        | CssUrl::Unresolved(_)
-        | CssUrl::Font { .. }
-        | CssUrl::ResolvedFont(_)
-        | CssUrl::Link(_) => {}
-    });
+            Token::QuotedString(url) if in_image_set => string_source(url, input.slice_from(start)),
+            _ if opens_block => {
+                let image_set = matches!(&token, Token::Function(name) if is_image_set(name));
+                let _ = input.parse_nested_block(|input| {
+                    whole &= link_tokens(input, depth + 1, image_set, found);
+                    Ok::<_, ParseError<()>>(())
+                });
+                continue;
+            }
+            _ => continue,
+        };
+        link_url(&source, input.slice_from(start), found);
+    }
+}
+
+/// `token` is the `url()` or string that holds `source`. A browser loads the URL that its escapes decode to, which the
+/// block does not hold as the page wrote it, so then the whole token changes.
+fn link_url<'t>(source: &UrlSource<'t>, token: &'t str, found: &mut impl FnMut(CssUrl<'_>)) {
+    let url = source.url.trim();
+    let Some(kept) = unnamed_url(url, UrlAsset::Image) else {
+        return;
+    };
+    match located(source.written, url).filter(|_| !source.escaped) {
+        Some(url) => found(CssUrl::Link(url)),
+        None => found(redacted(token, &kept)),
+    }
 }
 
 /// `@import "…"` names its sheet with a string, not a `url()`.
@@ -253,17 +290,25 @@ fn import_string(prelude: &str, found: &mut impl FnMut(CssUrl<'_>)) {
     input.skip_whitespace();
     let start = input.position();
     if let Ok(Token::QuotedString(url)) = input.next() {
-        if let Some(kept) = unnamed_url(url, UrlAsset::Image) {
-            found(redacted(input.slice_from(start), &kept));
-        }
+        let url = url.clone();
+        let token = input.slice_from(start);
+        link_url(&string_source(url, token), token, found);
+    }
+}
+
+fn string_source<'i>(url: CowRcStr<'i>, token: &'i str) -> UrlSource<'i> {
+    UrlSource {
+        escaped: token.contains('\\'),
+        written: between_quotes(token),
+        url,
     }
 }
 
 /// The URLs with a credential in a text that may not be CSS, such as the text of a node the window does not know. Only
 /// such a URL changes, and none is fetched, so text that only looks like CSS keeps its bytes.
-pub fn text_link_urls(text: &str, resolver: &mut Resolver<'_>, found: &mut impl FnMut(CssUrl<'_>)) {
+pub fn text_link_urls(text: &str, found: &mut impl FnMut(CssUrl<'_>)) {
     if may_hold_url(text) {
-        link_urls(text, resolver.edit_budget(), found);
+        link_urls(text, found);
     }
     // An `@import` names its sheet with a string, which holds no `(`, and its keyword can hold an escape.
     let may_import = text.contains('\\')
@@ -289,7 +334,7 @@ pub fn declaration_image_urls(
     if can_hold_image(property.trim()) {
         value_urls(value, resolver, found);
     } else if may_hold_url(value) {
-        link_urls(value, resolver.edit_budget(), found);
+        link_urls(value, found);
     }
 }
 
@@ -945,11 +990,7 @@ fn image_set_candidate<'i>(input: &mut Parser<'i>) -> Option<ImageSetCandidate<'
     let holds_url = matches!(first, CandidateStart::Other { holds_url: true });
     let source = match first {
         CandidateStart::Url(url) => Some(unquoted_url_source(url, input.slice_from(start))),
-        CandidateStart::String(url) => Some(UrlSource {
-            escaped: input.slice_from(start).contains('\\'),
-            written: between_quotes(input.slice_from(start)),
-            url,
-        }),
+        CandidateStart::String(url) => Some(string_source(url, input.slice_from(start))),
         CandidateStart::UrlFunction => quoted_url_source(input),
         CandidateStart::Other { .. } => None,
     };

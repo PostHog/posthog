@@ -374,7 +374,7 @@ impl Urls {
             CssRead::Declaration(property) => {
                 css::declaration_image_urls(property, css, resolver, &mut found)
             }
-            CssRead::Links => css::text_link_urls(css, resolver, &mut found),
+            CssRead::Links => css::text_link_urls(css, &mut found),
         }
         match edit.map(CssEditBuilder::finish) {
             Some(Ok(Some(edit))) => {
