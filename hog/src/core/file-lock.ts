@@ -23,59 +23,75 @@ async function readLock(runtime: Runtime, lock: string): Promise<LockContents | 
     }
 }
 
+function lockContents(runtime: Runtime, id: string): string {
+    return JSON.stringify({ id, createdAt: runtime.now() })
+}
+
+async function lockHasId(runtime: Runtime, lock: string, id: string | undefined): Promise<boolean> {
+    return (await readLock(runtime, lock))?.id === id
+}
+
+// Waits until this process creates the lock file. A lock that went stale is removed, so a process
+// that died holding it doesn't block every later one.
+async function acquireLock(runtime: Runtime, lock: string, id: string): Promise<void> {
+    // A lock that can't be read yet may be one another process is still writing, so its age counts
+    // from when this process first saw it.
+    let unreadableSince: number | undefined
+    while (!(await runtime.createFile(lock, lockContents(runtime, id)))) {
+        const contents = await readLock(runtime, lock)
+        if (contents?.createdAt !== undefined) {
+            unreadableSince = undefined
+        }
+        const createdAt = contents?.createdAt ?? (unreadableSince ??= runtime.now())
+        if (runtime.now() - createdAt <= LOCK_STALE_MS) {
+            await runtime.sleep(LOCK_POLL_MS)
+            continue
+        }
+        // Another process may have taken the stale lock over since the read above. Removing only
+        // the lock this process judged stale keeps it from removing that process's live lock.
+        if (await lockHasId(runtime, lock, contents?.id)) {
+            await runtime.removeFile(lock)
+        }
+        unreadableSince = undefined
+    }
+}
+
+// Rewrites the lock until `signal` aborts, so a long `work` never makes it look stale.
+async function keepLockFresh(runtime: Runtime, lock: string, id: string, signal: AbortSignal): Promise<void> {
+    try {
+        for (;;) {
+            await runtime.sleep(LOCK_REFRESH_MS, signal)
+            if (signal.aborted || !(await lockHasId(runtime, lock, id))) {
+                return
+            }
+            await runtime.writePrivateFile(lock, lockContents(runtime, id))
+        }
+    } catch {
+        // A failed refresh only stops the refreshing. The lock may then look abandoned after
+        // LOCK_STALE_MS, which is the behavior without refreshing, and the work keeps going.
+    }
+}
+
+// A process that took over this lock as stale owns it now, so its lock stays in place.
+async function releaseLock(runtime: Runtime, lock: string, id: string): Promise<void> {
+    if (await lockHasId(runtime, lock, id)) {
+        await runtime.removeFile(lock)
+    }
+}
+
 // Runs `work` while this process holds the lock file `name` in hog's folder. Each hog process that
 // reaches the same lock waits for the one before it.
 export async function withFileLock<T>(runtime: Runtime, name: string, work: () => Promise<T>): Promise<T> {
     const lock = hogFile(runtime, name)
     const id = randomUUID()
-    // A lock that can't be read yet may be one another process is still writing, so its age counts
-    // from when this process first saw it.
-    let unreadableSince: number | undefined
-    for (;;) {
-        if (await runtime.createFile(lock, JSON.stringify({ id, createdAt: runtime.now() }))) {
-            break
-        }
-        const contents = await readLock(runtime, lock)
-        let createdAt: number
-        if (contents?.createdAt === undefined) {
-            unreadableSince ??= runtime.now()
-            createdAt = unreadableSince
-        } else {
-            unreadableSince = undefined
-            createdAt = contents.createdAt
-        }
-        if (runtime.now() - createdAt > LOCK_STALE_MS) {
-            // Another process may have taken the stale lock over since the read above. Removing only
-            // the lock this process judged stale keeps it from removing that process's live lock.
-            if ((await readLock(runtime, lock))?.id === contents?.id) {
-                await runtime.removeFile(lock)
-            }
-            unreadableSince = undefined
-            continue
-        }
-        await runtime.sleep(LOCK_POLL_MS)
-    }
+    await acquireLock(runtime, lock, id)
     const done = new AbortController()
-    const refreshing = (async () => {
-        for (;;) {
-            await runtime.sleep(LOCK_REFRESH_MS, done.signal)
-            if (done.signal.aborted || (await readLock(runtime, lock))?.id !== id) {
-                return
-            }
-            await runtime.writePrivateFile(lock, JSON.stringify({ id, createdAt: runtime.now() }))
-        }
-    })().catch(() => {
-        // A failed refresh only stops the refreshing. The lock may then look abandoned after
-        // LOCK_STALE_MS, which is the behavior without refreshing, and the work keeps going.
-    })
+    const refreshing = keepLockFresh(runtime, lock, id, done.signal)
     try {
         return await work()
     } finally {
         done.abort()
         await refreshing
-        // A process that took over this lock as stale owns it now, so leave its lock in place.
-        if ((await readLock(runtime, lock))?.id === id) {
-            await runtime.removeFile(lock)
-        }
+        await releaseLock(runtime, lock, id)
     }
 }
