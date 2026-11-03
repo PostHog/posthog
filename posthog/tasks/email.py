@@ -2112,9 +2112,10 @@ def send_error_tracking_issue_assigned(
             if (membership.user_id in role_user_ids and membership.user_id != assigner_id)
         ]
 
-    trigger = "" if assigner else "automatic_"
+    campaign_key_segment = "" if assigner_id is not None else "automatic_"
     campaign_key: str = (
-        f"error_tracking_issue_assigned_{trigger}{assignment.id}_updated_at_{assignment.created_at.timestamp()}"
+        f"error_tracking_issue_assigned_{campaign_key_segment}{assignment.id}"
+        f"_updated_at_{assignment.created_at.timestamp()}"
     )
     message = EmailMessage(
         campaign_key=campaign_key,
