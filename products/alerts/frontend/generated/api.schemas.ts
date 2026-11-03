@@ -878,6 +878,11 @@ export interface AlertDeleteDestinationApi {
     hog_function_ids: string[]
 }
 
+export interface TransferOwnershipApi {
+    /** New owner's user UUID. Defaults to yourself. Assigning another member requires organization admin access. */
+    user_uuid?: string
+}
+
 /**
  * * `email` - email
  * * `destination` - destination
