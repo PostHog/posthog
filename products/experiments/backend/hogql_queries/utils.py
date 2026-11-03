@@ -685,6 +685,21 @@ def resolve_frequentist_settings(
     )
 
 
+SEQUENTIAL_QUANTILE_UNSUPPORTED_MESSAGE = "Sequential testing isn't supported for percentile metrics yet."
+
+
+def uses_sequential_testing(stats_config: dict | None, *, team_default_sequential_testing_enabled: bool) -> bool:
+    """Whether the results of an experiment with this stats config use sequential testing."""
+    if resolve_stats_method(stats_config) != "frequentist":
+        return False
+    enabled, _ = _resolve_sequential_settings(
+        _method_config(stats_config, "frequentist"),
+        team_default_enabled=team_default_sequential_testing_enabled,
+        team_default_tuning_parameter=None,
+    )
+    return enabled
+
+
 def get_frequentist_experiment_result(
     metric: AnyExperimentMetric,
     control_variant: ExperimentStatsBase,
@@ -703,9 +718,7 @@ def get_frequentist_experiment_result(
     # The sequential test scales the variance by n, and n is the event count for a quantile metric, not the
     # user count. That combination is not validated, so the metric fails instead of showing a wrong interval.
     if settings.sequential_testing_enabled and isinstance(metric, ExperimentQuantileMetric):
-        raise ValidationError(
-            "Sequential testing isn't supported for percentile metrics yet.", code="sequential_testing_unsupported"
-        )
+        raise ValidationError(SEQUENTIAL_QUANTILE_UNSUPPORTED_MESSAGE, code="sequential_testing_unsupported")
 
     config = FrequentistConfig(
         alpha=settings.alpha,

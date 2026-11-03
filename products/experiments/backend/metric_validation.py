@@ -52,6 +52,10 @@ EVENTS_NODE_ID_HINT = (
 )
 
 
+# The property types of a percentile metric source. The frontend `toPercentileSource` allows the same set.
+PERCENTILE_PROPERTY_TYPES = (None, "event_properties", "numerical_event_properties")
+
+
 def is_events_node_actions_node_confusion(err: dict) -> bool:
     """An `id` field was passed on an EventsNode (probably meant ActionsNode)."""
     loc = tuple(err.get("loc") or ())
@@ -117,6 +121,12 @@ def _semantic_error(metric: ExperimentMetric) -> str | None:
         # The schema already limits the source to events or actions and the quantile to [0.01, 0.99].
         if not metric.source.math_property:
             return "percentile metrics require a numeric property (math_property) on the source."
+        # The query reads `properties.<math_property>` from each event, so a session or person property reads nothing.
+        if (
+            metric.source.math_property == "$session_duration"
+            or metric.source.math_property_type not in PERCENTILE_PROPERTY_TYPES
+        ):
+            return "percentile metrics need a numeric event property."
         # The runner sums breakdown rows to get the overall row of each variant, and quantiles cannot be summed.
         breakdown_filter = metric.breakdownFilter
         if breakdown_filter and (breakdown_filter.breakdowns or breakdown_filter.breakdown not in (None, "", [])):

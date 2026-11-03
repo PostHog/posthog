@@ -87,6 +87,10 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_exposure_event_and_property,
     resolve_default_exposure_event,
 )
+from products.experiments.backend.hogql_queries.utils import (
+    SEQUENTIAL_QUANTILE_UNSUPPORTED_MESSAGE,
+    uses_sequential_testing,
+)
 from products.experiments.backend.logic.result_stats import MetricTimeseries
 from products.experiments.backend.logic.timeseries_text import ExperimentTimeseriesFormatter
 from products.experiments.backend.metric_calculation.config import (
@@ -95,6 +99,7 @@ from products.experiments.backend.metric_calculation.config import (
     get_metric_calculation_config,
     saved_metric_calculation_keys,
     stamp_calculation_keys,
+    team_experiments_configs,
 )
 from products.experiments.backend.metric_calculation.results import DailyTimeseries, MetricResultStore
 from products.experiments.backend.metric_resolution import MetricRole, apply_saved_metric_overrides, find_metric_dict
@@ -1127,6 +1132,41 @@ class ExperimentService:
             )
 
     @staticmethod
+    def _quantile_metric_ids(metric_lists: Iterable[list | None], saved_queries: Mapping[int, dict | None]) -> set[str]:
+        ids = {
+            f"inline:{metric.get('uuid')}"
+            for metrics in metric_lists
+            for metric in metrics or []
+            if isinstance(metric, dict) and metric.get("metric_type") == "quantile"
+        }
+        ids |= {
+            f"saved:{saved_metric_id}"
+            for saved_metric_id, query in saved_queries.items()
+            if isinstance(query, dict) and query.get("metric_type") == "quantile"
+        }
+        return ids
+
+    @staticmethod
+    def _validate_quantile_sequential_testing(
+        stats_config: dict | None,
+        quantile_metric_ids: set[str],
+        *,
+        team_default_sequential_testing_enabled: bool,
+        known_quantile_metric_ids: Iterable[str] = (),
+    ) -> None:
+        """Reject a percentile metric on an experiment whose results use sequential testing.
+
+        ``known_quantile_metric_ids`` exempts percentile metrics that the experiment already had under sequential
+        testing, so an unrelated edit is not blocked by a state that a later team default change created.
+        """
+        if not uses_sequential_testing(
+            stats_config, team_default_sequential_testing_enabled=team_default_sequential_testing_enabled
+        ):
+            return
+        if quantile_metric_ids.difference(known_quantile_metric_ids):
+            raise ValidationError(SEQUENTIAL_QUANTILE_UNSUPPORTED_MESSAGE)
+
+    @staticmethod
     def saved_metric_calculation_keys(experiment: Experiment) -> dict[int, str]:
         """The calculation key of each saved metric linked to the experiment, by link id.
 
@@ -1303,6 +1343,14 @@ class ExperimentService:
 
         team_config = self._get_team_experiments_config()
         stats_config = self._apply_stats_config_defaults(stats_config, team_config)
+        self._validate_quantile_sequential_testing(
+            stats_config,
+            self._quantile_metric_ids(
+                [metrics, metrics_secondary],
+                self._saved_metric_queries_by_id(saved_metrics_ids),
+            ),
+            team_default_sequential_testing_enabled=team_config.default_sequential_testing_enabled,
+        )
         exposure_criteria = self._apply_exposure_criteria_defaults(exposure_criteria)
 
         if only_count_matured_users is None:
@@ -1815,6 +1863,12 @@ class ExperimentService:
             for sm in ExperimentSavedMetric.objects.filter(id__in=ids, team_id=self.team.id).only("query")
             if sm.query
         ]
+
+    def _saved_metric_queries_by_id(self, saved_metrics_ids: list | None) -> dict[int, dict | None]:
+        ids = [sm["id"] for sm in saved_metrics_ids or [] if isinstance(sm, dict) and "id" in sm]
+        if not ids:
+            return {}
+        return dict(ExperimentSavedMetric.objects.filter(id__in=ids, team_id=self.team.id).values_list("id", "query"))
 
     @staticmethod
     def _regenerate_all_metric_uuids(metrics: list[dict] | None) -> tuple[list[dict] | None, dict[str, str]]:
@@ -3638,6 +3692,9 @@ class ExperimentService:
             if update_data.get("start_date", experiment.start_date) is not None:
                 self._reject_warehouse_native_launch(update_data.get("exposure_criteria", experiment.exposure_criteria))
 
+        if any(field in update_data for field in ("metrics", "metrics_secondary", "saved_metrics_ids", "stats_config")):
+            self._validate_update_quantile_sequential_testing(experiment, update_data)
+
         context = serializer_context or self._build_serializer_context()
         feature_flag = experiment.feature_flag
 
@@ -3916,6 +3973,36 @@ class ExperimentService:
             self._notify_experiment_launched(experiment)
 
         return experiment
+
+    def _validate_update_quantile_sequential_testing(self, experiment: Experiment, update_data: dict) -> None:
+        team_default = team_experiments_configs([self.team.id])[self.team.id].default_sequential_testing_enabled
+        stored_saved_queries: dict[int, dict | None] = {
+            link.saved_metric_id: link.saved_metric.query
+            for link in experiment.experimenttosavedmetric_set.select_related("saved_metric")
+        }
+        stored_quantile_ids = self._quantile_metric_ids(
+            [experiment.metrics, experiment.metrics_secondary], stored_saved_queries
+        )
+        quantile_ids = self._quantile_metric_ids(
+            [
+                update_data.get("metrics", experiment.metrics),
+                update_data.get("metrics_secondary", experiment.metrics_secondary),
+            ],
+            (
+                self._saved_metric_queries_by_id(update_data["saved_metrics_ids"])
+                if "saved_metrics_ids" in update_data
+                else stored_saved_queries
+            ),
+        )
+        sequential_before = uses_sequential_testing(
+            experiment.stats_config, team_default_sequential_testing_enabled=team_default
+        )
+        self._validate_quantile_sequential_testing(
+            update_data.get("stats_config", experiment.stats_config),
+            quantile_ids,
+            team_default_sequential_testing_enabled=team_default,
+            known_quantile_metric_ids=stored_quantile_ids if sequential_before else (),
+        )
 
     def _sync_feature_flag_on_update(
         self,
