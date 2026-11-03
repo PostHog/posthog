@@ -818,14 +818,6 @@ ignore_imports = [
     "products.actions.backend.presentation.views.action -> products.actions.backend.models.selector_match_change",
     "products.actions.backend.presentation.views.action -> products.cdp.backend.models.hog_functions.hog_function",
     "products.actions.backend.presentation.views.action -> products.cohorts.backend.models.cohort",
-    # TODO: signals presentation wave. The activity summary viewset reads its modes, limits and
-    # render types from backend/activity_summary/ directly. That directory has no __init__.py, so
-    # grimp cannot see these edges and only the AST surface check in `hogli product:lint` holds
-    # them. Expose what the view needs through the facade and delete each entry.
-    "products.signals.backend.presentation.activity_summary -> products.signals.backend.activity_summary.prompt",
-    "products.signals.backend.presentation.activity_summary -> products.signals.backend.activity_summary.read",
-    "products.signals.backend.presentation.activity_summary -> products.signals.backend.activity_summary.render",
-    "products.signals.backend.presentation.activity_summary -> products.signals.backend.activity_summary.search",
 ]
 
 # routes.py is the one module core reads to assemble a product's API router, so it is the
