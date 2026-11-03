@@ -35,13 +35,15 @@ import re
 import math
 import time
 import random
+import secrets
 import calendar
+import functools
 import dataclasses
-from collections.abc import Callable
-from contextlib import closing
+from collections.abc import Callable, Mapping, Sequence
+from contextlib import closing, nullcontext
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 from django.db import DatabaseError
 from django.utils import timezone
@@ -69,11 +71,14 @@ from dagster import (
 from psycopg import sql as psql
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, stop_after_delay, wait_exponential, wait_fixed
 
+from posthog.hogql.escape_sql import escape_clickhouse_string
+
 from posthog.clickhouse.client.connection import NodeRole, Workload
 from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.dags.common import JobOwners, dagster_tags, settings_with_log_comment
+from posthog.dataclasses import frozen
 
 from products.data_warehouse.backend.facade.backfill_status import (
     BackfillOutcome,
@@ -91,6 +96,7 @@ from products.managed_warehouse.backend.facade.api import (
     get_stored_bucket_config,
     resolve_team_earliest_event_date,
 )
+from products.managed_warehouse.backend.facade.backfill_trino import backfills_through_trino, connect_backfill_catalog
 from products.managed_warehouse.backend.facade.client import (
     ServiceCredential,
     ServiceCredentialUnavailable,
@@ -98,7 +104,11 @@ from products.managed_warehouse.backend.facade.client import (
     mint_service_credential,
     refresh_service_credential,
 )
-from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseTeamMembership
+from products.managed_warehouse.backend.facade.contracts import (
+    DuckLakeDayReplacement,
+    DuckLakeTableReplacement,
+    ManagedWarehouseTeamMembership,
+)
 from products.managed_warehouse.backend.facade.metrics import record_duckling_backfill_workload, track_duckling_backfill
 from products.managed_warehouse.backend.facade.team_state import (
     list_enabled_backfill_team_memberships,
@@ -820,6 +830,95 @@ EXPECTED_DUCKLAKE_PERSONS_COLUMNS = {
     "_timestamp",
     "_inserted_at",
 }
+
+# Export columns for warehouses that register through Trino. add_files refuses any type conversion, so each
+# column has the exact Parquet type that DuckLake writes for its Trino column in EVENTS_TRINO_COLUMN_TYPES.
+# ClickHouse writes the DateTime64 columns without a precision in milliseconds, and the Enum8 as a Parquet enum.
+EVENTS_TRINO_COLUMNS = """
+    toString(uuid) as uuid,
+    event,
+    properties,
+    timestamp,
+    team_id,
+    toInt64(team_id) as project_id,
+    distinct_id,
+    elements_chain,
+    created_at,
+    toString(person_id) as person_id,
+    toDateTime64(person_created_at, 6, 'UTC') as person_created_at,
+    person_properties,
+    group0_properties,
+    group1_properties,
+    group2_properties,
+    group3_properties,
+    group4_properties,
+    toDateTime64(group0_created_at, 6, 'UTC') as group0_created_at,
+    toDateTime64(group1_created_at, 6, 'UTC') as group1_created_at,
+    toDateTime64(group2_created_at, 6, 'UTC') as group2_created_at,
+    toDateTime64(group3_created_at, 6, 'UTC') as group3_created_at,
+    toDateTime64(group4_created_at, 6, 'UTC') as group4_created_at,
+    toString(person_mode) as person_mode,
+    historical_migration,
+    now64(6) as _inserted_at
+"""
+
+EVENTS_TRINO_COLUMN_TYPES: dict[str, str] = {
+    "uuid": "varchar",
+    "event": "varchar",
+    "properties": "varchar",
+    "timestamp": "timestamp(6) with time zone",
+    "team_id": "bigint",
+    "project_id": "bigint",
+    "distinct_id": "varchar",
+    "elements_chain": "varchar",
+    "created_at": "timestamp(6) with time zone",
+    "person_id": "varchar",
+    "person_created_at": "timestamp(6) with time zone",
+    "person_properties": "varchar",
+    "group0_properties": "varchar",
+    "group1_properties": "varchar",
+    "group2_properties": "varchar",
+    "group3_properties": "varchar",
+    "group4_properties": "varchar",
+    "group0_created_at": "timestamp(6) with time zone",
+    "group1_created_at": "timestamp(6) with time zone",
+    "group2_created_at": "timestamp(6) with time zone",
+    "group3_created_at": "timestamp(6) with time zone",
+    "group4_created_at": "timestamp(6) with time zone",
+    "person_mode": "varchar",
+    "historical_migration": "boolean",
+    "_inserted_at": "timestamp(6) with time zone",
+}
+
+# Trino has no unsigned BIGINT, so the UInt64 person version is exported as a signed Int64.
+PERSONS_TRINO_COLUMNS = """
+    pd.team_id AS team_id,
+    pd.distinct_id AS distinct_id,
+    toString(p.id) AS id,
+    p.properties AS properties,
+    toDateTime64(p.created_at, 6, 'UTC') AS created_at,
+    toBool(p.is_identified) AS is_identified,
+    pd.version AS person_distinct_id_version,
+    toInt64(p.version) AS person_version,
+    toDateTime64(p._timestamp, 6) AS _timestamp,
+    now64(6) AS _inserted_at
+"""
+
+PERSONS_TRINO_COLUMN_TYPES: dict[str, str] = {
+    "team_id": "bigint",
+    "distinct_id": "varchar",
+    "id": "varchar",
+    "properties": "varchar",
+    "created_at": "timestamp(6) with time zone",
+    "is_identified": "boolean",
+    "person_distinct_id_version": "bigint",
+    "person_version": "bigint",
+    "_timestamp": "timestamp(6) with time zone",
+    "_inserted_at": "timestamp(6) with time zone",
+}
+
+# A Trino VARCHAR column expects the Parquet UTF-8 string type, not plain binary.
+TRINO_EXPORT_SETTINGS: dict[str, Any] = {"output_format_parquet_string_as_string": 1}
 
 duckling_events_partitions_def = DynamicPartitionsDefinition(name="duckling_events_backfill")
 duckling_persons_partitions_def = DynamicPartitionsDefinition(name="duckling_persons_backfill")
@@ -1544,6 +1643,7 @@ def export_events_to_duckling_s3(
     date: datetime,
     run_id: str,
     settings: dict[str, Any],
+    columns: str = EVENTS_COLUMNS,
 ) -> str | None:
     """Export events for a team/date to the duckling's S3 bucket.
 
@@ -1623,7 +1723,7 @@ def export_events_to_duckling_s3(
     )
     PARTITION BY toString(cityHash64(distinct_id) % {fanout})
     SELECT
-        {EVENTS_COLUMNS}
+        {columns}
     FROM events
     WHERE {where_clause}
     SETTINGS s3_truncate_on_insert=1, use_hive_partitioning=0
@@ -2166,6 +2266,7 @@ def export_persons_to_duckling_s3(
     date: datetime,
     run_id: str,
     settings: dict[str, Any],
+    columns: str = PERSONS_COLUMNS,
 ) -> str | None:
     """Export persons for a team/date to the duckling's S3 bucket.
 
@@ -2225,7 +2326,7 @@ def export_persons_to_duckling_s3(
     )
     PARTITION BY toString(cityHash64(distinct_id) % {fanout})
     SELECT
-        {PERSONS_COLUMNS}
+        {columns}
     FROM person AS p FINAL
     INNER JOIN person_distinct_id2 AS pd FINAL ON p.id = pd.person_id AND p.team_id = pd.team_id
     WHERE p.team_id = {team_id}
@@ -2270,6 +2371,7 @@ def export_persons_full_to_duckling_s3(
     team_id: int,
     run_id: str,
     settings: dict[str, Any],
+    columns: str = PERSONS_COLUMNS,
 ) -> str | None:
     """Export ALL persons for a team to the duckling's S3 bucket.
 
@@ -2328,7 +2430,7 @@ def export_persons_full_to_duckling_s3(
     )
     PARTITION BY toString(cityHash64(distinct_id) % {fanout})
     SELECT
-        {PERSONS_COLUMNS}
+        {columns}
     FROM person AS p FINAL
     INNER JOIN person_distinct_id2 AS pd FINAL ON p.id = pd.person_id AND p.team_id = pd.team_id
     WHERE p.team_id = {team_id}
@@ -2429,6 +2531,129 @@ def register_persons_files_with_duckling(
     return len(files)
 
 
+def _merged_clickhouse_settings(context: AssetExecutionContext, config: DucklingBackfillConfig) -> dict[str, Any]:
+    merged_settings = DEFAULT_CLICKHOUSE_SETTINGS.copy()
+    merged_settings.update(settings_with_log_comment(context))
+    if config.clickhouse_settings:
+        merged_settings.update(config.clickhouse_settings)
+        context.log.info(f"Using custom ClickHouse settings: {config.clickhouse_settings}")
+    return merged_settings
+
+
+@retry(
+    stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
+    wait=wait_exponential(multiplier=1, min=4, max=60),
+    retry=retry_if_exception_type((ClickHouseError, OSError, TimeoutError)),
+    reraise=True,
+)
+def list_exported_files(client: Client, target: DucklingTarget, s3_glob: str, settings: dict[str, Any]) -> list[str]:
+    """List the files an export wrote, for a warehouse without duckgres to glob them.
+
+    ClickHouse wrote the files, and the duckling bucket policy lets it list them. The export globs have their
+    wildcard in the file name only, so every listed file name joins the directory of the glob.
+    """
+    bucket_prefix = f"s3://{target.bucket}/"
+    if not s3_glob.startswith(bucket_prefix):
+        raise ValueError(f"Export glob {s3_glob} is outside the bucket {target.bucket}")
+    directory, _, pattern = s3_glob.removeprefix(bucket_prefix).rpartition("/")
+    url = get_s3_url_for_clickhouse(target.bucket, target.bucket_region, f"{directory}/{pattern}")
+    # The One format reads no file contents, so the query only lists the objects. An export of no rows writes no
+    # files, so its glob must list none, whatever a profile or a Launchpad override sets.
+    rows = client.execute(
+        f"SELECT _file FROM s3({escape_clickhouse_string(url)}, 'One') ORDER BY _file",
+        settings={**settings, "s3_throw_on_zero_files_match": 0},
+    )
+    return [f"{bucket_prefix}{directory}/{row[0]}" for row in rows]
+
+
+class _ExportUnderPrefix(Protocol):
+    def __call__(self, *, client: Client, run_id: str) -> str | None: ...
+
+
+@frozen
+class TrinoExport:
+    """One export that the Trino path registers in one DuckLake snapshot.
+
+    `export` writes the files under the given file prefix and returns their S3 glob.
+    """
+
+    label: str
+    replacement: DuckLakeDayReplacement | DuckLakeTableReplacement
+    export: _ExportUnderPrefix
+
+
+@frozen
+class TrinoBackfillResult:
+    partitions_exported: int
+    files_registered: int
+
+
+def backfill_through_trino(
+    context: AssetExecutionContext,
+    config: DucklingBackfillConfig,
+    target: DucklingTarget,
+    *,
+    table: str,
+    column_types: Mapping[str, str],
+    exports: Sequence[TrinoExport],
+    settings: dict[str, Any],
+) -> TrinoBackfillResult:
+    """Export each item from ClickHouse and register its files through Trino, for a warehouse without duckgres.
+
+    One add_files call adds the files of an export and removes the rows they replace in the same snapshot. A retried
+    call with the same import id is a no-op, so this path needs no delete-then-register replay. A run that skips
+    registration still writes the Trino types, because add_files can register only those files later.
+    """
+    run_id = context.run.run_id[:16]
+    cluster = _get_cluster()
+    tags = dagster_tags(context)
+    workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
+    partitions_exported = 0
+    files_registered = 0
+    register = not (config.dry_run or config.skip_ducklake_registration)
+    with connect_backfill_catalog(target.organization_id) if register else nullcontext() as catalog:
+        if catalog is not None:
+            catalog.ensure_table(
+                table,
+                column_types,
+                drop_first=config.delete_tables,
+                create_if_missing=config.create_tables_if_missing,
+                validate=not config.skip_schema_validation,
+            )
+        for item in exports:
+            # A new prefix for every export, because an export under an earlier prefix would overwrite files that
+            # DuckLake already registered with their row counts and statistics.
+            prefix = f"{run_id}_{secrets.token_hex(4)}"
+
+            def export_and_list(client: Client, item: TrinoExport = item, prefix: str = prefix) -> list[str] | None:
+                with tags_context(kind="dagster", dagster=tags):
+                    s3_glob = item.export(client=client, run_id=prefix)
+                    return None if s3_glob is None else list_exported_files(client, target, s3_glob, settings)
+
+            files = cluster.any_host_by_role(fn=export_and_list, workload=workload, node_role=NodeRole.DATA).result()
+            if files is None:
+                continue
+            partitions_exported += 1
+            if catalog is None:
+                context.log.info(f"Exported {len(files)} file(s) for {item.label} without registering them")
+                continue
+            replacement = item.replacement if config.cleanup_existing_partition_data else None
+            if files:
+                catalog.register_files(table, files, import_id=prefix, replacement=replacement)
+                files_registered += len(files)
+            elif replacement is not None:
+                catalog.delete_rows(table, replacement)
+            context.log.info(f"Registered {len(files)} file(s) for {item.label} in {table} through Trino")
+            logger.info(
+                "duckling_trino_files_registered",
+                team_id=target.team_id,
+                table=table,
+                partition=item.label,
+                file_count=len(files),
+            )
+    return TrinoBackfillResult(partitions_exported=partitions_exported, files_registered=files_registered)
+
+
 @asset(
     partitions_def=duckling_events_partitions_def,
     name="duckling_events_backfill",
@@ -2473,6 +2698,87 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
         )
 
 
+def _report_events_backfill(
+    context: AssetExecutionContext,
+    config: DucklingBackfillConfig,
+    target: DucklingTarget,
+    dates: list[datetime],
+    *,
+    days_exported: int,
+    files_registered: int,
+) -> None:
+    team_id = target.team_id
+    context.add_output_metadata(
+        {
+            "team_id": team_id,
+            "partition_key": context.partition_key,
+            "dates_processed": len(dates),
+            "days_exported": days_exported,
+            "files_registered": files_registered,
+            "bucket": target.bucket,
+        }
+    )
+    if not config.dry_run:
+        record_duckling_backfill_workload(
+            team_id=team_id,
+            dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS,
+            mode="monthly" if len(dates) > 1 else "daily",
+            files_registered=files_registered,
+            partitions_exported=days_exported,
+        )
+
+    context.log.info(
+        f"Completed duckling backfill for team_id={team_id}: "
+        f"{days_exported}/{len(dates)} days exported, {files_registered} files registered"
+    )
+    logger.info(
+        "duckling_backfill_complete",
+        team_id=team_id,
+        dates_processed=len(dates),
+        days_exported=days_exported,
+        files_registered=files_registered,
+    )
+
+
+def _backfill_events_through_trino(
+    context: AssetExecutionContext, config: DucklingBackfillConfig, target: DucklingTarget, dates: list[datetime]
+) -> None:
+    trino_settings = {**_merged_clickhouse_settings(context, config), **TRINO_EXPORT_SETTINGS}
+    result = backfill_through_trino(
+        context,
+        config,
+        target,
+        table=target.events_table,
+        column_types=EVENTS_TRINO_COLUMN_TYPES,
+        settings=trino_settings,
+        exports=[
+            TrinoExport(
+                label=partition_date.strftime("%Y-%m-%d"),
+                replacement=DuckLakeDayReplacement(column="timestamp", day=partition_date.date()),
+                export=functools.partial(
+                    export_events_to_duckling_s3,
+                    context=context,
+                    config=config,
+                    target=target,
+                    team_id=target.team_id,
+                    date=partition_date,
+                    settings=trino_settings,
+                    columns=EVENTS_TRINO_COLUMNS,
+                ),
+            )
+            for partition_date in dates
+        ],
+    )
+    _report_events_backfill(
+        context,
+        config,
+        target,
+        dates,
+        days_exported=result.partitions_exported,
+        files_registered=result.files_registered,
+    )
+
+
 def _run_duckling_events_backfill(context: AssetExecutionContext, config: DucklingBackfillConfig) -> None:
     """Backfill events from ClickHouse to a customer's duckling.
 
@@ -2511,10 +2817,15 @@ def _run_duckling_events_backfill(context: AssetExecutionContext, config: Duckli
 
     context.log.info(f"Backfill ready for team_id={team_id}: org={target.organization_id}, bucket={target.bucket}")
 
+    if backfills_through_trino(target.organization_id):
+        _backfill_events_through_trino(context, config, target, dates)
+        return
+
+    should_register = not (config.dry_run or config.skip_ducklake_registration)
+
     # Open one duckgres connection for all metadata operations, but skip it
     # entirely when no duckgres-backed work will run (dry_run / skip_ducklake_registration).
-    should_use_duckgres = not (config.dry_run or config.skip_ducklake_registration)
-    session = _DuckgresSession(context, target) if should_use_duckgres else None
+    session = _DuckgresSession(context, target) if should_register else None
     try:
         if session is not None:
             # Delete events table if requested (dangerous - loses all data)
@@ -2545,11 +2856,7 @@ def _run_duckling_events_backfill(context: AssetExecutionContext, config: Duckli
                 session.run("validate events schema", lambda c: validate_duckling_schema(context, target, c))
 
         # Prepare ClickHouse settings
-        merged_settings = DEFAULT_CLICKHOUSE_SETTINGS.copy()
-        merged_settings.update(settings_with_log_comment(context))
-        if config.clickhouse_settings:
-            merged_settings.update(config.clickhouse_settings)
-            context.log.info(f"Using custom ClickHouse settings: {config.clickhouse_settings}")
+        merged_settings = _merged_clickhouse_settings(context, config)
 
         cluster = _get_cluster()
         tags = dagster_tags(context)
@@ -2612,35 +2919,8 @@ def _run_duckling_events_backfill(context: AssetExecutionContext, config: Duckli
 
                     total_registered += session.run(f"register events files {date_str}", register_events_files)
 
-        context.add_output_metadata(
-            {
-                "team_id": team_id,
-                "partition_key": context.partition_key,
-                "dates_processed": len(dates),
-                "days_exported": days_exported,
-                "files_registered": total_registered,
-                "bucket": target.bucket,
-            }
-        )
-        if not config.dry_run:
-            record_duckling_backfill_workload(
-                team_id=team_id,
-                dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS,
-                mode="monthly" if len(dates) > 1 else "daily",
-                files_registered=total_registered,
-                partitions_exported=days_exported,
-            )
-
-        context.log.info(
-            f"Completed duckling backfill for team_id={team_id}: "
-            f"{days_exported}/{len(dates)} days exported, {total_registered} files registered"
-        )
-        logger.info(
-            "duckling_backfill_complete",
-            team_id=team_id,
-            dates_processed=len(dates),
-            days_exported=days_exported,
-            files_registered=total_registered,
+        _report_events_backfill(
+            context, config, target, dates, days_exported=days_exported, files_registered=total_registered
         )
 
     finally:
@@ -2695,6 +2975,123 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
         )
 
 
+def _report_persons_backfill(
+    context: AssetExecutionContext,
+    config: DucklingBackfillConfig,
+    target: DucklingTarget,
+    dates: list[datetime] | None,
+    *,
+    partitions_exported: int,
+    files_registered: int,
+) -> None:
+    """Record the outcome of a persons run. `dates` is None for a full export."""
+    team_id = target.team_id
+    export_mode = "full" if dates is None else "daily"
+    metadata: dict[str, Any] = {
+        "team_id": team_id,
+        "partition_key": context.partition_key,
+        "export_mode": export_mode,
+    }
+    if dates is not None:
+        metadata.update(dates_processed=len(dates), days_exported=partitions_exported)
+    metadata.update(files_registered=files_registered, bucket=target.bucket)
+    context.add_output_metadata(metadata)
+    if not config.dry_run:
+        record_duckling_backfill_workload(
+            team_id=team_id,
+            dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
+            mode=export_mode,
+            files_registered=files_registered,
+            partitions_exported=partitions_exported,
+        )
+
+    if dates is None:
+        context.log.info(
+            f"Completed duckling persons full backfill for team_id={team_id}: {files_registered} files registered"
+        )
+        logger.info(
+            "duckling_persons_backfill_complete",
+            team_id=team_id,
+            export_mode="full",
+            files_registered=files_registered,
+        )
+    else:
+        context.log.info(
+            f"Completed duckling persons daily backfill for team_id={team_id}: "
+            f"{partitions_exported}/{len(dates)} days exported, {files_registered} files registered"
+        )
+        logger.info(
+            "duckling_persons_backfill_complete",
+            team_id=team_id,
+            export_mode="daily",
+            dates_processed=len(dates),
+            days_exported=partitions_exported,
+            files_registered=files_registered,
+        )
+
+
+def _backfill_persons_through_trino(
+    context: AssetExecutionContext,
+    config: DucklingBackfillConfig,
+    target: DucklingTarget,
+    dates: list[datetime] | None,
+) -> None:
+    """Export persons and register them through Trino. `dates` is None for a full export."""
+    trino_settings = {**_merged_clickhouse_settings(context, config), **TRINO_EXPORT_SETTINGS}
+    exports = (
+        [
+            TrinoExport(
+                label="full",
+                replacement=DuckLakeTableReplacement(),
+                export=functools.partial(
+                    export_persons_full_to_duckling_s3,
+                    context=context,
+                    config=config,
+                    target=target,
+                    team_id=target.team_id,
+                    settings=trino_settings,
+                    columns=PERSONS_TRINO_COLUMNS,
+                ),
+            )
+        ]
+        if dates is None
+        else [
+            TrinoExport(
+                label=partition_date.strftime("%Y-%m-%d"),
+                replacement=DuckLakeDayReplacement(column="_timestamp", day=partition_date.date()),
+                export=functools.partial(
+                    export_persons_to_duckling_s3,
+                    context=context,
+                    config=config,
+                    target=target,
+                    team_id=target.team_id,
+                    date=partition_date,
+                    settings=trino_settings,
+                    columns=PERSONS_TRINO_COLUMNS,
+                ),
+            )
+            for partition_date in dates
+        ]
+    )
+    result = backfill_through_trino(
+        context,
+        config,
+        target,
+        table=target.persons_table,
+        column_types=PERSONS_TRINO_COLUMN_TYPES,
+        settings=trino_settings,
+        exports=exports,
+    )
+    _report_persons_backfill(
+        context,
+        config,
+        target,
+        dates,
+        partitions_exported=result.partitions_exported,
+        files_registered=result.files_registered,
+    )
+
+
 def _run_duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBackfillConfig) -> None:
     """Backfill persons from ClickHouse to a customer's duckling.
 
@@ -2742,10 +3139,15 @@ def _run_duckling_persons_backfill(context: AssetExecutionContext, config: Duckl
 
     context.log.info(f"Backfill ready for team_id={team_id}: org={target.organization_id}, bucket={target.bucket}")
 
+    if backfills_through_trino(target.organization_id):
+        _backfill_persons_through_trino(context, config, target, None if is_full else dates)
+        return
+
+    should_register = not (config.dry_run or config.skip_ducklake_registration)
+
     # Open one duckgres connection for all metadata operations, but skip it
     # entirely when no duckgres-backed work will run (dry_run / skip_ducklake_registration).
-    should_use_duckgres = not (config.dry_run or config.skip_ducklake_registration)
-    session = _DuckgresSession(context, target) if should_use_duckgres else None
+    session = _DuckgresSession(context, target) if should_register else None
     try:
         if session is not None:
             # Delete persons table if requested (dangerous - loses all data)
@@ -2774,11 +3176,7 @@ def _run_duckling_persons_backfill(context: AssetExecutionContext, config: Duckl
                 context.log.info("Validating duckling persons schema compatibility...")
                 session.run("validate persons schema", lambda c: validate_duckling_persons_schema(context, target, c))
 
-        merged_settings = DEFAULT_CLICKHOUSE_SETTINGS.copy()
-        merged_settings.update(settings_with_log_comment(context))
-        if config.clickhouse_settings:
-            merged_settings.update(config.clickhouse_settings)
-            context.log.info(f"Using custom ClickHouse settings: {config.clickhouse_settings}")
+        merged_settings = _merged_clickhouse_settings(context, config)
 
         cluster = _get_cluster()
         tags = dagster_tags(context)
@@ -2826,32 +3224,8 @@ def _run_duckling_persons_backfill(context: AssetExecutionContext, config: Duckl
 
                 files_registered = session.run("register persons files (full)", register_full_persons_files)
 
-            context.add_output_metadata(
-                {
-                    "team_id": team_id,
-                    "partition_key": partition_key,
-                    "export_mode": "full",
-                    "files_registered": files_registered,
-                    "bucket": target.bucket,
-                }
-            )
-            if not config.dry_run:
-                record_duckling_backfill_workload(
-                    team_id=team_id,
-                    dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
-                    mode="full",
-                    files_registered=files_registered,
-                    partitions_exported=int(bool(s3_glob)),
-                )
-
-            context.log.info(
-                f"Completed duckling persons full backfill for team_id={team_id}: {files_registered} files registered"
-            )
-            logger.info(
-                "duckling_persons_backfill_complete",
-                team_id=team_id,
-                export_mode="full",
-                files_registered=files_registered,
+            _report_persons_backfill(
+                context, config, target, None, partitions_exported=int(bool(s3_glob)), files_registered=files_registered
             )
         else:
             # DAILY EXPORT MODE - process each date in the partition
@@ -2910,37 +3284,8 @@ def _run_duckling_persons_backfill(context: AssetExecutionContext, config: Duckl
 
                         total_registered += session.run(f"register persons files {date_str}", register_persons_files)
 
-            context.add_output_metadata(
-                {
-                    "team_id": team_id,
-                    "partition_key": partition_key,
-                    "export_mode": "daily",
-                    "dates_processed": len(dates),
-                    "days_exported": days_exported,
-                    "files_registered": total_registered,
-                    "bucket": target.bucket,
-                }
-            )
-            if not config.dry_run:
-                record_duckling_backfill_workload(
-                    team_id=team_id,
-                    dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
-                    mode="daily",
-                    files_registered=total_registered,
-                    partitions_exported=days_exported,
-                )
-
-            context.log.info(
-                f"Completed duckling persons daily backfill for team_id={team_id}: "
-                f"{days_exported}/{len(dates)} days exported, {total_registered} files registered"
-            )
-            logger.info(
-                "duckling_persons_backfill_complete",
-                team_id=team_id,
-                export_mode="daily",
-                dates_processed=len(dates),
-                days_exported=days_exported,
-                files_registered=total_registered,
+            _report_persons_backfill(
+                context, config, target, dates, partitions_exported=days_exported, files_registered=total_registered
             )
 
     finally:

@@ -737,15 +737,13 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * warning in every state, `filter_on_property_not_ingested` also reports after the end, and
  * the other findings stop at the end.
  *
- * `exposure_filters` reads the cohort and event property filters of the exposure criteria and
- * of the activation, not the test account filters. `exposure_filter_on_dynamic_cohort` is a
- * warning in every state: the results use the members of a dynamic cohort at the calculation,
- * not at exposure. Its subcode is `cohort_forces_variant` when a release condition of the flag
- * that matches the cohort's members gives one variant, `cohort_in_release_conditions` when the
- * release conditions match its members otherwise, and `evidence.cohort_ids` names the cohorts.
- * Both subcodes need the exposure criteria to keep the members too, not to leave them out.
- * `exposure_filter_excludes_events` is info: a negated filter on an event property leaves out
- * events, not users (`evidence.properties`).
+ * `exposure_filters` reads the cohort filters of the exposure criteria and of the activation,
+ * not the test account filters. `exposure_filter_on_dynamic_cohort` is a warning in every
+ * state: the results use the members of a dynamic cohort at the calculation, not at exposure.
+ * Its subcode is `cohort_forces_variant` when a release condition of the flag that matches the
+ * cohort's members gives one variant, `cohort_in_release_conditions` when the release
+ * conditions match its members otherwise, and `evidence.cohort_ids` names the cohorts. Both
+ * subcodes need the exposure criteria to keep the members too, not to leave them out.
  *
  * `metric_cannot_compile` builds and compiles the query of each metric without running it, as
  * the caller, so a metric that every calculation fails on shows before launch. A metric that
@@ -769,7 +767,33 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * wrote for users), and `calculated_at` is when the calculation finished. It is a
  * warning when a primary metric fails for a kind that a change fixes (`query_limit`,
  * `settings`, `experiment_too_old`), also after the end, because the calculation after the fix
- * reads the events up to the end. It is info otherwise.
+ * reads the events up to the end. It is info otherwise. When the first failure reached the
+ * read, memory or time limit, `reason` names the cause that the calculation shows: `metric`
+ * when another metric of the same calculation completed the same read of the exposures, or
+ * `exposure_criteria` when every metric reached a limit and an exposure or test account filter
+ * makes each query read all the properties of an event, person or group. `evidence.properties`
+ * then names the filters. A query that read precomputed exposures doesn't apply those filters,
+ * so it can't get `exposure_criteria`. It is null otherwise.
+ *
+ * `metric_all_zero` reports a metric that reads zero in every variant, from the same latest
+ * finished calculation, so the results page shows "Not enough data yet" at any sample size.
+ * Each side of a ratio that is zero in every variant counts on its own. It reads the stored
+ * result and the project's event definitions, and no events. A primary metric needs 1,000
+ * exposures in the result and 72 hours of data, because most zeros before that are outcomes
+ * that take time. A retention metric counts those hours from the start of its retention
+ * window. The subcode is the cause of the first metric: `blank_event` (an event with an empty
+ * name), `event_stopped` (the project last received the event before launch, while ingestion
+ * still records the project), `outlier_bound` (an upper outlier bound that is 0 while some
+ * exposures have a value) or null when none shows a cause. `blank_event` and `outlier_bound`
+ * also report a secondary metric, and need only 100 exposures and 12 hours of data, because
+ * they read 0 at any traffic. A bound on the largest value of the exposures can't be 0 while
+ * one has a value, so it is no cause. Neither is a bound on a metric with breakdowns, which
+ * gets one bound per breakdown group. Until the end, the check leaves out a metric that uses an
+ * event `metric_event_not_ingested` reports. Each metric, or side of a ratio, is in the
+ * `evidence` keys `metric_N`, `metric_N_role`, `metric_N_side`, `metric_N_exposures` and
+ * `metric_N_cause`. It is a warning for a primary metric. After the end it stays a warning only
+ * for a cause that a setting fixes, because the calculation after the fix reads the events up
+ * to the end. It is info otherwise.
  *
  * The severity of the `some_conditions_pinned` finding follows the largest share that the
  * users of the pinned release conditions make up among the users who got one variant from
@@ -801,10 +825,14 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * `running_but_flag_disabled`, as a warning. A caller who can't view the linked flag's
  * history gets the warning, because the pause is not read. A draft whose flag is already
  * active with multiple variants gets `not_started_but_multiple_variants_rolled_out` as info.
- * An ended experiment whose flag is still active with multiple variants gets
- * `ended_but_multiple_variants_rolled_out` as a warning, or `ended_flag_not_called` as info
- * when the flag's `last_called_at` shows no call in the 3 days after the end. The info waits
- * an extra hour, because `last_called_at` trails a call.
+ * An ended experiment whose flag is still active with multiple variants gets no finding when
+ * another experiment on the flag is running or launched after the end. Otherwise it gets
+ * `ended_flag_shared_with_draft` as info when a draft experiment uses the flag,
+ * `ended_but_multiple_variants_rolled_out` as a warning when the flag's `last_called_at` is
+ * after the end and within the last 3 days, and `ended_flag_not_called` as info when it is
+ * not, from 3 days and an hour after the end, because `last_called_at` trails a call. Until
+ * then without such a call, or when the organization's flag calls can't be read, it gets
+ * `ended_flag_calls_unknown` as info.
  *
  * A running experiment whose first primary metric is a funnel gets the info
  * `early_significance` (subcode `below_detectable_effect`) when a significant variant's
@@ -812,6 +840,10 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * sample is below the one the running time estimate plans for the minimum detectable
  * effect. It reads the metric's current stored result, the one the results page shows
  * after its last calculation, and the running time calculator's formula.
+ *
+ * A running experiment with `only_count_matured_users` on gets the info
+ * `metrics_not_matured` while it is younger than the conversion or retention window of
+ * every primary metric, because no user can count for those metrics until a window passes.
  */
 export const experimentsHealthRetrieve = async (
     projectId: string,

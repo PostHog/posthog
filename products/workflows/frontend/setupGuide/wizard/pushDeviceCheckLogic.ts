@@ -5,8 +5,8 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { hogql } from 'lib/utils/hogql'
 
-import { hogql } from '~/queries/utils'
 import { IntegrationType } from '~/types'
 
 export type PushPlatform = 'ios' | 'android'
