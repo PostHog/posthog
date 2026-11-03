@@ -13,8 +13,8 @@ export interface EventsRetentionCustomFieldsProps {
     minMonths: number
     maxMonths: number
     planMonths: number
-    /** How a custom window here relates to the other settings level. */
-    overrideNote: string
+    /** How a custom window here relates to the other settings level, or null when that level sets no window. */
+    overrideNote: string | null
     disabled: boolean
     onChange: (months: number | null) => void
     onPressEnter: () => void
@@ -67,7 +67,7 @@ export function EventsRetentionCustomFields({
                         is kept more than about a month past it.
                     </li>
                     <li>Use this if you need a guaranteed deletion date, for example for compliance.</li>
-                    <li>{overrideNote}</li>
+                    {overrideNote && <li>{overrideNote}</li>}
                     {planMonths < LONGEST_PLAN_RETENTION_MONTHS && (
                         <li>
                             Need longer data retention? Head over to our{' '}

@@ -24,8 +24,8 @@ export interface EventsRetentionWindowFormProps {
     planMonths: number
     /** Whose events the window deletes, as the start of a sentence, e.g. "Events in this project". */
     scope: string
-    /** How a custom window here relates to the other settings level. */
-    overrideNote: string
+    /** How a custom window here relates to the other settings level, or null when that level sets no window. */
+    overrideNote: string | null
     nextMonthlyCleanupOn: string
     /** The current project's pass dates, or null when the default here doesn't apply to the project. */
     passSchedule: EventsPassSchedule | null

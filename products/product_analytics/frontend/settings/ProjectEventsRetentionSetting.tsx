@@ -23,15 +23,21 @@ export function ProjectEventsRetentionSetting(): JSX.Element | null {
         projectRetention.organization_retention_months === null
             ? null
             : Math.min(projectRetention.organization_retention_months, projectRetention.plan_retention_months)
+    const hasOrganizationWindow = organizationMonths !== null
 
     return (
         <div>
             <p className="max-w-160 text-sm text-secondary mb-2">
-                Choose how long this project keeps events. This replaces the window set in{' '}
-                <Link to={urls.settings('organization-details', 'organization-events-retention')}>
-                    organization settings
-                </Link>
-                .{' '}
+                Choose how long this project keeps events.{' '}
+                {hasOrganizationWindow && (
+                    <>
+                        This replaces the window set in{' '}
+                        <Link to={urls.settings('organization-details', 'organization-events-retention')}>
+                            organization settings
+                        </Link>
+                        .{' '}
+                    </>
+                )}
                 <Link to={projectRetention.docs_url} target="_blank">
                     Learn more
                 </Link>
@@ -40,12 +46,16 @@ export function ProjectEventsRetentionSetting(): JSX.Element | null {
             <EventsRetentionWindowForm
                 retentionMonths={projectRetention.project_retention_months}
                 defaultMonths={organizationMonths ?? projectRetention.default_retention_months}
-                defaultIsOrganizationWindow={organizationMonths !== null}
+                defaultIsOrganizationWindow={hasOrganizationWindow}
                 minMonths={projectRetention.min_retention_months}
                 maxMonths={projectRetention.max_retention_months}
                 planMonths={projectRetention.plan_retention_months}
                 scope="Events in this project"
-                overrideNote="This project's custom events retention replaces the organization's events retention."
+                overrideNote={
+                    hasOrganizationWindow
+                        ? "This project's custom events retention replaces the organization's events retention."
+                        : null
+                }
                 nextMonthlyCleanupOn={projectRetention.next_monthly_cleanup_on}
                 passSchedule={projectRetention}
                 saving={projectRetentionLoading}
