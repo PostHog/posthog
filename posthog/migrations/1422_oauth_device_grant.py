@@ -84,11 +84,4 @@ class Migration(migrations.Migration):
                 to=settings.AUTH_USER_MODEL,
             ),
         ),
-        migrations.AddConstraint(
-            model_name="oauthdevicegrant",
-            constraint=models.UniqueConstraint(
-                fields=("device_code",),
-                name="posthog_oauthdevicegrant_unique_device_code",
-            ),
-        ),
     ]
