@@ -35165,6 +35165,51 @@ export namespace Schemas {
     }
 
     /**
+     * * `email` - Email sending domain
+     * * `proxy` - Reverse proxy domain
+     */
+    export type DomainConnectContextKindEnum = typeof DomainConnectContextKindEnum[keyof typeof DomainConnectContextKindEnum];
+
+
+    export const DomainConnectContextKindEnum = {
+      Email: 'email',
+      Proxy: 'proxy',
+    } as const;
+
+    export interface DomainConnectApplyUrlRequest {
+      /** `email` to configure an email sending domain, `proxy` for a reverse proxy domain.
+       *
+       * * `email` - Email sending domain
+       * * `proxy` - Reverse proxy domain */
+      context: DomainConnectContextKindEnum;
+      /**
+         * ID of the email integration (sender). Required when `context` is `email`.
+         * @nullable
+         */
+      integration_id?: number | null;
+      /**
+         * ID of the reverse proxy record. Required when `context` is `proxy`.
+         * @nullable
+         */
+      proxy_record_id?: string | null;
+      /**
+         * Where the DNS host sends the user after they approve. Omit it when handing the URL to a person.
+         * @nullable
+         */
+      redirect_uri?: string | null;
+      /**
+         * Provider endpoint from `available_providers` in the domain-connect check. Omit it to use the provider detected from the domain's DNS.
+         * @nullable
+         */
+      provider_endpoint?: string | null;
+    }
+
+    export interface DomainConnectApplyUrlResponse {
+      /** Signed Domain Connect URL. A person opens it, signs in at their DNS host and approves the records. The records do not change until they approve. */
+      url: string;
+    }
+
+    /**
      * * `all` - All
      * * `selected` - Selected
      */
@@ -36446,6 +36491,18 @@ export namespace Schemas {
       /** Email tools that already send for the root domain, detected from SPF and DKIM records. Best effort, empty when none are found or when include_email_setup is off. */
       existing_email_tools: string[];
     }
+
+    /**
+     * * `auto` - Domain Connect
+     * * `manual` - Manual DNS records
+     */
+    export type EmailDomainSetupMethodEnum = typeof EmailDomainSetupMethodEnum[keyof typeof EmailDomainSetupMethodEnum];
+
+
+    export const EmailDomainSetupMethodEnum = {
+      Auto: 'auto',
+      Manual: 'manual',
+    } as const;
 
     /**
      * * `verification` - Domain ownership
@@ -66310,6 +66367,39 @@ export namespace Schemas {
       value: unknown;
     }
 
+    /**
+     * * `ses` - Amazon SES
+     * * `maildev` - Maildev (local development only)
+     */
+    export type NativeEmailProviderEnum = typeof NativeEmailProviderEnum[keyof typeof NativeEmailProviderEnum];
+
+
+    export const NativeEmailProviderEnum = {
+      Ses: 'ses',
+      Maildev: 'maildev',
+    } as const;
+
+    export interface NativeEmailIntegration {
+      /** Sender address, for example `hello@mail.example.com`. Its domain is the sending domain that needs DNS records. Free and disposable mailbox domains such as gmail.com are rejected. Cannot be changed after creation; send the current address when updating. */
+      email: string;
+      /** Sender display name recipients see in their inbox, for example `Acme`. */
+      name: string;
+      /** Sending provider. Always `ses`. `maildev` is only accepted in local development.
+       *
+       * * `ses` - Amazon SES
+       * * `maildev` - Maildev (local development only) */
+      provider: NativeEmailProviderEnum;
+      /** Subdomain of the sending domain used as the custom MAIL FROM (bounce) domain. `feedback` gives `feedback.mail.example.com`. Defaults to `feedback`. Pick another value if that subdomain already has MX records. */
+      mail_from_subdomain?: string;
+      /** Reply-to address for emails from this sender when the email step sets none. Blank clears it. */
+      reply_to?: string;
+      /** How the DNS records are being published: `auto` through Domain Connect, `manual` by hand. Reported on the verification event.
+       *
+       * * `auto` - Domain Connect
+       * * `manual` - Manual DNS records */
+      setup_method?: EmailDomainSetupMethodEnum;
+    }
+
     export interface NoMatchMetadata {
       /** Why no existing report matched. */
       reason: string;
@@ -79828,6 +79918,11 @@ export namespace Schemas {
       order?: number | null;
     }
 
+    export interface PatchedEmailSenderUpdateRequest {
+      /** The full sender config. Only `name`, `mail_from_subdomain` and `reply_to` change; `email` must stay the same. */
+      config?: NativeEmailIntegration;
+    }
+
     /**
      * Per-column bucket overrides for range variable materialization. Keys are column names, values are bucket keys.
      * @nullable
@@ -82144,38 +82239,6 @@ export namespace Schemas {
          * @nullable
          */
       values_query_connection_id?: string | null;
-    }
-
-    /**
-     * Standard Integration serializer.
-     */
-    export interface PatchedIntegrationConfig {
-      readonly id?: number;
-      /**
-         * The provider of the integration, for example 'slack' or 'github'. A create accepts only the kinds that PostHog connects here. Data warehouse sources also store their typed-in credentials as integrations, under a kind per source type.
-         * @maxLength 32
-         */
-      kind?: string;
-      /** How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
-       *
-       * * `oauth` - OAuth
-       * * `token` - Token
-       * * `credentials` - Credentials */
-      readonly auth_type?: IntegrationAuthTypeEnum;
-      config?: unknown;
-      readonly created_at?: string;
-      readonly created_by?: UserBasic;
-      readonly errors?: string;
-      readonly display_name?: string;
-      /** Slack only: whether reconnecting can request the files:write scope. */
-      readonly files_write_requestable?: boolean;
-      /**
-         * GitHub only, null otherwise. Whether another project's GitHub integration references the same App installation. When false, disconnecting this integration also uninstalls the GitHub App from the connected account or organization and removes personal GitHub connections that share it.
-         * @nullable
-         */
-      readonly installation_shared?: boolean | null;
-      /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
-      readonly installation_status?: InstallationStatusEnum | null;
     }
 
     export interface PatchedJsSnippetVersion {

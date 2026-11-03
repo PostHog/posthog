@@ -81,7 +81,10 @@ class TestEmailDomainVerification(EmailDomainApiTestCase):
         assert self.is_verified(sender) and self.is_verified(sibling)
         assert TeamWorkflowsConfig.objects.get(team_id=self.team.id).default_email_integration_id == sender
         assert self.verified_events() == [
-            ((ANY, "email domain verified", {"method": "agent", "seconds_since_created": ANY}), {"team": ANY})
+            (
+                (ANY, "email domain verified", {"method": "agent", "seconds_since_created": ANY}),
+                {"team": ANY, "organization": ANY},
+            )
         ]
         self.reload_workers.assert_called_once_with(self.team.id, sorted([sender, sibling]))
         assert self.world.ses.writes.count("verify_domain_identity") == 3

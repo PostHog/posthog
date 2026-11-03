@@ -443,35 +443,52 @@ export interface SlackChannelsResponseApi {
 }
 
 /**
- * Standard Integration serializer.
+ * * `ses` - Amazon SES
+ * * `maildev` - Maildev (local development only)
  */
-export interface PatchedIntegrationConfigApi {
-    readonly id?: number
-    /**
-     * The provider of the integration, for example 'slack' or 'github'. A create accepts only the kinds that PostHog connects here. Data warehouse sources also store their typed-in credentials as integrations, under a kind per source type.
-     * @maxLength 32
-     */
-    kind?: string
-    /** How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
+export type NativeEmailProviderEnumApi = (typeof NativeEmailProviderEnumApi)[keyof typeof NativeEmailProviderEnumApi]
+
+export const NativeEmailProviderEnumApi = {
+    Ses: 'ses',
+    Maildev: 'maildev',
+} as const
+
+/**
+ * * `auto` - Domain Connect
+ * * `manual` - Manual DNS records
+ */
+export type EmailDomainSetupMethodEnumApi =
+    (typeof EmailDomainSetupMethodEnumApi)[keyof typeof EmailDomainSetupMethodEnumApi]
+
+export const EmailDomainSetupMethodEnumApi = {
+    Auto: 'auto',
+    Manual: 'manual',
+} as const
+
+export interface NativeEmailIntegrationApi {
+    /** Sender address, for example `hello@mail.example.com`. Its domain is the sending domain that needs DNS records. Free and disposable mailbox domains such as gmail.com are rejected. Cannot be changed after creation; send the current address when updating. */
+    email: string
+    /** Sender display name recipients see in their inbox, for example `Acme`. */
+    name: string
+    /** Sending provider. Always `ses`. `maildev` is only accepted in local development.
      *
-     * * `oauth` - OAuth
-     * * `token` - Token
-     * * `credentials` - Credentials */
-    readonly auth_type?: IntegrationAuthTypeEnumApi
-    config?: unknown
-    readonly created_at?: string
-    readonly created_by?: UserBasicApi
-    readonly errors?: string
-    readonly display_name?: string
-    /** Slack only: whether reconnecting can request the files:write scope. */
-    readonly files_write_requestable?: boolean
-    /**
-     * GitHub only, null otherwise. Whether another project's GitHub integration references the same App installation. When false, disconnecting this integration also uninstalls the GitHub App from the connected account or organization and removes personal GitHub connections that share it.
-     * @nullable
-     */
-    readonly installation_shared?: boolean | null
-    /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
-    readonly installation_status?: InstallationStatusEnumApi | null
+     * * `ses` - Amazon SES
+     * * `maildev` - Maildev (local development only) */
+    provider: NativeEmailProviderEnumApi
+    /** Subdomain of the sending domain used as the custom MAIL FROM (bounce) domain. `feedback` gives `feedback.mail.example.com`. Defaults to `feedback`. Pick another value if that subdomain already has MX records. */
+    mail_from_subdomain?: string
+    /** Reply-to address for emails from this sender when the email step sets none. Blank clears it. */
+    reply_to?: string
+    /** How the DNS records are being published: `auto` through Domain Connect, `manual` by hand. Reported on the verification event.
+     *
+     * * `auto` - Domain Connect
+     * * `manual` - Manual DNS records */
+    setup_method?: EmailDomainSetupMethodEnumApi
+}
+
+export interface PatchedEmailSenderUpdateRequestApi {
+    /** The full sender config. Only `name`, `mail_from_subdomain` and `reply_to` change; `email` must stay the same. */
+    config?: NativeEmailIntegrationApi
 }
 
 /**
@@ -896,6 +913,51 @@ export interface SlackUsersResponseApi {
     lastRefreshedAt?: string | null
     /** Whether more members match the current search beyond this page. */
     has_more?: boolean
+}
+
+/**
+ * * `email` - Email sending domain
+ * * `proxy` - Reverse proxy domain
+ */
+export type DomainConnectContextKindEnumApi =
+    (typeof DomainConnectContextKindEnumApi)[keyof typeof DomainConnectContextKindEnumApi]
+
+export const DomainConnectContextKindEnumApi = {
+    Email: 'email',
+    Proxy: 'proxy',
+} as const
+
+export interface DomainConnectApplyUrlRequestApi {
+    /** `email` to configure an email sending domain, `proxy` for a reverse proxy domain.
+     *
+     * * `email` - Email sending domain
+     * * `proxy` - Reverse proxy domain */
+    context: DomainConnectContextKindEnumApi
+    /**
+     * ID of the email integration (sender). Required when `context` is `email`.
+     * @nullable
+     */
+    integration_id?: number | null
+    /**
+     * ID of the reverse proxy record. Required when `context` is `proxy`.
+     * @nullable
+     */
+    proxy_record_id?: string | null
+    /**
+     * Where the DNS host sends the user after they approve. Omit it when handing the URL to a person.
+     * @nullable
+     */
+    redirect_uri?: string | null
+    /**
+     * Provider endpoint from `available_providers` in the domain-connect check. Omit it to use the provider detected from the domain's DNS.
+     * @nullable
+     */
+    provider_endpoint?: string | null
+}
+
+export interface DomainConnectApplyUrlResponseApi {
+    /** Signed Domain Connect URL. A person opens it, signs in at their DNS host and approves the records. The records do not change until they approve. */
+    url: string
 }
 
 export interface EmailDomainConnectProviderApi {

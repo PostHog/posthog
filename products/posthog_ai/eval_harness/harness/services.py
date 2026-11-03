@@ -332,11 +332,16 @@ def start_mcp_server(
         # being mutually exclusive makes unavoidable — an eval of the legacy tools
         # needs its own lever, not this one. mcp-exec-skills follows the run's
         # skill delivery mode. dashboard-widgets gates the widget batch tools that
-        # the dashboard widget evals exercise.
+        # the dashboard widget evals exercise. The email domain setup eval needs
+        # both workflows-email flags: workflows-email-domain-agent-setup gates the
+        # sender status and verify tools, and workflows-email-from-code gates the
+        # sender create, update and Domain Connect tools.
         "FEATURE_FLAG_OVERRIDES": json.dumps(
             {
                 "revamped-py-notebooks": True,
                 "dashboard-widgets": True,
+                "workflows-email-domain-agent-setup": True,
+                "workflows-email-from-code": True,
                 MCP_EXEC_SKILLS_FEATURE_FLAG: exec_skills_enabled,
             }
         ),

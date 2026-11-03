@@ -4,7 +4,7 @@ import json
 import time
 from collections.abc import Callable
 from typing import Any, NoReturn, cast
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 from uuid import uuid4
 
 from django.conf import settings
@@ -15,6 +15,7 @@ from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
+from django.utils.http import url_has_allowed_host_and_scheme
 
 import structlog
 from django_filters import rest_framework as filters
@@ -52,6 +53,10 @@ from posthog.api.github_callback.types import (
     github_app_install_url,
     is_valid_github_installation_id,
 )
+from posthog.api.integration_domain_serializers import (
+    DomainConnectApplyUrlRequestSerializer,
+    DomainConnectApplyUrlResponseSerializer,
+)
 from posthog.api.integration_email_status_serializers import (
     EmailDomainConnectCheckQuerySerializer,
     EmailDomainConnectCheckSerializer,
@@ -73,14 +78,22 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import ErrorResponseSerializer, action
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.dns_hosts import lookup_dns_host
-from posthog.domain_connect import discover_domain_connect, extract_root_domain_and_host, get_available_providers
+from posthog.domain_connect import (
+    DomainConnectSigningKeyMissing,
+    discover_domain_connect,
+    extract_root_domain_and_host,
+    generate_apply_url,
+    get_available_providers,
+    resolve_email_context,
+    resolve_proxy_context,
+)
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.fuzzy_search import fuzzy_filter
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord, IntegrationUsage
-from posthog.models import OrganizationMembership, User
+from posthog.models import OrganizationMembership, ProxyRecord, Team, User
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import (
     ANTHROPIC_DEFAULT_INTEGRATION_ID_PREFIX,
@@ -150,11 +163,12 @@ from posthog.permissions import (
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
     TimeSensitiveActionPermission,
+    get_authenticator_scopes,
 )
 from posthog.ph_client import feature_enabled_or_false
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle, PushTokenImportThrottle
 from posthog.tasks.email import send_integration_access_request
-from posthog.utils import absolute_uri, is_relative_url
+from posthog.utils import absolute_uri, flag_identity, is_relative_url
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.slack_app.backend.services.slack_auth import SLACK_AUTH_FAILURE_CODES
@@ -177,6 +191,8 @@ stripe_marketplace_install_counter = Counter(
 )
 
 GITHUB_REPOSITORY_NAME_RE = re.compile(r"[A-Za-z0-9_.\-]+")
+
+EMAIL_FROM_CODE_FLAG = "workflows-email-from-code"
 
 
 class EmailProviderUnavailable(APIException):
@@ -363,11 +379,33 @@ def _github_disconnect_blocked_message(live_runs: InProgressGithubRunsDTO, team_
     )
 
 
+class NativeEmailProvider(models.TextChoices):
+    SES = "ses", "Amazon SES"
+    MAILDEV = "maildev", "Maildev (local development only)"
+
+
 class NativeEmailIntegrationSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    name = serializers.CharField()
-    provider = serializers.ChoiceField(choices=["ses", "maildev"] if settings.DEBUG else ["ses"])
-    mail_from_subdomain = serializers.CharField(required=False, allow_blank=True)
+    email = serializers.EmailField(
+        help_text=(
+            "Sender address, for example `hello@mail.example.com`. Its domain is the sending domain that needs "
+            "DNS records. Free and disposable mailbox domains such as gmail.com are rejected. "
+            "Cannot be changed after creation; send the current address when updating."
+        )
+    )
+    name = serializers.CharField(help_text="Sender display name recipients see in their inbox, for example `Acme`.")
+    provider = serializers.ChoiceField(
+        choices=NativeEmailProvider.choices,
+        help_text="Sending provider. Always `ses`. `maildev` is only accepted in local development.",
+    )
+    mail_from_subdomain = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "Subdomain of the sending domain used as the custom MAIL FROM (bounce) domain. "
+            "`feedback` gives `feedback.mail.example.com`. Defaults to `feedback`. "
+            "Pick another value if that subdomain already has MX records."
+        ),
+    )
     reply_to = serializers.EmailField(
         required=False,
         allow_blank=True,
@@ -382,6 +420,20 @@ class NativeEmailIntegrationSerializer(serializers.Serializer):
 
     def validate_email(self, value: str) -> str:
         return value.lower()
+
+    def validate_provider(self, value: str) -> str:
+        if value == NativeEmailProvider.MAILDEV and not settings.DEBUG:
+            raise serializers.ValidationError(f'"{value}" is not a valid choice.', code="invalid_choice")
+        return value
+
+
+class EmailSenderUpdateRequestSerializer(serializers.Serializer):
+    config = NativeEmailIntegrationSerializer(
+        help_text=(
+            "The full sender config. Only `name`, `mail_from_subdomain` and `reply_to` change; "
+            "`email` must stay the same."
+        )
+    )
 
 
 class GitHubRepoSerializer(serializers.Serializer):
@@ -1587,6 +1639,36 @@ class PersonalConnectionRecentAuthPermission(BasePermission):
         return True
 
 
+def email_flag_enabled(flag: str, team: Team, user: User) -> bool:
+    identity = flag_identity(user, team, team.organization)
+    if identity is None:
+        return False
+    return feature_enabled_or_false(
+        flag,
+        identity.distinct_id,
+        groups=identity.groups,
+        person_properties=identity.person_properties,
+        group_properties=identity.group_properties,
+        send_feature_flag_events=False,
+    )
+
+
+def email_from_code_enabled(team: Team, user: User) -> bool:
+    return email_flag_enabled(EMAIL_FROM_CODE_FLAG, team, user)
+
+
+class EmailDomainAgentSetupPermission(BasePermission):
+    message = "This action does not support personal API key access"
+    token_actions = frozenset({"domain_connect_check", "domain_connect_apply_url", "email_update"})
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        if getattr(view, "action", None) not in self.token_actions:
+            return True
+        if get_authenticator_scopes(request.successful_authenticator) is None:
+            return True
+        return email_from_code_enabled(cast("IntegrationViewSet", view).team, cast(User, request.user))
+
+
 class IntegrationFilterSet(filters.FilterSet):
     kind = filters.ChoiceFilter(choices=PUBLIC_INTEGRATION_KIND_CHOICES)
 
@@ -1629,6 +1711,7 @@ class IntegrationViewSet(
         "anthropic_managed_agent_environments",
         "anthropic_managed_agent_vaults",
         "email_status",
+        "domain_connect_check",
     ]
     scope_object_write_actions = [
         "create",
@@ -1644,8 +1727,14 @@ class IntegrationViewSet(
         # Side-effecting POST (emails admins) — a read-only token must not be able to trigger it.
         "request_access",
         "push_tokens",
+        "email_update",
+        "domain_connect_apply_url",
     ]
-    permission_classes = [IntegrationManagementPermission, PersonalConnectionRecentAuthPermission]
+    permission_classes = [
+        IntegrationManagementPermission,
+        PersonalConnectionRecentAuthPermission,
+        EmailDomainAgentSetupPermission,
+    ]
     # LimitOffsetPagination needs a total order, or Postgres can return a row on neither side of a
     # page boundary. Clients page this list to find one kind, so a dropped row reads as
     # "not configured". Order oldest-first: several clients take the first row of a kind as their
@@ -2871,11 +2960,10 @@ class IntegrationViewSet(
         "the domain's senders as verified so they can send. Call it once email/status reports status verified.",
     )
     @action(methods=["POST"], detail=True, url_path="email/verify")
-    def email_verify(self, request, **kwargs):
-        instance = self.get_object()
-        email = EmailIntegration(instance)
+    def email_verify(self, request: Request, **kwargs: Any) -> Response:
+        email = self._get_email_integration()
         verification_result = email.verify(
-            on_domain_verified=lambda: self._report_email_domain_verified(request, instance)
+            on_domain_verified=lambda: self._report_email_domain_verified(request, email.integration)
         )
         return Response(verification_result)
 
@@ -2895,16 +2983,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="email/status")
     def email_status(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         if not any(
-            feature_enabled_or_false(
-                flag,
-                str(cast(User, request.user).distinct_id),
-                groups={"organization": str(self.team.organization_id), "project": str(self.team.uuid)},
-                group_properties={
-                    "organization": {"id": str(self.team.organization_id)},
-                    "project": {"id": str(self.team.uuid)},
-                },
-                send_feature_flag_events=False,
-            )
+            email_flag_enabled(flag, self.team, cast(User, request.user))
             for flag in ("workflows-email-domain-wizard", "workflows-email-domain-agent-setup")
         ):
             raise NotFound()
@@ -2928,6 +3007,7 @@ class IntegrationViewSet(
                 "seconds_since_created": int((timezone.now() - instance.created_at).total_seconds()),
             },
             team=self.team,
+            organization=self.team.organization,
         )
 
     @staticmethod
@@ -2936,19 +3016,25 @@ class IntegrationViewSet(
             return "agent"
         return instance.config.get("setup_method", "manual")
 
-    @extend_schema(responses={200: IntegrationSerializer})
+    @validated_request(
+        EmailSenderUpdateRequestSerializer,
+        responses={200: IntegrationSerializer},
+        summary="Update an email sender",
+    )
     @action(methods=["PATCH"], detail=True, url_path="email")
-    def email_update(self, request, **kwargs) -> Response:
-        instance = self.get_object()
-        config = request.data.get("config", {})
-
-        serializer = NativeEmailIntegrationSerializer(data=config)
-        serializer.is_valid(raise_exception=True)
-
-        email = EmailIntegration(instance)
-        email.update_native_integration(serializer.validated_data, instance.team_id)
-
+    def email_update(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        email = self._get_email_integration()
+        config = request.validated_data["config"]
+        if email_from_code_enabled(self.team, cast(User, request.user)):
+            email.reject_address_change(config["email"])
+        email.update_native_integration(config, email.integration.team_id)
         return Response(IntegrationSerializer(email.integration).data)
+
+    def _get_email_integration(self) -> EmailIntegration:
+        instance = self.get_object()
+        if instance.kind != "email":
+            raise ValidationError("This endpoint is only supported for email integrations")
+        return EmailIntegration(instance)
 
     @validated_request(
         query_serializer=EmailDomainConnectCheckQuerySerializer,
@@ -2974,34 +3060,27 @@ class IntegrationViewSet(
             }
         )
 
+    @validated_request(
+        DomainConnectApplyUrlRequestSerializer,
+        responses={200: DomainConnectApplyUrlResponseSerializer},
+        summary="Generate a Domain Connect apply URL",
+        description=(
+            "Build the signed URL that sends a person to their DNS host to approve the records for an email "
+            "sending domain or a reverse proxy domain."
+        ),
+    )
     # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(methods=["POST"], detail=False, url_path="domain-connect/apply-url")
-    def domain_connect_apply_url(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Unified endpoint for generating Domain Connect apply URLs.
-
-        Accepts a context ("email" or "proxy") and the relevant resource ID.
-        The backend resolves the domain, template variables, and service ID
-        based on context, then builds the signed apply URL.
-        """
-        from posthog.domain_connect import (
-            DOMAIN_CONNECT_PROVIDERS,
-            DomainConnectSigningKeyMissing,
-            generate_apply_url,
-            resolve_email_context,
-            resolve_proxy_context,
-        )
-
-        context = request.data.get("context")
-        redirect_uri = request.data.get("redirect_uri")
-        provider_endpoint = request.data.get("provider_endpoint")
-
-        if provider_endpoint and provider_endpoint not in DOMAIN_CONNECT_PROVIDERS:
-            raise ValidationError("Unsupported provider endpoint")
+    def domain_connect_apply_url(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        data = request.validated_data
+        context = data["context"]
+        redirect_uri = data.get("redirect_uri")
+        if get_authenticator_scopes(request.successful_authenticator) is not None:
+            self._check_scoped_domain_connect_request(context, redirect_uri)
+        provider_endpoint = data.get("provider_endpoint")
 
         if context == "email":
-            integration_id = request.data.get("integration_id")
-            if not integration_id:
-                raise ValidationError("integration_id is required for email context")
+            integration_id = data["integration_id"]
             try:
                 resolved = resolve_email_context(
                     integration_id,
@@ -3015,14 +3094,13 @@ class IntegrationViewSet(
                 raise ValidationError(
                     "Validation error resolving email context. Please try again later or contact support."
                 )
-
-        elif context == "proxy":
-            proxy_record_id = request.data.get("proxy_record_id")
-            if not proxy_record_id:
-                raise ValidationError("proxy_record_id is required for proxy context")
+        else:
+            proxy_record_id = data["proxy_record_id"]
             organization = self.organization
             try:
-                resolved = resolve_proxy_context(proxy_record_id, str(organization.id))
+                resolved = resolve_proxy_context(str(proxy_record_id), str(organization.id))
+            except ProxyRecord.DoesNotExist:
+                raise NotFound("No reverse proxy record with this proxy_record_id exists in this organization.")
             except ValueError as e:
                 capture_exception(
                     e, {"proxy_record_id": proxy_record_id, "organization_id": organization.id, "context": context}
@@ -3030,8 +3108,6 @@ class IntegrationViewSet(
                 raise ValidationError(
                     "Validation error resolving proxy context. Please try again later or contact support."
                 )
-        else:
-            raise ValidationError("context must be 'email' or 'proxy'")
 
         try:
             url = generate_apply_url(
@@ -3065,7 +3141,7 @@ class IntegrationViewSet(
             )
             raise ValidationError("Error generating apply URL. Please try again later or contact support.")
 
-        if context == "email" and integration_id:
+        if context == "email":
             self._record_email_setup_method(integration_id, "auto")
         return Response({"url": url})
 
@@ -3074,6 +3150,14 @@ class IntegrationViewSet(
             instance = Integration.objects.select_for_update().get(id=integration_id, team_id=self.team_id)
             instance.config["setup_method"] = setup_method
             instance.save(update_fields=["config"])
+
+    @staticmethod
+    def _check_scoped_domain_connect_request(context: str, redirect_uri: str | None) -> None:
+        if context != "email":
+            raise PermissionDenied("Scoped credentials only support email Domain Connect.")
+        posthog_host = urlsplit(settings.SITE_URL).netloc
+        if redirect_uri and not url_has_allowed_host_and_scheme(redirect_uri, allowed_hosts={posthog_host}):
+            raise ValidationError("redirect_uri must point back to PostHog.")
 
     # Defined last: a method named `list` shadows the builtin for the annotations of every method
     # declared after it in this class body.

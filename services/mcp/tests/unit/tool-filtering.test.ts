@@ -28,6 +28,21 @@ const collectAlwaysAvailableToolNames = (): string[] =>
         .map(([name]) => name)
 
 describe('Tool Filtering - Features', () => {
+    it.each([false, true, undefined])('email sender tools require the email from code rollout: %s', async (enabled) => {
+        const tools = await getToolsFromContext(createMockContext(['integration:write']), {
+            featureFlags: { 'workflows-email-from-code': enabled },
+        })
+        const names = tools.map((tool) => tool.name)
+        for (const tool of [
+            'integrations-email-create',
+            'integrations-email-partial-update',
+            'integrations-domain-connect-check-retrieve',
+            'integrations-domain-connect-apply-url-create',
+        ]) {
+            expect(names.includes(tool)).toBe(enabled === true)
+        }
+        expect(names).toContain('integrations-list')
+    })
     it.each([
         { scopes: ['evaluation:read'], enabled: true, metadata: true, scores: false, upload: false },
         {
@@ -1129,6 +1144,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'personal-inbox-ranking',
             'anomalies-search',
             'workflows-email-domain-agent-setup',
+            'workflows-email-from-code',
             'feature-flag-rules-v2-mcp',
             'investigate-insight',
             'workflows-customerio-import',

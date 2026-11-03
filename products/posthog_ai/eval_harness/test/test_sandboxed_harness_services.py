@@ -235,6 +235,8 @@ def test_start_mcp_server_isolates_the_selected_skill_delivery(
     # The skill delivery switch must not displace the overrides every eval run relies on.
     assert overrides["revamped-py-notebooks"] is True
     assert overrides["dashboard-widgets"] is True
+    assert overrides["workflows-email-domain-agent-setup"] is True
+    assert overrides["workflows-email-from-code"] is True
     if skill_archive_url is None:
         assert "POSTHOG_MCP_SKILLS_URL" not in env
         assert "POSTHOG_MCP_SKILLS_SHA256" not in env

@@ -1,0 +1,17 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "domain": {
+            "description": "Domain to check, such as mail.example.com. Its root domain is checked.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "include_email_setup": {
+            "default": false,
+            "description": "Also look up the DNS host and the email tools that already send for the domain. Email domain setup needs these. Leave it off for other setups, because the lookups add DNS queries.",
+            "type": "boolean"
+        }
+    },
+    "required": ["domain"],
+    "type": "object"
+}
