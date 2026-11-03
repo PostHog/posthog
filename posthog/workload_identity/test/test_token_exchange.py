@@ -349,6 +349,7 @@ class TestWorkloadTokenExchange(APIBaseTest):
                 "post",
                 "posthog_connections/1/forward/",
             ),
+            ("github_link_existing", ["integration:write"], "post", "integrations/github/link_existing/"),
         ]
     )
     def test_workload_tokens_cannot_use_the_owners_own_connections(
