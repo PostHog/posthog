@@ -23,7 +23,7 @@ from products.tasks.backend.logic.repo_selection.types import RepoSelectionResul
 from products.tasks.backend.logic.services.custom_prompt_internals import CustomPromptSandboxContext
 from products.tasks.backend.logic.services.custom_prompt_multi_turn_runner import MultiTurnSession
 from products.tasks.backend.logic.services.sandbox import SandboxResources
-from products.tasks.backend.models import Task
+from products.tasks.backend.models import Task, TaskRun
 
 if TYPE_CHECKING:
     from products.tasks.backend.logic.services.custom_prompt_internals import OutputFn
@@ -767,6 +767,10 @@ async def select_repository(
             raise ValueError("The end turn is a usage limit refusal, not a selection")
         return _salvage_repo_selection(text, candidate_repos)
 
+    async def _session_created(task_run: TaskRun) -> None:
+        if on_research_session is not None:
+            on_research_session(str(task_run.task_id), str(task_run.id))
+
     try:
         session, result = await MultiTurnSession.start(
             prompt=prompt,
@@ -780,6 +784,7 @@ async def select_repository(
             spend_signal_id=spend_signal_id,
             ai_stage="repo_selection",
             internal=True,
+            on_task_run_created=_session_created,
             fallback_from_text=_salvage,
             json_retry_prompt=REPO_SELECTION_JSON_RETRY_PROMPT,
         )
@@ -787,9 +792,6 @@ async def select_repository(
         if usage_limit_reply is not None:
             raise RepoSelectionUsageLimitError(usage_limit_reply) from e
         raise
-    # Track repo discovery execution (for example, for Slack)
-    if on_research_session is not None:
-        on_research_session(str(session.task.id), str(session.task_run.id))
     # Stamp the producing task onto the result (overwriting anything the LLM may have emitted)
     # so downstream persistence can attribute the selection to it.
     result.task_id = str(session.task.id)
