@@ -5,6 +5,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.management import CommandError, call_command
+from django.db import OperationalError
 from django.test import override_settings
 
 from rest_framework import status
@@ -16,7 +17,7 @@ from products.managed_warehouse.backend.facade.api import commit_project_move_ou
 from products.managed_warehouse.backend.facade.contracts import CPUnavailableError, ProjectMoveOut
 from products.managed_warehouse.backend.models import DuckgresServer, ManagedWarehouseSourceLifecycle
 from products.managed_warehouse.backend.presentation.hogtower import TranslatedResponse
-from products.managed_warehouse.backend.tasks.tasks import repeat_project_move_out
+from products.managed_warehouse.backend.tasks.tasks import repeat_project_move_out, restore_project_move_out
 
 
 class FakeHogtower:
@@ -79,9 +80,11 @@ class TestProjectMoveOut(APIBaseTest):
         }
         self.fake = FakeHogtower({self.org_id: [dict(self.row)]})
         self.enqueue = MagicMock()
+        self.enqueue_restore = MagicMock()
         for patcher in (
             patch("products.managed_warehouse.backend.presentation.hogtower.request", new=self.fake),
             patch.object(repeat_project_move_out, "apply_async", new=self.enqueue),
+            patch.object(restore_project_move_out, "apply_async", new=self.enqueue_restore),
         ):
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -139,6 +142,49 @@ class TestProjectMoveOut(APIBaseTest):
         assert self.fake.calls[-1] == ("POST", self.org_id, "/teams", self.row)
         self.enqueue.assert_not_called()
 
+    def test_a_failed_restore_is_retried_by_a_task(self) -> None:
+        self._give_org_warehouse_state()
+        self.fake.failing.update({("POST", "/moved-teams"), ("POST", "/teams")})
+
+        res = self._move()
+
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        self.enqueue_restore.assert_called_once_with(args=[self.project.pk, self.org_id, [self.row]], countdown=60)
+        self.fake.rows[self.org_id] = []  # the removal applied after all
+        with self.assertRaises(CPUnavailableError):
+            restore_project_move_out(self.project.pk, self.org_id, [self.row])
+
+        self.fake.failing.clear()
+        restore_project_move_out(self.project.pk, self.org_id, [self.row])
+        assert self.fake.rows[self.org_id] == [self.row]
+
+    def test_an_error_in_the_restore_retries_every_row(self) -> None:
+        self._give_org_warehouse_state()
+
+        with patch.object(project_moves, "restore_rows", side_effect=OperationalError("lock timeout")):
+            with self.assertRaises(RuntimeError):
+                with project_move_out(self.project.pk, self.organization.id, {self.team.pk: self.organization.id}):
+                    raise RuntimeError("the move failed")
+
+        self.enqueue_restore.assert_called_once_with(args=[self.project.pk, self.org_id, [self.row]], countdown=60)
+
+    def test_the_restore_task_skips_teams_the_org_no_longer_owns(self) -> None:
+        self._give_org_warehouse_state()
+        self.fake.rows[self.org_id] = []
+        deleted_team_row = {**self.row, "team_id": 999999, "schema_name": "gone"}
+
+        restore_project_move_out(self.project.pk, self.org_id, [self.row, deleted_team_row])
+        assert self.fake.rows[self.org_id] == [self.row]
+
+        # The move committed after all: no restore, and the after-commit repeats run instead.
+        self.fake.rows[self.org_id] = []
+        calls_before = len(self.fake.calls)
+        Project.objects.filter(pk=self.project.pk).update(organization=self.other_org)
+        Team.objects.filter(pk=self.team.pk).update(organization=self.other_org)
+        restore_project_move_out(self.project.pk, self.org_id, [self.row])
+        assert self.fake.calls[calls_before:] == [("POST", self.org_id, "/moved-teams", {"team_ids": [self.team.pk]})]
+        self.enqueue.assert_called_once_with(args=[self.org_id, [self.team.pk]], countdown=600)
+
     def test_an_unreadable_warehouse_refuses_the_move_without_removing_anything(self) -> None:
         self._give_org_warehouse_state()
         self.fake.failing.add(("GET", "/teams"))
@@ -160,6 +206,7 @@ class TestProjectMoveOut(APIBaseTest):
         assert self._project_org() == self.org_id
         assert self.fake.rows[self.org_id] == [self.row]
         self.enqueue.assert_not_called()
+        self.enqueue_restore.assert_not_called()
 
     def test_an_error_after_the_commit_does_not_put_the_rows_back(self) -> None:
         self._give_org_warehouse_state()
@@ -172,6 +219,7 @@ class TestProjectMoveOut(APIBaseTest):
         assert ("POST", self.org_id, "/teams") not in self.fake.paths()
         assert self.fake.rows[self.org_id] == []
         self.enqueue.assert_called_once_with(args=[self.org_id, [self.team.pk]], countdown=600)
+        self.enqueue_restore.assert_not_called()
 
     def test_a_concurrent_move_during_the_restore_removes_the_rows_again(self) -> None:
         self._give_org_warehouse_state()

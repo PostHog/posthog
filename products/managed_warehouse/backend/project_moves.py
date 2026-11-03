@@ -2,8 +2,8 @@
 
 hogtower removes the old organization's rows for them before the move commits, and a failed move puts
 them back once a locked re-read shows it did not commit. After the commit the removal is repeated at
-once and 10 minutes later, retried while hogtower is down. Organizations without PostHog warehouse
-state never call hogtower.
+once and 10 minutes later. Both the delayed removal and a failed restore are retried while hogtower is
+down. Organizations without PostHog warehouse state never call hogtower.
 """
 
 from __future__ import annotations
@@ -127,33 +127,46 @@ def repeat_move_out(organization_id: str, team_ids: list[int]) -> bool:
 
 
 def undo(move: ProjectMoveOut) -> None:
-    """Put the removed rows back, but only if a locked re-read shows that the move did not commit."""
+    """Put the removed rows back unless the move committed. A task retries the rows that fail."""
     if not move.rows:
         return
     failed = list(move.rows)
     try:
-        if not connection.in_atomic_block:
-            connection.close_if_unusable_or_obsolete()  # a failed commit can leave it broken
-        in_old_org = Project.objects.filter(pk=move.project_id, organization_id=move.organization_id)
-        with transaction.atomic():
-            with connection.cursor() as cursor:
-                cursor.execute("SET LOCAL lock_timeout = '3s'")
-            # A deleted project counts as moved: there is nothing to restore it into.
-            committed = not in_old_org.select_for_update(no_key=True).exists()
-        if committed:  # its commit hooks may not have run, e.g. when the commit's acknowledgement was lost
-            failed = []
-            _after_commit(move.organization_id, [int(row["team_id"]) for row in move.rows])
-            return
-        # hogtower ignores the row's read-only fields (org_id, created_at, updated_at).
-        failed = [row for row in move.rows if not _ok(_call("POST", move.organization_id, "/teams", row))]
-        cp_teams.invalidate_org_cache(move.organization_id)
-        # A concurrent move may have committed, and run its own repeat, before the rows went back.
-        if not in_old_org.exists():
-            repeat_move_out(move.organization_id, [int(row["team_id"]) for row in move.rows])
+        failed = restore_rows(move.project_id, move.organization_id, list(move.rows))
     except Exception:
         logger.exception("Project move undo failed", organization_id=move.organization_id, project_id=move.project_id)
     if failed:
         logger.warning("move_undo_skipped", project_id=move.project_id, rows=failed)
+        try:
+            from products.managed_warehouse.backend.tasks.tasks import restore_project_move_out  # noqa: PLC0415
+
+            restore_project_move_out.apply_async(args=[move.project_id, move.organization_id, failed], countdown=60)
+        except Exception:
+            logger.exception("Could not schedule the project move restore", project_id=move.project_id)
+
+
+def restore_rows(project_id: int, organization_id: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Upsert the rows of teams the org still owns, unless the project left it. Returns the unconfirmed rows."""
+    if not connection.in_atomic_block:
+        connection.close_if_unusable_or_obsolete()  # a failed commit can leave it broken
+    in_old_org = Project.objects.filter(pk=project_id, organization_id=organization_id)
+    team_ids = [int(row["team_id"]) for row in rows]
+    with transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute("SET LOCAL lock_timeout = '3s'")
+        # A deleted project counts as moved.
+        committed = not in_old_org.select_for_update(no_key=True).exists()
+    if committed:  # its commit hooks may not have run, e.g. when the commit's acknowledgement was lost
+        _after_commit(organization_id, team_ids)
+        return []
+    owned = set(Team.objects.filter(id__in=team_ids, organization_id=organization_id).values_list("id", flat=True))
+    # hogtower ignores the row's read-only fields (org_id, created_at, updated_at).
+    failed = [r for r in rows if int(r["team_id"]) in owned and not _ok(_call("POST", organization_id, "/teams", r))]
+    cp_teams.invalidate_org_cache(organization_id)
+    # A concurrent move may have committed, and run its own repeat, before the rows went back.
+    if not in_old_org.exists():
+        repeat_move_out(organization_id, team_ids)
+    return failed
 
 
 def moved_team_rows(organization_id: str, *, remove: bool = False) -> dict[str, list[int]]:
