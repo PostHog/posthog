@@ -12,8 +12,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.mixins import ValidatedRequest, validated_request
-from posthog.api.pagination import BoundedLimitOffsetPagination
-from posthog.api.pagination import page_link, previous_offset
+from posthog.api.pagination import BoundedLimitOffsetPagination, page_link, previous_offset
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models.user import User
