@@ -2998,7 +2998,7 @@ class TestAlertDestinations(APIBaseTest):
         [
             ("cutover_begun", True, AlertCalculationInterval.DAILY, False, True),
             ("cutover_not_begun", False, AlertCalculationInterval.DAILY, False, False),
-            ("real_time", True, AlertCalculationInterval.REAL_TIME, False, False),
+            ("real_time", True, AlertCalculationInterval.REAL_TIME, False, True),
             ("investigation_agent", True, AlertCalculationInterval.DAILY, True, False),
         ]
     )
