@@ -7,6 +7,7 @@ from django.test import override_settings
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.auth import mint_export_renderer_token
 from posthog.clickhouse.client import sync_execute
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models import PersonalAPIKey, SessionRecording
@@ -15,6 +16,8 @@ from posthog.session_recordings.models.session_recording_event import SessionRec
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.recordings.errors import RecordingDeletedError
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock, listing_cache_key
+
+from products.exports.backend.models.exported_asset import ExportedAsset
 
 
 class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest):
@@ -147,10 +150,11 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
 
     @parameterized.expand(
         [
-            ("logged_in", True, True, True, True),
-            ("logged_in_flag_off", True, False, True, False),
-            ("logged_in_unencrypted_recording", True, True, False, False),
-            ("personal_api_key", False, True, True, False),
+            ("logged_in", "session", True, True, True),
+            ("logged_in_flag_off", "session", False, True, False),
+            ("logged_in_unencrypted_recording", "session", True, False, False),
+            ("personal_api_key", "personal_api_key", True, True, False),
+            ("export_renderer", "export_renderer", True, True, True),
         ]
     )
     @override_settings(REPLAY_PROXY_JWT_SECRET="replay-proxy-key", RECORDING_API_BLOCKS_JWT_SECRET="replay-blocks-key")
@@ -163,8 +167,8 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
     @patch("posthog.session_recordings.recordings.replay_blocks_jwt.posthoganalytics.feature_enabled")
     def test_sources_listing_gives_player_tokens_only_to_the_player(
         self,
+        _name: str,
         auth: str,
-        is_player: bool,
         flag_on: bool,
         encrypted: bool,
         expects_block_urls: bool,
@@ -187,8 +191,24 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
             )
             for i in range(2)
         ]
+        is_player = auth != "personal_api_key"
         headers = {}
-        if not is_player:
+        viewer = f"u{self.user.pk}"
+        renderer_expires_at = None
+        if auth == "export_renderer":
+            asset = ExportedAsset.objects.create(
+                team=self.team,
+                created_by=self.user,
+                export_format=ExportedAsset.ExportFormat.PNG,
+                export_context={"session_recording_id": session_id},
+            )
+            renderer_token = mint_export_renderer_token(
+                user_id=self.user.id, team_id=self.team.id, exported_asset_id=asset.id, scope="session_recording:read"
+            )
+            renderer_expires_at = decode_jwt(renderer_token, PosthogJwtAudience.EXPORT_RENDERER)["exp"]
+            headers = {"authorization": f"Bearer {renderer_token}"}
+            viewer = f"e{asset.id}"
+        if auth == "personal_api_key":
             personal_api_key = generate_random_token_personal()
             PersonalAPIKey.objects.create(
                 label="Test Key",
@@ -215,7 +235,6 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
 
         urls = [source.get("url") for source in body["sources"]]
         if expects_block_urls:
-            viewer = f"u{self.user.pk}"
             assert urls == [
                 f"http://testserver/replay-blocks/{self.team.pk}/{session_id}/{viewer}/v1.ref{i}" for i in range(2)
             ]
@@ -230,6 +249,8 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
             }
             assert isinstance(claims["iat"], int)
             assert body["block_token_expires_at"] is not None
+            if renderer_expires_at is not None:
+                assert claims["exp"] <= renderer_expires_at
         else:
             assert urls == [None, None]
             assert body["block_token"] is None

@@ -4,7 +4,7 @@ import time
 import logging
 import functools
 from abc import abstractmethod
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, ClassVar, Optional, TypedDict, Union
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -854,6 +854,7 @@ class ExportRendererAuthentication(ActivityCredentialMixin, authentication.BaseA
             self.scopes = scopes
             self.team_id = team_id
             self.exported_asset_id = exported_asset_id
+            self.expires_at = datetime.fromtimestamp(info["exp"], tz=UTC)
             self.export_context = export_context
             user = User.objects.get(pk=user_id, is_active=True)
         except (jwt.DecodeError, jwt.InvalidAudienceError):
@@ -977,6 +978,7 @@ class SharingPasswordProtectedAuthentication(ActivityCredentialMixin, authentica
 
             self.sharing_configuration = sharing_configuration
             self.share_password = share_password
+            self.expires_at = datetime.fromtimestamp(payload["exp"], tz=UTC)
             self.record_activity_actor(None, str(share_password.id))
             return (SharedLinkUser(sharing_configuration), None)
 

@@ -251,9 +251,14 @@ def _replay_blocks_viewer(request) -> ReplayBlocksViewer | None:
         return ReplayBlocksViewer(id=f"u{request.user.pk}")
     if isinstance(authenticator, SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication):
         sharing_configuration = authenticator.sharing_configuration
-        return ReplayBlocksViewer(id=f"s{sharing_configuration.pk}", access_ends_at=sharing_configuration.expires_at)
+        ends = [sharing_configuration.expires_at]
+        if isinstance(authenticator, SharingPasswordProtectedAuthentication):
+            ends.append(authenticator.expires_at)
+        return ReplayBlocksViewer(
+            id=f"s{sharing_configuration.pk}", access_ends_at=min((e for e in ends if e is not None), default=None)
+        )
     if isinstance(authenticator, ExportRendererAuthentication) and authenticator.exported_asset_id:
-        return ReplayBlocksViewer(id=f"e{authenticator.exported_asset_id}")
+        return ReplayBlocksViewer(id=f"e{authenticator.exported_asset_id}", access_ends_at=authenticator.expires_at)
     return None
 
 
