@@ -2089,8 +2089,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         if (values.slackConnected) {
             actions.loadSlackChannelsWithToken()
         }
-        // The GitHub repo and Teams group/channel lists only feed the admin pickers, and their
-        // endpoints reject non-admins. The saved selection renders from the team settings.
+        // These picker lists come from admin-only endpoints. The saved selection renders from team settings.
         const isAdmin = !!values.isAdminOrOwner
         if (values.teamsConnected && isAdmin) {
             actions.loadTeamsTeamsWithToken()
