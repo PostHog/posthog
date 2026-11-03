@@ -23,7 +23,7 @@ from products.warehouse_sources.backend.logic.source_credentials_rollout import 
     shadow_compare_many,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import source_key
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_input_classification import (
@@ -237,7 +237,7 @@ def _split(source_type: str, inputs: Mapping[str, Any]) -> "SplitJobInputs":
         split_job_inputs,
     )
 
-    return split_job_inputs(ExternalDataSourceType(source_type), inputs)
+    return split_job_inputs(source_key(source_type), inputs)
 
 
 def _has_runtime_prefix(key: str) -> bool:

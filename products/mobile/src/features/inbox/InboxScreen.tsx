@@ -1,30 +1,31 @@
 import { useFocusEffect, useRouter } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react'
 import { FlatList, RefreshControl, View } from 'react-native'
-
 import { useBootGate } from '@/auth/bootGate'
 import { track } from '@/lib/analytics'
 import { useNow } from '@/lib/useNow'
 import type { InboxItem } from '@/model/types'
+import { INBOX_PANE_WIDTH } from '@/ui/adaptiveLayout'
 import { FilterIcon } from '@/ui/icons/FilterIcon'
 import { InboxIcon } from '@/ui/icons/InboxIcon'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { LoadingView, StateView } from '@/ui/StateView'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, layout } from '@/ui/tokens'
+import { useAppLayout } from '@/ui/useAppLayout'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
-
 import { apiErrorKind } from '../report/reportAnalytics'
 import { TABS_HEADER_BOTTOM } from '../tabs/TabsHeader'
 import { useTabHeader } from '../tabs/tabHeaderStore'
 import type { RowAnchor } from './contextMenuPlacement'
-import { type CreatedWindow, type InboxSort, isDefaultInboxFilters, type SourceFilterKey } from './filters'
+import { isDefaultInboxFilters } from './filters'
 import { useInboxItems, useSetReportRead } from './hooks'
 import { InboxFilterSheet } from './InboxFilterSheet'
 import { InboxListFooter } from './InboxListFooter'
 import { InboxRow } from './InboxRow'
 import { InboxRowActions, type RowMenuTarget } from './InboxRowActions'
-import { useInboxFilters, useInboxFiltersStore } from './inboxFiltersStore'
+import { inboxFilterActions } from './inboxFilterActions'
+import { useInboxFilters } from './inboxFiltersStore'
 import { usePrefetchReports } from './usePrefetchReports'
 
 function keyFor(item: InboxItem): string {
@@ -33,6 +34,7 @@ function keyFor(item: InboxItem): string {
 
 export function InboxScreen(): ReactElement {
     const styles = useStyles()
+    const { paired } = useAppLayout()
     const colors = useColors()
     const router = useRouter()
     const insets = useScreenInsets()
@@ -46,7 +48,7 @@ export function InboxScreen(): ReactElement {
     )
     const filters = useInboxFilters()
     const query = useInboxItems({ refreshWhileVisible: focused, filters })
-    const prefetch = usePrefetchReports(query.data)
+    const prefetch = usePrefetchReports(query.data, focused)
     const [rowMenu, setRowMenu] = useState<RowMenuTarget | null>(null)
     const [filtersOpen, setFiltersOpen] = useState(false)
     const listRef = useRef<FlatList<InboxItem>>(null)
@@ -88,33 +90,7 @@ export function InboxScreen(): ReactElement {
         track('mobile_inbox_filters_opened')
         setFiltersOpen(true)
     }
-    const setSort = (sort: InboxSort): void => {
-        if (sort === filters.sort) {
-            return
-        }
-        track('mobile_inbox_sort_changed', { sort })
-        useInboxFiltersStore.getState().setSort(sort)
-    }
-    const setCreatedWindow = (window: CreatedWindow): void => {
-        if (window === filters.createdWindow) {
-            return
-        }
-        track('mobile_inbox_created_window_changed', { window })
-        useInboxFiltersStore.getState().setCreatedWindow(window)
-    }
-    const toggleSource = (source: SourceFilterKey): void => {
-        const selected = !filters.sources.includes(source)
-        track('mobile_inbox_source_filter_changed', {
-            source,
-            selected,
-            count: filters.sources.length + (selected ? 1 : -1),
-        })
-        useInboxFiltersStore.getState().toggleSource(source)
-    }
-    const clearFilters = (): void => {
-        track('mobile_inbox_filters_cleared')
-        useInboxFiltersStore.getState().clear()
-    }
+    const { setSort, setCreatedWindow, toggleSource, clearFilters } = inboxFilterActions(filters)
 
     const listFailed = query.isError
     const loaded = !query.isLoading && !query.isError
@@ -158,9 +134,16 @@ export function InboxScreen(): ReactElement {
 
     const renderItem = useCallback(
         ({ item }: { item: InboxItem }) => (
-            <InboxRow item={item} now={now} onOpen={openReport} onLongPress={openRowMenu} onSetRead={setRead} />
+            <InboxRow
+                titleLines={paired ? 3 : 1}
+                item={item}
+                now={now}
+                onOpen={openReport}
+                onLongPress={openRowMenu}
+                onSetRead={setRead}
+            />
         ),
-        [now, openReport, openRowMenu, setRead]
+        [paired, now, openReport, openRowMenu, setRead]
     )
 
     const empty = query.isLoading ? (
@@ -192,39 +175,57 @@ export function InboxScreen(): ReactElement {
     )
 
     return (
-        <View style={styles.screen} testID="inbox-screen">
-            <FlatList
-                ref={listRef}
-                data={query.data ?? []}
-                keyExtractor={keyFor}
-                renderItem={renderItem}
-                ListEmptyComponent={empty}
-                ListFooterComponent={
-                    <InboxListFooter
-                        isLoadingMore={query.isLoadingMore}
-                        loadMoreFailed={query.loadMoreFailed}
-                        onRetry={query.retryLoadMore}
+        <View style={[styles.screen, { flexDirection: 'row' }]} testID="inbox-screen">
+            <View
+                style={{
+                    flexGrow: paired ? 0 : 1,
+                    flexShrink: paired ? 0 : 1,
+                    width: paired ? INBOX_PANE_WIDTH : undefined,
+                    minWidth: 0,
+                }}
+            >
+                <FlatList
+                    ref={listRef}
+                    data={query.data ?? []}
+                    keyExtractor={keyFor}
+                    renderItem={renderItem}
+                    ListEmptyComponent={empty}
+                    ListFooterComponent={
+                        <InboxListFooter
+                            isLoadingMore={query.isLoadingMore}
+                            loadMoreFailed={query.loadMoreFailed}
+                            onRetry={query.retryLoadMore}
+                        />
+                    }
+                    onEndReached={query.loadMore}
+                    onEndReachedThreshold={0.5}
+                    onViewableItemsChanged={prefetch.onViewableItemsChanged}
+                    viewabilityConfig={prefetch.viewabilityConfig}
+                    contentContainerStyle={[
+                        styles.content,
+                        { paddingTop: contentTop, paddingBottom: bottomOffset(insets, 120) },
+                    ]}
+                    refreshControl={
+                        <RefreshControl
+                            refreshing={query.isRefetching}
+                            onRefresh={() => refresh('pull')}
+                            tintColor={colors.tertiary}
+                            colors={[colors.tertiary]}
+                            progressBackgroundColor={colors.surface}
+                            progressViewOffset={contentTop}
+                        />
+                    }
+                />
+            </View>
+            {paired ? (
+                <View style={{ flex: 1, borderLeftWidth: 1, borderLeftColor: colors.border }}>
+                    <StateView
+                        title="Choose a report"
+                        message="Open a report from your inbox to investigate it here."
+                        testID="inbox-detail-placeholder"
                     />
-                }
-                onEndReached={query.loadMore}
-                onEndReachedThreshold={0.5}
-                onViewableItemsChanged={prefetch.onViewableItemsChanged}
-                viewabilityConfig={prefetch.viewabilityConfig}
-                contentContainerStyle={[
-                    styles.content,
-                    { paddingTop: contentTop, paddingBottom: bottomOffset(insets, 120) },
-                ]}
-                refreshControl={
-                    <RefreshControl
-                        refreshing={query.isRefetching}
-                        onRefresh={() => refresh('pull')}
-                        tintColor={colors.tertiary}
-                        colors={[colors.tertiary]}
-                        progressBackgroundColor={colors.surface}
-                        progressViewOffset={contentTop}
-                    />
-                }
-            />
+                </View>
+            ) : null}
             <InboxRowActions target={rowMenu} onClose={() => setRowMenu(null)} />
             <InboxFilterSheet
                 visible={filtersOpen}
