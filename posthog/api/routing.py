@@ -387,8 +387,6 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         except NotImplementedError:
             pass
         else:
-            # These are tenant boundaries, not authorization levels. Views that shape their own
-            # permission chain cannot remove them.
             # A workload token acts as an owner, who may pass a view's own checks (a staff owner passes staff
             # bypasses), so its policy's scopes and project are enforced whatever chain the view builds.
             workload_token_boundary = (
@@ -396,6 +394,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                 if isinstance(self.request.successful_authenticator, WorkloadAccessTokenAuthentication)
                 else []
             )
+
+            # These are tenant boundaries, not authorization levels. Views that shape their own
+            # permission chain cannot remove them.
             return [
                 *dangerously_defined,
                 *workload_token_boundary,

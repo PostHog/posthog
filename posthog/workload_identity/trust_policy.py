@@ -24,11 +24,7 @@ from rest_framework.views import APIView
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.auth import (
-    OAuthAccessTokenAuthentication,
-    SessionAuthentication,
-    WorkloadAccessTokenAuthentication,
-)
+from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication, WorkloadAccessTokenAuthentication
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import OrganizationMembership, Team, User
 from posthog.models.oauth import OAuthApplication

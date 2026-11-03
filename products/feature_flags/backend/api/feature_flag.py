@@ -447,7 +447,7 @@ def _scope_audit_identity(authenticator) -> tuple[list[str], str, str | None, st
     if isinstance(authenticator, IDJagAccessTokenAuthentication):
         return scopes, "id_jag_access_token", None, None
     if isinstance(authenticator, WorkloadAccessTokenAuthentication):
-        return scopes, "ci_access_token", authenticator.policy_id, None
+        return scopes, "workload_access_token", authenticator.policy_id, None
     psak = authenticator.project_secret_api_key
     return scopes, "project_secret_api_key", str(getattr(psak, "id", "")) or None, None
 
