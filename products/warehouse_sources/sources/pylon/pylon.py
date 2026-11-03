@@ -188,12 +188,12 @@ def _get_simple_rows(
 
     start_cursor = resume.cursor if resume else None
     for items, next_cursor in _iter_pages(session, headers, base_url, config.path, params, logger, start_cursor):
-        if items:
-            yield items
-        # Save AFTER yielding so a crash re-yields the last page rather than skipping it; merge dedupes
-        # on the primary key.
         if next_cursor:
             manager.save_state(PylonResumeConfig(cursor=next_cursor))
+        if items:
+            yield items
+        else:
+            manager.safe_point()
 
 
 def _get_fan_out_rows(
@@ -220,19 +220,21 @@ def _get_fan_out_rows(
 
         start_cursor = resume_cursor if index == 0 else None
         resume_cursor = None
+        next_object_type = remaining[index + 1] if index + 1 < len(remaining) else None
 
         for items, next_cursor in _iter_pages(session, headers, base_url, config.path, params, logger, start_cursor):
             # Stamp the queried object_type so a single table covers every type and the composite
             # [object_type, id] primary key stays unique even if two types reuse an id.
             stamped = [{**item, "object_type": item.get("object_type") or object_type} for item in items]
-            if stamped:
-                yield stamped
             if next_cursor:
                 manager.save_state(PylonResumeConfig(cursor=next_cursor, object_type=object_type))
-
-        # Advance the bookmark to the next object_type so a crash between types resumes correctly.
-        if index + 1 < len(remaining):
-            manager.save_state(PylonResumeConfig(cursor=None, object_type=remaining[index + 1]))
+            elif next_object_type is not None:
+                # The last page of this type: advance the bookmark so a crash between types resumes correctly.
+                manager.save_state(PylonResumeConfig(cursor=None, object_type=next_object_type))
+            if stamped:
+                yield stamped
+            else:
+                manager.safe_point()
 
 
 def _get_windowed_rows(
@@ -286,14 +288,17 @@ def _get_windowed_rows(
         resume_cursor = None
 
         for items, next_cursor in _iter_pages(session, headers, base_url, config.path, params, logger, start_cursor):
-            if items:
-                yield items
             if next_cursor:
                 manager.save_state(PylonResumeConfig(cursor=next_cursor, window_start=params["start_time"]))
+            elif window_end < now:
+                # The last page of this window: point the bookmark at the next window.
+                manager.save_state(PylonResumeConfig(cursor=None, window_start=_format_rfc3339(window_end)))
+            if items:
+                yield items
+            else:
+                manager.safe_point()
 
         window_start = window_end
-        if window_start < now:
-            manager.save_state(PylonResumeConfig(cursor=None, window_start=_format_rfc3339(window_start)))
 
 
 def _iter_parent_pages(

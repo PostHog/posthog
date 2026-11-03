@@ -962,7 +962,18 @@ def anthropic_source(
         # Built for the first day only to carry the resource's column hints; the fan-out below
         # rebuilds a resource per day.
         resource = build_analytics_resource(analytics_windows[0])
-        items = partial(_iter_analytics_windows, build_analytics_resource, analytics_windows, save_analytics_checkpoint)
+        # The day loop hands each page on unchanged and holds no rows. As a `Resource` it keeps the
+        # framework's per-page safe points, so a run of empty days can hand off and commit its day.
+        analytics_days = Resource(
+            partial(_iter_analytics_windows, build_analytics_resource, analytics_windows, save_analytics_checkpoint),
+            name=endpoint,
+            hints=resource._hints,
+        )
+
+        def analytics_items() -> Iterable[list[dict[str, Any]]]:
+            return analytics_days
+
+        items = analytics_items
     elif config.fan_out_over_days:
         # Claude Code analytics: one windowed request per calendar day, driven entirely by the
         # paginator (there is no parent API resource to resolve days from).

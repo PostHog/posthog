@@ -376,7 +376,10 @@ def _flatten_origin_inspector(payload: dict[str, Any], service_id: str) -> list[
 
 
 def _iter_services(
-    session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[FastlyResumeConfig],
 ) -> Iterator[dict[str, Any]]:
     """Page through GET /service, yielding each service object. Used to drive fan-out endpoints."""
     url = _build_url(f"{FASTLY_BASE_URL}/service", {"per_page": SERVICE_PAGE_SIZE})
@@ -385,6 +388,8 @@ def _iter_services(
         items = response.json()
         if isinstance(items, list):
             yield from items
+        # The service list holds parents, not rows, so the walk can stop here and restart.
+        resumable_source_manager.safe_point()
         next_url = _next_page_url(response)
         if not next_url:
             break
@@ -465,6 +470,7 @@ def _get_json_api_rows(
             raise FastlyPaginationError(f"Fastly returned an unchanged next page link for {url}")
         # Saved AFTER yielding so a crash re-yields the last page rather than skipping it.
         resumable_source_manager.save_state(FastlyResumeConfig(next_url=next_url))
+        resumable_source_manager.safe_point()
         url = next_url
 
 
@@ -543,6 +549,8 @@ def _get_origin_inspector_rows(
                 break
             if next_cursor == cursor:
                 raise FastlyPaginationError(f"Fastly returned an unchanged cursor for {url_base}")
+            # The staged bookmark restarts at this service or an earlier one, so no row is lost.
+            resumable_source_manager.safe_point()
             cursor = next_cursor
 
 
@@ -628,6 +636,8 @@ def _get_platform_metrics_rows(
                 break
             if next_cursor == cursor:
                 raise FastlyPaginationError(f"Fastly returned an unchanged cursor for {url_base}")
+            # The staged bookmark restarts at this service or an earlier one, so no row is lost.
+            resumable_source_manager.safe_point()
             cursor = next_cursor
 
 
@@ -655,6 +665,7 @@ def _get_service_list_rows(
             break
         # Save AFTER yielding so a crash re-yields the last page rather than skipping it.
         resumable_source_manager.save_state(FastlyResumeConfig(next_url=next_url))
+        resumable_source_manager.safe_point()
         url = next_url
 
 
@@ -668,7 +679,7 @@ def _iter_services_from_bookmark(
     """Yield the service ids a fan-out endpoint still has to process, bookmarking each one once the
     caller has yielded its rows. If the bookmarked service no longer exists (deleted between runs),
     start over — merge dedupes the re-pulled rows."""
-    services = list(_iter_services(session, headers, logger))
+    services = list(_iter_services(session, headers, logger, resumable_source_manager))
     service_ids = [s["id"] for s in services if isinstance(s, dict) and s.get("id")]
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
@@ -682,6 +693,7 @@ def _iter_services_from_bookmark(
         # Bookmark the service AFTER yielding so a crash resumes here and re-yields. Advanced even for
         # a versionless (skipped) service so resume doesn't re-evaluate it every time.
         resumable_source_manager.save_state(FastlyResumeConfig(service_id=service_id))
+        resumable_source_manager.safe_point()
 
 
 def _get_version_scoped_rows(
@@ -759,6 +771,7 @@ def _get_version_resource_child_rows(
                 ]
                 if rows:
                     yield rows
+                resumable_source_manager.safe_point()
 
 
 def _iter_billing_pages(
@@ -795,6 +808,7 @@ def _iter_billing_pages(
         cursor = next_cursor
         # Saved AFTER yielding so a crash re-yields the last page rather than skipping it.
         resumable_source_manager.save_state(FastlyResumeConfig(cursor=cursor, cursor_request=request))
+        resumable_source_manager.safe_point()
 
 
 def _get_billing_list_rows(
