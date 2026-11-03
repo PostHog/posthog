@@ -23,7 +23,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
 from posthog.models.event.new_events_schema import new_events_schema_for_request
 from posthog.models.instance_setting import override_instance_config
-from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
+from posthog.settings import CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA, HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 from products.analytics_platform.backend.lazy_computation.computation_notifications import (
     job_channel,
@@ -3567,6 +3567,15 @@ class TestInsertSettings(BaseTest):
             table = LazyComputationTable.PREAGGREGATION_RESULTS
             assert _get_insert_settings(self.team.pk, table)["insert_quorum"] == "auto"
             assert _get_insert_settings(self.team.pk, table, read_after_write=False)["insert_quorum"] == 0
+
+    def test_insert_settings_carry_the_native_read_settings_for_a_switched_team(self):
+        table = LazyComputationTable.PREAGGREGATION_RESULTS
+        if not CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert "json_type_escape_dots_in_keys" not in _get_insert_settings(self.team.pk, table)
+        with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", str(self.team.pk)):
+            switched = _get_insert_settings(self.team.pk, table)
+        assert switched["json_type_escape_dots_in_keys"] == 1
+        assert switched["output_format_json_escape_forward_slashes"] == 0
 
     @parameterized.expand(_INSERT_LOAD_BALANCING_CASES)
     def test_insert_load_balancing_follows_the_read_table(self, table, expected_load_balancing):

@@ -331,15 +331,11 @@ export function coerceDeliveryConfigForScope(
     if (!deliveryConfig?.post_all_insights_in_main_message) {
         return deliveryConfig
     }
-    // A prompt report always posts its charts in the main message, so the API rejects this option
-    // and the form hides its toggle. Without this the stored flag has no control that can clear it.
-    if (subscription.resource_type === SubscriptionResourceTypes.AiPrompt) {
-        return { ...deliveryConfig, post_all_insights_in_main_message: false }
-    }
     if (subscription.target_type !== 'slack') {
         return { ...deliveryConfig, post_all_insights_in_main_message: false }
     }
-    if (integrations == null) {
+    // A prompt report links its chart images instead of uploading them, so it needs no file upload permission.
+    if (subscription.resource_type === SubscriptionResourceTypes.AiPrompt || integrations == null) {
         return deliveryConfig
     }
 
