@@ -70,9 +70,19 @@ export class TeamWorkflowsConfigService {
         return (await this.lazyLoader.get(String(teamId))) ?? DEFAULT_CONFIG
     }
 
+    /**
+     * Fails closed with `false`, the same stance as the two getters below: a lookup error must not
+     * cost the caller its own work. The SES webhook reads this while recording a notification's
+     * metrics, so letting it throw loses the metric over a question about an optional event.
+     */
     public async shouldCaptureEngagementEvents(teamId: number): Promise<boolean> {
-        const config = await this.get(teamId)
-        return config.capture_workflows_engagement_events
+        try {
+            const config = await this.get(teamId)
+            return config.capture_workflows_engagement_events
+        } catch (error) {
+            logger.error('[TeamWorkflowsConfig] Failed to check engagement event capture', { teamId, error })
+            return false
+        }
     }
 
     public async getEmailTrackingConsentMode(teamId: number): Promise<EmailTrackingConsentMode> {
