@@ -683,6 +683,17 @@ _PENDING_MIGRATION_CHECK = [{"name": "Migration risk", "status": "in_progress", 
             False,
             id="pending-migration-check-waits",
         ),
+        # The check judges Django migrations only, so its result cannot clear the SQL file's deny.
+        pytest.param(
+            _pregate_context(
+                [_api_file("posthog/migrations/0999_add_col.py"), _api_file("rust/foo/migrations/001.sql")],
+                check_runs=_PENDING_MIGRATION_CHECK,
+                folder_policies_known=True,
+            ),
+            "REFUSED",
+            True,
+            id="pending-check-cannot-clear-a-file-outside-its-paths",
+        ),
         # A manifest's scripts scan could add a second deny in the sandbox and turn the WAIT into a refusal.
         pytest.param(
             _pregate_context(
@@ -898,6 +909,7 @@ def test_deny_exception_requires_full_review_in_pipeline_and_pregate(
         [
             {
                 "name": "Migration risk",
+                "app": {"slug": "tests-posthog"},
                 "status": "completed",
                 "conclusion": "success",
                 "output": {"summary": f"<!-- stamphog:v1 {json.dumps(safe_migrations)} -->"},

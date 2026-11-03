@@ -307,6 +307,19 @@ def _set_deny_exceptions(d: dict, *, raw: object) -> None:
     d["deny_exceptions"] = raw
 
 
+_VALID_ATTESTATION = {
+    "name": "Migration risk",
+    "check": "Migration risk",
+    "lifts": ["migrations"],
+    "paths": ["migrations/[^/]+\\.py$"],
+}
+
+
+def _set_attestation(d: dict, **changes: object) -> None:
+    entry = {**_VALID_ATTESTATION, **changes}
+    d["attestations"] = [{k: v for k, v in entry.items() if v is not None}]
+
+
 @pytest.mark.parametrize(
     "mutate",
     [
@@ -393,6 +406,16 @@ def _set_deny_exceptions(d: dict, *, raw: object) -> None:
                 ("whitespace", [".yaml "]),
                 ("control", [".yaml\x00"]),
                 ("invalid-second-entry", [".yaml", "."]),
+            ]
+        ],
+        *[
+            pytest.param(partial(_set_attestation, **changes), id=f"attestation-{name}")
+            for name, changes in [
+                ("lifts-self-governance", {"lifts": ["stamphog_policy"]}),
+                ("lifts-unknown-category", {"lifts": ["dependencies"]}),
+                ("no-paths", {"paths": []}),
+                ("no-check", {"check": None}),
+                ("unknown-key", {"lift": ["deps_toolchain"]}),
             ]
         ],
     ],

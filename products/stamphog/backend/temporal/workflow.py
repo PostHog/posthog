@@ -115,7 +115,7 @@ class StamphogReviewWorkflow(PostHogWorkflow):
 
             # A PR that fails a deterministic gate is refused whatever the reviewer says, so the
             # engine's own gates run here first on the stored context. A final gate verdict (a deny,
-            # or the WAIT for a pending migration check) is persisted in the sandbox's output shape,
+            # or the WAIT for a pending attestation) is persisted in the sandbox's output shape,
             # and the run skips the bot wait and the sandbox. Gated for replay like the eyes reaction
             # above.
             refused_on_pre_gates = False

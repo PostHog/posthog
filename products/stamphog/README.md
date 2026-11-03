@@ -35,7 +35,7 @@ So the label can be re-applied once the feedback is addressed.
 A verdict that says nothing about the PR keeps the label, and the next push retries.
 A label can request at most one review per PR every 10 minutes.
 A label added inside that window starts nothing, so stamphog removes it again and says in its status comment when a relabel will work.
-`WAIT` means a reviewer bot still had a review in flight, or the `Migration risk` check had not reported yet.
+`WAIT` means a reviewer bot still had a review in flight, or an attestation such as the `Migration risk` check had not reported yet.
 `ERROR` means the run failed before it could judge the PR, because the LLM backend was unreachable or the reviewer hit a non-retryable analysis failure such as its turn limit.
 A transient failure must not silently drop labels across every queued PR.
 
@@ -230,7 +230,7 @@ The sandbox starts right after the stale-approval sweep and fetches the PR head 
 Before the wait, the worker runs the engine's gates alone on the fetched context (`review_local.py --pregate`).
 The server also reads every `AGENT_APPROVALS.md` that governs a changed file at the PR head, so the pre-check budgets the size gate like the sandbox does.
 When a gate refusal is certain to hold in the full review, stamphog posts it right away with a short LLM note on what the author can do, and skips the wait and the sandbox review.
-A migration whose `Migration risk` check has not reported gets the same WAIT the full review would give, without the sandbox review.
+A PR whose attestation has not reported gets the same WAIT the full review would give, without the sandbox review.
 Anything less certain, such as a PR with renamed files, a dependency manifest next to a pending migration, or folder files that could not be read, gets the full review.
 A dismissed approval is also hidden on the PR timeline as outdated, so superseded reviews do not pile up. Hiding is best-effort and never blocks the dismissal.
 

@@ -11,7 +11,7 @@ than a private parser — one semantics, many consumers.
 import re
 import sys
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from fnmatch import fnmatch
 from pathlib import Path
@@ -539,14 +539,20 @@ def category_fully_exempt(category: str, files: list[str]) -> bool:
 
 
 def detect_deny_categories(
-    files: list[str], ignored_files: set[str] | None = None, *, apply_exceptions: bool = True
+    files: list[str], lifted: Mapping[str, Iterable[str]] | None = None, *, apply_exceptions: bool = True
 ) -> list[str]:
-    """Categories hard-denied by the changed file paths. Titles never deny."""
+    """Categories hard-denied by the changed file paths. Titles never deny.
+
+    ``lifted`` maps a category to the files an attestation lifted it for: those files no longer
+    deny that category, and still deny every other one.
+    """
     hits: set[str] = set()
-    ignored_files_lower = {f.lower() for f in ignored_files or set()}
-    paths_lower = [fl for f in files if (fl := f.lower()) not in ignored_files_lower]
+    lifted = lifted or {}
+    all_paths_lower = [f.lower() for f in files]
 
     for category, scopes in DENY_PATTERNS.items():
+        lifted_lower = {f.lower() for f in lifted.get(category, ())}
+        paths_lower = [p for p in all_paths_lower if p not in lifted_lower] if lifted_lower else all_paths_lower
         path_regexes = scopes.get("paths", []) + [path_rx for path_rx, _title_rx in scopes.get("any", [])]
         exceptions = DENY_EXCEPTIONS.get(category, {}) if apply_exceptions else {}
         if any(

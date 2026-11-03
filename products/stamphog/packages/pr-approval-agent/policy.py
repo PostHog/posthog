@@ -117,6 +117,23 @@ class DenyCategory:
 
 
 @dataclass(frozen=True, kw_only=True)
+class Attestation:
+    """A CI result trusted to lift deny categories for the files it lists (see attestations.py).
+
+    The source is a check run by name, optionally pinned to the App that publishes it. `paths` are
+    regexes for the files the result is expected to judge: a PR that changes one waits for the
+    result, and the result can lift nothing outside them. The publisher's own trigger must cover
+    them, or such a PR waits for a run that never comes.
+    """
+
+    name: str
+    lifts: tuple[str, ...]
+    paths: tuple[str, ...]
+    check: str
+    app: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
 class DenyException:
     keyword: str | None
     path_prefixes: tuple[str, ...]
@@ -196,6 +213,7 @@ class Policy:
     familiarity: FamiliarityPolicy
     ownership: tuple[OwnershipSource, ...]
     deny_exceptions: dict[str, tuple[DenyException, ...]] = field(default_factory=dict)
+    attestations: tuple[Attestation, ...] = ()
 
     def deny_pattern_defs(self) -> dict[str, dict[str, list[str]]]:
         """Reconstruct the raw scope→patterns mapping the compiler consumes."""
@@ -284,7 +302,7 @@ _TOP_LEVEL_KEYS = {"version", "deny", "allow", "size_gate", "tiers", "overrides"
 # a push may retain a standing approval (logic/approval_retention.py). A repo that could widen those
 # rules could keep an approval standing across arbitrary code pushes.
 _SERVER_ONLY_TOP_LEVEL_KEYS = {"digest", "dismiss"}
-_OPTIONAL_TOP_LEVEL_KEYS = {"deny_exceptions"}
+_OPTIONAL_TOP_LEVEL_KEYS = {"deny_exceptions", "attestations"}
 _DENY_SCOPES = {"any", "titles", "paths"}
 _BREADTH_RULES = {"single-area", "not-cross-cutting"}
 
@@ -470,6 +488,50 @@ def _assert_self_governance(deny: dict[str, DenyCategory]) -> None:
     paths = " ".join(deny["stamphog_policy"].match.get("paths", ()))
     for token in _SELF_GOVERNANCE_REQUIRED:
         _require(token in paths, f"deny.stamphog_policy: self-governance must cover {token!r}")
+
+
+_ATTESTATION_KEYS = {"name", "lifts", "paths", "check", "app"}
+
+
+def _nonempty_strings(raw: object, context: str) -> tuple[str, ...]:
+    _require(
+        isinstance(raw, list) and bool(raw) and all(isinstance(v, str) and v for v in raw),
+        f"{context}: must be a non-empty list of strings",
+    )
+    return tuple(raw)
+
+
+def _optional_string(spec: dict, key: str, context: str) -> str | None:
+    value = spec.get(key)
+    _require(value is None or (isinstance(value, str) and bool(value)), f"{context}.{key}: must be a string")
+    return value
+
+
+def _parse_attestations(raw: object, deny: dict[str, DenyCategory]) -> tuple[Attestation, ...]:
+    _require(isinstance(raw, list), "attestations: must be a list")
+    parsed: list[Attestation] = []
+    for index, spec in enumerate(raw):
+        context = f"attestations[{index}]"
+        _require(isinstance(spec, dict), f"{context}: must be a mapping")
+        unknown = set(spec) - _ATTESTATION_KEYS
+        _require(not unknown, f"{context}: unknown keys {sorted(unknown)}")
+        name = _optional_string(spec, "name", context)
+        _require(name is not None, f"{context}.name: required")
+        _require(all(name != other.name for other in parsed), f"{context}.name: duplicate {name!r}")
+        lifts = _nonempty_strings(spec.get("lifts"), f"{context}.lifts")
+        for category in lifts:
+            _require(category in deny, f"{context}.lifts: unknown deny category {category!r}")
+            # The policy and the engine judge every attestation, so no attestation may judge them.
+            _require(category != "stamphog_policy", f"{context}.lifts: stamphog_policy can never be lifted")
+        paths = _nonempty_strings(spec.get("paths"), f"{context}.paths")
+        for pattern in paths:
+            _compile_or_raise(pattern, f"{context}.paths")
+        check = _optional_string(spec, "check", context)
+        _require(check is not None, f"{context}.check: required")
+        parsed.append(
+            Attestation(name=name, lifts=lifts, paths=paths, check=check, app=_optional_string(spec, "app", context))
+        )
+    return tuple(parsed)
 
 
 def _parse_allow(raw: Any) -> tuple[tuple[str, ...], frozenset[str]]:
@@ -707,6 +769,7 @@ def _parse_policy(raw: Any, *, lockfile_names: Iterable[str], ownership_formats:
         familiarity=_parse_familiarity(raw["familiarity"]),
         ownership=_parse_ownership(raw["ownership"], ownership_formats),
         deny_exceptions=_parse_deny_exceptions(raw.get("deny_exceptions", {}), deny),
+        attestations=_parse_attestations(raw.get("attestations", []), deny),
     )
 
 

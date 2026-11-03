@@ -2212,8 +2212,9 @@ jobs:
                   # to exactly the files the analyzer classified, because heuristics
                   # over directory names produce false bypasses for unrelated
                   # systems (ClickHouse, async migrations) that share the
-                  # `migrations/` directory naming.
-                  ANALYZED_PATHS=$(jq -c '[.migrations[].file_path | select(. != null)]' migration_analysis.json 2>/dev/null || echo '[]')
+                  # `migrations/` directory naming. Each migration's max_migration.txt
+                  # is part of the same change, so it is listed with it.
+                  ANALYZED_PATHS=$(jq -c '[.migrations[].file_path | select(. != null)] | (. + map(sub("[^/]+$"; "max_migration.txt"))) | unique' migration_analysis.json 2>/dev/null || echo '[]')
                   MARKER="<!-- stamphog:v1 ${ANALYZED_PATHS} -->"
 
                   # Truncate the human report to fit the check-run output
