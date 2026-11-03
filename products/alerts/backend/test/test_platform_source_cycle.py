@@ -22,6 +22,7 @@ from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded
 from posthog.models.scoping import team_scope
+from posthog.query_cache.single_flight import query_single_flight_skipped
 from posthog.redis import get_client
 from posthog.schema_enums import AlertCalculationInterval
 from posthog.tasks.alerts.utils import AlertEvaluationResult, RenderedInsightChart, next_check_time
@@ -211,7 +212,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         slot = slot_of(configuration.next_check_at, CUTOFF)
         expires_at = time.time() + 3600
         assert plan_insight_batch(self.team.id, slot, CUTOFF, expires_at=expires_at) == (str(configuration.id),)
-        side_effect = result if isinstance(result, Exception | list) else None
+        side_effect = result if isinstance(result, Exception | list) or callable(result) else None
         returned = result if isinstance(result, AlertEvaluationResult) else None
         with patch(f"{_MODULE}.check_alert_for_insight", side_effect=side_effect, return_value=returned) as query:
             evaluation = evaluate_insight_check(
@@ -430,9 +431,16 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         before = AlertConfiguration.objects.values("state", "next_check_at", "last_checked_at").get(id=alert.id)
         configuration = self._copy(alert)
 
-        outcome, _ = self._evaluate(configuration, result=AlertEvaluationResult(value=150.0, breaches=["above 100"]))
+        skipped_during_query: list[bool] = []
+
+        def query(*args: Any, **kwargs: Any) -> AlertEvaluationResult:
+            skipped_during_query.append(query_single_flight_skipped())
+            return AlertEvaluationResult(value=150.0, breaches=["above 100"])
+
+        outcome, _ = self._evaluate(configuration, result=query)
         assert outcome is not None
         assert get_query_tags().ch_user == ClickHouseUser.ALERTS_PLATFORM_INSIGHT
+        assert skipped_during_query == [True]
         record_outcomes(self.team.id, (outcome,), CUTOFF)
 
         assert (outcome.groups[0].kind, outcome.groups[0].value, outcome.evaluation_key) == (
