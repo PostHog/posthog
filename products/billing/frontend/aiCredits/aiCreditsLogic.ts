@@ -177,6 +177,12 @@ async function readSpend(periodsAgo: number): Promise<AISpendResponseApi | null>
     }
 }
 
+/** A purchase that billing didn't answer. Billing derives the Stripe idempotency keys from its key. */
+export interface UnansweredPurchase {
+    key: string
+    amountUsd: string
+}
+
 interface PurchaseFailure {
     code: string | null
     message: string
@@ -295,7 +301,6 @@ export interface aiCreditsLogicValues {
     previousSpendLoading: boolean
     previousSpendPeriodsAgo: number | null
     purchaseError: string | null
-    purchaseKey: string | null
     quote: AICreditQuoteResponseApi | null
     quoteError: string | null
     quoteLoading: boolean
@@ -320,6 +325,7 @@ export interface aiCreditsLogicValues {
     spendSettingsFormValidationErrors: DeepPartialMap<AISpendSettingsForm, ValidationErrorType>
     spendSummary: AISpendSummary | null
     spendUnavailable: boolean
+    unansweredPurchase: UnansweredPurchase | null
     unavailable: boolean
 }
 
@@ -477,9 +483,6 @@ export interface aiCreditsLogicActions {
     setPurchaseError: (error: string | null) => {
         error: string | null
     }
-    setPurchaseKey: (key: string | null) => {
-        key: string | null
-    }
     setQuote: (quote: AICreditQuoteResponseApi | null) => {
         quote: AICreditQuoteResponseApi | null
     }
@@ -498,6 +501,9 @@ export interface aiCreditsLogicActions {
     }
     setSpendSettingsFormValues: (values: DeepPartial<AISpendSettingsForm>) => {
         values: DeepPartial<AISpendSettingsForm>
+    }
+    setUnansweredPurchase: (purchase: UnansweredPurchase | null) => {
+        purchase: UnansweredPurchase | null
     }
     submitAddFundsForm: () => {
         value: boolean
@@ -599,7 +605,7 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
         closeAddFundsModal: true,
         openSettingsModal: true,
         closeSettingsModal: true,
-        setPurchaseKey: (key: string | null) => ({ key }),
+        setUnansweredPurchase: (purchase: UnansweredPurchase | null) => ({ purchase }),
         setPurchaseError: (error: string | null) => ({ error }),
         purchaseCompleted: (amountUsd: number, authenticated: boolean) => ({ amountUsd, authenticated }),
         loadQuote: (amountUsd: number | null) => ({ amountUsd }),
@@ -658,10 +664,11 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
         addFundsModalOpen: [false, { openAddFundsModal: () => true, closeAddFundsModal: () => false }],
         settingsModalOpen: [false, { openSettingsModal: () => true, closeSettingsModal: () => false }],
         // One key per purchase the person confirms. A retry after billing didn't answer reuses it, so billing
-        // charges the card at most once.
-        purchaseKey: [
-            null as string | null,
-            { setPurchaseKey: (_, { key }) => key, openAddFundsModal: () => null, loadQuote: () => null },
+        // charges the card at most once. The key stays until billing answers, also when the person closes the
+        // modal or the quote reloads.
+        unansweredPurchase: [
+            null as UnansweredPurchase | null,
+            { setUnansweredPurchase: (_, { purchase }) => purchase, purchaseCompleted: () => null },
         ],
         purchaseError: [
             null as string | null,
@@ -713,8 +720,10 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
                     actions.setPurchaseError('Wait for the total, then pay.')
                     return
                 }
-                const key = values.purchaseKey ?? uuid()
-                actions.setPurchaseKey(key)
+                // Another amount is another purchase, so it gets a new key.
+                const unanswered = values.unansweredPurchase
+                const key = unanswered?.amountUsd === quote.amount_usd ? unanswered.key : uuid()
+                actions.setUnansweredPurchase({ key, amountUsd: quote.amount_usd })
                 actions.setPurchaseError(null)
                 let authenticated = false
                 try {
@@ -731,7 +740,7 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
                 } catch (error) {
                     const failure = purchaseFailure(error)
                     if (failure.endsPurchase) {
-                        actions.setPurchaseKey(null)
+                        actions.setUnansweredPurchase(null)
                     }
                     if (failure.code === 'ai_credits_total_changed') {
                         actions.loadQuote(form.amountUsd)

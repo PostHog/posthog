@@ -49,7 +49,10 @@ describe('aiCreditsLogic', () => {
                     { card: { brand: 'visa', last4: '4242', exp_month: 8, exp_year: 2030 } },
                 ],
                 '/api/billing/ai_credits/history/': () => [200, { results: [], has_more: false }],
-                '/api/billing/ai_credits/quote/': () => [200, QUOTE],
+                '/api/billing/ai_credits/quote/': ({ request }) => [
+                    200,
+                    { ...QUOTE, amount_usd: new URL(request.url).searchParams.get('amount_usd') },
+                ],
                 '/api/billing/ai_credits/spend/': ({ request }) => {
                     const periodsAgo = Number(new URL(request.url).searchParams.get('periods_ago'))
                     return [200, spendFor(periodsAgo)]
@@ -69,13 +72,15 @@ describe('aiCreditsLogic', () => {
         logic.mount()
     })
 
-    // Billing charges a key once. A retry after billing didn't answer has to reuse it, or the card
-    // can be charged twice. A purchase that ended without a charge has to start over with a new key.
+    // Billing charges a key once. A retry after billing didn't answer has to reuse it, or billing can charge
+    // the card twice. That holds also after the person reopens the modal and the quote reloads. A purchase
+    // that ended without a charge, or a purchase of another amount, has to start over with a new key.
     it.each([
-        ['billing never answered', 503, 'ai_credits_purchase_unfinished', true],
-        ['the bank declined the card', 402, 'ai_credits_card_declined', false],
-        ['the purchase ended', 409, 'ai_credits_purchase_ended', false],
-    ])('pays again after %s with the right key', async (_, status, code, sameKey) => {
+        ['billing never answered', 503, 'ai_credits_purchase_unfinished', 50, true],
+        ['billing never answered and the amount changed', 503, 'ai_credits_purchase_unfinished', 100, false],
+        ['the bank declined the card', 402, 'ai_credits_card_declined', 50, false],
+        ['the purchase ended', 409, 'ai_credits_purchase_ended', 50, false],
+    ])('pays again after %s with the right key', async (_, status, code, retryAmountUsd, sameKey) => {
         firstPurchaseAnswer = [status, { code, detail: 'PostHog says what happened' }]
         logic.actions.openAddFundsModal()
         await expectLogic(logic).toFinishAllListeners()
@@ -84,12 +89,25 @@ describe('aiCreditsLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.purchaseError).toEqual('PostHog says what happened')
 
+        logic.actions.closeAddFundsModal()
+        logic.actions.openAddFundsModal()
+        logic.actions.setAddFundsFormValue('amountUsd', retryAmountUsd)
+        await expectLogic(logic).toFinishAllListeners()
         logic.actions.submitAddFundsForm()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(purchaseKeys).toHaveLength(2)
         expect(purchaseKeys[0] === purchaseKeys[1]).toEqual(sameKey)
         expect(logic.values.addFundsModalOpen).toEqual(false)
+
+        // The second purchase completed, so the next one is a new purchase with a new key.
+        logic.actions.openAddFundsModal()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.submitAddFundsForm()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(purchaseKeys).toHaveLength(3)
+        expect(purchaseKeys[2]).not.toEqual(purchaseKeys[1])
     })
 
     it('shows the chosen billing period, and keeps the balance and reloads on the current one', async () => {
