@@ -1,10 +1,10 @@
 import json
 import uuid
-from dataclasses import dataclass
 
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
 
+from posthog.dataclasses import frozen
 from posthog.temporal.ai.anomaly_investigation.evaluated import EvaluatedCheck
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationReport
 
@@ -28,7 +28,7 @@ VERDICT_LABEL = {
 }
 
 
-@dataclass
+@frozen
 class NotebookRenderContext:
     alert: AlertConfiguration
     evaluated: EvaluatedCheck
