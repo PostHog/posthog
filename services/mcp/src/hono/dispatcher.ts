@@ -41,6 +41,7 @@ import {
 } from '@/lib/stateless-protocol'
 
 import { trackInitEvent } from './analytics'
+import { OmnibusSkillsCache } from './cache/OmnibusSkillsCache'
 import type { RedisLike } from './cache/RedisCache'
 import { getEnv, MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
 import { GuidanceEngine } from './guidance/engine'
@@ -164,12 +165,14 @@ class McpDispatcher {
     constructor(catalog: ToolCatalog, redis: RedisLike) {
         const env = getEnv()
         this.catalog = catalog
-        this.resourceCatalog = new ResourceCatalog(env, redis)
+        const omnibusSkills = env.POSTHOG_MCP_OMNIBUS_SKILLS === 'off' ? undefined : new OmnibusSkillsCache(redis)
+        this.resourceCatalog = new ResourceCatalog(env, redis, omnibusSkills)
         this.stateResolver = new RequestStateResolver(catalog, redis, env)
         this.instructionsBuilder = new InstructionsBuilder(GUIDELINES)
         this.skillCatalogService = new SkillCatalogService(redis, {
             archiveUrl: env.POSTHOG_MCP_SKILLS_URL,
             expectedArchiveSha: env.POSTHOG_MCP_SKILLS_SHA256,
+            omnibusSkills,
         })
         this.toolExecutor = new ToolExecutor(
             catalog,
