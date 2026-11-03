@@ -249,19 +249,17 @@ describe('Inbox setup', () => {
             expect(authorization.pathname).toBe(`/api/projects/${logic.values.currentTeamId}/integrations/authorize/`)
             expect(authorization.searchParams.get('kind')).toBe('github')
             const next = new URL(authorization.searchParams.get('next')!, 'https://example.com')
-            expect(next.pathname).toBe(`/project/${logic.values.currentTeamId}/inbox`)
+            expect(next.pathname).toBe(`/project/${logic.values.currentTeamId}/inbox/activate`)
             expect(next.searchParams.get('agent_setup')).toBe('return')
             expect(next.searchParams.get('onboarding_step')).toBe('quick')
             expect(savedDraft).toBeNull()
             expect(createdSources).toBe(0)
             expect(logic.values.completed).toBe(false)
 
-            router.actions.replace('/inbox', Object.fromEntries(next.searchParams))
+            router.actions.replace('/inbox/activate', Object.fromEntries(next.searchParams))
             logic.actions.loadIntegrations()
-            await waitFor(() => expect(logic.values.shouldResumeQuickSetup).toBe(true))
-            logic.actions.resumeQuickSetup()
-            await waitFor(() => expect(logic.values.completed).toBe(true))
-            await waitFor(() => expect(router.values.searchParams.agent_setup).toBe('complete'))
+            await waitFor(() => expect(entry.values.view).toBe('done'))
+            expect(router.values.location.pathname).toBe(`/project/${logic.values.currentTeamId}/inbox/activate`)
             expect(enabledScouts).toEqual(['signals-scout-general'])
         } finally {
             entry.unmount()
@@ -290,16 +288,19 @@ describe('Inbox setup', () => {
             try {
                 if (state === 'unavailable') {
                     await waitFor(() => expect(entry.values.error).toBeTruthy())
+                } else if (state === 'completed') {
+                    await waitFor(() => expect(entry.values.view).toBe('done'))
+                    expect(router.values.location.pathname).toBe(
+                        `/project/${logic.values.currentTeamId}/inbox/activate`
+                    )
                 } else {
                     await waitFor(() =>
                         expect(router.values.location.pathname).toBe(`/project/${logic.values.currentTeamId}/inbox`)
                     )
                     expect(router.values.searchParams).toMatchObject(
-                        state === 'completed'
-                            ? { agent_setup: 'complete' }
-                            : state === 'without GitHub'
-                              ? { onboarding_step: 'quick', agent_setup: 'without_github' }
-                              : { onboarding_step: 'github', agent_setup: 'return' }
+                        state === 'without GitHub'
+                            ? { onboarding_step: 'quick', agent_setup: 'without_github' }
+                            : { onboarding_step: 'github', agent_setup: 'return' }
                     )
                 }
                 expect(assign).not.toHaveBeenCalled()

@@ -39,6 +39,7 @@ export const manifest: ProductManifest = {
             name: 'Activate Self-driving',
             import: () => import('./frontend/inbox/InboxActivateScene'),
             projectBased: true,
+            layout: 'plain',
         },
         ScoutTrials: {
             name: 'Scout trials',

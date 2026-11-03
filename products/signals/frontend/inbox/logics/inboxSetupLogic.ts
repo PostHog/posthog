@@ -96,6 +96,11 @@ function takeGithubConnectMarker(teamId: number | null): boolean {
     }
 }
 
+// The agent route keeps GitHub setup outside the app layout, so its activation must not move the person into the inbox.
+function quickSetupRoute(): string {
+    return router.values.location.pathname.endsWith(urls.inboxActivate()) ? urls.inboxActivate() : urls.inbox()
+}
+
 /** A first-report state the progress card still shows. A created report shows as a row in the report list instead. */
 export interface FirstReportProgressState extends FirstReportStateApi {
     status: Exclude<FirstReportStateApi['status'], 'report_created'>
@@ -1051,7 +1056,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                     actions.startSetup()
                     return
                 }
-                router.actions.replace(urls.inbox(), {
+                router.actions.replace(quickSetupRoute(), {
                     onboarding_step: 'quick',
                     ...(values.searchParams.agent_setup === 'return' ||
                     values.searchParams.agent_setup === 'without_github'
@@ -1083,7 +1088,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                     await saveDraft()
                     actions.setSavedState(await signalsOnboardingList(projectId))
                     if (values.completed) {
-                        router.actions.replace(urls.inbox(), completionParams)
+                        router.actions.replace(quickSetupRoute(), completionParams)
                         return
                     }
                     let scanners: ReplayScannerApi[] = []
@@ -1218,7 +1223,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                     actions.loadSourceConfigs()
                     actions.loadVisionScanners()
                     actions.loadScoutConfigs()
-                    router.actions.replace(urls.inbox(), completionParams)
+                    router.actions.replace(quickSetupRoute(), completionParams)
                 } catch (error) {
                     const message =
                         (error instanceof ApiError && error.detail?.trim()) ||

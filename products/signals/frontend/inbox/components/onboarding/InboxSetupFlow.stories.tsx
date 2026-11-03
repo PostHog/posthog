@@ -165,6 +165,24 @@ export const AgentConnectionFailed: Story = {
     },
 }
 
+export const AgentSetupComplete: Story = {
+    render: () => <InboxActivateScene />,
+    parameters: { pageUrl: '/inbox/activate', testOptions: { snapshotBrowsers: [] } },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/onboarding/': () => [
+                    200,
+                    { draft: null, completed_at: '2026-01-01T00:00:00Z' },
+                ],
+            },
+        }),
+    ],
+    play: async ({ canvas }) => {
+        await expect(await canvas.findByText('Self-driving is on')).toBeVisible()
+    },
+}
+
 export const Signals: Story = {}
 export const NarrowSignals: Story = {
     decorators: [

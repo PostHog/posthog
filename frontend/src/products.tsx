@@ -1202,7 +1202,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'Automated code reviews of your pull requests, and your review agent settings.',
         iconType: 'code_review',
     },
-    InboxActivate: { name: 'Activate Self-driving', projectBased: true },
+    InboxActivate: { name: 'Activate Self-driving', projectBased: true, layout: 'plain' },
     ScoutTrials: { name: 'Scout trials', projectBased: true },
     Inbox: {
         name: 'Self-driving inbox',
