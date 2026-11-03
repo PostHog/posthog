@@ -1217,12 +1217,14 @@ describe('EmailService', () => {
         describe('attachments', () => {
             let attachments: EmailAttachmentsService
             let assertPool: Pool
+            // Bytes outside ASCII, as in any real PDF or image.
+            const pdfBytes = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x00, 0x9f, 0xff])
             const files = decodeAttachments({
                 tracking: { captureEngagement: false },
                 attachments: [
                     {
                         filename: 'report.pdf',
-                        content: Buffer.from('%PDF-1.4 report').toString('base64'),
+                        content: pdfBytes.toString('base64'),
                         contentType: 'application/pdf',
                     },
                     {
@@ -1233,12 +1235,6 @@ describe('EmailService', () => {
                     },
                 ],
             })
-            const storedRows = async (): Promise<number> =>
-                (
-                    await assertPool.query('SELECT id FROM cyclotron_email_attachments WHERE job_id = $1', [
-                        invocation.id,
-                    ])
-                ).rowCount ?? 0
 
             beforeEach(() => {
                 attachments = new EmailAttachmentsService(hub.CYCLOTRON_NODE_DATABASE_URL)
@@ -1256,37 +1252,22 @@ describe('EmailService', () => {
                 await assertPool.end()
             })
 
-            it.each([
-                [
-                    'delivers the files and deletes their rows once SES accepts the email',
-                    () => sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' }),
-                    true,
-                    0,
-                ],
-                [
-                    'keeps the rows for the retry when SES throttles the send',
-                    () =>
-                        sendEmailSpy.mockRejectedValueOnce(
-                            new TooManyRequestsException({ $metadata: {}, message: 'Too many requests' })
-                        ),
-                    false,
-                    2,
-                ],
-            ])('%s', async (_name, ses, finished, rowsLeft) => {
-                ses()
+            it('delivers the files to SES as Base64 attachments', async () => {
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
                 await attachments.store(invocation.id, team.id, files)
 
                 const result = await service.executeSendEmail(invocation)
 
-                expect(result.finished).toBe(finished)
+                expect(result.finished).toBe(true)
                 const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
                 expect(sentCommand.input.Content.Simple.Attachments).toEqual([
                     {
-                        RawContent: Buffer.from('%PDF-1.4 report'),
+                        RawContent: pdfBytes,
                         FileName: 'report.pdf',
                         ContentType: 'application/pdf',
                         ContentId: undefined,
                         ContentDisposition: 'ATTACHMENT',
+                        ContentTransferEncoding: 'BASE64',
                     },
                     {
                         RawContent: Buffer.from('png bytes'),
@@ -1294,9 +1275,9 @@ describe('EmailService', () => {
                         ContentType: 'image/png',
                         ContentId: 'logo',
                         ContentDisposition: 'INLINE',
+                        ContentTransferEncoding: 'BASE64',
                     },
                 ])
-                expect(await storedRows()).toBe(rowsLeft)
             })
 
             it.each([
@@ -1320,7 +1301,6 @@ describe('EmailService', () => {
                 expect(sendEmailSpy).not.toHaveBeenCalled()
                 expect(result.finished).toBe(true)
                 expect(result.error).toMatch(/^attachments_missing: /)
-                expect(await storedRows()).toBe(0)
             })
         })
 

@@ -452,20 +452,6 @@ export class EmailService {
         invocation: CyclotronJobInvocationHogFunction,
         isTest = false
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
-        const result = await this.sendEmailOnce(invocation, isTest)
-        // The rows stay while the job reschedules for a rate limit or a provider throttle, because the
-        // retry needs them. Every other outcome is final, and nothing reads the rows again.
-        const attachments = invocation.queueParameters?.type === 'email' ? invocation.queueParameters.attachments : []
-        if (attachments?.length && result.finished) {
-            await this.emailAttachmentsService?.delete(invocation.id)
-        }
-        return result
-    }
-
-    private async sendEmailOnce(
-        invocation: CyclotronJobInvocationHogFunction,
-        isTest: boolean
-    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         if (invocation.queueParameters?.type !== 'email') {
             throw new Error('Invocation passed to sendEmail is not an email function')
         }
@@ -1342,6 +1328,8 @@ export class EmailService {
                     ContentId: file.contentId,
                     // A file with a content id is an image the html shows through `cid:`.
                     ContentDisposition: file.contentId ? 'INLINE' : 'ATTACHMENT',
+                    // Binary files such as a PDF survive delivery only with Base64 transfer encoding.
+                    ContentTransferEncoding: 'BASE64',
                 }))
             }
         }

@@ -47,7 +47,24 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
     ): Promise<CyclotronJobInvocationResult[]> {
         const { loadedInvocations, canceledResults } = await this.loadHogFlows(invocations)
         const executed = await Promise.all(loadedInvocations.map((item) => this.hogFlowExecutor.execute(item)))
-        return [...canceledResults, ...executed]
+        const results = [...canceledResults, ...executed]
+        await this.deleteAttachmentsOfFinishedSends(results)
+        return results
+    }
+
+    // A send can end before the email service runs, for example when it is canceled or the recipient is
+    // suppressed. So every final outcome deletes the files here. A rescheduled send keeps them for its retry.
+    private async deleteAttachmentsOfFinishedSends(results: CyclotronJobInvocationResult[]): Promise<void> {
+        await Promise.all(
+            results
+                .filter(
+                    (result) =>
+                        result.finished &&
+                        (result.invocation.state as CyclotronJobInvocationHogFlow['state'] | null)?.send?.attachments
+                            ?.length
+                )
+                .map((result) => this.emailAttachmentsService.delete(result.invocation.id))
+        )
     }
 
     /**
