@@ -35,6 +35,7 @@ import {
     groupChecksBySubject,
 } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 
+import { nextColumnSort } from './catalogSort'
 import {
     CatalogTableRow,
     DEFAULT_TABLES_FILTERS,
@@ -50,7 +51,6 @@ import {
     buildCatalogTableRows,
     canCertify,
     hasPendingProposal,
-    nextTablesSort,
     proposalAcceptsAsDeprecation,
     rowIsExpandable,
     rowMatchesFilters,
@@ -382,7 +382,7 @@ export const catalogTablesLogic = kea<catalogTablesLogicType>([
         sort: [
             null as TablesSort | null,
             {
-                toggleSort: (state, { column }) => nextTablesSort(state, column),
+                toggleSort: (state, { column }) => nextColumnSort(state, column),
             },
         ],
         filters: [

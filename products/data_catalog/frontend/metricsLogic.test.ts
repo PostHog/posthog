@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api'
@@ -96,6 +97,11 @@ describe('metricsLogic', () => {
         expect(dataCatalogMetricsList).not.toHaveBeenCalled()
         void logic.values.allMetrics
         await expectLogic(logic).toDispatchActions(['loadMetricsSuccess'])
+    })
+
+    it('opens on proposed metrics when the To review card links to them', () => {
+        router.actions.push('/data-catalog', { tab: 'metrics', filter: 'proposed' })
+        expect(logic.values.filters.status).toBe('proposed')
     })
 
     it('replaces the row with the response when approve succeeds', async () => {

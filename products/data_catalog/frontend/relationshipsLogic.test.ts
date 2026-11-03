@@ -124,6 +124,12 @@ describe('relationshipsLogic', () => {
         expect(router.values.searchParams.propose_table).toBeUndefined()
     })
 
+    it('opens on pending relationships when the To review card links to proposed ones', async () => {
+        await mountWith([], [])
+        router.actions.push('/data-catalog', { tab: 'relationships', filter: 'proposed' })
+        expect(logic.values.filters.status).toBe('pending')
+    })
+
     it('loads proposals with the linked table filter before pagination and clears it on general navigation', async () => {
         await mountWith([], [])
         ;(dataCatalogRelationshipProposalsList as jest.Mock).mockImplementation((_project, params) =>

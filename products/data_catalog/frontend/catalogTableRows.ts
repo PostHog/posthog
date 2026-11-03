@@ -26,6 +26,7 @@ import {
 } from 'products/data_quality/frontend/generated/api.schemas'
 import { type SubjectGroup, subjectKeyOf } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 
+import { ColumnSort, SortValueGetters, sortByColumn } from './catalogSort'
 import type { CertificationTargetType } from './certificationsLogic'
 import type { DataCatalogCertificationApi } from './generated/api.schemas'
 
@@ -33,6 +34,12 @@ export type TableKind = 'posthog' | 'source' | 'self_managed' | 'view' | 'materi
 export type TableScope = 'all' | 'attention'
 export type TrustFilter = 'any' | 'certified' | 'proposed' | 'deprecated' | 'none'
 export type ChecksFilter = 'any' | 'with' | 'without'
+
+export const CHECKS_FILTER_OPTIONS: { value: ChecksFilter; label: string }[] = [
+    { value: 'any', label: 'Any' },
+    { value: 'with', label: 'With checks' },
+    { value: 'without', label: 'Without checks' },
+]
 
 export interface TablesFilters {
     kind: TableKind | 'any'
@@ -332,11 +339,8 @@ function matchesTrust(row: CatalogTableRow, trust: TrustFilter): boolean {
     return row.certification?.status === trust
 }
 
-function matchesChecks(row: CatalogTableRow, checks: ChecksFilter): boolean {
-    if (checks === 'any') {
-        return true
-    }
-    return (checks === 'with') === row.checkCounts.total > 0
+export function matchesChecksFilter(hasChecks: boolean, checks: ChecksFilter): boolean {
+    return checks === 'any' || (checks === 'with') === hasChecks
 }
 
 export function rowMatchesFilters(row: CatalogTableRow, filters: TablesFilters): boolean {
@@ -344,7 +348,7 @@ export function rowMatchesFilters(row: CatalogTableRow, filters: TablesFilters):
         (filters.kind === 'any' || row.kind === filters.kind) &&
         (filters.problem === 'any' || row.problems.includes(filters.problem)) &&
         matchesTrust(row, filters.trust) &&
-        matchesChecks(row, filters.checks)
+        matchesChecksFilter(row.checkCounts.total > 0, filters.checks)
     )
 }
 
@@ -354,63 +358,37 @@ export function rowMatchesSearch(row: CatalogTableRow, search: string): boolean 
 }
 
 export type TablesSortColumn = 'name' | 'status' | 'checks' | 'trust' | 'refresh'
-export type SortDirection = 'asc' | 'desc'
 
-export interface TablesSort {
-    column: TablesSortColumn
-    direction: SortDirection
-}
+export type TablesSort = ColumnSort<TablesSortColumn>
 
 const TRUST_RANK: Record<string, number> = { certified: 0, proposed: 1, deprecated: 2 }
 
-export function passingChecks(row: CatalogTableRow): CheckCounts | null {
-    const checks = row.checkGroup?.checks ?? []
-    if (checks.length > 0) {
-        return { total: checks.length, failing: checks.filter((check) => check.last_status !== 'passed').length }
+export function checkGroupCounts(group: SubjectGroup | null | undefined): CheckCounts | null {
+    const checks = group?.checks ?? []
+    if (checks.length === 0) {
+        return null
     }
-    return row.checkCounts.total > 0 ? row.checkCounts : null
+    return { total: checks.length, failing: checks.filter((check) => check.last_status !== 'passed').length }
 }
 
-function passingShare(row: CatalogTableRow): number | null {
-    const counts = passingChecks(row)
+export function passingChecks(row: CatalogTableRow): CheckCounts | null {
+    return checkGroupCounts(row.checkGroup) ?? (row.checkCounts.total > 0 ? row.checkCounts : null)
+}
+
+export function passingShare(counts: CheckCounts | null): number | null {
     return counts ? (counts.total - counts.failing) / counts.total : null
 }
 
-const SORT_VALUES: Record<TablesSortColumn, (row: CatalogTableRow) => string | number | null> = {
+const SORT_VALUES: SortValueGetters<CatalogTableRow, TablesSortColumn> = {
     name: (row) => row.name,
     status: attentionRank,
-    checks: passingShare,
+    checks: (row) => passingShare(passingChecks(row)),
     trust: (row) => (row.certification ? (TRUST_RANK[row.certification.status] ?? null) : null),
     refresh: (row) => row.refreshedAt,
 }
 
-function compareValues(left: string | number, right: string | number): number {
-    return typeof left === 'string' && typeof right === 'string'
-        ? left.localeCompare(right)
-        : Number(left) - Number(right)
-}
-
 export function sortCatalogTableRows(rows: CatalogTableRow[], sort: TablesSort | null): CatalogTableRow[] {
-    if (!sort) {
-        return rows
-    }
-    const valueOf = SORT_VALUES[sort.column]
-    const sign = sort.direction === 'asc' ? 1 : -1
-    return [...rows].sort((left, right) => {
-        const leftValue = valueOf(left)
-        const rightValue = valueOf(right)
-        if (leftValue === null || rightValue === null) {
-            return Number(leftValue === null) - Number(rightValue === null) || left.name.localeCompare(right.name)
-        }
-        return sign * compareValues(leftValue, rightValue) || left.name.localeCompare(right.name)
-    })
-}
-
-export function nextTablesSort(current: TablesSort | null, column: TablesSortColumn): TablesSort | null {
-    if (current?.column !== column) {
-        return { column, direction: 'asc' }
-    }
-    return current.direction === 'asc' ? { column, direction: 'desc' } : null
+    return sortByColumn(rows, sort, SORT_VALUES, (row) => row.name)
 }
 
 export type ProposalDecision = 'accept' | 'reject'

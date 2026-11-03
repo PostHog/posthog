@@ -1,6 +1,6 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { ApiConfig, ApiError } from 'lib/api'
@@ -12,6 +12,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { UserType } from '~/types'
 
+import { PROPOSED_TABLES_FILTER, TABLES_FILTER_PARAM } from './catalogTableRows'
 import { existingMetricFromNameConflict, metricCount } from './common'
 import { createMetricAsUser, MetricSaveAction, toastCreatedMetric } from './createMetricAsUser'
 import {
@@ -533,6 +534,13 @@ export const metricsLogic = kea<metricsLogicType>([
                 lemonToast.error(apiErrorDetail(error) || 'Could not delete the selected metrics. Try again.')
             } finally {
                 actions.setBulkActionInFlight(null)
+            }
+        },
+    })),
+    urlToAction(({ actions }) => ({
+        [urls.dataCatalog()]: (_, searchParams) => {
+            if (searchParams.tab === 'metrics' && searchParams[TABLES_FILTER_PARAM] === PROPOSED_TABLES_FILTER) {
+                actions.setFilters({ status: 'proposed' })
             }
         },
     })),

@@ -1,40 +1,43 @@
-import { useActions, useValues } from 'kea'
-
 import { IconSort } from '@posthog/icons'
 import { Button, TableHead, cn } from '@posthog/quill'
 
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 
-import { SortDirection, TablesSortColumn } from '../catalogTableRows'
-import { catalogTablesLogic } from '../catalogTablesLogic'
+import { SortDirection } from '../catalogSort'
 
 const ARIA_SORT: Record<SortDirection, 'ascending' | 'descending'> = { asc: 'ascending', desc: 'descending' }
 
-interface CatalogTablesSortableHeadProps {
-    column: TablesSortColumn
+export interface SortHeadProps {
+    direction: SortDirection | null
+    onToggle: () => void
+    dataAttr: string
+}
+
+interface SortableTableHeadProps extends SortHeadProps {
     label: string
+    tooltip?: string
     className?: string
     expand?: boolean
 }
 
-export function CatalogTablesSortableHead({
-    column,
+export function SortableTableHead({
     label,
+    direction,
+    onToggle,
+    dataAttr,
+    tooltip,
     className,
     expand,
-}: CatalogTablesSortableHeadProps): JSX.Element {
-    const { sort } = useValues(catalogTablesLogic)
-    const { toggleSort } = useActions(catalogTablesLogic)
-    const direction = sort?.column === column ? sort.direction : null
-
+}: SortableTableHeadProps): JSX.Element {
     return (
         <TableHead className={className} expand={expand} aria-sort={direction ? ARIA_SORT[direction] : undefined}>
             <Button
                 size="sm"
                 aria-selected={direction ? true : undefined}
                 className={cn('-ml-2 gap-1.5', direction ? 'text-foreground' : 'hover:bg-fill-hover/50')}
-                onClick={() => toggleSort(column)}
-                data-attr={`data-catalog-tables-sort-${column}`}
+                tooltip={tooltip}
+                onClick={onToggle}
+                data-attr={dataAttr}
             >
                 {label}
                 {direction === 'asc' ? (

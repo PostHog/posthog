@@ -18,14 +18,19 @@ import {
     TableHeader,
     TableRow,
     Text,
-    Tooltip,
-    TooltipContent,
-    TooltipTrigger,
     cn,
 } from '@posthog/quill'
 
+import { sortDirectionFor } from '../catalogSort'
+import { SortHeadProps, SortableTableHead } from '../components/SortableTableHead'
 import { usePagedItems } from '../components/usePagedItems'
-import { DEFAULT_RELATIONSHIPS_FILTERS, RelationshipRow, relationshipsLogic } from '../relationshipsLogic'
+import {
+    DEFAULT_RELATIONSHIPS_FILTERS,
+    RelationshipRow,
+    RelationshipsSortColumn,
+    relationshipTableRef,
+    relationshipsLogic,
+} from '../relationshipsLogic'
 import { CatalogTablesPagination } from '../tables/CatalogTablesPagination'
 import { CatalogRelationshipActions } from './CatalogRelationshipActions'
 
@@ -45,16 +50,12 @@ const STATUS_BADGES: Record<
     rejected: { label: 'Rejected', variant: 'destructive' },
 }
 
-function tableRef(table: string, key: string): string {
-    return key ? `${table}.${key}` : table
-}
-
 function hasDetail(row: RelationshipRow): boolean {
     return !!row.reasoning || !!row.evidence || !!row.rejectionReason
 }
 
 function TableRefText({ table, refKey }: { table: string; refKey: string }): JSX.Element {
-    const value = tableRef(table, refKey)
+    const value = relationshipTableRef(table, refKey)
     return (
         <span title={value} className="block max-w-56 truncate font-mono text-xs">
             {value}
@@ -235,22 +236,15 @@ function NoRelationships(): JSX.Element {
     )
 }
 
-function AccessorHeader(): JSX.Element {
-    return (
-        <Tooltip>
-            <TooltipTrigger render={<span className="cursor-help underline decoration-dotted" />}>
-                Accessor
-            </TooltipTrigger>
-            <TooltipContent>
-                The field added to the source table to reach the joined rows, for example events.person
-            </TooltipContent>
-        </Tooltip>
-    )
-}
-
 export function CatalogRelationshipsTable(): JSX.Element {
-    const { filteredRows } = useValues(relationshipsLogic)
-    const { pageItems, currentPage, pageCount, setPage } = usePagedItems(filteredRows, RELATIONSHIPS_PAGE_SIZE)
+    const { sortedRows, sort } = useValues(relationshipsLogic)
+    const { toggleSort } = useActions(relationshipsLogic)
+    const { pageItems, currentPage, pageCount, setPage } = usePagedItems(sortedRows, RELATIONSHIPS_PAGE_SIZE)
+    const sortProps = (column: RelationshipsSortColumn): SortHeadProps => ({
+        direction: sortDirectionFor(sort, column),
+        onToggle: () => toggleSort(column),
+        dataAttr: `data-catalog-relationships-sort-${column}`,
+    })
     const [expandedKeys, setExpandedKeys] = useState<string[]>([])
     const toggleExpanded = (key: string): void =>
         setExpandedKeys(
@@ -265,14 +259,25 @@ export function CatalogRelationshipsTable(): JSX.Element {
                         <TableHead className="w-0 pr-0">
                             <span className="sr-only">Details</span>
                         </TableHead>
-                        <TableHead expand>Source</TableHead>
-                        <TableHead className={WIDE_ONLY_CELL}>Joins to</TableHead>
-                        <TableHead className={WIDE_ONLY_CELL}>
-                            <AccessorHeader />
-                        </TableHead>
-                        <TableHead className={EXTRA_WIDE_ONLY_CELL}>Confidence</TableHead>
-                        <TableHead className={WIDE_ONLY_CELL}>Status</TableHead>
-                        <TableHead className={EXTRA_WIDE_ONLY_CELL}>Reviewed by</TableHead>
+                        <SortableTableHead label="Source" expand {...sortProps('source')} />
+                        <SortableTableHead label="Joins to" className={WIDE_ONLY_CELL} {...sortProps('joining')} />
+                        <SortableTableHead
+                            label="Accessor"
+                            tooltip="The field added to the source table to reach the joined rows, for example events.person"
+                            className={WIDE_ONLY_CELL}
+                            {...sortProps('accessor')}
+                        />
+                        <SortableTableHead
+                            label="Confidence"
+                            className={EXTRA_WIDE_ONLY_CELL}
+                            {...sortProps('confidence')}
+                        />
+                        <SortableTableHead label="Status" className={WIDE_ONLY_CELL} {...sortProps('status')} />
+                        <SortableTableHead
+                            label="Reviewed by"
+                            className={EXTRA_WIDE_ONLY_CELL}
+                            {...sortProps('reviewedBy')}
+                        />
                         <TableHead className="w-0">
                             <span className="sr-only">Actions</span>
                         </TableHead>
@@ -300,7 +305,7 @@ export function CatalogRelationshipsTable(): JSX.Element {
                     currentPage={currentPage}
                     pageCount={pageCount}
                     pageSize={RELATIONSHIPS_PAGE_SIZE}
-                    total={filteredRows.length}
+                    total={sortedRows.length}
                     onPageChange={setPage}
                 />
             )}

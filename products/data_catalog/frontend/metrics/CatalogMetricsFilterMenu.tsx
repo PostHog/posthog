@@ -5,7 +5,9 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { TodayFilterMenuTrigger } from '~/layout/today/TodayFilterMenuTrigger'
 import { TodayRecentRadioSubmenu } from '~/layout/today/TodayRecentRadioSubmenu'
 
+import { CHECKS_FILTER_OPTIONS } from '../catalogTableRows'
 import { DEFAULT_METRICS_FILTERS, MetricStatusFilter, metricsLogic } from '../metricsLogic'
+import { DEFAULT_METRIC_CHECKS_FILTER, catalogMetricsLogic } from './catalogMetricsLogic'
 
 const ANY_USER = 'any'
 const ANY_USER_LABEL = 'Any user'
@@ -19,8 +21,13 @@ const STATUS_OPTIONS: { value: MetricStatusFilter; label: string }[] = [
 export function CatalogMetricsFilterMenu(): JSX.Element {
     const { filters, ownerFilterOptions, creatorFilterOptions } = useValues(metricsLogic)
     const { setFilters } = useActions(metricsLogic)
+    const { checksFilter } = useValues(catalogMetricsLogic)
+    const { setChecksFilter } = useActions(catalogMetricsLogic)
     const filtersActive =
-        filters.status !== DEFAULT_METRICS_FILTERS.status || filters.createdBy !== null || filters.owner !== null
+        filters.status !== DEFAULT_METRICS_FILTERS.status ||
+        filters.createdBy !== null ||
+        filters.owner !== null ||
+        checksFilter !== DEFAULT_METRIC_CHECKS_FILTER
 
     const creatorOptions = [
         { value: ANY_USER, label: ANY_USER_LABEL },
@@ -59,18 +66,27 @@ export function CatalogMetricsFilterMenu(): JSX.Element {
                     onChange={(owner) => setFilters({ owner: owner === ANY_USER ? null : owner })}
                     dataAttr="data-catalog-metrics-owner-filter"
                 />
+                <TodayRecentRadioSubmenu
+                    label="Checks"
+                    options={CHECKS_FILTER_OPTIONS}
+                    value={checksFilter}
+                    defaultValue={DEFAULT_METRIC_CHECKS_FILTER}
+                    onChange={setChecksFilter}
+                    dataAttr="data-catalog-metrics-filter-checks"
+                />
                 {filtersActive && (
                     <>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
                             variant="destructive"
-                            onClick={() =>
+                            onClick={() => {
                                 setFilters({
                                     status: DEFAULT_METRICS_FILTERS.status,
                                     createdBy: DEFAULT_METRICS_FILTERS.createdBy,
                                     owner: DEFAULT_METRICS_FILTERS.owner,
                                 })
-                            }
+                                setChecksFilter(DEFAULT_METRIC_CHECKS_FILTER)
+                            }}
                             data-attr="data-catalog-metrics-filter-clear"
                         >
                             Clear filters

@@ -28,18 +28,30 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { stripMarkdown } from 'lib/utils/markdown'
 import { urls } from 'scenes/urls'
 
+import { sortDirectionFor } from '../catalogSort'
+import { checkGroupCounts } from '../catalogTableRows'
 import { humanizeDefinitionKind } from '../common'
+import { CheckGroupSummary } from '../components/CheckGroupSummary'
+import { SortHeadProps, SortableTableHead } from '../components/SortableTableHead'
 import { usePagedItems } from '../components/usePagedItems'
 import type { DataCatalogMetricApi } from '../generated/api.schemas'
 import { bulkBusyReason } from '../metricActionGuards'
 import { DEFAULT_METRICS_FILTERS, metricsLogic } from '../metricsLogic'
 import { CatalogTablesPagination } from '../tables/CatalogTablesPagination'
 import { CatalogMetricRowMenu } from './CatalogMetricRowMenu'
+import {
+    DEFAULT_METRIC_CHECKS_FILTER,
+    MetricsSortColumn,
+    catalogMetricsLogic,
+    metricDisplayName,
+    metricUpdatedAt,
+} from './catalogMetricsLogic'
 import { MetricOwnerCombobox } from './MetricOwnerCombobox'
 
 const METRICS_PAGE_SIZE = 20
 const WIDE_ONLY_CELL = 'hidden @min-[40rem]/main-content:table-cell'
 const NARROW_ONLY = '@min-[40rem]/main-content:hidden'
+const EXTRA_WIDE_ONLY_CELL = 'hidden @min-[72rem]/main-content:table-cell'
 
 const STATUS_LABELS: Record<string, string> = {
     approved: 'Approved',
@@ -112,7 +124,7 @@ function NameCell({ metric }: { metric: DataCatalogMetricApi }): JSX.Element {
                 render={<LinkPrimitive to={urls.dataCatalogMetric(metric.name)} />}
                 data-attr="data-catalog-metrics-name"
             >
-                {metric.display_name || metric.name}
+                {metricDisplayName(metric)}
             </Button>
             {metric.description && (
                 <Text size="xs" variant="muted" className="line-clamp-2 max-w-120">
@@ -121,15 +133,33 @@ function NameCell({ metric }: { metric: DataCatalogMetricApi }): JSX.Element {
             )}
             <div className={cn(NARROW_ONLY, 'flex flex-col items-start gap-1')}>
                 <StatusBadges metric={metric} />
+                <ChecksCell metric={metric} />
                 <OwnerCell metric={metric} />
             </div>
         </div>
     )
 }
 
+function ChecksCell({ metric }: { metric: DataCatalogMetricApi }): JSX.Element {
+    const { checkGroupByMetricId } = useValues(catalogMetricsLogic)
+    const group = checkGroupByMetricId[metric.id]
+    return (
+        <Button
+            variant="link"
+            size="inline"
+            className="text-foreground"
+            render={<LinkPrimitive to={urls.dataCatalogMetric(metric.name, 'data-quality')} />}
+            data-attr="data-catalog-metrics-checks"
+        >
+            <CheckGroupSummary counts={checkGroupCounts(group)} subjectKey={group?.subjectKey} />
+        </Button>
+    )
+}
+
 function NoMetrics(): JSX.Element {
     const { allMetrics } = useValues(metricsLogic)
     const { setFilters } = useActions(metricsLogic)
+    const { setChecksFilter } = useActions(catalogMetricsLogic)
     if (allMetrics.length === 0) {
         return (
             <Empty>
@@ -150,7 +180,10 @@ function NoMetrics(): JSX.Element {
                 <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setFilters(DEFAULT_METRICS_FILTERS)}
+                    onClick={() => {
+                        setFilters(DEFAULT_METRICS_FILTERS)
+                        setChecksFilter(DEFAULT_METRIC_CHECKS_FILTER)
+                    }}
                     data-attr="data-catalog-metrics-show-all"
                 >
                     Show all metrics
@@ -210,9 +243,12 @@ function MetricRow({
                 <StatusBadges metric={metric} />
             </TableCell>
             <TableCell valign="top" className={WIDE_ONLY_CELL}>
+                <ChecksCell metric={metric} />
+            </TableCell>
+            <TableCell valign="top" className={EXTRA_WIDE_ONLY_CELL}>
                 <Badge>{humanizeDefinitionKind(metric.definition_kind)}</Badge>
             </TableCell>
-            <TableCell valign="top" className={WIDE_ONLY_CELL}>
+            <TableCell valign="top" className={EXTRA_WIDE_ONLY_CELL}>
                 <SourceBadge metric={metric} />
             </TableCell>
             <TableCell valign="top" className={WIDE_ONLY_CELL}>
@@ -220,7 +256,7 @@ function MetricRow({
             </TableCell>
             <TableCell valign="top" className={cn(WIDE_ONLY_CELL, 'whitespace-nowrap')}>
                 <Text size="xs" variant="muted">
-                    <TZLabel time={metric.created_at} />
+                    <TZLabel time={metricUpdatedAt(metric)} />
                 </Text>
             </TableCell>
             <TableCell valign="top" align="right" className="w-0">
@@ -231,8 +267,14 @@ function MetricRow({
 }
 
 export function CatalogMetricsTable({ selectedIds, setSelectedIds }: MetricSelectionProps): JSX.Element {
-    const { metrics } = useValues(metricsLogic)
-    const { pageItems, currentPage, pageCount, setPage } = usePagedItems(metrics, METRICS_PAGE_SIZE)
+    const { visibleMetrics, sort } = useValues(catalogMetricsLogic)
+    const { toggleSort } = useActions(catalogMetricsLogic)
+    const { pageItems, currentPage, pageCount, setPage } = usePagedItems(visibleMetrics, METRICS_PAGE_SIZE)
+    const sortProps = (column: MetricsSortColumn): SortHeadProps => ({
+        direction: sortDirectionFor(sort, column),
+        onToggle: () => toggleSort(column),
+        dataAttr: `data-catalog-metrics-sort-${column}`,
+    })
     const pageIds = pageItems.map((metric) => metric.id)
 
     return (
@@ -247,12 +289,13 @@ export function CatalogMetricsTable({ selectedIds, setSelectedIds }: MetricSelec
                                 setSelectedIds={setSelectedIds}
                             />
                         </TableHead>
-                        <TableHead expand>Name</TableHead>
-                        <TableHead className={WIDE_ONLY_CELL}>Status</TableHead>
-                        <TableHead className={WIDE_ONLY_CELL}>Definition</TableHead>
-                        <TableHead className={WIDE_ONLY_CELL}>Source</TableHead>
-                        <TableHead className={WIDE_ONLY_CELL}>Owner</TableHead>
-                        <TableHead className={WIDE_ONLY_CELL}>Created</TableHead>
+                        <SortableTableHead label="Name" expand {...sortProps('name')} />
+                        <SortableTableHead label="Status" className={WIDE_ONLY_CELL} {...sortProps('status')} />
+                        <SortableTableHead label="Checks" className={WIDE_ONLY_CELL} {...sortProps('checks')} />
+                        <TableHead className={EXTRA_WIDE_ONLY_CELL}>Definition</TableHead>
+                        <TableHead className={EXTRA_WIDE_ONLY_CELL}>Source</TableHead>
+                        <SortableTableHead label="Owner" className={WIDE_ONLY_CELL} {...sortProps('owner')} />
+                        <SortableTableHead label="Last updated" className={WIDE_ONLY_CELL} {...sortProps('updated')} />
                         <TableHead className="w-0">
                             <span className="sr-only">Actions</span>
                         </TableHead>
@@ -280,7 +323,7 @@ export function CatalogMetricsTable({ selectedIds, setSelectedIds }: MetricSelec
                     currentPage={currentPage}
                     pageCount={pageCount}
                     pageSize={METRICS_PAGE_SIZE}
-                    total={metrics.length}
+                    total={visibleMetrics.length}
                     onPageChange={setPage}
                 />
             )}

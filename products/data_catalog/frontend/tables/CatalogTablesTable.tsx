@@ -29,13 +29,14 @@ import { ModelsOverviewProblemBadges } from 'products/data_modeling/frontend/Mod
 import { useHoldTallestHeight } from 'products/data_modeling/frontend/useHoldTallestHeight'
 import { dataQualityOverviewLogic } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 
-import { CatalogTableRow, passingChecks, rowIsExpandable } from '../catalogTableRows'
+import { sortDirectionFor } from '../catalogSort'
+import { CatalogTableRow, TablesSortColumn, passingChecks, rowIsExpandable } from '../catalogTableRows'
 import { TABLES_PAGE_SIZE, catalogTablesLogic } from '../catalogTablesLogic'
 import { PageSelectionCheckbox } from '../components/PageSelectionCheckbox'
+import { SortHeadProps, SortableTableHead } from '../components/SortableTableHead'
 import { CatalogTableRefresh } from './CatalogTableRefresh'
 import { CatalogTableRowMenu } from './CatalogTableRowMenu'
 import { CatalogTablesPagination } from './CatalogTablesPagination'
-import { CatalogTablesSortableHead } from './CatalogTablesSortableHead'
 import { CatalogTableTrust } from './CatalogTableTrust'
 import { MutedCellText } from './MutedCellText'
 import { TableChecksPanel } from './TableChecksPanel'
@@ -233,13 +234,18 @@ function NoMatches(): JSX.Element {
 }
 
 export function CatalogTablesTable(): JSX.Element {
-    const { visibleRows, filteredRows, currentPage, pageCount, expandedRowKeys, selectedRowKeys } =
+    const { visibleRows, filteredRows, currentPage, pageCount, expandedRowKeys, selectedRowKeys, sort } =
         useValues(catalogTablesLogic)
-    const { setPage, setRowsSelected } = useActions(catalogTablesLogic)
+    const { setPage, setRowsSelected, toggleSort } = useActions(catalogTablesLogic)
     const containerRef = useRef<HTMLDivElement>(null)
     const contentRef = useRef<HTMLDivElement>(null)
     const anyExpanded = visibleRows.some((row) => expandedRowKeys.includes(row.key))
     useHoldTallestHeight(containerRef, contentRef, pageCount > 1 && !anyExpanded)
+    const sortProps = (column: TablesSortColumn): SortHeadProps => ({
+        direction: sortDirectionFor(sort, column),
+        onToggle: () => toggleSort(column),
+        dataAttr: `data-catalog-tables-sort-${column}`,
+    })
 
     return (
         <div ref={containerRef} data-attr="data-catalog-tables-table">
@@ -255,14 +261,14 @@ export function CatalogTablesTable(): JSX.Element {
                                     onChange={setRowsSelected}
                                 />
                             </TableHead>
-                            <CatalogTablesSortableHead column="name" label="Name" expand />
-                            <CatalogTablesSortableHead column="status" label="Status" className={WIDE_ONLY_CELL} />
-                            <CatalogTablesSortableHead column="checks" label="Checks" className={WIDE_ONLY_CELL} />
-                            <CatalogTablesSortableHead column="trust" label="Trust" className={WIDE_ONLY_CELL} />
-                            <CatalogTablesSortableHead
-                                column="refresh"
+                            <SortableTableHead label="Name" expand {...sortProps('name')} />
+                            <SortableTableHead label="Status" className={WIDE_ONLY_CELL} {...sortProps('status')} />
+                            <SortableTableHead label="Checks" className={WIDE_ONLY_CELL} {...sortProps('checks')} />
+                            <SortableTableHead label="Trust" className={WIDE_ONLY_CELL} {...sortProps('trust')} />
+                            <SortableTableHead
                                 label="Last refresh"
                                 className={WIDE_ONLY_CELL}
+                                {...sortProps('refresh')}
                             />
                             <TableHead className="w-0">
                                 <span className="sr-only">Actions</span>

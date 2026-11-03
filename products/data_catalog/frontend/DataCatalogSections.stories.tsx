@@ -79,6 +79,18 @@ const checks = [
         last_status: 'failed',
         failing_since: '2026-09-14T18:00:00Z',
     },
+    ...['passed', 'failed'].map((lastStatus, index) => ({
+        id: `check-metric-${index}`,
+        name: `weekly_active_accounts_check_${index}`,
+        check_type: 'custom_sql',
+        subject_type: 'metric',
+        subject_uuid: 'metric-1',
+        subject_name: 'weekly_active_accounts',
+        subject_metric_name: 'weekly_active_accounts',
+        subject_node_id: null,
+        last_status: lastStatus,
+        failing_since: null,
+    })),
 ]
 
 const certifications = [
