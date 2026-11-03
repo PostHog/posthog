@@ -1007,6 +1007,10 @@ mod tests {
                 signed.replace("avatar", "my avatar"),
                 signed.replace("avatar", "my\\ avatar"),
             ),
+            (
+                signed.replace("avatar", "a\u{8}vatar"),
+                signed.replace("avatar", "\\61\u{8}vatar"),
+            ),
         ] {
             let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
                 "attributes": [{"id": 99, "attributes": {"src": src, "alt": copy}}]}}])

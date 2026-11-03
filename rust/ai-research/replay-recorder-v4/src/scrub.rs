@@ -67,6 +67,11 @@ fn is_space(ch: u32) -> bool {
     ch <= u32::from(b' ')
 }
 
+/// Only these end a CSS hex escape. Any other control character is part of the text after it.
+fn is_css_whitespace(ch: u32) -> bool {
+    matches!(ch, 0x09 | 0x0a | 0x0c | 0x0d | 0x20)
+}
+
 fn is_char(ch: u32, byte: u8) -> bool {
     ch == u32::from(byte)
 }
@@ -165,7 +170,7 @@ fn unit(bytes: &[u8], at: usize) -> Unit {
     if digits > 0 {
         if end < bytes.len() {
             let (next, next_len) = json_unit(bytes, end);
-            if is_space(next) {
+            if is_css_whitespace(next) {
                 end = past_crlf(bytes, end + next_len, next);
             }
         }
