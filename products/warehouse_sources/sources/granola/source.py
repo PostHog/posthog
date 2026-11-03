@@ -48,11 +48,9 @@ class GranolaSource(ResumableSource[GranolaSourceConfig, GranolaResumeConfig]):
             releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Granola API key to pull your meeting notes into the PostHog Data warehouse.
 
-API access requires a **Business** plan or higher. Create a key (prefixed `grn_`) in the Granola desktop app under **Settings → Connectors → API keys**.
-
-When creating the key, grant the access scopes for the data you want to sync:
-- **Personal notes**
-- **Public notes**
+API access requires a **Business** plan or higher. Create one of these keys in the Granola desktop app:
+- **Personal API key** (prefixed `grn_`): go to **Settings → Connectors → API keys**. When creating the key, grant the access scopes for the data you want to sync: **Personal notes**, **Public notes**, or both.
+- **Workspace API key** (admins only): go to **Settings → Connectors → Workspace API keys**. It belongs to the workspace and doesn't expire, so the sync keeps working if the person who created it leaves. It can read public notes and notes in spaces with Granola API access turned on, but not private notes.
 
 Only notes with a generated AI summary and transcript are returned by the API.
 """,
