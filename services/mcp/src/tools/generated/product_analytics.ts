@@ -125,6 +125,10 @@ const PieChartSettings = z.object({
         .optional(),
 })
 
+const AssistantDataVisualizationColumnDisplaySettings = z.object({
+    description: z.string().describe('Table column description shown in the header tooltip.').optional(),
+})
+
 const AssistantDataVisualizationAxisFormatting = z.object({
     decimalPlaces: z.coerce.number().describe('Number of decimal places to display.').optional(),
     prefix: z.string().describe('Text prepended to each value (e.g. `$`).').optional(),
@@ -135,10 +139,6 @@ const AssistantDataVisualizationAxisFormatting = z.object({
         )
         .optional(),
     suffix: z.string().describe('Value suffix (e.g. ` ms`). Omit for `percent`, which adds `%`.').optional(),
-})
-
-const AssistantDataVisualizationColumnDisplaySettings = z.object({
-    description: z.string().describe('Table column description shown in the header tooltip.').optional(),
 })
 
 const AssistantDataVisualizationColumnSettings = z.object({
