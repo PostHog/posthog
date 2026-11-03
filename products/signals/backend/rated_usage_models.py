@@ -10,7 +10,13 @@ class SignalRatedUsage(TeamScopedRootMixin, UUIDModel):
     organization_id = models.UUIDField()
     day = models.DateField(db_index=True)
     cents = models.PositiveBigIntegerField()
+    reported_at = models.DateTimeField(null=True)
 
     class Meta:
-        indexes = [models.Index(fields=["organization_id", "day"], name="signals_rated_usage_org_day")]
+        indexes = [
+            models.Index(fields=["organization_id", "day"], name="signals_rated_usage_org_day"),
+            models.Index(
+                fields=["day"], condition=models.Q(reported_at__isnull=True), name="signals_rated_usage_pending"
+            ),
+        ]
         constraints = [models.UniqueConstraint(fields=["team_id", "day"], name="signals_rated_usage_team_day")]

@@ -25,13 +25,19 @@ class Migration(migrations.Migration):
                 ("organization_id", models.UUIDField()),
                 ("day", models.DateField(db_index=True)),
                 ("cents", models.PositiveBigIntegerField()),
+                ("reported_at", models.DateTimeField(null=True)),
             ],
             options={
                 "indexes": [
                     models.Index(
                         fields=["organization_id", "day"],
                         name="signals_rated_usage_org_day",
-                    )
+                    ),
+                    models.Index(
+                        fields=["day"],
+                        condition=models.Q(reported_at__isnull=True),
+                        name="signals_rated_usage_pending",
+                    ),
                 ],
                 "constraints": [
                     models.UniqueConstraint(

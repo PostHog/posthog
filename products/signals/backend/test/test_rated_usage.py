@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from datetime import date
 from decimal import Decimal
 from uuid import uuid4
@@ -13,11 +14,11 @@ from parameterized import parameterized
 from posthog.models import Organization, Team
 
 from products.signals.backend.models import SignalSpend
+from products.signals.backend.rated_usage_models import SignalRatedUsage
 from products.signals.backend.rated_usage_tasks import enqueue_signals_rated_usage, report_signals_rated_usage
 from products.signals.backend.spend_billing import get_signals_spend_billing_credits_by_team
 from products.signals.backend.test.test_billing import _at
 
-from ee.billing.billing_manager import BillingManager
 from ee.models.license import License
 
 
@@ -60,6 +61,7 @@ class TestSignalsRatedUsage(BaseTest):
 
         report_signals_rated_usage.run(str(self.organization.id), "2026-06-10")
         report_signals_rated_usage.run(str(self.organization.id), "2026-06-10")
+        assert SignalRatedUsage.objects.for_team(self.team.id).get().reported_at == _at(12)
 
         expected = {"items": [{"team_id": self.team.id, "product": "inbox_usage", "day": "2026-06-10", "cents": 3}]}
         assert dict(get_signals_spend_billing_credits_by_team(_at(10, 0), _at(11, 0), self.organization.id)) == {
@@ -76,8 +78,11 @@ class TestSignalsRatedUsage(BaseTest):
             assert claims["service_action"] == "rated_usage"
             assert "distinct_id" not in claims
 
+    @parameterized.expand([("complete", False), ("second_batch_fails", True)])
     @patch("ee.billing.billing_manager.http_session.post")
-    def test_report_respects_the_endpoint_batch_limit(self, post: MagicMock) -> None:
+    def test_report_respects_the_endpoint_batch_limit(
+        self, _name: str, second_batch_fails: bool, post: MagicMock
+    ) -> None:
         teams = Team.objects.bulk_create(
             [Team(organization=self.organization, project=self.team.project) for _ in range(1001)]
         )
@@ -87,14 +92,23 @@ class TestSignalsRatedUsage(BaseTest):
                 for team in teams
             ]
         )
-        post.side_effect = lambda *args, **kwargs: MagicMock(
-            status_code=200, json=lambda: {"results": ["created"] * len(kwargs["json"]["items"])}
-        )
-        report_signals_rated_usage.run(str(self.organization.id), "2026-06-10")
+        post.side_effect = [
+            MagicMock(status_code=200, json=lambda: {"results": ["created"] * 1000}),
+            TimeoutError("synthetic failure of the second batch")
+            if second_batch_fails
+            else MagicMock(status_code=200, json=lambda: {"results": ["created"]}),
+        ]
+        with pytest.raises(TimeoutError) if second_batch_fails else nullcontext():
+            report_signals_rated_usage.run(str(self.organization.id), "2026-06-10")
         assert [len(call.kwargs["json"]["items"]) for call in post.call_args_list] == [1000, 1]
         assert {item["team_id"] for call in post.call_args_list for item in call.kwargs["json"]["items"]} == {
             team.id for team in teams
         }
+        assert (
+            SignalRatedUsage.objects.unscoped()
+            .filter(organization_id=self.organization.id, reported_at__isnull=False)
+            .count()
+        ) == (1000 if second_batch_fails else 1001)
 
     @parameterized.expand(
         [
@@ -107,12 +121,34 @@ class TestSignalsRatedUsage(BaseTest):
         ]
     )
     def test_failed_or_conflicting_delivery_raises(self, _name: str, status: int, body: dict) -> None:
+        self._spend("3")
         response = MagicMock(status_code=status, json=lambda: body, ok=status == 200)
         with patch("ee.billing.billing_manager.http_session.post", return_value=response), pytest.raises(Exception):
-            BillingManager(self.license).record_rated_usage(
-                self.organization,
-                [{"team_id": self.team.id, "product": "inbox_usage", "day": "2026-06-10", "cents": 3}],
-            )
+            report_signals_rated_usage.run(str(self.organization.id), "2026-06-10")
+        assert SignalRatedUsage.objects.for_team(self.team.id).get().reported_at is None
+
+    @patch("ee.billing.billing_manager.http_session.post")
+    def test_sweep_retries_unacknowledged_usage_after_seven_days(self, post: MagicMock) -> None:
+        self._spend("250")
+        post.side_effect = TimeoutError("synthetic timeout after acceptance")
+        with pytest.raises(TimeoutError):
+            report_signals_rated_usage.run(str(self.organization.id), "2026-06-10")
+        original_payload = post.call_args.kwargs["json"]
+
+        with time_machine.travel(_at(20), tick=False):
+            with patch("products.signals.backend.rated_usage_tasks.report_signals_rated_usage.delay") as enqueue:
+                enqueue_signals_rated_usage.run()
+            enqueue.assert_called_once_with(str(self.organization.id), "2026-06-10")
+
+            post.side_effect = None
+            post.return_value = MagicMock(status_code=200, json=lambda: {"results": ["replayed"]})
+            report_signals_rated_usage.run(*enqueue.call_args.args)
+            assert post.call_args.kwargs["json"] == original_payload
+            assert SignalRatedUsage.objects.for_team(self.team.id).get().reported_at == _at(20)
+
+            with patch("products.signals.backend.rated_usage_tasks.report_signals_rated_usage.delay") as enqueue:
+                enqueue_signals_rated_usage.run()
+            enqueue.assert_not_called()
 
     @parameterized.expand([("today", "2026-06-12"), ("future", "2026-06-13")])
     def test_open_days_are_rejected(self, _name: str, day: str) -> None:

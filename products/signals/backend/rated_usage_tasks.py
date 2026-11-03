@@ -59,9 +59,12 @@ def enqueue_signals_rated_usage(day: str | None = None) -> None:
         .values_list("team__organization_id", "day")
         .order_by()
     )
+    delivery_window = Q(day__gte=begin.date())
+    if day is None:
+        delivery_window |= Q(reported_at__isnull=True)
     deliveries = (
         SignalRatedUsage.objects.unscoped()
-        .filter(day__gte=begin.date(), day__lt=end.date())
+        .filter(delivery_window, day__lt=end.date())
         .values_list("organization_id", "day")
         .order_by()
     )

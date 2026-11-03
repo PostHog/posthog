@@ -45,3 +45,9 @@ class SignalsRatedUsageReporter:
         manager = BillingManager(None)
         for batch in batched(items, 1000, strict=False):
             manager.record_rated_usage(organization, list(batch))
+            SignalRatedUsage.objects.unscoped().filter(
+                organization_id=organization_id,
+                day=day,
+                team_id__in=[item["team_id"] for item in batch],
+                reported_at__isnull=True,
+            ).update(reported_at=timezone.now())
