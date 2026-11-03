@@ -41,9 +41,7 @@ def research_access(
     if github_status == GitHubReadinessStatus.READY:
         if repository:
             return ResearchAccess(mode=ResearchAccessMode.CODE)
-        if github_optional_allowed:
-            return ResearchAccess(mode=ResearchAccessMode.REPOSITORY_DISCOVERY)
-        return ResearchAccess(mode=ResearchAccessMode.BLOCKED, blocker="repo_selection_required")
+        return ResearchAccess(mode=ResearchAccessMode.REPOSITORY_DISCOVERY)
     if github_optional_allowed:
         return ResearchAccess(mode=ResearchAccessMode.DATA_ONLY)
     return ResearchAccess(mode=ResearchAccessMode.BLOCKED, blocker=github_status.value)
@@ -157,7 +155,6 @@ def project_research_access(team_id: int, *, verify: bool = False) -> ProjectRes
     access = research_access(
         github_optional_allowed=optional,
         github_status=readiness.status,
-        repository=None if optional else "selected_per_report",
     )
     return ProjectResearchAccess(
         github_optional_available=optional, github_readiness=readiness.status, research_access=access

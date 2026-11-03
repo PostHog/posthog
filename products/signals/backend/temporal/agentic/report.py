@@ -1228,16 +1228,15 @@ def _validated_repository_recommendation(
 async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportOutput:
     """Run the sandbox-backed report research and persist its artefacts after full success."""
     try:
-        assert input.github_optional or input.repo_selection.repository is not None, (
-            "run_agentic_report_activity called without a repository"
-        )
         repository = input.repo_selection.repository
         repository_candidates: list[str] = []
         discovery = (
-            input.github_optional
-            and repository is None
+            repository is None
             and input.repo_selection.research_context is not None
             and input.repo_selection.research_context.mode == "repository_discovery"
+        )
+        assert input.github_optional or repository is not None or discovery, (
+            "run_agentic_report_activity called without a repository or discovery context"
         )
         if discovery:
             repository_candidates = await database_sync_to_async(
@@ -1278,7 +1277,9 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
         async with Heartbeater():
             # 1. Get context for the sandbox
             user_id = await database_sync_to_async(
-                resolve_acting_user_id_for_team if input.github_optional else resolve_user_id_for_team,
+                resolve_acting_user_id_for_team
+                if input.github_optional or repository is None
+                else resolve_user_id_for_team,
                 thread_sensitive=False,
             )(input.team_id)
             if user_id is None:
@@ -1293,7 +1294,7 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
                 team_id=input.team_id,
                 user_id=user_id,
                 repository=repository,
-                github_read_access=input.github_optional and (repository is not None or bool(repository_candidates)),
+                github_read_access=bool(repository_candidates) or (input.github_optional and repository is not None),
                 sandbox_environment_id=sandbox_env_id,
                 # Reads, plus the scratchpad: the research agent queries data/insights and can
                 # list the report's artefacts, but never writes artefacts itself — the pipeline

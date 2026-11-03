@@ -224,7 +224,7 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
             unconfirmed_previous = previous
             # Outside the pilot, research resolves its sandbox user from the team's GitHub integration
             # and raises when there is none. A team that disconnected GitHub after the first run must
-            # go back through selection, which returns no repository and asks for a selection.
+            # go back through selection so the workflow can record the connection blocker.
             if (
                 previous is not None
                 and previous.repository is not None
@@ -339,7 +339,7 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                     repository=None,
                     reason=(
                         "This repository was rejected for the previous report. "
-                        "Choose a repository to continue research."
+                        "Research must find a different repository before implementation."
                     ),
                 )
             logger.info(
@@ -381,6 +381,10 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                 )
                 if readiness.status != GitHubReadinessStatus.READY:
                     result.blocked_reason = readiness.status
+                else:
+                    result.research_context = ReportResearchContext(
+                        mode="repository_discovery", repository_status="selection_unresolved"
+                    )
             return _retain_confirmation(result, unconfirmed_previous)
     except Exception as e:
         if input.github_optional and _is_github_access_failure(e):

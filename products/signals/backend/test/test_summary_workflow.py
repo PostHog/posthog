@@ -571,7 +571,7 @@ async def test_metric_payload_reaches_the_report_transition(choice, target, chec
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("github_optional", [False, True])
-async def test_no_repository_researches_only_for_the_pilot(github_optional):
+async def test_no_repository_continues_research_with_connected_github(github_optional):
     recorder = _Recorder(
         selected_repository=None,
         github_optional=github_optional,
@@ -580,21 +580,10 @@ async def test_no_repository_researches_only_for_the_pilot(github_optional):
 
     await _run_summary_workflow(recorder)
 
-    if github_optional:
-        assert recorder.researches == 1
-        assert recorder.pending_inputs == []
-        assert recorder.ready_inputs[0].title == "t"
-        assert recorder.failures == 0
-        return
-    assert recorder.researches == 0
-    assert len(recorder.pending_inputs) == 1
-    pending = recorder.pending_inputs[0]
-    assert pending.keep_existing_content is True
-    assert pending.title == "Repository selection required"
-    assert pending.summary == "Could not automatically select a repository: no repository matched"
-    assert pending.suggested_prompts is None
-    assert pending.pending_reason == "repo_selection_required"
-    assert pending.note == "Could not automatically select a repository: no repository matched"
+    assert recorder.researches == 1
+    assert recorder.pending_inputs == []
+    assert recorder.ready_inputs[0].title == "t"
+    assert recorder.failures == 0
 
 
 # ---------------------------------------------------------------------------

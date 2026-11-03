@@ -22,6 +22,7 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.models import Integration, Organization, Team, User
 from posthog.models.integration import GitHubIntegrationError
+from posthog.models.integration.github_readiness import GitHubReadiness, GitHubReadinessStatus
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.user_integration import UserIntegration
@@ -2691,3 +2692,71 @@ def test_discovery_recommendations_require_project_access(team, recommended, acc
         assert selected.requires_confirmation
         assert not selected.autostart_eligible
     assert research.effective_findings()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("github_optional", [False, True])
+async def test_unresolved_selection_lets_research_choose_repository(ateam: Team, github_optional: bool) -> None:
+    report = await SignalReport.objects.acreate(team=ateam, status=SignalReport.Status.IN_PROGRESS)
+    await Integration.objects.acreate(
+        team=ateam,
+        kind="github",
+        integration_id="research-discovery",
+        config={"installation_id": "research-discovery"},
+        repository_cache=[{"id": 1, "name": "app", "full_name": "example/app", "private": True}],
+        repository_cache_updated_at=timezone.now(),
+    )
+    output = _build_research_output().model_copy(
+        update={
+            "repository_recommendation": RepositoryRecommendation(
+                repository="example/app", reason="This repository contains the affected validation code."
+            )
+        }
+    )
+
+    async def research(
+        signals: list[SignalData], context: CustomPromptSandboxContext, **kwargs: object
+    ) -> ReportResearchOutput:
+        assert context.repository is None
+        assert context.github_read_access is True
+        assert kwargs["repository_candidates"] == ["example/app"]
+        return output
+
+    with (
+        patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"),
+        patch("products.signals.backend.temporal.agentic.report.Heartbeater"),
+        patch("products.signals.backend.temporal.agentic.select_repository._resolve_sandbox_user_id", return_value=1),
+        patch(
+            "products.signals.backend.temporal.agentic.select_repository.get_team_github_readiness",
+            return_value=GitHubReadiness(status=GitHubReadinessStatus.READY),
+        ),
+        patch(
+            "products.signals.backend.temporal.agentic.select_repository.select_repository_for_report",
+            return_value=RepoSelectionResult(repository=None, reason="No repository could be selected confidently."),
+        ),
+        patch("products.signals.backend.temporal.agentic.report.resolve_acting_user_id_for_team", return_value=1),
+        patch("products.signals.backend.temporal.agentic.report.run_multi_turn_research", side_effect=research),
+        patch("posthog.models.integration.GitHubIntegration.installation_can_access_repository", return_value=True),
+    ):
+        selection = await select_repository_activity(
+            SelectRepositoryInput(
+                team_id=ateam.id, report_id=str(report.id), signals=_build_signals(), github_optional=github_optional
+            )
+        )
+        result = await run_agentic_report_activity(
+            RunAgenticReportInput(
+                team_id=ateam.id,
+                report_id=str(report.id),
+                signals=_build_signals(),
+                repo_selection=selection,
+                github_optional=github_optional,
+            )
+        )
+
+    assert result.repository == "example/app"
+    row = await SignalReportArtefact.objects.filter(report=report, type="repo_selection").alatest("created_at")
+    persisted = RepoSelectionResult.model_validate_json(row.content)
+    assert persisted.repository == "example/app"
+    assert persisted.requires_confirmation
+    assert not persisted.autostart_eligible

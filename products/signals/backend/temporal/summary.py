@@ -690,7 +690,12 @@ class SignalReportSummaryWorkflow:
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
                 return False
-            if repo_result.repository is None and not github_optional:
+            # Older histories must replay the selection request they already published.
+            if (
+                repo_result.repository is None
+                and not github_optional
+                and not workflow.patched("signals-research-led-repository-selection")
+            ):
                 log.warning(
                     "Report has no repository selected",
                     reason=repo_result.reason,
@@ -713,7 +718,7 @@ class SignalReportSummaryWorkflow:
                     log.info("Report run paused: org over self-driving credits quota", stage="pre_research")
                     await self._revert_report_to_candidate(inputs)
                     return False
-                # 5. Run the agentic report research flow with the selected repository to use code/MCP data to assess signals
+                # Research can discover its own target when the initial selection is inconclusive.
                 agentic_result = await self._run_research(
                     log,
                     RunAgenticReportInput(

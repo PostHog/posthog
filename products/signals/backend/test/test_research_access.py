@@ -12,7 +12,7 @@ class TestResearchAccess(SimpleTestCase):
         [
             (False, "ready", "example/app", "code", None),
             (True, "ready", "example/app", "code", None),
-            (False, "ready", None, "blocked", "repo_selection_required"),
+            (False, "ready", None, "repository_discovery", None),
             (True, "ready", None, "repository_discovery", None),
             (False, "not_connected", None, "blocked", "not_connected"),
             (True, "not_connected", None, "data_only", None),

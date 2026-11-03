@@ -4,6 +4,8 @@ Importing this module loads the signals task module. Import it only from code th
 ``django.setup()``, such as ``posthog/tasks/scheduled.py``.
 """
 
+from products.signals.backend.github_readiness_tasks import sweep_github_blocked_reports
+from products.signals.backend.publication_telemetry_tasks import sweep_first_publications
 from products.signals.backend.tasks import (
     pause_inactive_signal_scouts,
     prune_expired_scratchpad_entries_task,
@@ -24,6 +26,8 @@ __all__ = [
     "refresh_signal_repository_activity",
     "refresh_signal_scout_background_bands",
     "sweep_first_report_notifications",
+    "sweep_first_publications",
+    "sweep_github_blocked_reports",
     "sweep_implementation_dispatches",
     "sweep_monitoring_research_requests",
     "sweep_monitoring_tracker_issues",
