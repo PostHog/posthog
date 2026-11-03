@@ -114,7 +114,9 @@ Results for a search with words follow ordered tie-breaking rules: words matched
 - In the test group of the `command-k-unified-ranking` experiment, one scorer ranks every result type with the same rules.
   The sources only find candidates. The scorer then orders them by words matched, typos, match tier, the person's recent views, word proximity, word position, a type preference, then recency.
   Match tiers, best first: exact name, exact name in singular, exact search keyword, name starts with the search, the same in singular, every word starts a name word, every word starts a name or keyword word, a match on an identity field (account external ID, website domain or email domain, person distinct ID), a match inside a word, then a match in the folder or type only.
-  Names compare as words, so `checkout flow` matches the flag `checkout-flow-redesign` as a name that starts with the search.
+  Names compare as words, split on hyphens and underscores, so `checkout flow` matches the flags `checkout-flow-redesign` and `checkout_flow_redesign` as names that start with the search.
+  A search with underscores, such as a pasted variable name, sends its words to the file system search with spaces.
+  When a search finds nothing and its text converts from a Russian, Hebrew or Arabic keyboard layout to English letters, Cmd+K searches the converted text and says so ("No matches for **фзш**. Showing results for **api**.").
   An account whose display name does not contain the search ranks as an identity match or a match inside a word, not as an exact match.
   Products rank three match tiers higher, so a product whose name starts with the search ranks with an exact saved object name, and "replay" puts Replay vision above a notebook named Replay.
   The type preference breaks ties: a search that looks like a domain or an email address prefers accounts and persons, and any other search prefers products.

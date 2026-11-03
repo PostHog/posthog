@@ -259,6 +259,17 @@ describe('buildRankedResults', () => {
             expected: ['Results: checkout-flow-redesign, Flow of checkout events'],
         },
         {
+            name: 'with unified ranking, a snake_case name splits into words like a hyphenated one',
+            query: 'checkout flow',
+            results: [
+                result('1', 'Flow of checkout redesign', 'insight', [-2, 0, 0, 0, -2, 0, 2, 0, -2]),
+                result('2', 'checkout_flow_redesign', 'feature_flag', [-2, 0, 0, 0, -2, 0, 5, 0, -1]),
+            ],
+            products: [],
+            unifiedRanking: true,
+            expected: ['Results: checkout_flow_redesign, Flow of checkout redesign'],
+        },
+        {
             name: 'with unified ranking, a product that starts with the search ranks above an exact saved object name',
             query: 'replay',
             results: [result('1', 'Replay', 'notebook', [-1, 0, 0, 0, -1, 0, 0, 0, -1])],

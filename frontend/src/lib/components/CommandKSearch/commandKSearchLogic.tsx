@@ -43,6 +43,7 @@ import type { CommandOpenSource } from '../Command/commandLogic'
 import { askAiQuestionFor } from './commandKAskAi'
 import { buildFilterOptions, viewAllFor } from './commandKFilterOptions'
 import { ChipSelection, KeyIntent } from './commandKKeys'
+import { LayoutCorrection, convertKeyboardLayout } from './commandKLayout'
 import { PickInput, pickScores, recordPick } from './commandKPickMemory'
 import {
     CursorContext,
@@ -138,6 +139,7 @@ export interface commandKSearchLogicValues {
     highlightedKey: string | null
     highlightedRow: CommandKRow | null
     isPaletteEmpty: boolean
+    layoutCorrection: LayoutCorrection | null
     localLists: LocalLists
     localQuery: string
     mode: CommandKMode
@@ -228,6 +230,9 @@ export interface commandKSearchLogicActions {
     completeHighlighted: () => {
         value: true
     }
+    correctLayout: (correction: LayoutCorrection) => {
+        correction: LayoutCorrection
+    }
     editChip: (index: number) => {
         index: number
     }
@@ -312,7 +317,11 @@ export interface commandKSearchLogicMeta {
         cursorContext: (text: string, cursor: number, chips: QueryChip[]) => CursorContext
         mode: (cursorContext: CursorContext) => CommandKMode
         resolvedQuery: (text: string, chips: QueryChip[], filterOptions: FilterOptions) => ResolvedQuery
-        localQuery: (resolvedQuery: ResolvedQuery, mode: CommandKMode) => string
+        localQuery: (
+            resolvedQuery: ResolvedQuery,
+            mode: CommandKMode,
+            layoutCorrection: LayoutCorrection | null
+        ) => string
         askAiQuestion: (text: string, resolvedQuery: ResolvedQuery) => string | null
         remoteContext: (
             currentTeamId: number | null,
@@ -324,7 +333,8 @@ export interface commandKSearchLogicMeta {
             resolvedQuery: ResolvedQuery,
             localQuery: string,
             mode: CommandKMode,
-            remoteContext: RemoteContext
+            remoteContext: RemoteContext,
+            layoutCorrection: LayoutCorrection | null
         ) => Record<string, string>
         remoteQueries: (requestQueries: Record<string, string>) => Partial<Record<RemoteSource, string>>
         suggestionsSection: (
@@ -379,7 +389,8 @@ export interface commandKSearchLogicMeta {
                 stale: boolean
             },
             featureFlags: FeatureFlagsSet,
-            pickMemory: PickInput[]
+            pickMemory: PickInput[],
+            layoutCorrection: LayoutCorrection | null
         ) => CommandKSection[]
         selectableRows: (sections: CommandKSection[]) => CommandKRow[]
         highlightedRow: (selectableRows: CommandKRow[], highlightedKey: string | null) => CommandKRow | null
@@ -472,6 +483,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
         foldersLoaded: (folders: FileSystemEntry[]) => ({ folders }),
         markResultOpened: true,
         recordPick: (input: string, itemId: string, now: number) => ({ input, itemId, now }),
+        correctLayout: (correction: LayoutCorrection) => ({ correction }),
     }),
     reducers({
         text: [
@@ -566,6 +578,13 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 markResultOpened: () => true,
             },
         ],
+        layoutCorrection: [
+            null as LayoutCorrection | null,
+            {
+                correctLayout: (_, { correction }) => correction,
+                setChipsAndText: (state, { text }) => (state?.from === text.trim() ? state : null),
+            },
+        ],
         pickMemory: [
             [] as PickInput[],
             PICK_MEMORY_PERSIST_OPTIONS,
@@ -598,9 +617,14 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
         ],
         /** The free text the non-object sections search for. Empty while a filter limits the palette to objects. */
         localQuery: [
-            (s) => [s.resolvedQuery, s.mode],
-            (resolved: ResolvedQuery, mode: CommandKMode): string =>
-                (mode === 'search' || mode === 'key') && resolved.filters.length === 0 ? resolved.freeText.trim() : '',
+            (s) => [s.resolvedQuery, s.mode, s.layoutCorrection],
+            (resolved: ResolvedQuery, mode: CommandKMode, correction: LayoutCorrection | null): string => {
+                const query =
+                    (mode === 'search' || mode === 'key') && resolved.filters.length === 0
+                        ? resolved.freeText.trim()
+                        : ''
+                return query && correction?.from === query ? correction.to : query
+            },
         ],
         askAiQuestion: [
             (s) => [s.text, s.resolvedQuery],
@@ -622,21 +646,23 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
         ],
         /** The query each request runs for this input, for the requests that apply to it. */
         requestQueries: [
-            (s) => [s.resolvedQuery, s.localQuery, s.mode, s.remoteContext],
+            (s) => [s.resolvedQuery, s.localQuery, s.mode, s.remoteContext, s.layoutCorrection],
             (
                 resolved: ResolvedQuery,
                 localQuery: string,
                 mode: CommandKMode,
-                context: RemoteContext
+                context: RemoteContext,
+                correction: LayoutCorrection | null
             ): Record<string, string> => {
+                const objectsQuery =
+                    correction?.from === resolved.backendSearch ? correction.to : resolved.backendSearch
                 const queries: Record<string, string> = {}
                 // Every request searches the current project, so none runs before one is known.
                 if (context.currentTeamId === null) {
                     return queries
                 }
                 for (const request of REMOTE_REQUESTS) {
-                    const query =
-                        request.query === 'objects' ? (mode === 'empty' ? '' : resolved.backendSearch) : localQuery
+                    const query = request.query === 'objects' ? (mode === 'empty' ? '' : objectsQuery) : localQuery
                     if (query && (request.enabled?.(query, context) ?? true)) {
                         queries[request.id] = query
                     }
@@ -751,6 +777,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 s.displayedQuery,
                 s.featureFlags,
                 s.pickMemory,
+                s.layoutCorrection,
             ],
             (
                 mode: CommandKMode,
@@ -760,9 +787,13 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 remote: RemoteSlots,
                 displayed: { query: SectionsQuery; stale: boolean },
                 featureFlags: FeatureFlagsSet,
-                pickMemory: PickInput[]
-            ): CommandKSection[] =>
-                buildSections({
+                pickMemory: PickInput[],
+                layoutCorrection: LayoutCorrection | null
+            ): CommandKSection[] => {
+                const rankedInput = pickInput(displayed.query.remoteQueries.results)
+                const unifiedRanking =
+                    rankedInput.length > 0 && featureFlags[FEATURE_FLAGS.COMMAND_K_UNIFIED_RANKING] === 'test'
+                return buildSections({
                     mode,
                     context,
                     suggestions,
@@ -774,12 +805,11 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                     settingsInResults:
                         rankableSettings(local, displayed.query.localQuery).length > 0 &&
                         featureFlags[FEATURE_FLAGS.COMMAND_K_SETTINGS_IN_RESULTS] === 'test',
-                    unifiedRanking: featureFlags[FEATURE_FLAGS.COMMAND_K_UNIFIED_RANKING] === 'test',
-                    picks:
-                        featureFlags[FEATURE_FLAGS.COMMAND_K_UNIFIED_RANKING] === 'test'
-                            ? pickScores(pickMemory, pickInput(displayed.query.remoteQueries.results), Date.now())
-                            : new Map(),
-                }),
+                    unifiedRanking,
+                    picks: unifiedRanking ? pickScores(pickMemory, rankedInput, Date.now()) : new Map(),
+                    layoutCorrection: layoutCorrection?.to === displayed.query.localQuery ? layoutCorrection : null,
+                })
+            },
         ],
         selectableRows: [
             (s) => [s.sections],
@@ -808,9 +838,19 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => {
+        const correctLayoutWhenEmpty = (): void => {
+            const query = values.localQuery
+            const converted = !values.layoutCorrection && query ? convertKeyboardLayout(query) : null
+            const empty = !values.sections.some((section) => section.rows.some((row) => row.kind === 'item'))
+            if (converted && empty && values.featureFlags[FEATURE_FLAGS.COMMAND_K_UNIFIED_RANKING] === 'test') {
+                actions.correctLayout({ from: query, to: converted })
+            }
+        }
+
         const showSettledQuery = (): void => {
             if (values.shownQuery !== values.currentQuery && resultsSettled(values.currentQuery, values.remote)) {
                 actions.showQuery(values.currentQuery)
+                correctLayoutWhenEmpty()
             }
         }
 
@@ -1091,6 +1131,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             },
             clearQuery: () => actions.setChipsAndText([], '', 0),
             remoteLoaded: showSettledQuery,
+            correctLayout: () => syncRemote(),
             loadFolders: async () => {
                 if (cache.foldersRequested) {
                     return
