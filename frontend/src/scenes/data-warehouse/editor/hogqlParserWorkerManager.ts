@@ -145,22 +145,14 @@ export async function analyzeTablesAndColumns(query: string): Promise<Record<str
 
 const SELECT_COMPARISONS: ReadonlySet<unknown> = new Set<SelectComparison>(['same', 'different', 'unparsable'])
 
-/**
- * Parses both queries and tells whether they mean the same, ignoring whitespace between tokens.
- * Rejects when the parser cannot load, because then no answer is safe.
- */
 export async function compareSelectQueries(query: string, other: string): Promise<SelectComparison> {
     if (!workerUnavailable) {
         try {
             const result = await ask({ op: 'compareSelects', query, other })
-            // The worker URL has no content hash, so a browser can run a cached worker build that
-            // does not know this op. That build answers with the result of a different op.
             if (SELECT_COMPARISONS.has(result)) {
                 return result
             }
-        } catch {
-            // fall through to the main thread
-        }
+        } catch {}
     }
     return compareParsedSelects(await parseSelect(query, true), await parseSelect(other, true))
 }

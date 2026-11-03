@@ -163,8 +163,6 @@ test.describe('SQL Editor', () => {
                 await editorArea.locator('.view-lines').click({ button: 'right' })
                 const menuItem = page.getByRole('menuitem', { name: 'Format Document' })
                 await expect(menuItem).toBeVisible()
-                // Monaco arms a menu item's pointer-release listener 100 ms after the menu opens, to
-                // swallow the release of the right click that opened it. An earlier click is ignored.
                 await page.waitForTimeout(250)
                 await menuItem.click()
                 await expect.poll(readEditorText).toEqual(formattedQuery)
