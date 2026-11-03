@@ -75,9 +75,9 @@ _STAGING_COLUMNS = (STAGED_BATCH_COLUMN, STAGED_ROW_COLUMN)
 MAX_CALL_BYTES = 1024 * 1024 * 1024
 # Each chunk rewrites the `current` files that hold its keys, so chunks stay as large as memory allows.
 CHUNK_TARGET_BYTES = 512 * 1024 * 1024
-# Rows decoded to size the staged rows in memory. Parquet stores repeated and null values in a few bytes,
-# so only decoded rows give the size deltalite counts against its source guard.
-_SIZE_SAMPLE_ROWS = 10_000
+# Each chunk holds one open spill file while the staging table is read. Past this many chunks, a chunk grows
+# instead.
+_MAX_CHUNKS = 256
 # deltalite keeps at most this many month files open while it writes closed versions.
 _MAX_OPEN_MONTH_FILES = 32
 _SUMMED_STATS = (
@@ -203,22 +203,16 @@ async def finalize(
     # The batch tags are only needed for the cleanup, so they never reach the upsert.
     columns = [name for name in staging_dataset.schema.names if name != STAGED_BATCH_COLUMN]
     batch_tags = await asyncio.to_thread(_batch_tags, staging_dataset)
-    staged_bytes = await asyncio.to_thread(
-        _estimated_bytes, staging_dataset, columns, int(pc.sum(add_actions["num_records"]).as_py())
-    )
+    whole, staged_bytes = await asyncio.to_thread(_read_if_it_fits, staging_dataset, columns, max_call_bytes)
+    # One handle for every chunk, so each call does not load the table's log and checkpoint again.
+    handle = await asyncio.to_thread(_open_deltalite, await table.get_table_uri(), table.get_storage_options())
 
     totals = dict.fromkeys(_SUMMED_STATS, 0)
     calls = staged_rows = 0
     with tempfile.TemporaryDirectory(prefix="history-finalize-") as directory:
-        sources: list[pa.Table | Path] = []
-        if staged_bytes <= max_call_bytes:
-            whole = await asyncio.to_thread(staging_dataset.to_table, columns=columns)
-            # The sample can understate the size, so the decoded rows decide.
-            staged_bytes = whole.nbytes
-            if staged_bytes <= max_call_bytes:
-                sources.append(whole)
-            del whole
-        chunks = len(sources) or math.ceil(staged_bytes / chunk_target_bytes)
+        sources: list[pa.Table | Path] = [whole] if whole is not None else []
+        del whole
+        chunks = len(sources) or min(_MAX_CHUNKS, math.ceil(staged_bytes / chunk_target_bytes))
         if not sources:
             sources = [
                 *await asyncio.to_thread(_spill_chunks, staging_dataset, columns, key_columns, chunks, Path(directory))
@@ -235,6 +229,7 @@ async def finalize(
             del staged
             stats = await _history_upsert(
                 table,
+                handle,
                 history_table,
                 data,
                 key_columns=key_columns,
@@ -283,12 +278,30 @@ async def _history_table(
     return await evolve_delta_schema(history_table, schema)
 
 
-def _estimated_bytes(dataset: ds.Dataset, columns: list[str], rows: int) -> int:
-    """The staged rows' size once decoded to Arrow, from the bytes per row of a decoded sample."""
-    sample = dataset.head(_SIZE_SAMPLE_ROWS, columns=columns)
-    if sample.num_rows == 0:
-        return 0
-    return math.ceil(sample.nbytes / sample.num_rows * rows)
+def _read_if_it_fits(dataset: ds.Dataset, columns: list[str], max_bytes: int) -> tuple[pa.Table | None, int]:
+    """The staged rows as one table when they fit `max_bytes` decoded, else None, and their decoded size.
+
+    Parquet stores repeated and null values in a few bytes, so only the decoded batches give the size
+    deltalite counts against its source guard. Memory stays within `max_bytes` and one batch either way.
+    """
+    held: list[pa.RecordBatch] | None = []
+    total = 0
+    scanner = dataset.scanner(columns=columns, batch_readahead=1, fragment_readahead=1, use_threads=False)
+    for batch in scanner.to_batches():
+        total += batch.nbytes
+        if held is not None and total <= max_bytes:
+            held.append(batch)
+        else:
+            held = None
+    if held is None:
+        return None, total
+    return pa.Table.from_batches(held, schema=scanner.projected_schema), total
+
+
+def _open_deltalite(uri: str, storage_options: dict[str, str]) -> Any:
+    import deltalite  # noqa: PLC0415 - keeps deltalite off the import path of processes that never write with it
+
+    return deltalite.DeltaLiteTable.open(uri, storage_options)
 
 
 def _spill_chunks(
@@ -342,6 +355,7 @@ def _normalized_keys(key_columns: Sequence[str]) -> list[str]:
 
 async def _history_upsert(
     table: "DeltaTableRef",
+    handle: Any,
     history_table: deltalake.DeltaTable,
     data: pa.Table,
     *,
@@ -352,8 +366,6 @@ async def _history_upsert(
     chunk: int,
     chunks: int,
 ) -> Any:
-    import deltalite  # noqa: PLC0415 - keeps deltalite off the import path of processes that never write with it
-
     uri = await table.get_table_uri()
     storage_options = table.get_storage_options()
     governor = get_governor()
@@ -388,7 +400,7 @@ async def _history_upsert(
     async with governor.admit(source_bytes=data.nbytes, n_partitions=n_partitions, rewrite=rewrite) as adm:
 
         def _upsert() -> Any:
-            return deltalite.DeltaLiteTable.open(uri, storage_options).history_upsert(
+            return handle.history_upsert(
                 data,
                 list(key_columns),
                 naming.valid_from,
