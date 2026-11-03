@@ -107,7 +107,7 @@ def flag_state(ctx: HealthContext) -> CheckOutcome:
 
     if ctx.is_running:
         if ctx.is_paused:
-            return _flag_disabled(ctx.pause_history)
+            return _flag_disabled(ctx.pause_history, running_others=_running_others(ctx))
         if zero_rollout:
             traffic = ctx.condition_set_traffic
             if traffic is not None and traffic.people_assigned_outside >= _MIN_PEOPLE_ASSIGNED_OUTSIDE:
@@ -139,7 +139,7 @@ def flag_state(ctx: HealthContext) -> CheckOutcome:
             return _live_after_end(ctx, ctx.ended_at)
     elif not ctx.archived:
         # The draft state is also reached again when resetting experiment measurements.
-        if any(other.is_running and not other.archived for other in ctx.other_experiments_on_flag):
+        if _running_others(ctx):
             return None
         if flag.active and _has_multiple_variants_active(flag) and not zero_rollout:
             # Info, because a flag turned on to test the variants before launch is the usual path.
@@ -159,7 +159,11 @@ def flag_state(ctx: HealthContext) -> CheckOutcome:
     return None
 
 
-def _flag_disabled(pause: PauseHistory | None) -> ExperimentHealthFinding:
+def _running_others(ctx: HealthContext) -> int:
+    return sum(1 for other in ctx.other_experiments_on_flag if other.is_running and not other.archived)
+
+
+def _flag_disabled(pause: PauseHistory | None, *, running_others: int) -> ExperimentHealthFinding:
     if pause is not None and pause.paused_at is not None:
         # The latest pause or resume decides. A flag enabled and disabled again on the flag page after a pause writes
         # no entry, so it still reads as that pause.
@@ -175,6 +179,25 @@ def _flag_disabled(pause: PauseHistory | None) -> ExperimentHealthFinding:
                 "them then. Resume the experiment when you want to expose users again."
             ),
             evidence={"paused_at": pause.paused_at.astimezone(UTC).isoformat()},
+        )
+    if running_others:
+        # Only this experiment's own activity log is read, so a pause from another experiment on the flag has no
+        # entry here and reads like a flag disabled on the flag page.
+        others, either, both = (
+            ("Another running experiment uses", "either experiment", "both")
+            if running_others == 1
+            else ("Other running experiments use", "any of these experiments", "all of them")
+        )
+        return _finding(
+            code=ExperimentHealthFindingCode.FLAG_OFF_WHILE_RUNNING,
+            subcode=RUNNING_BUT_FLAG_DISABLED,
+            title="The experiment is running, but its shared feature flag is disabled",
+            detail=(
+                f"The linked feature flag is disabled, so it serves no variants. {others} the same flag, and a pause "
+                f"of {either} or a change on the feature flag page disables it for {both}. Users exposed earlier stay "
+                f"in the results. Resuming {either} enables the flag for {both}. Otherwise, end this experiment with a "
+                "conclusion."
+            ),
         )
     if pause is not None and pause.launched_at >= PAUSE_ENTRIES_SINCE:
         return _finding(

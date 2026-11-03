@@ -31,7 +31,8 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 # The flag documents and cases of the `experimentWarning` test in
 # frontend/src/scenes/experiments/experimentLogic.test.ts, so that both sides answer alike. A running
 # experiment with a deleted flag is one exception: only the server reports it. An ended experiment is another:
-# only the server reads the flag's calls and the other experiments on the flag.
+# only the server reads the flag's calls and the other experiments on the flag. A draft whose flag a running
+# experiment uses is a third, for the same reason.
 MULTIVARIANT = {
     "groups": [{"properties": [], "rollout_percentage": 100}],
     "multivariate": {
@@ -327,6 +328,21 @@ class TestFlagState(TestCase):
                     "running_but_flag_disabled",
                     ExperimentHealthFindingSeverity.WARNING,
                     "The experiment is running, but its feature flag is disabled",
+                ),
+            ),
+            (
+                "disabled_while_another_running_experiment_uses_the_flag",
+                _context(
+                    RUNNING,
+                    active=False,
+                    filters=MULTIVARIANT,
+                    pause_history=_pause_history(launched_at=LAUNCHED_AFTER_PAUSE_ENTRIES, paused_at=None),
+                    other_experiments=(_other(launched_at=LAUNCHED_AFTER_PAUSE_ENTRIES),),
+                ),
+                (
+                    "running_but_flag_disabled",
+                    ExperimentHealthFindingSeverity.WARNING,
+                    "The experiment is running, but its shared feature flag is disabled",
                 ),
             ),
             (
