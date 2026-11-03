@@ -29,8 +29,8 @@ STAR_EVENTS = "(SELECT * FROM events)"
 EMAIL_MAP = "map('email', JSONExtractRaw(events.properties, 'email'))"
 
 
-def _modifiers(on: bool) -> HogQLQueryModifiers:
-    return HogQLQueryModifiers(narrowSubqueryProperties=on, optimizeProjections=True)
+def _modifiers(pruning: bool) -> HogQLQueryModifiers:
+    return HogQLQueryModifiers(optimizeProjections=pruning)
 
 
 class TestExportedProperties(BaseTest):
@@ -40,13 +40,12 @@ class TestExportedProperties(BaseTest):
         self,
         select: str,
         *,
-        on: bool = True,
         native: bool = False,
         restricted: set[RestrictedProperty] | None = None,
         dialect: HogQLDialect = "clickhouse",
     ) -> str:
         context = HogQLContext(
-            team_id=self.team.pk, enable_select_queries=True, modifiers=_modifiers(on), use_new_events_schema=native
+            team_id=self.team.pk, enable_select_queries=True, modifiers=_modifiers(True), use_new_events_schema=native
         )
         if restricted is not None:
             context.restricted_properties = restricted
@@ -190,7 +189,9 @@ class TestExportedProperties(BaseTest):
         ]
     )
     def test_keeps_the_blob_when_a_reader_needs_it(self, _name: str, select: str, native: bool = False) -> None:
-        assert self._print(select, native=native) == self._print(select, on=False, native=native)
+        printed = self._print(select, native=native)
+        assert "map(" not in printed, printed
+        assert " AS properties" in printed, printed
 
     def test_saved_view_exports_only_the_keys_read(self) -> None:
         DataWarehouseSavedQuery.objects.create(
@@ -228,9 +229,8 @@ class TestExportedProperties(BaseTest):
         assert "toFloat64OrZero(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties['amount'])" in printed, printed
         assert "'Float64'" not in printed, printed
 
-    @parameterized.expand([("modifier_off", False, "clickhouse"), ("hogql_dialect", True, "hogql")])
-    def test_leaves_the_blob_exported(self, _name: str, on: bool, dialect: HogQLDialect) -> None:
-        printed = self._print(f"SELECT properties.email FROM {STAR_EVENTS}", on=on, dialect=dialect)
+    def test_hogql_dialect_keeps_the_blob(self) -> None:
+        printed = self._print(f"SELECT properties.email FROM {STAR_EVENTS}", dialect="hogql")
         assert "map(" not in printed, printed
 
 
@@ -261,10 +261,10 @@ class TestExportedPropertiesExecution(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
     def _assert_same_rows(self, select: str) -> None:
-        on = execute_hogql_query(select, team=self.team, modifiers=_modifiers(True)).results
-        off = execute_hogql_query(select, team=self.team, modifiers=_modifiers(False)).results
-        assert on == off, f"on={on} off={off}"
-        assert on, "the query must match some rows for the comparison to mean anything"
+        narrowed = execute_hogql_query(select, team=self.team, modifiers=_modifiers(True)).results
+        plain = execute_hogql_query(select, team=self.team, modifiers=_modifiers(False)).results
+        assert narrowed == plain, f"narrowed={narrowed} plain={plain}"
+        assert narrowed, "the query must match some rows for the comparison to mean anything"
 
     @parameterized.expand(
         [

@@ -37,16 +37,9 @@ from posthog.hogql.transforms.logical_property_lowering import lower_property_ac
 from posthog.hogql.visitor import clone_expr
 
 if TYPE_CHECKING:
-    from posthog.schema import HogQLQueryModifiers
-
     from posthog.hogql.transforms.projection_pushdown import ProjectionPushdownOptimizer, SubqueryNode
 
 _MAP_TYPE_NAME = "Map(String, Nullable(String))"
-
-
-def narrow_subquery_properties_enabled(modifiers: "HogQLQueryModifiers") -> bool:
-    """On unless a project turns it off. Unset means on, so the default stays out of the query cache key."""
-    return modifiers.narrowSubqueryProperties is not False
 
 
 def narrow_exported_properties(optimizer: "ProjectionPushdownOptimizer", context: HogQLContext) -> None:
