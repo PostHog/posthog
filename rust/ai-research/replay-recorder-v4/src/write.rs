@@ -1131,6 +1131,8 @@ mod tests {
                 .to_owned(),
             "background-image:image-set(-webkit-cross-fade(url(https://cdn.example.com/a.png?token=secret), url(https://cdn.example.com/b.png), 50%) 1x)"
                 .to_owned(),
+            // An escaped remote URL that the URL parser does not read may still load in a browser that does.
+            "background-image:url('\\68 ttps://cdn.exa\\1 mple.com/a.png?token=secret')".to_owned(),
         ] {
             let node = json!({"type": 2, "tagName": "div", "attributes": {"style": style}, "childNodes": [], "id": 2});
             let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": [node]}}}]).to_string();
@@ -1288,6 +1290,22 @@ mod tests {
             assert!(lines.contains(&expected), "{expected} in {lines}");
         }
         assert!(!lines.contains("url(/a.png)"), "{lines}");
+        // The URL parser strips a C0 control at either end, so these load from the page's origin too.
+        for css in [
+            ".a{background:url(\"\u{1}/api/img?token=secret\")}",
+            ".a{background:url(\"\\1 /api/img?token=secret\")}",
+        ] {
+            let events = json!([
+                {"type": 4, "timestamp": 1, "data": {"href": "https://app.example.com/shop"}},
+                {"type": 3, "timestamp": 2, "data": {"source": 8, "id": 3, "replaceSync": css}},
+            ])
+            .to_string();
+            let lines = stored_lines(&events);
+            assert!(
+                lines.contains("imageurl:v4:declined:credential") && !lines.contains("secret"),
+                "{css}: {lines}"
+            );
+        }
     }
 
     #[test]

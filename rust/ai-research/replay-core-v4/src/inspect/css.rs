@@ -606,6 +606,9 @@ fn escaped_url_function_urls(
         .filter(|url| matches!(url.scheme(), "http" | "https"))
         .map(String::from)
     else {
+        if is_remote(written) {
+            found(CssUrl::Unplaced);
+        }
         return;
     };
     found(CssUrl::Resolved(&absolute));
@@ -633,7 +636,7 @@ fn escaped_url_function_urls(
 }
 
 fn is_root_relative(source: &str) -> bool {
-    source.starts_with('/') && !is_protocol_relative(source)
+    as_parsed(source).starts_with('/') && !is_protocol_relative(source)
 }
 
 const URL_FUNCTION_OPEN: &str = "url(\"";
