@@ -3636,6 +3636,16 @@ def _release_channel_onboarding_claim(slack_team_id: str, channel_id: str) -> No
     cache.delete(_channel_onboarding_cache_key(slack_team_id, channel_id))
 
 
+def skip_channel_welcome(slack_team_id: str, channel_id: str) -> bool:
+    """Hold the welcome slot before the bot joins a channel, so it joins without a welcome message.
+    Returns False when another flow already holds the slot."""
+    return _claim_channel_onboarding(slack_team_id, channel_id)
+
+
+def release_channel_welcome_skip(slack_team_id: str, channel_id: str) -> None:
+    _release_channel_onboarding_claim(slack_team_id, channel_id)
+
+
 def _post_channel_onboarding_message(
     slack: SlackIntegration,
     integration: WorkspaceIntegration,
@@ -4249,13 +4259,15 @@ def post_thread_join_prompt(
     )
     home_tab_url = app_home_url(integration)
     home_tab_label = f"<{home_tab_url}|PostHog app Home tab>" if home_tab_url else "PostHog app Home tab"
+    thread_url = _thread_permalink(slack, channel, thread_ts)
+    thread_label = f"<{thread_url}|your thread>" if thread_url else "your thread"
     blocks: list[dict[str, Any]] = [
         {
             "type": "section",
             "block_id": f"{THREAD_JOIN_BLOCK_ID_PREFIX}:{context_token}",
             "text": {
                 "type": "mrkdwn",
-                "text": f"<@{joiner_slack_user_id}> wants to work with me in your thread. "
+                "text": f"<@{joiner_slack_user_id}> wants to work with me in {thread_label}. "
                 + ("Let anyone join this thread?" if opens_thread else "Let them join?"),
             },
         },
@@ -4289,10 +4301,9 @@ def post_thread_join_prompt(
         },
     ]
     try:
-        slack.client.chat_postEphemeral(
-            channel=channel,
-            user=owner_slack_user_id,
-            thread_ts=thread_ts,
+        # A DM notifies the creator. An ephemeral message in the thread does not, so they often miss it.
+        slack.client.chat_postMessage(
+            channel=owner_slack_user_id,
             text="Someone wants to join your PostHog thread.",
             blocks=blocks,
         )
@@ -4314,13 +4325,22 @@ def post_thread_join_prompt(
     capture_slack_event(integration, "slack app thread join requested", slack_user_id=joiner_slack_user_id)
 
 
+def _thread_permalink(slack: SlackIntegration, channel: str, thread_ts: str) -> str | None:
+    try:
+        permalink = slack.client.chat_getPermalink(channel=channel, message_ts=thread_ts).get("permalink")
+    except Exception:
+        logger.warning("slack_app_thread_join_permalink_failed", slack_channel_id=channel, exc_info=True)
+        return None
+    return permalink if isinstance(permalink, str) else None
+
+
 def _thread_join_context(payload: dict) -> tuple[str, dict[str, Any]] | None:
     """The live join prompt this click answers, when the thread creator is the one clicking."""
     context_token = _extract_context_token(payload)
     context = _decode_picker_context(context_token) if context_token else None
     if not context or context.get("kind") != THREAD_JOIN_CONTEXT_KIND:
         return None
-    # The prompt is ephemeral, so only the creator sees it, but the answer acts for them.
+    # The prompt goes to the creator's DM, but the answer acts for them, so the clicker is checked.
     if payload.get("user", {}).get("id", "") != context.get("owner_slack_user_id"):
         return None
     return context_token, context
