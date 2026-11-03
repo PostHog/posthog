@@ -1,5 +1,4 @@
-"""The workload providers whose OIDC tokens PostHog can exchange for a project token. Every provider
-listed today is a CI provider.
+"""The workload providers whose OIDC tokens PostHog can exchange for a project token.
 
 Trust policy validation, the token exchange and the policy settings UI read providers only from
 this registry, so no provider name or issuer appears anywhere else in the backend. A provider is
@@ -13,6 +12,14 @@ from enum import StrEnum
 
 from posthog.dataclasses import frozen
 
+FALLBACK_SUBJECT_LABEL = "Subject"
+FALLBACK_SUBJECT_NAME_LABEL = "Name"
+
+# A policy's issuer, subject and conditions form one entry of a unique btree index, which Postgres caps at
+# about 2.7 kB. With the 255-character issuer and subject, these limits keep the largest entry well below it.
+CONDITION_VALUE_MAX_LENGTH = 200
+CONDITIONS_MAX_BYTES = 1024
+
 
 class AudienceCheck(StrEnum):
     # The token's `aud` must equal this deployment's SITE_URL, which the workload sets when it asks
@@ -21,16 +28,12 @@ class AudienceCheck(StrEnum):
 
 
 @frozen
-class WorkloadClaimMapping:
-    """Which claims of the provider's OIDC token carry each value a trust policy matches on, or
-    an activity log entry records. A claim name of `None` means the provider has no such claim."""
+class WorkloadClaim:
+    """A claim of the provider's OIDC token, and how the UI names it."""
 
-    repository: str
-    ref: str | None
-    environment: str | None
-    workflow: str | None
-    run_id: str | None
-    sha: str | None
+    name: str
+    label: str
+    help_text: str = ""
 
 
 @frozen
@@ -41,18 +44,34 @@ class WorkloadProvider:
     issuer: str
     jwks_url: str
     audience_check: AudienceCheck
-    # The claim every policy pins: the workload's immutable subject, the repository id for a CI provider.
-    # It survives a rename, and a re-created repository gets a new one, so nobody can take over a policy
-    # by claiming the old name.
-    pinned_claim: str
-    claims: WorkloadClaimMapping
-    # How an activity log entry names the workload, formatted with the mapped claims, for example
-    # "{repository} · {workflow} run {run_id}".
+    # The claim every policy pins: the workload's immutable subject, for example a repository id. It
+    # survives a rename, and a re-created workload gets a new one, so nobody can take over a policy by
+    # claiming the old name.
+    subject_claim: WorkloadClaim
+    # The workload's human-readable name, for example a repository's full name. A policy pins it too,
+    # so an admin approves the name they read.
+    subject_name_claim: WorkloadClaim
+    condition_claims: tuple[WorkloadClaim, ...]
+    # The claims an activity log entry records and shows, read from the token at exchange time.
+    recorded_claims: tuple[WorkloadClaim, ...]
+    # How an activity log entry names the workload, formatted with the recorded claims, for example
+    # "{repository} · {workflow} run {run_id}". A claim the token lacks formats as an empty string.
     actor_label_template: str
-    # Formatted with the token's `repository` and `run_id` values to link an activity log entry
-    # to its run, or `None` when the provider has no stable run URL.
+    # Formatted with the recorded claims to link an activity log entry to its run, or `None` when the
+    # provider has no stable run URL.
     run_url_template: str | None
     docs_url: str
+
+    def __post_init__(self) -> None:
+        condition_names = [claim.name for claim in self.condition_claims]
+        if len(set(condition_names)) != len(condition_names):
+            raise ValueError(f"{self.key}: condition claims must be unique.")
+        if {self.subject_claim.name, self.subject_name_claim.name} & set(condition_names):
+            raise ValueError(f"{self.key}: the subject claims can't also be condition claims.")
+
+    @property
+    def condition_claim_names(self) -> frozenset[str]:
+        return frozenset(claim.name for claim in self.condition_claims)
 
 
 @frozen
