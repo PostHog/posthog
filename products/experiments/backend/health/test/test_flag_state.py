@@ -113,7 +113,7 @@ def _context(
         archived=archived,
         flag_called_after_end=flag_called_after_end,
         flag_last_called_at=flag_last_called_at,
-        other_experiments_on_flag=other_experiments if status["has_ended"] else None,
+        other_experiments_on_flag=other_experiments,
         flag=parse_flag_state(
             active=active,
             deleted=deleted,
@@ -247,6 +247,16 @@ class TestFlagState(TestCase):
             (
                 "archived_draft_flag_distributing_variants",
                 _context(DRAFT, active=True, filters=MULTIVARIANT, archived=True),
+                None,
+            ),
+            (
+                "draft_flag_serves_a_running_experiment",
+                _context(
+                    DRAFT,
+                    active=True,
+                    filters=MULTIVARIANT,
+                    other_experiments=(_other(launched_at=ENDED_AT - timedelta(days=3)),),
+                ),
                 None,
             ),
             ("draft_zero_rollout", _context(DRAFT, active=True, filters=ZERO_ROLLOUT), None),

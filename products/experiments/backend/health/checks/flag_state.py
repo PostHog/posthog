@@ -15,6 +15,9 @@ tells a pause from the experiment from a flag disabled elsewhere, and reports th
 An ended experiment is the last exception. Only the server reads the flag's latest call and the other experiments on
 the flag. So only the server stays silent when the flag now serves a later experiment, and reports as info a flag that
 a draft also uses, a flag with no recent call, and a flag whose calls it can't read yet, each with its own subcode.
+
+A draft whose flag a running experiment uses is an exception too. The flag's state belongs to the running experiment,
+so only the server stays silent there, and the shared-flag check reports the draft.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -136,6 +139,8 @@ def flag_state(ctx: HealthContext) -> CheckOutcome:
             return _live_after_end(ctx, ctx.ended_at)
     elif not ctx.archived:
         # The draft state is also reached again when resetting experiment measurements.
+        if any(other.is_running and not other.archived for other in ctx.other_experiments_on_flag):
+            return None
         if flag.active and _has_multiple_variants_active(flag) and not zero_rollout:
             # Info, because a flag turned on to test the variants before launch is the usual path.
             return _finding(
@@ -221,11 +226,11 @@ def _no_rollout(*, observed: bool) -> ExperimentHealthFinding:
 
 
 def _live_after_end(ctx: HealthContext, ended_at: datetime) -> ExperimentHealthFinding | None:
-    others = ctx.other_experiments_on_flag or ()
+    others = ctx.other_experiments_on_flag
     # The flag's state belongs to the later experiment, and that experiment's own check reports it.
     if any(_serves_later_experiment(other, ended_at) for other in others):
         return None
-    if any(other.launched_at is None and not other.archived for other in others):
+    if any(other.is_draft and not other.archived for other in others):
         return _shared_with_draft(ended_at, ctx.team_timezone)
     if ctx.flag_called_after_end is True:
         return _finding(
