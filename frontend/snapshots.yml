@@ -9330,6 +9330,18 @@ snapshots:
         hash: v1.k794b7964.f9a40c9c9f03ae241b4b55fc861c0fc470434eda5468b5048b5a99d47e146867.1_xlNXQFwOVz40TTjGKiUtC1KXVUSCh7xoBRPd5zz0M
     scenes-app-ai-observability-sessions-empty-state--nothing-to-report--light:
         hash: v1.k794b7964.a9311249692deb4f164fdd7fda156bd5e8430f54c579bcd19c25b9a6a00a6e6e.JnEBbVENuBOYVpulIIDVeeenCYSQ_6w03e2oYFCEHjs
+    scenes-app-ai-observability-shared-detail-panel--default--dark:
+        hash: v1.k794b7964.97dc4418ae60896fda1be8b4a79120b09a8c059dd28ddafbb921b06a96ded2ee.D6b-b4hmJIA6VVwUwEuryjcHMws0_-ZXYIx4DSBKtrY
+    scenes-app-ai-observability-shared-detail-panel--default--light:
+        hash: v1.k794b7964.80456a7a1050860d7716b295e62f04adf264535f509e4a9c3383c47493e199c2.-wxD2s1S3V5kKCtirUyPTbccLLLCmlRCi-J0-kdjiRs
+    scenes-app-ai-observability-shared-detail-panel--long-body--dark:
+        hash: v1.k794b7964.97dc4418ae60896fda1be8b4a79120b09a8c059dd28ddafbb921b06a96ded2ee.YpfDHn2cOnCO39yWAbAa3bSQqgFI2QHNUPadkKHQ5K0
+    scenes-app-ai-observability-shared-detail-panel--long-body--light:
+        hash: v1.k794b7964.80456a7a1050860d7716b295e62f04adf264535f509e4a9c3383c47493e199c2.dwRv03RMrV8XlnusYgpw9SHgWHT4VQTq2SGKjHafvj4
+    scenes-app-ai-observability-shared-detail-panel--narrow--dark:
+        hash: v1.k794b7964.97dc4418ae60896fda1be8b4a79120b09a8c059dd28ddafbb921b06a96ded2ee.xLM9zaOxrdQvtJPhYJ2UVPo76eaNfbOdtGkTutraMxw
+    scenes-app-ai-observability-shared-detail-panel--narrow--light:
+        hash: v1.k794b7964.80456a7a1050860d7716b295e62f04adf264535f509e4a9c3383c47493e199c2.f4KJ8uv4Kc1MzySEM904XZLfAUQa5BifXglTD4qjZAU
     scenes-app-ai-observability-skills--skill-detail-side-by-side-above-2-xl-breakpoint--superwide--dark:
         hash: v1.k794b7964.39ca895c7d8f0aafdd041e9578ce552d37520442d6df7a2d6d554dfdc032b5ba.dqxACinzs4OesVScmWpwTnoPMejqxFaHIHSidJnXKOs
     scenes-app-ai-observability-skills--skill-detail-side-by-side-above-2-xl-breakpoint--superwide--light:
