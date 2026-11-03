@@ -26,8 +26,8 @@ from posthog.models.integration.github_readiness import GitHubAccessUnavailable,
 from products.signals.backend.daily_limit import daily_report_limit_gate
 from products.signals.backend.github_optional import ResearchAccessPolicy
 from products.signals.backend.models import SignalScoutRun
-from products.signals.backend.publication_telemetry import capture_research_access_event
 from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
+from products.signals.backend.research_telemetry import capture_research_access_event
 from products.signals.backend.scout_harness.limits import (
     STALE_RUN_CUTOFF_S,
     TRIGGERED_BY_WORKFLOW,

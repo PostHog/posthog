@@ -147,27 +147,15 @@ class TestScoutReportPersistence(BaseTest):
         # stamps pipeline reports), so creation must stamp visible births or the daily report limit
         # would never count them.
         run = self._make_run()
-        with patch("products.signals.backend.publication_telemetry.ph_scoped_capture") as scoped_capture:
-            with self.captureOnCommitCallbacks(execute=True):
-                result = create_scout_report(
-                    team_id=self.team.id,
-                    title="Checkout API p99 latency regressed",
-                    summary="The checkout endpoint p99 doubled after the 4.2 deploy.",
-                    signals=[ScoutReportSignal(description="p99 doubled on /checkout", source_id="obs-1", weight=1.0)],
-                    attribution=ArtefactAttribution.from_task(str(run.task_run.task_id)),
-                    status=born_status,
-                    run=run,
-                )
-            capture = scoped_capture.return_value.__enter__.return_value
-            events = [
-                call.kwargs
-                for call in capture.call_args_list
-                if call.kwargs.get("event") == "signal_report_first_published"
-            ]
-            assert len(events) == int(expect_stamp)
-            if expect_stamp:
-                assert events[0]["properties"]["origin"] == "scout"
-                assert events[0]["properties"]["publication_status"] == born_status
+        result = create_scout_report(
+            team_id=self.team.id,
+            title="Checkout API p99 latency regressed",
+            summary="The checkout endpoint p99 doubled after the 4.2 deploy.",
+            signals=[ScoutReportSignal(description="p99 doubled on /checkout", source_id="obs-1", weight=1.0)],
+            attribution=ArtefactAttribution.from_task(str(run.task_run.task_id)),
+            status=born_status,
+            run=run,
+        )
         report = SignalReport.objects.get(id=result.report_id)
         assert (report.first_visible_at is not None) is expect_stamp
 

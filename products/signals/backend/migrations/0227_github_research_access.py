@@ -11,11 +11,6 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="signalreport",
-            name="first_publication_event_sent_at",
-            field=models.DateTimeField(blank=True, null=True),
-        ),
-        migrations.AddField(
-            model_name="signalreport",
             name="implementation_blocked_at",
             field=models.DateTimeField(blank=True, null=True),
         ),

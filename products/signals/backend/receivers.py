@@ -60,26 +60,6 @@ def _schedule_first_report_notification(team_id: int) -> None:
 
 
 @receiver(post_save, sender=SignalReport)
-def schedule_first_publication(sender: type[SignalReport], instance: SignalReport, **kwargs: Any) -> None:
-    if not instance.first_publication_event or instance.first_publication_event_sent_at is not None:
-        return
-    from products.signals.backend.publication_telemetry import (
-        capture_first_publication,  # noqa: PLC0415 - keeps telemetry dependencies off Django startup
-    )
-
-    transaction.on_commit(
-        partial(
-            capture_first_publication,
-            instance.team_id,
-            str(instance.id),
-            instance.status,
-            getattr(instance, "_pending_reason", None),
-        ),
-        robust=True,
-    )
-
-
-@receiver(post_save, sender=SignalReport)
 def enqueue_first_report_notification(
     sender: type[SignalReport],
     instance: SignalReport,

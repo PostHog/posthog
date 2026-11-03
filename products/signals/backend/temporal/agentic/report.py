@@ -36,7 +36,6 @@ from products.signals.backend.auto_start import ReviewerContent
 from products.signals.backend.enums import ReportLinkKind, SuggestedSourceProduct
 from products.signals.backend.github_optional import ResearchAccessPolicy
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportCheck
-from products.signals.backend.publication_telemetry import capture_research_access_event
 from products.signals.backend.receivers import _is_safety_suppressed
 from products.signals.backend.recurrence import fixed_dismissal_at, recurrence_rejects_repository
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_CONTENT_NEEDLE, WRONG_REPO_CONTENT_NEEDLE
@@ -87,6 +86,7 @@ from products.signals.backend.report_monitoring_signals import (
 )
 from products.signals.backend.report_steering import ReportSteering, load_research_steering
 from products.signals.backend.report_tags import team_tag_vocabulary
+from products.signals.backend.research_telemetry import capture_research_access_event
 from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRules, StaleReviewerProposal
 from products.signals.backend.source_suggestions import unused_suggestable_products
 from products.signals.backend.startup_failure import (

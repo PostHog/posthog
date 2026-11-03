@@ -125,7 +125,6 @@ from products.signals.backend.facade.tasks import (
     reconcile_report_inbox_state_cache,
     refresh_signal_repository_activity,
     refresh_signal_scout_background_bands,
-    sweep_first_publications,
     sweep_first_report_notifications,
     sweep_implementation_dispatches,
     sweep_monitoring_research_requests,
@@ -284,9 +283,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
     add_periodic_task_with_expiry(
         sender, crontab(minute="*"), reconcile_account_audits.s(), name="reconcile-account-audits"
-    )
-    add_periodic_task_with_expiry(
-        sender, crontab(minute="*/5"), sweep_first_publications.s(), name="deliver signal report first publications"
     )
     if privacy_enabled():
         sender.add_periodic_task(30.0, process_ai_training_privacy_requests.s(), name="process-ai-training-privacy")

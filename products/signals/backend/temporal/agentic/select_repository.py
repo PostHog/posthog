@@ -18,7 +18,6 @@ from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import aretry_on_db_connection_drop, close_db_connections
 
 from products.signals.backend.github_optional import ResearchAccessPolicy
-from products.signals.backend.publication_telemetry import capture_research_access_event
 from products.signals.backend.recurrence import recurrence_rejects_repository
 from products.signals.backend.report_generation.select_repo import (
     RepoSelectionResult,
@@ -26,7 +25,7 @@ from products.signals.backend.report_generation.select_repo import (
     resolve_team_github_integration,
     select_repository_for_report,
 )
-from products.signals.backend.report_monitoring_provenance import monitoring_repository_sources
+from products.signals.backend.research_telemetry import capture_research_access_event
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPO_DISCOVERY_ENV_NAME,
     get_or_create_signals_sandbox_env,

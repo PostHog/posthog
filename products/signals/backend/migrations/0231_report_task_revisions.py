@@ -6,15 +6,10 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1417_organizationinvite_email_suppressed"),
-        ("signals", "0229_report_github_recovery_index"),
+        ("signals", "0230_report_github_recovery_index"),
     ]
 
     operations = [
-        migrations.AddField(
-            model_name="signalreport",
-            name="first_publication_event",
-            field=models.JSONField(blank=True, null=True),
-        ),
         migrations.AddField(
             model_name="signalreporttask",
             name="report_content_revision_count",

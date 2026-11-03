@@ -271,9 +271,6 @@ def create_scout_report(
                 title=title,
                 summary=summary,
                 scout_idempotency_key=idempotency_key,
-                first_publication_event={"publication_status": status, "origin": "scout"}
-                if status in (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT)
-                else None,
                 triggering_signal_id=document_ids[0],
                 signal_count=len(signals),
                 total_weight=total_weight,
