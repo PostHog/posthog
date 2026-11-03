@@ -8468,8 +8468,15 @@ def update_task(
             else:
                 validated_data.pop("repository")
         profile = task.stored_profile
-        if profile is not None and not Task.attaches_github(
-            task.origin_product, profile, has_repository=bool(validated_data.get("repository", task.repository))
+        changes_github_access = not validated_data.keys().isdisjoint(
+            {"repository", "repositories", "github_integration", "github_user_integration"}
+        )
+        if (
+            profile is not None
+            and changes_github_access
+            and not Task.attaches_github(
+                task.origin_product, profile, has_repository=bool(validated_data.get("repository", task.repository))
+            )
         ):
             validated_data.pop("github_integration", None)
             validated_data.pop("github_user_integration", None)

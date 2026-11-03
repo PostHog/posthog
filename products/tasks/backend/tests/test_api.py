@@ -17698,23 +17698,52 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("never_refuses_a_later_attachment", GithubResolution.NEVER, None, "attach", False),
-            ("with_repository_drops_both_when_the_repo_goes", GithubResolution.WITH_REPOSITORY, "a/b", "unset", False),
-            ("with_repository_keeps_both_while_the_repo_stays", GithubResolution.WITH_REPOSITORY, "a/b", "title", True),
-            ("always_takes_a_later_attachment", GithubResolution.ALWAYS, None, "attach", True),
+            ("never_refuses_a_later_attachment", GithubResolution.NEVER, None, False, "attach", False),
+            (
+                "with_repository_drops_both_when_the_repo_goes",
+                GithubResolution.WITH_REPOSITORY,
+                "a/b",
+                True,
+                "unset",
+                False,
+            ),
+            (
+                "with_repository_keeps_both_while_the_repo_stays",
+                GithubResolution.WITH_REPOSITORY,
+                "a/b",
+                True,
+                "title",
+                True,
+            ),
+            (
+                "with_repository_keeps_a_repo_less_attachment_on_a_title_edit",
+                GithubResolution.WITH_REPOSITORY,
+                None,
+                True,
+                "title",
+                True,
+            ),
+            ("always_takes_a_later_attachment", GithubResolution.ALWAYS, None, False, "attach", True),
         ]
     )
     def test_update_follows_the_profile_github_resolution(
-        self, _name, resolution: GithubResolution, repository: str | None, change: str, attached: bool
+        self,
+        _name,
+        resolution: GithubResolution,
+        repository: str | None,
+        preattached: bool,
+        change: str,
+        attached: bool,
     ):
         profile = replace(BUSINESS_KNOWLEDGE, key="test.github", github_resolution=resolution)
         integration = Integration.objects.create(team=self.team, kind="github", config={})
         task = self.create_task()
         task.profile = profile.key
+        if preattached:
+            task.github_integration = integration
         if repository is not None:
             task.repository = repository
             task.repositories = [repository]
-            task.github_integration = integration
             task.github_user_integration = _grant_user_github_access(self.user)
         task.save()
         payload = {
