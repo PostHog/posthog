@@ -115,6 +115,14 @@ class TestExportedProperties(BaseTest):
                 "accurateCast(map(), 'Map(String, Nullable(String))') AS properties",
                 "count()",
             ),
+            (
+                "eight_chained_ctes",
+                f"WITH c1 AS {STAR_EVENTS}, "
+                + ", ".join(f"c{n} AS (SELECT * FROM c{n - 1})" for n in range(2, 9))
+                + " SELECT properties.email FROM c8",
+                f"WITH c1 AS (SELECT {EMAIL_MAP} AS properties",
+                "JSONExtractRaw(c8.properties['email'])",
+            ),
         ]
     )
     def test_exports_only_the_keys_read(self, _name: str, select: str, exported: str, read: str) -> None:
@@ -148,6 +156,11 @@ class TestExportedProperties(BaseTest):
             (
                 "union_branch_that_cannot_narrow",
                 "SELECT properties.email FROM (SELECT properties FROM (SELECT properties FROM events) UNION ALL SELECT DISTINCT properties FROM events)",
+            ),
+            (
+                "second_alias_of_the_column_feeds_a_blob_branch",
+                "SELECT x.a.email, x.e FROM (SELECT a, b.email AS e FROM (SELECT properties AS a, properties AS b FROM (SELECT properties FROM events)) "
+                "UNION ALL SELECT DISTINCT properties AS a, '' AS e FROM events) AS x",
             ),
             ("query_output", "SELECT properties FROM (SELECT properties FROM events)"),
             ("read_by_position", f"SELECT properties.arr[1] FROM {STAR_EVENTS}"),

@@ -13,8 +13,9 @@ from posthog.dataclasses import frozen
 SubqueryNode = ast.SelectQuery | ast.SelectSetQuery
 
 # Demand flows top-down, but a CTE's reader can be visited after the CTE, so one pass can leave a column's readers
-# incomplete. Each pass adds what the last one learned; the walk stops when a pass adds nothing.
-_MAX_COLLECTION_PASSES = 5
+# incomplete. Each pass adds what the last one learned; the walk stops when a pass adds nothing. A query that still
+# changes after this many passes is pruned with what was collected and not narrowed.
+_MAX_COLLECTION_PASSES = 50
 
 
 @frozen(frozen=False)
@@ -58,8 +59,12 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         self.reads: dict[tuple[int, str], ColumnReads] = defaultdict(ColumnReads)
         self.subquery_map: dict[int, SubqueryNode] = {}
         # The select columns that export a child column as it is, by the child column they export
-        self.passthrough_parents: dict[tuple[int, str], dict[int, tuple[SubqueryNode, str]]] = defaultdict(dict)
+        self.passthrough_parents: dict[tuple[int, str], dict[tuple[int, str], tuple[SubqueryNode, str]]] = defaultdict(
+            dict
+        )
         self.roots: set[int] = set()
+        self.recursive_cte_exprs: set[int] = set()
+        self.converged: bool = False
         self.union_of: dict[int, ast.SelectSetQuery] = {}
         # Branches of a set query that compares rows (anything but UNION ALL)
         self.strict_set_branches: set[int] = set()
@@ -76,6 +81,7 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
             self.visit(node)
             new_signature = self._demand_signature()
             if new_signature == signature:
+                self.converged = True
                 break
             signature = new_signature
         self.collecting = False
@@ -237,7 +243,7 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         self.demands[id(child)].add(child_name)
         col_name = self._get_column_name(expr)
         if col_name is not None:
-            self.passthrough_parents[(id(child), child_name)][id(node)] = (node, col_name)
+            self.passthrough_parents[(id(child), child_name)][(id(node), col_name)] = (node, col_name)
 
     def _propagate_demands_to_children(self, node: ast.SelectQuery) -> None:
         """
@@ -253,7 +259,13 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         """
         demanded_from_this = self.demands.get(id(node))
         if not demanded_from_this:
-            self._keep_unread_subquery_rows(node)
+            if id(node) in self.roots or id(node) not in self._registered_ids():
+                # The query's output, or a select inside an expression: every column is read as it is
+                for expr in node.select:
+                    self._read_whole(node, expr)
+            elif not self.collecting:
+                # Only the final pass knows that nobody reads the column; a reader may still turn up while collecting
+                self._keep_unread_subquery_rows(node)
             return
 
         for col_name in demanded_from_this:
@@ -274,10 +286,6 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
                 break
 
     def _keep_unread_subquery_rows(self, node: ast.SelectQuery) -> None:
-        if id(node) in self.roots or id(node) not in self._registered_ids():
-            for expr in node.select:
-                self._read_whole(node, expr)
-            return
         if self.compares_rows(node) or id(node) in self.union_of:
             # Every asterisk column stays: a row comparison counts them, and set query branches must line up
             for expr in node.select:
@@ -511,10 +519,13 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
                 # Map the CTE's SelectQueryType to its expr for demand tracking
                 if cte.expr.type:
                     self.subquery_map[id(cte.expr.type)] = cte.expr
+                if cte.recursive:
+                    self.recursive_cte_exprs.add(id(cte.expr))
 
     def _visit_ctes(self, ctes: dict[str, ast.CTE]) -> None:
-        """Visit and optimize CTEs"""
-        for cte in ctes.values():
+        """Visit and optimize CTEs. A CTE can only read the ones defined before it, so the last one goes first and
+        its demands reach the earlier ones in the same pass."""
+        for cte in reversed(list(ctes.values())):
             if isinstance(cte.expr, ast.SelectQuery | ast.SelectSetQuery):
                 self.visit(cte.expr)
 
@@ -532,6 +543,6 @@ def pushdown_projections(node: _T_AST, context: HogQLContext, *, narrow_properti
         return node
     optimizer = ProjectionPushdownOptimizer(context)
     result = optimizer.optimize(node)
-    if narrow_properties:
+    if narrow_properties and optimizer.converged:
         narrow_exported_properties(optimizer, context)
     return cast(_T_AST, result)

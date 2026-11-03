@@ -21,8 +21,9 @@ key still reads as `''` and then NULL.
 
 A blob stays a blob when any reader reads it whole (`SELECT properties`, `JSONHas(properties, k)`, a DISTINCT, GROUP BY
 or ORDER BY on the column, a bare alias reference), when a native reader asks for `$feature_flags`, which the rebuilt
-document leaves out in favour of its `$feature/<key>` pairs, or when a UNION branch cannot be narrowed. The decision
-runs on the reads `ProjectionPushdownOptimizer` collected, after it pruned.
+document leaves out in favour of its `$feature/<key>` pairs, or when any column that carries the same value cannot be
+narrowed: the columns a blob passes through and the branches of a UNION ALL form one group, decided together. The
+decision runs on the reads `ProjectionPushdownOptimizer` collected, after it pruned.
 """
 
 from typing import TYPE_CHECKING
@@ -107,19 +108,54 @@ class _ExportedPropertiesNarrower:
     def __init__(self, optimizer: "ProjectionPushdownOptimizer", context: HogQLContext):
         self.optimizer = optimizer
         self.context = context
-        self._decisions: dict[tuple[int, str], bool] = {}
-        self._local_decisions: dict[tuple[int, str], bool] = {}
-        # Each decision walks one way, up through the parents or down through the children, and guards its own cycle
-        self._deciding: set[tuple[int, str]] = set()
-        self._deciding_locally: set[tuple[int, str]] = set()
-        self._narrowed: set[tuple[int, str]] = set()
+        self._registered = {id(node) for node in optimizer.subquery_map.values()}
 
     def run(self) -> None:
+        for group in self._column_groups():
+            if not all(self._allows_map(node, name) for node, name in group):
+                continue
+            for node, name in group:
+                self._rewrite_reads(node, name)
+                if isinstance(node, ast.SelectQuery) and self._events_source(node, name) is not None:
+                    self._rewrite_export(node, name)
+
+    def _column_groups(self) -> list[list[tuple["SubqueryNode", str]]]:
+        """The columns that carry one value between them, so one decision covers them all: a column and the child
+        column it passes through, a set query's column and the same column of each branch."""
         nodes = list({id(node): node for node in self.optimizer.subquery_map.values()}.values())
+        seen: set[tuple[int, str]] = set()
+        groups: list[list[tuple[SubqueryNode, str]]] = []
         for node in nodes:
             for name in self._column_names(node):
-                if self._narrowable(node, name):
-                    self._narrow(node, name)
+                if (id(node), name) in seen:
+                    continue
+                seen.add((id(node), name))
+                group: list[tuple[SubqueryNode, str]] = []
+                queue: list[tuple[SubqueryNode, str]] = [(node, name)]
+                while queue:
+                    member = queue.pop()
+                    group.append(member)
+                    for neighbor in self._neighbors(*member):
+                        key = (id(neighbor[0]), neighbor[1])
+                        if key not in seen:
+                            seen.add(key)
+                            queue.append(neighbor)
+                groups.append(group)
+        return groups
+
+    def _neighbors(self, node: "SubqueryNode", name: str) -> list[tuple["SubqueryNode", str]]:
+        neighbors: list[tuple[SubqueryNode, str]] = []
+        if isinstance(node, ast.SelectSetQuery):
+            neighbors.extend((query, name) for query in self.optimizer.union_queries(node))
+        else:
+            passthrough = self._passthrough(node, name)
+            if passthrough is not None:
+                neighbors.append(passthrough)
+        neighbors.extend(self.optimizer.passthrough_parents.get((id(node), name), {}).values())
+        set_query = self.optimizer.union_of.get(id(node))
+        if set_query is not None:
+            neighbors.append((set_query, name))
+        return neighbors
 
     def _column_names(self, node: "SubqueryNode") -> list[str]:
         if isinstance(node, ast.SelectSetQuery):
@@ -129,65 +165,44 @@ class _ExportedPropertiesNarrower:
     def _select_expr(self, node: ast.SelectQuery, name: str) -> ast.Expr | None:
         return next((expr for expr in node.select if _column_name(expr) == name), None)
 
-    def _narrowable(self, node: "SubqueryNode", name: str) -> bool:
-        """The column and everything it is exported through can carry the map. A narrowed child column turns every
-        select that passes it through into a map exporter too, so a pass-through parent that cannot be narrowed, such
-        as a branch of a set query whose sibling keeps the blob, keeps the child's blob as well."""
-        key = (id(node), name)
-        if key in self._decisions:
-            return self._decisions[key]
-        if key in self._deciding:
-            # A recursive CTE reads its own column
-            return False
-        self._deciding.add(key)
-        try:
-            decision = self._locally_narrowable(node, name) and self._parents_narrowable(node, name)
-        finally:
-            self._deciding.discard(key)
-        self._decisions[key] = decision
-        return decision
+    def _source_field(self, node: ast.SelectQuery, name: str) -> ast.Field | None:
+        expr = self._select_expr(node, name)
+        source = _unwrap_aliases(expr) if expr is not None else None
+        if isinstance(source, ast.Field) and isinstance(source.type, ast.FieldType):
+            return source
+        return None
 
-    def _parents_narrowable(self, node: "SubqueryNode", name: str) -> bool:
-        for parent, parent_name in self.optimizer.passthrough_parents.get((id(node), name), {}).values():
-            if not self._narrowable(parent, parent_name):
-                return False
-        set_query = self.optimizer.union_of.get(id(node))
-        return set_query is None or self._narrowable(set_query, name)
+    def _passthrough(self, node: ast.SelectQuery, name: str) -> tuple["SubqueryNode", str] | None:
+        source = self._source_field(node, name)
+        if source is None:
+            return None
+        assert isinstance(source.type, ast.FieldType)
+        child = self.optimizer.child_for(source.type.table_type)
+        return (child, source.type.name) if child is not None else None
 
-    def _locally_narrowable(self, node: "SubqueryNode", name: str) -> bool:
-        """The column's own readers and the columns it is built from allow the map; the parents are checked apart."""
-        key = (id(node), name)
-        if key in self._local_decisions:
-            return self._local_decisions[key]
-        if key in self._deciding_locally:
-            return False
-        self._deciding_locally.add(key)
-        try:
-            decision = self._decide(node, name)
-        finally:
-            self._deciding_locally.discard(key)
-        self._local_decisions[key] = decision
-        return decision
+    def _events_source(self, node: ast.SelectQuery, name: str) -> ast.Field | None:
+        source = self._source_field(node, name)
+        if source is None or not isinstance(source.type, ast.FieldType) or not self._is_events_properties(source.type):
+            return None
+        return source
 
-    def _decide(self, node: "SubqueryNode", name: str) -> bool:
+    def _allows_map(self, node: "SubqueryNode", name: str) -> bool:
         reads = self.optimizer.reads.get((id(node), name))
         if reads is not None and reads.whole:
             return False
         if isinstance(node, ast.SelectSetQuery):
             # INTERSECT, EXCEPT and UNION DISTINCT compare whole rows, so every column's value counts
-            if any(not set_node.set_operator.startswith("UNION ALL") for set_node in node.subsequent_select_queries):
-                return False
-            return all(self._locally_narrowable(query, name) for query in self.optimizer.union_queries(node))
-        expr = self._select_expr(node, name)
-        if expr is None:
+            return all(set_node.set_operator.startswith("UNION ALL") for set_node in node.subsequent_select_queries)
+        if id(node) in self.optimizer.roots:
             return False
-        source = _unwrap_aliases(expr)
-        if not isinstance(source, ast.Field) or not isinstance(source.type, ast.FieldType):
+        if id(node) not in self._registered and id(node) not in self.optimizer.union_of:
+            # A select inside an expression: its columns are its output
             return False
-        child = self.optimizer.child_for(source.type.table_type)
-        if child is not None:
-            return self._locally_narrowable(child, source.type.name)
-        if not self._is_events_properties(source.type):
+        if id(node) in self.optimizer.recursive_cte_exprs:
+            return False
+        if self._passthrough(node, name) is not None:
+            return True
+        if self._events_source(node, name) is None:
             return False
         # The column's values take part in these, so they have to stay the blob
         if node.distinct or node.group_by or node.group_by_mode is not None or node.having is not None:
@@ -205,12 +220,11 @@ class _ExportedPropertiesNarrower:
         database_field = field_type.resolve_database_field(self.context)
         return isinstance(database_field, StringJSONDatabaseField) and database_field.name == "properties"
 
-    def _narrow(self, node: "SubqueryNode", name: str) -> None:
+    def _rewrite_reads(self, node: "SubqueryNode", name: str) -> None:
         reads = self.optimizer.reads.get((id(node), name))
         if reads is not None:
             for alias_node, field_node in reads.sites.values():
                 self._rewrite_read(alias_node, field_node)
-        self._rewrite_export(node, name)
 
     def _rewrite_read(self, alias_node: ast.Alias, field_node: ast.Field) -> None:
         property_type = field_node.type
@@ -226,24 +240,10 @@ class _ExportedPropertiesNarrower:
             # The resolver shares this type object with the select scope's column and alias maps
             alias_node.type.type = new_expr.type or ast.UnknownType()
 
-    def _rewrite_export(self, node: "SubqueryNode", name: str) -> None:
-        key = (id(node), name)
-        if key in self._narrowed:
-            return
-        self._narrowed.add(key)
-        if isinstance(node, ast.SelectSetQuery):
-            for query in self.optimizer.union_queries(node):
-                self._rewrite_export(query, name)
-            return
+    def _rewrite_export(self, node: ast.SelectQuery, name: str) -> None:
         expr = self._select_expr(node, name)
-        assert expr is not None
-        source = _unwrap_aliases(expr)
-        assert isinstance(source, ast.Field) and isinstance(source.type, ast.FieldType)
-        child = self.optimizer.child_for(source.type.table_type)
-        if child is not None:
-            self._rewrite_export(child, source.type.name)
-            return
-
+        source = self._events_source(node, name)
+        assert expr is not None and source is not None
         reads = self.optimizer.reads.get((id(node), name))
         map_expr = self._map_expr(source, sorted(reads.keys) if reads is not None else [])
         innermost: ast.Alias | None = None
