@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-11-02 20:03:45 UTC
+// Generated at: 2026-11-03 10:04:25 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -67,7 +67,7 @@ export type CanonicalProvider =
     | 'darkbloom-int4'
     | 'darkbloom-nvfp4'
     | 'decart-fp4'
-    | 'deepinfra'
+    | 'decart-mxfp4'
     | 'deepinfra-bf16'
     | 'deepinfra-bf16-flex'
     | 'deepinfra-bf16-priority'
@@ -161,7 +161,6 @@ export type CanonicalProvider =
     | 'near-ai-fp4'
     | 'near-ai-fp8'
     | 'nebius'
-    | 'nebius-bf16'
     | 'nebius-fp4'
     | 'nebius-fp8'
     | 'nex-agi-bf16'
@@ -192,8 +191,9 @@ export type CanonicalProvider =
     | 'parasail-fp8'
     | 'parasail-int4'
     | 'pareto-alpha-us'
-    | 'particle-ai'
     | 'particle-ai-nvfp4'
+    | 'particle-ai-us'
+    | 'particle-ai-us-flex'
     | 'perceptron'
     | 'perplexity'
     | 'perplexity-int8'
