@@ -292,11 +292,22 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         assert (self.alert.threshold.configuration["type"], self.alert.detector_config) == ("absolute", None)
         assert self._copy().source_config == stored_config
 
-    def test_a_platform_edit_cannot_turn_an_ai_alert_back_on(self) -> None:
+    @parameterized.expand(
+        [
+            ("ai_alert", {"detector_config": {"type": "llm"}}, None),
+            ("real_time_alert_over_the_limit", {"calculation_interval": "real_time"}, "Limit reached."),
+        ]
+    )
+    def test_a_platform_edit_cannot_turn_an_alert_back_on_past_its_admission(
+        self, _name: str, stored: dict[str, Any], real_time_limit_error: str | None
+    ) -> None:
         self._edit_on_the_platform(lambda stored: replace(stored, enabled=False))
-        AlertConfiguration.objects.filter(id=self.alert.id).update(detector_config={"type": "llm"})
+        AlertConfiguration.objects.filter(id=self.alert.id).update(**stored)
 
-        with pytest.raises(InvalidPlatformAlertEdit) as refused:
+        with (
+            patch.object(AlertConfiguration, "check_real_time_alert_limit", return_value=real_time_limit_error),
+            pytest.raises(InvalidPlatformAlertEdit) as refused,
+        ):
             self._edit_on_the_platform(lambda stored: replace(stored, enabled=True))
 
         assert refused.value.field_name == "enabled"
@@ -346,8 +357,11 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         with team_scope(self.team.id):
             due_after = platform_testing.copy_of(self.alert.id).next_check_at
         assert self.alert.owner == "platform"
-        assert due_after == (self.alert.next_check_at if rescheduled else due_before)
-        assert (due_after != due_before) == rescheduled
+        assert due_before is not None and due_after is not None and self.alert.next_check_at is not None
+        if rescheduled:
+            assert self.alert.next_check_at + timedelta(minutes=1) <= due_after < due_before
+        else:
+            assert due_after == due_before
 
     @parameterized.expand([("a_team_on_the_platform", True), ("a_team_off_the_platform", False)])
     def test_a_new_alert_is_handed_over_only_in_a_team_on_the_platform(self, _name: str, begun: bool) -> None:

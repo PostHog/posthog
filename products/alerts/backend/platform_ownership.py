@@ -136,7 +136,7 @@ def mirror_platform_edit(
     """Locks the insight row of an alert edited through the platform API, and returns its writer."""
     alert = (
         AlertConfiguration.objects.select_for_update(no_key=True, of=("self",))
-        .select_related("threshold", "insight")
+        .select_related("threshold", "insight", "team__organization")
         # A copy lives on the project's team. An insight alert in one of its environments is never
         # handed over, so the copy of one is the insight stack's and refuses the edit.
         .filter(team_id=team_id, id=legacy_configuration_id)
@@ -158,6 +158,16 @@ def _write_insight_row(alert: AlertConfiguration, edit: PlatformAlertConfigurati
             "enabled",
             "An AI detector alert can't be turned back on through this API. Turn it on in the insight's alert settings.",
         )
+    if edit.enabled and not alert.enabled:
+        # The insight API and the Max tool check the same limit before they turn an alert on.
+        if limit_error := AlertConfiguration.real_time_alert_validation_error(
+            team_id=alert.team_id,
+            organization=alert.team.organization,
+            calculation_interval=alert.calculation_interval,
+            enabled=True,
+            existing=alert,
+        ):
+            raise InvalidPlatformAlertEdit("enabled", limit_error)
     condition = edit.source_config[SOURCE_CONDITION_KEY]
     if condition.get("detector") != alert.detector_config:
         # A detector config is checked against its insight and its access rules in the insight API only.

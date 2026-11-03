@@ -981,7 +981,11 @@ def write_owned_cadence(
         return
     for key, value in cadence.items():
         setattr(configuration, key, value)
-    configuration.next_check_at = upsert.next_check_at or django_timezone.now()
+    now = django_timezone.now()
+    # A minute out at the earliest, so the recheck gets a slot of its own. A due time in the minute
+    # of a check that just finished would reuse that check's evaluation key, and the recheck's
+    # history and notification would be dropped as duplicates.
+    configuration.next_check_at = max(upsert.next_check_at or now, now + _HANDOVER_FENCE)
     configuration.save(update_fields=[*_CADENCE_FIELDS, "next_check_at", "updated_at"])
 
 
