@@ -10,7 +10,9 @@ use url::Url;
 
 use crate::bytescan::{self as scan, Span};
 use crate::fonts::{bundled_font, is_fetched_font_url};
-use crate::url_policy::{checked_url, is_fetched_image_type, is_remote, Decline, MAX_URL_LEN};
+use crate::url_policy::{
+    checked_url, is_fetched_image_type, is_remote, same_url_spellings, Decline, MAX_URL_LEN,
+};
 
 use super::css::{self, CssEditBuilder, CssUrl, Resolver};
 use super::edits::{Buffers, Edit, Slot};
@@ -295,6 +297,9 @@ impl Urls {
         }
         let decline = checked_url(url).err()?;
         self.add_declined(url.to_owned(), kind, decline);
+        for spelling in same_url_spellings(url) {
+            self.add_declined(spelling, kind, decline);
+        }
         Some(decline)
     }
 

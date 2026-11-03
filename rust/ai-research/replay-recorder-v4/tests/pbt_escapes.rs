@@ -106,6 +106,27 @@ fn css_escaped(tc: &TestCase, url: &str) -> String {
     out
 }
 
+/// `url` as an HTML attribute can hold it and a browser still loads it: the URL parser drops tabs and line breaks
+/// anywhere, reads a backslash after the scheme as a slash, and takes the scheme in any letter case.
+fn html_spelled(tc: &TestCase, url: &str) -> String {
+    let mut out = url.to_owned();
+    if out.starts_with("https://") && tc.draw(gs::booleans()) {
+        out = out.replacen(
+            "https://",
+            ["HTTPS://", "https:\\\\", "https:/\\"][draw_index(tc, 3)],
+            1,
+        );
+    }
+    let query_at = out.find('?').unwrap_or(out.len());
+    for _ in 0..draw_index(tc, 3) {
+        let at = draw_index(tc, query_at);
+        if out.is_char_boundary(at) {
+            out.insert(at, ['\t', '\n'][draw_index(tc, 2)]);
+        }
+    }
+    out
+}
+
 /// The CSS `url()` of `written`, quoted or not, under any spelling of its name. A comment can follow a quoted string.
 /// One before it makes a bad URL, which a browser never loads.
 fn url_function(tc: &TestCase, written: &str) -> String {
@@ -144,8 +165,12 @@ fn with_escaped_slashes(tc: &TestCase, json: &str) -> String {
 fn draw_placed(tc: &TestCase, index: usize, refused: bool) -> Placed {
     let slot = SLOTS[draw_index(tc, SLOTS.len())];
     let url = draw_url(tc, index, refused);
-    let written = if slot.is_css() && tc.draw(gs::booleans()) {
+    let written = if !tc.draw(gs::booleans()) {
+        url.clone()
+    } else if slot.is_css() {
         css_escaped(tc, &url)
+    } else if matches!(slot, Slot::ImgSrc) {
+        html_spelled(tc, &url)
     } else {
         url.clone()
     };

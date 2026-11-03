@@ -882,10 +882,13 @@ mod tests {
             .replace(r#""srcset""#, r#""src\u0073et""#);
         assert_eq!(stored_lines(&escaped), lines);
         // A browser reads backslashes after the scheme as slashes, so such a URL is replaced like its `https://` form.
+        // The URL parser drops tabs and line breaks anywhere, so these load from the host too.
         for backslashed in [
             r"https:\\user:secret@cdn.example.com/a.png",
             r"https:/\user:secret@cdn.example.com/a.png",
             "https:user:secret@cdn.example.com/a.png",
+            "ht\ttps://user:secret@cdn.example.com/a.png",
+            "/\n/user:secret@cdn.example.com/a.png",
         ] {
             let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
                 "attributes": [{"id": 99, "attributes": {"src": backslashed}}]}}])
@@ -959,6 +962,11 @@ mod tests {
             (
                 json!([{"parentId": 1, "node": {"type": 2, "tagName": "div", "attributes": {"style": "background-image:url('\\2f \\2f cdn.example.com/a.png?X-Amz-Signature=abc123')"}, "childNodes": [], "id": 9}}]),
                 json!({"alt": "//cdn.example.com/a.png?X-Amz-Signature=abc123"}),
+            ),
+            // A browser loads a URL with a tab in it, or in another letter case, from the same place.
+            (
+                json!([{"parentId": 1, "node": {"type": 2, "tagName": "img", "attributes": {"src": "HTTPS://Bucket.s3.amazonaws.com/x\t.png?X-Amz-Signature=abc123"}, "childNodes": [], "id": 10}}]),
+                json!({"alt": "https://bucket.s3.amazonaws.com/x.png?X-Amz-Signature=abc123"}),
             ),
             (
                 json!([

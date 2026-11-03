@@ -118,9 +118,11 @@ impl DeclinedCopies {
                 markers.push(json_string_contents(&replacement));
             }
         }
+        // A scheme and a host read the same in any letter case, so a copy in another case is the same URL.
         let matcher = AhoCorasick::builder()
             .kind(Some(AhoCorasickKind::ContiguousNFA))
             .match_kind(MatchKind::Standard)
+            .ascii_case_insensitive(true)
             .build(&patterns)
             .ok()?;
         let longest = patterns.iter().map(Vec::len).max()?;

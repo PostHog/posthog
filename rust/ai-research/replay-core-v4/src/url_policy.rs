@@ -11,6 +11,7 @@
 //! The fetch lane runs in another language. The registrable domain therefore travels with each
 //! URL as data, so that lane reads the result and never repeats the rule.
 
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::net::IpAddr;
 use std::sync::LazyLock;
@@ -371,7 +372,42 @@ pub fn canonicalize(raw: &str) -> Option<CanonicalUrl> {
 /// Whether the URL names a host but no scheme, such as `//cdn.example.com/a.png`. The browser loads it with the page's
 /// scheme, so it is remote. A browser reads a backslash as a slash in an `https` URL, so `\\host` and `/\host` count too.
 pub fn is_protocol_relative(raw: &str) -> bool {
-    matches!(raw.trim().as_bytes(), [b'/' | b'\\', b'/' | b'\\', ..])
+    matches!(
+        as_parsed(raw).trim().as_bytes(),
+        [b'/' | b'\\', b'/' | b'\\', ..]
+    )
+}
+
+/// Other spellings of `raw` that a browser loads as the same URL: without its tabs and line breaks, and as the URL
+/// parser writes it, with the scheme and host in lower case and each backslash after the scheme a slash.
+pub fn same_url_spellings(raw: &str) -> Vec<String> {
+    let raw = raw.trim();
+    let parsed = as_parsed(raw);
+    let with_scheme = if is_protocol_relative(&parsed) {
+        format!("https:{parsed}")
+    } else {
+        parsed.to_string()
+    };
+    let serialized = Url::parse(&with_scheme).ok().map(String::from);
+    let mut spellings: Vec<String> = Vec::new();
+    for spelling in [Some(parsed.into_owned()), serialized]
+        .into_iter()
+        .flatten()
+    {
+        if spelling != raw && !spellings.contains(&spelling) {
+            spellings.push(spelling);
+        }
+    }
+    spellings
+}
+
+/// The URL parser drops every ASCII tab and line break, anywhere in a URL, so `/\n/cdn.example.com` loads from that host.
+fn as_parsed(raw: &str) -> Cow<'_, str> {
+    if raw.contains(['\t', '\n', '\r']) {
+        Cow::Owned(raw.replace(['\t', '\n', '\r'], ""))
+    } else {
+        Cow::Borrowed(raw)
+    }
 }
 
 /// Whether the browser loads the URL from a host. A URL scheme is not case sensitive, so `HTTPS://` loads as
@@ -379,6 +415,8 @@ pub fn is_protocol_relative(raw: &str) -> bool {
 /// all on a page of another scheme, so `https:\\host` and `https:host` can load from the host too. A
 /// protocol-relative URL does as well.
 pub fn is_remote(url: &str) -> bool {
+    let url = as_parsed(url);
+    let url = url.as_ref();
     let after_scheme = ["https:", "http:"].iter().find_map(|scheme| {
         url.get(..scheme.len())
             .filter(|start| start.eq_ignore_ascii_case(scheme))
