@@ -12,6 +12,7 @@ from products.warehouse_sources.sources.persona import persona
 from products.warehouse_sources.sources.persona.persona import (
     PERSONA_API_VERSION_2026_09_29,
     PERSONA_BASE_URL,
+    PersonaApiNotEnabledError,
     PersonaRedirectError,
     PersonaResumeConfig,
     PersonaRetryableError,
@@ -84,18 +85,31 @@ class TestFetchPageRetryClassification:
         # tenacity retries 5 times before giving up.
         assert session.get.call_count == 5
 
-    @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
-    def test_client_errors_raise_immediately(self, _name: str, status: int) -> None:
+    @parameterized.expand(
+        [
+            ("unauthorized", 401, None, requests.HTTPError),
+            ("forbidden", 403, None, requests.HTTPError),
+            ("forbidden_missing_scope", 403, {"errors": [{"title": "Forbidden"}]}, requests.HTTPError),
+            (
+                "forbidden_api_not_enabled",
+                403,
+                {"errors": [{"title": "Forbidden", "details": "Workflows API is not enabled"}]},
+                PersonaApiNotEnabledError,
+            ),
+            ("not_found", 404, None, requests.HTTPError),
+        ]
+    )
+    def test_client_errors_raise_immediately(
+        self, _name: str, status: int, body: dict | None, expected: type[requests.HTTPError]
+    ) -> None:
         # Auth/permission errors can never be fixed by retrying, so they must surface at once.
-        response = requests.Response()
-        response.status_code = status
-        response.url = "https://api.withpersona.com/api/v1/inquiries"
-        session = MagicMock()
-        session.get.return_value = response
-
-        with pytest.raises(requests.HTTPError):
-            persona._fetch_page(session, "https://api.withpersona.com/api/v1/inquiries", {}, MagicMock())
-        assert session.get.call_count == 1
+        url = "https://api.withpersona.com/api/v1/workflow-runs"
+        with requests_mock.Mocker() as m:
+            m.get(url, status_code=status, json=body)
+            with pytest.raises(requests.HTTPError) as raised:
+                persona._fetch_page(requests.Session(), url, {}, MagicMock())
+            assert m.call_count == 1
+        assert type(raised.value) is expected
 
 
 class TestRedirectsRefused:
