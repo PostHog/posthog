@@ -9,8 +9,8 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import User
-from posthog.models.integration import Integration
 
 from products.slack_app.backend.logic.workspace_setup import (
     MAX_CHANNELS_TO_JOIN,
@@ -22,6 +22,7 @@ from products.slack_app.backend.logic.workspace_setup import (
     list_channel_options,
     set_default_project,
 )
+from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration, with_teams
 
 
 class SlackAppProjectOptionSerializer(serializers.Serializer):
@@ -109,15 +110,11 @@ class SlackAppWorkspaceSetupViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object_read_actions = ["retrieve", "channels"]
     scope_object_write_actions = ["default_project", "join_channels"]
 
-    def _integration(self, pk: str | None) -> Integration:
-        integration = (
-            Integration.objects.filter(team_id=self.team_id, kind="slack", id=pk)
-            .select_related("team", "team__organization")
-            .first()
-        )
-        if integration is None:
+    def _integration(self, pk: str | None) -> WorkspaceIntegration:
+        try:
+            return with_teams([IntegrationManager.slack.oauth.get(self.team_id, int(pk or ""))])[0]
+        except (IntegrationNotFound, ValueError):
             raise NotFound()
-        return integration
 
     @validated_request(
         query_serializer=SlackAppWorkspaceSetupQuerySerializer,

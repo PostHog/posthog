@@ -203,7 +203,7 @@ def resolve_workspace_default_integration_id(slack_workspace_id: str) -> int | N
     )
 
 
-def set_workspace_default_integration(slack_workspace_id: str, integration: Integration) -> None:
+def set_workspace_default_integration(slack_workspace_id: str, integration_id: int) -> None:
     """Store the workspace-wide routing default. The caller checks that the actor may set it."""
 
     from products.slack_app.backend.models import SlackSettings
@@ -211,7 +211,7 @@ def set_workspace_default_integration(slack_workspace_id: str, integration: Inte
     SlackSettings.objects.update_or_create(
         slack_workspace_id=slack_workspace_id,
         slack_user_id=None,
-        defaults={"default_integration": integration},
+        defaults={"default_integration_id": integration_id},
     )
 
 

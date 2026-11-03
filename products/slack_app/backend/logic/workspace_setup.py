@@ -14,8 +14,9 @@ from urllib.parse import urlencode
 from django.db import models
 
 from posthog.dataclasses import frozen
+from posthog.integrations import IntegrationRecord
 from posthog.models import OrganizationMembership, User
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import SlackIntegration
 from posthog.slack.channels import SHARED_CHANNEL_FLAGS, join_channel
 from posthog.user_permissions import UserPermissions
 
@@ -25,6 +26,7 @@ from products.slack_app.backend.services.slack_settings import (
     resolve_workspace_default_integration_id,
     set_workspace_default_integration,
 )
+from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration, workspace_integrations
 
 SLACK_APP_REDIRECT_URL = "https://slack.com/app_redirect"
 CHANNELS_JOIN_SCOPE = "channels:join"
@@ -49,7 +51,7 @@ class WorkspaceSettingsError(Exception):
 
 @frozen(slots=False)
 class SetupContext:
-    integration: Integration
+    integration: WorkspaceIntegration
     user: User
     entry: SlackSetupEntry
 
@@ -58,14 +60,9 @@ class SetupContext:
         return self.integration.integration_id or ""
 
     @cached_property
-    def project_options(self) -> list[Integration]:
+    def project_options(self) -> list[WorkspaceIntegration]:
         """Projects connected to this Slack workspace that the person can open, oldest install first."""
-        installs = (
-            Integration.objects.filter(kind="slack", integration_id=self.slack_workspace_id)
-            .select_related("team", "team__organization")
-            .order_by("id")
-        )
-        return accessible_candidates(installs, user=self.user)
+        return accessible_candidates(workspace_integrations(self.slack_workspace_id), user=self.user)
 
 
 @frozen
@@ -136,7 +133,7 @@ SETUP_STEPS: tuple[SetupStep, ...] = (
 )
 
 
-def open_slack_url(integration: Integration) -> str | None:
+def open_slack_url(integration: IntegrationRecord) -> str | None:
     """A link that opens the app's direct message in the installer's Slack workspace."""
     app_id = (integration.config or {}).get("app_id")
     if not app_id or not integration.integration_id:
@@ -144,7 +141,7 @@ def open_slack_url(integration: Integration) -> str | None:
     return f"{SLACK_APP_REDIRECT_URL}?{urlencode({'app': app_id, 'team': integration.integration_id})}"
 
 
-def get_workspace_setup(integration: Integration, user: User, entry: SlackSetupEntry) -> WorkspaceSetup:
+def get_workspace_setup(integration: WorkspaceIntegration, user: User, entry: SlackSetupEntry) -> WorkspaceSetup:
     ctx = SetupContext(integration=integration, user=user, entry=entry)
     steps = tuple(step.key for step in SETUP_STEPS if step.applies(ctx) and not step.is_done(ctx))
     return WorkspaceSetup(
@@ -165,7 +162,7 @@ def get_workspace_setup(integration: Integration, user: User, entry: SlackSetupE
     )
 
 
-def _can_change_workspace_settings(integration: Integration, user: User) -> bool:
+def _can_change_workspace_settings(integration: WorkspaceIntegration, user: User) -> bool:
     # These settings change the Slack workspace for everyone in it, so only the person who
     # installed it or an admin of its project may change them from the web.
     if integration.created_by_id == user.id:
@@ -174,7 +171,7 @@ def _can_change_workspace_settings(integration: Integration, user: User) -> bool
     return level is not None and level >= OrganizationMembership.Level.ADMIN
 
 
-def set_default_project(integration: Integration, user: User, target_integration_id: int) -> None:
+def set_default_project(integration: WorkspaceIntegration, user: User, target_integration_id: int) -> None:
     if not _can_change_workspace_settings(integration, user):
         raise WorkspaceSettingsError(
             "Only the person who installed Slack or a project admin can set the default project."
@@ -183,10 +180,10 @@ def set_default_project(integration: Integration, user: User, target_integration
     target = next((option for option in ctx.project_options if option.id == target_integration_id), None)
     if target is None:
         raise WorkspaceSettingsError("This project is not connected to this Slack workspace, or you can't open it.")
-    set_workspace_default_integration(ctx.slack_workspace_id, target)
+    set_workspace_default_integration(ctx.slack_workspace_id, target.id)
 
 
-def list_channel_options(integration: Integration) -> tuple[ChannelOption, ...]:
+def list_channel_options(integration: IntegrationRecord) -> tuple[ChannelOption, ...]:
     """Public channels that the bot can join. Shared channels are left out, because people outside
     the workspace would see the bot there."""
     channels = SlackIntegration(integration).list_public_channels()
@@ -198,7 +195,7 @@ def list_channel_options(integration: Integration) -> tuple[ChannelOption, ...]:
 
 
 def join_channels(
-    integration: Integration, user: User, channel_ids: list[str], *, post_welcome: bool
+    integration: WorkspaceIntegration, user: User, channel_ids: list[str], *, post_welcome: bool
 ) -> tuple[ChannelJoinResult, ...]:
     from products.slack_app.backend.api import (  # noqa: PLC0415 — api.py imports the services this module uses
         release_channel_welcome_skip,

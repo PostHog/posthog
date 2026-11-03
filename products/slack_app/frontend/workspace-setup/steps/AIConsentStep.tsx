@@ -7,7 +7,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { AIAccessRequest } from 'scenes/settings/organization/AIAccessRequest'
 import { openAIConsentLegalDialog } from 'scenes/settings/organization/aiConsentCopy'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
+
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 
 import { slackAppWorkspaceSetupLogic } from '../slackAppWorkspaceSetupLogic'
 

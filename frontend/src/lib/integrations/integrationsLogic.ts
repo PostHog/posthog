@@ -20,6 +20,7 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { isKeyOf } from 'lib/utils/guards'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { retryImport } from 'lib/utils/retryImport'
 import { fromParamsGivenUrl } from 'lib/utils/url'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -42,7 +43,6 @@ import type {
     IntegrationConfigApi,
     IntegrationKindEnumApi,
 } from 'products/integrations/frontend/generated/api.schemas'
-import { offerSlackWorkspaceSetup } from 'products/slack_app/frontend/workspace-setup/offerSlackWorkspaceSetup'
 import { ChannelType } from 'products/workflows/frontend/Channels/MessageChannels'
 
 import type { AvailableSetupTaskIdsEnumApi } from '../../generated/core/api.schemas'
@@ -1393,7 +1393,14 @@ export const integrationsLogic = kea<integrationsLogicType>([
                         sameTeam &&
                         values.currentTeamId
                     ) {
-                        void offerSlackWorkspaceSetup(values.currentTeamId, integration.id, url.pathname)
+                        const teamId = values.currentTeamId
+                        void retryImport(
+                            () => import('products/slack_app/frontend/workspace-setup/offerSlackWorkspaceSetup')
+                        )
+                            .then(({ offerSlackWorkspaceSetup }) =>
+                                offerSlackWorkspaceSetup(teamId, integration.id, url.pathname)
+                            )
+                            .catch(() => {})
                     }
                 }
             } catch (e) {
