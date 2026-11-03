@@ -219,7 +219,10 @@ export const memberOffboardingLogic = kea<memberOffboardingLogicType>([
                                 const resourceId = resource.resource_id
                                 const projectId = String(resource.team_id)
                                 if (resource.kind === 'subscription') {
-                                    await subscriptionsPartialUpdate(projectId, Number(resourceId), { enabled })
+                                    await subscriptionsPartialUpdate(projectId, Number(resourceId), {
+                                        enabled,
+                                        send_test_now: false,
+                                    })
                                     return resource.id
                                 }
                                 if (resource.kind === 'alert') {

@@ -265,14 +265,19 @@ describe('memberOffboardingLogic', () => {
         await expectLogic(logic, () =>
             logic.actions.disableResources([subscription.id, alert.id])
         ).toFinishAllListeners()
-        await expectLogic(logic, () => logic.actions.remove()).toDispatchActions(['removeSuccess'])
         expect(updates).toEqual(
             expect.arrayContaining([
-                { path: '/api/projects/1/subscriptions/1/', body: { enabled: false } },
+                { path: '/api/projects/1/subscriptions/1/', body: { enabled: false, send_test_now: false } },
                 { path: '/api/projects/1/alerts/1/', body: { enabled: false } },
             ])
         )
         expect(logic.values.keep).toEqual(resources.map((resource) => resource.id))
+        await expectLogic(logic, () => logic.actions.setKeep(subscription.id, true)).toFinishAllListeners()
+        expect(updates.at(-1)).toEqual({
+            path: '/api/projects/1/subscriptions/1/',
+            body: { enabled: true, send_test_now: false },
+        })
+        await expectLogic(logic, () => logic.actions.remove()).toDispatchActions(['removeSuccess'])
     })
 
     it('skips the resource review when leaving the organization yourself', async () => {
