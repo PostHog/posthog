@@ -25,6 +25,23 @@ describe('hogflow schema', () => {
         })
     })
 
+    describe('function_push', () => {
+        it('accepts a UUIDT message category id', () => {
+            const result = HogFlowActionSchema.safeParse({
+                ...commonActionFields,
+                type: 'function_push',
+                config: {
+                    template_id: 'template-native-push',
+                    message_category_id: '0192a1b2-c3d4-0000-8e5f-0a1b2c3d4e5f',
+                    template_uuid: '0192a1b2-c3d4-0000-8e5f-0a1b2c3d4e60',
+                    inputs: {},
+                },
+            })
+
+            expect(result).toMatchObject({ success: true })
+        })
+    })
+
     describe('wait_until_condition events', () => {
         const baseConfig = {
             condition: { filters: {} },
