@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { DataModelingEdge, DataModelingNode, DataModelingNodeType } from '~/types'
 
+import { catalogRestructureEnabled } from './catalogRestructure'
 import { BehindScheduleModel, modelsBehindSchedule } from './freshness'
 import { NodeSuspensionApi } from './generated/api.schemas'
 import { lineageDataLogic } from './lineage/lineageDataLogic'
@@ -26,23 +27,12 @@ function isModelsSceneTab(tab: unknown): tab is ModelsSceneTab {
     return typeof tab === 'string' && (MODELS_SCENE_TABS as string[]).includes(tab)
 }
 
-function tabShownFor(
-    requestedTab: ModelsSceneTab,
-    usageEnabled: boolean,
-    catalogRestructureEnabled: boolean
-): ModelsSceneTab {
-    if (requestedTab === 'usage' && !usageEnabled) {
-        return 'overview'
-    }
-    if (requestedTab === 'models' && catalogRestructureEnabled) {
-        return 'overview'
-    }
-    return requestedTab
-}
-
-const DATA_CATALOG_TAB_FOR: Partial<Record<ModelsSceneTab, string>> = {
-    lineage: 'lineage',
+const DATA_CATALOG_TAB_FOR: Record<ModelsSceneTab, string | undefined> = {
+    overview: undefined,
+    models: 'tables',
     'data-quality': 'tables',
+    lineage: 'lineage',
+    usage: 'usage',
 }
 
 /** One row of the overview's attention table: a broken model, why, and what it holds up. */
@@ -277,30 +267,29 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
         ],
         catalogRestructureEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
+            (featureFlags: FeatureFlagsSet): boolean => catalogRestructureEnabled(featureFlags),
         ],
     }),
-    listeners(() => ({
-        setActiveTab: ({ tab }) => {
-            posthog.capture('models tab viewed', { tab })
-        },
-    })),
     urlToAction(({ actions, values }) => ({
         [urls.models()]: (_, searchParams) => {
             const requestedTab: ModelsSceneTab = isModelsSceneTab(searchParams.tab) ? searchParams.tab : 'overview'
-            const catalogTab = values.catalogRestructureEnabled ? DATA_CATALOG_TAB_FOR[requestedTab] : undefined
-            if (catalogTab) {
-                router.actions.replace(urls.dataCatalog(), { ...searchParams, tab: catalogTab })
+            if (values.catalogRestructureEnabled) {
+                const { tab: _tab, ...otherParams } = searchParams
+                const catalogTab = DATA_CATALOG_TAB_FOR[requestedTab]
+                router.actions.replace(
+                    urls.dataCatalog(),
+                    catalogTab ? { ...otherParams, tab: catalogTab } : otherParams
+                )
                 return
             }
-            const tab: ModelsSceneTab = tabShownFor(requestedTab, values.usageEnabled, values.catalogRestructureEnabled)
+            const tab: ModelsSceneTab = requestedTab === 'usage' && !values.usageEnabled ? 'overview' : requestedTab
+            posthog.capture('models tab viewed', { tab })
             if (tab !== values.activeTab) {
                 actions.setActiveTab(tab)
             }
         },
     })),
     afterMount(({ actions, cache, values }) => {
-        posthog.capture('models tab viewed', { tab: values.activeTab })
         // Mounting dataWarehouseViewsLogic already starts this load, so only refresh when it was mounted earlier
         if (!values.dataWarehouseSavedQueriesLoading) {
             actions.loadDataWarehouseSavedQueries()

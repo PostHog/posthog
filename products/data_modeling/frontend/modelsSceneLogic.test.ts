@@ -109,19 +109,19 @@ describe('modelsSceneLogic', () => {
     })
 
     it.each([
-        [
-            '/models?tab=lineage&search=%2Borders%2B&node_id=n1',
-            '/data-catalog',
-            { tab: 'lineage', search: '+orders+', node_id: 'n1' },
-        ],
-        ['/models?tab=data-quality', '/data-catalog', { tab: 'tables' }],
-        ['/models?tab=models', '/models', { tab: 'models' }],
-    ])('with the catalog restructure on, %s lands on %s', async (path, pathname, searchParams) => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE]: true })
+        ['/models', {}],
+        ['/models?tab=lineage&search=%2Borders%2B&node_id=n1', { tab: 'lineage', search: '+orders+', node_id: 'n1' }],
+        ['/models?tab=data-quality', { tab: 'tables' }],
+        ['/models?tab=models', { tab: 'tables' }],
+    ])('with the catalog restructure on, %s opens the data catalog with %j', async (path, searchParams) => {
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE]: true,
+        })
 
         await mount(path)
 
-        expect(router.values.location.pathname.endsWith(pathname)).toBe(true)
+        expect(router.values.location.pathname.endsWith('/data-catalog')).toBe(true)
         expect(router.values.searchParams).toEqual(searchParams)
     })
 

@@ -17,12 +17,10 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { useSceneAgentPanel } from '~/scenes/max/useSceneAgentPanel'
 
-import { ModelsLineageTab } from 'products/data_modeling/frontend/lineage/ModelsLineageTab'
-import { DataQualityOverview } from 'products/data_quality/frontend/overview/DataQualityOverview'
-
 import { certificationsLogic } from './certificationsLogic'
 import { buildDataCatalogAgentContext, DATA_CATALOG_AGENT_HEADLINES } from './dataCatalogAgentContext'
 import { DataCatalogTab, dataCatalogSceneLogic } from './dataCatalogSceneLogic'
+import { DataCatalogSections } from './DataCatalogSections'
 import { dataCatalogEmptyState } from './emptyState/dataCatalogEmptyState'
 import { metricsLogic } from './metricsLogic'
 import { relationshipsLogic } from './relationshipsLogic'
@@ -47,7 +45,7 @@ function TabLabel({ label, count }: { label: string; count: number }): JSX.Eleme
 }
 
 export function DataCatalogScene(): JSX.Element {
-    const { activeTab, availableTabs, defaultTab } = useValues(dataCatalogSceneLogic)
+    const { activeTab, restructureEnabled } = useValues(dataCatalogSceneLogic)
     const { setActiveTab } = useActions(dataCatalogSceneLogic)
     const { proposedCount: metricsPending } = useValues(metricsLogic)
     const { pendingCount: relationshipsPending } = useValues(relationshipsLogic)
@@ -61,30 +59,34 @@ export function DataCatalogScene(): JSX.Element {
         headlines: DATA_CATALOG_AGENT_HEADLINES,
     })
 
-    const tabLink = (tab: DataCatalogTab): string => urls.dataCatalog(tab === defaultTab ? undefined : tab)
-    const allTabs: LemonTab<DataCatalogTab>[] = [
-        { key: 'tables', label: 'Tables', content: <DataQualityOverview />, link: tabLink('tables') },
-        { key: 'lineage', label: 'Lineage', content: <ModelsLineageTab />, link: tabLink('lineage') },
+    if (restructureEnabled) {
+        return (
+            <BindLogic logic={metricsLogic} props={{}}>
+                <DataCatalogSections />
+            </BindLogic>
+        )
+    }
+
+    const tabs: LemonTab<DataCatalogTab>[] = [
         {
             key: 'metrics',
             label: <TabLabel label="Metrics" count={metricsPending} />,
             content: <MetricsTab />,
-            link: tabLink('metrics'),
+            link: urls.dataCatalog(),
         },
         {
             key: 'relationships',
             label: <TabLabel label="Relationships" count={relationshipsPending} />,
             content: <RelationshipsTab />,
-            link: tabLink('relationships'),
+            link: urls.dataCatalog('relationships'),
         },
         {
             key: 'certifications',
             label: <TabLabel label="Certifications" count={certificationsPending} />,
             content: <CertificationsTab />,
-            link: tabLink('certifications'),
+            link: urls.dataCatalog('certifications'),
         },
     ]
-    const tabs = allTabs.filter((tab) => availableTabs.includes(tab.key))
 
     return (
         <BindLogic logic={metricsLogic} props={{}}>
