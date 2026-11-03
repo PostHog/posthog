@@ -1,9 +1,5 @@
-//! Neon native addon exposing the v4 URL policy, `replay_core_v4::url_policy`, the crawl history
-//! rule, `replay_core_v4::fetch_history`, and the fetched image frame and references,
-//! `replay_core_v4::fetched_image`, to the v4 image fetcher.
-//!
-//! The recorder writes and reads with those modules, and the fetcher must decide and seal the
-//! same way, so the fetcher calls the modules rather than a second implementation. This crate is
+//! Neon native addon exposing the `replay_core_v4` modules the recorder writes and reads with, so the
+//! v4 image fetcher decides and seals the same way without a second implementation. This crate is
 //! glue only: each function converts its arguments and its result, and the rules stay in the core
 //! crate.
 
