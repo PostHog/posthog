@@ -411,9 +411,10 @@ export function activateRow(
 // Identifies a row across re-renders, so the cursor follows the task rather than its position.
 export function selectionKey(row: SidebarRow | undefined): string | null {
   switch (row?.kind) {
-    // A split task also has a row under Chats, so its workspace row goes by its pane.
+    // A split task also has a row under Chats, so its workspace row goes by its pane; a pinned one has its own row too.
     case "task":
       if (!row.nested && !row.taskId) return "new";
+      if (row.pinned) return `pinned:${row.taskId}`;
       return row.taskId && !row.nested
         ? `task:${row.taskId}`
         : `pane:${row.paneId}`;

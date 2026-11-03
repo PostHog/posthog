@@ -458,11 +458,16 @@ export function App({
     const result = new Set<string>();
     for (const taskId of ids) {
       const facts = turns.facts.get(taskId);
+      const run = taskOf(taskId)?.latest_run;
+      // Until a chat's log has been read, the list's own word on its run stands in, so the inbox fills in one go.
+      const completedAt = run?.completed_at
+        ? Date.parse(run.completed_at)
+        : null;
       const reason = inboxReason({
         working: working.has(taskId),
         prompted: (allPrompts.get(taskId)?.length ?? 0) > 0,
-        failed: taskOf(taskId)?.latest_run?.status === "failed",
-        turnEndedAt: facts?.turnEndedAt ?? null,
+        failed: run?.status === "failed",
+        turnEndedAt: facts?.turnEndedAt ?? completedAt,
         shells: facts?.shells ?? 0,
         wake: facts?.wake ?? false,
         repliedAt: turns.repliedAt.get(taskId) ?? null,

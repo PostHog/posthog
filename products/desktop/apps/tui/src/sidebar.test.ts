@@ -267,7 +267,7 @@ describe("sidebarRows", () => {
       "## All chats",
       "New chat",
     ]);
-    expect(selectionKey(rows[4])).toBe("task:b");
+    expect(selectionKey(rows[4])).toBe("pinned:b");
   });
 
   it("names who started each chat on the All chats tab, except the user's own", () => {
