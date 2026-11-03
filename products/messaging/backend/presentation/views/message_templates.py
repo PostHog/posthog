@@ -438,6 +438,8 @@ class SendTransactionalEmailSerializer(TransactionalEmailMessageSerializer):
 
 
 CODE_SEND_FIELDS = ("template_key", "subject", "html", "text", "from", "reply_to", "capture_engagement")
+# The CDP service accepts a body of at most 20 MiB, and a send carries both bodies, so one body over this is refused.
+CODE_BODY_MAX_BYTES = 5 * 1024 * 1024
 
 
 class SendEmailSerializer(TransactionalEmailMessageSerializer):
@@ -461,13 +463,17 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         required=False, trim_whitespace=False, help_text="Subject of the email your code rendered."
     )
     html = serializers.CharField(
-        required=False, allow_blank=True, trim_whitespace=False, help_text="HTML body of the email your code rendered."
+        required=False,
+        allow_blank=True,
+        trim_whitespace=False,
+        help_text="HTML body of the email your code rendered, at most 5 MiB as UTF-8.",
     )
     text = serializers.CharField(
         required=False,
         allow_blank=True,
         trim_whitespace=False,
-        help_text="Plain text body of the email your code rendered. Without it, PostHog derives the text from `html`.",
+        help_text="Plain text body of the email your code rendered, at most 5 MiB as UTF-8. Without it, PostHog "
+        "derives the text from `html`.",
     )
     from_address = serializers.CharField(
         required=False,
@@ -505,6 +511,12 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         fields["from"] = fields.pop("from_address")
         return fields
 
+    def validate_html(self, value: str) -> str:
+        return _within_body_limit(value, "The HTML body")
+
+    def validate_text(self, value: str) -> str:
+        return _within_body_limit(value, "The plain text body")
+
     def validate_from(self, value: str) -> str:
         _name, address = parseaddr(value)
         if not _is_sender_address(address):
@@ -532,6 +544,14 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         if not (data.get("html") or data.get("text")):
             raise serializers.ValidationError({"html": "A send with `template_key` needs `html`, `text` or both."})
         return data
+
+
+def _within_body_limit(value: str, body: str) -> str:
+    if len(value.encode()) > CODE_BODY_MAX_BYTES:
+        raise serializers.ValidationError(
+            f"{body} can be at most 5 MiB as UTF-8. Link to large images and files instead of embedding them."
+        )
+    return value
 
 
 def _is_sender_address(address: str) -> bool:
@@ -650,7 +670,8 @@ SEND_RESPONSES: dict[int, ResponseDeclaration] = {
     202: OpenApiResponse(response=SendTransactionalEmailResponseSerializer, description="Email queued"),
     400: OpenApiResponse(
         description="A field is invalid, the template isn't transactional or its email is paused, the sender isn't "
-        "verified, the recipient can't be used, or the Idempotency-Key is invalid"
+        "verified, the recipient can't be used, the Idempotency-Key is invalid, the email is too large to send, or "
+        "the project has reached its limit of template keys and the `template_key` is new"
     ),
     404: OpenApiResponse(description="Template not found"),
     409: OpenApiResponse(description="A request with the same Idempotency-Key is still in progress"),

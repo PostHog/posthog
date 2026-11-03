@@ -332,6 +332,7 @@ class TestTransactionalEmail(APIBaseTest):
             ("recipient_suppressed", 422, 422, "recipient_suppressed"),
             ("recipient_unreachable", 422, 422, "recipient_unreachable"),
             ("not_sendable", 400, 400, "transactional_email_paused"),
+            ("Request entity too large", 413, 400, "content_too_large"),
         ]
     )
     def test_reports_a_send_the_pipeline_refuses(
@@ -437,19 +438,27 @@ class TestTransactionalEmail(APIBaseTest):
             "queued",
         )
 
-    def test_a_code_send_makes_a_new_workflow_when_its_keys_workflow_was_deleted(self, mock_post, _flag, _capture):
+    def test_a_known_key_keeps_sending_at_the_key_limit_while_a_new_key_is_refused(self, mock_post, _flag, capture):
         self._cdp_accepts(mock_post)
         psak = self._psak_client(["hog_flow:write"])
-        first = psak.post(self.send_email_url, self._code_send(template_key="welcome"), format="json")
-        deleted_workflow_id = TransactionalEmailKey.objects.for_team(self.team.id).get(key="welcome").hog_flow_id
-        HogFlow.objects.filter(team=self.team, id=deleted_workflow_id).delete()
+        with patch.object(transactional_email, "TRANSACTIONAL_EMAIL_KEY_LIMIT", 1):
+            first = psak.post(self.send_email_url, self._code_send(template_key="welcome"), format="json")
+            deleted_workflow_id = TransactionalEmailKey.objects.for_team(self.team.id).get(key="welcome").hog_flow_id
+            HogFlow.objects.filter(team=self.team, id=deleted_workflow_id).delete()
 
-        second = psak.post(self.send_email_url, self._code_send(template_key="welcome"), format="json")
+            second = psak.post(self.send_email_url, self._code_send(template_key="welcome"), format="json")
+            new_key = psak.post(self.send_email_url, self._code_send(template_key="receipt"), format="json")
 
         assert first.status_code == second.status_code == status.HTTP_202_ACCEPTED, second.json()
         new_workflow_id = TransactionalEmailKey.objects.for_team(self.team.id).get(key="welcome").hog_flow_id
         assert new_workflow_id != deleted_workflow_id
         assert f"/hog_flows/{new_workflow_id}/" in mock_post.call_args_list[1].args[0]
+        assert new_key.status_code == status.HTTP_400_BAD_REQUEST, new_key.json()
+        assert new_key.json()["code"] == "too_many_keys"
+        assert capture.call_args.kwargs["properties"]["error_code"] == "too_many_keys"
+        assert mock_post.call_count == 2
+        assert not TransactionalEmailKey.objects.for_team(self.team.id).filter(key="receipt").exists()
+        assert not HogFlow.objects.filter(team=self.team, name="receipt").exists()
 
     @parameterized.expand(
         [
@@ -507,6 +516,8 @@ class TestTransactionalEmail(APIBaseTest):
             ("sender_with_a_quoted_local_part", {"from": '"security"@example.com'}, "from"),
             ("empty_reply_to", {"reply_to": []}, "reply_to"),
             ("field_this_server_lacks", {"scheduled_at": "2026-11-01T09:00:00Z"}, "scheduled_at"),
+            ("html_over_5_mib_in_utf8", {"html": "é" * (5 * 1024 * 1024 // 2 + 1)}, "html"),
+            ("text_over_5_mib_in_utf8", {"text": "é" * (5 * 1024 * 1024 // 2 + 1)}, "text"),
         ]
     )
     def test_refuses_a_code_send_with_an_invalid_field(self, mock_post, _flag, _capture, _name, fields, attr):
