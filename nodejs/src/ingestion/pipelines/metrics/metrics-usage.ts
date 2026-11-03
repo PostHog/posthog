@@ -2,6 +2,7 @@ export type UsageStats = {
     bytesReceived: number
     recordsReceived: number
     bytesAllowed: number
+    bytesAllowedRecords: number
     recordsAllowed: number
     bytesDropped: number
     recordsDropped: number
@@ -11,6 +12,7 @@ const DEFAULT_USAGE_STATS: UsageStats = {
     bytesReceived: 0,
     recordsReceived: 0,
     bytesAllowed: 0,
+    bytesAllowedRecords: 0,
     recordsAllowed: 0,
     bytesDropped: 0,
     recordsDropped: 0,
@@ -27,9 +29,10 @@ export class MetricsUsageAccumulator {
         stats.recordsReceived += records
     }
 
-    recordAllowed(teamId: number, bytes: number, records: number): void {
+    recordAllowed(teamId: number, bytes: number, records: number, bytesRecords: number): void {
         const stats = this.statsFor(teamId)
         stats.bytesAllowed += bytes
+        stats.bytesAllowedRecords += bytesRecords
         stats.recordsAllowed += records
     }
 

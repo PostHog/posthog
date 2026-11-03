@@ -20,7 +20,12 @@ export function createRateLimitMetricsStep<T extends MetricsIngestionMessage & {
                 metricMessageDroppedCounter.inc({ reason: 'rate_limited', team_id: value.teamId.toString() })
                 return drop<T>('rate_limited')
             }
-            value.usage.recordAllowed(value.teamId, value.bytesUncompressed, value.recordCount)
+            value.usage.recordAllowed(
+                value.teamId,
+                value.bytesUncompressed,
+                value.recordCount,
+                value.bytesUncompressedRecords
+            )
             return ok(value)
         })
     }

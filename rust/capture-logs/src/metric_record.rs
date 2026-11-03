@@ -55,6 +55,30 @@ pub struct KafkaMetricRow {
     pub retention_days: Option<i32>,
 }
 
+const ORIGINAL_TIMESTAMP_ATTRIBUTE: &str = "$originalTimestamp";
+
+/// Billable size of one point, independent of wire format and batching: value, buckets, name and every label.
+pub fn compute_kafka_metric_row_bytes(row: &KafkaMetricRow) -> u64 {
+    let mut total = size_of::<f64>()
+        + size_of::<f64>() * row.histogram_bounds.len()
+        + size_of::<i64>() * row.histogram_counts.len()
+        + row.metric_name.len();
+    if row.instrumentation_scope.len() > 50 {
+        total += row.instrumentation_scope.len();
+    }
+    for (k, v) in row.resource_attributes.iter().chain(&row.attributes) {
+        // Capture adds this label itself, so it is not billed.
+        if k != ORIGINAL_TIMESTAMP_ATTRIBUTE {
+            total += k.len() + v.len();
+        }
+    }
+    total as u64
+}
+
+pub fn sum_kafka_metric_row_bytes(rows: &[KafkaMetricRow]) -> u64 {
+    rows.iter().map(compute_kafka_metric_row_bytes).sum()
+}
+
 /// Flatten an OTEL Metric into one or more KafkaMetricRow records.
 /// Each data point in the metric becomes a separate row.
 pub fn flatten_metric(
@@ -313,7 +337,10 @@ fn build_number_row(
     );
 
     if let Some(original) = original_timestamp {
-        attributes.insert("$originalTimestamp".to_string(), original.to_rfc3339());
+        attributes.insert(
+            ORIGINAL_TIMESTAMP_ATTRIBUTE.to_string(),
+            original.to_rfc3339(),
+        );
     }
 
     let observed_timestamp = Utc::now();
@@ -584,6 +611,28 @@ mod tests {
         )
         .expect("build_number_row should succeed");
         row
+    }
+
+    #[test]
+    fn test_row_bytes_count_value_buckets_name_and_every_label() {
+        let mut row = build_test_row(&[]);
+        row.metric_name = "rpc.latency".to_string();
+        row.histogram_bounds = vec![1.0, 5.0];
+        row.histogram_counts = vec![1, 2, 3];
+        row.resource_attributes = HashMap::from([("host".to_string(), "web-1".to_string())]);
+        row.attributes = HashMap::from([("route".to_string(), "/api".to_string())]);
+
+        assert_eq!(
+            compute_kafka_metric_row_bytes(&row),
+            8 + 16 + 24 + 11 + 9 + 9
+        );
+
+        // The second row's overridden timestamp adds an unbilled `$originalTimestamp` label.
+        row.instrumentation_scope = "s".repeat(51);
+        assert_eq!(
+            sum_kafka_metric_row_bytes(&[row, build_test_row(&[])]),
+            8 + 16 + 24 + 11 + 9 + 9 + 51 + (8 + "test.metric".len() as u64)
+        );
     }
 
     #[test]
