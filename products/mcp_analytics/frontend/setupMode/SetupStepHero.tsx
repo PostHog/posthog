@@ -10,7 +10,7 @@ export function SetupStepHero({
 }: {
     Hedgehog?: ComponentType<Pick<HoggiePngProps, 'className' | 'loading'>>
     title: ReactNode
-    lead: ReactNode
+    lead?: ReactNode
 }): JSX.Element {
     return (
         <div className="flex items-center gap-4">
@@ -21,7 +21,7 @@ export function SetupStepHero({
             ) : null}
             <div className="flex min-w-0 flex-col gap-1">
                 <h2 className="m-0 text-2xl font-semibold">{title}</h2>
-                <p className="m-0 text-sm text-secondary">{lead}</p>
+                {lead ? <p className="m-0 text-sm text-secondary">{lead}</p> : null}
             </div>
         </div>
     )

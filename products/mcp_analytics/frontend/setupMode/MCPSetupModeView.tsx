@@ -6,13 +6,7 @@ import { cn } from 'lib/utils/css-classes'
 import type { MCPActivityRecentCallApi } from '../generated/api.schemas'
 import { SetupConnectStep } from './SetupConnectStep'
 import { SetupFirstCallStep } from './SetupFirstCallStep'
-import {
-    MCP_SETUP_STEPS,
-    type MCPConnectState,
-    type MCPSetupExitReason,
-    type MCPSetupPath,
-    type MCPSetupStep,
-} from './setupMode'
+import { MCP_SETUP_STEPS, type MCPConnectState, type MCPSetupExitReason, type MCPSetupStep } from './setupMode'
 import { SetupUsefulStep } from './SetupUsefulStep'
 
 const COPY = {
@@ -30,10 +24,6 @@ export interface MCPSetupModeViewProps {
     connectState: MCPConnectState
     recentCalls: MCPActivityRecentCallApi[] | null
     recentCallsFailed: boolean
-    /** The button that opened setup mode. Its command or prompt is the first next step. */
-    setupPath: MCPSetupPath
-    agentPrompt: string | null
-    wizardCommand: string | null
     onExit: (reason: MCPSetupExitReason) => void
     onAskPostHogAI: (prompt: string) => void
     onGoToUseful: () => void
@@ -72,14 +62,7 @@ function StepRail({ current }: { current: MCPSetupStep | null }): JSX.Element {
 
 function StepBody({ step, ...props }: MCPSetupModeViewProps & { step: MCPSetupStep }): JSX.Element {
     if (step === 'connect') {
-        return (
-            <SetupConnectStep
-                connectState={props.connectState}
-                setupPath={props.setupPath}
-                agentPrompt={props.agentPrompt}
-                wizardCommand={props.wizardCommand}
-            />
-        )
+        return <SetupConnectStep connectState={props.connectState} />
     }
     if (step === 'first-call') {
         return (

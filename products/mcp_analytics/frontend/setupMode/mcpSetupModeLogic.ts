@@ -17,7 +17,6 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { SidePanelTab } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
-import { mcpAnalyticsSetupLogic } from '../emptyState/mcpAnalyticsSetupLogic'
 import { mcpAnalyticsSessionsActivityOverview } from '../generated/api'
 import type { MCPActivityRecentCallApi } from '../generated/api.schemas'
 import { mcpAnalyticsOnboardingLogic } from '../mcpAnalyticsOnboardingLogic'
@@ -73,7 +72,6 @@ export interface mcpSetupModeLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     onboardingState: MCPOnboardingState | null // mcpAnalyticsOnboardingLogic
     signals: MCPOnboardingSignals | null // mcpAnalyticsOnboardingLogic
-    agentPrompt: string | null // mcpAnalyticsSetupLogic
     location: {
         pathname: string
         search: string
@@ -186,8 +184,6 @@ export const mcpSetupModeLogic = kea<mcpSetupModeLogicType>([
             ['signals', 'onboardingState'],
             teamLogic,
             ['currentProjectId'],
-            mcpAnalyticsSetupLogic,
-            ['agentPrompt'],
         ],
         actions: [
             productSetupStatusLogic({ productKey: ProductKey.MCP_ANALYTICS }),

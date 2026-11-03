@@ -36,12 +36,8 @@ const FAILED_CALL: MCPActivityRecentCallApi = {
 const BASE: MCPSetupModeViewProps = {
     step: 'connect',
     connectState: { kind: 'waiting' },
-    setupPath: 'agent',
-    wizardCommand: 'npx -y @posthog/wizard@latest mcp-analytics --region us --project-id 997',
     recentCalls: null,
     recentCallsFailed: false,
-    agentPrompt:
-        'Install PostHog MCP analytics in the MCP server in this repository. Target PostHog project 997 at https://us.posthog.com.',
     onExit: () => {},
     onAskPostHogAI: () => {},
     onGoToUseful: () => {},
@@ -85,11 +81,6 @@ type Story = StoryObj<typeof MCPSetupModeView>
 
 export const Connect: Story = {
     parameters: { testOptions: { viewportWidths: ['narrow', 'medium'], waitForLoadersToDisappear: false } },
-}
-
-export const ConnectFromWizard: Story = {
-    args: { setupPath: 'wizard' },
-    parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
 
 export const Connected: Story = {
@@ -138,8 +129,13 @@ const SETUP_SCREEN = productEmptyStateStory(mcpAnalyticsEmptyState, 'needs-setup
     },
 })
 
-// The setup screen with setup mode on: the wizard command and the agent prompt as two routes, and the demo card.
+// The setup screen with setup mode on: both install routes in one card, and the how-it-works sidebar above the
+// demo card. At medium width the stacked sidebar is wide enough for its three-column layout.
 export const SetupScreen: StoryObj<typeof ProductEmptyState> = {
     ...SETUP_SCREEN,
-    parameters: { ...SETUP_SCREEN.parameters, featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_SETUP_MODE] },
+    parameters: {
+        ...SETUP_SCREEN.parameters,
+        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_SETUP_MODE],
+        testOptions: { ...SETUP_SCREEN.parameters?.testOptions, viewportWidths: ['narrow', 'medium', 'wide'] },
+    },
 }
