@@ -43,21 +43,28 @@ export class ConversionWatchersService {
     // the connection string drops watchers via the failure counter rather than throwing, so processes
     // that never run workflows are unaffected.
     constructor(databaseUrl: string | undefined, maxConnections?: number) {
+        // Built on first use, not in the constructor. Every CDP service set constructs this service, but
+        // only the ones that actually run workflows ever write a row — an eager pool would have every
+        // consumer, and every test that builds a service set, holding cyclotron connections it never uses.
         this.pool = new LazyPool(databaseUrl, maxConnections, (err) => {
+            // pg throws an uncaught exception if an idle client errors with no listener attached, which
+            // would take down the process for something this sink is allowed to drop.
             logger.error('⚠️', 'Conversion watcher pool error', { err })
         })
     }
 
-    // Idempotent, because several shutdown paths reach this one service: the base consumer teardown,
-    // CdpRerunWorkerConsumer's own stop(), and CdpApi.stop(). A consumer stopped twice must not fail
-    // its own shutdown.
+    // Idempotent: pg rejects a second end() with "Called end on pool more than once", and several
+    // shutdown paths reach this one service — the base consumer teardown, CdpRerunWorkerConsumer's
+    // own stop(), and CdpApi.stop(). A consumer stopped twice must not fail its own shutdown.
     public async stop(): Promise<void> {
-        // The pool closes to new opens first, so a flush that has not started yet gets no pool and
-        // drops its rows through the failure counter, rather than opening a connection this method is
-        // about to close. A flush that is already running holds a pool reference and awaits a query.
-        // Ending the pool under it would fail the work it has not finished, so wait for every one of
-        // them. Each operation reports its own failure, and shutdown must not re-raise that.
-        await this.pool.end(() => Promise.all([...this.inFlight].map((operation) => operation.catch(() => {}))))
+        // Set first so a flush that has not started yet gets no pool and drops its rows through the
+        // failure counter, rather than opening a connection this method is about to close.
+        await this.pool.end(() =>
+            // A flush that is already running holds a pool reference and awaits a query. Ending the pool
+            // under it would fail the work it has not finished, so wait for every one of them. Each
+            // operation reports its own failure, and shutdown must not re-raise that.
+            Promise.all([...this.inFlight].map((operation) => operation.catch(() => {})))
+        )
     }
 
     public queueInvocationResults(results: CyclotronJobInvocationResult[]): void {
