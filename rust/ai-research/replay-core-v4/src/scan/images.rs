@@ -214,7 +214,7 @@ fn continues_past(bytes: &[u8], end: usize) -> bool {
             Some(&byte) => {
                 // Wrapped base64 breaks at a line break, so a descriptor counts only after plain spaces.
                 return position > end
-                    && is_base64(byte)
+                    && (is_base64(byte) || byte == b'%')
                     && (line_break || !is_descriptor(bytes, position));
             }
             None => return false,
@@ -297,15 +297,34 @@ fn wrapped_end(bytes: &[u8], mut end: usize) -> (usize, bool) {
                 _ => break,
             }
         }
-        end += bytes[end..]
-            .iter()
-            .position(|&b| !is_base64(b))
-            .unwrap_or(bytes.len() - end);
+        end = base64_run_end(bytes, end);
         if end == before {
             return (end, false);
         }
     }
     (end, readable)
+}
+
+/// A browser percent-decodes a data URI before it decodes base64, so a run of base64 takes `%` escapes too.
+fn base64_run_end(bytes: &[u8], from: usize) -> usize {
+    let mut at = from;
+    loop {
+        match bytes.get(at..) {
+            Some([b'%', high, low, ..]) if high.is_ascii_hexdigit() && low.is_ascii_hexdigit() => {
+                at += 3
+            }
+            Some([byte, ..]) if is_base64(*byte) => at += 1,
+            _ => return at,
+        }
+    }
+}
+
+fn percent_decoded_base64(raw: &[u8]) -> Cow<'_, [u8]> {
+    if raw.contains(&b'%') {
+        Cow::Owned(percent_encoding::percent_decode(raw).collect())
+    } else {
+        Cow::Borrowed(raw)
+    }
 }
 
 fn wrapped_payload(bytes: &[u8], start: usize, end: usize) -> Vec<u8> {
@@ -519,10 +538,7 @@ fn read_data_uri(
         };
         return DataUri::Replaced { replacement, end };
     }
-    let run_end = bytes[payload_start..]
-        .iter()
-        .position(|&b| !is_base64(b))
-        .map_or(bytes.len(), |length| payload_start + length);
+    let run_end = base64_run_end(bytes, payload_start);
     let (end, readable) = if continues_past(bytes, run_end) {
         wrapped_end(bytes, run_end)
     } else {
@@ -537,9 +553,13 @@ fn read_data_uri(
     } else if !readable {
         sink.decline(ImageDecline::Undecodable)
     } else if end == run_end {
-        sink.take_base64(&bytes[payload_start..end])
+        sink.take_base64(&percent_decoded_base64(&bytes[payload_start..end]))
     } else {
-        sink.take_base64(&wrapped_payload(bytes, payload_start, end))
+        sink.take_base64(&percent_decoded_base64(&wrapped_payload(
+            bytes,
+            payload_start,
+            end,
+        )))
     };
     DataUri::Replaced { replacement, end }
 }
@@ -809,6 +829,14 @@ mod tests {
             (
                 r#"{"src":""#,
                 format!("data:image/png;base64,{}", base64.trim_end_matches('=')),
+                r#""}"#,
+            ),
+            (
+                r#"{"src":""#,
+                format!(
+                    "data:image/png;base64,%69{}",
+                    base64[1..].replace('/', "%2F").replace('=', "%3D")
+                ),
                 r#""}"#,
             ),
             (r#"{"src":""#, format!("data:image/png,{percent}"), r#""}"#),
