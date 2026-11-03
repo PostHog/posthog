@@ -249,7 +249,8 @@ export function unmaterializeHighlight(payload: WarehouseSuggestionUnmaterialize
 
 export function materializeSavingLines(payload: WarehouseSuggestionMaterializePayloadApi): string[] {
     const highlight = materializeHighlight(payload)
-    return [`${highlight.amount} ${highlight.narrowLabel}`, ...(highlight.tooltip ?? [])]
+    const readTime = payload.read_seconds != null ? `${readTimeLabel(payload.read_seconds)} today` : null
+    return [`${highlight.amount} ${highlight.narrowLabel}`, ...(highlight.tooltip ?? []), readTime].filter(isNotNil)
 }
 
 export function summarySavings(summary: SavingsSummary): SummarySavings | null {
