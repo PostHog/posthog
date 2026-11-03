@@ -1539,7 +1539,7 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
         inputs.table_id,
     )
 
-    async with Heartbeater():
+    async with Heartbeater(), contextlib.AsyncExitStack() as cleanup:
         model = migrate_batch_export_model(inputs.batch_export_model)
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_BIGQUERY_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
@@ -1553,6 +1553,7 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
             max_record_batch_size_bytes=1024 * 1024 * 60,  # 60MB
             stage_folder=inputs.stage_folder,
         )
+        cleanup.push_async_callback(producer.stop)
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:
