@@ -200,10 +200,9 @@ const SQL_BINDINGS: DisplayOptionBindings<SqlDisplayContext> = {
         onChange: (showLegend, c) => c.updateChartSettings({ showLegend }),
     },
     legendPosition: {
-        showCondition: (c) => !c.isMetric,
+        showCondition: (c) => !c.isMetric && c.showLegend,
         value: (c) => c.chartSettings.legendPosition ?? (c.isProportionBar ? 'bottom' : c.isPieChart ? 'right' : 'top'),
         onChange: (legendPosition, c) => c.updateChartSettings({ legendPosition }),
-        disabledReason: (c) => (c.showLegend ? undefined : 'Turn the legend on to set its position'),
     },
     excludeOutliers: {
         showCondition: (c) => c.isBoxPlot,
