@@ -1,0 +1,26 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "integration_id": {
+            "description": "ID of the Slack integration (kind='slack') whose bot reads and replies in the thread.",
+            "type": "number"
+        },
+        "item_id": {
+            "description": "ID of the resource the discussion is attached to.",
+            "maxLength": 72,
+            "type": "string"
+        },
+        "scope": {
+            "description": "Resource type the discussion is attached to (e.g. Ticket).",
+            "maxLength": 79,
+            "type": "string"
+        },
+        "url": {
+            "description": "Link to any message in the Slack thread, from Copy link in Slack, e.g. https://acme.slack.com/archives/C0123ABCDEF/p1767225636123456.",
+            "maxLength": 2048,
+            "type": "string"
+        }
+    },
+    "required": ["scope", "item_id", "integration_id", "url"],
+    "type": "object"
+}

@@ -530,6 +530,42 @@ const commentsCreate = (): ToolBase<ReturnType<typeof CommentsCreateSchema>, Sch
     },
 })
 
+const CommentsLinkSlackThreadSchema = () => {
+    const CommentsLinkSlackThreadCreateBody = orvalSchemas.CommentsLinkSlackThreadCreateBody()
+    return CommentsLinkSlackThreadCreateBody.extend({
+        url: CommentsLinkSlackThreadCreateBody.shape['url'].describe(
+            'Link to any message in the Slack thread, from Copy link in Slack, e.g. https://acme.slack.com/archives/C0123ABCDEF/p1767225636123456.'
+        ),
+    })
+}
+
+const commentsLinkSlackThread = (): ToolBase<ReturnType<typeof CommentsLinkSlackThreadSchema>, Schemas.Comment> => ({
+    name: 'comments-link-slack-thread',
+    schema: CommentsLinkSlackThreadSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CommentsLinkSlackThreadSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.scope !== undefined) {
+            body['scope'] = params.scope
+        }
+        if (params.item_id !== undefined) {
+            body['item_id'] = params.item_id
+        }
+        if (params.integration_id !== undefined) {
+            body['integration_id'] = params.integration_id
+        }
+        if (params.url !== undefined) {
+            body['url'] = params.url
+        }
+        const result = await context.api.request<Schemas.Comment>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/comments/link_slack_thread/`,
+            body,
+        })
+        return result
+    },
+})
+
 const CommentsListSchema = () => {
     const CommentsListQueryParams = orvalSchemas.CommentsListQueryParams()
     return CommentsListQueryParams
@@ -554,6 +590,28 @@ const commentsList = (): ToolBase<ReturnType<typeof CommentsListSchema>, Schemas
                 source_comment: params.source_comment,
                 task_id: params.task_id,
             },
+        })
+        return result
+    },
+})
+
+const CommentsUnlinkSlackThreadSchema = () => {
+    const CommentsUnlinkSlackThreadCreateParams = orvalSchemas.CommentsUnlinkSlackThreadCreateParams()
+    return CommentsUnlinkSlackThreadCreateParams.omit({ project_id: true }).extend({
+        id: CommentsUnlinkSlackThreadCreateParams.shape['id'].describe(
+            'ID of the opening comment of a discussion linked from a Slack thread.'
+        ),
+    })
+}
+
+const commentsUnlinkSlackThread = (): ToolBase<ReturnType<typeof CommentsUnlinkSlackThreadSchema>, unknown> => ({
+    name: 'comments-unlink-slack-thread',
+    schema: CommentsUnlinkSlackThreadSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CommentsUnlinkSlackThreadSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/comments/${encodeURIComponent(String(params.id))}/unlink_slack_thread/`,
         })
         return result
     },
@@ -930,7 +988,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'comment-get': commentGet,
     'comment-thread': commentThread,
     'comments-create': commentsCreate,
+    'comments-link-slack-thread': commentsLinkSlackThread,
     'comments-list': commentsList,
+    'comments-unlink-slack-thread': commentsUnlinkSlackThread,
     'org-member-get-github-login': orgMemberGetGithubLogin,
     'org-members-list': orgMembersList,
     'organization-enforce-2fa-prepare': organizationEnforce2faPrepare,

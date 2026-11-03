@@ -3267,6 +3267,22 @@
             "readOnlyHint": false
         }
     },
+    "comments-link-slack-thread": {
+        "description": "Start a discussion from a Slack thread that already exists, for a conversation that began in Slack. Pass a link to any message in the thread (Copy link in Slack), the resource as scope and item_id, and integration_id from integrations-list (filter kind=slack). For a support ticket use scope `Ticket` and the ticket's id (not its ticket_number) as item_id; this needs the ticket:write scope. The thread's first message opens the discussion and its earlier replies import in the background, tracked in the opening comment's item_context.slack_import_state. Replies then sync both ways. The PostHog bot posts a notice in the thread, so confirm the thread and the resource with the user first, and do not link when no user can confirm. Linking refuses shared channels, direct messages, a support ticket's own thread, a thread that already syncs, and users who are not full members of the Slack workspace. Do not retry a refusal with the same link. Undo a wrong link with comments-unlink-slack-thread.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Link a Slack thread as a discussion",
+        "title": "Link a Slack thread as a discussion",
+        "required_scopes": ["comment:write"],
+        "api_operations": ["POST /api/projects/{project_id}/comments/link_slack_thread/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "discussions-slack-sync"
+    },
     "comments-list": {
         "description": "List comments across the project. Filter by scope (Dashboard, FeatureFlag, Insight, etc.) and item_id to find discussions on specific resources. Returns comment content, author, and threading info.",
         "category": "Platform Features",
@@ -3281,6 +3297,22 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "comments-unlink-slack-thread": {
+        "description": "Undo comments-link-slack-thread. Stops the Slack sync and deletes the discussion it created in PostHog, the opening comment and every reply. The thread stays in Slack and can be linked again, for example to the right ticket. Pass the id of the discussion's opening comment: in comments-list it has source_comment null, item_context.from_slack true and a slack_thread. A discussion written in PostHog and sent to Slack cannot be unlinked. For a support ticket discussion this needs the ticket:write scope. Confirm with the user first, because the comments are removed.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Unlink a Slack thread from a discussion",
+        "title": "Unlink a Slack thread from a discussion",
+        "required_scopes": ["comment:write"],
+        "api_operations": ["POST /api/projects/{project_id}/comments/{id}/unlink_slack_thread/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "discussions-slack-sync"
     },
     "context-wiki-channel-resolve": {
         "description": "Resolve a channel id to its repo-relative page path in the organization context wiki. Use the returned path with context-wiki-page-retrieve and context-wiki-page-update. Do not derive a path from the channel name.",

@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "ID of the opening comment of a discussion linked from a Slack thread.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

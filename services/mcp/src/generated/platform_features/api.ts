@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 23 enabled ops
+ * PostHog API - MCP 25 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -508,11 +508,60 @@ export const CommentsThreadRetrieveParams = () => zod.object({
         ),
 })
 
+/**
+ * Undo link_slack_thread on a discussion's opening comment: stop syncing the Slack thread and remove the discussion it created, opening comment and replies. The thread stays in Slack and can be linked again. 400 for a discussion that wasn't linked from an existing thread. 404 when the feature is not enabled for the team.
+ */
+export const CommentsUnlinkSlackThreadCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this comment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
 export const CommentsCountRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Start a discussion from a Slack thread that already exists. The thread's first message becomes the discussion's opening comment, and its replies are imported shortly after. From then on, replies on either side sync across, as for a discussion sent with send_to_slack. A Slack thread can back only one discussion, so linking a thread that already syncs is a 400. 404 when the feature is not enabled for the team.
+ */
+export const CommentsLinkSlackThreadCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const commentsLinkSlackThreadCreateBodyScopeMax = 79
+
+export const commentsLinkSlackThreadCreateBodyItemIdMax = 72
+
+export const commentsLinkSlackThreadCreateBodyUrlMax = 2048
+
+export const CommentsLinkSlackThreadCreateBody = () => zod.object({
+    scope: zod
+        .string()
+        .max(commentsLinkSlackThreadCreateBodyScopeMax)
+        .describe('Resource type the discussion is attached to (e.g. Ticket).'),
+    item_id: zod
+        .string()
+        .max(commentsLinkSlackThreadCreateBodyItemIdMax)
+        .describe('ID of the resource the discussion is attached to.'),
+    integration_id: zod
+        .number()
+        .describe("ID of the Slack integration (kind='slack') whose bot reads and replies in the thread."),
+    url: zod
+        .string()
+        .max(commentsLinkSlackThreadCreateBodyUrlMax)
+        .describe(
+            "Slack message link (Copy link in Slack) to the thread's first message or any reply in it. The bot must be a member of the channel."
         ),
 })
 
