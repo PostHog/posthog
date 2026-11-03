@@ -567,7 +567,10 @@ tools:
         title: Create evaluation
         description: >
             Create an evaluation. 'llm_judge': set evaluation_config.prompt and model_configuration with provider and
-            model; provider_key_id may be null when no key is pinned. 'hog': evaluation_config.source (Hog returning a
+            model; provider_key_id may be null when no key is pinned. An llm_judge only runs on one of the team's own AI
+            provider keys, and keys can't be added through MCP. Before proposing a judge, check llma-evaluation-config-get
+            and llma-provider-key-list for an ok-state key. With no usable key, prefer a 'hog' or 'sentiment' evaluation
+            when one can catch the failure, and tell the user a judge needs a key added in Settings > AI observability. 'hog': evaluation_config.source (Hog returning a
             boolean, a finite number, or category keys). For 'hog' and 'llm_judge', choose output_type='boolean',
             'numeric', or 'categorical'; numeric output_config accepts min, max, step, allows_na, and passing_rule;
             categorical output_config accepts options, selection_mode, allows_na, and passing_rule. 'sentiment':

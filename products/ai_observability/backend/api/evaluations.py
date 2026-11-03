@@ -821,7 +821,10 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         config's active-key fallback, is already handled by `_validate_can_run`; this covers what
         is left: a null config resolves via the team's active key, and anything else must add a
         provider key of its own."""
-        add_key_message = "Add a provider API key to enable this evaluation."
+        add_key_message = (
+            "LLM judges need an AI provider API key, and this project has none. A project admin can add one in "
+            "Settings > AI observability > Bring your own key (BYOK). Code and sentiment evaluations run without a key."
+        )
         team = self.context["get_team"]()
         config = EvaluationConfig.objects.filter(team=team).first()
 

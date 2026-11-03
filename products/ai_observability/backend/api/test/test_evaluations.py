@@ -2189,7 +2189,7 @@ class TestEnableBlockingWhenKeyRequired(APIBaseTest):
         response = self._enable(eval_obj)
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Add a provider API key", str(response.data))
+        self.assertIn("LLM judges need an AI provider API key", str(response.data))
         eval_obj.refresh_from_db()
         self.assertFalse(eval_obj.enabled)
 
@@ -2249,7 +2249,7 @@ class TestEnableBlockingWhenKeyRequired(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Add a provider API key", str(response.data))
+        self.assertIn("LLM judges need an AI provider API key", str(response.data))
         self.assertEqual(Evaluation.objects.filter(name="Doomed Eval").count(), 0)
 
     def test_allows_enabling_hog_eval_without_key(self):
