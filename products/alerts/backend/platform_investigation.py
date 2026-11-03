@@ -23,6 +23,7 @@ from posthog.temporal.alerts.investigation import (
 )
 
 from products.alerts.backend.investigation_episode import STARTED_INVESTIGATION_STATUSES
+from products.alerts.backend.investigation_release import earlier_in_episode, last_verdict
 from products.alerts.backend.models.alert import AlertConfiguration, InvestigationStatus
 from products.alerts.backend.models.investigation import InsightAlertInvestigation
 
@@ -53,18 +54,10 @@ def decide_investigation(
     """
     if not investigates(alert, firing=firing):
         return InvestigationDecision()
-    # Newest first, so the first verdict is the last one reached. One read, because a firing holds
-    # a few rows. Its own row exists when a retry repeats a decision its claim already wrote.
-    earlier = list(
-        InsightAlertInvestigation.objects.for_team(alert.team_id)
-        .filter(configuration_id=configuration_id, episode_started_at=episode_started_at)
-        .exclude(evaluation_key=evaluation_key)
-        .order_by("-created_at")
-        .values_list("status", "verdict")
-    )
+    earlier = earlier_in_episode(alert.team_id, configuration_id, episode_started_at, evaluation_key)
     return decide_within_budget(
         started=sum(status in STARTED_INVESTIGATION_STATUSES for status, _ in earlier),
-        previous_verdict=next((verdict for _, verdict in earlier if verdict is not None), None),
+        previous_verdict=last_verdict(earlier),
     )
 
 

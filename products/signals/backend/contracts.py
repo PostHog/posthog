@@ -462,7 +462,6 @@ class ReplayVisionScannerFindingSignalInput(SignalInputBase):
 class AnalyticsAnomalyInvestigationSignalExtra(SignalExtraBase):
     alert_id: str
     alert_name: str
-    alert_check_id: str
     insight_id: str
     detector_type: str
     verdict: Literal["true_positive", "false_positive", "inconclusive"]
@@ -471,6 +470,9 @@ class AnalyticsAnomalyInvestigationSignalExtra(SignalExtraBase):
     insight_short_id: str | None = None
     triggered_dates: list[str] | None = None
     notebook_short_id: str | None = None
+    alert_check_id: str | None = None
+    investigation_id: str | None = None
+    evaluation_key: str | None = None
 
 
 class AnalyticsAnomalyInvestigationSignalInput(SignalInputBase):
