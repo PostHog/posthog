@@ -22,7 +22,7 @@ import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { isSandboxEmailSender } from 'lib/integrations/utils'
+import { isSandboxEmailSender } from 'lib/integrations/sandboxEmailSender'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { objectsEqual } from 'lib/utils/objects'

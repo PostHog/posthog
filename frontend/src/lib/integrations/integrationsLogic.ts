@@ -47,7 +47,8 @@ import { ChannelType } from 'products/workflows/frontend/Channels/MessageChannel
 
 import type { AvailableSetupTaskIdsEnumApi } from '../../generated/core/api.schemas'
 import type { PreflightStatus, UserBasicType } from '../../types'
-import { ICONS, getIntegrationNameFromKind, isSandboxEmailSender } from './utils'
+import { isSandboxEmailSender } from './sandboxEmailSender'
+import { ICONS, getIntegrationNameFromKind } from './utils'
 
 const INTEGRATIONS_POLL_INTERVAL_MS = 30_000
 
