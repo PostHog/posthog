@@ -11,6 +11,7 @@ import * as envUtils from '~/common/utils/env-utils'
 import { SodiumRecordingDecryptor, SodiumRecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
+import { SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
 
 import { ClickHouseCredential } from './clickhouse-credential'
 import { RecordingService } from './recording-service'
@@ -367,6 +368,38 @@ describe('RecordingService', () => {
                     end_timestamp: '2024-01-01 00:00:59.000000',
                 },
             ])
+        })
+    })
+
+    describe('getDeletion', () => {
+        const key = (sessionState: 'ciphertext' | 'cleartext' | 'deleted'): SessionKey => ({
+            plaintextKey: Buffer.alloc(0),
+            encryptedKey: Buffer.alloc(0),
+            sessionState,
+        })
+
+        it('reports a shredded key with who deleted it and when', async () => {
+            mockKeyStore.getKey.mockResolvedValue({
+                ...key('deleted'),
+                deletedAt: 1700000000,
+                deletedBy: 'user@example.com',
+            })
+
+            expect(await service.getDeletion('sess-1', 1)).toEqual({
+                ok: false,
+                error: 'deleted',
+                deletedAt: 1700000000,
+                deletedBy: 'user@example.com',
+            })
+        })
+
+        it.each([
+            ['an encrypted', 'ciphertext' as const],
+            ['a pre-encryption', 'cleartext' as const],
+        ])('reports nothing for %s recording', async (_, sessionState) => {
+            mockKeyStore.getKey.mockResolvedValue(key(sessionState))
+
+            expect(await service.getDeletion('sess-1', 1)).toBeNull()
         })
     })
 
